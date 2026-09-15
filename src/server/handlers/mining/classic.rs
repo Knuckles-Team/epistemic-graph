@@ -6,6 +6,12 @@ use eg_compute::mining::{
     subgraph::{self, HostGraph},
     text,
 };
+use eg_types::compute_result::mining::{
+    DocTerms, ForecastMiningResult, GspanMiningResult, MotifCountsRow, MotifMiningResult,
+    PatternEdge, SequenceMiningResult, SequentialPatternRow, SubgraphMiningResult,
+    SubgraphPatternRow, TermWeight, TextMiningResult, TopicTerms,
+};
+use eg_types::result_contract::compute as results;
 
 // ─────────────────────────── Sequential-pattern mining ───────────────────────────
 
@@ -35,25 +41,23 @@ pub(in crate::server::handlers) fn handle_sequence(
         materialize_sequence_claims(core, &patterns, sequence_provenance(&source));
     }
 
-    let rows: Vec<serde_json::Value> = patterns
+    let rows: Vec<SequentialPatternRow> = patterns
         .iter()
-        .map(|p| {
-            serde_json::json!({
-                "items": p.items,
-                "support": p.support,
-                "count": p.count,
-            })
+        .map(|p| SequentialPatternRow {
+            items: p.items.clone(),
+            support: p.support,
+            count: p.count,
         })
         .collect();
 
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({
-            "patterns": rows,
-            "n_sequences": seqs.len(),
-            "n_patterns": patterns.len(),
-            "written_back": written,
-        })),
+        ResultPayload::of::<results::MineSequence>(SequenceMiningResult {
+            patterns: rows,
+            n_sequences: seqs.len(),
+            n_patterns: patterns.len(),
+            written_back: written,
+        }),
     )
 }
 
@@ -225,21 +229,23 @@ pub(in crate::server::handlers) fn handle_forecast(
         );
     }
 
-    let mut payload = serde_json::json!({
-        "forecast": out.values,
-        "lower": out.lower,
-        "upper": out.upper,
-        "algorithm": forecast_algo_name(algorithm),
-        "horizon": horizon,
-        "n_obs": values.len(),
-        "written_back": written,
-    });
-    if matches!(algorithm, ForecastAlgorithm::Stl) {
-        payload["trend"] = serde_json::json!(out.trend);
-        payload["seasonal"] = serde_json::json!(out.seasonal);
-        payload["residual"] = serde_json::json!(out.residual);
-    }
-    Response::ok(req_id, ResultPayload::Json(payload))
+    // The STL decomposition components are published only for the STL algorithm.
+    let stl = matches!(algorithm, ForecastAlgorithm::Stl);
+    Response::ok(
+        req_id,
+        ResultPayload::of::<results::MineForecast>(ForecastMiningResult {
+            forecast: out.values,
+            lower: out.lower,
+            upper: out.upper,
+            algorithm: forecast_algo_name(algorithm).to_string(),
+            horizon,
+            n_obs: values.len(),
+            written_back: written,
+            trend: stl.then_some(out.trend),
+            seasonal: stl.then_some(out.seasonal),
+            residual: stl.then_some(out.residual),
+        }),
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -360,13 +366,14 @@ pub(in crate::server::handlers) fn handle_text(
     if tokenized.is_empty() {
         return Response::ok(
             req_id,
-            ResultPayload::Json(serde_json::json!({
-                "doc_terms": [],
-                "topics": [],
-                "doc_topics": [],
-                "n_docs": 0,
-                "written_back": 0,
-            })),
+            ResultPayload::of::<results::MineText>(TextMiningResult {
+                doc_terms: Vec::new(),
+                topics: Vec::new(),
+                doc_topics: Vec::new(),
+                algorithm: Some(text_algo_name(algorithm).to_string()),
+                n_docs: 0,
+                written_back: 0,
+            }),
         );
     }
     let algo = to_text_algo(algorithm, k, alpha, beta, iterations, seed);
@@ -382,44 +389,48 @@ pub(in crate::server::handlers) fn handle_text(
         materialize_topic_claims(core, &out, text_algo_name(algorithm));
     }
 
-    let doc_terms_json: Vec<serde_json::Value> = out
+    let doc_terms: Vec<DocTerms> = out
         .doc_terms
         .iter()
         .enumerate()
-        .map(|(i, terms)| {
-            let id = ids.get(i).cloned().unwrap_or_else(|| i.to_string());
-            let term_rows: Vec<serde_json::Value> = terms
-                .iter()
-                .map(|(t, w)| serde_json::json!({ "term": t, "weight": w }))
-                .collect();
-            serde_json::json!({ "doc_id": id, "terms": term_rows })
+        .map(|(i, terms)| DocTerms {
+            doc_id: ids.get(i).cloned().unwrap_or_else(|| i.to_string()),
+            terms: term_weights(terms),
         })
         .collect();
 
-    let topics_json: Vec<serde_json::Value> = out
+    let topics: Vec<TopicTerms> = out
         .topics
         .iter()
         .enumerate()
-        .map(|(i, terms)| {
-            let term_rows: Vec<serde_json::Value> = terms
-                .iter()
-                .map(|(t, w)| serde_json::json!({ "term": t, "weight": w }))
-                .collect();
-            serde_json::json!({ "topic_id": i, "terms": term_rows })
+        .map(|(topic_id, terms)| TopicTerms {
+            topic_id,
+            terms: term_weights(terms),
         })
         .collect();
 
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({
-            "doc_terms": doc_terms_json,
-            "topics": topics_json,
-            "doc_topics": out.doc_topics,
-            "algorithm": text_algo_name(algorithm),
-            "n_docs": tokenized.len(),
-            "written_back": written,
-        })),
+        ResultPayload::of::<results::MineText>(TextMiningResult {
+            doc_terms,
+            topics,
+            doc_topics: out.doc_topics,
+            algorithm: Some(text_algo_name(algorithm).to_string()),
+            n_docs: tokenized.len(),
+            written_back: written,
+        }),
     )
+}
+
+/// A document's or topic's `(term, weight)` pairs as wire rows.
+fn term_weights(terms: &[(String, f64)]) -> Vec<TermWeight> {
+    terms
+        .iter()
+        .map(|(term, weight)| TermWeight {
+            term: term.clone(),
+            weight: *weight,
+        })
+        .collect()
 }
 
 pub(super) fn to_text_algo(
@@ -583,49 +594,54 @@ pub(in crate::server::handlers) fn handle_subgraph(
             if writeback.enabled && writeback.as_claim {
                 materialize_subgraph_claims(core, &results, subgraph_provenance(&label));
             }
-            let patterns: Vec<serde_json::Value> = results
+            let patterns: Vec<SubgraphPatternRow> = results
                 .iter()
-                .map(|r| {
-                    let edges: Vec<serde_json::Value> = r
+                .map(|r| SubgraphPatternRow {
+                    nodes: r.pattern.node_labels.clone(),
+                    edges: r
                         .pattern
                         .edges
                         .iter()
-                        .map(|(a, b, lbl)| serde_json::json!({ "from": a, "to": b, "label": lbl }))
-                        .collect();
-                    serde_json::json!({
-                        "nodes": r.pattern.node_labels,
-                        "edges": edges,
-                        "support": r.support,
-                        "count": r.count,
-                    })
+                        .map(|(from, to, label)| PatternEdge {
+                            from: *from,
+                            to: *to,
+                            label: label.clone(),
+                        })
+                        .collect(),
+                    support: r.support,
+                    count: r.count,
                 })
                 .collect();
             Response::ok(
                 req_id,
-                ResultPayload::Json(serde_json::json!({
-                    "patterns": patterns,
-                    "algorithm": subgraph_algo_name(SubgraphAlgorithm::Gspan),
-                    "n_host_nodes": n_host_nodes,
-                    "n_host_edges": n_host_edges,
-                    "written_back": written,
-                })),
+                ResultPayload::of::<results::MineSubgraph>(SubgraphMiningResult::Gspan(
+                    GspanMiningResult {
+                        patterns,
+                        algorithm: subgraph_algo_name(SubgraphAlgorithm::Gspan).to_string(),
+                        n_host_nodes,
+                        n_host_edges,
+                        written_back: written,
+                    },
+                )),
             )
         }
         SubgraphAlgorithm::Motif => {
             let motifs = subgraph::count_motifs(&host);
             Response::ok(
                 req_id,
-                ResultPayload::Json(serde_json::json!({
-                    "motifs": {
-                        "wedge": motifs.wedge,
-                        "triangle": motifs.triangle,
-                        "directed_cycle3": motifs.directed_cycle3,
+                ResultPayload::of::<results::MineSubgraph>(SubgraphMiningResult::Motif(
+                    MotifMiningResult {
+                        motifs: MotifCountsRow {
+                            wedge: motifs.wedge,
+                            triangle: motifs.triangle,
+                            directed_cycle3: motifs.directed_cycle3,
+                        },
+                        algorithm: subgraph_algo_name(SubgraphAlgorithm::Motif).to_string(),
+                        n_host_nodes,
+                        n_host_edges,
+                        written_back: 0,
                     },
-                    "algorithm": subgraph_algo_name(SubgraphAlgorithm::Motif),
-                    "n_host_nodes": n_host_nodes,
-                    "n_host_edges": n_host_edges,
-                    "written_back": 0,
-                })),
+                )),
             )
         }
     }

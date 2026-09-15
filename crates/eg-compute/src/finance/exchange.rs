@@ -4,20 +4,11 @@
 // and pairs trading signal computation. Complements the existing
 // simulate_order_matching in algorithms.rs.
 
-use serde::{Deserialize, Serialize};
-
 /// A single order in the book. Defined in `eg-types::wire` (the `protocol`
 /// enum embeds it); re-exported here so the matching code below is unchanged.
 pub use crate::wire::Order;
 
-/// Fill result from order matching.
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Fill {
-    pub order_id: String,
-    pub fill_price: f64,
-    pub fill_quantity: f64,
-    pub side: String,
-}
+pub use eg_types::compute_result::finance::Fill;
 
 /// TWAP execution schedule — split a large order into N equal time slices.
 pub fn twap_schedule(
@@ -142,91 +133,97 @@ pub fn pairs_trading_signal(prices_a: &[f64], prices_b: &[f64], lookback: usize)
 }
 
 /// Simple limit order book matching engine.
-pub fn match_orders(orders: &[Order]) -> Vec<Fill> {
-    let mut bids: Vec<Order> = Vec::new(); // sorted descending by price
-    let mut asks: Vec<Order> = Vec::new(); // sorted ascending by price
-    let mut fills: Vec<Fill> = Vec::new();
+fn match_buy(order: &Order, asks: &mut Vec<Order>, bids: &mut Vec<Order>, fills: &mut Vec<Fill>) {
+    let mut remaining = order.quantity;
+    let mut matched_asks = Vec::new();
+    for (idx, ask) in asks.iter().enumerate() {
+        if remaining <= 0.0 || order.price < ask.price {
+            break;
+        }
+        let fill_qty = remaining.min(ask.quantity);
+        fills.push(Fill {
+            order_id: order.id.clone(),
+            fill_price: ask.price,
+            fill_quantity: fill_qty,
+            side: "buy".to_string(),
+        });
+        remaining -= fill_qty;
+        if (ask.quantity - fill_qty).abs() < 1e-12 {
+            matched_asks.push(idx);
+        }
+    }
+    remove_matched_orders(asks, matched_asks);
+    add_bid_remainder(order, remaining, bids);
+}
 
+fn match_sell(order: &Order, bids: &mut Vec<Order>, asks: &mut Vec<Order>, fills: &mut Vec<Fill>) {
+    let mut remaining = order.quantity;
+    let mut matched_bids = Vec::new();
+    for (idx, bid) in bids.iter().enumerate() {
+        if remaining <= 0.0 || order.price > bid.price {
+            break;
+        }
+        let fill_qty = remaining.min(bid.quantity);
+        fills.push(Fill {
+            order_id: order.id.clone(),
+            fill_price: bid.price,
+            fill_quantity: fill_qty,
+            side: "sell".to_string(),
+        });
+        remaining -= fill_qty;
+        if (bid.quantity - fill_qty).abs() < 1e-12 {
+            matched_bids.push(idx);
+        }
+    }
+    remove_matched_orders(bids, matched_bids);
+    add_ask_remainder(order, remaining, asks);
+}
+
+fn remove_matched_orders(book: &mut Vec<Order>, matched: Vec<usize>) {
+    for idx in matched.into_iter().rev() {
+        book.remove(idx);
+    }
+}
+
+fn add_bid_remainder(order: &Order, remaining: f64, bids: &mut Vec<Order>) {
+    if remaining <= 1e-12 {
+        return;
+    }
+    let mut new_order = order.clone();
+    new_order.quantity = remaining;
+    bids.push(new_order);
+    bids.sort_by(|a, b| {
+        b.price
+            .partial_cmp(&a.price)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+}
+
+fn add_ask_remainder(order: &Order, remaining: f64, asks: &mut Vec<Order>) {
+    if remaining <= 1e-12 {
+        return;
+    }
+    let mut new_order = order.clone();
+    new_order.quantity = remaining;
+    asks.push(new_order);
+    asks.sort_by(|a, b| {
+        a.price
+            .partial_cmp(&b.price)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+}
+
+pub fn match_orders(orders: &[Order]) -> Vec<Fill> {
+    let mut bids: Vec<Order> = Vec::new();
+    let mut asks: Vec<Order> = Vec::new();
+    let mut fills: Vec<Fill> = Vec::new();
     for order in orders {
         match order.side.as_str() {
-            "buy" => {
-                // Try to match against asks
-                let mut remaining = order.quantity;
-                let mut matched_asks = Vec::new();
-
-                for (idx, ask) in asks.iter().enumerate() {
-                    if remaining <= 0.0 || order.price < ask.price {
-                        break;
-                    }
-                    let fill_qty = remaining.min(ask.quantity);
-                    fills.push(Fill {
-                        order_id: order.id.clone(),
-                        fill_price: ask.price,
-                        fill_quantity: fill_qty,
-                        side: "buy".to_string(),
-                    });
-                    remaining -= fill_qty;
-                    if (ask.quantity - fill_qty).abs() < 1e-12 {
-                        matched_asks.push(idx);
-                    }
-                }
-
-                // Remove fully matched asks (in reverse to preserve indices)
-                for idx in matched_asks.into_iter().rev() {
-                    asks.remove(idx);
-                }
-
-                if remaining > 1e-12 {
-                    let mut new_order = order.clone();
-                    new_order.quantity = remaining;
-                    bids.push(new_order);
-                    bids.sort_by(|a, b| {
-                        b.price
-                            .partial_cmp(&a.price)
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    });
-                }
-            }
-            "sell" => {
-                let mut remaining = order.quantity;
-                let mut matched_bids = Vec::new();
-
-                for (idx, bid) in bids.iter().enumerate() {
-                    if remaining <= 0.0 || order.price > bid.price {
-                        break;
-                    }
-                    let fill_qty = remaining.min(bid.quantity);
-                    fills.push(Fill {
-                        order_id: order.id.clone(),
-                        fill_price: bid.price,
-                        fill_quantity: fill_qty,
-                        side: "sell".to_string(),
-                    });
-                    remaining -= fill_qty;
-                    if (bid.quantity - fill_qty).abs() < 1e-12 {
-                        matched_bids.push(idx);
-                    }
-                }
-
-                for idx in matched_bids.into_iter().rev() {
-                    bids.remove(idx);
-                }
-
-                if remaining > 1e-12 {
-                    let mut new_order = order.clone();
-                    new_order.quantity = remaining;
-                    asks.push(new_order);
-                    asks.sort_by(|a, b| {
-                        a.price
-                            .partial_cmp(&b.price)
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    });
-                }
-            }
+            "buy" => match_buy(order, &mut asks, &mut bids, &mut fills),
+            "sell" => match_sell(order, &mut bids, &mut asks, &mut fills),
             _ => {}
         }
     }
-
     fills
 }
 

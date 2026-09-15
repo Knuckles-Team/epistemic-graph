@@ -26,11 +26,21 @@ import zipfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-try:
+if TYPE_CHECKING:
+    # mypy resolves this file itself by its bare name (scripts/ has no
+    # __init__.py, so a direct `mypy scripts` run names every sibling module
+    # bare) -- pin the type-checked import to the SAME bare name so this
+    # module is never simultaneously "configure_rust_path_remap" and
+    # "scripts.configure_rust_path_remap" in one mypy run (the runtime
+    # fallback below is unaffected; TYPE_CHECKING is always False at runtime).
     from configure_rust_path_remap import path_remaps
-except ModuleNotFoundError:  # imported as a package in tests
-    from scripts.configure_rust_path_remap import path_remaps
+else:
+    try:
+        from configure_rust_path_remap import path_remaps
+    except ModuleNotFoundError:  # imported as a package in tests
+        from scripts.configure_rust_path_remap import path_remaps
 
 _BYTE_BOUNDARY = rb"(?=$|[\\/\x00\r\n\t \"'`,;:=)\]}])"
 _WIDE_BOUNDARY = rb"(?=$|(?:[\\/\x00\r\n\t \"'`,;:=)\]}]\x00))"
@@ -103,15 +113,21 @@ def _replacement_rules(
                 candidate_wide = _neutral_text(variant, filler).encode("utf-16le")
                 byte_probe = candidate_bytes + b"/child"
                 wide_probe = candidate_wide + "/child".encode("utf-16le")
-                if any(pattern.search(byte_probe) for pattern in forbidden_byte_patterns):
+                if any(
+                    pattern.search(byte_probe) for pattern in forbidden_byte_patterns
+                ):
                     continue
-                if any(pattern.search(wide_probe) for pattern in forbidden_wide_patterns):
+                if any(
+                    pattern.search(wide_probe) for pattern in forbidden_wide_patterns
+                ):
                     continue
                 byte_alias = candidate_bytes
                 wide_alias = candidate_wide
                 break
             if byte_alias is None or wide_alias is None:
-                raise ValueError("could not derive a collision-free neutral build alias")
+                raise ValueError(
+                    "could not derive a collision-free neutral build alias"
+                )
 
             byte_key = (encoded.lower(), False)
             if byte_key not in seen:

@@ -12,14 +12,11 @@ exist instead of banning legitimate user data named ``type`` repository-wide.
 from __future__ import annotations
 
 import re
-import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
 from rust_module_tree import read_module_tree
+
+ROOT = Path(__file__).resolve().parents[1]
 
 STRUCTURAL_READERS = (
     "crates/eg-core/src/graph.rs",
@@ -91,7 +88,8 @@ def _edge_relationship_failures() -> list[str]:
     knowledge = text(KNOWLEDGE_READER)
     if KNOWLEDGE_TYPE_FALLBACK.search(knowledge):
         failures.append(
-            f"{KNOWLEDGE_READER}: KnowledgeSet kind must read only canonical `node_type`"
+            f"{KNOWLEDGE_READER}: KnowledgeSet kind must read only canonical "
+            f"`node_type`"
         )
     return failures
 
@@ -109,7 +107,8 @@ def _cypher_label_failures() -> list[str]:
         source = text(path).split("#[cfg(test)]", 1)[0]
         if re.search(r'\.get\("(?:type|label)"\)', source):
             failures.append(
-                f"{path}: Cypher structural label readers must use only `node_type`/`labels`"
+                f"{path}: Cypher structural label readers must use only "
+                f"`node_type`/`labels`"
             )
     cypher_exec = text("crates/eg-query/src/cypher/exec.rs")
     for required in (
@@ -135,7 +134,8 @@ def _edge_writer_failures() -> list[str]:
         not in graphql_writer
     ):
         failures.append(
-            "crates/eg-graphql/src/mutation.rs: GraphQL edge writer must stamp `relationship`"
+            "crates/eg-graphql/src/mutation.rs: GraphQL edge writer must stamp "
+            "`relationship`"
         )
     typed_edge = text("crates/eg-types/src/types.rs")
     if (
@@ -144,7 +144,8 @@ def _edge_writer_failures() -> list[str]:
         or "#[serde(deny_unknown_fields)]\npub struct EdgeData" not in typed_edge
     ):
         failures.append(
-            "crates/eg-types/src/types.rs: EdgeData must expose only canonical `relationship`"
+            "crates/eg-types/src/types.rs: EdgeData must expose only canonical "
+            "`relationship`"
         )
     return failures
 
@@ -161,7 +162,8 @@ def _documentation_failures() -> list[str]:
     for required in ("`relationship`", "`node_type`", "`rel_type`"):
         if required not in docs:
             failures.append(
-                f"docs/architecture/canonical-property-schema.md: missing contract term {required}"
+                f"docs/architecture/canonical-property-schema.md: missing contract "
+                f"term {required}"
             )
     return failures
 

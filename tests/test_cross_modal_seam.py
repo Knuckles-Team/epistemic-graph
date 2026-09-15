@@ -1,4 +1,5 @@
-"""Cross-modal SEAM regression — served end-to-end (CONCEPT:EG-KG.compute.cross-modal-seam).
+"""Cross-modal SEAM regression — served end-to-end
+(CONCEPT:EG-KG.compute.cross-modal-seam).
 
 These exercise the write→read cross-modal seams through the REAL served engine (the
 `clean_graph` fixture in conftest.py builds `--features full` and connects a
@@ -41,7 +42,8 @@ def test_sparql_update_then_hybrid_retrieve(clean_graph):
     """A SPARQL-style axiom UPDATE (re-parent Dog from Mammal to Animal) affects BOTH a
     fresh OWL reasoning pass AND a vector/hybrid retrieve over the changed set.
 
-    The wire-native SPARQL UPDATE is the HTTP ``POST /sparql`` (application/sparql-update)
+    The wire-native SPARQL UPDATE is the HTTP ``POST /sparql``
+    (application/sparql-update)
     endpoint; over the socket client the same DELETE/INSERT change set is effected with
     ``rdf.remove_triples`` + ``rdf.add_triples`` (the reusable retract/insert ops the
     UPDATE executor itself calls).
@@ -63,10 +65,7 @@ def test_sparql_update_then_hybrid_retrieve(clean_graph):
 
     # Seed: rex a Dog ; Dog ⊑ Mammal ; give rex an embedding for the vector leg.
     gc.rdf.add_triples(
-        ntriples=(
-            f"{rex} {RDF_TYPE} {dog} .\n"
-            f"{dog} {SUBCLASS} <http://ex/Mammal> .\n"
-        )
+        ntriples=(f"{rex} {RDF_TYPE} {dog} .\n{dog} {SUBCLASS} <http://ex/Mammal> .\n")
     )
     gc.graph.add_embedding("<http://ex/rex>", [1.0, 0.0, 0.0])
 

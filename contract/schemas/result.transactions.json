@@ -1,0 +1,746 @@
+{
+  "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
+  "$defs": {
+    "BatchUpdateReport": {
+      "description": "The per-kind operation counts of one applied `BatchUpdate`.",
+      "properties": {
+        "added_edges": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "added_embeddings": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "added_nodes": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "errors": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "removed_edges": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "removed_nodes": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "upserted_edges": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "upserted_nodes": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "added_nodes",
+        "upserted_nodes",
+        "removed_nodes",
+        "added_edges",
+        "upserted_edges",
+        "removed_edges",
+        "added_embeddings",
+        "errors"
+      ],
+      "type": "object"
+    },
+    "BeliefMaterialization": {
+      "description": "The propagated belief a `TxnMaterializeBelief` stage froze into the transaction.",
+      "properties": {
+        "confidence": {
+          "format": "double",
+          "type": "number"
+        },
+        "node_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "node_id",
+        "confidence"
+      ],
+      "type": "object"
+    },
+    "ChangeCursor": {
+      "properties": {
+        "expected_previous": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CursorPosition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "partition": {
+          "default": "",
+          "type": "string"
+        },
+        "position": {
+          "$ref": "#/$defs/CursorPosition"
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "position"
+      ],
+      "type": "object"
+    },
+    "ChangeEnvelopeApplied": {
+      "description": "A durably committed change envelope.",
+      "properties": {
+        "batch_id": {
+          "type": "string"
+        },
+        "content_version": {
+          "$ref": "#/$defs/ContentVersion"
+        },
+        "cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ChangeCursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "envelope_id": {
+          "type": "string"
+        },
+        "epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "group": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "outbox_count": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "projection_pending": {
+          "description": "The commit is durable but its in-memory projection has not been published.",
+          "type": "boolean"
+        },
+        "replayed": {
+          "type": "boolean"
+        },
+        "replicated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "envelope_id",
+        "batch_id",
+        "content_version",
+        "outbox_count",
+        "replayed",
+        "projection_pending"
+      ],
+      "type": "object"
+    },
+    "ChangeEnvelopeBatch": {
+      "description": "Per-envelope outcomes, in request order.",
+      "properties": {
+        "results": {
+          "items": {
+            "$ref": "#/$defs/ChangeEnvelopeOutcome"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "results"
+      ],
+      "type": "object"
+    },
+    "ChangeEnvelopeConflict": {
+      "description": "An envelope of an `ApplyChangeEnvelopes` batch that did not commit.",
+      "properties": {
+        "envelope_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "type": "object"
+    },
+    "ChangeEnvelopeOutcome": {
+      "description": "One envelope's outcome within an `ApplyChangeEnvelopes` batch, tagged by `status`.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ChangeEnvelopeApplied",
+          "properties": {
+            "status": {
+              "const": "applied",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/ChangeEnvelopeApplied",
+          "properties": {
+            "status": {
+              "const": "idempotent_skip",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/ChangeEnvelopeConflict",
+          "properties": {
+            "status": {
+              "const": "conflict",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "CommitOutcome": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "properties": {
+            "committed": {
+              "type": "boolean"
+            },
+            "replayed": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "committed",
+            "replayed"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "A `Commit` outcome. Without a caller idempotency key the body is the bare\n`committed` boolean; with one it also reports whether this answer replayed an\nearlier commit under the same key."
+    },
+    "ContentVersion": {
+      "properties": {
+        "digest": {
+          "type": "string"
+        },
+        "digest_algorithm": {
+          "type": "string"
+        },
+        "object_id": {
+          "type": "string"
+        },
+        "previous_digest": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_version": {
+          "$ref": "#/$defs/ContentVersionPosition",
+          "description": "Typed source-side version. It is never compared lexically."
+        }
+      },
+      "required": [
+        "object_id",
+        "digest_algorithm",
+        "digest",
+        "source_version"
+      ],
+      "type": "object"
+    },
+    "ContentVersionPosition": {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "sequence",
+              "type": "string"
+            },
+            "value": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "timestamp_millis",
+              "type": "string"
+            },
+            "value": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "opaque",
+              "type": "string"
+            },
+            "value": {
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "version_type": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "version_type",
+                "value"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "CursorPosition": {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "sequence",
+              "type": "string"
+            },
+            "value": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "timestamp_millis",
+              "type": "string"
+            },
+            "value": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Provider-defined cursors are never ordered lexically.",
+          "properties": {
+            "kind": {
+              "const": "opaque",
+              "type": "string"
+            },
+            "value": {
+              "properties": {
+                "cursor_type": {
+                  "description": "Stable provider cursor type (for example `page_token_v2`).",
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "cursor_type",
+                "value"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "MultiGraphBatchReport": {
+      "description": "A partial-success cross-graph batch: every requested graph appears exactly once,\nin `results` (its `BatchUpdate` report) or in `errors`.",
+      "properties": {
+        "errors": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "results": {
+          "additionalProperties": {
+            "$ref": "#/$defs/BatchUpdateReport"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "results",
+        "errors"
+      ],
+      "type": "object"
+    },
+    "SparqlUpdateReport": {
+      "description": "What one SPARQL UPDATE changed, whichever path executed it.\n\n`ApplyMutation` has two executors: the per-graph gateway (one graph, the update\nruns against its staged image) and the coordinated SPARQL-HTTP saga (the\n`sparql_http_update_v1` event, which may create and rewrite several graphs). Both\nanswer with this one body; a per-graph update reports `updated_graphs: 1` and\n`created_graphs: 0`.",
+      "properties": {
+        "created_graphs": {
+          "description": "Graphs this update created.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "deleted": {
+          "description": "Triples deleted.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "inserted": {
+          "description": "Triples inserted.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "operations": {
+          "description": "Update operations applied (one per `;`-separated clause).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "updated_graphs": {
+          "description": "Graphs whose committed image this update replaced.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "operations",
+        "inserted",
+        "deleted",
+        "updated_graphs",
+        "created_graphs"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "methods": {
+    "ApplyChangeEnvelope": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ChangeEnvelopeApplied"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ApplyChangeEnvelopes": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ChangeEnvelopeBatch"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ApplyMultisigMutation": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/SparqlUpdateReport"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BatchUpdate": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/BatchUpdateReport"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BeginTxn": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Commit": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/CommitOutcome"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MultiGraphBatchUpdate": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/MultiGraphBatchReport"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Rollback": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TxnAddEdge": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TxnAddEmbedding": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TxnAddMeasurement": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TxnAddNode": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TxnAxiom": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TxnBlobRef": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TxnCas": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TxnConstruct": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TxnMaterializeBelief": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/BeliefMaterialization"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TxnPlanWriteback": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TxnRemoveEdge": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TxnRemoveNode": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    }
+  },
+  "title": "transactions method results"
+}

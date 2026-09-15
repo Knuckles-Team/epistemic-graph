@@ -59,6 +59,28 @@ pub use tables::{
     TableStore, TableTxn, TxnOp,
 };
 
+#[cfg(feature = "sql")]
+/// Resolve parsed SQL column declarations into the durable table-schema columns
+/// consumed by every SQL transport. Keeping this conversion beside the two
+/// types it joins prevents the embedded, native, and wire paths from drifting.
+pub fn columns_from_defs(cols: &[ColumnDef]) -> Result<Vec<Column>, String> {
+    cols.iter()
+        .map(|column| {
+            let ty = ColumnType::parse(&column.type_name)?;
+            Ok(Column {
+                name: column.name.clone(),
+                ty,
+                nullable: column.nullable,
+                primary_key: column.primary_key,
+                unique: column.unique,
+                serial: column.serial,
+                default: column.default.clone(),
+                check: column.check.clone(),
+            })
+        })
+        .collect()
+}
+
 #[cfg(feature = "cypher")]
 pub mod cypher;
 

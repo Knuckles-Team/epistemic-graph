@@ -119,7 +119,10 @@ pub(crate) async fn try_handle(
                 .iter()
                 .map(|id| read_authority.node_visible(&core, id))
                 .collect();
-            return Response::ok(req_id, ResultPayload::raw(&out));
+            return Response::ok(
+                req_id,
+                ResultPayload::of_ref::<eg_types::result_contract::graph::HasNodesBatch>(&out),
+            );
         }
         _ => {}
     }

@@ -1,17 +1,21 @@
-"""numpy-parity CI gate for the compiled ``eg-numeric`` kernel (CONCEPT:AU-KG.compute.is-installed-kernel-discovery).
+"""numpy-parity CI gate for the compiled ``eg-numeric`` kernel
+(CONCEPT:AU-KG.compute.is-installed-kernel-discovery).
 
 Unlike the agent-utilities corpus (``tests/test_numeric_parity.py``, KG-2.312) which
 exercises the ``xp`` *shim* (kernel OR numpy fallback), this test is **engine-side and
 self-contained**: it imports the compiled Surface-A extension DIRECTLY and asserts every
-kernel op equals its numpy reference (``np.allclose``), including the mandatory edge cases
+kernel op equals its numpy reference (``np.allclose``), including the mandatory edge
+cases
 (nan/inf, singular matrix, empty). It is the gate that FAILS CI if the Rust kernel ever
-diverges from numpy — so the ``xp`` shim can be made kernel-LIVE (CONCEPT:AU-KG.compute.shim-goes-kernel-live) with a
+diverges from numpy — so the ``xp`` shim can be made kernel-LIVE
+(CONCEPT:AU-KG.compute.shim-goes-kernel-live) with a
 standing correctness guarantee, not just the numpy fallback.
 
 Run against the freshly-built, folded wheel — there is NO separately published/installed
 ``eg-numeric`` package (CONCEPT:EG-346, see ``scripts/inject_numeric_kernel.py``)::
 
-    maturin build --release -m crates/eg-numeric/Cargo.toml --features python --out numdist
+    maturin build --release -m crates/eg-numeric/Cargo.toml --features python \
+        --out numdist
     maturin build --release --features "$MATURIN_FEATURES" --out dist
     python scripts/inject_numeric_kernel.py dist/epistemic_graph-*.whl numdist/*.whl
     pip install dist/epistemic_graph-*.whl
@@ -55,7 +59,8 @@ if _m is not None and getattr(_m, "__kernel__", None) == "eg-numeric":
 
 pytestmark = pytest.mark.skipif(
     _kernel_module is None,
-    reason="eg-numeric kernel wheel not installed (build with maturin --features python)",
+    reason="eg-numeric kernel wheel not installed (build with maturin --features "
+    "python)",
 )
 
 

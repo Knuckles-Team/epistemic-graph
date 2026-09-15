@@ -40,7 +40,7 @@ def service():
     """Start a service process for the test module."""
     tmpdir = tempfile.mkdtemp()
     socket_path = os.path.join(tmpdir, "test.sock")
-    secret = "test-secret-key"
+    secret = "test-secret-key"  # sanitizer:ignore
     # `persist_dir` MUST be passed through to `strict_server_env` explicitly.
     # This module launches its OWN dedicated server, independent of the shared
     # session engine in conftest.py -- but that session fixture's `os.environ.

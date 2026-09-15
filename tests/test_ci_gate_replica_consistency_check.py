@@ -45,11 +45,19 @@ SCRIPT_PATH = REPO_ROOT / "scripts" / "ci_gate_replica.py"
 pytestmark = pytest.mark.no_engine
 
 
-def _load_module():
+def _module_spec():
     spec = importlib.util.spec_from_file_location("ci_gate_replica", SCRIPT_PATH)
+    assert spec is not None and spec.loader is not None, (
+        f"could not build an import spec for {SCRIPT_PATH}"
+    )
+    return spec
+
+
+def _load_module():
+    spec = _module_spec()
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
-    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    spec.loader.exec_module(module)
     return module
 
 
@@ -91,7 +99,8 @@ def test_unregistered_workflow_file_fails_consistency_check(tmp_path):
     for fname in m.WORKFLOW_REGISTRY:
         shutil.copy(m.WORKFLOWS_DIR / fname, workflows_dir / fname)
     (workflows_dir / "newly-added.yml").write_text(
-        "name: New\non:\n  push: {}\njobs:\n  x:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n"
+        "name: New\non:\n  push: {}\njobs:\n  x:\n    runs-on: ubuntu-latest\n    "
+        "steps:\n      - run: echo hi\n"
     )
     ok = m.consistency_check(verbose=False, workflows_dir=workflows_dir)
     assert ok is False
@@ -132,9 +141,54 @@ def test_gates_job_run_steps_include_the_numeric_kernel_parity_chain():
         )
 
 
+def test_gates_job_runs_real_prerequisite_backed_vacuity_sweep_tests():
+    """The two suites that once returned early must stay runnable and blocking.
+
+    The local CI replica parses the workflow itself, so this also proves neither
+    setup nor test step disappears behind an unclassified action or condition.
+    """
+    m = _load_module()
+    doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
+    steps = doc["jobs"]["gates"]["steps"]
+    names = [step.get("name") for step in steps]
+    required = (
+        "Provision pinned sqlite3 CLI (differential sqlite tests)",
+        "Test (SQLite format differential conformance)",
+        "Test (facade full)",
+        "Provision pinned Whisper real-model fixture",
+        "Test (Whisper real-model transcription and cancellation)",
+    )
+    assert all(name in names for name in required)
+    assert (
+        names.index(required[0]) < names.index(required[1]) < names.index(required[2])
+    )
+    assert names.index(required[3]) < names.index(required[4])
+    selected = [step for step in steps if step.get("name") in required]
+    assert all(
+        "if" not in step and "continue-on-error" not in step for step in selected
+    )
+
+    plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["release.yml"], doc)
+    rows = {row["name"]: row for row in plan if row["job"] == "gates"}
+    assert rows[required[0]]["mode"] == "RUN"
+    assert rows[required[1]]["mode"] == "RUN"
+    assert rows[required[2]]["mode"] == "RUN"
+    assert rows[required[3]]["mode"] == "RUN"
+    assert rows[required[4]]["mode"] == "RUN"
+    assert all(rows[name]["blocking"] is True for name in required)
+    assert rows[required[1]]["detail"] == (
+        "cargo test --locked -p eg-sqlite-format --test differential --no-fail-fast"
+    )
+    assert rows[required[4]]["detail"] == (
+        "cargo test --locked -p eg-asr-whisper --test real_transcription --no-fail-fast"
+    )
+
+
 CAPABILITY_GATE_NAME = "Test (canonical capability policy and generated ledger)"
+# `contract` = `canonical-ledger` + `contract-schema`: it also compiles and runs
+# `tests/contract_generated.rs`, which requires both, so it is the complete profile.
 CAPABILITY_GATE_COMMAND = (
-    "cargo test -p eg-capabilities --features canonical-ledger --no-fail-fast"
+    "cargo test --locked -p eg-capabilities --features contract --no-fail-fast"
 )
 
 
@@ -202,7 +256,7 @@ def test_capability_gate_contract_rejects_a_single_selected_target(selected_targ
     doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
     _set_capability_gate_command(
         doc,
-        f"cargo test -p eg-capabilities --features canonical-ledger "
+        f"cargo test --locked -p eg-capabilities --features contract "
         f"--test {selected_target} --no-fail-fast",
     )
     with pytest.raises(AssertionError):

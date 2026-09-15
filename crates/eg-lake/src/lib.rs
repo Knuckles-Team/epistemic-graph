@@ -123,6 +123,10 @@ pub struct LakeTable {
     /// external Iceberg reader sees the FULL schema-evolution history, not just
     /// whatever shape the table happens to be today.
     schema_versions: Vec<(i32, LakeSchema)>,
+    /// Metadata generations actually emitted by this table instance. This is kept
+    /// separately from file LSNs so current metadata never advertises a historical
+    /// manifest list that no caller wrote.
+    iceberg_history: Vec<iceberg::IcebergCommit>,
 }
 
 impl LakeTable {
@@ -146,6 +150,7 @@ impl LakeTable {
             table_id,
             schema_id: 0,
             schema_versions,
+            iceberg_history: Default::default(),
         }
     }
 
@@ -212,14 +217,16 @@ impl LakeTable {
     /// Render the Iceberg `metadata.json` (+ manifest stub) for the current snapshot
     /// (CONCEPT:EG-KG.storage.lsn-as-snapshot-returns).
     pub fn iceberg(&self, timestamp_ms: i64) -> IcebergTable {
-        iceberg::build_iceberg(
-            &self.schema_versions,
-            self.schema_id,
-            &self.snapshot,
-            &self.table_id,
-            &self.location,
+        iceberg::build_iceberg_as_of_with_history(iceberg::IcebergBuildContext {
+            schema_versions: &self.schema_versions,
+            current_schema_id: self.schema_id,
+            snapshot: &self.snapshot,
+            lsn: self.snapshot.current_lsn(),
+            table_uuid: &self.table_id,
+            location: &self.location,
             timestamp_ms,
-        )
+            history: &self.iceberg_history,
+        })
     }
 
     /// Render the Iceberg `metadata.json` (+ manifest stub) for the file set live as of
@@ -228,15 +235,16 @@ impl LakeTable {
     /// concrete [`Lsn`] and gets back a reproducible historical snapshot, the same
     /// shape [`Self::iceberg`] returns for "now".
     pub fn iceberg_as_of(&self, lsn: Lsn, timestamp_ms: i64) -> IcebergTable {
-        iceberg::build_iceberg_as_of(
-            &self.schema_versions,
-            self.schema_id,
-            &self.snapshot,
+        iceberg::build_iceberg_as_of_with_history(iceberg::IcebergBuildContext {
+            schema_versions: &self.schema_versions,
+            current_schema_id: self.schema_id,
+            snapshot: &self.snapshot,
             lsn,
-            &self.table_id,
-            &self.location,
+            table_uuid: &self.table_id,
+            location: &self.location,
             timestamp_ms,
-        )
+            history: &self.iceberg_history,
+        })
     }
 
     /// BUG-224's closure: the query-time `Op::AsOf` → `Lsn` seam, given a caller-supplied
@@ -329,5 +337,41 @@ impl LakeTable {
             Some(column_stats),
         );
         Ok((path, bytes))
+    }
+}
+
+/// Whether `table` had an actually emitted Iceberg generation at or before `lsn`.
+/// Live catalogs use this to represent pre-creation history as absent instead of
+/// returning metadata at a virtual path that was never published.
+pub fn has_iceberg_snapshot_as_of(table: &LakeTable, lsn: Lsn) -> bool {
+    table.iceberg_history.iter().any(|commit| commit.lsn <= lsn)
+}
+
+/// Record a private candidate's current Iceberg generation before rendering its
+/// metadata. The caller must publish that candidate only after its data, Delta,
+/// manifest, manifest-list, and metadata artifacts are all durable; failed
+/// candidates are discarded, so live history never advertises a dangling list.
+pub fn record_iceberg_commit(table: &mut LakeTable, timestamp_ms: i64) {
+    let lsn = table.snapshot.current_lsn();
+    if lsn == Lsn::ZERO
+        || !table
+            .snapshot
+            .all_files()
+            .iter()
+            .any(|file| file.added_at == lsn)
+    {
+        return;
+    }
+    let commit = iceberg::IcebergCommit {
+        lsn,
+        timestamp_ms,
+        schema_id: table.schema_id,
+    };
+    if table
+        .iceberg_history
+        .iter()
+        .all(|existing| existing.lsn != commit.lsn)
+    {
+        table.iceberg_history.push(commit);
     }
 }

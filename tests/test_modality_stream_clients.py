@@ -5,8 +5,13 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from _untyped import untyped
 
-from epistemic_graph.client import KnowledgeStreamClient, ServedModalityClient
+from epistemic_graph.client import (
+    EpistemicGraphClient,
+    KnowledgeStreamClient,
+    ServedModalityClient,
+)
 
 # Fake-client unit tests only -- never needs the shared native engine (see
 # conftest.py's session-scoped `start_epistemic_graph_server` fixture,
@@ -50,11 +55,18 @@ def _bundle() -> dict[str, Any]:
     }
 
 
-class _FakeClient:
+class _FakeClient(EpistemicGraphClient):
     def __init__(self) -> None:
         self.sent: list[tuple[str, dict[str, Any]]] = []
 
-    async def _send(self, method: str, params: dict[str, Any] | None = None) -> Any:
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
         assert params is not None
         self.sent.append((method, params))
         if method == "KnowledgeStream":
@@ -134,7 +146,7 @@ class _FakeClient:
 @pytest.mark.asyncio
 async def test_knowledge_stream_uses_one_current_arrow_pull_shape() -> None:
     fake = _FakeClient()
-    knowledge = KnowledgeStreamClient(fake)  # type: ignore[arg-type]
+    knowledge = KnowledgeStreamClient(fake)
 
     first = await knowledge.pull(
         {"family": "graph", "label": "Capability", "limit": 20},
@@ -168,15 +180,17 @@ async def test_knowledge_stream_uses_one_current_arrow_pull_shape() -> None:
 @pytest.mark.asyncio
 async def test_knowledge_stream_rejects_retired_and_mismatched_shapes() -> None:
     fake = _FakeClient()
-    knowledge = KnowledgeStreamClient(fake)  # type: ignore[arg-type]
+    knowledge = KnowledgeStreamClient(fake)
 
     with pytest.raises(ValueError, match="unsupported fields"):
         await knowledge.pull(
-            {
-                "family": "cross_modal",
-                "text": "MATCH (n) |> LIMIT 1",
-                "reorder_filter_selectivity": 0.5,
-            },  # type: ignore[arg-type]
+            untyped(
+                {
+                    "family": "cross_modal",
+                    "text": "MATCH (n) |> LIMIT 1",
+                    "reorder_filter_selectivity": 0.5,
+                }
+            ),
             batch_size=4,
         )
 
@@ -184,14 +198,14 @@ async def test_knowledge_stream_rejects_retired_and_mismatched_shapes() -> None:
         await knowledge.pull(
             {"family": "graph", "label": "", "limit": 0},
             batch_size=3,
-            cursor=_cursor(batch_size=2),  # type: ignore[arg-type]
+            cursor=untyped(_cursor(batch_size=2)),
         )
 
 
 @pytest.mark.asyncio
 async def test_served_modality_methods_emit_exact_current_operations() -> None:
     fake = _FakeClient()
-    modalities = ServedModalityClient(fake)  # type: ignore[arg-type]
+    modalities = ServedModalityClient(fake)
     occurrence = _ref("occurrence", "d")
     idempotency = _ref("idempotency", "e")
 
@@ -257,9 +271,11 @@ async def test_served_modality_methods_emit_exact_current_operations() -> None:
 
 
 @pytest.mark.asyncio
-async def test_served_modality_rejects_noncurrent_or_drifted_data() -> None:
+async def test_served_modality_rejects_noncurrent_or_drifted_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     fake = _FakeClient()
-    modalities = ServedModalityClient(fake)  # type: ignore[arg-type]
+    modalities = ServedModalityClient(fake)
 
     with pytest.raises(ValueError, match="current served segment"):
         await modalities.query("document", segment_kind="text_span")
@@ -268,14 +284,22 @@ async def test_served_modality_rejects_noncurrent_or_drifted_data() -> None:
 
     original_send = fake._send
 
-    async def drifted_send(method: str, params: dict[str, Any] | None = None) -> Any:
-        result = await original_send(method, params)
+    async def drifted_send(
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
+        result = await original_send(
+            method, params, graph, idempotency_key=idempotency_key
+        )
         if params is not None and params["op"]["operation"] == "query":
             bundle = result["records"][0]["bundle"]
             bundle["evidence_spans"] = bundle.pop("evidence_loci")
         return result
 
-    fake._send = drifted_send  # type: ignore[method-assign]
+    monkeypatch.setattr(fake, "_send", drifted_send)
     with pytest.raises(ValueError, match="evidence_loci"):
         await modalities.query("document")
 
@@ -283,15 +307,13 @@ async def test_served_modality_rejects_noncurrent_or_drifted_data() -> None:
 @pytest.mark.asyncio
 async def test_served_native_queries_emit_closed_typed_predicates() -> None:
     fake = _FakeClient()
-    modalities = ServedModalityClient(fake)  # type: ignore[arg-type]
+    modalities = ServedModalityClient(fake)
 
     await modalities.search_documents("evidence", page=2)
     await modalities.query_image_region(x=0.1, y=0.2, width=0.3, height=0.4)
     await modalities.query_similar_images(0x1234, maximum_distance=7)
     await modalities.query_audio_window(start_ms=100, end_ms=900, minimum_rms=0.25)
-    await modalities.query_video_window(
-        start_ms=0, end_ms=1_000, keyframes_only=True
-    )
+    await modalities.query_video_window(start_ms=0, end_ms=1_000, keyframes_only=True)
 
     predicates = [params["op"]["predicate"] for _, params in fake.sent]
     assert predicates == [
@@ -327,7 +349,7 @@ async def test_served_native_queries_emit_closed_typed_predicates() -> None:
 @pytest.mark.asyncio
 async def test_served_native_query_bounds_fail_before_transport() -> None:
     fake = _FakeClient()
-    modalities = ServedModalityClient(fake)  # type: ignore[arg-type]
+    modalities = ServedModalityClient(fake)
 
     with pytest.raises(ValueError, match="alphanumeric"):
         await modalities.search_documents("two terms")
@@ -341,6 +363,8 @@ async def test_served_native_query_bounds_fail_before_transport() -> None:
         await modalities.query_video_window(start_ms=0, end_ms=4_096_001)
     with pytest.raises(TypeError, match="boolean"):
         await modalities.query_video_window(
-            start_ms=0, end_ms=10, keyframes_only=1  # type: ignore[arg-type]
+            start_ms=0,
+            end_ms=10,
+            keyframes_only=untyped(1),
         )
     assert fake.sent == []

@@ -34,3 +34,8 @@ viz = []
 name = "kernels_bench"
 path = "benches/kernels_bench.rs"
 harness = false
+
+# Test-only opt-in cfg (not a feature, so `--all-features` never turns it on). See the
+# crate's device/CPU-feature parity tests for when to pass `--cfg eg_avx2_tests`.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(eg_avx2_tests)"] }

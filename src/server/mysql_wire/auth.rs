@@ -157,7 +157,7 @@ mod tests {
     fn native_password_roundtrip_verifies() {
         // A client scrambles the derived password against the server's seed; the server
         // validates against the stored SHA1(SHA1(password)) digest.
-        let secret = "s3cret";
+        let secret = "s3cret"; // sanitizer:ignore
         let user = "agent:planner";
         let password = derive_mysql_password(secret, user);
         let seed: Vec<u8> = (1u8..=20).collect();

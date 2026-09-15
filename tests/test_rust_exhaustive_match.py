@@ -1,11 +1,11 @@
 """The terms of acceptance for the cyclomatic cap, exercised on known shapes.
 
 Every case here is a shape the rule must get right, not a sample of what the
-tree happens to contain today. The two real-tree cases at the end are the pair
-that a previous, line-window-based attempt at this measurement classified
-WRONG: `finance.rs::try_handle` carries its catch-all arm 616 lines after its
-signature, so any scanner with a fixed look-ahead reports it as exhaustive and
-exempts 68 arms of ordinary debt.
+tree happens to contain today. A synthetic long dispatcher preserves the
+regression for the old 400-line scan window. The two real-tree cases at the end
+keep both sides of the rule connected to current dispatchers:
+`streaming.rs::try_handle` ends in a catch-all and must not be exempt, while
+`wire/mod.rs::dispatch_kind` is exhaustive and may be exempt.
 """
 
 from __future__ import annotations
@@ -191,6 +191,24 @@ def test_an_arm_count_above_the_measured_cyclomatic_is_never_exempt():
     )
 
 
+def test_a_trailing_catch_all_beyond_400_lines_is_not_exempt():
+    """Brace matching must reach a catch-all beyond the old scan window."""
+    module = _module()
+    padding = "".join(f"        // spacer {index}\n" for index in range(450))
+    source = f"""fn dispatch(kind: Kind) -> u8 {{
+    match kind {{
+        Kind::A => 1,
+{padding}        other => 0,
+    }}
+}}
+"""
+    assert source[: source.index("other =>")].count("\n") > 400
+    assert module.dispatch_shape(source, 1) == (2, 1)
+    assert not module.exhaustive_dispatch_exempt(
+        source, 1, CAP_CYCLOMATIC + 1, 1, CAP_CYCLOMATIC, CAP_COGNITIVE
+    )
+
+
 def _function_line(path: Path, name: str) -> int:
     text = path.read_text(encoding="utf-8")
     match = re.search(
@@ -204,21 +222,22 @@ def _function_line(path: Path, name: str) -> int:
 
 
 def test_real_tree_dispatcher_with_a_trailing_catch_all_is_not_exempt():
-    """`finance.rs::try_handle`: cyclomatic 69, cognitive 4, catch-all at the end.
+    """`streaming.rs::try_handle`: cyclomatic 12, cognitive 3, trailing catch-all.
 
-    This is the case a 400-line scan window classified wrong. Its
-    `other => return Err(other)` sits ~616 lines below its signature, so only
-    brace-matching the whole body finds it.
+    The ten match arms leave a residual cyclomatic complexity of two, so this
+    function would qualify for the exhaustive-dispatch exemption if the final
+    `other => Err(other)` arm were missed.
     """
     module = _module()
-    path = ROOT / "src" / "server" / "handlers" / "finance.rs"
+    path = ROOT / "src" / "server" / "handlers" / "streaming.rs"
     line = _function_line(path, "try_handle")
     source = path.read_text(encoding="utf-8")
 
     shape = module.dispatch_shape(source, line)
-    assert shape is not None and shape.catch_alls >= 1
+    assert shape == (10, 1)
+    assert 12 - shape.arms == 2
     assert not module.exhaustive_dispatch_exempt(
-        source, line, 69, 4, CAP_CYCLOMATIC, CAP_COGNITIVE
+        source, line, 12, 3, CAP_CYCLOMATIC, CAP_COGNITIVE
     )
 
 

@@ -750,6 +750,16 @@ mod tests {
         }
     }
 
+    fn current_snapshot(metadata: &Value) -> &Value {
+        let current_id = &metadata["current-snapshot-id"];
+        metadata["snapshots"]
+            .as_array()
+            .expect("Iceberg snapshots array")
+            .iter()
+            .find(|snapshot| &snapshot["snapshot-id"] == current_id)
+            .expect("current-snapshot-id references an emitted snapshot")
+    }
+
     /// Every existing (pre-W03) unit test call site of `handle()` runs with no
     /// live carrier — the exact behavior `serve()` (non-security) had before this
     /// lane; kept as a helper so those tests read unchanged.
@@ -867,19 +877,13 @@ mod tests {
             "as_of must pin the requested committed LSN, not silently serve current"
         );
 
-        let (status, body) = handle(
+        let (status, _) = handle(
             &mgr,
             &store,
             &req("GET", &format!("{current_path}?as_of=0")),
             Some(&reader),
         );
-        assert_eq!(status, "200 OK");
-        let empty: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(empty["metadata"]["current-snapshot-id"], 0);
-        assert_eq!(
-            empty["metadata"]["snapshots"][0]["summary"]["total-data-files"], "0",
-            "zero is the explicit valid empty-history boundary"
-        );
+        assert_eq!(status, "404 Not Found");
 
         let (status, body) = handle(&mgr, &store, &req("GET", current_path), Some(&reader));
         assert_eq!(status, "200 OK");
@@ -1013,7 +1017,7 @@ mod tests {
         assert_eq!(status, "200 OK");
         let v: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(
-            v["metadata"]["snapshots"][0]["summary"]["total-data-files"],
+            current_snapshot(&v["metadata"])["summary"]["total-data-files"],
             "1"
         );
 

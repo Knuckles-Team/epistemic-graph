@@ -20,7 +20,7 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph.client import GraphOperationsClient
+from epistemic_graph.client import EpistemicGraphClient, GraphOperationsClient
 
 # Fake-client unit tests only -- never needs the shared native engine (see
 # conftest.py's session-scoped `start_epistemic_graph_server` fixture, which
@@ -28,12 +28,19 @@ from epistemic_graph.client import GraphOperationsClient
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeClient:
+class _FakeClient(EpistemicGraphClient):
     def __init__(self, ret: Any = None) -> None:
         self.sent: list[tuple[str, dict[str, Any] | None]] = []
         self._ret = ret
 
-    async def _send(self, method: str, params: dict[str, Any] | None = None) -> Any:
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
         self.sent.append((method, params))
         return self._ret
 
@@ -50,7 +57,7 @@ async def test_refresh_sends_label_resolution_and_seed() -> None:
             "cached": True,
         }
     )
-    gc = GraphOperationsClient(fake)  # type: ignore[arg-type]
+    gc = GraphOperationsClient(fake)
     out = await gc.cluster_hierarchy_refresh(label="Doc", resolution=1.2, seed=7)
     assert fake.sent == [
         (
@@ -65,7 +72,7 @@ async def test_refresh_sends_label_resolution_and_seed() -> None:
 @pytest.mark.asyncio
 async def test_refresh_defaults_no_label_resolution_one_seed_zero() -> None:
     fake = _FakeClient(ret={})
-    gc = GraphOperationsClient(fake)  # type: ignore[arg-type]
+    gc = GraphOperationsClient(fake)
     await gc.cluster_hierarchy_refresh()
     assert fake.sent == [
         ("ClusterHierarchyRefresh", {"label": None, "resolution": 1.0, "seed": 0})
@@ -77,11 +84,13 @@ async def test_clusters_sends_level_and_optional_parent() -> None:
     fake = _FakeClient(
         ret={
             "level": 2,
-            "clusters": [{"id": "L2-0", "label": "x", "node_count": 10, "edge_count": 20.0}],
+            "clusters": [
+                {"id": "L2-0", "label": "x", "node_count": 10, "edge_count": 20.0}
+            ],
             "inter_cluster_edges": [],
         }
     )
-    gc = GraphOperationsClient(fake)  # type: ignore[arg-type]
+    gc = GraphOperationsClient(fake)
     out = await gc.cluster_hierarchy_clusters(level=2)
     assert fake.sent == [
         ("ClusterHierarchyClusters", {"level": 2, "parent_cluster_id": None})
@@ -93,7 +102,7 @@ async def test_clusters_sends_level_and_optional_parent() -> None:
 @pytest.mark.asyncio
 async def test_clusters_with_parent_scopes_to_that_parents_children() -> None:
     fake = _FakeClient(ret={"level": 1, "clusters": [], "inter_cluster_edges": []})
-    gc = GraphOperationsClient(fake)  # type: ignore[arg-type]
+    gc = GraphOperationsClient(fake)
     await gc.cluster_hierarchy_clusters(level=1, parent_cluster_id="L2-3")
     assert fake.sent == [
         ("ClusterHierarchyClusters", {"level": 1, "parent_cluster_id": "L2-3"})
@@ -102,10 +111,8 @@ async def test_clusters_with_parent_scopes_to_that_parents_children() -> None:
 
 @pytest.mark.asyncio
 async def test_expand_sends_cluster_id() -> None:
-    fake = _FakeClient(
-        ret={"nodes": [{"id": "n1"}], "edges": [], "child_clusters": []}
-    )
-    gc = GraphOperationsClient(fake)  # type: ignore[arg-type]
+    fake = _FakeClient(ret={"nodes": [{"id": "n1"}], "edges": [], "child_clusters": []})
+    gc = GraphOperationsClient(fake)
     out = await gc.cluster_hierarchy_expand("L1-0")
     assert fake.sent == [("ClusterHierarchyExpand", {"cluster_id": "L1-0"})]
     assert out["nodes"][0]["id"] == "n1"

@@ -33,7 +33,15 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, TypedDict
+
+if TYPE_CHECKING:
+    from _git_subprocess_env import sanitized_git_env
+else:
+    try:
+        from _git_subprocess_env import sanitized_git_env
+    except ModuleNotFoundError:  # imported as ``scripts.push_gate_evidence``
+        from scripts._git_subprocess_env import sanitized_git_env
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "epistemic-graph.push-gate-evidence/v1"
@@ -111,6 +119,8 @@ ENVIRONMENT_KEYS = frozenset(
         "EG_CONSTRAINED_TIMEOUT",
     }
 )
+
+
 class EvidenceError(RuntimeError):
     """An evidence object cannot be trusted for cache reuse."""
 
@@ -132,11 +142,23 @@ def _digest(value: object) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
 
 
-def _git(arguments: Sequence[str]) -> bytes:
+def _sanitized_git_environment(
+    environment: Mapping[str, str] | None,
+) -> dict[str, str]:
+    base = None if environment is None else dict(environment)
+    return sanitized_git_env(base=base)
+
+
+def _git(
+    arguments: Sequence[str],
+    *,
+    environment: Mapping[str, str] | None = None,
+) -> bytes:
     try:
         result = subprocess.run(
             ["git", *arguments],
             cwd=ROOT,
+            env=_sanitized_git_environment(environment),
             check=True,
             capture_output=True,
             timeout=120,
@@ -150,6 +172,7 @@ def _git_digest(
     arguments: Sequence[str],
     *,
     maximum: int = MAX_UNTRACKED_TOTAL_BYTES,
+    environment: Mapping[str, str] | None = None,
 ) -> str:
     """Hash Git output without allowing a large dirty diff to exhaust RAM."""
 
@@ -157,6 +180,7 @@ def _git_digest(
         process = subprocess.Popen(
             ["git", *arguments],
             cwd=ROOT,
+            env=_sanitized_git_environment(environment),
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
         )
@@ -202,8 +226,13 @@ def _regular_bytes(path: Path, *, maximum: int = MAX_UNTRACKED_FILE_BYTES) -> by
         raise EvidenceError("evidence input is unavailable") from exc
 
 
-def _untracked_digest() -> str:
-    names = _git(["ls-files", "--others", "--exclude-standard", "-z"])
+def _untracked_digest(
+    environment: Mapping[str, str] | None = None,
+) -> str:
+    names = _git(
+        ["ls-files", "--others", "--exclude-standard", "-z"],
+        environment=environment,
+    )
     digest = hashlib.sha256()
     total = 0
     for raw_name in names.split(b"\0"):
@@ -257,9 +286,7 @@ def environment_digest(environment: Mapping[str, str] | None = None) -> str:
     # those variables configure the replica, but do not by themselves alter a
     # consumer hook's Cargo process.
     values.setdefault("CARGO_TARGET_DIR", "target")
-    values.setdefault(
-        "CARGO_BUILD_JOBS", str(max(1, min(4, os.cpu_count() or 1)))
-    )
+    values.setdefault("CARGO_BUILD_JOBS", str(max(1, min(4, os.cpu_count() or 1))))
     selected = []
     for key in sorted(ENVIRONMENT_KEYS):
         if key in values:
@@ -314,19 +341,35 @@ def source_fingerprint(environment: Mapping[str, str] | None = None) -> dict[str
     process starts.  Those command-specific values remain exact cache keys.
     """
 
-    revision = _git(["rev-parse", "HEAD"]).decode("ascii", errors="strict").strip()
-    tree = _git(["rev-parse", "HEAD^{tree}"]).decode("ascii", errors="strict").strip()
+    revision = (
+        _git(["rev-parse", "HEAD"], environment=environment)
+        .decode("ascii", errors="strict")
+        .strip()
+    )
+    tree = (
+        _git(["rev-parse", "HEAD^{tree}"], environment=environment)
+        .decode("ascii", errors="strict")
+        .strip()
+    )
     dirty = {
-        "workingTree": _git_digest(["diff", "--no-ext-diff", "--binary", "HEAD"]),
-        "index": _git_digest(["diff", "--no-ext-diff", "--binary", "--cached"]),
-        "untracked": _untracked_digest(),
+        "workingTree": _git_digest(
+            ["diff", "--no-ext-diff", "--binary", "HEAD"],
+            environment=environment,
+        ),
+        "index": _git_digest(
+            ["diff", "--no-ext-diff", "--binary", "--cached"],
+            environment=environment,
+        ),
+        "untracked": _untracked_digest(environment),
     }
     lockfile = ROOT / "Cargo.lock"
     return {
         "revision": revision,
         "tree": tree,
         "dirtyDiff": _digest(dirty),
-        "lockfile": _digest(_regular_bytes(lockfile)) if lockfile.exists() else "missing",
+        "lockfile": _digest(_regular_bytes(lockfile))
+        if lockfile.exists()
+        else "missing",
         "toolchain": _toolchain_digest(),
         "sourceTree": _digest({"revision": revision, "tree": tree, "dirty": dirty}),
     }
@@ -342,7 +385,9 @@ def _invocation_context() -> dict[str, str]:
     }
 
 
-def _extract_cargo(argv: Sequence[str]) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+def _extract_cargo(
+    argv: Sequence[str],
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
     packages: list[str] = []
     features: list[str] = []
     targets: list[str] = []
@@ -410,11 +455,22 @@ class Selection:
         return _digest(self.payload())
 
 
+class SubsetProof(TypedDict):
+    """One declared non-exact reuse relation: ``requested_argv`` is admissible
+    as reuse of a prior ``provider_argv`` run, with ``rationale`` recorded for
+    audit."""
+
+    version: str
+    provider_argv: list[str]
+    requested_argv: list[str]
+    rationale: str
+
+
 # The only intentionally non-exact reuse relation.  The provider command is
 # the exact advisory workflow command; the requested command is the shipped
 # full-only hook.  Workspace/all-features/all-targets is a declared superset
 # of the root full/all-targets invocation, with identical warning flags.
-SUBSET_PROOFS: dict[str, dict[str, object]] = {
+SUBSET_PROOFS: dict[str, SubsetProof] = {
     "cargo-clippy-full": {
         "version": "eg-push-gate-subset/v1",
         "provider_argv": [
@@ -438,7 +494,8 @@ SUBSET_PROOFS: dict[str, dict[str, object]] = {
             "-D",
             "warnings",
         ],
-        "rationale": "workspace all-features/all-targets strictly covers shipped full/all-targets",
+        "rationale": "workspace all-features/all-targets strictly covers shipped "
+        "full/all-targets",
     }
 }
 
@@ -525,9 +582,12 @@ def _proc_stat(pid: int) -> tuple[int, str, str] | None:
         parent_pid = int(values[1])
         start_time = values[19]
         try:
-            command_line = Path(f"/proc/{pid}/cmdline").read_bytes().replace(
-                b"\0", b" "
-            ).decode("utf-8", errors="replace")
+            command_line = (
+                Path(f"/proc/{pid}/cmdline")
+                .read_bytes()
+                .replace(b"\0", b" ")
+                .decode("utf-8", errors="replace")
+            )
         except OSError:
             command_line = command_name
         return parent_pid, start_time, command_line
@@ -564,7 +624,7 @@ def _invocation_owner_identity() -> str:
     return f"parent:{_parent_identity(os.getppid())}"
 
 
-def _age_is_valid(started: object) -> bool:
+def _age_is_valid(started: Any) -> bool:
     try:
         age = time.time() - float(started)
     except (TypeError, ValueError):
@@ -582,7 +642,9 @@ def _atomic_json(path: Path, value: object) -> None:
     try:
         os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            json.dump(value, handle, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+            json.dump(
+                value, handle, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+            )
             handle.write("\n")
         os.replace(temporary, path)
     except Exception:
@@ -624,7 +686,11 @@ def _signature_matches(expected: str, actual: object) -> bool:
 def _key_bytes(path: Path) -> bytes:
     try:
         metadata = path.lstat()
-        if path.is_symlink() or not stat.S_ISREG(metadata.st_mode) or metadata.st_mode & 0o077:
+        if (
+            path.is_symlink()
+            or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_mode & 0o077
+        ):
             raise EvidenceError("evidence key is unsafe")
         value = path.read_bytes()
     except EvidenceError:
@@ -971,9 +1037,7 @@ def selection_for_workflow_item(
             argv = ("bash", "-c", detail)
         else:
             kind = "cargo"
-    label = ":".join(
-        str(item.get(field, "")) for field in ("workflow", "job", "name")
-    )
+    label = ":".join(str(item.get(field, "")) for field in ("workflow", "job", "name"))
     return Selection.from_argv(label, argv, kind=kind, environment=environment)
 
 
@@ -988,7 +1052,8 @@ def run_or_consume(
         store = EvidenceStore.begin_or_resume()
     except (EvidenceError, OSError) as exc:
         print(
-            f"push-gate-evidence: unavailable ({type(exc).__name__}); executing normally",
+            f"push-gate-evidence: unavailable ({type(exc).__name__}); executing "
+            f"normally",
             file=sys.stderr,
         )
         store = None
@@ -1010,7 +1075,10 @@ def run_or_consume(
         )
         exit_code = result.returncode
     except OSError as exc:
-        print(f"push-gate-evidence: command unavailable ({type(exc).__name__})", file=sys.stderr)
+        print(
+            f"push-gate-evidence: command unavailable ({type(exc).__name__})",
+            file=sys.stderr,
+        )
         exit_code = 127
     if store is not None:
         try:
@@ -1043,7 +1111,9 @@ def _cli_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _cli_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> list[str]:
+def _cli_command(
+    args: argparse.Namespace, parser: argparse.ArgumentParser
+) -> list[str]:
     command = list(args.command)
     if command[:1] == ["--"]:
         command = command[1:]

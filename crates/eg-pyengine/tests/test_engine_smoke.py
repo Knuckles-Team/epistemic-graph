@@ -43,7 +43,8 @@ for _name in ("epistemic_graph.engine", "engine"):
 
 pytestmark = pytest.mark.skipif(
     _e is None,
-    reason="eg-pyengine binding wheel not installed (build with maturin --features python)",
+    reason="eg-pyengine binding wheel not installed (build with maturin --features "
+    "python)",
 )
 
 

@@ -47,12 +47,19 @@ pub(crate) mod writer_reply;
 #[cfg(feature = "redb")]
 pub mod durable_stores;
 
+// The three-layer native agent hierarchy (RF-ADR-008) is a set of durable redb
+// owners; every consumer is itself `redb`-gated.
 #[cfg(feature = "redb")]
 pub mod agent_component;
+#[cfg(feature = "redb")]
 pub mod agent_graph;
+#[cfg(feature = "redb")]
 pub mod agent_library;
+#[cfg(feature = "redb")]
 pub mod agent_pin_resolution;
+#[cfg(feature = "redb")]
 pub mod agent_row;
+#[cfg(feature = "redb")]
 pub mod agent_template;
 
 #[cfg(feature = "redb")]

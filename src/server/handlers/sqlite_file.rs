@@ -35,6 +35,11 @@ use crate::mutation_batch::{DurabilityDomain, MutationBatch, MutationSurface};
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 use eg_types::contract::Nonce;
+use eg_types::result_contract::storage as results;
+use eg_types::storage_wire::{
+    SqliteExportDestination, SqliteExportReport, SqliteImportReport, SqliteImportSource,
+    SqliteTableRows,
+};
 
 mod transfer_fs;
 
@@ -149,7 +154,10 @@ pub(crate) async fn try_handle(
             })
             .await;
             Ok(match out {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
+                Ok(report) => Response::ok(
+                    req_id,
+                    ResultPayload::of::<results::ImportSqliteFile>(report),
+                ),
                 Err(e) => Response::err(req_id, e),
             })
         }
@@ -164,7 +172,10 @@ pub(crate) async fn try_handle(
             })
             .await;
             Ok(match out {
-                Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
+                Ok(report) => Response::ok(
+                    req_id,
+                    ResultPayload::of::<results::ExportSqliteFile>(report),
+                ),
                 Err(e) => Response::err(req_id, e),
             })
         }
@@ -192,7 +203,7 @@ fn import_sqlite_lifecycle_with_nonce(
     logical_path: &str,
     persist_dir: &Path,
     now: u64,
-) -> Result<JsonValue, String> {
+) -> Result<SqliteImportReport, String> {
     crate::server::sql_catalog_acl::require_source_authority()?;
     crate::server::sql_catalog_acl::with_source_authority_write(persist_dir, authority, |source| {
         let store =
@@ -220,7 +231,7 @@ fn export_sqlite_lifecycle(
     logical_path: &str,
     tables: &[String],
     persist_dir: &Path,
-) -> Result<JsonValue, String> {
+) -> Result<SqliteExportReport, String> {
     crate::server::sql_catalog_acl::require_source_authority()?;
     export_sqlite_file(
         &crate::server::sql_tables::tenant_table_store(authority.tenant_scope(), persist_dir)?,
@@ -231,14 +242,16 @@ fn export_sqlite_lifecycle(
 
 fn decode_committed_import_report(
     committed: &eg_types::mutation_batch::MutationBatchCommit,
-) -> Result<JsonValue, String> {
+) -> Result<SqliteImportReport, String> {
     let bytes = committed
         .record
         .result_msgpack
         .as_deref()
         .ok_or_else(|| "committed SQLite import batch has no result".to_string())?;
-    let report = eg_types::msgpack::decode_property_value(bytes)
-        .map_err(|_| "committed SQLite import batch has an invalid result".to_string())?;
+    let report: SqliteImportReport = eg_types::msgpack::decode_property_value(bytes)
+        .ok()
+        .and_then(|value| serde_json::from_value(value).ok())
+        .ok_or_else(|| "committed SQLite import batch has an invalid result".to_string())?;
     validated_import_tables(&report)?;
     Ok(report)
 }
@@ -300,7 +313,7 @@ fn compile_import_batch_with_nonce(
 fn register_import_owners(
     source: &crate::server::sql_catalog_acl::SqlSourceAuthorityWrite<'_, '_>,
     parent_operation: &str,
-    report: &JsonValue,
+    report: &SqliteImportReport,
 ) -> Result<(), String> {
     for table in validated_import_tables(report)? {
         crate::server::sql_catalog_acl::register_owner_after_create_in(
@@ -312,26 +325,17 @@ fn register_import_owners(
     Ok(())
 }
 
-fn validated_import_tables(report: &JsonValue) -> Result<Vec<&str>, String> {
-    let tables = report
-        .get("imported_tables")
-        .and_then(JsonValue::as_array)
-        .ok_or_else(|| "committed SQLite import batch has an invalid result".to_string())?;
-    if report.get("source").and_then(JsonValue::as_str) != Some("sqlite")
-        || tables.len() > MAX_SQLITE_TABLES
-    {
-        return Err("committed SQLite import batch has an invalid result".to_string());
+fn validated_import_tables(report: &SqliteImportReport) -> Result<Vec<&str>, String> {
+    let invalid = || "committed SQLite import batch has an invalid result".to_string();
+    if report.imported_tables.len() > MAX_SQLITE_TABLES {
+        return Err(invalid());
     }
     let mut seen = std::collections::BTreeSet::new();
-    let mut names = Vec::with_capacity(tables.len());
-    for item in tables {
-        let table = item
-            .get("table")
-            .and_then(JsonValue::as_str)
-            .filter(|table| !table.is_empty())
-            .ok_or_else(|| "committed SQLite import batch has an invalid result".to_string())?;
-        if !seen.insert(table) {
-            return Err("committed SQLite import batch has an invalid result".to_string());
+    let mut names = Vec::with_capacity(report.imported_tables.len());
+    for item in &report.imported_tables {
+        let table = item.table.as_str();
+        if table.is_empty() || !seen.insert(table) {
+            return Err(invalid());
         }
         names.push(table);
     }
@@ -340,7 +344,7 @@ fn validated_import_tables(report: &JsonValue) -> Result<Vec<&str>, String> {
 
 // ── Import (CONCEPT:EG-KG.query.eg-feature) ───────────────────────────────────────────────────
 
-fn prepare_sqlite_import(reader: &Reader) -> Result<(TableTxn, JsonValue), String> {
+fn prepare_sqlite_import(reader: &Reader) -> Result<(TableTxn, SqliteImportReport), String> {
     let tables = list_user_tables(reader)?;
     let (_, max_rows) = sqlite_limits()?;
     if tables.len() > MAX_SQLITE_TABLES {
@@ -377,11 +381,17 @@ fn prepare_sqlite_import(reader: &Reader) -> Result<(TableTxn, JsonValue), Strin
                 rows,
             });
         }
-        report.push(serde_json::json!({ "table": table, "rows": row_count }));
+        report.push(SqliteTableRows {
+            table: table.clone(),
+            rows: row_count,
+        });
     }
     Ok((
         txn,
-        serde_json::json!({ "source": "sqlite", "imported_tables": report }),
+        SqliteImportReport {
+            source: SqliteImportSource::Sqlite,
+            imported_tables: report,
+        },
     ))
 }
 
@@ -528,7 +538,7 @@ fn export_sqlite_file(
     store: &TableStore,
     destination: &transfer_fs::ExportDestination,
     tables: &[String],
-) -> Result<JsonValue, String> {
+) -> Result<SqliteExportReport, String> {
     let before = store.catalog_fingerprint()?;
     let names: Vec<String> = if tables.is_empty() {
         store.list_tables()?
@@ -559,7 +569,10 @@ fn export_sqlite_file(
             .map_err(|_| "finalize SQLite export failed".to_string())?;
         Ok(report)
     })?;
-    Ok(serde_json::json!({ "destination": "transfer-root", "exported_tables": report }))
+    Ok(SqliteExportReport {
+        destination: SqliteExportDestination::TransferRoot,
+        exported_tables: report,
+    })
 }
 
 struct ExportTable {
@@ -597,14 +610,17 @@ fn materialize_export_tables(
 fn write_export_tables(
     materialized: &[ExportTable],
     writer: &mut Writer,
-) -> Result<Vec<JsonValue>, String> {
+) -> Result<Vec<SqliteTableRows>, String> {
     let mut report = Vec::with_capacity(materialized.len());
     for table in materialized {
         writer
             .add_table(&table.schema.name, &columns_from_schema(&table.schema))
             .map_err(|_| "create table in SQLite export failed".to_string())?;
         let n = export_rows(writer, &table.schema, &table.rows)?;
-        report.push(serde_json::json!({ "table": table.schema.name.as_str(), "rows": n }));
+        report.push(SqliteTableRows {
+            table: table.schema.name.as_str().to_owned(),
+            rows: n as u64,
+        });
     }
     Ok(report)
 }
@@ -739,17 +755,23 @@ mod tests {
         )
     }
 
-    fn sqlite3_available() -> bool {
-        std::process::Command::new("sqlite3")
-            .arg("--version")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false)
+    /// The real `sqlite3` CLI the round-trip test diffs against: `$EG_SQLITE3`, else
+    /// `sqlite3` on `$PATH`. Panics with how to provide it when neither runs.
+    fn sqlite3_bin() -> std::ffi::OsString {
+        let bin = std::env::var_os("EG_SQLITE3").unwrap_or_else(|| "sqlite3".into());
+        match std::process::Command::new(&bin).arg("--version").output() {
+            Ok(out) if out.status.success() => bin,
+            other => panic!(
+                "the sqlite `.db` round-trip test needs the real sqlite3 CLI, but {bin:?} is \
+                 not runnable ({other:?}). Install sqlite3 on PATH, or run \
+                 `export EG_SQLITE3=\"$(scripts/fetch_sqlite3.sh)\"` from the repository root."
+            ),
+        }
     }
 
     /// Run a SQL script through the real `sqlite3` CLI against `db`, returning stdout.
     fn run_sqlite(db: &Path, sql: &str) -> String {
-        let out = std::process::Command::new("sqlite3")
+        let out = std::process::Command::new(sqlite3_bin())
             .arg(db)
             .arg(sql)
             .output()
@@ -768,15 +790,12 @@ mod tests {
     /// (pure-Rust `Reader`) into an isolated engine store, EXPORT that store back out
     /// (pure-Rust `Writer`), then prove the export with `sqlite3`: `PRAGMA integrity_check`
     /// must be `ok`, and the `.schema`/`SELECT` output must match — including a NULL, a
-    /// BLOB, an overflow-forcing large TEXT, and a multi-leaf/interior b-tree. Skips (not
-    /// fails) when `sqlite3` is not on `$PATH`.
+    /// BLOB, an overflow-forcing large TEXT, and a multi-leaf/interior b-tree. Never skips:
+    /// it FAILS when neither `$EG_SQLITE3` nor `sqlite3` on `$PATH` runs (see
+    /// `scripts/fetch_sqlite3.sh`).
     #[cfg(target_os = "linux")]
     #[test]
     fn test_sqlite_file_roundtrip_eg331_eg332() {
-        if !sqlite3_available() {
-            eprintln!("SKIP test_sqlite_file_roundtrip_eg331_eg332: sqlite3 not on PATH");
-            return;
-        }
         let (test_root, src, dst) = unique_paths();
 
         // 1. Build a source `.db` with the real sqlite3 CLI — every storage class, a NULL,
@@ -798,11 +817,10 @@ mod tests {
         let reader = Reader::open(&src).unwrap();
         let (txn, report) = prepare_sqlite_import(&reader).unwrap();
         store.commit_txn(&txn).unwrap();
-        let imported: Vec<&str> = report["imported_tables"]
-            .as_array()
-            .unwrap()
+        let imported: Vec<&str> = report
+            .imported_tables
             .iter()
-            .map(|t| t["table"].as_str().unwrap())
+            .map(|t| t.table.as_str())
             .collect();
         assert_eq!(imported, ["big", "nums", "people"]);
         assert_eq!(store.scan("people").unwrap().len(), 2);
@@ -811,7 +829,7 @@ mod tests {
         // 3. Export the store back out to a fresh `.db` (pure-Rust Writer).
         let report2 =
             export_sqlite_file(&store, &transfer_fs::test_destination(&dst), &[]).unwrap();
-        assert!(report2["exported_tables"].as_array().unwrap().len() == 3);
+        assert!(report2.exported_tables.len() == 3);
 
         // 4a. THE conformance bar: real sqlite3 integrity_check on OUR-written file.
         assert_eq!(
@@ -1017,10 +1035,13 @@ mod tests {
             ),
             if_not_exists: false,
         });
-        let report = serde_json::json!({
-            "source": "sqlite",
-            "imported_tables": [{"table": "repaired", "rows": 0}],
-        });
+        let report = SqliteImportReport {
+            source: SqliteImportSource::Sqlite,
+            imported_tables: vec![SqliteTableRows {
+                table: "repaired".to_string(),
+                rows: 0,
+            }],
+        };
         store
             .commit_txn_batch_result(&txn, &batch, rmp_serde::to_vec_named(&report).unwrap(), 3)
             .unwrap();

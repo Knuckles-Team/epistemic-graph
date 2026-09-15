@@ -6,10 +6,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+from rust_module_tree import read_module_tree
 
-from rust_module_tree import read_module_tree  # noqa: E402
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _source(path: str) -> str:
@@ -151,7 +150,6 @@ _REQUIRED_MARKERS: dict[str, tuple[str, ...]] = {
     ),
 }
 
-
 #: `Succeeded` is reachable only from `Publishing`, so no publication-completion
 #: entry point may carry a `Running` source arm. The historical check named a
 #: `pub fn succeed` that has not existed since eg-jobs was split: `str.find`
@@ -184,9 +182,7 @@ def _ordered_markers(
     """`first` must appear before `second` in `source`; an absent marker fails."""
     for marker in (first, second):
         if marker not in source:
-            return [
-                f"{path}: cannot locate {marker!r} to check its ordering contract"
-            ]
+            return [f"{path}: cannot locate {marker!r} to check its ordering contract"]
     return [violation] if source.find(first) > source.find(second) else []
 
 
@@ -202,7 +198,7 @@ def _publication_barrier_failures(store: str) -> list[str]:
             )
         elif _RUNNING_SOURCE_ARM in body:
             failures.append(
-                f"{_JOB_STORE}: {signature[len('pub fn '):-1]} still permits "
+                f"{_JOB_STORE}: {signature[len('pub fn ') : -1]} still permits "
                 "Running -> Succeeded"
             )
     return failures

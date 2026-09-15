@@ -25,6 +25,7 @@ use tokio::sync::RwLock;
 use crate::epistemic_operations::PlacementRouteSchemaVersion;
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::state::ServerState;
+use eg_types::result_contract::cluster::PlacementRouteWire;
 
 // GOC-15/BUG-030: `PlacementRoute`'s `authz_action` was narrowed from
 // `admin:cluster-read` to `cluster:placement-read` (`eg_capabilities::policy`)
@@ -51,42 +52,6 @@ use crate::server::state::ServerState;
 // graph read that follows a resolved route is independently authorized by
 // the ordinary per-graph ACL/RLS path, unaffected by this change.
 
-/// The actual `Method::PlacementRoute` WIRE response (CONCEPT:EG-KG.sharding.cluster-topology, ADR-1 —
-/// `PlacementRoute.endpoints`, `reports/wave1/ADR-scale-trio.md` §ADR-1 decision 2).
-///
-/// Deliberately a SEPARATE type from [`crate::epistemic_operations::PlacementRoute`]:
-/// that schema-locked cross-repo DTO is explicitly documented "without
-/// deployment endpoint material" (it doubles as an audit/CDC-safe route-decision
-/// record and is digest-pinned against the authoritative agent-utilities JSON
-/// Schema catalog) and must not gain network topology fields. Every field below
-/// matches that locked shape field-for-field, plus the one extra `endpoints` key.
-///
-/// The extra key is NOT invisible to old readers (A-W1.2-2): the canonical DTO
-/// is `deny_unknown_fields`, so deserializing a route response into it FAILS on
-/// `endpoints`. Consumers of a route response MUST deserialize THIS type (the
-/// tolerant superset), never the canonical DTO. The Python client hand-parses
-/// the flat dict for the same reason.
-#[derive(serde::Serialize, serde::Deserialize)]
-pub(crate) struct PlacementRouteWire {
-    pub(crate) schema_version: PlacementRouteSchemaVersion,
-    pub(crate) route_id: String,
-    pub(crate) tenant_ref: String,
-    pub(crate) partition_ref: String,
-    pub(crate) authoritative: bool,
-    pub(crate) placed: bool,
-    pub(crate) group: u64,
-    pub(crate) epoch: u64,
-    pub(crate) fencing_token: u64,
-    pub(crate) stale: bool,
-    pub(crate) leader_ref: Option<String>,
-    /// Client-reachable endpoints of the resolved group's members, LEADER FIRST
-    /// (ADR-1). Empty when no cluster topology is known yet (single-node, a
-    /// non-raft build, or no member has self-reported) — the client's
-    /// static-map override / single-contact fallback (ADR-1 decision 3b/3c)
-    /// applies.
-    pub(crate) endpoints: Vec<String>,
-}
-
 #[allow(clippy::too_many_arguments)] // internal response assembler; mirrors the wire field list (repo idiom: graphlearn/rdf handlers)
 fn route_response(
     req_id: u64,
@@ -103,20 +68,22 @@ fn route_response(
     }
     Response::ok(
         req_id,
-        ResultPayload::raw(&PlacementRouteWire {
-            schema_version: PlacementRouteSchemaVersion::V1,
-            route_id: format!("request:{req_id}"),
-            tenant_ref,
-            partition_ref,
-            authoritative: true,
-            placed,
-            group,
-            epoch,
-            fencing_token: group,
-            stale: client_epoch < epoch,
-            leader_ref: None,
-            endpoints,
-        }),
+        ResultPayload::of::<eg_types::result_contract::cluster::PlacementRoute>(
+            PlacementRouteWire {
+                schema_version: PlacementRouteSchemaVersion::V1,
+                route_id: format!("request:{req_id}"),
+                tenant_ref,
+                partition_ref,
+                authoritative: true,
+                placed,
+                group,
+                epoch,
+                fencing_token: group,
+                stale: client_epoch < epoch,
+                leader_ref: None,
+                endpoints,
+            },
+        ),
     )
 }
 
@@ -282,7 +249,9 @@ async fn handle_assign(
     match multi.placement_assign(&tenant, group).await {
         Ok(epoch) => Response::ok(
             req_id,
-            ResultPayload::Json(serde_json::json!({"epoch": epoch})),
+            ResultPayload::of::<eg_types::result_contract::cluster::PlacementAssign>(
+                eg_types::result_contract::cluster::PlacementEpoch { epoch },
+            ),
         ),
         Err(error) => Response::err(req_id, error),
     }
@@ -311,24 +280,27 @@ async fn handle_placement_admin_op(
 }
 
 #[cfg(feature = "raft")]
-fn reshard_report_json(report: &crate::raft::reshard::ReshardReport) -> serde_json::Value {
-    serde_json::json!({
-        "graph": report.graph,
-        "from_group": report.from_group,
-        "to_group": report.to_group,
-        "nodes_transferred": report.nodes_transferred,
-    })
-}
-
-#[cfg(feature = "raft")]
-fn move_report_json(report: &crate::raft::reshard::PlacementMoveReport) -> serde_json::Value {
-    serde_json::json!({
-        "tenant": report.tenant,
-        "range": [report.range.0, report.range.1],
-        "target": report.target,
-        "epoch": report.epoch,
-        "graphs": report.graphs.iter().map(reshard_report_json).collect::<Vec<_>>(),
-    })
+fn placement_move_result(
+    report: &crate::raft::reshard::PlacementMoveReport,
+) -> eg_types::result_contract::cluster::PlacementMoveResult {
+    eg_types::result_contract::cluster::PlacementMoveResult {
+        tenant: report.tenant.clone(),
+        range: report.range,
+        target: report.target,
+        epoch: report.epoch,
+        graphs: report
+            .graphs
+            .iter()
+            .map(
+                |graph| eg_types::result_contract::cluster::GroupReshardResult {
+                    graph: graph.graph.clone(),
+                    from_group: graph.from_group,
+                    to_group: graph.to_group,
+                    nodes_transferred: graph.nodes_transferred as u64,
+                },
+            )
+            .collect(),
+    }
 }
 
 #[cfg(feature = "raft")]
@@ -352,7 +324,12 @@ async fn handle_move(
         .move_partition(&tenant, (range_start, range_end), target)
         .await
     {
-        Ok(report) => Response::ok(req_id, ResultPayload::Json(move_report_json(&report))),
+        Ok(report) => Response::ok(
+            req_id,
+            ResultPayload::of::<eg_types::result_contract::cluster::PlacementMove>(
+                placement_move_result(&report),
+            ),
+        ),
         Err(error) => Response::err(req_id, error),
     }
 }
@@ -369,7 +346,10 @@ async fn handle_abort_move(
     };
     let tenants = crate::raft::reshard::TenantManager::new(multi, backend);
     match tenants.abort_move(&move_id).await {
-        Ok(()) => Response::ok(req_id, ResultPayload::Bool(true)),
+        Ok(()) => Response::ok(
+            req_id,
+            ResultPayload::scalar::<eg_types::result_contract::cluster::PlacementAbortMove>(true),
+        ),
         Err(error) => Response::err(req_id, error),
     }
 }

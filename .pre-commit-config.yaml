@@ -45,17 +45,40 @@ repos:
   rev: 6fec9b7edb08fd9989088709d864a7826dc74e80 # v0.15.12
   hooks:
   - id: ruff-check
-    args: ["--fix", "--ignore=E402,B008,E501"]
-    exclude: ^(tests/|test/|scripts/|script/)
+    args: ["--fix"]
   - id: ruff-format
-    exclude: ^(tests/|test/|scripts/|script/)
 - repo: https://github.com/pre-commit/mirrors-mypy
   rev: fc0f09a29bb495f4a91f00266155d6282d52485d # v1.20.2
   hooks:
   - id: mypy
     additional_dependencies: [pydantic==2.13.4, types-PyYAML==6.0.12.20260518, types-requests==2.33.0.20260518, types-setuptools==83.0.0.20260706]
-    args: ["--ignore-missing-imports"]
-    exclude: ^(scripts/|script/|tests/|test/)
+    # Tests and the type-clean script surface are first-class mypy targets. The
+    # remaining 20 standalone certification/scanner programs have 135 measured
+    # errors and are quarantined exactly, rather than hiding both directories.
+    args: ["--ignore-missing-imports", "--explicit-package-bases"]
+    exclude: |
+      (?x)^scripts/(?:
+        bounded_test_runner|
+        certify_exact_fault_restart|
+        certify_exact_knowledge_batch|
+        certify_exact_multimodal|
+        certify_exact_performance|
+        certify_exact_reasoning_repair|
+        check_complexity_staged|
+        check_dupehound|
+        check_dupehound_census|
+        check_duplication|
+        check_epistemic_operations_protocol|
+        check_exact_fault_restart_harness|
+        check_exact_release_campaigns|
+        check_pinned_reference_resolution|
+        check_rust_arch_lint|
+        check_universal_read_rls|
+        eg_coverage_zero_report|
+        scanner_contract|
+        security_sanitizer|
+        soak_scale
+      )\.py$
 - repo: https://github.com/jendrikseipp/vulture
   rev: b0f67ba0044693aa9ec0d38fe460590facc98004 # v2.16
   hooks:
@@ -450,6 +473,13 @@ repos:
   - id: orphan-modules
     name: Every tracked Rust file is compiled by some cargo target
     entry: python3 scripts/check_orphan_modules.py
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-commit, pre-push, manual]
+  - id: registry-test-ownership
+    name: Every tracked tests/ file is owned in the component registry
+    entry: python3 scripts/check_registry_test_ownership.py
     language: system
     pass_filenames: false
     always_run: true

@@ -32,7 +32,8 @@
 //! evict/hibernate ops — no DataFusion / openraft / object_store. Pi-safe.
 
 use std::cmp::Ordering as CmpOrdering;
-use std::collections::{BinaryHeap, HashMap};
+#[cfg(test)]
+use std::collections::BinaryHeap;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -40,6 +41,9 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use crate::server::ServerState;
+use eg_types::result_contract::coordination::{GraphResourceStats, ResourceSnapshot};
+
+mod resource_stats;
 
 /// Derive the tenant a graph belongs to (CONCEPT:EG-KG.compute.lane-v). The convention across the
 /// ecosystem is `tenant:scope` graph names (`agent:planner`, `team:research`,
@@ -317,91 +321,6 @@ impl Default for ResourceStatsRequest {
     }
 }
 
-/// Per-graph resource snapshot (CONCEPT:EG-KG.compute.lane-v).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct GraphResourceStats {
-    pub graph: String,
-    pub tenant: String,
-    pub nodes: u64,
-    pub edges: u64,
-    /// Approximate resident RAM, bytes ([`GraphCore::memory_estimate`]).
-    pub memory_bytes: u64,
-    /// `true` if hibernated (in-RAM state dropped, durable in redb).
-    pub hibernated: bool,
-}
-
-/// Per-tenant rollup (CONCEPT:EG-KG.compute.lane-v).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TenantResourceStats {
-    pub tenant: String,
-    pub graphs: u64,
-    pub resident_graphs: u64,
-    pub hibernated_graphs: u64,
-    pub nodes: u64,
-    pub edges: u64,
-    pub memory_bytes: u64,
-    /// The tenant's configured byte budget (before the fair-share cap).
-    pub budget_bytes: u64,
-    /// `true` when `memory_bytes > budget_bytes` (the enforcer is reclaiming).
-    pub over_budget: bool,
-}
-
-/// The full resource snapshot returned by `Method::ResourceStatsPage` (CONCEPT:EG-KG.compute.lane-v) and
-/// scraped into Prometheus. The signals an autoscaler (OS-5.27) needs in ONE round-trip.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ResourceSnapshot {
-    /// Finite page size applied to the detail arrays (or the explicit request
-    /// limit in summary mode).
-    pub limit: u64,
-    /// Exclusive keyset cursor accepted for this page, if any.
-    pub cursor: Option<String>,
-    /// Exclusive cursor for the next visible page.  `None` means this page was
-    /// the final page after ACL/tenant filtering.
-    pub next_cursor: Option<String>,
-    pub has_more: bool,
-    /// `true` when this response intentionally omits detail arrays.
-    pub summary: bool,
-    /// Total resident RAM across all graphs (sum of `memory_bytes`).
-    pub total_memory_bytes: u64,
-    /// Current process RSS (falling back to peak RSS), bytes — the OS-observed
-    /// footprint used for calibration and hard-ceiling pressure.
-    pub process_rss_bytes: u64,
-    /// Configured global ceiling. The cgroup-aware automatic policy is always
-    /// positive; an explicit override can lower it but cannot disable it.
-    pub global_ceiling_bytes: u64,
-    pub total_nodes: u64,
-    pub total_edges: u64,
-    pub graph_count: u64,
-    pub tenant_count: u64,
-    pub resident_graphs: u64,
-    pub hibernated_graphs: u64,
-    /// Effective cgroup-aware CPU lanes after the shared headroom policy.
-    pub effective_cpu_cores: u64,
-    /// Effective cgroup-aware RAM after the shared headroom policy.
-    pub effective_memory_limit_bytes: u64,
-    /// True when the bounded tenant rollup reached its cap. In that case
-    /// `tenant_count` is a lower bound and the returned tenant array is partial.
-    pub tenant_count_truncated: bool,
-    /// Requests currently holding an admission permit (in-flight depth).
-    pub in_flight: u64,
-    /// Admission permits still available (`max_inflight - in_flight`); a small value
-    /// means the queue is saturated (shedding BUSY).
-    pub inflight_permits_available: u64,
-    /// Cumulative LRU nodes evicted by the budget enforcer (rate = delta/interval).
-    pub budget_evictions_total: u64,
-    /// Cumulative graphs hibernated by the budget enforcer.
-    pub budget_hibernations_total: u64,
-    /// Number of structural writes waiting in all per-graph coalescer queues.
-    pub coalescer_queue_depth: u64,
-    /// Approximate bytes held by those queued writes.
-    pub coalescer_queue_bytes: u64,
-    /// Cumulative structural operations applied by the coalescer, including
-    /// operations that used the bounded inline fallback.
-    pub coalescer_operations_total: u64,
-    pub tenants: Vec<TenantResourceStats>,
-    pub graphs: Vec<GraphResourceStats>,
-}
-
 /// Parse current process RSS in bytes, falling back to peak RSS when a platform
 /// omits `VmRSS`.
 fn parse_process_rss_bytes(status: &str) -> u64 {
@@ -581,175 +500,19 @@ async fn collect_resource_stats_inner(
     let config = CostConfig::from_env()?;
     let capacity = crate::autosize::detect_capacity();
     let (configured_max_inflight, permits_available) = {
-        let s = state.read().await;
-        let permits = s.max_in_flight.available_permits();
-        // The global admission semaphore was constructed with the configured max; recover
-        // it from the env so `in_flight = max - available` is exact. The UNSET default
-        // now auto-sizes from effective cgroup-aware capacity
-        // (CONCEPT:AU-KG.backend.b-auto-size) — the SAME derivation
-        // `main.rs` used to build the semaphore, so the gauge stays exact on a Pi and a
-        // big box alike (previously hard-coded 1024).
+        let current = state.read().await;
+        let permits = current.max_in_flight.available_permits();
         let automatic_max = capacity.max_inflight();
         let max = std::env::var("EPISTEMIC_GRAPH_MAX_INFLIGHT")
             .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .filter(|&n| n > 0)
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|&value| value > 0)
             .map(|value| crate::autosize::bound_explicit(value, automatic_max))
             .unwrap_or(automatic_max);
         (max, permits)
     };
     let in_flight = configured_max_inflight.saturating_sub(permits_available) as u64;
-
-    let mut page_candidates = BinaryHeap::with_capacity(request.limit);
-    let mut tenant_rollup: HashMap<String, TenantResourceStats> = HashMap::new();
-    let mut total_memory_bytes = 0u64;
-    let mut total_nodes = 0u64;
-    let mut total_edges = 0u64;
-    let mut resident_graphs = 0u64;
-    let mut hibernated_graphs = 0u64;
-    let mut visible_after_cursor = 0u64;
-    let mut tenant_count_truncated = false;
-    let mut oversized_graph_name = false;
-
-    {
-        let s = state.read().await;
-        let isolation = s.isolation.clone();
-        let actor = authorization.map(|(actor, _, _)| actor);
-        let tenant_matcher = authorization.map(|(_, tenant, _)| TenantMatcher::new(tenant));
-        let admin = authorization.is_some_and(|(_, _, admin)| admin);
-        s.registry.for_each_entry(|entry| {
-            // Do not inspect or count a graph until both the verified tenant
-            // boundary and graph ACL have admitted it.  The unverified helper
-            // intentionally has no filter because it is not a wire path.
-            if let Some(tenant_matcher) = tenant_matcher.as_ref() {
-                if !admin && !tenant_matcher.matches(&entry.name) {
-                    return;
-                }
-                if !admin
-                    && crate::server::access::check_graph_access(
-                        &isolation,
-                        actor,
-                        &entry.name,
-                        entry.graph_type,
-                        entry.owner.as_deref(),
-                        crate::isolation::AccessLevel::Read,
-                    )
-                    .is_err()
-                {
-                    return;
-                }
-            }
-            if entry.name.len() > MAX_RESOURCE_STATS_CURSOR_BYTES
-                || entry.name.bytes().any(|byte| byte == 0)
-            {
-                // Returning an error is fail-closed: silently omitting an
-                // authorized graph would make keyset pagination impossible to
-                // complete and could turn a private name into a cursor oracle.
-                oversized_graph_name = true;
-                return;
-            }
-            let after_cursor = request
-                .cursor
-                .as_deref()
-                .is_none_or(|cursor| entry.name.as_str() > cursor);
-            if after_cursor {
-                visible_after_cursor = visible_after_cursor.saturating_add(1);
-            }
-
-            let tenant_name = tenant_of(&entry.name);
-            let nodes = entry.core.node_count() as u64;
-            let edges = entry.core.edge_count() as u64;
-            let memory_bytes = entry.core.memory_estimate();
-            let hibernated = is_hibernated(&entry.name, &entry.incarnation_id);
-
-            total_memory_bytes = total_memory_bytes.saturating_add(memory_bytes);
-            total_nodes = total_nodes.saturating_add(nodes);
-            total_edges = total_edges.saturating_add(edges);
-            if hibernated {
-                hibernated_graphs = hibernated_graphs.saturating_add(1);
-            } else {
-                resident_graphs = resident_graphs.saturating_add(1);
-            }
-
-            if let Some(rollup) = tenant_rollup.get_mut(tenant_name) {
-                rollup.graphs = rollup.graphs.saturating_add(1);
-                if hibernated {
-                    rollup.hibernated_graphs = rollup.hibernated_graphs.saturating_add(1);
-                } else {
-                    rollup.resident_graphs = rollup.resident_graphs.saturating_add(1);
-                }
-                rollup.nodes = rollup.nodes.saturating_add(nodes);
-                rollup.edges = rollup.edges.saturating_add(edges);
-                rollup.memory_bytes = rollup.memory_bytes.saturating_add(memory_bytes);
-            } else if tenant_rollup.len() < MAX_RESOURCE_STATS_TENANTS {
-                tenant_rollup.insert(
-                    tenant_name.to_string(),
-                    TenantResourceStats {
-                        tenant: tenant_name.to_string(),
-                        graphs: 1,
-                        resident_graphs: u64::from(!hibernated),
-                        hibernated_graphs: u64::from(hibernated),
-                        nodes,
-                        edges,
-                        memory_bytes,
-                        budget_bytes: config.per_tenant_budget_bytes,
-                        over_budget: false,
-                    },
-                );
-            } else {
-                tenant_count_truncated = true;
-            }
-
-            if !request.summary && after_cursor {
-                let candidate = ResourceStatsCandidate {
-                    graph: entry.name.clone(),
-                    tenant: tenant_name.to_string(),
-                    nodes,
-                    edges,
-                    memory_bytes,
-                    hibernated,
-                };
-                if page_candidates.len() < request.limit {
-                    page_candidates.push(candidate);
-                } else if page_candidates
-                    .peek()
-                    .is_some_and(|worst| candidate.graph < worst.graph)
-                {
-                    let _ = page_candidates.pop();
-                    page_candidates.push(candidate);
-                }
-            }
-        });
-    }
-
-    if oversized_graph_name {
-        return Err(format!(
-            "ResourceStats contains a graph name that is not a valid bounded cursor key (maximum {MAX_RESOURCE_STATS_CURSOR_BYTES} bytes, NUL-free)"
-        ));
-    }
-
-    for t in tenant_rollup.values_mut() {
-        t.over_budget = t.memory_bytes > config.per_tenant_budget_bytes;
-    }
-
-    let mut tenants: Vec<TenantResourceStats> = tenant_rollup.into_values().collect();
-    tenants.sort_by(|left, right| {
-        right
-            .memory_bytes
-            .cmp(&left.memory_bytes)
-            .then_with(|| left.tenant.cmp(&right.tenant))
-    });
-
-    let mut graphs: Vec<GraphResourceStats> = page_candidates
-        .into_vec()
-        .into_iter()
-        .map(ResourceStatsCandidate::into_stats)
-        .collect();
-    graphs.sort_by(|left, right| left.graph.cmp(&right.graph));
-    let has_more = !request.summary && visible_after_cursor > graphs.len() as u64;
-    let next_cursor = has_more
-        .then(|| graphs.last().map(|graph| graph.graph.clone()))
-        .flatten();
+    let scan = resource_stats::scan_registry(state, authorization, &request, &config).await?;
 
     let rss = process_rss_bytes().await;
     let (coalescer_queue_depth, coalescer_queue_bytes, coalescer_operations_total) =
@@ -763,39 +526,48 @@ async fn collect_resource_stats_inner(
         coalescer_operations_total.min(i64::MAX as u64) as i64,
     );
 
-    let st = cost_state();
+    let counters = cost_state();
     Ok(ResourceSnapshot {
         limit: request.limit as u64,
         cursor: request.cursor,
-        next_cursor,
-        has_more,
+        next_cursor: scan.next_cursor,
+        has_more: scan.has_more,
         summary: request.summary,
-        total_memory_bytes,
+        total_memory_bytes: scan.total_memory_bytes,
         process_rss_bytes: rss,
         global_ceiling_bytes: config.global_ceiling_bytes,
-        total_nodes,
-        total_edges,
-        graph_count: resident_graphs.saturating_add(hibernated_graphs),
-        tenant_count: tenants.len() as u64,
-        resident_graphs,
-        hibernated_graphs,
+        total_nodes: scan.total_nodes,
+        total_edges: scan.total_edges,
+        graph_count: scan.resident_graphs.saturating_add(scan.hibernated_graphs),
+        tenant_count: scan.tenants.len() as u64,
+        resident_graphs: scan.resident_graphs,
+        hibernated_graphs: scan.hibernated_graphs,
         effective_cpu_cores: capacity.reserved_cpus() as u64,
         effective_memory_limit_bytes: capacity.reserved_ram_bytes(),
-        tenant_count_truncated,
+        tenant_count_truncated: scan.tenant_count_truncated,
         in_flight,
         inflight_permits_available: permits_available as u64,
-        budget_evictions_total: st.evicted_total.load(std::sync::atomic::Ordering::Relaxed),
-        budget_hibernations_total: st
+        budget_evictions_total: counters
+            .evicted_total
+            .load(std::sync::atomic::Ordering::Relaxed),
+        budget_hibernations_total: counters
             .hibernated_total
             .load(std::sync::atomic::Ordering::Relaxed),
         coalescer_queue_depth,
         coalescer_queue_bytes,
         coalescer_operations_total,
-        tenants: if request.summary { Vec::new() } else { tenants },
-        graphs: if request.summary { Vec::new() } else { graphs },
+        tenants: if request.summary {
+            Vec::new()
+        } else {
+            scan.tenants
+        },
+        graphs: if request.summary {
+            Vec::new()
+        } else {
+            scan.graphs
+        },
     })
 }
-
 /// Per-tenant memory-budget enforcement — the only part of this model that
 /// mutates engine state.
 mod budget;

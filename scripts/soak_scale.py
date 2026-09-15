@@ -80,10 +80,17 @@ SLO_MS: dict[str, dict[str, float]] = {
     "queue_latency_ms": {"p50": 50, "p95": 500, "p99": 2_000, "p99_9": 5_000},
     "query_latency_ms": {"p50": 2, "p95": 10, "p99": 30, "p99_9": 150},
     "write_latency_ms": {"p50": 1, "p95": 5, "p99": 20, "p99_9": 100},
-    "end_to_end_latency_ms": {"p50": 2_000, "p95": 8_000, "p99": 20_000, "p99_9": 45_000},
+    "end_to_end_latency_ms": {
+        "p50": 2_000,
+        "p95": 8_000,
+        "p99": 20_000,
+        "p99_9": 45_000,
+    },
 }
 
-_MUTATION_POOL_PER_TENANT = 200  # bounded key pool per tenant (avoids unbounded node growth)
+_MUTATION_POOL_PER_TENANT = (
+    200  # bounded key pool per tenant (avoids unbounded node growth)
+)
 
 
 def _server_bin() -> Path:
@@ -106,7 +113,7 @@ def _rss_kb(pid: int) -> int:
         for line in Path(f"/proc/{pid}/status").read_text().splitlines():
             if line.startswith("VmRSS:"):
                 return int(line.split()[1])
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     return 0
 
@@ -171,7 +178,9 @@ def start_server(
         if os.path.exists(sock):
             break
         if proc.poll() is not None:
-            raise RuntimeError(f"server exited early (code {proc.returncode}) before binding {sock}")
+            raise RuntimeError(
+                f"server exited early (code {proc.returncode}) before binding {sock}"
+            )
         time.sleep(0.05)
     else:
         proc.kill()
@@ -200,7 +209,9 @@ async def add_node(conn: Any, graph: str, node_id: str, props: dict[str, Any]) -
     )
 
 
-async def get_node_properties(conn: Any, graph: str, node_id: str) -> dict[str, Any] | None:
+async def get_node_properties(
+    conn: Any, graph: str, node_id: str
+) -> dict[str, Any] | None:
     raw = await conn._send("GetNodeProperties", {"node_id": node_id}, graph=graph)
     if raw is None:
         return None
@@ -230,11 +241,17 @@ async def create_graph(conn: Any, graph: str, graph_type: str = "Agent") -> None
     # Explicit graph= (matching graph_name) rather than the MultiTenantClient
     # wrapper, which sends the connection's bound graph_name for routing —
     # this keeps routing and the graph being created unambiguously the same.
-    await conn._send("CreateGraph", {"graph_name": graph, "graph_type": graph_type}, graph=graph)
+    await conn._send(
+        "CreateGraph", {"graph_name": graph, "graph_type": graph_type}, graph=graph
+    )
 
 
 async def compare_and_set(
-    conn: Any, graph: str, node_id: str, conditions: dict[str, Any], updates: dict[str, Any]
+    conn: Any,
+    graph: str,
+    node_id: str,
+    conditions: dict[str, Any],
+    updates: dict[str, Any],
 ) -> bool:
     from epistemic_graph.client import _pack_binary_msgpack
 
@@ -259,7 +276,9 @@ async def compare_and_set(
 @dataclass
 class TenantPlan:
     ids: list[str]
-    weights: list[float]  # normalized, sums to 1.0 — used for BOTH mutation + tool-call axes
+    weights: list[
+        float
+    ]  # normalized, sums to 1.0 — used for BOTH mutation + tool-call axes
     residents: list[int]  # resident count assigned to each tenant (population build)
     elephant_id: str
 
@@ -285,7 +304,9 @@ def build_tenant_plan(tenant_count: int, residents: int) -> TenantPlan:
     if ordinary_ids:
         for w in ordinary_raw:
             resident_counts.append(max(1, round(remaining_residents * (w / raw_sum))))
-    return TenantPlan(ids=ids, weights=weights, residents=resident_counts, elephant_id=elephant_id)
+    return TenantPlan(
+        ids=ids, weights=weights, residents=resident_counts, elephant_id=elephant_id
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -339,7 +360,7 @@ async def close_pool(conns: list[Any]) -> None:
     for c in conns:
         try:
             await c.close()
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
 
 
@@ -366,7 +387,9 @@ async def populate(
     total_nodes = 0
     t0 = time.monotonic()
 
-    await asyncio.gather(*(create_graph(conns[i % len(conns)], t) for i, t in enumerate(tenants.ids)))
+    await asyncio.gather(
+        *(create_graph(conns[i % len(conns)], t) for i, t in enumerate(tenants.ids))
+    )
 
     async def add_resident(conn: Any, graph: str, ridx: int) -> int:
         n = 0
@@ -398,7 +421,12 @@ async def populate(
 
 
 async def _mutation_producer(
-    conn: Any, tenants: TenantPlan, metrics: Metrics, rate: float, stop_at: float, rng: random.Random
+    conn: Any,
+    tenants: TenantPlan,
+    metrics: Metrics,
+    rate: float,
+    stop_at: float,
+    rng: random.Random,
 ) -> None:
     n = 0
     while time.monotonic() < stop_at:
@@ -412,7 +440,12 @@ async def _mutation_producer(
 
 
 async def _tool_call_producer(
-    conn: Any, tenants: TenantPlan, metrics: Metrics, rate: float, stop_at: float, rng: random.Random
+    conn: Any,
+    tenants: TenantPlan,
+    metrics: Metrics,
+    rate: float,
+    stop_at: float,
+    rng: random.Random,
 ) -> None:
     while time.monotonic() < stop_at:
         tenant = tenants.sample(rng)
@@ -442,7 +475,10 @@ async def _turn_producer(
         n += 1
         submit_ts = time.monotonic()
         await add_node(
-            conn, tier, item_id, {"label": "SoakWorkItem", "status": "pending", "seq": n}
+            conn,
+            tier,
+            item_id,
+            {"label": "SoakWorkItem", "status": "pending", "seq": n},
         )
         metrics.submit_ts[item_id] = submit_ts
         metrics.turns_submitted += 1
@@ -487,7 +523,10 @@ async def _turn_worker(
         claimed = None
         for tier in tiers:
             claimed = await claim_next(
-                conn, tier, "SoakWorkItem", {"status": "running", "claimed_ts": time.time()}
+                conn,
+                tier,
+                "SoakWorkItem",
+                {"status": "running", "claimed_ts": time.time()},
             )
             if claimed is not None:
                 break
@@ -542,14 +581,23 @@ def _build_steady_producers(
     for i in range(n_mut):
         producers.append(
             _mutation_producer(
-                conns[i % len(conns)], tenants, metrics, mutations_per_sec / n_mut, stop_at, rng
+                conns[i % len(conns)],
+                tenants,
+                metrics,
+                mutations_per_sec / n_mut,
+                stop_at,
+                rng,
             )
         )
     for i in range(n_tool):
         producers.append(
             _tool_call_producer(
-                conns[(n_mut + i) % len(conns)], tenants, metrics, tool_calls_per_sec / n_tool,
-                stop_at, rng,
+                conns[(n_mut + i) % len(conns)],
+                tenants,
+                metrics,
+                tool_calls_per_sec / n_tool,
+                stop_at,
+                rng,
             )
         )
     producers.append(
@@ -606,7 +654,9 @@ def _steady_state_report(metrics: Metrics, wall: float) -> dict[str, Any]:
             "tool_calls": len(metrics.query_latency_s),
         },
         "throughput": {
-            "turns_per_sec_measured": round(metrics.turns_succeeded / wall, 3) if wall else 0.0,
+            "turns_per_sec_measured": round(metrics.turns_succeeded / wall, 3)
+            if wall
+            else 0.0,
             "mutations_per_sec_measured": round(len(metrics.write_latency_s) / wall, 3)
             if wall
             else 0.0,
@@ -667,7 +717,11 @@ async def run_steady_state(
 
 
 async def phase_restart_recovery(
-    binary: Path, handle: ServerHandle, conns: list[Any], probe_graph: str, probe_node: str
+    binary: Path,
+    handle: ServerHandle,
+    conns: list[Any],
+    probe_graph: str,
+    probe_node: str,
 ) -> tuple[dict[str, Any], ServerHandle, list[Any]]:
     # Confirm the probe node is really there pre-restart.
     pre = await get_node_properties(conns[0], probe_graph, probe_node)
@@ -696,19 +750,25 @@ async def phase_restart_recovery(
             first_op_s = time.monotonic() - t0
             if post is not None:
                 break
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
         await asyncio.sleep(0.1)
     restart_to_first_op_s = time.monotonic() - t_restart0
 
-    return {
-        "pre_restart_probe_found": pre is not None,
-        "post_restart_probe_found": post is not None,
-        "data_survived_restart": pre is not None and post == pre,
-        "graceful_stop_wall_s": round(stop_wall_s, 3),
-        "restart_to_first_successful_op_s": round(restart_to_first_op_s, 3),
-        "first_op_latency_s": round(first_op_s, 4) if first_op_s is not None else None,
-    }, restarted, new_conns
+    return (
+        {
+            "pre_restart_probe_found": pre is not None,
+            "post_restart_probe_found": post is not None,
+            "data_survived_restart": pre is not None and post == pre,
+            "graceful_stop_wall_s": round(stop_wall_s, 3),
+            "restart_to_first_successful_op_s": round(restart_to_first_op_s, 3),
+            "first_op_latency_s": round(first_op_s, 4)
+            if first_op_s is not None
+            else None,
+        },
+        restarted,
+        new_conns,
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -728,7 +788,10 @@ async def phase_hot_tenant(
         while time.monotonic() < stop_at:
             t0 = time.perf_counter()
             await add_node(
-                conns[0], elephant_graph, f"{elephant_graph}:hammer:{n}", {"label": "Hammer"}
+                conns[0],
+                elephant_graph,
+                f"{elephant_graph}:hammer:{n}",
+                {"label": "Hammer"},
             )
             hot_lat.append(time.perf_counter() - t0)
             n += 1
@@ -738,11 +801,16 @@ async def phase_hot_tenant(
         while time.monotonic() < stop_at:
             t0 = time.perf_counter()
             await add_node(
-                conns[1], ordinary_graph, f"{ordinary_graph}:sample:{n}", {"label": "Sample"}
+                conns[1],
+                ordinary_graph,
+                f"{ordinary_graph}:sample:{n}",
+                {"label": "Sample"},
             )
             ordinary_lat.append(time.perf_counter() - t0)
             n += 1
-            await asyncio.sleep(0.01)  # ordinary tenant issues a normal, unhammered rate
+            await asyncio.sleep(
+                0.01
+            )  # ordinary tenant issues a normal, unhammered rate
 
     # Run several concurrent hammer tasks against the SAME elephant graph
     # (simulating many concurrent sessions on one noisy tenant), one connection
@@ -753,7 +821,9 @@ async def phase_hot_tenant(
     return {
         "elephant_hammer_write_latency_ms": _percentiles_ms(hot_lat),
         "ordinary_tenant_write_latency_ms": _percentiles_ms(ordinary_lat),
-        "ordinary_tenant_slo_pass": _slo_pass(_percentiles_ms(ordinary_lat), SLO_MS["write_latency_ms"]),
+        "ordinary_tenant_slo_pass": _slo_pass(
+            _percentiles_ms(ordinary_lat), SLO_MS["write_latency_ms"]
+        ),
     }
 
 
@@ -763,7 +833,9 @@ async def phase_hot_tenant(
 # --------------------------------------------------------------------------- #
 
 
-async def phase_backpressure(binary: Path, max_inflight: int, burst_concurrency: int) -> dict[str, Any]:
+async def phase_backpressure(
+    binary: Path, max_inflight: int, burst_concurrency: int
+) -> dict[str, Any]:
     with tempfile.TemporaryDirectory() as tmp:
         sock = os.path.join(tmp, "backpressure.sock")
         handle = start_server(
@@ -793,7 +865,7 @@ async def phase_backpressure(binary: Path, max_inflight: int, burst_concurrency:
                         busy += 1
                     else:
                         other_err += 1
-                except Exception:  # noqa: BLE001
+                except Exception:
                     other_err += 1
 
             t0 = time.monotonic()
@@ -806,7 +878,7 @@ async def phase_backpressure(binary: Path, max_inflight: int, burst_concurrency:
                 try:
                     await add_node(conn, "bp", f"bp:recover{i}", {"label": "Recover"})
                     recovered += 1
-                except Exception:  # noqa: BLE001
+                except Exception:
                     pass
 
             await close_pool(conns)
@@ -832,7 +904,9 @@ async def phase_backpressure(binary: Path, max_inflight: int, burst_concurrency:
 # --------------------------------------------------------------------------- #
 
 
-async def phase_eviction_read_through(binary: Path, node_cap: int, total_nodes: int) -> dict[str, Any]:
+async def phase_eviction_read_through(
+    binary: Path, node_cap: int, total_nodes: int
+) -> dict[str, Any]:
     with tempfile.TemporaryDirectory() as tmp:
         sock = os.path.join(tmp, "evict.sock")
         persist_dir = os.path.join(tmp, "persist")
@@ -851,7 +925,9 @@ async def phase_eviction_read_through(binary: Path, node_cap: int, total_nodes: 
             write_lat: list[float] = []
             for i in range(total_nodes):
                 t0 = time.perf_counter()
-                await add_node(conn, "evict", f"evict:n{i}", {"label": "EvictProbe", "i": i})
+                await add_node(
+                    conn, "evict", f"evict:n{i}", {"label": "EvictProbe", "i": i}
+                )
                 write_lat.append(time.perf_counter() - t0)
 
             # Read back the FIRST node written (most likely evicted back to redb by
@@ -924,7 +1000,9 @@ async def run_all(args: argparse.Namespace) -> dict[str, Any]:
             conns = await open_pool(sock, args.connections)
 
             print("== Phase A: population build ==", file=sys.stderr)
-            pop_report = await populate(conns, tenants, args.nodes_per_resident, args.pop_concurrency)
+            pop_report = await populate(
+                conns, tenants, args.nodes_per_resident, args.pop_concurrency
+            )
             pop_report["rss_kb_after_populate"] = handle.rss_kb()
             report["population"] = pop_report
             print(json.dumps(pop_report, indent=2), file=sys.stderr)
@@ -946,7 +1024,9 @@ async def run_all(args: argparse.Namespace) -> dict[str, Any]:
             print(json.dumps(steady, indent=2), file=sys.stderr)
 
             print("== Phase B: restart / cold-recovery ==", file=sys.stderr)
-            probe_graph = tenants.ids[1] if len(tenants.ids) > 1 else tenants.elephant_id
+            probe_graph = (
+                tenants.ids[1] if len(tenants.ids) > 1 else tenants.elephant_id
+            )
             probe_node = f"{probe_graph}:r0:n0"
             restart_report, handle, conns = await phase_restart_recovery(
                 binary, handle, conns, probe_graph, probe_node

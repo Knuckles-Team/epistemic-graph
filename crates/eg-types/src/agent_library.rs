@@ -1271,6 +1271,9 @@ fn put_refs(hasher: &mut Sha256, refs: &[String]) {
 mod tests {
     use super::*;
 
+    /// One named edit to a runtime contract, for the digest-binding table below.
+    type NamedMutation<T> = (&'static str, fn(&mut T));
+
     fn digest(seed: char) -> String {
         format!("sha256:{}", seed.to_string().repeat(64))
     }
@@ -1509,7 +1512,7 @@ mod tests {
             .expect("baseline publishes")
             .definition_digest;
 
-        let mutations: Vec<(&str, fn(&mut AgentRuntimeContract))> = vec![
+        let mutations: Vec<NamedMutation<AgentRuntimeContract>> = vec![
             ("deps_contract", |r| r.deps_contract = None),
             ("output_contract", |r| {
                 r.output_contract = Some(ComponentDependency {

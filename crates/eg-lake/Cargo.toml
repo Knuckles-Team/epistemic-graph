@@ -43,7 +43,7 @@ default = []
 # (GOC-76-W03/W07 scope) are UNCHANGED by this — this crate only becomes buildable
 # against the official crate family; nothing yet calls it (GOC-76-W02..W07, off this
 # lane's scope per the CA-18 lane contract).
-lake = ["dep:polars-core", "dep:polars-io", "dep:apache-avro", "dep:iceberg", "dep:iceberg-storage-opendal"]
+lake = ["dep:polars-core", "dep:polars-io", "dep:polars-parquet", "dep:apache-avro", "dep:iceberg", "dep:iceberg-storage-opendal"]
 # ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for LakeBatch` +
 # the `modality_conformance_tests!` battery. OFF by default, deliberately NOT folded
 # into any tier aggregate (default/lake) — it is a capability-discovery/testing seam,
@@ -64,6 +64,10 @@ eg-modality = { path = "../eg-modality", optional = true }
 # The implementation always selects uncompressed pages.
 polars-core = { version = "0.54.4", optional = true, default-features = false, features = ["dtype-datetime"] }
 polars-io = { version = "0.54.4", optional = true, default-features = false, features = ["parquet", "dtype-datetime"] }
+# Direct access to Polars' native Parquet schema encoder lets the producer pin the
+# embedded Arrow schema to offset-based UTF-8 for external-reader compatibility.
+# This is the same crate/version polars-io already resolves transitively.
+polars-parquet = { version = "0.54.4", optional = true, default-features = false }
 # Pure-Rust Avro codec for the spec-compliant Iceberg v2 manifest + manifest-list
 # files (CONCEPT:EG-333/EG-334). `default-features = false` drops the optional
 # snappy / zstandard / bzip / xz codecs (all C `*-sys`) — we write the Avro container

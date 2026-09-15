@@ -92,9 +92,7 @@ def test_conditional_derive_is_inert_and_the_child_module_is_still_read(
         "strum::IntoStaticStr",
     ],
 )
-def test_each_audited_conditional_derive_is_inert(
-    tmp_path: Path, derive: str
-) -> None:
+def test_each_audited_conditional_derive_is_inert(tmp_path: Path, derive: str) -> None:
     walker = _script("rust_module_tree")
     _plant_module(tmp_path, f'#[cfg_attr(feature = "x", derive({derive}))]')
 
@@ -206,6 +204,23 @@ def test_absent_struct_declaration_is_fatal_not_silently_open() -> None:
         gate._assert_rust_closed([{"rust_type": "NoSuchDtoIsDeclaredAnywhere"}])
 
 
+def test_epistemic_operations_gate_rejects_an_omitted_child(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every compiler-declared DTO child must remain in the reviewed inventory."""
+
+    gate = _script("check_epistemic_operations_protocol")
+    omitted = "crates/eg-types/src/epistemic_operations/resource_status.rs"
+    monkeypatch.setattr(
+        gate,
+        "EXPECTED_RUST_SOURCES",
+        gate.EXPECTED_RUST_SOURCES - {omitted},
+    )
+
+    with pytest.raises(gate.GateError, match="compiler module family changed"):
+        gate._rust_source()
+
+
 # --------------------------------------------------------------------------
 # scripts/check_mint_lease_call_sites.py -- audited property, not a file path
 # --------------------------------------------------------------------------
@@ -227,9 +242,24 @@ async fn unrelated_later_item() {
 
 _AUDITED_BODY = """\
     let (auth_secret, isolation) = load(state).await;
-    let mint_auth = MintAuthorization::compute_mac(&auth_secret, verified.claims())
-        .and_then(|mac| MintAuthorization::new(&auth_secret, verified.claims(), &mac))?;
-    let lease = isolation.mint_policy_decision_lease(&mint_auth, &graph, read)?;
+    let mint_auth = MintAuthorization::compute_mac(
+        &auth_secret,
+        verified_context.claims(),
+    )
+    .and_then(|mac| {
+        MintAuthorization::new(&auth_secret, verified_context.claims(), &mac)
+    })?;
+    let carrier = CarrierAuthority::from_verified(verified_context)?;
+    let lease =
+        isolation.mint_policy_decision_lease(&mint_auth, &graph, AccessLevel::Read)?;
+    let authority = KnowledgeStreamAuthority::from_verified_with_lease(
+        &auth_secret,
+        verified_context.claims(),
+        &graph,
+        &carrier,
+        lease,
+        isolation.policy_store()?,
+    )?;
 """
 
 _CALLER_SUPPLIED_BODY = """\
@@ -293,7 +323,8 @@ fn audited_free_function() {
 mod outer {
     pub mod inner {
         pub async fn smuggled_nested_module_fn() {
-            let lease = isolation.mint_policy_decision_lease(&caller_token, &graph, read);
+            let lease = isolation.mint_policy_decision_lease(&caller_token, &graph,
+            read);
         }
     }
 }
@@ -304,9 +335,25 @@ async fn dispatch_governed_stream_write_methods(
     state: &ServerState,
     graph: &GraphName,
 ) -> Result<Lease> {
-    let mint_auth = MintAuthorization::compute_mac(&auth_secret, verified.claims())
-        .and_then(|mac| MintAuthorization::new(&auth_secret, verified.claims(), &mac))?;
-    isolation.mint_policy_decision_lease(&mint_auth, &graph, read)
+    let (auth_secret, isolation) = load(state).await;
+    let mint_auth = MintAuthorization::compute_mac(
+        &auth_secret,
+        verified_context.claims(),
+    )
+    .and_then(|mac| {
+        MintAuthorization::new(&auth_secret, verified_context.claims(), &mac)
+    })?;
+    let carrier = CarrierAuthority::from_verified(verified_context)?;
+    let lease =
+        isolation.mint_policy_decision_lease(&mint_auth, &graph, AccessLevel::Read)?;
+    KnowledgeStreamAuthority::from_verified_with_lease(
+        &auth_secret,
+        verified_context.claims(),
+        &graph,
+        &carrier,
+        lease,
+        isolation.policy_store()?,
+    )
 }
 """
 

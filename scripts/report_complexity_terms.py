@@ -27,10 +27,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, NoReturn
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from rust_exhaustive_match import dispatch_shape  # noqa: E402
-from scanner_contract import (  # noqa: E402
+from rust_exhaustive_match import dispatch_shape
+from scanner_contract import (
     CCCC_MAX_COGNITIVE,
     CCCC_MAX_CYCLOMATIC,
 )

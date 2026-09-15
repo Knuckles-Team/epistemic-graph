@@ -16,12 +16,12 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph.client import ConsensusClient
+from epistemic_graph.client import ConsensusClient, EpistemicGraphClient
 
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeClient:
+class _FakeClient(EpistemicGraphClient):
     """Records the exact wire call and returns a canned ``_send`` result."""
 
     def __init__(self, answer: Any) -> None:
@@ -46,7 +46,7 @@ class _FakeClient:
 async def test_get_identity_sends_exact_method_name_and_commons_graph() -> None:
     """The client pins identity reads to the registry graph, never a caller graph."""
     fake = _FakeClient(None)
-    client = ConsensusClient(fake)  # type: ignore[arg-type]
+    client = ConsensusClient(fake)
 
     await client.get_identity("agent-a")
 
@@ -57,7 +57,7 @@ async def test_get_identity_sends_exact_method_name_and_commons_graph() -> None:
 async def test_get_identity_returns_none_when_unregistered() -> None:
     """Not registered at all -> ``None``, and nothing else."""
     fake = _FakeClient(None)
-    client = ConsensusClient(fake)  # type: ignore[arg-type]
+    client = ConsensusClient(fake)
 
     result = await client.get_identity("never-registered")
 
@@ -76,7 +76,7 @@ async def test_get_identity_returns_confirmed_empty_identity_not_none() -> None:
     fake = _FakeClient(
         {"agent_id": "agent-b", "role": "Agent", "teams": [], "roles": []}
     )
-    client = ConsensusClient(fake)  # type: ignore[arg-type]
+    client = ConsensusClient(fake)
 
     result = await client.get_identity("agent-b")
 
@@ -97,7 +97,7 @@ async def test_get_identity_returns_populated_identity_including_manager_role() 
             "roles": ["commons-access"],
         }
     )
-    client = ConsensusClient(fake)  # type: ignore[arg-type]
+    client = ConsensusClient(fake)
 
     result = await client.get_identity("agent-c")
 
@@ -113,7 +113,7 @@ async def test_get_identity_propagates_call_failure_not_none() -> None:
     conflating "call failed" with "not registered" is exactly the ambiguity bug
     this RPC exists to fix."""
     fake = _FakeClient(RuntimeError("engine unreachable"))
-    client = ConsensusClient(fake)  # type: ignore[arg-type]
+    client = ConsensusClient(fake)
 
     with pytest.raises(RuntimeError, match="engine unreachable"):
         await client.get_identity("agent-e")
@@ -124,7 +124,7 @@ async def test_get_identity_rejects_malformed_result_shape() -> None:
     """A response missing/adding fields must not be silently accepted as a
     partially-valid identity."""
     fake = _FakeClient({"agent_id": "agent-f", "role": "Agent", "teams": []})
-    client = ConsensusClient(fake)  # type: ignore[arg-type]
+    client = ConsensusClient(fake)
 
     with pytest.raises(ValueError, match="missing required fields"):
         await client.get_identity("agent-f")
@@ -133,7 +133,7 @@ async def test_get_identity_rejects_malformed_result_shape() -> None:
 @pytest.mark.asyncio
 async def test_get_identity_rejects_empty_agent_id() -> None:
     fake = _FakeClient(None)
-    client = ConsensusClient(fake)  # type: ignore[arg-type]
+    client = ConsensusClient(fake)
 
     with pytest.raises(ValueError):
         await client.get_identity("")

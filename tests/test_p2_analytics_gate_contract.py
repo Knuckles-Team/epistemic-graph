@@ -79,8 +79,7 @@ def test_permissive_running_arm_fails_the_barrier(signature: str) -> None:
     gate = _gate()
     permissive = _CLEAN_STORE.replace(
         signature + "&self, job_id: &str) -> Result<AnalyticsJob> {",
-        signature
-        + "&self, job_id: &str) -> Result<AnalyticsJob> {\n"
+        signature + "&self, job_id: &str) -> Result<AnalyticsJob> {\n"
         "        let x = match &job.state {\n"
         "            JobState::Running { checkpoint } => checkpoint,\n"
         "        };",
@@ -111,12 +110,17 @@ def test_a_missing_completion_entry_point_is_fatal(signature: str) -> None:
 
 def test_ordered_markers_accepts_the_declared_order() -> None:
     gate = _gate()
-    assert gate._ordered_markers("first() second()", "p.rs", "first(", "second(", "V") == []
+    assert (
+        gate._ordered_markers("first() second()", "p.rs", "first(", "second(", "V")
+        == []
+    )
 
 
 def test_ordered_markers_reports_a_swapped_order() -> None:
     gate = _gate()
-    assert gate._ordered_markers("second() first()", "p.rs", "first(", "second(", "V") == ["V"]
+    assert gate._ordered_markers(
+        "second() first()", "p.rs", "first(", "second(", "V"
+    ) == ["V"]
 
 
 @pytest.mark.parametrize("present", ["first(", "second("])
@@ -143,7 +147,7 @@ def test_required_marker_table_shape_is_pinned() -> None:
             "crates/eg-jobs/src/store.rs",
             "crates/eg-types/src/jobs.rs",
             "src/raft/mod.rs",
-            "src/server/auth.rs",
+            "src/server/authority_context.rs",
             "src/server/dispatch.rs",
             "src/server/handlers/jobs.rs",
             "src/server/handlers/query.rs",

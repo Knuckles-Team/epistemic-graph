@@ -1,5 +1,6 @@
 """Round-trip tests for the market-microstructure, sizing, validation, and
-forensic-accounting kernels (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest / KG-2.20g).
+forensic-accounting kernels (CONCEPT:EG-KG.domains.market-microstructure-sizing-backtest
+/ KG-2.20g).
 
 Full path: Python client -> UDS -> Rust dispatch -> result. Uses the
 session-scoped server + `clean_graph` sync client from conftest.py.
@@ -26,13 +27,23 @@ def test_avellaneda_stoikov_roundtrip(clean_graph):
 
 def test_logit_quotes_bounded_and_cap(clean_graph):
     q = clean_graph.finance.logit_quotes(
-        p_mid=0.5, inventory=0.0, sigma=0.5, gamma=0.1, kappa=1.5, tau=1.0,
+        p_mid=0.5,
+        inventory=0.0,
+        sigma=0.5,
+        gamma=0.1,
+        kappa=1.5,
+        tau=1.0,
         boundary_m=100.0,
     )
     assert 0.0 < q["bid"] < q["ask"] < 1.0
     assert q["withdraw"] is False
     q2 = clean_graph.finance.logit_quotes(
-        p_mid=0.02, inventory=500.0, sigma=0.5, gamma=0.1, kappa=1.5, tau=1.0,
+        p_mid=0.02,
+        inventory=500.0,
+        sigma=0.5,
+        gamma=0.1,
+        kappa=1.5,
+        tau=1.0,
         boundary_m=100.0,
     )
     assert q2["withdraw"] is True
@@ -53,12 +64,20 @@ def test_kyle_lambda_and_surveillance_roundtrip(clean_graph):
     assert math.isclose(clean_graph.finance.kyle_lambda(dp, flow), 0.5, abs_tol=1e-6)
     # toxic one-sided flow scores higher legal risk than benign balanced flow
     toxic = clean_graph.finance.surveillance_risk(
-        buy_vol=[500.0, 500.0, 500.0], sell_vol=[5.0, 5.0, 5.0], p_mean=[0.5, 0.5, 0.5],
-        signed_flow=[8.0, 9.0, 10.0], price_changes=[0.4, 0.45, 0.5], baseline_sigma=1.0,
+        buy_vol=[500.0, 500.0, 500.0],
+        sell_vol=[5.0, 5.0, 5.0],
+        p_mean=[0.5, 0.5, 0.5],
+        signed_flow=[8.0, 9.0, 10.0],
+        price_changes=[0.4, 0.45, 0.5],
+        baseline_sigma=1.0,
     )
     benign = clean_graph.finance.surveillance_risk(
-        buy_vol=[110.0, 110.0, 110.0], sell_vol=[100.0, 100.0, 100.0], p_mean=[0.5, 0.5, 0.5],
-        signed_flow=[1.0, -1.0, 1.0], price_changes=[0.01, -0.01, 0.01], baseline_sigma=1.0,
+        buy_vol=[110.0, 110.0, 110.0],
+        sell_vol=[100.0, 100.0, 100.0],
+        p_mean=[0.5, 0.5, 0.5],
+        signed_flow=[1.0, -1.0, 1.0],
+        price_changes=[0.01, -0.01, 0.01],
+        baseline_sigma=1.0,
     )
     assert 0.0 <= benign["legal_risk_score"] <= 1.0
     assert toxic["legal_risk_score"] > benign["legal_risk_score"]
@@ -67,8 +86,12 @@ def test_kyle_lambda_and_surveillance_roundtrip(clean_graph):
 
 def test_ofi_and_breakeven_roundtrip(clean_graph):
     ofi = clean_graph.finance.ofi_series(
-        ts=[0.0, 0.5, 1.0], bid_px=[0.49, 0.49, 0.50], bid_sz=[100.0, 120.0, 130.0],
-        ask_px=[0.51, 0.51, 0.51], ask_sz=[100.0, 90.0, 90.0], window_secs=1.0,
+        ts=[0.0, 0.5, 1.0],
+        bid_px=[0.49, 0.49, 0.50],
+        bid_sz=[100.0, 120.0, 130.0],
+        ask_px=[0.51, 0.51, 0.51],
+        ask_sz=[100.0, 90.0, 90.0],
+        window_secs=1.0,
     )
     assert len(ofi) == 3
     be = clean_graph.finance.breakeven_alpha(delta=0.01, p=0.5)
@@ -104,8 +127,9 @@ def test_bayesian_kelly_shrinks_with_uncertainty(clean_graph):
 
 
 def test_purged_cpcv_roundtrip(clean_graph):
-    splits = clean_graph.finance.purged_cpcv(120, n_groups=6, n_test_groups=2,
-                                             purge_window=5, embargo=5)
+    splits = clean_graph.finance.purged_cpcv(
+        120, n_groups=6, n_test_groups=2, purge_window=5, embargo=5
+    )
     assert len(splits) == 15  # C(6,2)
     for s in splits:
         tset = set(s["test"])
@@ -127,18 +151,39 @@ def test_deflated_sharpe_and_dm_roundtrip(clean_graph):
 
 def _healthy_years():
     prior = {
-        "sales": 1000.0, "cogs": 600.0, "sga": 150.0, "net_income": 180.0,
-        "cfo": 200.0, "receivables": 100.0, "current_assets": 500.0,
-        "current_liabilities": 200.0, "ppe_net": 400.0, "depreciation": 40.0,
-        "total_assets": 1200.0, "total_liabilities": 400.0, "long_term_debt": 200.0,
-        "retained_earnings": 600.0, "ebit": 250.0, "market_cap": 3000.0, "shares": 100.0,
+        "sales": 1000.0,
+        "cogs": 600.0,
+        "sga": 150.0,
+        "net_income": 180.0,
+        "cfo": 200.0,
+        "receivables": 100.0,
+        "current_assets": 500.0,
+        "current_liabilities": 200.0,
+        "ppe_net": 400.0,
+        "depreciation": 40.0,
+        "total_assets": 1200.0,
+        "total_liabilities": 400.0,
+        "long_term_debt": 200.0,
+        "retained_earnings": 600.0,
+        "ebit": 250.0,
+        "market_cap": 3000.0,
+        "shares": 100.0,
     }
     this = dict(prior)
-    this.update({
-        "sales": 1100.0, "cogs": 650.0, "net_income": 210.0, "cfo": 240.0,
-        "receivables": 105.0, "current_assets": 560.0, "total_assets": 1320.0,
-        "retained_earnings": 750.0, "ebit": 290.0, "long_term_debt": 180.0,
-    })
+    this.update(
+        {
+            "sales": 1100.0,
+            "cogs": 650.0,
+            "net_income": 210.0,
+            "cfo": 240.0,
+            "receivables": 105.0,
+            "current_assets": 560.0,
+            "total_assets": 1320.0,
+            "retained_earnings": 750.0,
+            "ebit": 290.0,
+            "long_term_debt": 180.0,
+        }
+    )
     return this, prior
 
 

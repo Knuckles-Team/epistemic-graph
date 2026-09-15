@@ -80,11 +80,15 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+# `push_gate_evidence` is a plain sibling of this file in `scripts/`. A direct
+# `python3 scripts/check_cluster_extras_affected_lint.py` invocation (the
+# pre-push hook) already has this file's own directory as `sys.path[0]`; a
+# test loading this file by path gets `scripts/` on `sys.path` from
+# `pythonpath = scripts` in pytest.ini instead. Neither needs the repo root
+# importable as a dotted package, so no `sys.path` bootstrap is needed here.
+import push_gate_evidence
 
-from scripts import push_gate_evidence  # noqa: E402
+ROOT = Path(__file__).resolve().parents[1]
 
 # The shipped feature set -- what every other local gate already lints
 # (matches the `cargo-clippy` hook's `--features full`, plus `ast-extended`
@@ -235,7 +239,8 @@ def main() -> int:
     if files is None:
         return run_heavy(
             "could not determine the push's changed-file range "
-            "(PRE_COMMIT_FROM_REF/PRE_COMMIT_TO_REF unset or `git diff` failed) -- fail closed"
+            "(PRE_COMMIT_FROM_REF/PRE_COMMIT_TO_REF unset or `git diff` failed) -- "
+            "fail closed"
         )
 
     rust_relevant = [
@@ -262,9 +267,10 @@ def main() -> int:
 
     try:
         affected = reachable_from_extras()
-    except Exception as exc:  # noqa: BLE001 -- fail closed on ANY metadata/parse failure
+    except Exception as exc:
         return run_heavy(
-            f"could not compute the cluster/full-extras-reachable crate set ({exc!r}) -- fail closed"
+            f"could not compute the cluster/full-extras-reachable crate set ({exc!r}) "
+            f"-- fail closed"
         )
 
     hit = touched_crates & affected
@@ -276,7 +282,8 @@ def main() -> int:
 
     _log(
         f"touched crate(s) {sorted(touched_crates)} do not reach cluster/full-extras "
-        f"(reachable set: {sorted(affected)}) -- skipping the heavy --all-features clippy"
+        f"(reachable set: {sorted(affected)}) -- skipping the heavy --all-features "
+        f"clippy"
     )
     _log("the everyday `cargo-clippy` (full,ast-extended) hook already ran above")
     _log(

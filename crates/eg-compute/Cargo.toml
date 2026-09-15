@@ -152,3 +152,8 @@ required-features = ["ast"]
 name = "approx_knn"
 path = "benches/approx_knn.rs"
 harness = false
+
+# Test-only opt-in cfg (not a feature, so `--all-features` never turns it on). See the
+# crate's device/CPU-feature parity tests for when to pass `--cfg eg_gpu_device_tests`.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(eg_gpu_device_tests)"] }

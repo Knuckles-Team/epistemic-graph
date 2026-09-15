@@ -22,6 +22,7 @@ use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 use crate::server::blob::{store, BlobCursors};
 use eg_types::contract::Nonce;
+use eg_types::result_contract::storage as results;
 
 /// Handle the blob methods. Returns `Err(method)` for any non-blob method so the
 /// dispatch chain falls through (routing convention). When the engine is built
@@ -56,264 +57,415 @@ pub(crate) async fn try_handle(
     let original_method = method.clone();
     match method {
         Method::BlobBegin { chunk_size } => {
-            let cs = if chunk_size == 0 {
-                store::DEFAULT_CHUNK_SIZE as u32
-            } else {
-                chunk_size
-            };
-            // BUG A2 (2026-08-12): `BlobBegin`'s `Method` payload carries no
-            // upload identity of its own (it is the call that MINTS one), so
-            // the durable idempotency key compiled for it must be identified
-            // by the freshly allocated cursor id, never the wire `req_id` —
-            // `req_id` is only locally unique within one connection (a brand
-            // new, otherwise unrelated connection restarts its counter from
-            // 1 on every reconnect) and `CarrierAuthority` carries no
-            // per-connection component, so two independent connections from
-            // the same tenant/actor previously collided on the identical
-            // idempotency key for their first `BlobBegin()` call and the
-            // second silently replayed the first's already-torn-down cursor
-            // ("committed blob upload cursor is missing" below). Allocate
-            // the id FIRST so it can be folded into the batch identity —
-            // see `compile_blob_batch_at`'s doc for the full mechanism.
-            let proposed = cursors.allocate_upload_id();
-            let expected = match cursors.store.mutation_version(
-                authority.tenant_scope(),
-                &authority.namespace("blob-cas", "control"),
-            ) {
-                Ok(v) => v,
-                Err(error) => return Ok(Response::err(req_id, error)),
-            };
-            let now = crate::server::dispatch::authoritative_now_ms();
-            let (batch, now) = match compile_blob_batch_at_with_nonce(
-                cursors.store.as_ref(),
-                proposed,
+            handle_blob_begin(
+                &cursors,
+                req_id,
                 authority,
-                &original_method,
-                expected,
-                now,
                 attempt_nonce,
-            ) {
-                Ok(value) => value,
-                Err(error) => return Ok(Response::err(req_id, error)),
-            };
-            let store = cursors.store.clone();
-            let owner_scope = authority.owner_scope().to_string();
-            let committed = run_blocking(req_id, move || {
-                store.begin_upload_batch(proposed, cs, &owner_scope, &batch, now)
-            })
-            .await;
-            let id = match committed {
-                Ok(Ok(id)) => id,
-                Ok(Err(error)) => return Ok(Response::err(req_id, error)),
-                Err(response) => return Ok(response),
-            };
-            match cursors.store.load_upload(id) {
-                Ok(Some(manifest)) => {
-                    if let Err(error) = cursors.restore_upload_manifest(id, manifest) {
-                        return Ok(Response::err(req_id, error));
-                    }
-                }
-                Ok(None) => {
-                    return Ok(Response::err(
-                        req_id,
-                        "committed blob upload cursor is missing",
-                    ))
-                }
-                Err(error) => return Ok(Response::err(req_id, error)),
-            }
-            Ok(Response::ok(req_id, ResultPayload::Count(id)))
+                &original_method,
+                chunk_size,
+            )
+            .await
         }
 
         Method::BlobChunkPut { cursor, data } => {
-            if let Err(error) = ensure_upload_owner(&cursors, cursor, authority.owner_scope()) {
-                return Ok(Response::err(req_id, error));
-            }
-            let (batch, now) = match compile_blob_batch_with_nonce(
-                cursors.store.as_ref(),
+            handle_blob_chunk_put(
+                &cursors,
                 req_id,
                 authority,
-                &original_method,
                 attempt_nonce,
-            ) {
-                Ok(value) => value,
-                Err(error) => return Ok(Response::err(req_id, error)),
-            };
-            let store = cursors.store.clone();
-            let put = run_blocking(req_id, move || {
-                store.put_upload_chunk_batch(cursor, &data, &batch, now)
-            })
-            .await;
-            let (_digest, count) = match put {
-                Ok(Ok(r)) => r,
-                Ok(Err(e)) => return Ok(Response::err(req_id, e)),
-                Err(resp) => return Ok(resp),
-            };
-            match cursors.store.load_upload(cursor) {
-                Ok(Some(manifest)) => match cursors.restore_upload_manifest(cursor, manifest) {
-                    Ok(()) => Ok(Response::ok(req_id, ResultPayload::Count(count as u64))),
-                    Err(error) => Ok(Response::err(req_id, error)),
-                },
-                Ok(None) => Ok(Response::err(req_id, "durable upload cursor is missing")),
-                Err(error) => Ok(Response::err(req_id, error)),
-            }
+                &original_method,
+                cursor,
+                data,
+            )
+            .await
         }
 
         Method::BlobCommit { cursor } => {
-            if let Err(error) = ensure_upload_owner(&cursors, cursor, authority.owner_scope()) {
-                return Ok(Response::err(req_id, error));
-            }
-            let (batch, now) = match compile_blob_batch_with_nonce(
-                cursors.store.as_ref(),
+            handle_blob_commit(
+                &cursors,
                 req_id,
                 authority,
-                &original_method,
                 attempt_nonce,
-            ) {
-                Ok(value) => value,
-                Err(error) => return Ok(Response::err(req_id, error)),
-            };
-            let store = cursors.store.clone();
-            let put = run_blocking(req_id, move || {
-                store.commit_upload_batch(cursor, &batch, now)
-            })
-            .await;
-            match put {
-                Ok(Ok(digest)) => {
-                    cursors.finish_upload(cursor);
-                    Ok(Response::ok(req_id, ResultPayload::String(digest)))
-                }
-                Ok(Err(e)) => Ok(Response::err(req_id, e)),
-                Err(resp) => Ok(resp),
-            }
+                &original_method,
+                cursor,
+            )
+            .await
         }
 
         Method::BlobFetchBegin { digest } => {
-            let store = cursors.store.clone();
-            let d2 = digest.clone();
-            let manifest = run_blocking(req_id, move || store.get_manifest(&d2)).await;
-            match manifest {
-                Ok(Ok(Some(m))) if m.owner_scope == authority.owner_scope() => {
-                    let (cursor, n) = cursors.open_fetch(m);
-                    Ok(Response::ok(
-                        req_id,
-                        // (cursor, n_chunks) as a 2-element id list keeps the wire
-                        // simple — the client splits it.
-                        ResultPayload::raw(&(cursor, n)),
-                    ))
-                }
-                Ok(Ok(Some(_))) | Ok(Ok(None)) => {
-                    crate::metrics::access_denied();
-                    Ok(Response::err(req_id, "unknown blob digest"))
-                }
-                Ok(Err(e)) => Ok(Response::err(req_id, e)),
-                Err(resp) => Ok(resp),
-            }
+            handle_blob_fetch_begin(&cursors, req_id, authority, digest).await
         }
 
         Method::BlobChunkGet { cursor, idx } => {
-            if let Err(error) = cursors.authorize_fetch(cursor, authority.owner_scope()) {
-                return Ok(Response::err(req_id, error));
-            }
-            let digest = match cursors.fetch_chunk_digest(cursor, idx) {
-                Ok(d) => d,
-                Err(e) => return Ok(Response::err(req_id, e)),
-            };
-            let store = cursors.store.clone();
-            let got = run_blocking(req_id, move || store.get_chunk(&digest)).await;
-            match got {
-                // A chunk is ARBITRARY binary (raw media bytes), NOT a packed map,
-                // so it must NOT travel as a structured binary result — the Python `_send`
-                // blindly `unpackb`s any top-level `bytes` result, which corrupts /
-                // fails on non-MessagePack content. Wrap it as a `Raw` MessagePack
-                // `bin` (serde_bytes) so the client's second `unpackb` recovers the
-                // exact original bytes.
-                Ok(Ok(Some(bytes))) => Ok(Response::ok(
-                    req_id,
-                    ResultPayload::raw(&serde_bytes::Bytes::new(&bytes)),
-                )),
-                Ok(Ok(None)) => Ok(Response::err(req_id, "chunk missing from CAS")),
-                Ok(Err(e)) => Ok(Response::err(req_id, e)),
-                Err(resp) => Ok(resp),
-            }
+            handle_blob_chunk_get(&cursors, req_id, authority, cursor, idx).await
         }
 
         Method::BlobFetchEnd { cursor } => {
-            if let Err(error) = cursors.authorize_fetch(cursor, authority.owner_scope()) {
-                return Ok(Response::err(req_id, error));
-            }
-            cursors.close_fetch(cursor);
-            Ok(Response::ok(req_id, ResultPayload::Bool(true)))
+            handle_blob_fetch_end(&cursors, req_id, authority, cursor)
         }
 
         Method::BlobRef { digest } => {
-            if let Err(error) = ensure_blob_owner(&cursors, &digest, authority.owner_scope()) {
-                return Ok(Response::err(req_id, error));
-            }
-            let (batch, now) = match compile_blob_batch_with_nonce(
-                cursors.store.as_ref(),
+            handle_blob_ref(
+                &cursors,
                 req_id,
                 authority,
-                &original_method,
                 attempt_nonce,
-            ) {
-                Ok(value) => value,
-                Err(error) => return Ok(Response::err(req_id, error)),
-            };
-            let store = cursors.store.clone();
-            ref_op(req_id, move || {
-                store.adjust_ref_batch(&digest, 1, &batch, now)
-            })
+                &original_method,
+                digest,
+            )
             .await
         }
 
         Method::BlobUnref { digest } => {
-            if let Err(error) = ensure_blob_owner(&cursors, &digest, authority.owner_scope()) {
-                return Ok(Response::err(req_id, error));
-            }
-            let (batch, now) = match compile_blob_batch_with_nonce(
-                cursors.store.as_ref(),
+            handle_blob_unref(
+                &cursors,
                 req_id,
                 authority,
-                &original_method,
                 attempt_nonce,
-            ) {
-                Ok(value) => value,
-                Err(error) => return Ok(Response::err(req_id, error)),
-            };
-            let store = cursors.store.clone();
-            ref_op(req_id, move || {
-                store.adjust_ref_batch(&digest, -1, &batch, now)
-            })
+                &original_method,
+                digest,
+            )
             .await
         }
 
         Method::BlobGc => {
-            if let Err(error) = authority.require_admin("blob garbage collection") {
-                return Ok(Response::err(req_id, error));
-            }
-            let (batch, now) = match compile_blob_batch_with_nonce(
-                cursors.store.as_ref(),
-                req_id,
-                authority,
-                &original_method,
-                attempt_nonce,
-            ) {
-                Ok(value) => value,
-                Err(error) => return Ok(Response::err(req_id, error)),
-            };
-            let store = cursors.store.clone();
-            let swept = run_blocking(req_id, move || store.sweep_batch(&batch, now)).await;
-            match swept {
-                Ok(Ok(stats)) => Ok(Response::ok(
-                    req_id,
-                    ResultPayload::raw(&(stats.blobs_reclaimed, stats.chunks_reclaimed)),
-                )),
-                Ok(Err(e)) => Ok(Response::err(req_id, e)),
-                Err(resp) => Ok(resp),
-            }
+            handle_blob_gc(&cursors, req_id, authority, attempt_nonce, &original_method).await
         }
 
         other => Err(other),
+    }
+}
+
+async fn handle_blob_begin(
+    cursors: &BlobCursors,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    attempt_nonce: Option<Nonce>,
+    method: &Method,
+    chunk_size: u32,
+) -> Result<Response, Method> {
+    let chunk_size = if chunk_size == 0 {
+        store::DEFAULT_CHUNK_SIZE as u32
+    } else {
+        chunk_size
+    };
+    // BUG A2 (2026-08-12): `BlobBegin`'s `Method` payload carries no upload
+    // identity of its own (it is the call that MINTS one), so the durable
+    // idempotency key must use the freshly allocated cursor id, never `req_id`.
+    // See `compile_blob_batch_at`'s doc for the full mechanism.
+    let proposed = cursors.allocate_upload_id();
+    let expected = match cursors.store.mutation_version(
+        authority.tenant_scope(),
+        &authority.namespace("blob-cas", "control"),
+    ) {
+        Ok(version) => version,
+        Err(error) => return Ok(Response::err(req_id, error)),
+    };
+    let now = crate::server::dispatch::authoritative_now_ms();
+    let (batch, now) = match compile_blob_batch_at_with_nonce(
+        cursors.store.as_ref(),
+        proposed,
+        authority,
+        method,
+        expected,
+        now,
+        attempt_nonce,
+    ) {
+        Ok(value) => value,
+        Err(error) => return Ok(Response::err(req_id, error)),
+    };
+    let store = cursors.store.clone();
+    let owner_scope = authority.owner_scope().to_string();
+    let committed = run_blocking(req_id, move || {
+        store.begin_upload_batch(proposed, chunk_size, &owner_scope, &batch, now)
+    })
+    .await;
+    let id = match committed {
+        Ok(Ok(id)) => id,
+        Ok(Err(error)) => return Ok(Response::err(req_id, error)),
+        Err(response) => return Ok(response),
+    };
+    if let Err(error) = restore_committed_upload(cursors, id) {
+        return Ok(Response::err(req_id, error));
+    }
+    Ok(Response::ok(
+        req_id,
+        ResultPayload::scalar::<results::BlobBegin>(id),
+    ))
+}
+
+async fn handle_blob_chunk_put(
+    cursors: &BlobCursors,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    attempt_nonce: Option<Nonce>,
+    method: &Method,
+    cursor: u64,
+    data: Vec<u8>,
+) -> Result<Response, Method> {
+    if let Err(error) = ensure_upload_owner(cursors, cursor, authority.owner_scope()) {
+        return Ok(Response::err(req_id, error));
+    }
+    let (batch, now) = match compile_blob_batch_with_nonce(
+        cursors.store.as_ref(),
+        req_id,
+        authority,
+        method,
+        attempt_nonce,
+    ) {
+        Ok(value) => value,
+        Err(error) => return Ok(Response::err(req_id, error)),
+    };
+    let store = cursors.store.clone();
+    let put = run_blocking(req_id, move || {
+        store.put_upload_chunk_batch(cursor, &data, &batch, now)
+    })
+    .await;
+    let (_digest, count) = match put {
+        Ok(Ok(result)) => result,
+        Ok(Err(error)) => return Ok(Response::err(req_id, error)),
+        Err(response) => return Ok(response),
+    };
+    Ok(chunk_put_response(cursors, req_id, cursor, count))
+}
+
+async fn handle_blob_commit(
+    cursors: &BlobCursors,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    attempt_nonce: Option<Nonce>,
+    method: &Method,
+    cursor: u64,
+) -> Result<Response, Method> {
+    if let Err(error) = ensure_upload_owner(cursors, cursor, authority.owner_scope()) {
+        return Ok(Response::err(req_id, error));
+    }
+    let (batch, now) = match compile_blob_batch_with_nonce(
+        cursors.store.as_ref(),
+        req_id,
+        authority,
+        method,
+        attempt_nonce,
+    ) {
+        Ok(value) => value,
+        Err(error) => return Ok(Response::err(req_id, error)),
+    };
+    let store = cursors.store.clone();
+    let committed = run_blocking(req_id, move || {
+        store.commit_upload_batch(cursor, &batch, now)
+    })
+    .await;
+    match committed {
+        Ok(Ok(digest)) => {
+            cursors.finish_upload(cursor);
+            Ok(Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::BlobCommit>(digest),
+            ))
+        }
+        Ok(Err(error)) => Ok(Response::err(req_id, error)),
+        Err(response) => Ok(response),
+    }
+}
+
+async fn handle_blob_fetch_begin(
+    cursors: &BlobCursors,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    digest: String,
+) -> Result<Response, Method> {
+    let store = cursors.store.clone();
+    let manifest = run_blocking(req_id, move || store.get_manifest(&digest)).await;
+    match manifest {
+        Ok(Ok(Some(manifest))) if manifest.owner_scope == authority.owner_scope() => {
+            let (cursor, chunks) = cursors.open_fetch(manifest);
+            Ok(Response::ok(
+                req_id,
+                // A two-element id list keeps the wire simple; the client splits it.
+                ResultPayload::of_ref::<results::BlobFetchBegin>(&(cursor, chunks)),
+            ))
+        }
+        Ok(Ok(Some(_))) | Ok(Ok(None)) => {
+            crate::metrics::access_denied();
+            Ok(Response::err(req_id, "unknown blob digest"))
+        }
+        Ok(Err(error)) => Ok(Response::err(req_id, error)),
+        Err(response) => Ok(response),
+    }
+}
+
+async fn handle_blob_chunk_get(
+    cursors: &BlobCursors,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    cursor: u64,
+    idx: u32,
+) -> Result<Response, Method> {
+    if let Err(error) = cursors.authorize_fetch(cursor, authority.owner_scope()) {
+        return Ok(Response::err(req_id, error));
+    }
+    let digest = match cursors.fetch_chunk_digest(cursor, idx) {
+        Ok(digest) => digest,
+        Err(error) => return Ok(Response::err(req_id, error)),
+    };
+    let store = cursors.store.clone();
+    let fetched = run_blocking(req_id, move || store.get_chunk(&digest)).await;
+    match fetched {
+        // A chunk is arbitrary binary, not a packed map. Wrap it as a Raw
+        // MessagePack `bin` so the client recovers the exact bytes.
+        Ok(Ok(Some(bytes))) => Ok(Response::ok(
+            req_id,
+            ResultPayload::of_dynamic::<results::BlobChunkGet, _>(&serde_bytes::Bytes::new(&bytes)),
+        )),
+        Ok(Ok(None)) => Ok(Response::err(req_id, "chunk missing from CAS")),
+        Ok(Err(error)) => Ok(Response::err(req_id, error)),
+        Err(response) => Ok(response),
+    }
+}
+
+fn handle_blob_fetch_end(
+    cursors: &BlobCursors,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    cursor: u64,
+) -> Result<Response, Method> {
+    if let Err(error) = cursors.authorize_fetch(cursor, authority.owner_scope()) {
+        return Ok(Response::err(req_id, error));
+    }
+    cursors.close_fetch(cursor);
+    Ok(Response::ok(
+        req_id,
+        ResultPayload::scalar::<results::BlobFetchEnd>(true),
+    ))
+}
+
+async fn handle_blob_ref(
+    cursors: &BlobCursors,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    attempt_nonce: Option<Nonce>,
+    method: &Method,
+    digest: String,
+) -> Result<Response, Method> {
+    handle_blob_ref_op::<results::BlobRef>(
+        cursors,
+        req_id,
+        authority,
+        attempt_nonce,
+        method,
+        digest,
+        1,
+    )
+    .await
+}
+
+async fn handle_blob_unref(
+    cursors: &BlobCursors,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    attempt_nonce: Option<Nonce>,
+    method: &Method,
+    digest: String,
+) -> Result<Response, Method> {
+    handle_blob_ref_op::<results::BlobUnref>(
+        cursors,
+        req_id,
+        authority,
+        attempt_nonce,
+        method,
+        digest,
+        -1,
+    )
+    .await
+}
+
+async fn handle_blob_ref_op<M>(
+    cursors: &BlobCursors,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    attempt_nonce: Option<Nonce>,
+    method: &Method,
+    digest: String,
+    delta: i64,
+) -> Result<Response, Method>
+where
+    M: eg_types::result_contract::MethodResult<Body = u64>,
+    M::Encoding: eg_types::result_contract::EncodeScalar<u64>,
+{
+    if let Err(error) = ensure_blob_owner(cursors, &digest, authority.owner_scope()) {
+        return Ok(Response::err(req_id, error));
+    }
+    let (batch, now) = match compile_blob_batch_with_nonce(
+        cursors.store.as_ref(),
+        req_id,
+        authority,
+        method,
+        attempt_nonce,
+    ) {
+        Ok(value) => value,
+        Err(error) => return Ok(Response::err(req_id, error)),
+    };
+    let store = cursors.store.clone();
+    ref_op::<M, _>(req_id, move || {
+        store.adjust_ref_batch(&digest, delta, &batch, now)
+    })
+    .await
+}
+
+async fn handle_blob_gc(
+    cursors: &BlobCursors,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    attempt_nonce: Option<Nonce>,
+    method: &Method,
+) -> Result<Response, Method> {
+    if let Err(error) = authority.require_admin("blob garbage collection") {
+        return Ok(Response::err(req_id, error));
+    }
+    let (batch, now) = match compile_blob_batch_with_nonce(
+        cursors.store.as_ref(),
+        req_id,
+        authority,
+        method,
+        attempt_nonce,
+    ) {
+        Ok(value) => value,
+        Err(error) => return Ok(Response::err(req_id, error)),
+    };
+    let store = cursors.store.clone();
+    let swept = run_blocking(req_id, move || store.sweep_batch(&batch, now)).await;
+    match swept {
+        Ok(Ok(stats)) => Ok(Response::ok(
+            req_id,
+            ResultPayload::of_ref::<results::BlobGc>(&(
+                stats.blobs_reclaimed,
+                stats.chunks_reclaimed,
+            )),
+        )),
+        Ok(Err(error)) => Ok(Response::err(req_id, error)),
+        Err(response) => Ok(response),
+    }
+}
+
+fn restore_committed_upload(cursors: &BlobCursors, id: u64) -> Result<(), String> {
+    match cursors.store.load_upload(id)? {
+        Some(manifest) => cursors.restore_upload_manifest(id, manifest),
+        None => Err("committed blob upload cursor is missing".to_string()),
+    }
+}
+
+fn chunk_put_response(cursors: &BlobCursors, req_id: u64, cursor: u64, count: u32) -> Response {
+    match cursors.store.load_upload(cursor) {
+        Ok(Some(manifest)) => match cursors.restore_upload_manifest(cursor, manifest) {
+            Ok(()) => Response::ok(
+                req_id,
+                ResultPayload::scalar::<results::BlobChunkPut>(count as u64),
+            ),
+            Err(error) => Response::err(req_id, error),
+        },
+        Ok(None) => Response::err(req_id, "durable upload cursor is missing"),
+        Err(error) => Response::err(req_id, error),
     }
 }
 
@@ -457,13 +609,16 @@ fn compile_blob_batch_at_with_nonce(
     Ok((batch, now))
 }
 
-/// Run a refcount adjustment on the blocking pool, returning the new count.
-async fn ref_op<F>(req_id: u64, f: F) -> Result<Response, Method>
+/// Run a refcount adjustment on the blocking pool, returning the new count as `M`'s
+/// declared result.
+async fn ref_op<M, F>(req_id: u64, f: F) -> Result<Response, Method>
 where
+    M: eg_types::result_contract::MethodResult<Body = u64>,
+    M::Encoding: eg_types::result_contract::EncodeScalar<u64>,
     F: FnOnce() -> Result<u64, String> + Send + 'static,
 {
     match run_blocking(req_id, f).await {
-        Ok(Ok(n)) => Ok(Response::ok(req_id, ResultPayload::Count(n))),
+        Ok(Ok(n)) => Ok(Response::ok(req_id, ResultPayload::scalar::<M>(n))),
         Ok(Err(e)) => Ok(Response::err(req_id, e)),
         Err(resp) => Ok(resp),
     }

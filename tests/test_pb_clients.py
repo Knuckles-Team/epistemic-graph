@@ -1,4 +1,5 @@
-"""B1.7 multi-language client drivers — Python bindings (CONCEPT:EG-KG.ingest.broker-streams-namespaces).
+"""B1.7 multi-language client drivers — Python bindings
+(CONCEPT:EG-KG.ingest.broker-streams-namespaces).
 
 Covers the thin Python surface added for the Program-B engine `Method`s that had no
 client binding: the native broker + append-log streams (EG-275..284/314), RBAC admin
@@ -28,6 +29,7 @@ from conftest import request_context
 from epistemic_graph.client import (
     AdminClient,
     BrokerClient,
+    EpistemicGraphClient,
     QueryClient,
     RbacClient,
     SyncEpistemicGraphClient,
@@ -36,7 +38,7 @@ from epistemic_graph.client import (
 # ─────────────────────────── Wire-shape (fake client) ───────────────────────────
 
 
-class _FakeClient:
+class _FakeClient(EpistemicGraphClient):
     """Records every ``(method, params, graph)`` and returns a canned per-method
     payload mimicking the engine's ``ResultPayload`` (Count/Bool/String/Raw/Json)."""
 
@@ -48,6 +50,8 @@ class _FakeClient:
         method: str,
         params: dict[str, Any] | None = None,
         graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
     ) -> Any:
         self.sent.append((method, params, graph))
         return _CANNED.get(method)
@@ -69,7 +73,9 @@ _CANNED: dict[str, Any] = {
     "RbacAdmin": "grant_added",
     "Backup": {"nodes": 10, "shards": 1},
     "Restore": {
-        "stage_ref": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "stage_ref": (
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ),
         "restored_shards": 2,
     },
     "NlQuery": [{"id": "n1"}],
@@ -79,7 +85,7 @@ _CANNED: dict[str, Any] = {
 @pytest.mark.asyncio
 async def test_broker_wire_shapes() -> None:
     fake = _FakeClient()
-    b = BrokerClient(fake)  # type: ignore[arg-type]
+    b = BrokerClient(fake)
 
     await b.declare_exchange("events", "topic")
     await b.declare_queue("q1", dl_exchange="dlx", max_delivery_count=3, max_priority=5)
@@ -143,7 +149,7 @@ async def test_broker_wire_shapes() -> None:
 @pytest.mark.asyncio
 async def test_stream_wire_shapes() -> None:
     fake = _FakeClient()
-    b = BrokerClient(fake)  # type: ignore[arg-type]
+    b = BrokerClient(fake)
 
     await b.stream_declare("s1", max_messages=1000)
     off = await b.stream_publish("s1", b"evt", now_ms=100)
@@ -169,7 +175,7 @@ async def test_rbac_wire_shapes() -> None:
     """The externally-tagged ``RbacAdminOp`` / ``ResourceSelector`` shapes the Rust
     ``serde`` enums expect — the highest-risk part of the binding."""
     fake = _FakeClient()
-    r = RbacClient(fake)  # type: ignore[arg-type]
+    r = RbacClient(fake)
 
     await r.add_role("reader", parents=["base"])
     await r.remove_role("reader")
@@ -208,8 +214,8 @@ async def test_rbac_wire_shapes() -> None:
 @pytest.mark.asyncio
 async def test_admin_and_nl_wire_shapes() -> None:
     fake = _FakeClient()
-    admin = AdminClient(fake)  # type: ignore[arg-type]
-    q = QueryClient(fake)  # type: ignore[arg-type]
+    admin = AdminClient(fake)
+    q = QueryClient(fake)
 
     rep = await admin.backup("scheduled-001", label="nightly")
     res = await admin.restore("scheduled-001", target_shards=2)
@@ -228,7 +234,9 @@ async def test_admin_and_nl_wire_shapes() -> None:
     assert by["NlQuery"][1] == "agent:planner"
     assert rep == {"nodes": 10, "shards": 1}
     assert res == {
-        "stage_ref": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "stage_ref": (
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        ),
         "restored_shards": 2,
     }
     assert rows == [{"id": "n1"}]
@@ -347,7 +355,8 @@ def test_rbac_live(live_client) -> None:
 
 def test_backup_reaches_handler(live_client) -> None:
     """The backup binding reaches the engine handler. The suite's engine runs WITHOUT a
-    persist dir, so an on-disk backup isn't available — we assert the call round-trips to
+    persist dir, so an on-disk backup isn't available — we assert the call round-trips
+    to
     the handler (a report dict on a redb/persist build, or the documented clean error),
     never a client-side crash."""
     c = live_client

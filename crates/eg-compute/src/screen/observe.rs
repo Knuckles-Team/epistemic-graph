@@ -14,26 +14,9 @@
 
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-/// An extracted graph node. Mirrors the AST enrichment's node shape
-/// (`node_id`/`node_type`/`properties`) so the Python persist path is shared, but
-/// is defined locally to keep this module decoupled from the `ast`-gated parser.
-#[derive(Serialize, Debug)]
-pub struct ExtractedNode {
-    pub node_id: String,
-    pub node_type: String,
-    pub properties: HashMap<String, String>,
-}
-
-/// An extracted graph edge (same shape as the AST enrichment's edges).
-#[derive(Serialize, Debug)]
-pub struct ExtractedEdge {
-    pub source: String,
-    pub target: String,
-    pub edge_type: String,
-    pub properties: HashMap<String, String>,
-}
+pub use eg_types::ingestion_wire::{ExtractedEdge, ExtractedNode, ScreenObservationResult};
 
 /// One accessible element from the in-sandbox `a11y-dump` (AT-SPI) capture.
 #[derive(Deserialize, Default, Clone, Debug)]
@@ -55,23 +38,6 @@ pub struct ScreenObservationInput {
     pub prev_hash: u64,
     pub png: Vec<u8>,
     pub elements: Vec<UiElementInput>,
-}
-
-#[derive(Serialize, Debug)]
-pub struct ScreenObservationResult {
-    /// The session node + the frame node + one node per UI element.
-    pub nodes: Vec<ExtractedNode>,
-    /// session-`hasObservation`->frame, frame-`hasElement`->element, and
-    /// prevframe-`succeededBy`->frame (only when the frame actually changed).
-    pub edges: Vec<ExtractedEdge>,
-    pub frame_id: String,
-    pub width: u32,
-    pub height: u32,
-    /// FNV-1a hash of the PNG bytes — the caller passes it back as `prev_hash`.
-    pub hash: u64,
-    /// False when the frame is byte-identical to the previous one (no visual change).
-    pub changed: bool,
-    pub element_count: usize,
 }
 
 /// Read width/height from a PNG IHDR (the first chunk). Returns (0, 0) if not a PNG.
@@ -102,7 +68,16 @@ fn props(pairs: &[(&str, String)]) -> HashMap<String, String> {
         .collect()
 }
 
-pub fn observe_screen(input: &ScreenObservationInput) -> ScreenObservationResult {
+struct FrameMetadata {
+    width: u32,
+    height: u32,
+    hash: u64,
+    changed: bool,
+    session_node: String,
+    frame_id: String,
+}
+
+fn frame_metadata(input: &ScreenObservationInput) -> FrameMetadata {
     let (width, height) = png_dimensions(&input.png);
     let hash = fnv1a(&input.png);
     // First frame (no prior hash) counts as changed; otherwise diff the content.
@@ -110,44 +85,65 @@ pub fn observe_screen(input: &ScreenObservationInput) -> ScreenObservationResult
 
     let session_node = format!("computerusesession:{}", input.session_id);
     let frame_id = format!("screenobservation:{}:{}", input.session_id, input.frame_seq);
+    FrameMetadata {
+        width,
+        height,
+        hash,
+        changed,
+        session_node,
+        frame_id,
+    }
+}
 
+fn base_graph(
+    input: &ScreenObservationInput,
+    metadata: &FrameMetadata,
+) -> (Vec<ExtractedNode>, Vec<ExtractedEdge>) {
     let mut nodes: Vec<ExtractedNode> = Vec::with_capacity(input.elements.len() + 2);
     let mut edges: Vec<ExtractedEdge> = Vec::with_capacity(input.elements.len() + 2);
 
     nodes.push(ExtractedNode {
-        node_id: session_node.clone(),
+        node_id: metadata.session_node.clone(),
         node_type: "computerusesession".to_string(),
         properties: props(&[("session_id", input.session_id.clone())]),
     });
     nodes.push(ExtractedNode {
-        node_id: frame_id.clone(),
+        node_id: metadata.frame_id.clone(),
         node_type: "screenobservation".to_string(),
         properties: props(&[
             ("session_id", input.session_id.clone()),
             ("frame_seq", input.frame_seq.to_string()),
-            ("width", width.to_string()),
-            ("height", height.to_string()),
-            ("hash", hash.to_string()),
+            ("width", metadata.width.to_string()),
+            ("height", metadata.height.to_string()),
+            ("hash", metadata.hash.to_string()),
             ("element_count", input.elements.len().to_string()),
         ]),
     });
     edges.push(ExtractedEdge {
-        source: session_node,
-        target: frame_id.clone(),
+        source: metadata.session_node.clone(),
+        target: metadata.frame_id.clone(),
         edge_type: "hasObservation".to_string(),
         properties: HashMap::new(),
     });
     // Chain frames only when something changed — a static screen doesn't add noise.
-    if !input.prev_frame_id.is_empty() && changed {
+    if !input.prev_frame_id.is_empty() && metadata.changed {
         edges.push(ExtractedEdge {
             source: input.prev_frame_id.clone(),
-            target: frame_id.clone(),
+            target: metadata.frame_id.clone(),
             edge_type: "succeededBy".to_string(),
             properties: HashMap::new(),
         });
     }
+    (nodes, edges)
+}
 
-    for (i, el) in input.elements.iter().enumerate() {
+fn append_element_graph(
+    nodes: &mut Vec<ExtractedNode>,
+    edges: &mut Vec<ExtractedEdge>,
+    frame_id: &str,
+    elements: &[UiElementInput],
+) {
+    for (i, el) in elements.iter().enumerate() {
         let el_id = format!("{}:el-{}", frame_id, i);
         nodes.push(ExtractedNode {
             node_id: el_id.clone(),
@@ -163,21 +159,27 @@ pub fn observe_screen(input: &ScreenObservationInput) -> ScreenObservationResult
             ]),
         });
         edges.push(ExtractedEdge {
-            source: frame_id.clone(),
+            source: frame_id.to_string(),
             target: el_id,
             edge_type: "hasElement".to_string(),
             properties: HashMap::new(),
         });
     }
+}
+
+pub fn observe_screen(input: &ScreenObservationInput) -> ScreenObservationResult {
+    let metadata = frame_metadata(input);
+    let (mut nodes, mut edges) = base_graph(input, &metadata);
+    append_element_graph(&mut nodes, &mut edges, &metadata.frame_id, &input.elements);
 
     ScreenObservationResult {
         nodes,
         edges,
-        frame_id,
-        width,
-        height,
-        hash,
-        changed,
+        frame_id: metadata.frame_id,
+        width: metadata.width,
+        height: metadata.height,
+        hash: metadata.hash,
+        changed: metadata.changed,
         element_count: input.elements.len(),
     }
 }

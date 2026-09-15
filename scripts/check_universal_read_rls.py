@@ -13,20 +13,44 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import sys
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from method_policy_inventory import load_capability_sources, parse_method_policy_table
 from rust_callgraph import reachable_source, squash
-from rust_module_tree import read_module_tree
+from rust_module_tree import read_compiler_family, read_module_tree
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def read(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
+
+
+def protocol_source() -> str:
+    """Read the complete compiler-declared production protocol family."""
+
+    return read_compiler_family("crates/eg-types/src/protocol.rs", ROOT).production
+
+
+def rdf_handler_source() -> str:
+    """Read the complete compiler-declared native RDF handler family."""
+
+    return read_compiler_family("src/server/handlers/rdf.rs", ROOT).production
+
+
+def require_query_result_cache_rls(query: str, rdf: str, dispatch: str) -> None:
+    """Pin actor-scoped cache keys across the compiler-owned query family."""
+
+    require(
+        all(
+            (
+                'format!("rls:{caller}:{kind}")' in query,
+                'format!("rls:{caller}:sparql")' in rdf,
+                "let verified_actor = match read_authority" in dispatch,
+            )
+        ),
+        "default-deny RLS is absent from a query result-cache actor key",
+    )
 
 
 def rust_function(source: str, signature: str) -> str:
@@ -69,7 +93,7 @@ def require(condition: bool, message: str) -> None:
         raise SystemExit(f"graph read-RLS architecture gate failed: {message}")
 
 
-def method_enum_names(protocol: str) -> set[str]:
+def _method_enum_body(protocol: str) -> str:
     marker = "pub enum Method {"
     start = protocol.find(marker)
     require(start >= 0, "protocol Method enum is absent")
@@ -83,10 +107,49 @@ def method_enum_names(protocol: str) -> set[str]:
             depth -= 1
         end += 1
     require(depth == 0, "protocol Method enum is unterminated")
-    body = protocol[body_start : end - 1]
+    return protocol[body_start : end - 1]
+
+
+def _method_chunk_bodies(protocol: str) -> list[str]:
+    chunk_bodies: list[str] = []
+    for chunk in re.finditer(r"macro_rules!\s+__eg_method_chunk_\d+\s*\{", protocol):
+        end = protocol.find("pub(crate) use __eg_method_chunk_", chunk.end())
+        require(
+            end >= 0,
+            "protocol Method chunk is unterminated or not re-exported",
+        )
+        chunk_bodies.append(protocol[chunk.end() : end])
+    require(chunk_bodies, "protocol Method enum has no readable variant body")
+    return chunk_bodies
+
+
+def _method_variant_names(source: str) -> set[str]:
     return set(
-        re.findall(r"^    ([A-Z][A-Za-z0-9_]*)\s*(?:\{|\(|,)", body, re.MULTILINE)
+        re.findall(
+            r"^    ([A-Z][A-Za-z0-9_]*)\s*(?:\{|\(|,)",
+            source,
+            re.MULTILINE,
+        )
     )
+
+
+def method_enum_names(protocol: str) -> set[str]:
+    """Return Method variants from the enum or its compiler-reachable chunks.
+
+    The protocol's Method enum is assembled by declarative macro fragments so
+    the Rust compiler still sees one enum while a source reader sees the
+    variant tokens in ``__eg_method_chunk_*``.  Prefer the literal enum body
+    for an unsplit tree, then inspect only those named chunks; unrelated enum
+    declarations must never contribute to this inventory.
+    """
+
+    methods = _method_variant_names(_method_enum_body(protocol))
+    if methods:
+        return methods
+    chunk_bodies = _method_chunk_bodies(protocol)
+    methods = _method_variant_names("\n".join(chunk_bodies))
+    require(methods, "protocol Method enum has no variants")
+    return methods
 
 
 def capability_inventory() -> dict[str, bool]:
@@ -101,9 +164,29 @@ def capability_inventory() -> dict[str, bool]:
     """
     inventory: dict[str, bool] = {}
     for row in parse_method_policy_table(load_capability_sources(ROOT)):
-        require(row.name not in inventory, f"duplicate capability policy for {row.name}")
+        require(
+            row.name not in inventory, f"duplicate capability policy for {row.name}"
+        )
         inventory[row.name] = row.mutates
     return inventory
+
+
+def require_protocol_inventory(
+    protocol: str, policies: dict[str, bool]
+) -> tuple[set[str], list[str]]:
+    """Require exact parity between the composed protocol and policy ledger."""
+
+    methods = method_enum_names(protocol)
+    require(len(methods) >= 350, "protocol method inventory is unexpectedly small")
+    require(
+        methods == set(policies),
+        "protocol/policy inventories differ: "
+        f"missing_policy={sorted(methods - set(policies))}, "
+        f"stale_policy={sorted(set(policies) - methods)}",
+    )
+    reads = sorted(name for name, mutates in policies.items() if not mutates)
+    require(len(reads) >= 150, "generated served-read inventory is unexpectedly small")
+    return methods, reads
 
 
 def call_blocks(source: str, needle: str) -> list[str]:
@@ -142,15 +225,18 @@ def _check_sql_wire_read_contract(wire: str) -> None:
     require(
         all(
             (
-                "self.filter_view_for_verified_actor(&mut snap).await?" in wire_sql_read,
+                "self.filter_view_for_verified_actor(&mut snap).await?"
+                in wire_sql_read,
                 "self.filter_view_for_verified_actor(&mut view).await?"
                 in wire_overlay_read,
-                "self.filter_view_for_verified_actor(&mut view).await?" in wire_uql_read,
+                "self.filter_view_for_verified_actor(&mut view).await?"
+                in wire_uql_read,
                 "exec_sql_typed_with_tables(&snap, projection.store(), &sql)"
                 in wire_sql_read,
                 "fn verified_actor(&self) -> WireResult<String>" in wire,
                 "self.check_access_for_kind(&graph, &kind).await?" in wire_execute,
-                ".check_access(graph, Self::crossmodal_access(&stmt))" in wire_crossmodal,
+                ".check_access(graph, Self::crossmodal_access(&stmt))"
+                in wire_crossmodal,
                 wire_execute.find("self.check_access_for_kind(&graph, &kind).await?")
                 < wire_execute.find("self.execute_dispatch_and_finish("),
             )
@@ -160,28 +246,17 @@ def _check_sql_wire_read_contract(wire: str) -> None:
 
 
 def main() -> None:
-    protocol = read("crates/eg-types/src/protocol.rs")
-    methods = method_enum_names(protocol)
+    protocol = protocol_source()
     policies = capability_inventory()
-    require(len(methods) >= 350, "protocol method inventory is unexpectedly small")
-    require(
-        methods == set(policies),
-        "protocol/policy inventories differ: "
-        f"missing_policy={sorted(methods - set(policies))}, "
-        f"stale_policy={sorted(set(policies) - methods)}",
-    )
-    reads = sorted(name for name, mutates in policies.items() if not mutates)
-    require(len(reads) >= 150, "generated served-read inventory is unexpectedly small")
+    methods, reads = require_protocol_inventory(protocol, policies)
 
     access = read("src/server/access.rs")
     isolation, can_see_row = isolation_source()
     dispatch = read_module_tree("src/server/dispatch.rs", root_dir=ROOT)
-    graph_ops = read_module_tree(
-        "src/server/handlers/graph_ops.rs", root_dir=ROOT
-    )
+    graph_ops = read_module_tree("src/server/handlers/graph_ops.rs", root_dir=ROOT)
     knowledge = knowledge_stream_handler_source()
-    query = read("src/server/handlers/query.rs")
-    rdf = read("src/server/handlers/rdf.rs")
+    query = read_module_tree("src/server/handlers/query.rs", root_dir=ROOT)
+    rdf = rdf_handler_source()
     distributed = read("src/server/handlers/dist_compute.rs")
     pregel = read("src/raft/pregel.rs")
     wire = read("src/server/wire/mod.rs")
@@ -192,7 +267,7 @@ def main() -> None:
     auth = "\n".join(
         (read("src/server/auth.rs"), read("src/server/authority_context.rs"))
     )
-    jobs = read("src/server/handlers/jobs.rs")
+    jobs = read_module_tree("src/server/handlers/jobs.rs", root_dir=ROOT)
     blob_handler = read("src/server/handlers/blob.rs")
     blob_state = read("src/server/blob/mod.rs")
     blob_store = read("src/server/blob/store.rs")
@@ -204,7 +279,7 @@ def main() -> None:
     plan_tsdb_tests = read("crates/eg-plan/src/tsdb_scan_tests.rs")
     streaming = read("src/server/handlers/streaming.rs")
     cep = read("src/server/cep.rs")
-    txn = read("src/server/handlers/txn.rs")
+    txn = read_module_tree("src/server/handlers/txn.rs", root_dir=ROOT)
     sparql_http = read("src/server/sparql_http.rs")
     graphql_sse = read("src/server/graphql_sub.rs")
     graphql_crossmodal = read("crates/eg-graphql/src/crossmodal.rs")
@@ -249,7 +324,8 @@ def main() -> None:
                 "if !self.has_rules()" not in isolation,
             )
         ),
-        "default-deny RLS does not classify every topology row, including missing properties",
+        "default-deny RLS does not classify every topology row, including missing "
+        "properties",
     )
 
     # Resolve the graph-dispatch path by CALL GRAPH, and compare on squashed
@@ -277,7 +353,8 @@ def main() -> None:
             # `&core` became `core` when the parameter type changed with the
             # extraction; the manifest and the authority still travel together.
             "core, materialization_manifest.as_ref(), read_authority.as_ref(),",
-            "handlers::mining::try_handle( req_id, core.clone(), read_authority.as_ref(),",
+            "handlers::mining::try_handle( req_id, core.clone(), "
+            "read_authority.as_ref(),",
             "handlers::graphlearn::try_handle(req_id, core.clone(), method)",
             "read_authority.as_ref(), method,",
             # `core.clone()` became `ctx.core.clone()` when the post-lock routers
@@ -407,21 +484,12 @@ def main() -> None:
             'caller.unwrap_or("")' not in source,
             f"{source_name} handler still admits an empty actor sentinel",
         )
-    require(
-        all(
-            (
-                'format!("rls:{caller}:{kind}")' in query,
-                'format!("rls:{caller}:sparql")' in rdf,
-                "let verified_actor = match read_authority" in dispatch,
-            )
-        ),
-        "default-deny RLS is absent from a query result-cache actor key",
-    )
+    require_query_result_cache_rls(query, rdf, dispatch)
     require(
         all(
             (
                 rdf.count("must carry the universal served-read authority") >= 5,
-                "let core = authority.project_core(&core);" in rdf,
+                rdf.count("let projected = authority.project_core") >= 5,
                 "rls.filter_view(caller, &mut snap);" in rdf,
             )
         ),
@@ -521,7 +589,8 @@ def main() -> None:
                 in access,
             )
         ),
-        "verified tenant extraction or Alice/Bob/cross-tenant adversarial proof is absent",
+        "verified tenant extraction or Alice/Bob/cross-tenant adversarial proof is "
+        "absent",
     )
     require(
         dispatch.count("CarrierAuthority::from_verified") >= 12,
@@ -538,7 +607,8 @@ def main() -> None:
                 "authority.actor_scope().to_string()" in jobs,
             )
         ),
-        "analytics Status/Cancel/Resume/Submit is not bound to verified owner + graph ACL",
+        "analytics Status/Cancel/Resume/Submit is not bound to verified owner + graph "
+        "ACL",
     )
     require(
         all(
@@ -586,7 +656,8 @@ def main() -> None:
                 "authority.tenant_scope()" in sqlite_file,
             )
         ),
-        "SQLite/user-table file export is available without explicit verified admin authority",
+        "SQLite/user-table file export is available without explicit verified admin "
+        "authority",
     )
     require(
         all(
@@ -641,11 +712,13 @@ def main() -> None:
                 in streaming,
             )
         ),
-        "CDC/Watch/continuous-query/trigger reads lack graph ACL, row images, or owner namespace",
+        "CDC/Watch/continuous-query/trigger reads lack graph ACL, row images, or owner "
+        "namespace",
     )
     require(
         'authority.require_admin("CEP subscriptions")' in cep,
-        "graph-unbound CEP is not strict-deny except for explicit verified admin authority",
+        "graph-unbound CEP is not strict-deny except for explicit verified admin "
+        "authority",
     )
     require(
         all(
@@ -673,7 +746,8 @@ def main() -> None:
                 "authority.tenant_scope()," in wire,
             )
         ),
-        "transaction-derived CONSTRUCT/plan/belief reads use raw committed cores or bearer txn ids",
+        "transaction-derived CONSTRUCT/plan/belief reads use raw committed cores or "
+        "bearer txn ids",
     )
 
     unauthenticated_carriers = {
@@ -698,7 +772,8 @@ def main() -> None:
                 "HTTP_READ_TIMEOUT_SECS" in graphql_sse,
             )
         ),
-        "GraphQL SSE is not bound to current signed authority, graph ACL/RLS, and resource limits",
+        "GraphQL SSE is not bound to current signed authority, graph ACL/RLS, and "
+        "resource limits",
     )
     require(
         all(

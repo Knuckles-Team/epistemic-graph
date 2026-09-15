@@ -1,6 +1,7 @@
 use super::*;
 
 use super::terminal::GraphOpsContext;
+use eg_types::result_contract::compute as results;
 
 /// `InDegree`: pure extract-method from `try_handle`'s match arm, byte-identical
 /// behaviour, no signature change.
@@ -57,7 +58,10 @@ fn handle_get_neighbors(req_id: u64, core: &Arc<GraphCore>, node_id: &str) -> Re
 fn handle_degree_centrality(req_id: u64, core: &Arc<GraphCore>, node_id: &str) -> Response {
     let g = core.topology_snapshot();
     match crate::algorithms::compute_degree_centrality(&g, node_id) {
-        Ok(val) => Response::ok(req_id, ResultPayload::Json(serde_json::json!(val))),
+        Ok(val) => Response::ok(
+            req_id,
+            ResultPayload::scalar::<results::DegreeCentrality>(val),
+        ),
         Err(e) => Response::err(req_id, e),
     }
 }
@@ -83,7 +87,10 @@ fn handle_get_neighbors_batch(
     // [node_id, Vec<neighbor_id>] in input order — one round-trip and one
     // topo-lock acquisition for N nodes (D-DPF-1) instead of N of each.
     let out = g.get_neighbors_batch(node_ids);
-    Response::ok(req_id, ResultPayload::raw(&out))
+    Response::ok(
+        req_id,
+        ResultPayload::of_ref::<eg_types::result_contract::graph::GetNeighborsBatch>(&out),
+    )
 }
 
 /// `BetweennessCentrality`: pure extract-method from `try_handle`'s match arm,
@@ -96,7 +103,10 @@ async fn handle_betweenness_centrality(req_id: u64, core: &Arc<GraphCore>) -> Re
     })
     .await
     {
-        Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+        Ok(v) => Response::ok(
+            req_id,
+            ResultPayload::of::<results::BetweennessCentrality>(v),
+        ),
         Err(resp) => resp,
     }
 }
@@ -117,7 +127,10 @@ async fn handle_personalized_page_rank(
     })
     .await
     {
-        Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+        Ok(v) => Response::ok(
+            req_id,
+            ResultPayload::of::<results::PersonalizedPageRank>(v),
+        ),
         Err(resp) => resp,
     }
 }
@@ -147,7 +160,7 @@ async fn handle_community_detection(
     })
     .await
     {
-        Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+        Ok(v) => Response::ok(req_id, ResultPayload::of::<results::CommunityDetection>(v)),
         Err(resp) => resp,
     }
 }
@@ -168,7 +181,10 @@ async fn handle_compute_similarity_edges(
     })
     .await
     {
-        Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+        Ok(v) => Response::ok(
+            req_id,
+            ResultPayload::of::<results::ComputeSimilarityEdges>(v),
+        ),
         Err(resp) => resp,
     }
 }
@@ -197,7 +213,19 @@ async fn handle_resolve_candidates(
     })
     .await
     {
-        Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+        Ok(v) => Response::ok(
+            req_id,
+            ResultPayload::of::<results::ResolveCandidates>(
+                v.into_iter()
+                    .map(|proposal| results::MergeProposal {
+                        canonical: proposal.canonical,
+                        members: proposal.members,
+                        score: proposal.score,
+                        kind: proposal.kind,
+                    })
+                    .collect(),
+            ),
+        ),
         Err(resp) => resp,
     }
 }
@@ -207,7 +235,7 @@ async fn handle_resolve_candidates(
 fn handle_topological_sort(req_id: u64, core: &Arc<GraphCore>) -> Response {
     let g = core.topology_snapshot();
     match crate::algorithms::topological_sort(&g) {
-        Ok(order) => Response::ok(req_id, ResultPayload::raw(&order)),
+        Ok(order) => Response::ok(req_id, ResultPayload::of::<results::TopologicalSort>(order)),
         Err(e) => Response::err(req_id, e.to_string()),
     }
 }
@@ -227,7 +255,7 @@ async fn handle_page_rank(
     })
     .await
     {
-        Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+        Ok(v) => Response::ok(req_id, ResultPayload::of::<results::PageRank>(v)),
         Err(resp) => resp,
     }
 }
@@ -243,7 +271,7 @@ async fn handle_minimum_spanning_tree(req_id: u64, core: &Arc<GraphCore>) -> Res
     })
     .await
     {
-        Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+        Ok(v) => Response::ok(req_id, ResultPayload::of::<results::MinimumSpanningTree>(v)),
         Err(resp) => resp,
     }
 }
@@ -269,10 +297,10 @@ async fn handle_metrics(req_id: u64, core: &Arc<GraphCore>, raw_ledger_len: u64)
         Ok(m) => m,
         Err(resp) => return resp,
     };
-    match serde_json::to_value(&m) {
-        Ok(v) => Response::ok(req_id, ResultPayload::Json(v)),
-        Err(e) => Response::err(req_id, e.to_string()),
-    }
+    Response::ok(
+        req_id,
+        ResultPayload::of::<eg_types::result_contract::graph::Metrics>(m),
+    )
 }
 
 /// `CommunityDetectEphemeral`: pure extract-method from `try_handle`'s match arm,
@@ -295,7 +323,10 @@ async fn handle_community_detect_ephemeral(
     })
     .await
     {
-        Ok(v) => Response::ok(req_id, ResultPayload::raw(&v)),
+        Ok(v) => Response::ok(
+            req_id,
+            ResultPayload::of::<results::CommunityDetectEphemeral>(v),
+        ),
         Err(resp) => resp,
     }
 }
@@ -317,7 +348,7 @@ pub(super) async fn try_handle_graph_algorithms(
             let g = core.topology_snapshot();
             Response::ok(
                 req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::find_cycle(&g))),
+                ResultPayload::of::<results::FindCycle>(crate::algorithms::find_cycle(&g)),
             )
         }
         Method::GetShortestPath {
@@ -327,9 +358,9 @@ pub(super) async fn try_handle_graph_algorithms(
             let g = core.topology_snapshot();
             Response::ok(
                 req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::get_shortest_path(
-                    &g, &source_id, &target_id
-                ))),
+                ResultPayload::of::<results::GetShortestPath>(
+                    crate::algorithms::get_shortest_path(&g, &source_id, &target_id),
+                ),
             )
         }
         Method::PageRank {
@@ -340,18 +371,18 @@ pub(super) async fn try_handle_graph_algorithms(
             let g = core.topology_snapshot();
             Response::ok(
                 req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::connected_components(
-                    &g
-                ))),
+                ResultPayload::of::<results::ConnectedComponents>(
+                    crate::algorithms::connected_components(&g),
+                ),
             )
         }
         Method::StronglyConnectedComponents => {
             let g = core.topology_snapshot();
             Response::ok(
                 req_id,
-                ResultPayload::Json(serde_json::json!(
-                    crate::algorithms::strongly_connected_components(&g)
-                )),
+                ResultPayload::of::<results::StronglyConnectedComponents>(
+                    crate::algorithms::strongly_connected_components(&g),
+                ),
             )
         }
         Method::MinimumSpanningTree => handle_minimum_spanning_tree(req_id, core).await,
@@ -393,9 +424,9 @@ pub(super) async fn try_handle_centrality_algorithms(
             let g = core.topology_snapshot();
             Response::ok(
                 req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::get_blast_radius(
-                    &g, &node_id, max_depth
-                ))),
+                ResultPayload::of::<results::GetBlastRadius>(crate::algorithms::get_blast_radius(
+                    &g, &node_id, max_depth,
+                )),
             )
         }
         Method::DegreeCentrality { node_id } => handle_degree_centrality(req_id, core, &node_id),
@@ -403,9 +434,9 @@ pub(super) async fn try_handle_centrality_algorithms(
             let g = core.topology_snapshot();
             Response::ok(
                 req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::degree_centrality_all(
-                    &g
-                ))),
+                ResultPayload::of::<results::DegreeCentralityAll>(
+                    crate::algorithms::degree_centrality_all(&g),
+                ),
             )
         }
         Method::BetweennessCentrality => handle_betweenness_centrality(req_id, core).await,
@@ -444,7 +475,7 @@ pub(super) async fn try_handle_community_algorithms(
             let g = core.topology_snapshot();
             Response::ok(
                 req_id,
-                ResultPayload::Json(serde_json::json!(crate::algorithms::graph_coloring(&g))),
+                ResultPayload::of::<results::GraphColoring>(crate::algorithms::graph_coloring(&g)),
             )
         }
         Method::ComputeSimilarityEdges { threshold } => {

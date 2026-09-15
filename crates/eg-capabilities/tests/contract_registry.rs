@@ -143,11 +143,6 @@ fn every_descriptor_names_a_domain_and_an_authz_scope() {
             !descriptor.error_set.is_empty(),
             "{id}: every method declares at least one error code"
         );
-        assert_eq!(
-            descriptor.request_schema,
-            eg_capabilities::SchemaRef::MethodVariant,
-            "{id}: a request schema is always the method's own variant subschema"
-        );
     }
 }
 

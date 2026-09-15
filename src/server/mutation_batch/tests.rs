@@ -8,7 +8,8 @@ use crate::server::persistence::PersistenceBackend;
 use super::commit::changed_work_item_ids;
 use super::digest::work_item_batch_identity;
 use super::{
-    commit_work_item, compile_methods, lock_graph, publish_change_envelope_projection, CompileBatch,
+    commit_work_item, compile_methods, lock_graph, publish_change_envelope_projection,
+    CompileBatch, WorkItemCommitRequest,
 };
 
 struct LockProbePersistence {
@@ -64,16 +65,14 @@ async fn work_item_commit_waits_for_shared_graph_mutation_lane() {
     tokio::pin!(wait_for_commit);
 
     let task = tokio::spawn(async move {
-        commit_work_item(
+        commit_work_item(WorkItemCommitRequest::new(
             Some(&persistence),
             &core,
             7,
             None,
-            None,
             Some("principal:synthetic"),
             graph,
             0,
-            None,
             Method::RenewWorkItemLease {
                 tenant: "tenant:synthetic".into(),
                 work_item_id: "work:synthetic".into(),
@@ -83,7 +82,7 @@ async fn work_item_commit_waits_for_shared_graph_mutation_lane() {
                 now_ms: 1,
                 lease_ms: 1_000,
             },
-        )
+        ))
         .await
     });
 
@@ -127,16 +126,17 @@ async fn authenticated_work_item_commit_carries_nonce_and_stable_key() {
     };
     assert_eq!(
         commit_work_item(
-            Some(&persistence),
-            &core,
-            17,
-            Some(nonce),
-            Some(stable_key),
-            Some("principal:authenticated"),
-            graph,
-            0,
-            None,
-            method(),
+            WorkItemCommitRequest::new(
+                Some(&persistence),
+                &core,
+                17,
+                Some(stable_key),
+                Some("principal:authenticated"),
+                graph,
+                0,
+                method(),
+            )
+            .with_attempt_nonce(Some(nonce)),
         )
         .await
         .unwrap_err(),
@@ -150,16 +150,17 @@ async fn authenticated_work_item_commit_carries_nonce_and_stable_key() {
         .expect("authenticated WorkItem compile reached persistence");
     assert_eq!(
         commit_work_item(
-            Some(&persistence),
-            &core,
-            18,
-            Some(retry_nonce),
-            Some(stable_key),
-            Some("principal:authenticated"),
-            graph,
-            0,
-            None,
-            method(),
+            WorkItemCommitRequest::new(
+                Some(&persistence),
+                &core,
+                18,
+                Some(stable_key),
+                Some("principal:authenticated"),
+                graph,
+                0,
+                method(),
+            )
+            .with_attempt_nonce(Some(retry_nonce)),
         )
         .await
         .unwrap_err(),
@@ -818,6 +819,7 @@ fn owner_store_batch_names_the_serving_principal_and_carries_the_caller_actor() 
     );
 }
 
+#[cfg(feature = "redb")]
 fn compile_sql_source_dirty_batch(
     request_id: u64,
     attempt_nonce: eg_types::contract::Nonce,
@@ -852,6 +854,7 @@ fn compile_sql_source_dirty_batch(
     (method, batch)
 }
 
+#[cfg(feature = "redb")]
 #[test]
 fn sql_catalog_compile_declares_one_retry_stable_typed_source_dirty_intent() {
     use sha2::Digest as _;

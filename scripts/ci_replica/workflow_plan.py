@@ -186,7 +186,8 @@ def classify_step(step: dict) -> tuple[str, str]:
     if ".github/workflows/" in uses:
         return (
             "SKIP_LOUD",
-            f"reusable workflow '{uses}' has no local runner equivalent — not executed here",
+            f"reusable workflow '{uses}' has no local runner equivalent — not executed "
+            f"here",
         )
     return (
         "SKIP_LOUD",
@@ -290,9 +291,7 @@ def build_plan_for_workflow(
             unclassified.append(job_id)
             continue
 
-        plan.extend(
-            _job_plan_rows(spec, job_id, job or {}, skip_reason, feature_table)
-        )
+        plan.extend(_job_plan_rows(spec, job_id, job or {}, skip_reason, feature_table))
 
     known = spec.executable_jobs | set(spec.job_skip_reasons)
     stale = sorted(j for j in known if j not in jobs)

@@ -63,7 +63,7 @@ fn sql_foreign_join_with_local_equals_manual_join() {
     //    rows EXACTLY as the executor's `foreign_scan` does (the spec is real; only the
     //    network fetch is mocked). ──
     let _spec = ForeignSourceSpec::Sql {
-        dsn: "postgres://user:changeme@db.example.com:5432/papers".into(),
+        dsn: "postgres://user:changeme@db.example.com:5432/papers".into(), // sanitizer:ignore
         query: "SELECT doi, relevance FROM cited WHERE published > 2023".into(),
         id_field: "doi".into(),
         score_field: Some("relevance".into()),
@@ -139,7 +139,7 @@ fn sql_foreign_scan_as_a_pure_source_replaces_the_input() {
 fn sql_source_real_dsn_path_errors_cleanly_when_unreachable() {
     let spec = ForeignSourceSpec::Sql {
         // An unroutable address so connect fails fast.
-        dsn: "postgres://user:pw@127.0.0.1:1/nodb".into(),
+        dsn: "postgres://user:pw@127.0.0.1:1/nodb".into(), // sanitizer:ignore
         query: "SELECT id FROM t".into(),
         id_field: "id".into(),
         score_field: None,
@@ -179,7 +179,7 @@ fn sql_source_rejects_mutation_stacking_and_locking_before_connect() {
         "SELECT id FROM t FOR UPDATE",
     ] {
         let spec = ForeignSourceSpec::Sql {
-            dsn: "postgres://user:pw@127.0.0.1:1/nodb".into(),
+            dsn: "postgres://user:pw@127.0.0.1:1/nodb".into(), // sanitizer:ignore
             query: query.into(),
             id_field: "id".into(),
             score_field: None,
@@ -194,10 +194,10 @@ fn sql_source_rejects_mutation_stacking_and_locking_before_connect() {
 
 #[test]
 fn sql_source_errors_never_reflect_connection_secrets_or_query_text() {
-    let secret = "test-do-not-reflect-secret";
+    let secret = "test-do-not-reflect-secret"; // sanitizer:ignore
     let query_marker = "do_not_reflect_query_text";
     let spec = ForeignSourceSpec::Sql {
-        dsn: format!("postgres://user:{secret}@127.0.0.1:1/nodb"),
+        dsn: format!("postgres://user:{secret}@127.0.0.1:1/nodb"), // sanitizer:ignore
         query: format!("DELETE FROM {query_marker}"),
         id_field: "id".into(),
         score_field: None,

@@ -176,6 +176,7 @@ impl CapacityCell {
 /// state vocabulary convention — a plain closed string-like enum, not an
 /// open-ended status field).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum LeaseState {
     Active,
@@ -205,6 +206,7 @@ impl LeaseState {
 // `CapacityResourceClass` and `LeasePriority` purely to satisfy a capability no
 // caller has asked for.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 #[serde(deny_unknown_fields)]
 pub struct CapacityLease {
     pub schema_version: u16,
@@ -351,6 +353,27 @@ pub struct CapacityLedger {
     idempotency: BTreeMap<(String, String), String>,
 }
 
+/// Inputs for one atomic capacity admission attempt.
+///
+/// Keeping the request as one value makes the admission boundary explicit and
+/// prevents callers from accidentally reordering identity, demand, and timing
+/// fields. The borrowed fields are copied into the durable lease by
+/// [`CapacityLedger::try_acquire`].
+#[derive(Debug)]
+pub struct CapacityAcquireRequest<'a> {
+    pub cell: &'a CapacityCell,
+    pub lease_id: String,
+    pub work_item_id: &'a str,
+    pub tenant_ref: &'a str,
+    pub actor_digest: &'a str,
+    pub resource_class: CapacityResourceClass,
+    pub amount: u64,
+    pub priority: LeasePriority,
+    pub idempotency_key: &'a str,
+    pub now_ms: u64,
+    pub ttl_ms: u64,
+}
+
 impl CapacityLedger {
     pub fn new() -> Self {
         Self {
@@ -374,21 +397,23 @@ impl CapacityLedger {
     /// `(tenant_ref, idempotency_key)` returns the SAME lease (never mints a
     /// second one) as long as the demand shape matches; a shape mismatch is
     /// `IdempotencyConflict`.
-    #[allow(clippy::too_many_arguments)]
     pub fn try_acquire(
         &mut self,
-        cell: &CapacityCell,
-        lease_id: String,
-        work_item_id: &str,
-        tenant_ref: &str,
-        actor_digest: &str,
-        resource_class: CapacityResourceClass,
-        amount: u64,
-        priority: LeasePriority,
-        idempotency_key: &str,
-        now_ms: u64,
-        ttl_ms: u64,
+        request: CapacityAcquireRequest<'_>,
     ) -> Result<CapacityLease, CapacityDenial> {
+        let CapacityAcquireRequest {
+            cell,
+            lease_id,
+            work_item_id,
+            tenant_ref,
+            actor_digest,
+            resource_class,
+            amount,
+            priority,
+            idempotency_key,
+            now_ms,
+            ttl_ms,
+        } = request;
         let replay_key = (tenant_ref.to_string(), idempotency_key.to_string());
         if let Some(existing_id) = self.idempotency.get(&replay_key) {
             let existing = self
@@ -557,19 +582,19 @@ mod tests {
         let mut ledger = CapacityLedger::new();
         let c = cell(1);
         let lease = ledger
-            .try_acquire(
-                &c,
-                "lease-1".into(),
-                "wi-1",
-                "tenant-a",
-                "actor-a",
-                CapacityResourceClass::LlmGenerator,
-                1,
-                LeasePriority::Interactive,
-                "idem-1",
-                0,
-                1_000,
-            )
+            .try_acquire(CapacityAcquireRequest {
+                cell: &c,
+                lease_id: "lease-1".into(),
+                work_item_id: "wi-1",
+                tenant_ref: "tenant-a",
+                actor_digest: "actor-a",
+                resource_class: CapacityResourceClass::LlmGenerator,
+                amount: 1,
+                priority: LeasePriority::Interactive,
+                idempotency_key: "idem-1",
+                now_ms: 0,
+                ttl_ms: 1_000,
+            })
             .expect("acquire admits under capacity");
 
         // Time passes well beyond the 1000ms TTL — the holder never renewed.
@@ -608,19 +633,19 @@ mod tests {
         let mut ledger = CapacityLedger::new();
         let c_old = cell(1);
         let lease = ledger
-            .try_acquire(
-                &c_old,
-                "lease-2".into(),
-                "wi-2",
-                "tenant-a",
-                "actor-a",
-                CapacityResourceClass::LlmGenerator,
-                1,
-                LeasePriority::Interactive,
-                "idem-2",
-                0,
-                1_000_000, // huge TTL: NOT a timestamp-expiry story
-            )
+            .try_acquire(CapacityAcquireRequest {
+                cell: &c_old,
+                lease_id: "lease-2".into(),
+                work_item_id: "wi-2",
+                tenant_ref: "tenant-a",
+                actor_digest: "actor-a",
+                resource_class: CapacityResourceClass::LlmGenerator,
+                amount: 1,
+                priority: LeasePriority::Interactive,
+                idempotency_key: "idem-2",
+                now_ms: 0,
+                ttl_ms: 1_000_000, // huge TTL: NOT a timestamp-expiry story
+            })
             .expect("acquire admits under capacity");
 
         // Cell fails over: epoch bumps from 1 -> 2.
@@ -651,19 +676,19 @@ mod tests {
         let mut ledger = CapacityLedger::new();
         let c = cell(1);
         let lease = ledger
-            .try_acquire(
-                &c,
-                "lease-3".into(),
-                "wi-3",
-                "tenant-a",
-                "actor-a",
-                CapacityResourceClass::LlmGenerator,
-                1,
-                LeasePriority::Interactive,
-                "idem-3",
-                0,
-                10_000,
-            )
+            .try_acquire(CapacityAcquireRequest {
+                cell: &c,
+                lease_id: "lease-3".into(),
+                work_item_id: "wi-3",
+                tenant_ref: "tenant-a",
+                actor_digest: "actor-a",
+                resource_class: CapacityResourceClass::LlmGenerator,
+                amount: 1,
+                priority: LeasePriority::Interactive,
+                idempotency_key: "idem-3",
+                now_ms: 0,
+                ttl_ms: 10_000,
+            })
             .expect("acquire admits under capacity");
 
         let forged = lease.fence_token + 1;
@@ -698,35 +723,35 @@ mod tests {
         // `Interactive` request for 1 would still find 2 free and be ADMITTED,
         // so the "second acquire is exhausted" assertion would be vacuous.
         ledger
-            .try_acquire(
-                &c,
-                "hog".into(),
-                "wi-hog",
-                "tenant-hog",
-                "actor-hog",
-                CapacityResourceClass::LlmGenerator,
-                10,
-                LeasePriority::Interactive,
-                "idem-hog",
-                0,
-                1_000,
-            )
+            .try_acquire(CapacityAcquireRequest {
+                cell: &c,
+                lease_id: "hog".into(),
+                work_item_id: "wi-hog",
+                tenant_ref: "tenant-hog",
+                actor_digest: "actor-hog",
+                resource_class: CapacityResourceClass::LlmGenerator,
+                amount: 10,
+                priority: LeasePriority::Interactive,
+                idempotency_key: "idem-hog",
+                now_ms: 0,
+                ttl_ms: 1_000,
+            })
             .expect("fills the cell");
 
         // A second acquire right away is exhausted — the hog never released.
-        let denied = ledger.try_acquire(
-            &c,
-            "second".into(),
-            "wi-2",
-            "tenant-b",
-            "actor-b",
-            CapacityResourceClass::LlmGenerator,
-            1,
-            LeasePriority::Interactive,
-            "idem-2",
-            500,
-            1_000,
-        );
+        let denied = ledger.try_acquire(CapacityAcquireRequest {
+            cell: &c,
+            lease_id: "second".into(),
+            work_item_id: "wi-2",
+            tenant_ref: "tenant-b",
+            actor_digest: "actor-b",
+            resource_class: CapacityResourceClass::LlmGenerator,
+            amount: 1,
+            priority: LeasePriority::Interactive,
+            idempotency_key: "idem-2",
+            now_ms: 500,
+            ttl_ms: 1_000,
+        });
         assert!(matches!(denied, Err(CapacityDenial::Exhausted { .. })));
 
         // Past TTL, reclaim_expired sweeps the hog even though it never called
@@ -734,19 +759,19 @@ mod tests {
         let reclaimed = ledger.reclaim_expired(2_000);
         assert_eq!(reclaimed, vec!["hog".to_string()]);
         let admitted = ledger
-            .try_acquire(
-                &c,
-                "third".into(),
-                "wi-3",
-                "tenant-b",
-                "actor-b",
-                CapacityResourceClass::LlmGenerator,
-                1,
-                LeasePriority::Interactive,
-                "idem-3",
-                2_100,
-                1_000,
-            )
+            .try_acquire(CapacityAcquireRequest {
+                cell: &c,
+                lease_id: "third".into(),
+                work_item_id: "wi-3",
+                tenant_ref: "tenant-b",
+                actor_digest: "actor-b",
+                resource_class: CapacityResourceClass::LlmGenerator,
+                amount: 1,
+                priority: LeasePriority::Interactive,
+                idempotency_key: "idem-3",
+                now_ms: 2_100,
+                ttl_ms: 1_000,
+            })
             .expect("capacity was reclaimed, so this now admits");
         assert_eq!(admitted.amount, 1);
     }
@@ -764,54 +789,54 @@ mod tests {
         // Flood with BackgroundIngestion up to the spare ceiling (10 - 2 = 8).
         for i in 0..8 {
             ledger
-                .try_acquire(
-                    &c,
-                    format!("flood-{i}"),
-                    "wi-flood",
-                    "tenant-flood",
-                    "actor-flood",
-                    CapacityResourceClass::LlmGenerator,
-                    1,
-                    LeasePriority::BackgroundIngestion,
-                    format!("idem-flood-{i}").as_str(),
-                    0,
-                    1_000_000,
-                )
+                .try_acquire(CapacityAcquireRequest {
+                    cell: &c,
+                    lease_id: format!("flood-{i}"),
+                    work_item_id: "wi-flood",
+                    tenant_ref: "tenant-flood",
+                    actor_digest: "actor-flood",
+                    resource_class: CapacityResourceClass::LlmGenerator,
+                    amount: 1,
+                    priority: LeasePriority::BackgroundIngestion,
+                    idempotency_key: format!("idem-flood-{i}").as_str(),
+                    now_ms: 0,
+                    ttl_ms: 1_000_000,
+                })
                 .unwrap_or_else(|e| {
                     panic!("flood unit {i} should admit into spare capacity: {e:?}")
                 });
         }
         // A 9th BackgroundIngestion unit is denied — spare is exhausted.
-        let ninth = ledger.try_acquire(
-            &c,
-            "flood-8".into(),
-            "wi-flood",
-            "tenant-flood",
-            "actor-flood",
-            CapacityResourceClass::LlmGenerator,
-            1,
-            LeasePriority::BackgroundIngestion,
-            "idem-flood-8",
-            0,
-            1_000_000,
-        );
+        let ninth = ledger.try_acquire(CapacityAcquireRequest {
+            cell: &c,
+            lease_id: "flood-8".into(),
+            work_item_id: "wi-flood",
+            tenant_ref: "tenant-flood",
+            actor_digest: "actor-flood",
+            resource_class: CapacityResourceClass::LlmGenerator,
+            amount: 1,
+            priority: LeasePriority::BackgroundIngestion,
+            idempotency_key: "idem-flood-8",
+            now_ms: 0,
+            ttl_ms: 1_000_000,
+        });
         assert!(matches!(ninth, Err(CapacityDenial::Exhausted { .. })));
 
         // Yet Interactive can still acquire from the untouched 2-unit floor.
         let interactive = ledger
-            .try_acquire(
-                &c,
-                "interactive-1".into(),
-                "wi-int",
-                "tenant-int",
-                "actor-int",
-                CapacityResourceClass::LlmGenerator,
-                2,
-                LeasePriority::Interactive,
-                "idem-int-1",
-                0,
-                1_000,
-            )
+            .try_acquire(CapacityAcquireRequest {
+                cell: &c,
+                lease_id: "interactive-1".into(),
+                work_item_id: "wi-int",
+                tenant_ref: "tenant-int",
+                actor_digest: "actor-int",
+                resource_class: CapacityResourceClass::LlmGenerator,
+                amount: 2,
+                priority: LeasePriority::Interactive,
+                idempotency_key: "idem-int-1",
+                now_ms: 0,
+                ttl_ms: 1_000,
+            })
             .expect("interactive must be able to draw the full reserved floor despite the flood");
         assert_eq!(interactive.amount, 2);
     }
@@ -821,34 +846,34 @@ mod tests {
         let mut ledger = CapacityLedger::new();
         let c = cell(1);
         let first = ledger
-            .try_acquire(
-                &c,
-                "lease-idem".into(),
-                "wi-1",
-                "tenant-a",
-                "actor-a",
-                CapacityResourceClass::LlmGenerator,
-                1,
-                LeasePriority::Interactive,
-                "idem-shared",
-                0,
-                1_000,
-            )
+            .try_acquire(CapacityAcquireRequest {
+                cell: &c,
+                lease_id: "lease-idem".into(),
+                work_item_id: "wi-1",
+                tenant_ref: "tenant-a",
+                actor_digest: "actor-a",
+                resource_class: CapacityResourceClass::LlmGenerator,
+                amount: 1,
+                priority: LeasePriority::Interactive,
+                idempotency_key: "idem-shared",
+                now_ms: 0,
+                ttl_ms: 1_000,
+            })
             .unwrap();
         let second = ledger
-            .try_acquire(
-                &c,
-                "lease-idem-DIFFERENT-id".into(),
-                "wi-1",
-                "tenant-a",
-                "actor-a",
-                CapacityResourceClass::LlmGenerator,
-                1,
-                LeasePriority::Interactive,
-                "idem-shared",
-                1,
-                1_000,
-            )
+            .try_acquire(CapacityAcquireRequest {
+                cell: &c,
+                lease_id: "lease-idem-DIFFERENT-id".into(),
+                work_item_id: "wi-1",
+                tenant_ref: "tenant-a",
+                actor_digest: "actor-a",
+                resource_class: CapacityResourceClass::LlmGenerator,
+                amount: 1,
+                priority: LeasePriority::Interactive,
+                idempotency_key: "idem-shared",
+                now_ms: 1,
+                ttl_ms: 1_000,
+            })
             .unwrap();
         assert_eq!(first.fence_token, second.fence_token);
         assert_eq!(first.lease_id, second.lease_id);
@@ -859,33 +884,33 @@ mod tests {
         let mut ledger = CapacityLedger::new();
         let c = cell(1);
         ledger
-            .try_acquire(
-                &c,
-                "lease-a".into(),
-                "wi-1",
-                "tenant-a",
-                "actor-a",
-                CapacityResourceClass::LlmGenerator,
-                1,
-                LeasePriority::Interactive,
-                "idem-shared",
-                0,
-                1_000,
-            )
+            .try_acquire(CapacityAcquireRequest {
+                cell: &c,
+                lease_id: "lease-a".into(),
+                work_item_id: "wi-1",
+                tenant_ref: "tenant-a",
+                actor_digest: "actor-a",
+                resource_class: CapacityResourceClass::LlmGenerator,
+                amount: 1,
+                priority: LeasePriority::Interactive,
+                idempotency_key: "idem-shared",
+                now_ms: 0,
+                ttl_ms: 1_000,
+            })
             .unwrap();
-        let conflict = ledger.try_acquire(
-            &c,
-            "lease-b".into(),
-            "wi-1",
-            "tenant-a",
-            "actor-a",
-            CapacityResourceClass::LlmGenerator,
-            999,
-            LeasePriority::Interactive,
-            "idem-shared",
-            1,
-            1_000,
-        );
+        let conflict = ledger.try_acquire(CapacityAcquireRequest {
+            cell: &c,
+            lease_id: "lease-b".into(),
+            work_item_id: "wi-1",
+            tenant_ref: "tenant-a",
+            actor_digest: "actor-a",
+            resource_class: CapacityResourceClass::LlmGenerator,
+            amount: 999,
+            priority: LeasePriority::Interactive,
+            idempotency_key: "idem-shared",
+            now_ms: 1,
+            ttl_ms: 1_000,
+        });
         assert!(matches!(conflict, Err(CapacityDenial::IdempotencyConflict)));
     }
 
@@ -902,19 +927,19 @@ mod tests {
         c.reserved_floor = 0;
         let mut ledger = CapacityLedger::new();
         let mut lease = ledger
-            .try_acquire(
-                &c,
-                "lease-v".into(),
-                "wi-1",
-                "tenant-a",
-                "actor-a",
-                CapacityResourceClass::LlmGenerator,
-                1,
-                LeasePriority::Interactive,
-                "idem-v",
-                0,
-                1_000,
-            )
+            .try_acquire(CapacityAcquireRequest {
+                cell: &c,
+                lease_id: "lease-v".into(),
+                work_item_id: "wi-1",
+                tenant_ref: "tenant-a",
+                actor_digest: "actor-a",
+                resource_class: CapacityResourceClass::LlmGenerator,
+                amount: 1,
+                priority: LeasePriority::Interactive,
+                idempotency_key: "idem-v",
+                now_ms: 0,
+                ttl_ms: 1_000,
+            })
             .unwrap();
         lease.fence_token = 0;
         assert!(lease.validate().is_err());

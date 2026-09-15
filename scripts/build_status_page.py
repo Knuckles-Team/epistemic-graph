@@ -83,9 +83,11 @@ PILLAR_SUBTREE = {
     "AU-OS": "agent-utilities: docs/pillars/5_agent_os_infrastructure.md",
 }
 PILLAR_GATE = {
-    "EG-AHE": "`scripts/check_documentation_contract.py` (generated-ledger regen check)",
+    "EG-AHE": "`scripts/check_documentation_contract.py` (generated-ledger regen "
+    "check)",
     "EG-KG": "`scripts/check_documentation_contract.py` (generated-ledger regen check)",
-    "EG-ORCH": "`scripts/check_documentation_contract.py` (generated-ledger regen check)",
+    "EG-ORCH": "`scripts/check_documentation_contract.py` (generated-ledger regen "
+    "check)",
     "EG-OS": "`scripts/check_documentation_contract.py` (generated-ledger regen check)",
     "AU-KG": "agent-utilities' `scripts/check_concepts.py`",
     "AU-ECO": "agent-utilities' `scripts/check_concepts.py`",
@@ -103,8 +105,18 @@ HONESTY_FRAMING = (
 )
 
 VOCAB_ROWS = [
-    ("RESERVED", "", "A concept ID is allocated in the reservations ledger; no code implements it yet."),
-    ("BUILDING", "🔶", "Partially built or actively being added; the unsupported part errors honestly."),
+    (
+        "RESERVED",
+        "",
+        "A concept ID is allocated in the reservations ledger; no code implements it "
+        "yet.",
+    ),
+    (
+        "BUILDING",
+        "🔶",
+        "Partially built or actively being added; the unsupported part errors "
+        "honestly.",
+    ),
     ("LIVE", "✅", "Implemented and covered by tests."),
     ("ROADMAP", "🗺", "Designed, not yet built."),
     ("RETIRED", "", "Formerly live, intentionally removed."),
@@ -221,7 +233,9 @@ def render() -> str:
     # honestly rather than expanding the table with prefixes this page does
     # not otherwise define an owning subtree/gate for.
     concept_counts = {p: n for p, n in raw_concept_counts.items() if p in PILLAR_LABEL}
-    legacy_marker_total = sum(n for p, n in raw_concept_counts.items() if p not in PILLAR_LABEL)
+    legacy_marker_total = sum(
+        n for p, n in raw_concept_counts.items() if p not in PILLAR_LABEL
+    )
     reserved_counts, total_reserved = _reserved_pillar_counts()
     cap_counts = _capability_status_counts()
     method_total = _generated_method_count()
@@ -286,9 +300,7 @@ def render() -> str:
             f"| **{pillar}** — {PILLAR_LABEL.get(pillar, pillar)} "
             f"| {concept_counts.get(pillar, 0)} | {reserved_counts.get(pillar, 0)} |"
         )
-    lines.append(
-        f"| **Total** | {total_concepts} | {total_reserved} |"
-    )
+    lines.append(f"| **Total** | {total_concepts} | {total_reserved} |")
     lines.append("")
     if legacy_marker_total:
         lines.append(
@@ -297,7 +309,7 @@ def render() -> str:
             "9-pillar taxonomy (e.g. `KG-2.*`, `ORCH-1.*`, `OS-5.*`, "
             "`AHE-3.*`) and are not broken out above — this page defines an "
             "owning subtree/gate only for the pillars in "
-            "\"Domain ownership\" below. See `docs/concepts.md` for those "
+            '"Domain ownership" below. See `docs/concepts.md` for those '
             "markers in prose form."
         )
         lines.append("")
@@ -378,8 +390,12 @@ def render() -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--write", action="store_true", help="write docs/status.md in place")
-    group.add_argument("--check", action="store_true", help="exit non-zero if docs/status.md is stale")
+    group.add_argument(
+        "--write", action="store_true", help="write docs/status.md in place"
+    )
+    group.add_argument(
+        "--check", action="store_true", help="exit non-zero if docs/status.md is stale"
+    )
     args = parser.parse_args()
 
     rendered = render()

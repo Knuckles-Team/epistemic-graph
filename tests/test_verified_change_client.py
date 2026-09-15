@@ -9,9 +9,12 @@ import re
 import subprocess
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 import msgpack
 import pytest
+from _client_fixtures import unused_reader, unused_writer
+from _untyped import untyped
 
 from epistemic_graph.client import (
     ChangeEnvelopeClient,
@@ -28,7 +31,7 @@ from epistemic_graph.client import (
 pytestmark = pytest.mark.no_engine
 
 
-def _context() -> dict[str, object]:
+def _context() -> dict[str, Any]:
     return {
         "principal": "subject-opaque",
         "tenant": "tenant-fixture",
@@ -41,7 +44,7 @@ def _context() -> dict[str, object]:
     }
 
 
-def _envelope() -> dict[str, object]:
+def _envelope() -> dict[str, Any]:
     digest = "a" * 64
     return {
         "schema_version": 1,
@@ -100,9 +103,9 @@ def _envelope() -> dict[str, object]:
 
 
 def test_change_binding_uses_verified_tenant_and_opaque_principal() -> None:
-    client = EpistemicGraphClient(  # type: ignore[arg-type]
-        object(),
-        object(),
+    client = EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "graph-fixture",
         verified_context=_context(),
@@ -123,25 +126,27 @@ def test_change_binding_uses_verified_tenant_and_opaque_principal() -> None:
 
 def test_change_canonical_rejects_old_or_incomplete_mutation_contract() -> None:
     old = _envelope()
-    old["mutation"]["schema_version"] = 1  # type: ignore[index]
+    old["mutation"]["schema_version"] = 1
     with pytest.raises(ValueError, match="schema_version must be 2"):
         ChangeEnvelopeClient._canonical(old)
 
     missing_outbox = _envelope()
-    del missing_outbox["mutation"]["outbox"]  # type: ignore[index]
+    del missing_outbox["mutation"]["outbox"]
     with pytest.raises(ValueError, match="missing required fields: outbox"):
         ChangeEnvelopeClient._canonical(missing_outbox)
 
     unknown = _envelope()
-    unknown["mutation"]["retired_domain_hint"] = "graph"  # type: ignore[index]
+    unknown["mutation"]["retired_domain_hint"] = "graph"
     with pytest.raises(ValueError, match="unsupported fields: retired_domain_hint"):
         ChangeEnvelopeClient._canonical(unknown)
 
 
-def test_bolt_auth_token_is_fresh_signed_request_with_opaque_display_principal() -> None:
-    client = EpistemicGraphClient(  # type: ignore[arg-type]
-        object(),
-        object(),
+def test_bolt_auth_token_is_fresh_signed_request_with_opaque_display_principal() -> (
+    None
+):
+    client = EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "graph-fixture",
         verified_context=_context(),
@@ -160,9 +165,9 @@ def test_bolt_auth_token_is_fresh_signed_request_with_opaque_display_principal()
 
 
 def test_v2_token_contains_no_secret_and_binds_stable_idempotency_key() -> None:
-    client = EpistemicGraphClient(  # type: ignore[arg-type]
-        object(),
-        object(),
+    client = EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "graph-fixture",
         verified_context=_context(),
@@ -184,7 +189,7 @@ def test_v2_token_contains_no_secret_and_binds_stable_idempotency_key() -> None:
 # ── ADR-3 / W1.9: node-bound envelopes ───────────────────────────────────────
 
 
-def _node_bound_request() -> dict[str, object]:
+def _node_bound_request() -> dict[str, Any]:
     return {
         "id": 20,
         "graph": "graph-fixture",
@@ -193,14 +198,14 @@ def _node_bound_request() -> dict[str, object]:
     }
 
 
-def _decode_envelope(token: str) -> dict[str, object]:
+def _decode_envelope(token: str) -> dict[str, Any]:
     return json.loads(bytes.fromhex(token.removeprefix("eg2.")).decode("utf-8"))
 
 
 def test_v2_token_includes_node_claim_when_connection_node_id_is_known() -> None:
-    client = EpistemicGraphClient(  # type: ignore[arg-type]
-        object(),
-        object(),
+    client = EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "graph-fixture",
         verified_context=_context(),
@@ -216,9 +221,9 @@ def test_v2_token_omits_node_claim_when_unknown() -> None:
     """The default -- no `node_id` on connect -- must be genuinely additive:
     the exact pre-ADR-3 payload shape, not a `"node": null` key."""
 
-    client = EpistemicGraphClient(  # type: ignore[arg-type]
-        object(),
-        object(),
+    client = EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "graph-fixture",
         verified_context=_context(),
@@ -235,17 +240,17 @@ def test_v2_token_node_claim_changes_the_mac() -> None:
     claim is part of the SIGNED context, not an unsigned label appended after
     signing."""
 
-    client_a = EpistemicGraphClient(  # type: ignore[arg-type]
-        object(),
-        object(),
+    client_a = EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "graph-fixture",
         verified_context=_context(),
         node_id="node-a",
     )
-    client_b = EpistemicGraphClient(  # type: ignore[arg-type]
-        object(),
-        object(),
+    client_b = EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "graph-fixture",
         verified_context=_context(),
@@ -269,17 +274,17 @@ def test_two_connections_with_different_node_ids_mint_independently() -> None:
     own envelope with its own claim -- no shared, stale, or cached state."""
 
     request = _node_bound_request()
-    first = EpistemicGraphClient(  # type: ignore[arg-type]
-        object(),
-        object(),
+    first = EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "graph-fixture",
         verified_context=_context(),
         node_id="node-a",
     )
-    second = EpistemicGraphClient(  # type: ignore[arg-type]
-        object(),
-        object(),
+    second = EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "graph-fixture",
         verified_context=_context(),
@@ -292,22 +297,25 @@ def test_two_connections_with_different_node_ids_mint_independently() -> None:
     # Re-minting on the SAME connection also produces a fresh nonce/mac each
     # call (never a cached/reused envelope).
     token_first_again = first._compute_verified_token(dict(request), None)
-    assert _decode_envelope(token_first_again)["nonce"] != _decode_envelope(token_first)["nonce"]
+    assert (
+        _decode_envelope(token_first_again)["nonce"]
+        != _decode_envelope(token_first)["nonce"]
+    )
 
 
 def test_explicit_context_node_overrides_connection_node_id() -> None:
     """A caller that deliberately sets `node` on the effective verified_context
     (e.g. via `use_verified_context`) wins over the connection's own node_id."""
 
-    client = EpistemicGraphClient(  # type: ignore[arg-type]
-        object(),
-        object(),
+    client = EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "graph-fixture",
         verified_context=_context(),
         node_id="connection-node",
     )
-    with client.use_verified_context({**_context(), "node": "override-node"}):
+    with client.use_verified_context(dict(_context(), node="override-node")):
         payload = _decode_envelope(
             client._compute_verified_token(_node_bound_request(), "idempotency-fixture")
         )
@@ -315,7 +323,7 @@ def test_explicit_context_node_overrides_connection_node_id() -> None:
 
 
 def test_validate_request_context_accepts_optional_node_claim() -> None:
-    validated = validate_request_context({**_context(), "node": "node-a"})
+    validated = validate_request_context(dict(_context(), node="node-a"))
     assert validated["node"] == "node-a"
     validated_absent = validate_request_context(_context())
     assert "node" not in validated_absent
@@ -324,7 +332,7 @@ def test_validate_request_context_accepts_optional_node_claim() -> None:
 @pytest.mark.parametrize("bad_node", ["", "   ", 42])
 def test_validate_request_context_rejects_invalid_node_claim(bad_node: object) -> None:
     with pytest.raises((TypeError, ValueError)):
-        validate_request_context({**_context(), "node": bad_node})
+        validate_request_context(dict(_context(), node=bad_node))
 
 
 # ── ADR-4 decision 5 / W2.1-1: the optional OIDC bearer-token claim ─────────
@@ -340,12 +348,13 @@ def test_validate_request_context_rejects_invalid_node_claim(bad_node: object) -
 
 
 def test_v2_token_includes_oidc_token_when_present() -> None:
-    client = EpistemicGraphClient(  # type: ignore[arg-type]
-        object(),
-        object(),
+    synthetic_token = "eyJhbGciOiJSUzI1NiJ9.fixture.sig"  # sanitizer:ignore fixture
+    client = EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "graph-fixture",
-        verified_context={**_context(), "oidc_token": "eyJhbGciOiJSUzI1NiJ9.fixture.sig"},
+        verified_context=dict(_context(), oidc_token=synthetic_token),
     )
     payload = _decode_envelope(
         client._compute_verified_token(_node_bound_request(), "idempotency-fixture")
@@ -363,9 +372,9 @@ def test_v2_token_omits_oidc_token_when_absent() -> None:
     `null`), so an un-upgraded caller's envelope is byte-for-byte the same
     shape as before this claim existed."""
 
-    client = EpistemicGraphClient(  # type: ignore[arg-type]
-        object(),
-        object(),
+    client = EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "graph-fixture",
         verified_context=_context(),
@@ -392,26 +401,26 @@ def test_v2_token_oidc_token_does_not_change_the_mac(monkeypatch) -> None:
     monkeypatch.setattr(client_module.time, "time", lambda: 1_700_000_000)
     monkeypatch.setattr(client_module.secrets, "token_hex", lambda _n: "fixed-nonce")
 
-    client_no_token = EpistemicGraphClient(  # type: ignore[arg-type]
-        object(),
-        object(),
+    client_no_token = EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "graph-fixture",
         verified_context=_context(),
     )
-    client_with_token = EpistemicGraphClient(  # type: ignore[arg-type]
-        object(),
-        object(),
+    client_with_token = EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "graph-fixture",
-        verified_context={**_context(), "oidc_token": "token-a"},
+        verified_context=dict(_context(), oidc_token="token-a"),
     )
-    client_with_other_token = EpistemicGraphClient(  # type: ignore[arg-type]
-        object(),
-        object(),
+    client_with_other_token = EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "graph-fixture",
-        verified_context={**_context(), "oidc_token": "token-b"},
+        verified_context=dict(_context(), oidc_token="token-b"),
     )
     request = _node_bound_request()
     payload_absent = _decode_envelope(
@@ -421,7 +430,9 @@ def test_v2_token_oidc_token_does_not_change_the_mac(monkeypatch) -> None:
         client_with_token._compute_verified_token(dict(request), "idempotency-fixture")
     )
     payload_b = _decode_envelope(
-        client_with_other_token._compute_verified_token(dict(request), "idempotency-fixture")
+        client_with_other_token._compute_verified_token(
+            dict(request), "idempotency-fixture"
+        )
     )
     assert payload_absent["nonce"] == payload_a["nonce"] == payload_b["nonce"], (
         "the nonce freeze must actually be effective, or this test proves nothing"
@@ -435,7 +446,7 @@ def test_v2_token_oidc_token_does_not_change_the_mac(monkeypatch) -> None:
 
 
 def test_validate_request_context_accepts_optional_oidc_token_claim() -> None:
-    validated = validate_request_context({**_context(), "oidc_token": "token-value"})
+    validated = validate_request_context(dict(_context(), oidc_token="token-value"))
     assert validated["oidc_token"] == "token-value"
     validated_absent = validate_request_context(_context())
     assert "oidc_token" not in validated_absent
@@ -446,7 +457,7 @@ def test_validate_request_context_rejects_invalid_oidc_token_claim(
     bad_oidc_token: object,
 ) -> None:
     with pytest.raises((TypeError, ValueError)):
-        validate_request_context({**_context(), "oidc_token": bad_oidc_token})
+        validate_request_context(dict(_context(), oidc_token=bad_oidc_token))
 
 
 def test_signed_f32_body_matches_rust_rmp_serde_fixture() -> None:
@@ -463,14 +474,14 @@ def test_signed_f32_body_matches_rust_rmp_serde_fixture() -> None:
 
 
 def test_v2_signer_derives_idempotency_from_typed_f32_body() -> None:
-    client = EpistemicGraphClient(  # type: ignore[arg-type]
-        object(),
-        object(),
+    client = EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "graph-fixture",
         verified_context=_context(),
     )
-    request = {
+    request: dict[str, Any] = {
         "id": 11,
         "graph": "graph-fixture",
         "method": "AddEmbedding",
@@ -522,18 +533,96 @@ def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
     )
     assert declared == Counter(
         [
+            # `semantic_index/` (native ANN store,
+            # EG-KG.sharding.semantic-embedding-store-backed) and `embedding.rs`
+            # are a later addition to this crate's f32 surface,
+            # entirely internal vector-store implementation -- never a Method
+            # request-body field -- so they join this census without changing the
+            # "Method carriers" check just below.
+            (
+                "embedding.rs",
+                "pub fn new(space: EmbeddingSpaceRef, values: Vec<f32>) "
+                "-> Result<Self, String> {",
+            ),
+            ("embedding.rs", "pub values: Vec<f32>,"),
+            ("embedding.rs", "values: vec![1.0, f32::NAN],"),
+            ("asr_wire.rs", "pub avg_logprob: Option<f32>,"),
+            ("asr_wire.rs", "pub no_speech_prob: Option<f32>,"),
+            ("ingestion_wire.rs", "pub score: f32,"),
             ("knowledge_stream.rs", "query_embedding: Vec<f32>,"),
+            ("messaging_wire.rs", "pub summary_embedding: Option<Vec<f32>>,"),
             ("modality.rs", "minimum_rms: f32,"),
-            ("protocol.rs", "embedding: Vec<f32>,"),
-            ("protocol.rs", "embedding: Vec<f32>,"),
-            ("protocol.rs", "query_embedding: Vec<f32>,"),
-            ("protocol.rs", "query_embedding: Vec<f32>,"),
-            ("protocol.rs", "summary_embedding: Option<Vec<f32>>,"),
+            ("protocol/method/method_03.rs", "summary_embedding: Option<Vec<f32>>,"),
+            ("protocol/method/method_03.rs", "embedding: Vec<f32>,"),
+            ("protocol/method/method_03.rs", "query_embedding: Vec<f32>,"),
+            ("protocol/method/method_03.rs", "query_embedding: Vec<f32>,"),
+            ("protocol/method/method_06.rs", "embedding: Vec<f32>,"),
+            (
+                "result_contract/ingestion.rs",
+                "SemanticSearch(SemanticSearch) => Raw<Vec<(String, f32)>>;",
+            ),
+            (
+                "result_contract/query.rs",
+                "UnifiedQuery(UnifiedQuery) => Raw<Vec<(String, Option<f32>)>>;",
+            ),
+            (
+                "result_contract/query.rs",
+                "UnifiedQueryText(UnifiedQueryText) => "
+                "Raw<Vec<(String, Option<f32>)>>;",
+            ),
+            (
+                "result_contract/query.rs",
+                "NlQuery(NlQuery) => Raw<Vec<(String, Option<f32>)>>;",
+            ),
+            (
+                "result_contract/query.rs",
+                "TxnUnifiedQuery(TxnUnifiedQuery) => Raw<Vec<(String, Option<f32>)>>;",
+            ),
+            (
+                "result_contract/query.rs",
+                "TxnUnifiedQueryText(TxnUnifiedQueryText) => "
+                "Raw<Vec<(String, Option<f32>)>>;",
+            ),
+            (
+                "semantic_index/codec.rs",
+                "cbor::finite_f32(narrowed).map_err(|_| "
+                'canonical_error("finite f32 representation"))',
+            ),
+            ("semantic_index/codec.rs", "let narrowed = value as f32;"),
+            ("semantic_index/codec.rs", "number_value(f32::from_bits(bits) as f64)"),
+            (
+                "semantic_index/codec.rs",
+                'return Err(canonical_error("finite f32 representation"));',
+            ),
+            ("semantic_index/digest.rs", "assert!(finite_f32(f32::NAN).is_err());"),
+            ("semantic_index/digest.rs", "f32::from_bits(decoded)"),
+            (
+                "semantic_index/digest.rs",
+                "fn exact_f16_bits(value: f32) -> Option<u16> {",
+            ),
+            (
+                "semantic_index/digest.rs",
+                "pub(crate) fn f16_to_f32(bits: u16) -> f32 {",
+            ),
+            (
+                "semantic_index/digest.rs",
+                "pub(crate) fn finite_f32(value: f32) -> Result<Vec<u8>, String> {",
+            ),
+            (
+                "semantic_index/identity.rs",
+                'SemanticVector::create(&binding, "article:1", "7", '
+                "vec![1.0, f32::NAN, 0.0]).is_err()",
+            ),
+            ("semantic_index/identity.rs", "pub values: Vec<f32>,"),
+            ("semantic_index/identity.rs", "values: Vec<f32>,"),
+            ("semantic_index/response.rs", "pub fused_score: f32,"),
+            ("semantic_index/response.rs", "pub lexical_score: Option<f32>,"),
+            ("semantic_index/response.rs", "pub vector_score: Option<f32>,"),
             # NodeData is a stored/result DTO, never nested in Method request bodies.
             ("types.rs", "pub embedding: Option<Vec<f32>>,"),
-            ("wire.rs", "FuseRrf { branches: Vec<Vec<Op>>, k: f32 },"),
-            ("wire.rs", "Rank { query: Vec<f32> },"),
-            ("wire.rs", "RankMmr { lambda: f32, k: usize },"),
+            ("wire_query_core.rs", "FuseRrf { branches: Vec<Vec<Op>>, k: f32 },"),
+            ("wire_query_core.rs", "Rank { query: Vec<f32> },"),
+            ("wire_query_core.rs", "RankMmr { lambda: f32, k: usize },"),
         ]
     )
     method_carriers = Counter(
@@ -544,12 +633,14 @@ def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
     )
     assert method_carriers == Counter(
         [
-            ("mutation_batch.rs", "pub method: Method,"),
+            # `mutation_batch.rs`'s `MutationOperation` moved to a
+            # `mutation_batch/model/` submodule during the module-tree split.
+            ("mutation_batch/model/request.rs", "pub method: Method,"),
             ("protocol.rs", "pub method: Method,"),
         ]
     )
 
-    direct_cases = {
+    direct_cases: dict[str, dict[str, Any]] = {
         "CloseChannel": {
             "channel_id": "c",
             "summary_embedding": [1.0, 0.5],
@@ -597,24 +688,22 @@ def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
         "MineClassifyPredict",
         "MineReduce",
     )
-    protocol_lines = (root / "protocol.rs").read_text(encoding="utf-8").splitlines()
+    # The Method enum is assembled from typed chunks under
+    # `protocol/method/`; scan those source files rather than the facade
+    # module, which no longer contains the enum body after the module split.
+    protocol_root = root / "protocol" / "method"
+    protocol_lines = [
+        line
+        for path in _tracked_or_walked_rs_files(protocol_root)
+        for line in path.read_text(encoding="utf-8").splitlines()
+    ]
     current_variant = ""
     declared_plan_methods: set[str] = set()
-    in_method_enum = False
     for line in protocol_lines:
-        if line == "pub enum Method {":
-            in_method_enum = True
-            continue
-        if not in_method_enum:
-            continue
-        if line == "}":
-            break
         variant = re.fullmatch(r"    ([A-Za-z][A-Za-z0-9_]*) \{", line)
         if variant:
             current_variant = variant.group(1)
-        if re.search(
-            r"\bplan: (?:crate::wire::Plan|Option<crate::wire::Plan>),", line
-        ):
+        if re.search(r"\bplan: (?:crate::wire::Plan|Option<crate::wire::Plan>),", line):
             assert current_variant
             declared_plan_methods.add(current_variant)
     assert declared_plan_methods == set(plan_methods)
@@ -725,29 +814,48 @@ def test_signer_never_marks_f32_inside_arbitrary_json(
     assert body.count(b"\xcb") == 3
 
 
-class _CaptureClient:
+class _CaptureClient(EpistemicGraphClient):
+    """A proper test double: subclasses the real client (never calling its
+    heavyweight ``__init__``, which mypy does not require to match -- see
+    https://mypy.readthedocs.io/en/stable/class_basics.html#properties, the
+    same exemption ``__new__`` gets) so it satisfies ``TimeSeriesClient``'s
+    declared ``client: EpistemicGraphClient`` parameter type exactly, instead
+    of a per-call cast."""
+
     def __init__(self) -> None:
         self.method = ""
-        self.params: dict[str, object] = {}
+        self.params: dict[str, Any] | None = None
 
-    async def _send(self, method: str, params: dict[str, object]) -> int:
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
         self.method = method
         self.params = params
         return 2
+
+    @property
+    def sent_params(self) -> dict[str, Any]:
+        """The parameter mapping captured from a generated client call."""
+
+        assert self.params is not None
+        return self.params
 
 
 def test_timeseries_scalar_append_supplies_unambiguous_default_schema() -> None:
     capture = _CaptureClient()
     result = asyncio.run(
-        TimeSeriesClient(capture).append(  # type: ignore[arg-type]
-            "series-fixture", [(1, [1.25]), (2, [1.5])]
-        )
+        TimeSeriesClient(capture).append("series-fixture", [(1, [1.25]), (2, [1.5])])
     )
     assert result == 2
     assert capture.method == "TsAppend"
-    assert capture.params["n_fields"] == 1
-    assert capture.params["field_names"] == ["value"]
-    assert msgpack.unpackb(capture.params["points_msgpack"], raw=False) == [
+    assert capture.sent_params["n_fields"] == 1
+    assert capture.sent_params["field_names"] == ["value"]
+    assert msgpack.unpackb(capture.sent_params["points_msgpack"], raw=False) == [
         [1, [1.25]],
         [2, [1.5]],
     ]
@@ -757,27 +865,25 @@ def test_timeseries_multifield_append_requires_exact_explicit_schema() -> None:
     capture = _CaptureClient()
     with pytest.raises(ValueError, match="explicit for a multi-field series"):
         asyncio.run(
-            TimeSeriesClient(capture).append(  # type: ignore[arg-type]
-                "series-fixture", [(1, [1.25, 2.5])]
-            )
+            TimeSeriesClient(capture).append("series-fixture", [(1, [1.25, 2.5])])
         )
     assert capture.method == ""
 
     result = asyncio.run(
-        TimeSeriesClient(capture).append(  # type: ignore[arg-type]
+        TimeSeriesClient(capture).append(
             "series-fixture",
             [(1, [1.25, 2.5])],
             field_names=["price", "volume"],
         )
     )
     assert result == 2
-    assert capture.params["field_names"] == ["price", "volume"]
+    assert capture.sent_params["field_names"] == ["price", "volume"]
 
 
 def test_task_local_verified_context_restores_shared_client_authority() -> None:
-    client = EpistemicGraphClient(  # type: ignore[arg-type]
-        object(),
-        object(),
+    client = EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "graph-fixture",
         verified_context=_context(),
@@ -812,21 +918,28 @@ def test_request_context_rejects_incomplete_or_ambiguous_claims(context) -> None
 
 def test_client_requires_secret_and_current_context() -> None:
     with pytest.raises(ValueError, match="authentication secret"):
-        EpistemicGraphClient(  # type: ignore[arg-type]
-            object(),
-            object(),
+        EpistemicGraphClient(
+            unused_reader(),
+            unused_writer(),
             "",
             "graph-fixture",
             verified_context=_context(),
         )
     with pytest.raises(TypeError, match="verified_context"):
-        EpistemicGraphClient(  # type: ignore[call-arg,arg-type]
-            object(), object(), "fixture-secret", "graph-fixture"
+        # The named untyped boundary lets this negative test omit a statically
+        # required keyword and prove the constructor also rejects it at runtime.
+        untyped(EpistemicGraphClient)(
+            unused_reader(),
+            unused_writer(),
+            "fixture-secret",
+            "graph-fixture",
         )
 
 
 @pytest.mark.asyncio
-async def test_bootstrap_operation_is_detached_signed_and_context_bound() -> None:
+async def test_bootstrap_operation_is_detached_signed_and_context_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     context = {
         **_context(),
         "principal": "service:bootstrap",
@@ -835,9 +948,9 @@ async def test_bootstrap_operation_is_detached_signed_and_context_bound() -> Non
         "scopes": ["security:bootstrap"],
         "delegation": [],
     }
-    client = EpistemicGraphClient(  # type: ignore[arg-type]
-        object(),
-        object(),
+    client = EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "__commons__",
         verified_context=context,
@@ -853,7 +966,7 @@ async def test_bootstrap_operation_is_detached_signed_and_context_bound() -> Non
         )
         return "ok"
 
-    client._send = capture  # type: ignore[method-assign]
+    monkeypatch.setattr(client, "_send", capture)
     result = await client.consensus.bootstrap_system_identity(
         agent_id="service:bootstrap",
         signer_id="service:bootstrap",
@@ -883,9 +996,9 @@ async def test_bootstrap_operation_is_detached_signed_and_context_bound() -> Non
     ],
 )
 async def test_parse_file_rejects_host_paths(host_path: str) -> None:
-    client = EpistemicGraphClient(  # type: ignore[arg-type]
-        object(),
-        object(),
+    client = EpistemicGraphClient(
+        unused_reader(),
+        unused_writer(),
         "fixture-secret",
         "graph-fixture",
         verified_context=_context(),

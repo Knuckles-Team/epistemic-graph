@@ -285,6 +285,8 @@ pub async fn run_federated_with_opensearch(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lock_recovery::LockRecovery;
+    use crate::test_rendezvous::join_bounded;
     use std::io::Write;
     use std::net::TcpListener;
     use std::sync::Mutex;
@@ -301,9 +303,7 @@ mod tests {
     /// Acquire [`ENV_LOCK`], recovering from a poison (a prior test panicking while
     /// holding it must not permanently wedge every later test).
     fn lock_env() -> std::sync::MutexGuard<'static, ()> {
-        ENV_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        ENV_LOCK.lock_recovering("opensearch URL env lock")
     }
 
     // ── DSL subset validation ───────────────────────────────────────────
@@ -483,7 +483,7 @@ mod tests {
             Some("caller-real-token-123"),
         );
         std::env::remove_var(OPENSEARCH_URL_ENV);
-        let request_text = handle.join().expect("mock server thread");
+        let request_text = join_bounded(handle, "mock opensearch server thread");
         assert!(
             result.is_ok(),
             "mock server response must parse: {result:?}"
@@ -522,7 +522,7 @@ mod tests {
             None,
         );
         std::env::remove_var(OPENSEARCH_URL_ENV);
-        let request_text = handle.join().expect("mock server thread");
+        let request_text = join_bounded(handle, "mock opensearch server thread");
         assert!(result.is_ok());
         let lower = request_text.to_ascii_lowercase();
         assert!(

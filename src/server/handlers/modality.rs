@@ -33,12 +33,15 @@ const DEFAULT_MAX_SOURCE_BYTES: usize = 16 * 1024 * 1024;
 const HARD_MAX_SOURCE_BYTES: usize = 256 * 1024 * 1024;
 const DEFAULT_MAX_BUNDLE_BYTES: usize = 4 * 1024 * 1024;
 const HARD_MAX_BUNDLE_BYTES: usize = 32 * 1024 * 1024;
-const MAX_INGEST_STREAM_ITEMS: usize = 64;
+/// Largest ingest stream whose worst-case canonical `ApplyOutcome` response
+/// (including `u64::MAX` counters) fits the Raft codec's 4096-byte envelope.
+pub(crate) const MAX_INGEST_STREAM_ITEMS: usize = 61;
 const MIN_PRIVACY_PROBE_BYTES: usize = 16;
 
 mod dispatch;
 mod ingest;
 mod migration;
+mod response;
 
 use ingest::ingest_stream;
 
@@ -51,14 +54,6 @@ pub(crate) struct ModalityAuthority {
     partition_token: String,
     lexeme_key: [u8; 32],
     cipher: ValueCipher,
-}
-
-#[derive(Serialize)]
-struct AuthorityView<'a> {
-    tenant_ref: &'a OpaqueRef,
-    access_policy_ref: &'a OpaqueRef,
-    purpose_ref: &'a OpaqueRef,
-    maximum_classification: Classification,
 }
 
 impl ModalityAuthority {
@@ -118,15 +113,6 @@ impl ModalityAuthority {
             lexeme_key,
             cipher: ValueCipher::from_key_material(&key_material),
         })
-    }
-
-    fn view(&self) -> AuthorityView<'_> {
-        AuthorityView {
-            tenant_ref: &self.scope.tenant_ref,
-            access_policy_ref: &self.scope.access_policy_ref,
-            purpose_ref: &self.scope.purpose_ref,
-            maximum_classification: self.scope.maximum_classification,
-        }
     }
 
     pub(crate) fn node_id(&self, modality: ServedModalityKind) -> String {
@@ -234,20 +220,8 @@ fn modality_kind(modality: ServedModalityKind) -> ModalityKind {
     }
 }
 
-fn segment_kind(kind: ServedSegmentKind) -> SegmentKind {
-    match kind {
-        ServedSegmentKind::Page => SegmentKind::Page,
-        ServedSegmentKind::Paragraph => SegmentKind::Paragraph,
-        ServedSegmentKind::Table => SegmentKind::Table,
-        ServedSegmentKind::Row => SegmentKind::Row,
-        ServedSegmentKind::Region => SegmentKind::Region,
-        ServedSegmentKind::AudioRange => SegmentKind::AudioRange,
-        ServedSegmentKind::VideoShot => SegmentKind::VideoShot,
-        ServedSegmentKind::FrameRange => SegmentKind::FrameRange,
-        ServedSegmentKind::TimeWindow => SegmentKind::TimeWindow,
-        ServedSegmentKind::CodeSymbol => SegmentKind::CodeSymbol,
-        ServedSegmentKind::TraceSpan => SegmentKind::TraceSpan,
-    }
+fn segment_kind(kind: ServedSegmentKind) -> Result<SegmentKind, String> {
+    response::transcode(kind).map_err(|error| format!("invalid served segment kind: {error}"))
 }
 
 fn opaque(value: String) -> Result<OpaqueRef, String> {
@@ -503,7 +477,7 @@ fn ingest(
     let outcome = outcomes
         .pop()
         .ok_or_else(|| "single modality ingest produced no outcome".to_string())?;
-    ResultPayload::raw(&outcome)
+    response::encode_ingest_result(outcome)
 }
 
 fn query<T>(
@@ -523,13 +497,13 @@ where
         .query(&ServedQuery {
             scope: authority.scope.clone(),
             modality: Some(modality_kind(modality)),
-            segment_kind: requested_segment.map(segment_kind),
+            segment_kind: requested_segment.map(segment_kind).transpose()?,
             after: after.map(occurrence).transpose()?,
             limit,
             include_cold,
         })
         .map_err(|error| error.to_string())?;
-    ResultPayload::raw(&page)
+    response::encode_query_page(page)
 }
 
 fn native_query<T>(
@@ -554,7 +528,7 @@ where
             include_cold,
         })
         .map_err(|error| error.to_string())?;
-    ResultPayload::raw(&page)
+    response::encode_native_query_page(page)
 }
 
 fn native_predicate(
@@ -655,7 +629,7 @@ where
     ) {
         store_delta(core, authority, modality, &delta)?;
     }
-    ResultPayload::raw(&outcome)
+    response::encode_delete_result(outcome)
 }
 
 fn lifecycle<T>(
@@ -684,7 +658,7 @@ where
     if let Some(delta) = MutationDelta::capture_lifecycle(&runtime, before.as_ref(), &id) {
         store_delta(core, authority, modality, &delta)?;
     }
-    ResultPayload::raw(&outcome)
+    response::encode_lifecycle_result(outcome, restore)
 }
 
 fn events<T>(
@@ -698,7 +672,11 @@ where
     T: GovernedModality + Clone + PartialEq + fmt::Debug + Serialize + DeserializeOwned,
 {
     let runtime: ServedModalityRuntime<T> = load_runtime(core, authority, modality)?;
-    ResultPayload::raw(&runtime.events_after_authorized(&authority.scope, after_sequence, limit))
+    response::encode_events(runtime.events_after_authorized(
+        &authority.scope,
+        after_sequence,
+        limit,
+    ))
 }
 
 fn stats<T>(
@@ -712,7 +690,7 @@ where
     authority.require_management()?;
     let runtime: ServedModalityRuntime<T> = load_runtime(core, authority, modality)?;
     let stats = runtime.stats().map_err(|error| error.to_string())?;
-    ResultPayload::raw(&stats)
+    response::encode_runtime_stats(stats)
 }
 
 fn collect_tombstones<T>(
@@ -731,9 +709,7 @@ where
     let mut runtime: ServedModalityRuntime<T> = load_runtime(core, authority, modality)?;
     let collected = runtime.collect_tombstones(&authority.scope, through_event_sequence);
     store_runtime(core, authority, modality, &runtime)?;
-    Ok(ResultPayload::Json(
-        serde_json::json!({"collected": collected}),
-    ))
+    response::encode_tombstone_collection(collected)
 }
 
 fn capabilities<T: ConformanceTestable>() -> Result<ResultPayload, String> {
@@ -741,12 +717,7 @@ fn capabilities<T: ConformanceTestable>() -> Result<ResultPayload, String> {
     if !report.is_production_ready() || report.pass_count() != 12 || report.na_count() != 0 {
         return Err("served modality failed the component TCK".to_string());
     }
-    Ok(ResultPayload::Json(serde_json::json!({
-        "component_ready": true,
-        "component_pass": report.pass_count(),
-        "component_not_applicable": report.na_count(),
-        "component_total": 12,
-    })))
+    response::encode_capability_report(report.pass_count(), report.na_count(), 12)
 }
 
 /// Execute one graph-scoped served operation. Mutating calls are invoked against
@@ -1100,7 +1071,9 @@ mod tests {
             real_delta_bytes.push(last_bytes);
         }
 
-        eprintln!("BUG-017 REAL delta-write bytes vs corpus (src/server/handlers/modality.rs, store_delta against a real GraphCore):");
+        eprintln!(
+            "BUG-017 REAL delta-write bytes vs corpus (src/server/handlers/modality.rs, store_delta against a real GraphCore):"
+        );
         for (i, &target) in CHECKPOINTS.iter().enumerate() {
             eprintln!(
                 "  corpus={target:>6}  real store_delta bytes for ONE more mutation={:>6}",

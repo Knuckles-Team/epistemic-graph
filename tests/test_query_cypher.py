@@ -1,5 +1,6 @@
 """QueryClient Cypher methods send explicit-mode RPCs and decode result rows
-into dicts (CONCEPT:EG-KG.query.dep-free-behind) — mirroring the SQL path, since both return the
+into dicts (CONCEPT:EG-KG.query.dep-free-behind) — mirroring the SQL path, since both
+return the
 identical wire shape."""
 
 from __future__ import annotations
@@ -9,7 +10,7 @@ from typing import Any
 import msgpack
 import pytest
 
-from epistemic_graph.client import QueryClient
+from epistemic_graph.client import EpistemicGraphClient, QueryClient
 
 # Fake-client unit tests only -- never needs the shared native engine (see
 # conftest.py's session-scoped `start_epistemic_graph_server` fixture,
@@ -17,7 +18,7 @@ from epistemic_graph.client import QueryClient
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeClient:
+class _FakeClient(EpistemicGraphClient):
     """Mimics the engine's decoded `Raw(QueryResult)` reply: `_send` returns the
     already-double-unpacked dict `{"columns": [...], "rows": [<row-blob>, ...]}`
     where each row blob is a MessagePack list of cells (what the server emits)."""
@@ -27,7 +28,14 @@ class _FakeClient:
         self._columns = columns
         self._rows = rows
 
-    async def _send(self, method: str, params: dict[str, Any] | None = None) -> Any:
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
         self.sent.append((method, params))
         return {
             "columns": self._columns,
@@ -41,7 +49,7 @@ async def test_cypher_sends_rpc_and_zips_rows() -> None:
         columns=["a", "b"],
         rows=[["alice", "bob"], ["bob", "carol"]],
     )
-    qc = QueryClient(fake)  # type: ignore[arg-type]
+    qc = QueryClient(fake)
     query = "MATCH (a:Person)-[:KNOWS]->(b:Person) RETURN a, b"
     out = await qc.cypher_read(query)
 
@@ -58,7 +66,7 @@ async def test_cypher_sends_rpc_and_zips_rows() -> None:
 @pytest.mark.asyncio
 async def test_cypher_property_projection_and_limit() -> None:
     fake = _FakeClient(columns=["a.name"], rows=[["Alice"]])
-    qc = QueryClient(fake)  # type: ignore[arg-type]
+    qc = QueryClient(fake)
     query = "MATCH (a:Person) WHERE a.name = 'Alice' RETURN a.name LIMIT 1"
     out = await qc.cypher_read(query)
     assert fake.sent == [("CypherQuery", {"query": query, "mode": "read"})]
@@ -68,7 +76,7 @@ async def test_cypher_property_projection_and_limit() -> None:
 @pytest.mark.asyncio
 async def test_cypher_empty_result() -> None:
     fake = _FakeClient(columns=["a"], rows=[])
-    qc = QueryClient(fake)  # type: ignore[arg-type]
+    qc = QueryClient(fake)
     out = await qc.cypher_read("MATCH (a:Nonexistent) RETURN a")
     assert out == []
     assert fake.sent == [
@@ -82,7 +90,7 @@ async def test_cypher_empty_result() -> None:
 @pytest.mark.asyncio
 async def test_cypher_write_declares_write_mode() -> None:
     fake = _FakeClient(columns=[], rows=[])
-    qc = QueryClient(fake)  # type: ignore[arg-type]
+    qc = QueryClient(fake)
 
     await qc.cypher_write("MATCH (n) SET n.active = true")
 

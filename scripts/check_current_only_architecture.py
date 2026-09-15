@@ -5,12 +5,7 @@ from __future__ import annotations
 
 import re
 import subprocess
-import sys
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from method_policy_inventory import (
     MethodPolicyInventoryError,
@@ -18,7 +13,10 @@ from method_policy_inventory import (
     parse_method_policy_table,
 )
 from rust_callgraph import top_level_fns
-from rust_module_tree import read_module_tree
+from rust_lexer import _balanced_span_from, _rust_code_mask, _rust_comments_mask
+from rust_module_tree import read_compiler_family, read_module_tree
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def read(relative: str) -> str:
@@ -27,6 +25,41 @@ def read(relative: str) -> str:
 
 def read_sources(paths: tuple[str, ...]) -> str:
     return "\n".join(map(read, paths))
+
+
+def protocol_source() -> str:
+    """Read the complete compiler-declared protocol family.
+
+    ``protocol.rs`` is a facade; the wire enum and its request DTOs may live in
+    any declared child module.  The family reader keeps this gate on the
+    compiler's production view and rejects an unlinked ``*.rs`` child instead
+    of silently allowing a protocol surface to escape review.
+    """
+
+    return read_compiler_family("crates/eg-types/src/protocol.rs", ROOT).production
+
+
+def rdf_handler_source() -> str:
+    """Read the compiler-declared native RDF handler family.
+
+    The handler is a facade whose integrity-guard branches live in declared
+    children.  Following the compiler family keeps this check fail closed when
+    the implementation is split again or a child becomes unreachable.
+    """
+
+    return read_compiler_family("src/server/handlers/rdf.rs", ROOT).production
+
+
+def rdf_update_source() -> str:
+    """Read the compiler-declared guarded SPARQL update family."""
+
+    return read_compiler_family("crates/eg-rdf/src/update.rs", ROOT).production
+
+
+def raft_store_source() -> str:
+    """Read the complete compiler-declared Raft storage family."""
+
+    return read_compiler_family("src/raft/store.rs", ROOT).production
 
 
 def require(condition: bool, message: str) -> None:
@@ -289,7 +322,8 @@ def _check_transport_contract(
         ".stack_size(ENGINE_WORKER_STACK_BYTES)" in server
         and "engine runtime driver thread could not start" in server
         and "engine runtime driver terminated unexpectedly" in server,
-        "shared engine driver does not provide an explicit stack and normalized failures",
+        "shared engine driver does not provide an explicit stack and normalized "
+        "failures",
     )
     require(
         "server::spawn_engine_driver(move ||" in server_main
@@ -368,7 +402,8 @@ def _check_client_batch_contract(
         and '"properties_msgpack": _pack_binary_msgpack(properties or {})' in client
         and "def _pack_binary_msgpack(value: Any) -> bytes:" in client
         and "list(msgpack.packb" not in client,
-        "the Python client does not use the native binary MessagePack batch/lifecycle contract",
+        "the Python client does not use the native binary MessagePack batch/lifecycle "
+        "contract",
     )
     require(
         all(
@@ -487,7 +522,8 @@ def _check_mutation_routing(
 def _check_mutation_prepublish(mutation_runtime: str) -> None:
     prepublish = delimited_body(
         mutation_runtime,
-        "fn prepublish_success(core: &GraphCore, method: &Method) -> Option<ResultPayload> {",
+        "fn prepublish_success(core: &GraphCore, method: &Method) -> "
+        "Option<ResultPayload> {",
         "\n}",
     )
     require(
@@ -495,7 +531,8 @@ def _check_mutation_prepublish(mutation_runtime: str) -> None:
         and "BrokerAckTag" not in prepublish
         and "BrokerNackTag" not in prepublish
         and "BrokerRenewTag" not in prepublish,
-        "a state-dependent create/tag verdict is predicted before authoritative staging",
+        "a state-dependent create/tag verdict is predicted before authoritative "
+        "staging",
     )
 
 
@@ -514,11 +551,14 @@ def _require_broker_expiry_sweep(broker: str) -> None:
 
 def _check_broker_fencing(broker: str, graph: str) -> None:
     require(
-        "pub fn broker_ack_tag(core: &GraphCore, delivery_tag: i64, consumer: &str) -> bool"
+        "pub fn broker_ack_tag(core: &GraphCore, delivery_tag: i64, consumer: &str) -> "
+        "bool"
         in broker
-        and "pub fn broker_nack_tag(\n    core: &GraphCore,\n    delivery_tag: i64,\n    consumer: &str,"
+        and "pub fn broker_nack_tag(\n    core: &GraphCore,\n    delivery_tag: i64,\n"
+        "    consumer: &str,"
         in broker
-        and "pub fn broker_renew_tag(\n    core: &GraphCore,\n    delivery_tag: i64,\n    consumer: &str,\n    now_ms: u64,\n    lease_ms: u64,"
+        and "pub fn broker_renew_tag(\n    core: &GraphCore,\n    delivery_tag: i64,\n"
+        "    consumer: &str,\n    now_ms: u64,\n    lease_ms: u64,"
         in broker,
         "the native tag operations regained an ownerless or implicit-clock form",
     )
@@ -536,7 +576,7 @@ def _check_broker_fencing(broker: str, graph: str) -> None:
     if "broker_lease_extends(" in renewal:
         lease_extension_guard += "\n" + delimited_body(
             graph,
-            "    fn broker_lease_extends(",
+            "    pub(super) fn broker_lease_extends(",
             "\n    /// Return an expired delivery to pending",
         )
     require(
@@ -578,7 +618,8 @@ def _check_mutation_policy(capabilities: str, cdc: str) -> None:
     )
     create_cdc = delimited_body(
         cdc,
-        "(Method::CreateNodeIfAbsent { node_id, .. }, CdcPre::Node { before: None, .. })",
+        "(Method::CreateNodeIfAbsent { node_id, .. }, CdcPre::Node { before: None, .. "
+        "})",
         "(Method::CompareAndSetNodeFields",
     )
     require(
@@ -714,17 +755,32 @@ def _check_identity_bootstrap_replication(raft: str, dispatch: str) -> None:
 
 
 def _check_identity_order(dispatch: str) -> None:
+    route = delimited_body(
+        dispatch,
+        "fn native_route_target(",
+        "\n}",
+    )
     require(
-        'NativeMutationCommand::Identity { .. } => "__commons__".to_string()'
-        in dispatch,
-        "identity/RBAC commands are not totally ordered on the bootstrap authority graph",
+        all(
+            map(
+                route.__contains__,
+                (
+                    'Some("Identity") => "__commons__".to_string()',
+                    "command.domain()",
+                    'unreachable!("unclassified native consensus domain: {other}")',
+                ),
+            )
+        ),
+        "identity/RBAC commands are not totally ordered on the bootstrap authority "
+        "graph",
     )
 
 
 def _check_raft_snapshot_shape(raft_store: str) -> None:
-    raft_graph_snapshot = delimited_body(raft_store, "struct GraphSnapshot {", "\n}")
+    code = _rust_code_mask(raft_store)
+    raft_graph_snapshot = delimited_body(code, "struct GraphSnapshot {", "\n}")
     require(
-        "const RAFT_SNAPSHOT_SCHEMA_VERSION: u16 = 4;" in raft_store
+        "const RAFT_SNAPSHOT_SCHEMA_VERSION: u16 = 4;" in code
         and "durable: crate::server::persistence::online_reshard::RawGraphRows"
         in raft_graph_snapshot
         and all(
@@ -738,26 +794,116 @@ def _check_raft_snapshot_shape(raft_store: str) -> None:
                 "\n    version:",
             )
         )
-        and "export_graph_raw_for_snapshot" in raft_store
-        and "read_authoritative_graph_snapshot" in raft_store,
+        and "export_graph_raw_for_snapshot" in code
+        and "read_authoritative_graph_snapshot" in code,
         "Raft snapshots regained a duplicate decoded/plaintext graph authority",
     )
 
 
 def _check_raft_snapshot_enumeration(raft_store: str) -> None:
+    code = _rust_code_mask(raft_store)
     require(
-        ".list()" in raft_store and ".all_entries()" not in raft_store,
+        ".list()" in code and ".all_entries()" not in code,
         "Raft snapshot enumeration drops catalog-only/evicted graphs",
     )
 
 
-def _check_raft_snapshot_replacement(raft_store: str) -> None:
+def _rust_function_body(source: str, name: str) -> str:
+    """Return the sole compiler-family function body named ``name``."""
+
+    code = _rust_code_mask(source)
+    matches = list(
+        re.finditer(
+            rf"\bfn\s+{re.escape(name)}(?:\s*<[^>{{}}]*>)?\s*\(",
+            code,
+        )
+    )
     require(
-        "let stale_names =" in raft_store
-        and "Raft snapshot omits the mandatory commons graph" in raft_store
-        and "RawGraphRows::default()" in raft_store
-        and "s.registry.delete_graph(&name)?;" in raft_store,
-        "Raft snapshot install merges with stale graph authority instead of replacing it",
+        len(matches) == 1,
+        f"expected one compiler-reachable Rust function named {name}",
+    )
+    opener = code.find("{", matches[0].end())
+    require(opener >= 0, f"missing Rust function body: {name}")
+    closer = _balanced_span_from(code, opener, "{", "}")
+    return source[opener + 1 : closer]
+
+
+def _squash_rust_body(body: str) -> str:
+    """Normalize whitespace without erasing code tokens."""
+
+    return re.sub(r"\s*\.\s*", ".", re.sub(r"\s+", " ", body))
+
+
+def _snapshot_install_removes_stale_graphs(install: str) -> bool:
+    return (
+        "let stale_names = self.stale_snapshot_graph_names(&names).await?;" in install
+        and re.search(
+            r"for name in stale_names\s*\{\s*"
+            r"self\.remove_stale_snapshot_graph\(&name\)\.await\?;\s*\}",
+            install,
+        )
+        is not None
+    )
+
+
+def _code_compares_to_literal(comments_body: str, code_body: str, literal: str) -> bool:
+    """Require a literal comparison in code, never inside a string decoy."""
+
+    pattern = re.compile(rf"\bname\s*==\s*{re.escape(literal)}")
+    for match in pattern.finditer(comments_body):
+        quote = comments_body.find('"', match.start(), match.end())
+        prefix = code_body[match.start() : quote] if quote >= 0 else ""
+        if re.fullmatch(r"\s*name\s*==\s*", prefix):
+            return True
+    return False
+
+
+def _snapshot_stale_set_is_complete(
+    stale: str, stale_comments: str, stale_code: str
+) -> bool:
+    return (
+        ".registry.list()" in stale
+        and "belongs_to_group && !names.contains(name.as_str())" in stale
+        and _code_compares_to_literal(stale_comments, stale_code, '"__commons__"')
+        and re.search(
+            r"if stale\.iter\(\)\.any\(\|name\| name ==\s+\)\s*\{" r".*return Err\(",
+            stale,
+        )
+        is not None
+    )
+
+
+def _snapshot_removal_clears_both_authorities(remove: str) -> bool:
+    return all(
+        marker in remove
+        for marker in (
+            ".import_graph_raw_from_snapshot(",
+            "RawGraphRows::default(),",
+            "s.registry.delete_graph(name)?;",
+        )
+    )
+
+
+def _check_raft_snapshot_replacement(raft_store: str) -> None:
+    """Prove snapshot replacement through its compiler-reachable call chain."""
+
+    comments = _rust_comments_mask(raft_store)
+    code = _rust_code_mask(raft_store)
+    install = _squash_rust_body(_rust_function_body(code, "install_graphs"))
+    stale_body = _rust_function_body(code, "stale_snapshot_graph_names")
+    stale = _squash_rust_body(stale_body)
+    stale_comments = _rust_function_body(comments, "stale_snapshot_graph_names")
+    remove = _squash_rust_body(_rust_function_body(code, "remove_stale_snapshot_graph"))
+    require(
+        all(
+            (
+                _snapshot_install_removes_stale_graphs(install),
+                _snapshot_stale_set_is_complete(stale, stale_comments, stale_body),
+                _snapshot_removal_clears_both_authorities(remove),
+            )
+        ),
+        "Raft snapshot install merges with stale graph authority instead of replacing "
+        "it",
     )
 
 
@@ -766,16 +912,21 @@ def _check_raft_restore(registry: str, raft_store: str) -> None:
         "pub fn install_committed_graph(" in registry
         and "GraphCore::from_snapshot(snapshot, committed_version)" in registry
         and "s.registry.install_committed_graph(" in raft_store,
-        "Raft restore publishes an empty/partial core or loses durable incarnation identity",
+        "Raft restore publishes an empty/partial core or loses durable incarnation "
+        "identity",
     )
 
 
 def _check_raft_snapshot_validation(raft_store: str, raft: str) -> None:
+    store_code = _rust_code_mask(raft_store)
+    raft_code = _rust_code_mask(raft)
     require(
-        "self.validate_snapshot_graphs(&body.graphs)" in raft_store
-        and "validate_replay_authentication(&server_secret)" in raft_store
-        and "pub(crate) fn validate_replay_authentication(" in raft,
-        "Raft snapshot install mutates state before validating the complete replay image",
+        "self.validate_snapshot_graphs(&body.graphs)" in store_code
+        and re.search(r"validate_replay_authentication\(&?server_secret\)", store_code)
+        is not None
+        and "pub(crate) fn validate_replay_authentication(" in raft_code,
+        "Raft snapshot install mutates state before validating the complete replay "
+        "image",
     )
 
 
@@ -848,8 +999,8 @@ def _check_mysql(mysql_packets: str, mysql_wire: str) -> None:
 
 def main() -> None:
     require_no_retired_graph_topology()
-    protocol = read("crates/eg-types/src/protocol.rs")
-    wire = read("crates/eg-types/src/wire.rs")
+    protocol = protocol_source()
+    wire = read_module_tree("crates/eg-types/src/wire.rs", root_dir=ROOT)
     schema = read("crates/eg-query/src/tables/schema.rs")
     sql_exec = read("crates/eg-query/src/sql/exec.rs")
     sql_mod = read("crates/eg-query/src/sql/mod.rs")
@@ -867,8 +1018,8 @@ def main() -> None:
     dist_handler = read("src/server/handlers/dist_compute.rs")
     icv_policy = read("crates/eg-shacl/src/policy.rs")
     rdf_guard = read("crates/eg-rdf/src/guard.rs")
-    rdf_update = read("crates/eg-rdf/src/update.rs")
-    rdf_handler = read("src/server/handlers/rdf.rs")
+    rdf_update = rdf_update_source()
+    rdf_handler = rdf_handler_source()
     rbac = read("crates/eg-core/src/rbac.rs")
     rbac_persist = read("crates/eg-core/src/rbac_persist.rs")
     isolation = read_sources(
@@ -883,7 +1034,10 @@ def main() -> None:
         )
     )
     acl = read("crates/eg-types/src/acl.rs")
-    graph = read("crates/eg-core/src/graph.rs")
+    # GraphCore's public implementation is split across compiler-declared child
+    # modules. Read that complete production closure so fencing checks continue
+    # to follow the code when a method moves out of the facade.
+    graph = read_module_tree("crates/eg-core/src/graph.rs", root_dir=ROOT)
     registry = read("crates/eg-core/src/registry.rs")
     owl = read("crates/eg-rdf/src/owl.rs")
     geometry = read("crates/eg-geo/src/geometry.rs")
@@ -898,13 +1052,19 @@ def main() -> None:
     # compiler-reachable tree so snapshot replay proofs follow that ownership
     # split instead of inspecting only the facade.
     raft = read_module_tree("src/raft/mod.rs", root_dir=ROOT)
-    raft_store = read("src/raft/store.rs")
+    # Snapshot capture/install is likewise declared across the store children;
+    # the family reader rejects an omitted or orphaned child before this gate
+    # can accidentally certify a partial snapshot implementation.
+    raft_store = raft_store_source()
     raw_rows = read("src/server/persistence/online_reshard.rs")
     # The policy ledger lives across the domain-owned `ROWS` modules under
     # `crates/eg-capabilities/src/domains/`, not in `lib.rs`; `load_capability_sources`
     # is the canonical reader that `check_universal_read_rls.py` already uses.
     capabilities = load_capability_sources(ROOT)
-    mutation_runtime = read("src/server/mutation.rs")
+    # Mutation routing is implemented across the compiler-declared private
+    # children of this facade.  Follow that exact production closure so moving
+    # a route cannot make the architecture gate silently inspect stale text.
+    mutation_runtime = read_module_tree("src/server/mutation.rs", root_dir=ROOT)
     mutation_apply = read("src/mutation_apply.rs")
     # Hoisted 2026-08-25 (3810eb00, "Hoist durable-mutation classify/apply +
     # single-writer guard into eg-core"): the base graph-mutation set and the
@@ -914,9 +1074,7 @@ def main() -> None:
     # via its `_` arm. A check that reads only src/mutation_apply.rs therefore
     # measures a partial universe post-hoist (BUG-CX-112) -- union both.
     mutation_apply += "\n" + read("crates/eg-core/src/durable_apply.rs")
-    graph_handler = read_module_tree(
-        "src/server/handlers/graph_ops.rs", root_dir=ROOT
-    )
+    graph_handler = read_module_tree("src/server/handlers/graph_ops.rs", root_dir=ROOT)
     access = read("src/server/access.rs")
     broker = read("crates/eg-core/src/broker.rs")
     cdc = read("src/server/cdc.rs")

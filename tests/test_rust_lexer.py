@@ -2,24 +2,21 @@
 
 from __future__ import annotations
 
-import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import pytest
+import rust_lexer
+import rust_module_tree
 
 pytestmark = pytest.mark.no_engine
 
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "scripts"))
-
-import rust_lexer  # noqa: E402
-import rust_module_tree  # noqa: E402
-
 
 class RustLexerStaticTests(unittest.TestCase):
-    def test_cfg_parser_preserves_supported_shapes_and_rejects_incomplete_input(self) -> None:
+    def test_cfg_parser_preserves_supported_shapes_and_rejects_incomplete_input(
+        self,
+    ) -> None:
         self.assertEqual(
             rust_lexer._parse_cfg_expression('all(feature = "x", not(test))'),
             ("all", (("atom", 'feature="x"'), ("not", (("atom", "test"),)))),

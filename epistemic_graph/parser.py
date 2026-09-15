@@ -1,4 +1,5 @@
-"""CONCEPT:EG-KG.compute.ast-parser-fallback — Epistemic Graph AST Parser with Python Fallback."""
+"""CONCEPT:EG-KG.compute.ast-parser-fallback — Epistemic Graph AST Parser with Python
+Fallback."""
 
 import ast
 import asyncio
@@ -17,7 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 class RustASTParser:
-    """CONCEPT:EG-KG.compute.ast-parser-fallback — Epistemic Graph AST Parser with Python Fallback.
+    """CONCEPT:EG-KG.compute.ast-parser-fallback — Epistemic Graph AST Parser with
+    Python Fallback.
 
     Connects to the epistemic-graph Tokio service via Unix Domain Sockets using
     length-prefixed MessagePack. Performs AST parsing of target source files.
@@ -69,7 +71,8 @@ class RustASTParser:
             asyncio.IncompleteReadError,
         ) as exc:
             logger.warning(
-                "AST service unavailable (%s); falling back to native Python ast for %s",
+                "AST service unavailable (%s); falling back to native Python ast for "
+                "%s",
                 exc,
                 source_name,
             )

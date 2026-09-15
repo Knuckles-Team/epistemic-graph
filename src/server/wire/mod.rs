@@ -335,21 +335,7 @@ fn extract_quoted_value(
 
 /// Resolve a classify `ColumnDef` (raw SQL type spelling) into a store [`Column`].
 pub(crate) fn to_store_columns(cols: &[eg_query::ColumnDef]) -> WireResult<Vec<Column>> {
-    cols.iter()
-        .map(|c| {
-            let ty = ColumnType::parse(&c.type_name).map_err(user_err)?;
-            Ok(Column {
-                name: c.name.clone(),
-                ty,
-                nullable: c.nullable,
-                primary_key: c.primary_key,
-                unique: c.unique,
-                serial: c.serial,
-                default: c.default.clone(),
-                check: c.check.clone(),
-            })
-        })
-        .collect()
+    eg_query::columns_from_defs(cols).map_err(user_err)
 }
 
 /// Lower a decoded `ALTER TABLE` plan into the matching buffered [`TxnOp`] (CONCEPT:EG-KG.query.register-user-tables-alongside

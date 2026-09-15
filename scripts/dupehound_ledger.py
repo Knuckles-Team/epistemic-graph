@@ -36,10 +36,12 @@ from __future__ import annotations
 import hashlib
 import re
 import sys
-import tomllib
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
+
+import tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
 REGISTER_PATH = ROOT / "dupehound-distinct.toml"
@@ -218,9 +220,7 @@ def resolved_reason(finding: dict[str, Any], root: Path = ROOT) -> str | None:
         return f"{finding['file']}::{name} is no longer in the tree"
     if delegates_to(file, int(finding["line"]), name, original_name):
         return f"{name} delegates to {original_name} rather than reimplementing it"
-    if delegates_to(
-        original_file, int(finding["original_line"]), original_name, name
-    ):
+    if delegates_to(original_file, int(finding["original_line"]), original_name, name):
         return f"{original_name} delegates to {name} rather than reimplementing it"
     return None
 
@@ -323,7 +323,8 @@ def main() -> int:
 
     if len(sys.argv) != 5:
         print(
-            "usage: dupehound_ledger.py <left_file> <left_name> <right_file> <right_name>",
+            "usage: dupehound_ledger.py <left_file> <left_name> <right_file> "
+            "<right_name>",
             file=sys.stderr,
         )
         return 2

@@ -359,7 +359,7 @@ fn redact_resource_status_result(
             result.host_snapshot = None;
         }
     }
-    ResultPayload::raw(&result)
+    ResultPayload::of::<eg_types::result_contract::coordination::ResourceReservationStatus>(result)
 }
 
 // ── Fleet server registry (CONCEPT:EG-KG.sharding.server-registry, W2.5) ──────────

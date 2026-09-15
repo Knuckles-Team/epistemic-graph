@@ -22,6 +22,7 @@ use crate::isolation::AccessLevel;
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::access::{check_graph_access, CarrierAuthority, GraphReadAuthority};
 use crate::wire::{CdcEvent, ContinuousAgg, ContinuousQuerySpec, WatchBatch};
+use eg_types::result_contract::messaging as results;
 
 /// Pull the CDC hub, or an ERROR response if the engine booted without one (only if a
 /// future build path leaves it `None` — `streaming` builds always construct it).
@@ -173,7 +174,10 @@ impl<'a> StreamingRequest<'a> {
             .into_iter()
             .filter_map(|event| sanitize_event(self.read_authority, event))
             .collect();
-        Response::ok(self.req_id, ResultPayload::raw(&result))
+        Response::ok(
+            self.req_id,
+            ResultPayload::of_ref::<results::CdcRead>(&result),
+        )
     }
 
     async fn register_query(&self, name: String, spec_msgpack: Vec<u8>) -> Response {
@@ -195,7 +199,10 @@ impl<'a> StreamingRequest<'a> {
         };
         let initial = seed_value(self.state, self.read_authority, &spec).await;
         hub.register_query(owned_name(self.carrier, "cq", &name), spec, initial);
-        Response::ok(self.req_id, ResultPayload::String(name))
+        Response::ok(
+            self.req_id,
+            ResultPayload::scalar::<results::RegisterContinuousQuery>(name),
+        )
     }
 
     async fn read_query(&self, name: String) -> Response {
@@ -217,7 +224,10 @@ impl<'a> StreamingRequest<'a> {
             Some(mut result) => {
                 result.name = name;
                 result.value = value;
-                Response::ok(self.req_id, ResultPayload::raw(&result))
+                Response::ok(
+                    self.req_id,
+                    ResultPayload::of_ref::<results::ReadContinuousQuery>(&result),
+                )
             }
             None => Response::err(self.req_id, format!("continuous query '{name}' not found")),
         }
@@ -230,7 +240,11 @@ impl<'a> StreamingRequest<'a> {
         };
         Response::ok(
             self.req_id,
-            ResultPayload::Bool(hub.drop_query(&owned_name(self.carrier, "cq", &name))),
+            ResultPayload::scalar::<results::DropContinuousQuery>(hub.drop_query(&owned_name(
+                self.carrier,
+                "cq",
+                &name,
+            ))),
         )
     }
 
@@ -265,7 +279,7 @@ impl<'a> StreamingRequest<'a> {
             hub.watch_batch(&graph, from_seq, &label, 0),
         );
         if batch.gap || !batch.events.is_empty() {
-            return Response::ok(self.req_id, ResultPayload::raw(&batch));
+            return Response::ok(self.req_id, ResultPayload::of_ref::<results::Watch>(&batch));
         }
         // Nothing yet — long-poll: await the next change up to timeout_ms, then
         // return whatever arrived (possibly still empty on timeout). One
@@ -278,7 +292,7 @@ impl<'a> StreamingRequest<'a> {
             self.read_authority,
             hub.watch_batch(&graph, from_seq, &label, 0),
         );
-        Response::ok(self.req_id, ResultPayload::raw(&batch))
+        Response::ok(self.req_id, ResultPayload::of_ref::<results::Watch>(&batch))
     }
 
     async fn register_trigger(
@@ -300,7 +314,10 @@ impl<'a> StreamingRequest<'a> {
             op,
             action_msgpack,
         );
-        Response::ok(self.req_id, ResultPayload::String(name))
+        Response::ok(
+            self.req_id,
+            ResultPayload::scalar::<results::RegisterTrigger>(name),
+        )
     }
 
     async fn drop_trigger(&self, name: String) -> Response {
@@ -310,7 +327,11 @@ impl<'a> StreamingRequest<'a> {
         };
         Response::ok(
             self.req_id,
-            ResultPayload::Bool(hub.drop_trigger(&owned_name(self.carrier, "trigger", &name))),
+            ResultPayload::scalar::<results::DropTrigger>(hub.drop_trigger(&owned_name(
+                self.carrier,
+                "trigger",
+                &name,
+            ))),
         )
     }
 
@@ -330,7 +351,10 @@ impl<'a> StreamingRequest<'a> {
             trigger.fire_count = 0;
             true
         });
-        Response::ok(self.req_id, ResultPayload::raw(&triggers))
+        Response::ok(
+            self.req_id,
+            ResultPayload::of_ref::<results::ListTriggers>(&triggers),
+        )
     }
 
     async fn fired_triggers(&self, graph: String, from_seq: u64, limit: u32) -> Response {
@@ -360,7 +384,10 @@ impl<'a> StreamingRequest<'a> {
             }
             visible
         });
-        Response::ok(self.req_id, ResultPayload::raw(&result))
+        Response::ok(
+            self.req_id,
+            ResultPayload::of_ref::<results::FiredTriggers>(&result),
+        )
     }
 }
 

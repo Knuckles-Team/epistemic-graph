@@ -29,6 +29,7 @@ def repository(tmp_path: Path) -> tuple[Path, Path, Path]:
         "rust_lexer.py",
         "rust_module_tree.py",
         "scanner_contract.py",
+        "kiss_diff_scope.py",
     ):
         shutil.copy2(ROOT / "scripts" / name, repo / "scripts" / name)
     shutil.copy2(ROOT / "pyproject.toml", repo / "pyproject.toml")
@@ -64,9 +65,11 @@ def repository(tmp_path: Path) -> tuple[Path, Path, Path]:
         'if [ -n "${KISS_REJECT_PATH:-}" ] && [ -e "$KISS_REJECT_PATH" ]; then\n'
         "  exit 8\n"
         "fi\n"
-        "printf 'Analyzed: 1 files, 0 code_units, 0 statements, 1 graph_nodes, 0 graph_edges\\n'\n"
+        "printf 'Analyzed: 1 files, 0 code_units, 0 statements, "
+        "1 graph_nodes, 0 graph_edges\\n'\n"
         'if grep -q violation "$source"; then\n'
-        "  printf 'VIOLATION:lines_per_file:%s:1:example.rs: File has 901 lines (threshold: 900) Split it.\\n' \"$source\"\n"
+        "  printf 'VIOLATION:lines_per_file:%s:1:example.rs: File has 901 lines "
+        '(threshold: 900) Split it.\\n\' "$source"\n'
         "  exit 1\n"
         "fi\n"
         "printf 'NO VIOLATIONS\\n'\n",
@@ -87,6 +90,7 @@ def repository(tmp_path: Path) -> tuple[Path, Path, Path]:
         "scripts/rust_lexer.py",
         "scripts/rust_module_tree.py",
         "scripts/scanner_contract.py",
+        "scripts/kiss_diff_scope.py",
         "src/example.rs",
         cwd=repo,
     )
@@ -122,9 +126,63 @@ def test_hook_scans_staged_bytes_not_unstaged_worktree_bytes(
     )
 
     assert result.returncode == 1, result.stderr
-    assert log.read_text(encoding="utf-8") == "staged violation\n"
+    # Two fake-KISS invocations land in the log now: the staged scan (this
+    # test's "staged violation" bytes), then the BUG-CX-136 diff-scoping
+    # comparison scan against the committed HEAD blob ("committed\n" -- the
+    # fixture's initial commit content). Neither is the unstaged worktree
+    # bytes ("unstaged clean"), which is exactly what this test guards.
+    assert log.read_text(encoding="utf-8") == "staged violation\ncommitted\n"
     assert "VIOLATION:lines_per_file:" in result.stdout
+    # The file-level rule is newly crossed (absent from the HEAD report,
+    # since "committed\n" does not contain the stub's "violation" trigger),
+    # so it is fully attributable (all 1 of 1 staged findings) and must
+    # still fail the commit.
+    assert "1 violation(s) in src/example.rs" in result.stdout
+    assert "kiss(staged): 1 attributable violation(s) across 1 changed file(s)" in (
+        result.stdout
+    )
     assert "1 changed file(s)" in result.stdout
+
+
+def test_hook_suppresses_an_unchanged_pre_existing_file_level_violation(
+    repository: tuple[Path, Path, Path],
+) -> None:
+    """BUG-CX-136 diff-scoping (F6): wiring-level proof, not just the matcher.
+
+    HEAD already contains the fake stub's "violation" trigger (so HEAD's scan
+    reports the SAME fixed `lines_per_file` finding the staged scan would).
+    The staged change only appends an unrelated line -- it does not touch
+    whatever the (fake) rule is measuring -- so the finding is pre-existing,
+    unworsened debt and must not fail the commit. This proves the bash side
+    actually materializes HEAD_ROOT, runs a second KISS pass against it, and
+    calls `kiss_diff_scope.py` with both reports; the pure matching logic
+    itself (content vs. magnitude comparison) is unit-tested directly in
+    `tests/test_kiss_diff_scope.py`.
+    """
+    repo, kiss, log = repository
+    source = repo / "src/example.rs"
+    source.write_text("violation\n", encoding="utf-8")
+    _run("git", "add", "--", "src/example.rs", cwd=repo)
+    _run("git", "commit", "-qm", "pre-existing violation", cwd=repo)
+    source.write_text("violation\nan unrelated added line\n", encoding="utf-8")
+    _run("git", "add", "--", "src/example.rs", cwd=repo)
+
+    result = subprocess.run(
+        ["bash", "scripts/check_kiss_staged.sh"],
+        cwd=repo,
+        env=_hook_env(kiss, log),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "0 attributable violation(s) across 1 changed file(s)" in result.stdout
+    assert "1 pre-existing, untouched by this change, not counted" in result.stdout
+    # Both scans ran (staged, then HEAD) -- the fake KISS stub logged both.
+    assert log.read_text(encoding="utf-8") == (
+        "violation\nan unrelated added line\nviolation\n"
+    )
 
 
 def test_hook_accepts_an_environment_with_no_git_selector_arguments(
@@ -172,7 +230,7 @@ def test_hook_materializes_nested_cfg_path_and_include_closure(
     (repo / "src/special").mkdir()
     (repo / "src/root.rs").write_text(
         "mod child;\n"
-        "#[cfg(feature = \"extra\")]\n#[path = \"special/extra.rs\"]\nmod extra;\n"
+        '#[cfg(feature = "extra")]\n#[path = "special/extra.rs"]\nmod extra;\n'
         'include!("included.inc");\n',
         encoding="utf-8",
     )
@@ -308,7 +366,10 @@ def test_hook_handles_newline_in_staged_rust_path(
 
 @pytest.mark.parametrize(
     ("declaration", "child_path"),
-    [("mod child;\n", "src/root/child.rs"), ('include!("child.rs");\n', "src/child.rs")],
+    [
+        ("mod child;\n", "src/root/child.rs"),
+        ('include!("child.rs");\n', "src/child.rs"),
+    ],
 )
 def test_hook_rejects_nested_module_or_include_symlink(
     repository: tuple[Path, Path, Path], declaration: str, child_path: str
@@ -347,9 +408,7 @@ def test_hook_uses_staged_config_and_scanner_contract_module(
         'raise RuntimeError("unstaged module spoof")\n', encoding="utf-8"
     )
 
-    result = _run_hook(
-        repo, kiss, log, KISS_EXPECT_CONFIG_TEXT="staged-policy-marker"
-    )
+    result = _run_hook(repo, kiss, log, KISS_EXPECT_CONFIG_TEXT="staged-policy-marker")
 
     assert result.returncode == 0, result.stderr
     assert log.read_text(encoding="utf-8") == "staged clean\n"
@@ -377,7 +436,9 @@ def test_hook_uses_staged_pyproject_scanner_version(
     assert not log.exists()
 
 
-@pytest.mark.parametrize("policy_path", ["pyproject.toml", "scripts/scanner_contract.py"])
+@pytest.mark.parametrize(
+    "policy_path", ["pyproject.toml", "scripts/scanner_contract.py"]
+)
 def test_hook_rejects_staged_policy_input_symlink(
     repository: tuple[Path, Path, Path], tmp_path: Path, policy_path: str
 ) -> None:

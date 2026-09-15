@@ -877,16 +877,13 @@ mod tests {
             store.add_embedding(format!("n{i}"), v).unwrap();
         }
         let store = std::sync::Arc::new(store);
-        let handles: Vec<_> = (0..8)
-            .map(|_| {
-                let store = store.clone();
-                std::thread::spawn(move || store.warm("concurrent-test"))
-            })
-            .collect();
-        for h in handles {
-            h.join()
-                .expect("warm() must not panic under concurrent callers");
+        // A worker panic is re-raised by `finish`: warm() must not panic here.
+        let mut warmers = crate::test_threads::BoundedThreads::new("concurrent warm() callers", 8);
+        for _ in 0..8 {
+            let store = store.clone();
+            warmers.spawn(move || store.warm("concurrent-test"));
         }
+        warmers.finish();
         assert!(store.is_ready(), "the index must end up warmed");
         assert_eq!(store.len(), n, "no rows lost across the concurrent warms");
         let q = store.get_embedding("n0").unwrap();

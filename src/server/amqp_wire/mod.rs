@@ -967,19 +967,24 @@ mod tests {
 
     #[test]
     fn eg314_decode_confirmed_reads_idempotent_publish_flag() {
-        let confirmed = ResultPayload::raw(&crate::broker::IdempotentPublish {
+        let confirmed = ResultPayload::of_ref::<
+            eg_types::result_contract::messaging::PublishIdempotent,
+        >(&crate::broker::IdempotentPublish {
             confirmed: true,
             duplicate: false,
             delivered: 1,
         })
         .unwrap();
         assert!(decode_confirmed(&confirmed));
-        let nacked = ResultPayload::raw(&crate::broker::IdempotentPublish {
-            confirmed: false,
-            duplicate: false,
-            delivered: 0,
-        })
-        .unwrap();
+        let nacked =
+            ResultPayload::of_ref::<eg_types::result_contract::messaging::PublishIdempotent>(
+                &crate::broker::IdempotentPublish {
+                    confirmed: false,
+                    duplicate: false,
+                    delivered: 0,
+                },
+            )
+            .unwrap();
         assert!(!decode_confirmed(&nacked));
     }
 }

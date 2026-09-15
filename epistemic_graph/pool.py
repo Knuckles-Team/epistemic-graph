@@ -13,7 +13,8 @@ Single-endpoint homelab behavior is unchanged: with one endpoint every graph
 co-resides trivially, so affinity is a no-op and scatter-gather degenerates to a
 single per-shard call.
 
-Failure mode (CONCEPT:EG-KG.ingest.ingest-lane-affinity): scatter-gather is **fail-loud per shard**. If any
+Failure mode (CONCEPT:EG-KG.ingest.ingest-lane-affinity): scatter-gather is **fail-loud
+per shard**. If any
 shard's sub-union raises (e.g. one denied graph on that shard), the exception
 propagates and the whole union fails — consistent with the engine's
 fail-loud-per-shard durability contract. We do NOT silently degrade to a partial
@@ -43,7 +44,7 @@ import contextlib
 import logging
 import os
 from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Any
+from typing import Any, Protocol
 
 from .client import (
     EpistemicGraphClient,
@@ -52,6 +53,28 @@ from .client import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class _PooledConnections(Protocol):
+    """The subset of ``ConnectionPool``'s surface :class:`ShardRouter` depends
+    on. Kept as a Protocol -- not the concrete ``ConnectionPool`` -- so a test
+    double can stand in for one shard's pool (returning a lightweight fake
+    client) without subclassing the real pool, which opens real sockets from
+    ``initialize``/``acquire``."""
+
+    max_size: int
+
+    async def initialize(self) -> None: ...
+
+    async def acquire(self) -> EpistemicGraphClient: ...
+
+    def release(self, client: EpistemicGraphClient) -> None: ...
+
+    def connection(
+        self,
+    ) -> contextlib.AbstractAsyncContextManager[EpistemicGraphClient]: ...
+
+    async def close_all(self) -> None: ...
 
 
 async def resolve_cluster_endpoints(
@@ -92,7 +115,8 @@ async def resolve_cluster_endpoints(
 
 
 def _auto_pool_size() -> int:
-    """Auto-size a per-endpoint connection pool to the box (CONCEPT:EG-KG.backend.multiplexed-connections).
+    """Auto-size a per-endpoint connection pool to the box
+    (CONCEPT:EG-KG.backend.multiplexed-connections).
 
     The pool gives concurrent shard writers and read fan-out independent physical
     flow-control windows while keeping the connection count bounded. Size by CPU
@@ -134,7 +158,8 @@ class ConnectionPool:
         # mints with a DIFFERENT node claim -- no separate "re-mint on
         # failover" step is needed.
         self.node_id = node_id
-        # CONCEPT:EG-KG.backend.multiplexed-connections — auto-size to the box when the caller doesn't pin a cap,
+        # CONCEPT:EG-KG.backend.multiplexed-connections — auto-size to the box when the
+        # caller doesn't pin a cap,
         # so M concurrent callers each get their own in-flight connection instead
         # of contending on one. An explicit cap is still honored.
         self.max_size = _auto_pool_size() if max_size is None else max_size
@@ -303,7 +328,7 @@ class ShardRouter:
         # separate re-mint step, since every `_send()` builds a fresh envelope
         # already.
         node_ids = node_ids or {}
-        self.pools: dict[str, ConnectionPool] = {}
+        self.pools: dict[str, _PooledConnections] = {}
         for ep in endpoints:
             self.pools[ep] = ConnectionPool(
                 ep,
@@ -331,7 +356,8 @@ class ShardRouter:
     def group_by_shard(self, graph_names: list[str]) -> dict[str, list[str]]:
         """Group ``graph_names`` by their resolved shard endpoint (order-preserving).
 
-        CONCEPT:EG-KG.ingest.ingest-lane-affinity — the partition a scatter-gather union fans out over.
+        CONCEPT:EG-KG.ingest.ingest-lane-affinity — the partition a scatter-gather union
+        fans out over.
         With affinity in play, a co-resident set collapses into one group, so the
         union takes a single per-shard call (the fast path); only graphs that
         genuinely live on different shards produce multiple groups.
@@ -361,7 +387,8 @@ class ShardRouter:
     @contextlib.asynccontextmanager
     async def connection(self, graph_name: str) -> AsyncIterator[EpistemicGraphClient]:
         """Acquire ``graph_name``'s shard connection for the ``with`` block,
-        always releasing it back to the right pool (CONCEPT:EG-KG.backend.multiplexed-connections).
+        always releasing it back to the right pool
+        (CONCEPT:EG-KG.backend.multiplexed-connections).
 
         ``async with router.connection(graph) as client: ...`` — the leak-free way
         the hot write/read path holds a connection. Order-dependent operations on
@@ -381,7 +408,8 @@ class ShardRouter:
         ops: list[Callable[[EpistemicGraphClient], Awaitable[Any]]],
     ) -> list[Any]:
         """Run INDEPENDENT ``ops`` against ``graph_name`` concurrently, each on its
-        own connection to that graph's shard (CONCEPT:EG-KG.backend.multiplexed-connections).
+        own connection to that graph's shard
+        (CONCEPT:EG-KG.backend.multiplexed-connections).
 
         The per-graph analogue of :meth:`ConnectionPool.map_concurrent`: all ``ops``
         target the same shard (so they land on the right writer) but each takes a
@@ -399,7 +427,8 @@ class ShardRouter:
 
         return await asyncio.gather(*(_run(fn) for fn in ops))
 
-    # ── Cross-shard scatter-gather union (CONCEPT:EG-KG.ingest.ingest-lane-affinity) ──────────────
+    # ── Cross-shard scatter-gather union (CONCEPT:EG-KG.ingest.ingest-lane-affinity)
+    # ──────────────
     # Union across graphs that may live on DIFFERENT shards. Each per-shard
     # sub-union reuses the single-shard KG-2.171 RPC (no new engine method):
     # the group's graphs are co-resident on that shard, so the shard-local
@@ -422,11 +451,14 @@ class ShardRouter:
         client._graph_name = group[0]
         try:
             if rpc == "UnionGetNodeProperties":
-                return await client.nodes.properties_union(node_id, group)  # type: ignore[arg-type]
+                assert node_id is not None, "UnionGetNodeProperties requires node_id"
+                return await client.nodes.properties_union(node_id, group)
             if rpc == "UnionGetNodesByLabel":
-                return await client.nodes.list_by_label_union(label, group, limit)  # type: ignore[arg-type]
+                assert label is not None, "UnionGetNodesByLabel requires label"
+                return await client.nodes.list_by_label_union(label, group, limit)
             if rpc == "UnionGetNeighbors":
-                return await client.nodes.neighbors_union(node_id, group)  # type: ignore[arg-type]
+                assert node_id is not None, "UnionGetNeighbors requires node_id"
+                return await client.nodes.neighbors_union(node_id, group)
             raise ValueError(f"unknown union rpc: {rpc}")
         finally:
             pool.release(client)

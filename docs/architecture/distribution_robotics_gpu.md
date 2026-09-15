@@ -181,6 +181,17 @@ and `cudarc` links only under `gpu-cuda`. **Deferred:** live validation of the k
 hardware (none in CI) and GPU offload of reasoning / ANN *build* beyond the distance/elementwise
 kernels.
 
+**Testing the CUDA legs.** Each `gpu-cuda` crate (`eg-tensor`, `eg-ann`, `eg-compute`) has two
+kinds of test, selected by a test-only `--cfg`, not a Cargo feature, so `--all-features` never
+turns it on:
+
+* Without the cfg (every build host and CI runner, which have no GPU),
+  `cuda_probe_without_a_device_falls_back_to_cpu` runs. It asserts that the CUDA probe returns
+  `None` without panicking and that dispatch selects and runs the CPU backend. If a device does
+  initialise, it fails and names the command below.
+* With `RUSTFLAGS="--cfg eg_gpu_device_tests" cargo test -p <crate> --features gpu-cuda`, the
+  GPU/CPU parity tests run instead, and they fail when no device initialises. They never skip.
+
 ---
 
 **See also:** [Capabilities matrix](../capabilities.md) · [Numeric Kernel](numeric_kernel.md) · [Engine Scaling Program](scaling_program.md) · [Multi-Raft Cluster Status](m2_raft_status.md) · [Agent Memory](../interfaces/memory.md).

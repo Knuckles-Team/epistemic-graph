@@ -127,6 +127,7 @@ def base_function_name(demangled: str) -> str:
     stripped = _HASH_BRACKET_RE.sub("", stripped)
     return stripped
 
+
 CFG_RE = re.compile(r"#!?\[cfg\(([^)]*)\)\]")
 
 
@@ -263,7 +264,9 @@ def leading_cfg(file_path: Path) -> str | None:
     return None
 
 
-_MOD_DECL_RE = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z0-9_]+)\s*;", re.MULTILINE)
+_MOD_DECL_RE = re.compile(
+    r"^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z0-9_]+)\s*;", re.MULTILINE
+)
 
 
 def is_orphaned(file_path: Path) -> bool:
@@ -318,7 +321,10 @@ def find_source_files(roots: list[str]) -> list[Path]:
 
 
 def is_contract_surface(src_path: str, globs: list[str]) -> bool:
-    return any(fnmatch.fnmatch(src_path, g) or fnmatch.fnmatch(Path(src_path).name, g) for g in globs)
+    return any(
+        fnmatch.fnmatch(src_path, g) or fnmatch.fnmatch(Path(src_path).name, g)
+        for g in globs
+    )
 
 
 def render_title_block() -> list[str]:
@@ -338,7 +344,12 @@ def render_per_crate_summary(merged: dict[str, FileCov]) -> list[str]:
     for fc in merged.values():
         by_crate.setdefault(crate_of(fc.path), []).append(fc)
 
-    out = ["## Per-crate summary", "", "| crate | files | lines hit/found | functions hit/found |", "|---|---|---|---|"]
+    out = [
+        "## Per-crate summary",
+        "",
+        "| crate | files | lines hit/found | functions hit/found |",
+        "|---|---|---|---|",
+    ]
     for crate in sorted(by_crate):
         fcs = by_crate[crate]
         lf = sum(f.lines_found for f in fcs)
@@ -347,7 +358,10 @@ def render_per_crate_summary(merged: dict[str, FileCov]) -> list[str]:
         fh = sum(f.fn_hit for f in fcs)
         pct_l = (100.0 * lh / lf) if lf else 0.0
         pct_f = (100.0 * fh / ff) if ff else 0.0
-        out.append(f"| {crate} | {len(fcs)} | {lh}/{lf} ({pct_l:.1f}%) | {fh}/{ff} ({pct_f:.1f}%) |")
+        out.append(
+            f"| {crate} | {len(fcs)} | {lh}/{lf} ({pct_l:.1f}%) | {fh}/{ff} "
+            f"({pct_f:.1f}%) |"
+        )
     out.append("")
     return out
 
@@ -385,12 +399,16 @@ def compute_base_function_data(merged: dict[str, FileCov]) -> BaseFunctionData:
         for name, hits in fc.functions.items():
             base = base_function_name(demangled.get(name, name))
             groups.setdefault(base, []).append(hits)
-        zero_bases[fc.path] = [b for b, hitlist in groups.items() if all(h == 0 for h in hitlist)]
+        zero_bases[fc.path] = [
+            b for b, hitlist in groups.items() if all(h == 0 for h in hitlist)
+        ]
         base_totals[fc.path] = len(groups)
     return BaseFunctionData(zero_bases=zero_bases, base_totals=base_totals)
 
 
-def render_ranked_functions(merged: dict[str, FileCov], bf: BaseFunctionData, top_n: int) -> list[str]:
+def render_ranked_functions(
+    merged: dict[str, FileCov], bf: BaseFunctionData, top_n: int
+) -> list[str]:
     ranked = sorted(
         (fc for fc in merged.values() if bf.zero_bases[fc.path]),
         key=lambda fc: (len(bf.zero_bases[fc.path]), fc.lines_found - fc.lines_hit),
@@ -404,7 +422,8 @@ def render_ranked_functions(merged: dict[str, FileCov], bf: BaseFunctionData, to
         "-- a base function is listed as zero only if NONE of its "
         "instantiations ever executed.",
         "",
-        "| crate | file | zero base fns / total base fns | lines hit/found | zero function names (first 6) |",
+        "| crate | file | zero base fns / total base fns | lines hit/found | zero "
+        "function names (first 6) |",
         "|---|---|---|---|---|",
     ]
     for fc in ranked[:top_n]:
@@ -413,16 +432,25 @@ def render_ranked_functions(merged: dict[str, FileCov], bf: BaseFunctionData, to
         if len(zf) > 6:
             names += f", … (+{len(zf) - 6} more)"
         out.append(
-            f"| {crate_of(fc.path)} | `{fc.path}` | {len(zf)}/{bf.base_totals[fc.path]} | "
+            f"| {crate_of(fc.path)} | `{fc.path}` | "
+            f"{len(zf)}/{bf.base_totals[fc.path]} | "
             f"{fc.lines_hit}/{fc.lines_found} | {names} |"
         )
     out.append("")
     return out
 
 
-def render_contract_surface(merged: dict[str, FileCov], bf: BaseFunctionData, contract_globs: list[str]) -> list[str]:
-    out = ["## Agent contract surface (agent_library / agent_graph / agent_component / agent_template / delegation)", ""]
-    contract_files = [fc for fc in merged.values() if is_contract_surface(fc.path, contract_globs)]
+def render_contract_surface(
+    merged: dict[str, FileCov], bf: BaseFunctionData, contract_globs: list[str]
+) -> list[str]:
+    out = [
+        "## Agent contract surface (agent_library / agent_graph / agent_component / "
+        "agent_template / delegation)",
+        "",
+    ]
+    contract_files = [
+        fc for fc in merged.values() if is_contract_surface(fc.path, contract_globs)
+    ]
     if not contract_files:
         out.append(
             "No files matching the contract-surface globs appeared in the "
@@ -433,18 +461,34 @@ def render_contract_surface(merged: dict[str, FileCov], bf: BaseFunctionData, co
         )
         out.append("")
         return out
-    out.append("| file | zero base fns / total base fns | lines hit/found | zero function names |")
+    out.append(
+        "| file | zero base fns / total base fns | lines hit/found | zero function "
+        "names |"
+    )
     out.append("|---|---|---|---|")
-    for fc in sorted(contract_files, key=lambda f: len(bf.zero_bases[f.path]), reverse=True):
+    for fc in sorted(
+        contract_files, key=lambda f: len(bf.zero_bases[f.path]), reverse=True
+    ):
         zf = bf.zero_bases[fc.path]
-        names = ", ".join(sorted(zf)) if zf else "(none — every function executed at least once)"
-        out.append(f"| `{fc.path}` | {len(zf)}/{bf.base_totals[fc.path]} | {fc.lines_hit}/{fc.lines_found} | {names} |")
+        names = (
+            ", ".join(sorted(zf))
+            if zf
+            else "(none — every function executed at least once)"
+        )
+        out.append(
+            f"| `{fc.path}` | {len(zf)}/{bf.base_totals[fc.path]} | "
+            f"{fc.lines_hit}/{fc.lines_found} | {names} |"
+        )
     out.append("")
     return out
 
 
 def render_whole_file_zero(merged: dict[str, FileCov]) -> list[str]:
-    whole_zero = sorted((fc for fc in merged.values() if fc.whole_file_zero), key=lambda f: f.lines_found, reverse=True)
+    whole_zero = sorted(
+        (fc for fc in merged.values() if fc.whole_file_zero),
+        key=lambda f: f.lines_found,
+        reverse=True,
+    )
     out = ["## Whole files at 0% (present in the build, zero lines ever executed)", ""]
     if not whole_zero:
         out.append("None found in this run's scope.")
@@ -458,7 +502,9 @@ def render_whole_file_zero(merged: dict[str, FileCov]) -> list[str]:
     return out
 
 
-def find_absent_files(merged: dict[str, FileCov], roots: list[str]) -> list[tuple[Path, str | None]]:
+def find_absent_files(
+    merged: dict[str, FileCov], roots: list[str]
+) -> list[tuple[Path, str | None]]:
     covered_suffixes = {Path(p).as_posix() for p in merged}
     absent: list[tuple[Path, str | None]] = []
     for f in find_source_files(roots):
@@ -490,7 +536,9 @@ def classify_absent_files(absent: list[tuple[Path, str | None]]) -> AbsentFileGr
     non_orphaned = [(f, g) for f, g in absent if not is_orphaned(f)]
     cfg_gated = [(f, g) for f, g in non_orphaned if g]
     not_selected = [(f, g) for f, g in non_orphaned if not g]
-    return AbsentFileGroups(orphaned=orphaned, cfg_gated=cfg_gated, not_selected=not_selected)
+    return AbsentFileGroups(
+        orphaned=orphaned, cfg_gated=cfg_gated, not_selected=not_selected
+    )
 
 
 def render_absent_files_intro() -> list[str]:
@@ -502,8 +550,8 @@ def render_absent_files_intro() -> list[str]:
         "untrustworthy:\n\n"
         "1. **orphaned** (no `mod <stem>;` declaration exists in the file's "
         "real parent module): rustc never compiles this file under ANY "
-        "feature combination, in ANY lane. This is the same \"built but not "
-        "wired\" signature as the motivating `resolve_composed_graph` "
+        'feature combination, in ANY lane. This is the same "built but not '
+        'wired" signature as the motivating `resolve_composed_graph` '
         "defect, one level worse -- the code isn't even reachable, let "
         "alone tested. Confirmed examples in this workspace: "
         "`crates/eg-core/src/compute/semantic_index_service.rs` and "
@@ -522,7 +570,9 @@ def render_absent_files_intro() -> list[str]:
     ]
 
 
-def render_absent_file_group(heading: str, group: list[tuple[Path, str | None]], show_cfg_note: bool) -> list[str]:
+def render_absent_file_group(
+    heading: str, group: list[tuple[Path, str | None]], show_cfg_note: bool
+) -> list[str]:
     out = [heading, ""]
     for f, g in sorted(group):
         suffix = ""
@@ -539,7 +589,8 @@ def render_absent_files(merged: dict[str, FileCov], roots: list[str]) -> list[st
     groups = classify_absent_files(find_absent_files(merged, roots))
     out = render_absent_files_intro()
     out += render_absent_file_group(
-        f"**orphaned — no `mod` declaration found anywhere in the repo, {len(groups.orphaned)} files:**",
+        f"**orphaned — no `mod` declaration found anywhere in the repo, "
+        f"{len(groups.orphaned)} files:**",
         groups.orphaned,
         show_cfg_note=True,
     )
@@ -549,7 +600,8 @@ def render_absent_files(merged: dict[str, FileCov], roots: list[str]) -> list[st
         show_cfg_note=False,
     )
     out += render_absent_file_group(
-        f"**not selected by this run's lane (module-declared, just out of scope here) — verify test invocation, {len(groups.not_selected)} files:**",
+        f"**not selected by this run's lane (module-declared, just out of scope here) "
+        f"— verify test invocation, {len(groups.not_selected)} files:**",
         groups.not_selected,
         show_cfg_note=False,
     )
@@ -574,16 +626,39 @@ def render_report(
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--lcov", action="append", required=True, help="lcov file to read (repeatable)")
-    ap.add_argument("--root", action="append", required=True, help="source root to cross-check for absent files (repeatable, relative to repo root)")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--lcov", action="append", required=True, help="lcov file to read (repeatable)"
+    )
+    ap.add_argument(
+        "--root",
+        action="append",
+        required=True,
+        help=(
+            "source root to cross-check for absent files (repeatable, relative "
+            "to repo root)"
+        ),
+    )
     ap.add_argument(
         "--contract-glob",
         action="append",
-        default=["*agent_library*", "*agent_graph*", "*agent_component*", "*agent_template*", "*delegation*"],
+        default=[
+            "*agent_library*",
+            "*agent_graph*",
+            "*agent_component*",
+            "*agent_template*",
+            "*delegation*",
+        ],
         help="fnmatch glob identifying the agent-contract surface (repeatable)",
     )
-    ap.add_argument("--top", type=int, default=30, help="how many ranked zero-function files to list")
+    ap.add_argument(
+        "--top",
+        type=int,
+        default=30,
+        help="how many ranked zero-function files to list",
+    )
     ap.add_argument("--out", required=True, help="path to write the markdown report")
     args = ap.parse_args()
 

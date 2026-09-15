@@ -17,7 +17,7 @@ from typing import Any
 
 import pytest
 
-from epistemic_graph.client import NodeClient
+from epistemic_graph.client import EpistemicGraphClient, NodeClient
 
 # Fake-client unit tests only — never needs the shared native engine (mirrors
 # test_union_reads.py's neighbors_union sibling tests, which the conftest.py
@@ -26,12 +26,19 @@ from epistemic_graph.client import NodeClient
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeClient:
+class _FakeClient(EpistemicGraphClient):
     def __init__(self, ret: Any = None) -> None:
         self.sent: list[tuple[str, dict[str, Any] | None]] = []
         self._ret = ret
 
-    async def _send(self, method: str, params: dict[str, Any] | None = None) -> Any:
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
         self.sent.append((method, params))
         return self._ret
 
@@ -40,7 +47,7 @@ class _FakeClient:
 async def test_neighbors_batch_sends_one_rpc_for_many_ids() -> None:
     """The regression test: N ids must cost exactly ONE `_send` call."""
     fake = _FakeClient(ret=[["a", ["b"]], ["b", ["a", "c"]], ["missing", []]])
-    nc = NodeClient(fake)  # type: ignore[arg-type]
+    nc = NodeClient(fake)
     out = await nc.neighbors_batch(["a", "b", "missing"])
 
     assert len(fake.sent) == 1, (
@@ -48,16 +55,14 @@ async def test_neighbors_batch_sends_one_rpc_for_many_ids() -> None:
         "ids are requested — a per-id loop reintroducing the N+1 would send "
         "len(node_ids) calls instead"
     )
-    assert fake.sent == [
-        ("GetNeighborsBatch", {"node_ids": ["a", "b", "missing"]})
-    ]
+    assert fake.sent == [("GetNeighborsBatch", {"node_ids": ["a", "b", "missing"]})]
     assert out == {"a": ["b"], "b": ["a", "c"], "missing": []}
 
 
 @pytest.mark.asyncio
 async def test_neighbors_batch_empty_input_sends_one_rpc_and_returns_empty() -> None:
     fake = _FakeClient(ret=[])
-    nc = NodeClient(fake)  # type: ignore[arg-type]
+    nc = NodeClient(fake)
     out = await nc.neighbors_batch([])
     assert len(fake.sent) == 1
     assert out == {}
@@ -66,6 +71,6 @@ async def test_neighbors_batch_empty_input_sends_one_rpc_and_returns_empty() -> 
 @pytest.mark.asyncio
 async def test_neighbors_batch_preserves_input_order_in_the_request() -> None:
     fake = _FakeClient(ret=[])
-    nc = NodeClient(fake)  # type: ignore[arg-type]
+    nc = NodeClient(fake)
     await nc.neighbors_batch(["z", "a", "m"])
     assert fake.sent == [("GetNeighborsBatch", {"node_ids": ["z", "a", "m"]})]

@@ -16,9 +16,29 @@ import sys
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from rust_module_tree import read_compiler_family
+
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST_PATH = ROOT / "protocols" / "epistemic-operations" / "v1" / "manifest.json"
 RUST_SOURCE = ROOT / "crates" / "eg-types" / "src" / "epistemic_operations.rs"
+EXPECTED_RUST_SOURCES = frozenset(
+    {
+        "crates/eg-types/src/epistemic_operations.rs",
+        "crates/eg-types/src/epistemic_operations/artifact_knowledge.rs",
+        "crates/eg-types/src/epistemic_operations/common.rs",
+        "crates/eg-types/src/epistemic_operations/context_mutation.rs",
+        "crates/eg-types/src/epistemic_operations/development_intent.rs",
+        "crates/eg-types/src/epistemic_operations/development_quota.rs",
+        "crates/eg-types/src/epistemic_operations/development_state.rs",
+        "crates/eg-types/src/epistemic_operations/development_transition.rs",
+        "crates/eg-types/src/epistemic_operations/placement_operations.rs",
+        "crates/eg-types/src/epistemic_operations/resource_core.rs",
+        "crates/eg-types/src/epistemic_operations/resource_host.rs",
+        "crates/eg-types/src/epistemic_operations/resource_status.rs",
+    }
+)
 RUST_GENERATED = (
     ROOT / "crates" / "eg-types" / "src" / "epistemic_operations_manifest.rs"
 )
@@ -110,6 +130,25 @@ RUST_OPTION_FIELD_RE = re.compile(
 
 class GateError(RuntimeError):
     """Raised when the generated manifest or Rust projection drifts."""
+
+
+def _rust_source() -> str:
+    """The exact compiler-declared DTO family, with orphan drift rejected."""
+
+    try:
+        family = read_compiler_family(RUST_SOURCE, ROOT)
+        paths = {
+            str(path.relative_to(ROOT)): path.read_text(encoding="utf-8")
+            for path in family.production_paths
+        }
+    except (OSError, SystemExit) as exc:
+        raise GateError(f"cannot read Rust DTO projection: {exc}") from exc
+    if set(paths) != EXPECTED_RUST_SOURCES:
+        raise GateError(
+            "Rust DTO compiler module family changed: "
+            f"expected {sorted(EXPECTED_RUST_SOURCES)}, found {sorted(paths)}"
+        )
+    return "\n".join(paths[path] for path in sorted(paths))
 
 
 def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -204,10 +243,7 @@ def _check_development_lane_golden_vector() -> None:
 
 
 def _rust_fields() -> dict[str, list[str]]:
-    try:
-        source = RUST_SOURCE.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise GateError(f"cannot read Rust DTO projection: {exc}") from exc
+    source = _rust_source()
     structs: dict[str, list[str]] = {}
     for match in RUST_STRUCT_RE.finditer(source):
         depth = 1
@@ -272,7 +308,7 @@ def _preceding_attribute_start(head: str) -> int | None:
 
 
 def _assert_rust_closed(bindings: list[dict[str, Any]]) -> None:
-    source = RUST_SOURCE.read_text(encoding="utf-8")
+    source = _rust_source()
     for binding in bindings:
         rust_type = str(binding["rust_type"])
         declaration = re.search(
@@ -309,7 +345,8 @@ def _render_rust(manifest: dict[str, Any]) -> str:
         for entry in manifest["schemas"]
     )
     return (
-        "//! Auto-generated protocol digests; regenerate from the canonical catalog.\n\n"
+        "//! Auto-generated protocol digests; regenerate from the canonical "
+        "catalog.\n\n"
         f'pub const PROTOCOL_NAME: &str = "{manifest["protocol"]}";\n'
         f'pub const PROTOCOL_VERSION: &str = "{manifest["version"]}";\n'
         f'pub const CATALOG_SHA256: &str = "{manifest["catalog_sha256"]}";\n'
@@ -327,7 +364,11 @@ def _render_rust(manifest: dict[str, Any]) -> str:
 _MANIFEST_HEADER: tuple[tuple[str, str, str], ...] = (
     ("protocol", "epistemic-operations", "protocol name drifted"),
     ("version", "1", "only current version 1 is allowed"),
-    ("compatibility_policy", "current-only", "compatibility policy must be current-only"),
+    (
+        "compatibility_policy",
+        "current-only",
+        "compatibility policy must be current-only",
+    ),
     ("unknown_field_policy", "reject", "unknown fields must be rejected"),
 )
 
@@ -384,7 +425,8 @@ def _require_schema_catalog(manifest: dict[str, Any]) -> None:
     names = tuple(entry.get("name") for entry in schemas if isinstance(entry, dict))
     if names != REQUIRED_SCHEMAS:
         raise GateError(
-            f"expected exactly {len(REQUIRED_SCHEMAS)} schemas in canonical order: {names}"
+            f"expected exactly {len(REQUIRED_SCHEMAS)} schemas in canonical order: "
+            f"{names}"
         )
     _require_schema_digests(schemas)
     _require_schema_versions(schemas)

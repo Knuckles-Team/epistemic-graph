@@ -45,3 +45,30 @@ pub enum AsrOp {
         window_ms: u32,
     },
 }
+
+/// Result of `AsrOp::TranscribeFile`: the whole transcript plus its validated
+/// segments.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct AsrTranscription {
+    /// Every segment's text, space-joined and trimmed.
+    pub text: String,
+    /// The language the provider transcribed in.
+    pub language: String,
+    pub segments: Vec<AsrTranscriptSegment>,
+    /// False when the provider reported no segment timing (`start`/`end` are then 0).
+    pub timing_available: bool,
+}
+
+/// One validated transcript segment.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct AsrTranscriptSegment {
+    /// Seconds from the start of the audio.
+    pub start: f64,
+    pub end: f64,
+    pub text: String,
+    /// Present only for a calibrated provider quality estimate.
+    pub avg_logprob: Option<f32>,
+    pub no_speech_prob: Option<f32>,
+}

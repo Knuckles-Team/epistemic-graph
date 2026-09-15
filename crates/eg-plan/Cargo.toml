@@ -425,6 +425,10 @@ eg-core = { path = "../eg-core" }
 eg-types = { path = "../eg-types", features = ["query"] }
 serde_json = "1.0"
 rmp-serde = "1.3"
+# `federation_tests`' env-serialization token. A lock that guards `()` has no state a
+# panicking holder could break, so it uses parking_lot's non-poisoning Mutex (already in
+# the workspace lock through eg-core) instead of recovering a std poison.
+parking_lot = "0.12"
 # Property-based generation of VALID UQL pipelines (CONCEPT:EG-402): random valid op
 # sequences → determinism / snapshot-isolation / algebraic-law proofs.
 proptest = "1"

@@ -1,5 +1,6 @@
 """Streaming / CDC / continuous-query / watch / trigger round-trip against a live
-engine (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230, feature `streaming`, folded into `full`).
+engine (CONCEPT:EG-KG.query.streaming-cdc-subscriptions/230, feature `streaming`, folded
+into `full`).
 
 These drive the `StreamingClient` over the framed-MessagePack socket the conftest
 fixture serves, proving the reactive surface works end-to-end through the SAME

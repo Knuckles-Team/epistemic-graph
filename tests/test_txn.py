@@ -13,7 +13,7 @@ from typing import Any
 import msgpack
 import pytest
 
-from epistemic_graph.client import TxnClient
+from epistemic_graph.client import EpistemicGraphClient, TxnClient
 
 # Fake-client unit tests only -- never needs the shared native engine (see
 # conftest.py's session-scoped `start_epistemic_graph_server` fixture,
@@ -21,7 +21,7 @@ from epistemic_graph.client import TxnClient
 pytestmark = pytest.mark.no_engine
 
 
-class _FakeClient:
+class _FakeClient(EpistemicGraphClient):
     """Records each (method, params) and returns canned, per-method results that
     mimic the engine: BeginTxn → a txn_id String; Txn*/Commit/Rollback → Bool."""
 
@@ -50,7 +50,7 @@ class _FakeClient:
 @pytest.mark.asyncio
 async def test_txn_stage_commit_round_trip() -> None:
     fake = _FakeClient()
-    txns = TxnClient(fake)  # type: ignore[arg-type]
+    txns = TxnClient(fake)
 
     txn_id = await txns.begin()
     assert txn_id == "txn-0000000000000001"
@@ -84,7 +84,7 @@ async def test_txn_stage_commit_round_trip() -> None:
 @pytest.mark.asyncio
 async def test_txn_cas_packs_condition_and_update_blobs() -> None:
     fake = _FakeClient()
-    txns = TxnClient(fake)  # type: ignore[arg-type]
+    txns = TxnClient(fake)
     txn_id = await txns.begin()
     await txns.cas(txn_id, "task", {"owner": None}, {"owner": "w1"})
 
@@ -103,7 +103,7 @@ async def test_txn_cas_packs_condition_and_update_blobs() -> None:
 async def test_txn_commit_conflict_surfaces_false() -> None:
     # An OCC conflict comes back as Bool(false) — the client returns it verbatim.
     fake = _FakeClient(commit_result=False)
-    txns = TxnClient(fake)  # type: ignore[arg-type]
+    txns = TxnClient(fake)
     txn_id = await txns.begin()
     await txns.add_node(txn_id, "x")
     assert await txns.commit(txn_id) is False
@@ -112,7 +112,7 @@ async def test_txn_commit_conflict_surfaces_false() -> None:
 @pytest.mark.asyncio
 async def test_txn_rollback_acks() -> None:
     fake = _FakeClient()
-    txns = TxnClient(fake)  # type: ignore[arg-type]
+    txns = TxnClient(fake)
     txn_id = await txns.begin()
     await txns.add_node(txn_id, "x")
     assert await txns.rollback(txn_id) is True

@@ -109,7 +109,11 @@ scalar/SIMD equivalence — see that crate's `tests/proptest_invariants.rs`.
   kernel needs (M4's bucket-index/finite-mask precompute; LTTB's
   per-candidate triangle-area evaluation) — never the inherently scalar
   scatter-reduce/serial-selection around it. Both paths are proved equivalent
-  by proptest.
+  by proptest. The direct AVX2-versus-scalar parity tests need an AVX2 CPU, which
+  the fleet's hosts lack, so they compile only under
+  `RUSTFLAGS="--cfg eg_avx2_tests" cargo test -p eg-viz-kernels` and fail on a CPU
+  without AVX2. Without that cfg, a guard test asserts the CPU has no AVX2 and
+  that dispatch takes the scalar path, so an AVX2 host cannot silently skip them.
 
 Measured (criterion, `cargo bench -p eg-viz-kernels`), both kernels hold
 `O(n)` — throughput stays in the same order of magnitude across four orders

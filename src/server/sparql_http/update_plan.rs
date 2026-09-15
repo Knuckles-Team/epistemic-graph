@@ -64,7 +64,7 @@ pub(crate) async fn plan_update(
     update_text: &str,
     default_graph: &str,
     authorized_graphs: &[String],
-) -> Result<Vec<PlannedGraphUpdate>, String> {
+) -> Result<(Vec<PlannedGraphUpdate>, eg_rdf::update::UpdateReport), String> {
     #[cfg(not(feature = "shacl"))]
     return Err("SPARQL UPDATE requires the shacl integrity-guard feature".to_string());
 
@@ -105,7 +105,7 @@ fn plan_detached_update(
     update_text: &str,
     live: LiveGraphSnapshot,
     default_graph: &str,
-) -> Result<Vec<PlannedGraphUpdate>, String> {
+) -> Result<(Vec<PlannedGraphUpdate>, eg_rdf::update::UpdateReport), String> {
     let parsed = eg_rdf::update::parse_update(update_text)?;
     let (mut before, staged_by_name, mut existed, mut graph_types) = stage_graphs(live)?;
     let default = staged_by_name
@@ -116,9 +116,11 @@ fn plan_detached_update(
     graphs.insert(String::new(), default);
     let store = EndpointStore { graphs };
     let guard = crate::server::icv_guard::CoreIcvGuard::routed(&store.graphs);
-    eg_rdf::update::execute(&parsed, &store, &Projection::raw(), &guard)
+    let counts = eg_rdf::update::execute(&parsed, &store, &Projection::raw(), &guard)
         .map_err(|error| error.to_string())?;
-    collect_planned_updates(staged_by_name, &mut before, &mut existed, &mut graph_types)
+    let planned =
+        collect_planned_updates(staged_by_name, &mut before, &mut existed, &mut graph_types)?;
+    Ok((planned, counts))
 }
 
 #[cfg(feature = "shacl")]

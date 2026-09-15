@@ -1,6 +1,8 @@
 use super::writeback::*;
 use super::*;
 use eg_compute::mining::association::{self, Algorithm, LabeledRule};
+use eg_types::compute_result::mining::{AssociationMiningResult, AssociationRuleRow};
+use eg_types::result_contract::compute as results;
 
 pub(crate) struct AssociationRequest {
     pub(crate) transactions: Vec<Vec<String>>,
@@ -37,27 +39,25 @@ pub(crate) fn handle_associate(
         materialize_rule_claims(core, &rules, &source);
     }
 
-    let rows: Vec<serde_json::Value> = rules
+    let rows: Vec<AssociationRuleRow> = rules
         .iter()
-        .map(|r| {
-            serde_json::json!({
-                "antecedent": r.antecedent,
-                "consequent": r.consequent,
-                "support": r.support,
-                "confidence": r.confidence,
-                "lift": r.lift,
-            })
+        .map(|r| AssociationRuleRow {
+            antecedent: r.antecedent.clone(),
+            consequent: r.consequent.clone(),
+            support: r.support,
+            confidence: r.confidence,
+            lift: r.lift,
         })
         .collect();
 
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({
-            "rules": rows,
-            "n_transactions": txns.len(),
-            "n_rules": rules.len(),
-            "written_back": written,
-        })),
+        ResultPayload::of::<results::MineAssociate>(AssociationMiningResult {
+            rules: rows,
+            n_transactions: txns.len(),
+            n_rules: rules.len(),
+            written_back: written,
+        }),
     )
 }
 

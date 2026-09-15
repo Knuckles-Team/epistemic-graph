@@ -18,10 +18,7 @@ import sys
 from pathlib import Path
 from typing import NoReturn
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
-from scanner_contract import (  # noqa: E402
+from scanner_contract import (
     CCCC_SUPPORTED_SUFFIXES,
     ScannerContract,
     ScannerContractError,
@@ -29,6 +26,8 @@ from scanner_contract import (  # noqa: E402
     relative_to_root,
     run_git,
 )
+
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def fail(message: str) -> NoReturn:

@@ -26,10 +26,10 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, TextIO
-
+from typing import TextIO
 
 DEFAULT_SUITE_TIMEOUT_SECONDS = 5_400.0
 DEFAULT_TEST_TIMEOUT_SECONDS = 900.0
@@ -161,9 +161,11 @@ def _read_proc_stat(pid: int) -> tuple[int, int, int, int, str] | None:
 
 def _read_thread_count(pid: int) -> int | None:
     try:
-        for line in Path(f"/proc/{pid}/status").read_text(
-            encoding="utf-8", errors="replace"
-        ).splitlines():
+        for line in (
+            Path(f"/proc/{pid}/status")
+            .read_text(encoding="utf-8", errors="replace")
+            .splitlines()
+        ):
             if line.startswith("Threads:"):
                 return int(line.split(":", 1)[1].strip())
     except (OSError, ValueError):
@@ -186,9 +188,11 @@ def _read_fd_count(pid: int) -> tuple[int | None, bool]:
 
 def _read_wchan(pid: int) -> str | None:
     try:
-        return Path(f"/proc/{pid}/wchan").read_text(
-            encoding="utf-8", errors="replace"
-        ).strip()[:MAX_WCHAN_LENGTH]
+        return (
+            Path(f"/proc/{pid}/wchan")
+            .read_text(encoding="utf-8", errors="replace")
+            .strip()[:MAX_WCHAN_LENGTH]
+        )
     except OSError:
         return None
 
@@ -203,9 +207,11 @@ def _read_command(pid: int) -> str | None:
     except OSError:
         pass
     try:
-        return Path(f"/proc/{pid}/comm").read_text(
-            encoding="utf-8", errors="replace"
-        ).strip()[:MAX_WCHAN_LENGTH]
+        return (
+            Path(f"/proc/{pid}/comm")
+            .read_text(encoding="utf-8", errors="replace")
+            .strip()[:MAX_WCHAN_LENGTH]
+        )
     except OSError:
         return None
 
@@ -230,9 +236,7 @@ def _snapshot_pid(pid: int) -> ProcessSnapshot | None:
     )
 
 
-def _group_snapshots(
-    pgid: int, *, max_pids: int
-) -> tuple[list[ProcessSnapshot], int]:
+def _group_snapshots(pgid: int, *, max_pids: int) -> tuple[list[ProcessSnapshot], int]:
     """Return sorted members and the number omitted by the diagnostics bound."""
 
     pids: list[int] = []
@@ -409,9 +413,7 @@ def _contain(
     config: LifecycleConfig,
     reason: str,
 ) -> int:
-    before_term, omitted = _group_snapshots(
-        pgid, max_pids=config.diagnostic_pids
-    )
+    before_term, omitted = _group_snapshots(pgid, max_pids=config.diagnostic_pids)
     _emit_evidence(
         suite_name=suite_name,
         phase="timeout_detected",
@@ -444,9 +446,7 @@ def _contain(
         time.monotonic() + config.term_grace_seconds,
     )
 
-    after_term, omitted = _group_snapshots(
-        pgid, max_pids=config.diagnostic_pids
-    )
+    after_term, omitted = _group_snapshots(pgid, max_pids=config.diagnostic_pids)
     if process.poll() is None or after_term:
         kill_error = _signal_group(pgid, signal.SIGKILL)
         _emit_evidence(
@@ -474,9 +474,7 @@ def _contain(
         # The group was already addressed above; retain a bounded final
         # diagnostic rather than waiting indefinitely for a broken reaper.
         pass
-    survivors, omitted = _group_snapshots(
-        pgid, max_pids=config.diagnostic_pids
-    )
+    survivors, omitted = _group_snapshots(pgid, max_pids=config.diagnostic_pids)
     _emit_evidence(
         suite_name=suite_name,
         phase="reaped" if not survivors else "containment_incomplete",
@@ -602,9 +600,7 @@ def _finish_bounded_process(
     config: LifecycleConfig,
 ) -> int:
     returncode = process.wait()
-    survivors, omitted = _group_snapshots(
-        pgid, max_pids=config.diagnostic_pids
-    )
+    survivors, omitted = _group_snapshots(pgid, max_pids=config.diagnostic_pids)
     if survivors:
         # A successful cargo exit must not hide a leaked child. Contain the
         # exact group and fail the gate; a non-zero test result remains intact.

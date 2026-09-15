@@ -103,7 +103,9 @@ def _launch(
     os.makedirs(persist_dir, exist_ok=True)
     env = {
         **os.environ,
-        **strict_server_env(state_dir, auth_secret=AUTH_SECRET, persist_dir=persist_dir),
+        **strict_server_env(
+            state_dir, auth_secret=AUTH_SECRET, persist_dir=persist_dir
+        ),
     }
     if os.path.exists(socket_path):
         os.remove(socket_path)

@@ -52,8 +52,6 @@ import re
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
 from rust_lexer import _balanced_span_from, _rust_code_mask, _rust_comments_mask
 from rust_module_tree import read_module_tree
 
@@ -105,10 +103,23 @@ _CONTAINER = re.compile(
 )
 _SCALARS = frozenset(
     {
-        "String", "bool", "char",
-        "u8", "u16", "u32", "u64", "u128", "usize",
-        "i8", "i16", "i32", "i64", "i128", "isize",
-        "f32", "f64",
+        "String",
+        "bool",
+        "char",
+        "u8",
+        "u16",
+        "u32",
+        "u64",
+        "u128",
+        "usize",
+        "i8",
+        "i16",
+        "i32",
+        "i64",
+        "i128",
+        "isize",
+        "f32",
+        "f64",
     }
 )
 _WRAPPERS = re.compile(r"\b(?:Option|Vec|Box|BTreeSet|HashSet|BTreeMap|HashMap|Arc)\b")
@@ -211,9 +222,7 @@ def _reference_candidates(
     }
 
 
-def _carries_only(
-    fields: dict[str, str], permitted: set[str]
-) -> bool:
+def _carries_only(fields: dict[str, str], permitted: set[str]) -> bool:
     carried = {
         token for declared in fields.values() for token in _carried_types(declared)
     }
@@ -279,7 +288,7 @@ def _contract_modules() -> dict[str, tuple[str, str, str | None]]:
 
 
 def _declarations(
-    modules: dict[str, tuple[str, str, str | None]]
+    modules: dict[str, tuple[str, str, str | None]],
 ) -> dict[str, list[tuple[str, dict[str, str]]]]:
     return {
         relative: [
@@ -303,7 +312,7 @@ def _containers(
         name: (keyword, fields)
         for relative, (mask, text, _layer) in modules.items()
         for (name, keyword, _body), (_n, fields) in zip(
-            _bodies(mask, text), declarations[relative]
+            _bodies(mask, text), declarations[relative], strict=True
         )
         if "::" not in name
     }

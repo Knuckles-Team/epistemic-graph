@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import collections
 import asyncio
+import collections
 import os
 import threading
 import time
@@ -38,7 +38,7 @@ def _resources() -> tuple[int, int, int, collections.Counter[str]]:
     )
 
 
-class _AsyncClient:
+class _AsyncClient(EpistemicGraphClient):
     def __init__(self) -> None:
         self.close_calls = 0
 
@@ -63,7 +63,9 @@ class _CapabilityAsyncClient(_AsyncClient):
 def test_sync_supports_matches_async_capability_probe() -> None:
     """The sync wrapper exposes the same fail-closed capability result."""
     loop = asyncio.new_event_loop()
-    loop_thread = threading.Thread(target=loop.run_forever, name="dcdx98-capability-loop")
+    loop_thread = threading.Thread(
+        target=loop.run_forever, name="dcdx98-capability-loop"
+    )
     loop_thread.start()
     async_client = _CapabilityAsyncClient({"ReserveWorkItemResources"})
     client = SyncEpistemicGraphClient(async_client, loop, loop_thread)

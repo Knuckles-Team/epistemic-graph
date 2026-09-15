@@ -48,8 +48,18 @@ fn points(from: i64, n: i64) -> Vec<Point> {
         .collect()
 }
 
-fn total_data_files(snapshot: &serde_json::Value) -> &str {
-    snapshot["metadata"]["snapshots"][0]["summary"]["total-data-files"]
+fn current_snapshot(response: &serde_json::Value) -> &serde_json::Value {
+    let current_id = &response["metadata"]["current-snapshot-id"];
+    response["metadata"]["snapshots"]
+        .as_array()
+        .expect("Iceberg snapshots array")
+        .iter()
+        .find(|snapshot| &snapshot["snapshot-id"] == current_id)
+        .expect("current-snapshot-id references an emitted snapshot")
+}
+
+fn total_data_files(response: &serde_json::Value) -> &str {
+    current_snapshot(response)["summary"]["total-data-files"]
         .as_str()
         .expect("Iceberg total-data-files summary")
 }
@@ -75,10 +85,64 @@ fn as_of_reads_current_historical_and_empty_history_but_denies_uncommitted_lsns(
     .expect("append first points");
 
     let mgr = LakeManager::new();
+    let unrelated_schema = eg_lake::LakeSchema::new(vec![LakeField::new("v", LakeType::Double)]);
+    let before = mgr
+        .create_table(
+            &s,
+            DEFAULT_NAMESPACE,
+            "precreation-table",
+            unrelated_schema.clone(),
+            None,
+        )
+        .expect("create table before the target exists");
+    let precreation_lsn = before["metadata"]["current-snapshot-id"]
+        .as_u64()
+        .expect("precreation global LSN");
     let first = mgr
         .drain_series(&s, &tsdb, series_id)
         .expect("first drain")
         .expect("first drain materializes");
+
+    let before_target_creation = mgr
+        .load_table_as_of(
+            DEFAULT_NAMESPACE,
+            series_id,
+            precreation_lsn,
+            &LakeVisibility::Unfiltered,
+        )
+        .expect("the precreation global LSN is committed");
+    assert!(
+        before_target_creation.is_none(),
+        "a table is absent before its first emitted snapshot"
+    );
+
+    let other = mgr
+        .create_table(
+            &s,
+            DEFAULT_NAMESPACE,
+            "unrelated-table",
+            unrelated_schema,
+            None,
+        )
+        .expect("create unrelated table");
+    let unrelated_lsn = other["metadata"]["current-snapshot-id"]
+        .as_u64()
+        .expect("unrelated table LSN");
+    let at_unrelated_lsn = mgr
+        .load_table_as_of(
+            DEFAULT_NAMESPACE,
+            series_id,
+            unrelated_lsn,
+            &LakeVisibility::Unfiltered,
+        )
+        .expect("the requested global LSN is committed")
+        .expect("original table remains visible");
+    assert_eq!(
+        at_unrelated_lsn["metadata"]["current-snapshot-id"], first.lsn as i64,
+        "another table's committed LSN resolves to this table's latest emitted snapshot"
+    );
+    assert_eq!(total_data_files(&at_unrelated_lsn), "1");
+
     tsdb.append_batch(
         series_id,
         1,
@@ -133,6 +197,19 @@ fn as_of_reads_current_historical_and_empty_history_but_denies_uncommitted_lsns(
         "1",
         "current rewrite is compacted"
     );
+    let table_snapshot_ids: Vec<u64> = compacted_current["metadata"]["snapshots"]
+        .as_array()
+        .expect("Iceberg snapshots array")
+        .iter()
+        .map(|snapshot| snapshot["snapshot-id"].as_u64().unwrap())
+        .collect();
+    assert_eq!(
+        table_snapshot_ids,
+        vec![first.lsn, second.lsn, compacted.lsn],
+        "history contains only this table's emitted materializations: no unrelated global LSN or rewrite tombstone"
+    );
+    assert!(!table_snapshot_ids.contains(&precreation_lsn));
+    assert!(!table_snapshot_ids.contains(&unrelated_lsn));
 
     let historical = mgr
         .load_table_as_of(
@@ -155,10 +232,11 @@ fn as_of_reads_current_historical_and_empty_history_but_denies_uncommitted_lsns(
 
     let empty_history = mgr
         .load_table_as_of(DEFAULT_NAMESPACE, table, 0, &LakeVisibility::Unfiltered)
-        .expect("LSN zero is the valid empty history")
-        .expect("table is visible");
-    assert_eq!(total_data_files(&empty_history), "0");
-    assert_eq!(empty_history["metadata"]["current-snapshot-id"], 0);
+        .expect("LSN zero is a valid global boundary");
+    assert!(
+        empty_history.is_none(),
+        "the table does not exist at the empty-history boundary"
+    );
 
     let out_of_range = compacted.lsn + 1;
     assert!(matches!(
@@ -215,7 +293,8 @@ fn as_of_applies_owner_visibility_before_lsn_validation() {
         "create_table materializes one zero-row file"
     );
     assert_eq!(
-        owner_view["metadata"]["snapshots"][0]["summary"]["total-records"], "0",
+        current_snapshot(&owner_view)["summary"]["total-records"],
+        "0",
         "new table has no rows"
     );
 

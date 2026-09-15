@@ -1,0 +1,1372 @@
+{
+  "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
+  "$defs": {
+    "CompactNodesResult": {
+      "description": "Result of `Method::CompactNodesByType`: the ids of the nodes compaction removed.",
+      "properties": {
+        "removed_nodes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "removed_nodes"
+      ],
+      "type": "object"
+    },
+    "DecayStats": {
+      "description": "Result of an Ebbinghaus forgetting-curve decay sweep (CONCEPT:EG-KG.compute.typed-graph-model).\n\n`*_decayed` count items whose belief `confidence` was reduced this sweep;\n`*_pruned` count items removed because their decayed confidence fell below\nthe sweep `floor`.",
+      "properties": {
+        "edges_decayed": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "edges_pruned": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nodes_decayed": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nodes_pruned": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "nodes_decayed",
+        "edges_decayed",
+        "nodes_pruned",
+        "edges_pruned"
+      ],
+      "type": "object"
+    },
+    "GraphDiff": {
+      "description": "What another graph has relative to this one (`Method::DiffAgainst`): nodes and\n`(source, target)` edge keys added or removed, and nodes whose property bytes differ.",
+      "properties": {
+        "edges_added": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "edges_removed": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "nodes_added": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "nodes_modified": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "nodes_removed": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "nodes_added",
+        "nodes_removed",
+        "nodes_modified",
+        "edges_added",
+        "edges_removed"
+      ],
+      "type": "object"
+    },
+    "GraphMetrics": {
+      "description": "Runtime metrics for monitoring and observability.",
+      "properties": {
+        "active_nodes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "archived_nodes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "compacted_nodes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "edge_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "last_prune_removed": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "node_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total_mutations": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "node_count",
+        "edge_count",
+        "total_mutations",
+        "last_prune_removed",
+        "active_nodes",
+        "compacted_nodes",
+        "archived_nodes"
+      ],
+      "type": "object"
+    },
+    "LoadReport": {
+      "description": "Summary of an RDF triple load (`eg_rdf::mapping::load_triples`).",
+      "properties": {
+        "multivalue": {
+          "description": "Multi-valued literal extras encountered (second+ literal per `(s,p)`).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "triples": {
+          "description": "Total triples consumed.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "triples",
+        "multivalue"
+      ],
+      "type": "object"
+    },
+    "PropertyBlob": {
+      "description": "A node or edge property object exactly as stored -- MessagePack bytes, carried as a\nMessagePack `bin` on the wire.",
+      "items": {
+        "format": "uint8",
+        "maximum": 255,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "type": "array"
+    },
+    "PruneStats": {
+      "description": "Result of a lifecycle-aware pruning operation.",
+      "properties": {
+        "edges_removed": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nodes_archived": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nodes_removed": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "nodes_removed",
+        "edges_removed",
+        "nodes_archived"
+      ],
+      "type": "object"
+    },
+    "ScenePose": {
+      "description": "A scene object's composed world transform (`Method::WorldTransform`) -- the wire\nprojection of `eg_core::scene::Pose`, the same `{translation, rotation, scale}` object a\nscene node stores under its `pose` property.",
+      "properties": {
+        "rotation": {
+          "$ref": "#/$defs/SceneQuat"
+        },
+        "scale": {
+          "$ref": "#/$defs/SceneVec3"
+        },
+        "translation": {
+          "$ref": "#/$defs/SceneVec3"
+        }
+      },
+      "required": [
+        "translation",
+        "rotation",
+        "scale"
+      ],
+      "type": "object"
+    },
+    "SceneQuat": {
+      "description": "A rotation quaternion `(x, y, z, w)` of a scene-graph pose on the wire.",
+      "properties": {
+        "w": {
+          "format": "double",
+          "type": "number"
+        },
+        "x": {
+          "format": "double",
+          "type": "number"
+        },
+        "y": {
+          "format": "double",
+          "type": "number"
+        },
+        "z": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "z",
+        "w"
+      ],
+      "type": "object"
+    },
+    "SceneVec3": {
+      "description": "A 3-vector of a scene-graph pose on the wire.",
+      "properties": {
+        "x": {
+          "format": "double",
+          "type": "number"
+        },
+        "y": {
+          "format": "double",
+          "type": "number"
+        },
+        "z": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "z"
+      ],
+      "type": "object"
+    },
+    "SparqlUpdateReport": {
+      "description": "What one SPARQL UPDATE changed, whichever path executed it.\n\n`ApplyMutation` has two executors: the per-graph gateway (one graph, the update\nruns against its staged image) and the coordinated SPARQL-HTTP saga (the\n`sparql_http_update_v1` event, which may create and rewrite several graphs). Both\nanswer with this one body; a per-graph update reports `updated_graphs: 1` and\n`created_graphs: 0`.",
+      "properties": {
+        "created_graphs": {
+          "description": "Graphs this update created.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "deleted": {
+          "description": "Triples deleted.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "inserted": {
+          "description": "Triples inserted.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "operations": {
+          "description": "Update operations applied (one per `;`-separated clause).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "updated_graphs": {
+          "description": "Graphs whose committed image this update replaced.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "operations",
+        "inserted",
+        "deleted",
+        "updated_graphs",
+        "created_graphs"
+      ],
+      "type": "object"
+    },
+    "SubgraphEdge": {
+      "description": "One edge of a `Method::GetSubgraph` result -- one entry per parallel edge.",
+      "properties": {
+        "properties": {
+          "description": "The edge's property object, or `null` when it does not decode."
+        },
+        "source": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "target",
+        "properties"
+      ],
+      "type": "object"
+    },
+    "SubgraphNode": {
+      "description": "One node of a `Method::GetSubgraph` result, with its decoded property object.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "properties": {
+          "description": "The node's property object, or `null` when it does not decode."
+        }
+      },
+      "required": [
+        "id",
+        "properties"
+      ],
+      "type": "object"
+    },
+    "SubgraphResult": {
+      "description": "The induced subgraph over a node-id set (`Method::GetSubgraph`): the nodes that exist\nand every edge among them.",
+      "properties": {
+        "edges": {
+          "items": {
+            "$ref": "#/$defs/SubgraphEdge"
+          },
+          "type": "array"
+        },
+        "nodes": {
+          "items": {
+            "$ref": "#/$defs/SubgraphNode"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "nodes",
+        "edges"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "methods": {
+    "AddEdge": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "AddNode": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "AddSceneObject": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "AddTriples": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/LoadReport"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "AppendStep": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ApplyMutation": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/SparqlUpdateReport"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BestTrajectory": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ClearGraph": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CompactNodesByType": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/CompactNodesResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CompareAndSetNodeFields": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Consolidate": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CreateNodeIfAbsent": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CreateSummaryNode": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DecayMemories": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DecayNode": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DecaySweep": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/DecayStats"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DiffAgainst": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/GraphDiff"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DiscountedReturn": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DropNamedGraph": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "EdgeCount": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "EvictBelow": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Ids",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "EvictLRU": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Fork": {
+      "bodies": {
+        "result": {
+          "dynamic": {
+            "reason": "caller-properties",
+            "summary": "property maps the caller wrote, returned verbatim"
+          },
+          "encoding": "Json",
+          "schema": true
+        }
+      },
+      "selected_by": null
+    },
+    "GetEdgeProperties": {
+      "bodies": {
+        "result": {
+          "dynamic": {
+            "reason": "caller-properties",
+            "summary": "property maps the caller wrote, returned verbatim"
+          },
+          "encoding": "Json",
+          "schema": true
+        }
+      },
+      "selected_by": null
+    },
+    "GetEdgePropertiesBatch": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "items": {
+                "$ref": "#/$defs/PropertyBlob"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetEdges": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "EdgeList",
+          "schema": {
+            "items": {
+              "maxItems": 3,
+              "minItems": 3,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "items": {
+                    "format": "uint8",
+                    "maximum": 255,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetEdgesPage": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "maxItems": 4,
+              "minItems": 4,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "items": {
+                    "format": "uint8",
+                    "maximum": 255,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetNeighbors": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Ids",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetNeighborsBatch": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetNodeProperties": {
+      "bodies": {
+        "result": {
+          "dynamic": {
+            "reason": "caller-properties",
+            "summary": "property maps the caller wrote, returned verbatim"
+          },
+          "encoding": "RawOrNull",
+          "schema": true
+        }
+      },
+      "selected_by": null
+    },
+    "GetNodePropertiesBatch": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/PropertyBlob"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetNodes": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "NodeList",
+          "schema": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                true
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetNodesByLabel": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "NodeList",
+          "schema": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                true
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetPredecessors": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Ids",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetSubgraph": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/SubgraphResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetSuccessors": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Ids",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "HasEdge": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "HasNode": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "HasNodesBatch": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "type": "boolean"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "InDegree": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "InvalidateEdge": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Maintain": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            ],
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Metrics": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/GraphMetrics"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "NodeCount": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "NodeIds": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Ids",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "OutDegree": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "PruneByLifecycle": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/PruneStats"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Reconcile": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Reinforce": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RemoveEdge": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RemoveNode": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RemoveTriples": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Reparent": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "SceneChildren": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Ids",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "SetPose": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "StartTrajectory": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "SummariesAtLevel": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Ids",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "SummaryChildren": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Ids",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "SupersedeEdge": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TouchNodes": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "UnionGetNeighbors": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Ids",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "UnionGetNodeProperties": {
+      "bodies": {
+        "result": {
+          "dynamic": {
+            "reason": "caller-properties",
+            "summary": "property maps the caller wrote, returned verbatim"
+          },
+          "encoding": "RawOrNull",
+          "schema": true
+        }
+      },
+      "selected_by": null
+    },
+    "UnionGetNodesByLabel": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "NodeList",
+          "schema": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                true
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "WorldTransform": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ScenePose"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "selected_by": null
+    }
+  },
+  "title": "graph method results"
+}

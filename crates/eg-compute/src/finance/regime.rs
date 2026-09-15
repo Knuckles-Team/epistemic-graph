@@ -4,25 +4,7 @@
 // Implements Baum-Welch (EM) for parameter estimation and Viterbi for decoding.
 // Replaces Python hmmlearn.
 
-use serde::{Deserialize, Serialize};
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct RegimeResult {
-    /// Most likely state sequence (Viterbi path)
-    pub states: Vec<usize>,
-    /// State means (emission parameters)
-    pub means: Vec<f64>,
-    /// State standard deviations
-    pub stds: Vec<f64>,
-    /// Transition matrix (n_states x n_states)
-    pub transition_matrix: Vec<Vec<f64>>,
-    /// Initial state probabilities
-    pub initial_probs: Vec<f64>,
-    /// Log-likelihood of the final model
-    pub log_likelihood: f64,
-    /// Number of EM iterations until convergence
-    pub n_iterations: usize,
-}
+pub use eg_types::compute_result::finance::RegimeResult;
 
 /// Normal PDF: N(x | μ, σ)
 fn normal_pdf(x: f64, mean: f64, std: f64) -> f64 {

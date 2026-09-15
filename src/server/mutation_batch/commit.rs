@@ -1,1384 +1,53 @@
 //! Durable commit, serialization, and serving-projection publication.
 
-use std::sync::{Arc, OnceLock};
+mod envelope;
+mod internal;
+mod lifecycle;
+mod work_item;
 
-use sha2::{Digest, Sha256};
-use tokio::sync::{Mutex, OwnedMutexGuard};
+#[cfg(feature = "program-optimization")]
+mod program;
 
-use crate::change_envelope::ChangeEnvelope;
+pub(crate) use envelope::publish_change_envelope_projection;
+#[cfg(any(
+    test,
+    feature = "jobs",
+    all(feature = "raft", feature = "epistemic-tms")
+))]
+pub(crate) use internal::commit_internal_graph_methods;
+pub(crate) use internal::{
+    commit_internal_graph_methods_with_nonce, lock_graph, InternalGraphCommitRequest,
+};
+pub(crate) use lifecycle::{commit_lifecycle, lifecycle_was_committed, LifecycleCommitRequest};
+#[cfg(test)]
+pub(crate) use work_item::changed_work_item_ids;
+pub(crate) use work_item::{commit_work_item, WorkItemCommitRequest};
+
+#[cfg(test)]
+use internal::{apply_projectable_method, install_validated_internal_replay_snapshot};
+
+#[cfg(feature = "program-optimization")]
+pub(crate) use program::{
+    commit_program_promotion, resolve_program_promotion_identity, ProgramPromotionRequest,
+};
+
+#[cfg(test)]
+use std::sync::Arc;
+
+#[cfg(test)]
 use crate::graph::GraphCore;
+#[cfg(test)]
 use crate::mutation_batch::{MutationStateDescriptor, MutationSurface};
+#[cfg(test)]
 use crate::protocol::{Method, ResultPayload};
-use crate::server::mutation::LifecycleAttempt;
+#[cfg(test)]
+use crate::server::mutation_batch::compile::{compile_methods, CompileBatch};
+#[cfg(test)]
 use crate::server::persistence::PersistenceBackend;
+#[cfg(test)]
 use eg_types::contract::Nonce;
-
-use super::compile::{authoritative_graph_version, compile_methods, CompileBatch};
-use super::digest::{lifecycle_batch_id, work_item_batch_identity};
-
-#[cfg(feature = "program-optimization")]
-use eg_modality::OpaqueRef;
-
-/// One deterministic async serialization lane for each logical graph. Transaction
-/// Commit and the ordinary mutation gateway both acquire it, so OCC validation
-/// cannot race a gateway write while its durable-before-RAM batch is in flight. A
-/// fixed number of deterministic stripes bounds memory across create/delete churn; a hash
-/// collision only serializes two unrelated graphs and cannot weaken correctness.
-pub(crate) async fn lock_graph(graph: &str) -> OwnedMutexGuard<()> {
-    const STRIPES: usize = 1024;
-    static LOCKS: OnceLock<Vec<Arc<Mutex<()>>>> = OnceLock::new();
-    let locks = LOCKS.get_or_init(|| (0..STRIPES).map(|_| Arc::new(Mutex::new(()))).collect());
-    let mut hash = 0xcbf2_9ce4_8422_2325u64;
-    for byte in graph.as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    let lock = Arc::clone(&locks[(hash as usize) % STRIPES]);
-    lock.lock_owned().await
-}
-
-/// Commit an engine-internal graph write-set (for example an asynchronous job
-/// result) through the same staged-state MutationBatch authority as public
-/// runtime-result mutations.  Payload-bearing graph methods are represented by
-/// opaque digests in coordinator metadata; their values exist only in the
-/// authoritative graph image, avoiding a second PII-bearing copy in status/outbox
-/// tables.
-#[allow(clippy::too_many_arguments)]
-pub(crate) async fn commit_internal_graph_methods(
-    persistence: Option<&Arc<dyn PersistenceBackend>>,
-    core: &Arc<GraphCore>,
-    request_id: u64,
-    principal: Option<&str>,
-    graph: &str,
-    batch_id: &str,
-    methods: Vec<Method>,
-    result: &ResultPayload,
-) -> Result<crate::mutation_batch::MutationBatchCommit, String> {
-    commit_internal_graph_methods_with_nonce(
-        persistence,
-        core,
-        request_id,
-        principal,
-        graph,
-        batch_id,
-        methods,
-        result,
-        None,
-    )
-    .await
-}
-
-#[allow(clippy::too_many_arguments)]
-pub(crate) async fn commit_internal_graph_methods_with_nonce(
-    persistence: Option<&Arc<dyn PersistenceBackend>>,
-    core: &Arc<GraphCore>,
-    request_id: u64,
-    principal: Option<&str>,
-    graph: &str,
-    batch_id: &str,
-    methods: Vec<Method>,
-    result: &ResultPayload,
-    attempt_nonce: Option<Nonce>,
-) -> Result<crate::mutation_batch::MutationBatchCommit, String> {
-    commit_internal_graph_methods_with_nonce_mode(
-        persistence,
-        core,
-        request_id,
-        principal,
-        graph,
-        batch_id,
-        methods,
-        result,
-        attempt_nonce,
-        false,
-    )
-    .await
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn commit_internal_graph_methods_with_nonce_mode(
-    persistence: Option<&Arc<dyn PersistenceBackend>>,
-    core: &Arc<GraphCore>,
-    request_id: u64,
-    principal: Option<&str>,
-    graph: &str,
-    batch_id: &str,
-    methods: Vec<Method>,
-    result: &ResultPayload,
-    attempt_nonce: Option<Nonce>,
-    strict_promotion: bool,
-) -> Result<crate::mutation_batch::MutationBatchCommit, String> {
-    let persistence = persistence.ok_or_else(|| {
-        "internal graph write requires an authoritative MutationBatch backend".to_string()
-    })?;
-    let _guard = lock_graph(graph).await;
-    let fname = crate::persist::sanitize(graph);
-    let principal = principal
-        .ok_or_else(|| "internal graph write requires a verified principal".to_string())?;
-
-    if let Some(record) = persistence.read_mutation_batch(&fname, batch_id).await? {
-        let mut descriptor = record
-            .batch
-            .authoritative_state
-            .clone()
-            .ok_or_else(|| "internal child receipt has no authoritative state".to_string())?;
-        let (snapshot, version) = persistence
-            .read_authoritative_graph_snapshot(&fname)
-            .await?
-            .ok_or_else(|| "committed internal graph image is missing".to_string())?;
-        descriptor.source_graph_version = version;
-        descriptor.target_graph_version = version
-            .checked_add(1)
-            .ok_or_else(|| "authoritative graph version overflow".to_string())?;
-        let created_at_ms = crate::server::dispatch::authoritative_now_ms();
-        let probe = compile_methods(
-            CompileBatch {
-                batch_id,
-                request_id,
-                attempt_nonce,
-                principal: Some(principal),
-                tenant: graph,
-                graph,
-                placement_epoch: 0,
-                idempotency_key: batch_id,
-                expected_graph_version: Some(version),
-                fencing_token: None,
-                created_at_ms,
-                default_surface: MutationSurface::Job,
-                authoritative_state: Some(descriptor),
-            },
-            methods,
-        )?;
-        let committed = persistence
-            .commit_mutation_batch_state(&fname, &probe, Vec::new(), None, created_at_ms, true)
-            .await?;
-        if !committed.replayed {
-            return Err(
-                "internal child replay probe unexpectedly committed fresh work".to_string(),
-            );
-        }
-        let expected_result = rmp_serde::to_vec_named(result).map_err(|error| error.to_string())?;
-        if committed.record.result_msgpack.as_deref() != Some(expected_result.as_slice()) {
-            return Err("internal child receipt has a conflicting terminal result".to_string());
-        }
-        let committed_descriptor = committed
-            .record
-            .batch
-            .authoritative_state
-            .as_ref()
-            .ok_or_else(|| "internal child receipt has no authoritative state".to_string())?;
-        install_validated_internal_replay_snapshot(core, snapshot, version, committed_descriptor)?;
-        return Ok(committed);
-    }
-
-    let (base_snapshot, source_version) = match persistence
-        .read_authoritative_graph_snapshot(&fname)
-        .await?
-    {
-        Some(value) => value,
-        None => (
-            core.snapshot(),
-            authoritative_graph_version(persistence, &fname, core).await?,
-        ),
-    };
-    let base_snapshot_for_delta = base_snapshot.clone();
-    let staged = GraphCore::from_snapshot(base_snapshot, source_version)?;
-    for method in &methods {
-        if strict_promotion {
-            #[cfg(feature = "program-optimization")]
-            apply_promotion_projectable_method(&staged, method)?;
-            #[cfg(not(feature = "program-optimization"))]
-            return Err("strict promotion is unavailable in this build".to_string());
-        } else {
-            apply_projectable_method(&staged, method)?;
-        }
-    }
-    let staged_snapshot = staged.snapshot();
-    let row_delta =
-        crate::graph_delta::GraphRowDelta::between(&base_snapshot_for_delta, &staged_snapshot)?;
-    let state_msgpack = row_delta.to_msgpack()?;
-    let target_graph_version = source_version
-        .checked_add(1)
-        .ok_or_else(|| "authoritative graph version overflow".to_string())?;
-    let descriptor = MutationStateDescriptor {
-        algorithm: crate::graph_delta::ROW_DELTA_ALGORITHM.to_string(),
-        digest: hex::encode(Sha256::digest(&state_msgpack)),
-        source_graph_version: source_version,
-        target_graph_version,
-    };
-    let created_at_ms = crate::server::dispatch::authoritative_now_ms();
-    let batch = compile_methods(
-        CompileBatch {
-            batch_id,
-            request_id,
-            attempt_nonce,
-            principal: Some(principal),
-            tenant: graph,
-            graph,
-            placement_epoch: 0,
-            idempotency_key: batch_id,
-            expected_graph_version: Some(source_version),
-            fencing_token: None,
-            created_at_ms,
-            default_surface: MutationSurface::Job,
-            authoritative_state: Some(descriptor.clone()),
-        },
-        methods,
-    )?;
-    let result_msgpack = rmp_serde::to_vec_named(result).map_err(|error| error.to_string())?;
-    let committed = persistence
-        .commit_mutation_batch_state(
-            &fname,
-            &batch,
-            state_msgpack,
-            Some(&result_msgpack),
-            created_at_ms,
-            // Preserves this function's existing (pre-existing, out of scope here)
-            // behavior exactly: every `methods` list this internal coordinator sees
-            // today (Txn/2PC child write-sets, multi-graph commit slices, job-claim
-            // provenance) is policy-audited == true. NOTE: `handlers::query.rs`'s
-            // `RecomputeMaterialization` caller is a known exception (policy
-            // `audited: false`) that this `true` does NOT correctly honor -- same
-            // root cause as the TouchNodes fix elsewhere in this changeset, but
-            // untested here and out of scope for this fix; left as a follow-up.
-            true,
-        )
-        .await?;
-    committed.validate()?;
-    if committed.replayed {
-        let (snapshot, version) = persistence
-            .read_authoritative_graph_snapshot(&fname)
-            .await?
-            .ok_or_else(|| "committed internal graph image is missing".to_string())?;
-        install_validated_internal_replay_snapshot(core, snapshot, version, &descriptor)?;
-    } else {
-        crate::server::mutation::publish_committed_row_delta(
-            persistence,
-            &fname,
-            core,
-            &row_delta,
-            source_version,
-        )
-        .await?;
-        if row_delta.preserves_node_derived_indexes() {
-            core.mark_dirty_preserving_indexes();
-        } else {
-            core.mark_dirty();
-        }
-    }
-    Ok(committed)
-}
-
-/// Commit the selected native program revision and its result claim through the
-/// same graph authority. The stable batch identity is checked before this
-/// function performs any pointer/CAS validation, so a retry with a new nonce
-/// returns its stored receipt even when the active pointer has since moved.
-#[cfg(feature = "program-optimization")]
-#[allow(clippy::too_many_arguments)]
-pub(crate) async fn commit_program_promotion(
-    persistence: Option<&Arc<dyn PersistenceBackend>>,
-    core: &Arc<GraphCore>,
-    request_id: u64,
-    principal: Option<&str>,
-    graph: &str,
-    batch_id: &str,
-    claim_methods: Vec<Method>,
-    result: &ResultPayload,
-    identity: &eg_program::ProgramRevisionIdentity,
-    attempt_nonce: Option<Nonce>,
-) -> Result<crate::mutation_batch::MutationBatchCommit, String> {
-    identity
-        .validate()
-        .map_err(|error| format!("invalid program promotion identity: {error}"))?;
-    let record = identity
-        .candidate_record
-        .as_ref()
-        .ok_or_else(|| "program promotion identity has no durable candidate record".to_string())?;
-    let claim_method = claim_methods.iter().find_map(|method| match method {
-        Method::AddNode {
-            node_id,
-            properties_msgpack,
-        } if node_id == &record.candidate_claim_ref => Some(properties_msgpack),
-        _ => None,
-    });
-    let claim_properties = claim_method
-        .ok_or_else(|| "program promotion claim has no selected candidate row".to_string())
-        .and_then(|properties| {
-            eg_types::msgpack::decode_property_value(properties)
-                .map_err(|_| "program promotion candidate claim is not decodable".to_string())
-        })?;
-    let result_claim_ref = format!("jobclaim:{}", record.result_ref.as_str());
-    let result_claim_properties = claim_methods.iter().find_map(|method| match method {
-        Method::AddNode {
-            node_id,
-            properties_msgpack,
-        } if node_id == &result_claim_ref => Some(properties_msgpack),
-        _ => None,
-    });
-    let result_claim_properties = result_claim_properties
-        .ok_or_else(|| "program promotion claim has no result lineage row".to_string())
-        .and_then(|properties| {
-            eg_types::msgpack::decode_property_value(properties)
-                .map_err(|_| "program promotion result claim is not decodable".to_string())
-        })?;
-    validate_program_result_claim(identity, &result_claim_properties)?;
-    identity
-        .validate_candidate_claim(&claim_properties)
-        .map_err(|error| format!("program promotion candidate claim is invalid: {error}"))?;
-    if claim_methods
-        .iter()
-        .any(|method| !matches!(method, Method::AddNode { .. } | Method::AddEdge { .. }))
-    {
-        return Err("program promotion claim contains a non-claim graph method".to_string());
-    }
-    let mut methods = program_promotion_methods(identity)?;
-    methods.extend(claim_methods);
-    commit_internal_graph_methods_with_nonce_mode(
-        persistence,
-        core,
-        request_id,
-        principal,
-        graph,
-        batch_id,
-        methods,
-        result,
-        attempt_nonce,
-        true,
-    )
-    .await
-}
-
-/// A digest of everything a [`crate::graph::GraphSnapshot`] persists, in a
-/// CANONICAL order.
-///
-/// `GraphSnapshot::to_msgpack()` is not usable as an image identity: `nodes`
-/// and `edges` are `Vec`s materialized by iterating the in-memory maps, and
-/// `SemanticStore` persists its `embeddings` as a `HashMap`. A snapshot built
-/// fresh from the serving core and the same snapshot decoded back off the
-/// ledger therefore hold the SAME rows in different orders and never share a
-/// digest -- so comparing raw `to_msgpack()` bytes reported "differs" for two
-/// identical graphs and made every internal replay of an already-applied
-/// promotion fail closed.
-///
-/// Sorting the row collections (and the embeddings) first makes the comparison
-/// depend on content alone. Every persisted component is still covered --
-/// schema version, integrity policy, nodes, edges, the ordered ledger, the
-/// embedding space and the embeddings themselves -- so this is strictly a
-/// canonicalization of the existing check, not a narrower one.
-fn canonical_graph_image_digest(snapshot: &crate::graph::GraphSnapshot) -> Result<String, String> {
-    let mut nodes: Vec<(&str, &[u8])> = snapshot
-        .nodes
-        .iter()
-        .map(|(node_id, properties)| (node_id.as_str(), properties.as_slice()))
-        .collect();
-    nodes.sort_unstable();
-    let mut edges: Vec<(&str, &str, &[u8])> = snapshot
-        .edges
-        .iter()
-        .map(|(source, target, properties)| {
-            (source.as_str(), target.as_str(), properties.as_slice())
-        })
-        .collect();
-    edges.sort_unstable();
-    let mut embeddings = snapshot.semantic_store.embeddings_snapshot();
-    embeddings.sort_by(|left, right| left.0.cmp(&right.0));
-    let canonical = (
-        snapshot.schema_version,
-        &snapshot.integrity_policy,
-        nodes,
-        edges,
-        // The ledger is an append-ordered log: its order IS its content.
-        &snapshot.ledger,
-        snapshot.semantic_store.space(),
-        embeddings,
-    );
-    let bytes = rmp_serde::to_vec(&canonical)
-        .map_err(|error| format!("canonical graph image encode failed: {error}"))?;
-    Ok(hex::encode(Sha256::digest(bytes)))
-}
-
-fn install_validated_internal_replay_snapshot(
-    core: &GraphCore,
-    snapshot: crate::graph::GraphSnapshot,
-    version: u64,
-    descriptor: &MutationStateDescriptor,
-) -> Result<(), String> {
-    if descriptor.algorithm != crate::graph_delta::ROW_DELTA_ALGORITHM
-        || version < descriptor.target_graph_version
-    {
-        return Err(
-            "committed internal graph image does not match its state transition".to_string(),
-        );
-    }
-    match core.version() {
-        current
-            if current == descriptor.source_graph_version
-                && version == descriptor.target_graph_version =>
-        {
-            let delta = crate::graph_delta::GraphRowDelta::between(&core.snapshot(), &snapshot)?;
-            let bytes = delta.to_msgpack()?;
-            if hex::encode(Sha256::digest(bytes)) != descriptor.digest {
-                return Err(
-                    "committed internal graph image does not match its state digest".to_string(),
-                );
-            }
-            core.install_committed_snapshot(snapshot, version)
-        }
-        current
-            if current == descriptor.target_graph_version
-                && version == descriptor.target_graph_version =>
-        {
-            if canonical_graph_image_digest(&core.snapshot())?
-                != canonical_graph_image_digest(&snapshot)?
-            {
-                return Err("serving graph image differs from its committed replay".to_string());
-            }
-            Ok(())
-        }
-        current if current > descriptor.target_graph_version && version >= current => {
-            // A later committed promotion may have advanced the graph after
-            // this receipt was written.  A retry must return that receipt
-            // without replacing the newer serving image with an older one.
-            if canonical_graph_image_digest(&core.snapshot())?
-                != canonical_graph_image_digest(&snapshot)?
-            {
-                return Err(
-                    "serving graph image differs from its newer authoritative state".to_string(),
-                );
-            }
-            Ok(())
-        }
-        _ => Err("serving graph version cannot accept the committed replay".to_string()),
-    }
-}
-
-fn apply_projectable_method(core: &GraphCore, method: &Method) -> Result<(), String> {
-    match method {
-        Method::AddNode {
-            node_id,
-            properties_msgpack,
-        } => {
-            core.add_node(node_id.clone(), properties_msgpack.clone());
-            Ok(())
-        }
-        Method::RemoveNode { node_id } => {
-            core.remove_node(node_id.clone());
-            Ok(())
-        }
-        Method::AddEdge {
-            source_id,
-            target_id,
-            properties_msgpack,
-        } => core.add_edge(
-            source_id.clone(),
-            target_id.clone(),
-            properties_msgpack.clone(),
-        ),
-        Method::RemoveEdge {
-            source_id,
-            target_id,
-        } => {
-            core.remove_edge(source_id.clone(), target_id.clone());
-            Ok(())
-        }
-        Method::CompareAndSetNodeFields {
-            node_id,
-            conditions_msgpack,
-            updates_msgpack,
-        } => {
-            // Match the staged-transaction contract: malformed maps or a failed
-            // predicate are a no-op CAS, not a partial child-batch failure.
-            if let (Ok(conditions), Ok(updates)) = (
-                eg_types::msgpack::decode_property_object(conditions_msgpack),
-                eg_types::msgpack::decode_property_object(updates_msgpack),
-            ) {
-                let _ = core.compare_and_set_fields(node_id, &conditions, &updates);
-            }
-            Ok(())
-        }
-        Method::ClearGraph => {
-            core.clear();
-            Ok(())
-        }
-        Method::FromMsgpack { msgpack } => core.from_msgpack(msgpack),
-        #[cfg(feature = "epistemic")]
-        Method::RecomputeMaterialization { .. } => Ok(()),
-        _ => Err("internal graph MutationBatch contains a non-projectable method".to_string()),
-    }
-}
-
-#[cfg(feature = "program-optimization")]
-fn program_promotion_methods(
-    identity: &eg_program::ProgramRevisionIdentity,
-) -> Result<Vec<Method>, String> {
-    let record = identity
-        .candidate_record
-        .as_ref()
-        .ok_or_else(|| "program promotion identity has no durable candidate record".to_string())?;
-    let mut candidate_properties =
-        serde_json::to_value(record).map_err(|error| error.to_string())?;
-    candidate_properties
-        .as_object_mut()
-        .ok_or_else(|| "program candidate record is not an object".to_string())?
-        .insert(
-            "type".to_string(),
-            serde_json::Value::String("ProgramCandidate".to_string()),
-        );
-    let revision_properties = serde_json::json!({
-        "type": "ProgramRevision",
-        "schema_version": identity.schema_version,
-        "program_ref": identity.program_ref.as_str(),
-        "revision_ref": identity.revision_ref.as_str(),
-        "base_revision": identity.base_revision,
-        "revision": identity.revision,
-        "parent_ref": identity.parent_ref.as_ref().map(|value| value.as_str()),
-        "candidate_ref": identity.candidate_ref.as_str(),
-        "content_digest": identity.content_digest,
-        "policy": &identity.policy,
-        "tool_policy_ref": identity.tool_policy_ref.as_ref().map(|value| value.as_str()),
-        "model_profile_ref": identity.model_profile_ref.as_ref().map(|value| value.as_str()),
-        "candidate_record": &identity.candidate_record,
-    });
-    let active_properties = serde_json::json!({
-        "type": "ProgramActiveRevision",
-        "schema_version": identity.schema_version,
-        "program_ref": identity.program_ref.as_str(),
-        "revision_ref": identity.revision_ref.as_str(),
-        "base_revision": identity.base_revision,
-        "revision": identity.revision,
-        "parent_ref": identity.parent_ref.as_ref().map(|value| value.as_str()),
-        "candidate_ref": identity.candidate_ref.as_str(),
-        "content_digest": identity.content_digest,
-        "policy": &identity.policy,
-        "tool_policy_ref": identity.tool_policy_ref.as_ref().map(|value| value.as_str()),
-        "model_profile_ref": identity.model_profile_ref.as_ref().map(|value| value.as_str()),
-        "candidate_record": &identity.candidate_record,
-    });
-    let candidate_bytes =
-        rmp_serde::to_vec_named(&candidate_properties).map_err(|error| error.to_string())?;
-    let revision_bytes =
-        rmp_serde::to_vec_named(&revision_properties).map_err(|error| error.to_string())?;
-    let active_bytes =
-        rmp_serde::to_vec_named(&active_properties).map_err(|error| error.to_string())?;
-    let active_node = identity.active_pointer_ref();
-    let mut methods = vec![
-        Method::AddNode {
-            node_id: identity.candidate_ref.as_str().to_string(),
-            properties_msgpack: candidate_bytes,
-        },
-        Method::AddNode {
-            node_id: identity.revision_ref.as_str().to_string(),
-            properties_msgpack: revision_bytes,
-        },
-    ];
-    for (reference, node_type) in [
-        (identity.tool_policy_ref.as_ref(), "ToolPolicy"),
-        (identity.model_profile_ref.as_ref(), "ModelProfile"),
-    ] {
-        if let Some(reference) = reference {
-            let conditions = serde_json::json!({
-                "type": node_type,
-                "ref": reference.as_str(),
-            });
-            methods.push(Method::CompareAndSetNodeFields {
-                node_id: reference.as_str().to_string(),
-                conditions_msgpack: rmp_serde::to_vec_named(&conditions)
-                    .map_err(|error| error.to_string())?,
-                updates_msgpack: rmp_serde::to_vec_named(&serde_json::json!({}))
-                    .map_err(|error| error.to_string())?,
-            });
-        }
-    }
-    if let Some(parent_ref) = &identity.parent_ref {
-        let conditions = serde_json::json!({
-            "program_ref": identity.program_ref.as_str(),
-            "revision_ref": parent_ref.as_str(),
-            "revision": identity.base_revision,
-        });
-        let conditions_msgpack =
-            rmp_serde::to_vec_named(&conditions).map_err(|error| error.to_string())?;
-        methods.push(Method::CompareAndSetNodeFields {
-            node_id: active_node.as_str().to_string(),
-            conditions_msgpack,
-            updates_msgpack: active_bytes,
-        });
-    } else {
-        methods.push(Method::AddNode {
-            node_id: active_node.as_str().to_string(),
-            properties_msgpack: active_bytes,
-        });
-    }
-    Ok(methods)
-}
-
-#[cfg(feature = "program-optimization")]
-fn resolve_program_binding_node(
-    core: &GraphCore,
-    reference: &OpaqueRef,
-    expected_type: &str,
-) -> Result<(), String> {
-    let properties = core
-        .get_node_properties(reference.as_str())
-        .ok_or_else(|| {
-            format!(
-                "durable program binding '{}' is missing",
-                reference.as_str()
-            )
-        })?;
-    let value = eg_types::msgpack::decode_property_value(&properties)
-        .map_err(|_| format!("durable program binding '{}' is not decodable", reference))?;
-    let object = value
-        .as_object()
-        .ok_or_else(|| format!("durable program binding '{}' is not an object", reference))?;
-    if object.get("type").and_then(serde_json::Value::as_str) != Some(expected_type)
-        || object.get("ref").and_then(serde_json::Value::as_str) != Some(reference.as_str())
-    {
-        return Err(format!(
-            "durable program binding '{}' has the wrong canonical type or ref",
-            reference.as_str()
-        ));
-    }
-    Ok(())
-}
-
-#[cfg(feature = "program-optimization")]
-fn validate_program_result_claim(
-    identity: &eg_program::ProgramRevisionIdentity,
-    claim_properties: &serde_json::Value,
-) -> Result<(), String> {
-    let record = identity
-        .candidate_record
-        .as_ref()
-        .ok_or_else(|| "program promotion identity has no candidate record".to_string())?;
-    let object = claim_properties
-        .as_object()
-        .ok_or_else(|| "program result claim is not an object".to_string())?;
-    if object.get("type").and_then(serde_json::Value::as_str) != Some("Claim")
-        || object.get("family").and_then(serde_json::Value::as_str) != Some("program.optimization")
-        || object.get("about").and_then(serde_json::Value::as_str)
-            != Some(record.result_ref.as_str())
-        || object.get("result_ref").and_then(serde_json::Value::as_str)
-            != Some(record.result_ref.as_str())
-    {
-        return Err("program result claim is not bound to the promotion result".to_string());
-    }
-    let input_dataset_ref = object
-        .get("input_dataset_ref")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "program result claim has no input dataset binding".to_string())?;
-    let input_dataset_ref = OpaqueRef::new(input_dataset_ref.to_string())
-        .map_err(|_| "program result claim input dataset binding is invalid".to_string())?;
-    if input_dataset_ref.namespace() != "job_input" {
-        return Err(
-            "program result claim input dataset binding has the wrong namespace".to_string(),
-        );
-    }
-    let input_content_digest = object
-        .get("input_content_digest")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "program result claim has no input content digest".to_string())?;
-    let input_snapshot_version = object
-        .get("input_snapshot_version")
-        .and_then(serde_json::Value::as_u64)
-        .ok_or_else(|| "program result claim has no input snapshot binding".to_string())?;
-    if input_content_digest.len() != 64
-        || !input_content_digest
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-        || input_snapshot_version == 0
-        || input_dataset_ref != record.result_input_dataset_ref
-        || input_content_digest != record.result_input_content_digest
-        || input_snapshot_version != record.result_input_snapshot_version
-    {
-        return Err("program result claim input snapshot binding is invalid".to_string());
-    }
-    let job_id = object
-        .get("job_id")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "program result claim has no job binding".to_string())?;
-    let algo_family = object
-        .get("algo_family")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "program result claim has no algorithm family binding".to_string())?;
-    let algo_algorithm = object
-        .get("algo_algorithm")
-        .and_then(serde_json::Value::as_str)
-        .ok_or_else(|| "program result claim has no algorithm binding".to_string())?;
-    let has_complete_algo_lineage = [
-        "algo_params_digest",
-        "algo_code_version",
-        "algo_env_version",
-    ]
-    .into_iter()
-    .all(|field| {
-        object
-            .get(field)
-            .and_then(serde_json::Value::as_str)
-            .is_some_and(|value| !value.is_empty())
-    });
-    let confidence = object
-        .get("confidence")
-        .and_then(serde_json::Value::as_f64)
-        .ok_or_else(|| "program result claim has no confidence binding".to_string())?;
-    if job_id.is_empty()
-        || algo_family != "program.optimization"
-        || algo_algorithm.is_empty()
-        || !has_complete_algo_lineage
-        || !confidence.is_finite()
-        || !(0.0..=1.0).contains(&confidence)
-        || object
-            .get("validation_state")
-            .and_then(serde_json::Value::as_str)
-            != Some("unvalidated")
-    {
-        return Err("program result claim lineage binding is invalid".to_string());
-    }
-    Ok(())
-}
-
-/// Resolve a promoted revision only through its durable revision, candidate,
-/// and selected-result-claim chain. The analytics job row may be purged after
-/// publication; these graph rows remain the immutable execution identity.
-#[cfg(feature = "program-optimization")]
-pub(crate) fn resolve_program_promotion_identity(
-    core: &GraphCore,
-    revision_ref: &OpaqueRef,
-) -> Result<eg_program::ProgramRevisionIdentity, String> {
-    let revision_properties = core
-        .get_node_properties(revision_ref.as_str())
-        .ok_or_else(|| "durable program revision is missing".to_string())?;
-    let revision_value = eg_types::msgpack::decode_property_value(&revision_properties)
-        .map_err(|_| "durable program revision is not decodable".to_string())?;
-    let identity = eg_program::ProgramRevisionIdentity::from_durable_properties(&revision_value)
-        .map_err(|error| format!("durable program revision is invalid: {error}"))?;
-    if identity.revision_ref != *revision_ref {
-        return Err("durable program revision id does not match its row".to_string());
-    }
-    let record = identity
-        .candidate_record
-        .as_ref()
-        .ok_or_else(|| "durable program revision has no candidate record".to_string())?;
-    let candidate_properties = core
-        .get_node_properties(identity.candidate_ref.as_str())
-        .ok_or_else(|| "durable program candidate record is missing".to_string())?;
-    let candidate_value = eg_types::msgpack::decode_property_value(&candidate_properties)
-        .map_err(|_| "durable program candidate record is not decodable".to_string())?;
-    let mut candidate_object = candidate_value
-        .as_object()
-        .cloned()
-        .ok_or_else(|| "durable program candidate record is not an object".to_string())?;
-    if candidate_object.remove("type")
-        != Some(serde_json::Value::String("ProgramCandidate".to_string()))
-    {
-        return Err("durable program candidate record has the wrong type".to_string());
-    }
-    let stored_record: eg_program::ProgramCandidateRecord =
-        serde_json::from_value(serde_json::Value::Object(candidate_object))
-            .map_err(|_| "durable program candidate record is invalid".to_string())?;
-    stored_record
-        .validate()
-        .map_err(|error| format!("durable program candidate digest is invalid: {error}"))?;
-    if stored_record != *record {
-        return Err("durable program candidate record differs from the revision".to_string());
-    }
-    if let Some(reference) = record.tool_policy_ref.as_ref() {
-        resolve_program_binding_node(core, reference, "ToolPolicy")?;
-    }
-    if let Some(reference) = record.model_profile_ref.as_ref() {
-        resolve_program_binding_node(core, reference, "ModelProfile")?;
-    }
-    let claim_properties = core
-        .get_node_properties(&record.candidate_claim_ref)
-        .ok_or_else(|| "durable selected candidate claim is missing".to_string())?;
-    let claim_value = eg_types::msgpack::decode_property_value(&claim_properties)
-        .map_err(|_| "durable selected candidate claim is not decodable".to_string())?;
-    identity
-        .validate_candidate_claim(&claim_value)
-        .map_err(|error| format!("durable selected candidate claim is invalid: {error}"))?;
-    let result_claim_ref = format!("jobclaim:{}", record.result_ref.as_str());
-    let result_claim_properties = core
-        .get_node_properties(&result_claim_ref)
-        .ok_or_else(|| "durable program result claim is missing".to_string())?;
-    let result_claim_value = eg_types::msgpack::decode_property_value(&result_claim_properties)
-        .map_err(|_| "durable program result claim is not decodable".to_string())?;
-    validate_program_result_claim(&identity, &result_claim_value)?;
-    Ok(identity)
-}
-
-/// Apply a promotion write-set to the isolated staging graph with fail-closed
-/// AddNode and AddEdge checks. Generic internal graph writes intentionally keep
-/// their historical upsert/no-op behavior; only the promotion coordinator uses
-/// this strict path.
-#[cfg(feature = "program-optimization")]
-fn apply_promotion_projectable_method(core: &GraphCore, method: &Method) -> Result<(), String> {
-    match method {
-        Method::AddNode {
-            node_id,
-            properties_msgpack,
-        } => {
-            if core.has_node(node_id) {
-                return if core.get_node_properties(node_id).as_deref()
-                    == Some(properties_msgpack.as_slice())
-                {
-                    Ok(())
-                } else {
-                    Err(format!(
-                        "promotion node '{}' already has different properties",
-                        node_id
-                    ))
-                };
-            }
-            if core.create_node_if_absent(node_id.clone(), properties_msgpack.clone()) {
-                Ok(())
-            } else {
-                Err(format!("promotion node '{}' could not be created", node_id))
-            }
-        }
-        Method::AddEdge {
-            source_id,
-            target_id,
-            properties_msgpack,
-        } => {
-            let snapshot = core.snapshot();
-            let existing = snapshot.edges.iter().find_map(|(source, target, bytes)| {
-                (source == source_id && target == target_id).then_some(bytes.as_ref())
-            });
-            match existing {
-                Some(bytes) if bytes == properties_msgpack => Ok(()),
-                Some(_) => Err(format!(
-                    "promotion edge '{} -> {}' already has different properties",
-                    source_id, target_id
-                )),
-                None => core.add_edge(
-                    source_id.clone(),
-                    target_id.clone(),
-                    properties_msgpack.clone(),
-                ),
-            }
-        }
-        Method::CompareAndSetNodeFields {
-            node_id,
-            conditions_msgpack,
-            updates_msgpack,
-        } => {
-            let conditions = eg_types::msgpack::decode_property_object(conditions_msgpack)
-                .map_err(|_| "invalid promotion CAS conditions".to_string())?;
-            let updates = eg_types::msgpack::decode_property_object(updates_msgpack)
-                .map_err(|_| "invalid promotion CAS updates".to_string())?;
-            if core.compare_and_set_fields(node_id, &conditions, &updates) {
-                Ok(())
-            } else {
-                Err(format!(
-                    "promotion active pointer CAS failed for '{}'",
-                    node_id
-                ))
-            }
-        }
-        _ => Err("promotion write-set contains a non-projectable method".to_string()),
-    }
-}
-
-/// Execute a WorkItem claim/renew/result transition inside the redb
-/// MutationBatch transaction and then refresh every affected in-memory node from
-/// the authoritative store. No selection or transition runs in RAM first.
-#[allow(clippy::too_many_arguments)]
-pub(crate) async fn commit_work_item(
-    persistence: Option<&Arc<dyn PersistenceBackend>>,
-    core: &Arc<GraphCore>,
-    request_id: u64,
-    attempt_nonce: Option<Nonce>,
-    stable_idempotency_key: Option<&str>,
-    principal: Option<&str>,
-    graph: &str,
-    placement_epoch: u64,
-    placement_fencing_token: Option<u64>,
-    method: Method,
-) -> Result<ResultPayload, String> {
-    let persistence = persistence.ok_or_else(|| {
-        "WorkItem mutation requires an authoritative persistence backend".to_string()
-    })?;
-    let tenant = match &method {
-        Method::SubmitWorkItem { request } => request.context.tenant_id.clone(),
-        Method::SubmitWorkItems { request } => request.context.tenant_id.clone(),
-        Method::ClaimWorkItem { request } => request.tenant_ref.clone(),
-        Method::CasWorkItemMetadata { request } => request.tenant_ref.clone(),
-        Method::RenewWorkItemLease { tenant, .. }
-        | Method::CommitWorkItemResult { tenant, .. }
-        | Method::CancelWorkItem { tenant, .. }
-        | Method::DeferWorkItem { tenant, .. } => tenant.clone(),
-        Method::ReserveWorkItemResources { request }
-        | Method::ReleaseWorkItemResources { request }
-        | Method::ReclaimWorkItemResources { request } => request.tenant_ref.clone(),
-        Method::UpdateResourceHost { request } => request.tenant_ref.clone(),
-        _ => return Err("commit_work_item received a non-WorkItem operation".to_string()),
-    };
-    if tenant.trim().is_empty() {
-        return Err("WorkItem mutation requires a non-empty tenant".to_string());
-    }
-    if stable_idempotency_key.is_some_and(|key| key.trim().is_empty()) {
-        return Err(
-            "authenticated WorkItem mutation requires a non-empty idempotency key".to_string(),
-        );
-    }
-    // WorkItem rows live in the same authoritative graph image and advance the
-    // same graph version as every other MutationBatch. Keep version discovery,
-    // durable commit, and RAM publication inside the shared per-graph lane so a
-    // ChangeEnvelope cannot pass its version fence and then lose a redb race to
-    // a background claim/renew/result transition (or vice versa).
-    let _mutation_guard = lock_graph(graph).await;
-    // Claim, renew, and metadata-CAS methods have no method-body idempotency key;
-    // their old identity therefore depended on the transport request number.
-    // Once authenticated, the envelope key is the retry identity and the
-    // request number used by the existing privacy-safe digest must be stable
-    // across a retry. Native callers keep the transport-derived identity below.
-    let identity_request_id = if let Some(key) = stable_idempotency_key {
-        if matches!(
-            &method,
-            Method::ClaimWorkItem { .. }
-                | Method::RenewWorkItemLease { .. }
-                | Method::CasWorkItemMetadata { .. }
-        ) {
-            let mut digest = Sha256::new();
-            digest.update(b"epistemic-graph.authenticated-work-item.v1");
-            for field in [graph.as_bytes(), tenant.as_bytes(), key.as_bytes()] {
-                digest.update((field.len() as u64).to_be_bytes());
-                digest.update(field);
-            }
-            let mut request_bytes = [0u8; 8];
-            request_bytes.copy_from_slice(&digest.finalize()[..8]);
-            u64::from_be_bytes(request_bytes).max(1)
-        } else {
-            request_id
-        }
-    } else {
-        request_id
-    };
-    let identity = work_item_batch_identity(graph, &tenant, identity_request_id, &method)?;
-    // The batch id and the idempotency key must be functions of the SAME inputs,
-    // or a legitimate retry is refused as a conflict.
-    //
-    // A TERMINAL WorkItem method carries its own `idempotency_key` in its body,
-    // and `work_item_batch_identity` derives BOTH `batch_id` and
-    // `idempotency_key` from it (`work:<d>` / `work-idem:<d>`, over the same
-    // digest of graph+tenant+body key) -- stable across a retry by construction.
-    // Overriding the key with the caller's envelope key while leaving the batch
-    // id body-derived broke exactly that pairing, and the Raft-native route made
-    // it certain rather than occasional: `replicated_mutation` reconstructs the
-    // applied carrier with `idempotency_key = RaftMutationContext::batch_id`,
-    // which is `opaque_request_key("raft-native", graph, request_id, method)` --
-    // an ATTEMPT-SCOPED digest that includes the transport request id. So a
-    // retried `ReserveWorkItemResources` recomputed the same `work:<d>` batch id
-    // and a DIFFERENT `raft-native:<d>` key, and admission refused it with
-    // "IDEMPOTENCY_CONFLICT: batch id ... is already bound to idempotency key
-    // ...". No terminal WorkItem method routed through Raft could ever be
-    // retried idempotently.
-    //
-    // Only Claim/Renew/CasWorkItemMetadata have no body key -- the branch
-    // `work_item_batch_identity` marks `uses_native_row_cas: false`, whose batch
-    // id is itself transport-derived, so key and batch id still move together.
-    // Those keep the authenticated envelope key as their retry identity, which is
-    // what `identity_request_id` above already assumes.
-    let batch_idempotency_key = if identity.uses_native_row_cas {
-        identity.idempotency_key.as_str()
-    } else {
-        stable_idempotency_key.unwrap_or(&identity.idempotency_key)
-    };
-    let submit_batch = matches!(&method, Method::SubmitWorkItems { .. });
-    let submit = submit_batch || matches!(&method, Method::SubmitWorkItem { .. });
-    // Resource-host inventory is committed through the same native WorkItem
-    // mutation lane so it receives the same durability, ordering, and audit
-    // guarantees. Unlike claims and reservations, however, it has no graph-node
-    // mirror to refresh after commit. Its typed result therefore intentionally
-    // has no `changed_work_item_ids` field.
-    let publishes_work_item_rows = !matches!(&method, Method::UpdateResourceHost { .. });
-    let created_at_ms = crate::server::dispatch::authoritative_now_ms();
-    let fname = crate::persist::sanitize(graph);
-    // Terminal WorkItem methods carry their own lease epoch/fencing CAS -- the
-    // WorkItem lease/fencing token is their real CAS guard, not this graph
-    // version -- and `compute_native_terminal_work_item_cas`
-    // (`src/redb_store.rs`) makes `check_occ_version_and_fence` skip comparing
-    // it for them. v1's `VersionExpectation` has no "unversioned" arm available
-    // to an ordinary tenant (`validate_version_expectation`), so unlike v2 this
-    // can no longer be `None` for ANY WorkItem method, terminal or not: it must
-    // always carry a well-formed, real version. Claim/renew retries recompute a
-    // fresh one safely too, since neither the idempotency/replay identity
-    // (`mutation_batch_replay_identity_keys`) nor a genuine idempotent replay
-    // (short-circuited by `check_idempotency_replay` before OCC is even
-    // evaluated) depend on this value matching the original commit's.
-    let expected_graph_version = authoritative_graph_version(persistence, &fname, core).await?;
-    let batch = compile_methods(
-        CompileBatch {
-            batch_id: &identity.batch_id,
-            request_id: identity.durable_request_id,
-            attempt_nonce,
-            principal,
-            tenant: &tenant,
-            graph,
-            placement_epoch,
-            idempotency_key: batch_idempotency_key,
-            expected_graph_version: Some(expected_graph_version),
-            fencing_token: placement_fencing_token,
-            created_at_ms,
-            default_surface: MutationSurface::Job,
-            authoritative_state: None,
-        },
-        vec![method],
-    )?;
-    let committed = persistence
-        .commit_mutation_batch(&fname, &batch, None, created_at_ms)
-        .await?;
-    // Durability has already advanced the authoritative graph version. Everything
-    // below is RAM publication, and a failure in ANY of it must not strand the
-    // serving projection one version behind the authority: `authoritative_graph_version`
-    // then fails closed on every later write and the whole graph is permanently
-    // read-only until it is re-materialized. Repair the projection from the same
-    // authoritative image every replay path installs, then surface the original error
-    // — never swallowed, and never by equalizing a version counter.
-    let result = publish_committed_work_item(
-        persistence,
-        &fname,
-        core,
-        &committed,
-        publishes_work_item_rows,
-    )
-    .await;
-    match result {
-        Ok(result) if committed.replayed && submit => mark_submit_replayed(result, submit_batch),
-        Ok(result) => Ok(result),
-        Err(error) => match reconcile_projection_from_authority(persistence, &fname, core).await {
-            Ok(()) => Err(error),
-            Err(repair) => Err(format!(
-                "{error}; serving projection repair from authority also failed: {repair}"
-            )),
-        },
-    }
-}
-
-/// The durable MutationBatch record retains the original successful submit
-/// result so a replay can prove the exact command it deduplicated.  The wire
-/// result, however, must tell the caller that this invocation replayed that
-/// record rather than creating a second WorkItem.  Rewrite only this response
-/// bit after the authoritative replay; never write the rewritten bytes back to
-/// redb.
-fn mark_submit_replayed(result: ResultPayload, batch: bool) -> Result<ResultPayload, String> {
-    fn set_flags(value: &mut serde_json::Value, batch: bool) -> Result<(), String> {
-        let object = value
-            .as_object_mut()
-            .ok_or_else(|| "replayed SubmitWorkItem result is not an object".to_string())?;
-        if batch {
-            object.insert("replayed".to_string(), serde_json::Value::Bool(true));
-            let children = object
-                .get_mut("results")
-                .and_then(serde_json::Value::as_array_mut)
-                .ok_or_else(|| "replayed SubmitWorkItems result has no results".to_string())?;
-            for child in children {
-                let child = child.as_object_mut().ok_or_else(|| {
-                    "replayed SubmitWorkItems child result is not an object".to_string()
-                })?;
-                child.insert("created".to_string(), serde_json::Value::Bool(false));
-                child.insert("replayed".to_string(), serde_json::Value::Bool(true));
-            }
-        } else {
-            object.insert("created".to_string(), serde_json::Value::Bool(false));
-            object.insert("replayed".to_string(), serde_json::Value::Bool(true));
-        }
-        Ok(())
-    }
-
-    match result {
-        ResultPayload::Raw(bytes) => {
-            let mut value: serde_json::Value = eg_types::msgpack::decode_bounded(
-                &bytes,
-                eg_types::msgpack::MsgpackLimits::new(4 * 1024 * 1024, 100_000, 64),
-            )
-            .map_err(|_| "replayed SubmitWorkItem result is corrupt".to_string())?;
-            set_flags(&mut value, batch)?;
-            let bytes = rmp_serde::to_vec_named(&value).map_err(|e| e.to_string())?;
-            Ok(ResultPayload::Raw(bytes))
-        }
-        ResultPayload::Json(mut value) => {
-            set_flags(&mut value, batch)?;
-            Ok(ResultPayload::Json(value))
-        }
-        _ => Err("replayed SubmitWorkItem result has an invalid payload shape".to_string()),
-    }
-}
-
-/// Decode a durably committed WorkItem batch's terminal result and publish its
-/// changed rows into the serving projection, advancing the serving version exactly
-/// once. Fallible only in the RAM-publication sense — the caller owns repairing the
-/// projection from authority when this fails.
-async fn publish_committed_work_item(
-    persistence: &Arc<dyn PersistenceBackend>,
-    graph_fname: &str,
-    core: &Arc<GraphCore>,
-    committed: &crate::mutation_batch::MutationBatchCommit,
-    publishes_work_item_rows: bool,
-) -> Result<ResultPayload, String> {
-    let bytes = committed
-        .record
-        .result_msgpack
-        .as_deref()
-        .ok_or_else(|| "committed WorkItem batch has no durable result".to_string())?;
-    let result: ResultPayload = eg_types::msgpack::decode_bounded(
-        bytes,
-        eg_types::msgpack::MsgpackLimits::new(64 * 1024 * 1024, 1_000_000, 64),
-    )
-    .map_err(|_| "committed WorkItem result is corrupt".to_string())?;
-
-    if !committed.replayed {
-        for node_id in changed_work_item_ids(&result, publishes_work_item_rows)? {
-            let props = persistence
-                .read_node(graph_fname, &node_id)
-                .await?
-                .ok_or_else(|| format!("committed WorkItem projection '{}' is missing", node_id))?;
-            core.add_node(node_id, props);
-        }
-        core.mark_dirty();
-    }
-    Ok(result)
-}
-
-/// Re-materialize the serving projection from the authoritative durable image at the
-/// authority's own version. This is the SAME primitive every idempotent-replay path
-/// uses (`read_authoritative_graph_snapshot` -> `install_committed_snapshot`): it
-/// installs the committed image and its committed version together, so it can never
-/// silence the authority check by writing a version the durable rows do not back.
-async fn reconcile_projection_from_authority(
-    persistence: &Arc<dyn PersistenceBackend>,
-    graph_fname: &str,
-    core: &Arc<GraphCore>,
-) -> Result<(), String> {
-    let (snapshot, version) = persistence
-        .read_authoritative_graph_snapshot(graph_fname)
-        .await?
-        .ok_or_else(|| "committed graph image is missing".to_string())?;
-    core.install_committed_snapshot(snapshot, version)
-}
-
-pub(super) fn changed_work_item_ids(
-    result: &ResultPayload,
-    publishes_work_item_rows: bool,
-) -> Result<Vec<String>, String> {
-    fn from_json(
-        value: &serde_json::Value,
-        publishes_work_item_rows: bool,
-    ) -> Result<Vec<String>, String> {
-        if !publishes_work_item_rows {
-            return if value.get("changed_work_item_ids").is_none() {
-                Ok(Vec::new())
-            } else {
-                Err(
-                    "committed resource-host result unexpectedly has changed_work_item_ids"
-                        .to_string(),
-                )
-            };
-        }
-        let values = value
-            .get("changed_work_item_ids")
-            .ok_or_else(|| "committed WorkItem result has no changed_work_item_ids".to_string())?
-            .as_array()
-            .ok_or_else(|| {
-                "committed WorkItem result has non-array changed_work_item_ids".to_string()
-            })?;
-        values
-            .iter()
-            .map(|value| {
-                value.as_str().map(str::to_string).ok_or_else(|| {
-                    "committed WorkItem result has a non-string changed id".to_string()
-                })
-            })
-            .collect()
-    }
-
-    match result {
-        ResultPayload::Json(value) => from_json(value, publishes_work_item_rows),
-        // ``ResultPayload::raw`` is the one canonical binary result representation.
-        // The durable outer payload decodes to it and carries the typed WorkItem
-        // result that must refresh the resident graph projection.
-        ResultPayload::Raw(bytes) => {
-            let value: serde_json::Value = eg_types::msgpack::decode_bounded(
-                bytes,
-                eg_types::msgpack::MsgpackLimits::new(1024 * 1024, 10_000, 32),
-            )
-            .map_err(|_| "committed WorkItem inner result is corrupt".to_string())?;
-            from_json(&value, publishes_work_item_rows)
-        }
-        _ => Err("committed WorkItem result has an invalid payload shape".to_string()),
-    }
-}
-
-/// Publish the graph-row projection of a durably committed ChangeEnvelope.
-/// Durable redb state remains authoritative; a failure here is repaired from the
-/// transactional `engine.projection.rebuild` outbox rather than rolling back or
-/// pretending the envelope did not commit.
-pub(crate) fn publish_change_envelope_projection(
-    core: &Arc<GraphCore>,
-    envelope: &ChangeEnvelope,
-) -> Result<(), String> {
-    // Project into an isolated copy first. A late CAS failure or missing edge
-    // endpoint must never leave the live cache with only the earlier operations
-    // applied after the authoritative redb transaction committed atomically.
-    // The final snapshot swap is the one publication point observed by readers.
-    let source_version = core.version();
-    let staged = Arc::new(GraphCore::new());
-    staged.install_committed_snapshot(core.snapshot(), source_version)?;
-    for operation in &envelope.mutation.operations {
-        match &operation.method {
-            Method::AddNode {
-                node_id,
-                properties_msgpack,
-            } => staged.add_node(node_id.clone(), properties_msgpack.clone()),
-            Method::RemoveNode { node_id } => staged.remove_node(node_id.clone()),
-            Method::CompareAndSetNodeFields {
-                node_id,
-                conditions_msgpack,
-                updates_msgpack,
-            } => {
-                let conditions = eg_types::msgpack::decode_property_object(conditions_msgpack)
-                    .map_err(|_| "invalid committed CAS conditions".to_string())?;
-                let updates = eg_types::msgpack::decode_property_object(updates_msgpack)
-                    .map_err(|_| "invalid committed CAS updates".to_string())?;
-                if !staged.compare_and_set_fields(node_id, &conditions, &updates) {
-                    return Err(format!(
-                        "committed CAS projection for '{}' no longer matches RAM",
-                        node_id
-                    ));
-                }
-            }
-            Method::AddEdge {
-                source_id,
-                target_id,
-                properties_msgpack,
-            } => staged.add_edge(
-                source_id.clone(),
-                target_id.clone(),
-                properties_msgpack.clone(),
-            )?,
-            Method::RemoveEdge {
-                source_id,
-                target_id,
-            } => staged.remove_edge(source_id.clone(), target_id.clone()),
-            Method::ClearGraph => staged.clear(),
-            other => {
-                return Err(format!(
-                    "ChangeEnvelope contains a non-projectable operation in domain {:?}",
-                    crate::server::mutation_batch::domain_for(other, operation.surface)
-                ));
-            }
-        }
-    }
-    if core.version() != source_version {
-        return Err(format!(
-            "ChangeEnvelope projection raced another write: expected version {source_version}, current {}",
-            core.version()
-        ));
-    }
-    let target_graph_version = source_version
-        .checked_add(1)
-        .ok_or_else(|| "authoritative graph version overflow".to_string())?;
-    core.install_committed_snapshot(staged.snapshot(), target_graph_version)
-}
-
-/// Commit one CreateGraph/DeleteGraph batch before the caller mutates the in-RAM
-/// registry.  The redb kernel applies graph_meta/purge, status, idempotency and
-/// outbox atomically; `replayed` lets the caller finish a post-commit RAM publish.
-#[allow(clippy::too_many_arguments)]
-pub(crate) async fn commit_lifecycle(
-    persistence: &Arc<dyn PersistenceBackend>,
-    action: &str,
-    request_id: u64,
-    attempt_nonce: Option<Nonce>,
-    principal: Option<&str>,
-    idempotency_key: &str,
-    graph: &str,
-    method: Method,
-    result: &ResultPayload,
-) -> Result<crate::mutation_batch::MutationBatchCommit, String> {
-    let batch_id = lifecycle_batch_id(action, graph, principal, idempotency_key);
-    let created_at_ms = crate::server::dispatch::authoritative_now_ms();
-    let fname = crate::persist::sanitize(graph);
-    // v1's `VersionExpectation` has no "unversioned" arm available to an ordinary
-    // tenant, so this can no longer pass `None` for "don't care". A not-yet-created
-    // graph has no MUTATION_GRAPH_VERSION row -- `read_current_mutation_graph_version`
-    // (`src/redb_store.rs`) treats that as `INITIAL_GRAPH_VERSION` (0), which is
-    // exactly the correct expectation for CreateGraph; DeleteGraph reads the
-    // graph's real current version.
-    let expected_graph_version = persistence
-        .read_mutation_graph_version(&fname)
-        .await?
-        .unwrap_or(0);
-    let batch = compile_methods(
-        CompileBatch {
-            batch_id: &batch_id,
-            request_id,
-            attempt_nonce,
-            principal,
-            tenant: graph,
-            graph,
-            placement_epoch: 0,
-            idempotency_key,
-            expected_graph_version: Some(expected_graph_version),
-            fencing_token: None,
-            created_at_ms,
-            default_surface: MutationSurface::Lifecycle,
-            authoritative_state: None,
-        },
-        vec![method],
-    )?;
-    let encoded_result = rmp_serde::to_vec_named(result).map_err(|e| e.to_string())?;
-    persistence
-        .commit_mutation_batch(&fname, &batch, Some(&encoded_result), created_at_ms)
-        .await
-}
-
-/// Did this exact lifecycle request already reach its durable commit point? Used
-/// when the registry already reflects Create (or no longer reflects Delete) so a
-/// network retry returns the committed outcome instead of creating a second batch.
-pub(crate) async fn lifecycle_was_committed(
-    persistence: &Arc<dyn PersistenceBackend>,
-    attempt: LifecycleAttempt<'_>,
-    method: Method,
-    result: &ResultPayload,
-) -> Result<bool, String> {
-    let LifecycleAttempt {
-        action,
-        graph,
-        request_id,
-        attempt_nonce,
-        principal,
-        idempotency_key,
-    } = attempt;
-    let fname = crate::persist::sanitize(graph);
-    let batch_id = lifecycle_batch_id(action, graph, principal, idempotency_key);
-    if persistence
-        .read_mutation_batch(&fname, &batch_id)
-        .await?
-        .is_none()
-    {
-        return Ok(false);
-    }
-    let committed = commit_lifecycle(
-        persistence,
-        action,
-        request_id,
-        attempt_nonce,
-        principal,
-        idempotency_key,
-        graph,
-        method,
-        result,
-    )
-    .await?;
-    if !committed.replayed {
-        return Err("lifecycle replay probe unexpectedly committed fresh work".to_string());
-    }
-    Ok(persistence
-        .read_mutation_lifecycle_head(&fname)
-        .await?
-        .as_deref()
-        == Some(committed.record.batch.batch_id.as_str()))
-}
+#[cfg(test)]
+use sha2::{Digest, Sha256};
 
 #[cfg(test)]
 mod internal_replay_tests {
@@ -1441,30 +110,34 @@ mod internal_replay_tests {
             properties_msgpack: Vec::new(),
         };
         let first = commit_internal_graph_methods_with_nonce(
-            Some(&persistence),
-            &core,
-            1,
-            Some("internal-caller"),
-            "internal-result-graph",
-            "internal-result-key",
-            vec![method.clone()],
-            &ResultPayload::String("first-result".to_string()),
-            Some(Nonce::from_bytes([1; 32])),
+            InternalGraphCommitRequest::new(
+                Some(&persistence),
+                &core,
+                1,
+                Some("internal-caller"),
+                "internal-result-graph",
+                "internal-result-key",
+                vec![method.clone()],
+                &ResultPayload::String("first-result".to_string()),
+            )
+            .with_attempt_nonce(Some(Nonce::from_bytes([1; 32]))),
         )
         .await
         .expect("first internal commit");
         assert!(!first.replayed);
 
         let error = commit_internal_graph_methods_with_nonce(
-            Some(&persistence),
-            &core,
-            2,
-            Some("internal-caller"),
-            "internal-result-graph",
-            "internal-result-key",
-            vec![method],
-            &ResultPayload::String("contradictory-result".to_string()),
-            Some(Nonce::from_bytes([2; 32])),
+            InternalGraphCommitRequest::new(
+                Some(&persistence),
+                &core,
+                2,
+                Some("internal-caller"),
+                "internal-result-graph",
+                "internal-result-key",
+                vec![method],
+                &ResultPayload::String("contradictory-result".to_string()),
+            )
+            .with_attempt_nonce(Some(Nonce::from_bytes([2; 32]))),
         )
         .await
         .expect_err("a contradictory terminal result must not replay silently");
@@ -1944,7 +617,7 @@ mod internal_replay_tests {
         let binding_seed_result = ResultPayload::Json(serde_json::json!({
             "seed": "governed-program-bindings"
         }));
-        commit_internal_graph_methods(
+        commit_internal_graph_methods(InternalGraphCommitRequest::new(
             Some(&persistence),
             &core,
             900,
@@ -1972,7 +645,7 @@ mod internal_replay_tests {
                 },
             ],
             &binding_seed_result,
-        )
+        ))
         .await
         .expect("seed governed program bindings through an earlier durable commit");
         let job_dir = crate::test_support::temp_dir("eg-program-promotion", "job-store");
@@ -2056,32 +729,36 @@ mod internal_replay_tests {
         let actual_claim_methods = actual_claim_plan.methods;
         let first_result = ResultPayload::Json(serde_json::json!({"receipt": "first"}));
         let first = commit_program_promotion(
-            Some(&persistence),
-            &core,
-            1,
-            Some("program-worker"),
-            "program-graph",
-            "program-promotion-one",
-            actual_claim_methods.clone(),
-            &first_result,
-            &first_identity,
-            Some(Nonce::from_bytes([11; 32])),
+            ProgramPromotionRequest::new(
+                Some(&persistence),
+                &core,
+                1,
+                Some("program-worker"),
+                "program-graph",
+                "program-promotion-one",
+                actual_claim_methods.clone(),
+                &first_result,
+            )
+            .with_identity(&first_identity)
+            .with_attempt_nonce(Some(Nonce::from_bytes([11; 32]))),
         )
         .await
         .expect("first promotion");
         assert!(!first.replayed);
 
         let replay = commit_program_promotion(
-            Some(&persistence),
-            &core,
-            2,
-            Some("program-worker"),
-            "program-graph",
-            "program-promotion-one",
-            actual_claim_methods.clone(),
-            &first_result,
-            &first_identity,
-            Some(Nonce::from_bytes([12; 32])),
+            ProgramPromotionRequest::new(
+                Some(&persistence),
+                &core,
+                2,
+                Some("program-worker"),
+                "program-graph",
+                "program-promotion-one",
+                actual_claim_methods.clone(),
+                &first_result,
+            )
+            .with_identity(&first_identity)
+            .with_attempt_nonce(Some(Nonce::from_bytes([12; 32]))),
         )
         .await
         .expect("fresh nonce retries the stored promotion receipt");
@@ -2174,16 +851,18 @@ mod internal_replay_tests {
             .expect("publish second actual job result as claim methods");
         let second_result = ResultPayload::Json(serde_json::json!({"receipt": "second"}));
         let second = commit_program_promotion(
-            Some(&persistence),
-            &core,
-            3,
-            Some("program-worker"),
-            "program-graph",
-            "program-promotion-two",
-            second_claim_plan.methods,
-            &second_result,
-            &second_identity,
-            Some(Nonce::from_bytes([14; 32])),
+            ProgramPromotionRequest::new(
+                Some(&persistence),
+                &core,
+                3,
+                Some("program-worker"),
+                "program-graph",
+                "program-promotion-two",
+                second_claim_plan.methods,
+                &second_result,
+            )
+            .with_identity(&second_identity)
+            .with_attempt_nonce(Some(Nonce::from_bytes([14; 32]))),
         )
         .await
         .expect("second promotion advances the active pointer");
@@ -2232,16 +911,18 @@ mod internal_replay_tests {
             .to_msgpack()
             .unwrap();
         let missing_binding = commit_program_promotion(
-            Some(&persistence),
-            &core,
-            31,
-            Some("program-worker"),
-            "program-graph",
-            "program-promotion-missing-binding",
-            claim_methods(&missing_binding_identity),
-            &ResultPayload::Json(serde_json::json!({"receipt": "missing-binding"})),
-            &missing_binding_identity,
-            Some(Nonce::from_bytes([31; 32])),
+            ProgramPromotionRequest::new(
+                Some(&persistence),
+                &core,
+                31,
+                Some("program-worker"),
+                "program-graph",
+                "program-promotion-missing-binding",
+                claim_methods(&missing_binding_identity),
+                &ResultPayload::Json(serde_json::json!({"receipt": "missing-binding"})),
+            )
+            .with_identity(&missing_binding_identity)
+            .with_attempt_nonce(Some(Nonce::from_bytes([31; 32]))),
         )
         .await;
         assert!(
@@ -2271,7 +952,7 @@ mod internal_replay_tests {
         let wrong_binding_seed_result = ResultPayload::Json(serde_json::json!({
             "seed": "wrong-type-program-binding"
         }));
-        commit_internal_graph_methods(
+        commit_internal_graph_methods(InternalGraphCommitRequest::new(
             Some(&persistence),
             &core,
             901,
@@ -2287,7 +968,7 @@ mod internal_replay_tests {
                 .unwrap(),
             }],
             &wrong_binding_seed_result,
-        )
+        ))
         .await
         .expect("seed wrong-type binding fixture through a durable commit");
         let wrong_binding_identity = identity(
@@ -2321,16 +1002,18 @@ mod internal_replay_tests {
             .to_msgpack()
             .unwrap();
         let wrong_binding = commit_program_promotion(
-            Some(&persistence),
-            &core,
-            32,
-            Some("program-worker"),
-            "program-graph",
-            "program-promotion-wrong-binding",
-            claim_methods(&wrong_binding_identity),
-            &ResultPayload::Json(serde_json::json!({"receipt": "wrong-binding"})),
-            &wrong_binding_identity,
-            Some(Nonce::from_bytes([32; 32])),
+            ProgramPromotionRequest::new(
+                Some(&persistence),
+                &core,
+                32,
+                Some("program-worker"),
+                "program-graph",
+                "program-promotion-wrong-binding",
+                claim_methods(&wrong_binding_identity),
+                &ResultPayload::Json(serde_json::json!({"receipt": "wrong-binding"})),
+            )
+            .with_identity(&wrong_binding_identity)
+            .with_attempt_nonce(Some(Nonce::from_bytes([32; 32]))),
         )
         .await;
         assert!(
@@ -2356,23 +1039,25 @@ mod internal_replay_tests {
             .is_none());
 
         let replay_after_pointer_move = commit_program_promotion(
-            Some(&persistence),
-            &core,
-            4,
-            Some("program-worker"),
-            "program-graph",
-            "program-promotion-one",
-            // The SAME operation the key was committed with above -- the real
-            // `eg_jobs::plan_result_claim` output, not the hand-built
-            // `claim_methods` pair. A replay is identified by its operation, so
-            // presenting different methods under the same idempotency key is an
-            // IDEMPOTENCY_CONFLICT by contract (which is what the other
-            // `claim_methods(..)` call sites here deliberately provoke, each
-            // with its own distinct identity).
-            actual_claim_methods.clone(),
-            &first_result,
-            &first_identity,
-            Some(Nonce::from_bytes([15; 32])),
+            ProgramPromotionRequest::new(
+                Some(&persistence),
+                &core,
+                4,
+                Some("program-worker"),
+                "program-graph",
+                "program-promotion-one",
+                // The SAME operation the key was committed with above -- the real
+                // `eg_jobs::plan_result_claim` output, not the hand-built
+                // `claim_methods` pair. A replay is identified by its operation, so
+                // presenting different methods under the same idempotency key is an
+                // IDEMPOTENCY_CONFLICT by contract (which is what the other
+                // `claim_methods(..)` call sites here deliberately provoke, each
+                // with its own distinct identity).
+                actual_claim_methods.clone(),
+                &first_result,
+            )
+            .with_identity(&first_identity)
+            .with_attempt_nonce(Some(Nonce::from_bytes([15; 32]))),
         )
         .await
         .expect("same-key retry returns the first receipt after pointer movement");
@@ -2402,16 +1087,18 @@ mod internal_replay_tests {
             &"8".repeat(64),
         );
         let failed = commit_program_promotion(
-            Some(&persistence),
-            &core,
-            5,
-            Some("program-worker"),
-            "program-graph",
-            "program-promotion-three",
-            claim_methods(&failed_identity),
-            &ResultPayload::Json(serde_json::json!({"receipt": "failed"})),
-            &failed_identity,
-            Some(Nonce::from_bytes([13; 32])),
+            ProgramPromotionRequest::new(
+                Some(&persistence),
+                &core,
+                5,
+                Some("program-worker"),
+                "program-graph",
+                "program-promotion-three",
+                claim_methods(&failed_identity),
+                &ResultPayload::Json(serde_json::json!({"receipt": "failed"})),
+            )
+            .with_identity(&failed_identity)
+            .with_attempt_nonce(Some(Nonce::from_bytes([13; 32]))),
         )
         .await;
         assert!(failed.is_err());

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import scripts.check_scale_documentation as scale_claims
 import pytest
+
+import scripts.check_scale_documentation as scale_claims
 
 # Pure/static test -- never needs the shared native engine (see
 # conftest.py's session-scoped `start_epistemic_graph_server` fixture,

@@ -1,6 +1,11 @@
 use super::writeback::*;
 use super::*;
 use eg_compute::mining::{causal_impact, process_mining, root_cause};
+use eg_types::compute_result::mining::{
+    CausalImpactMiningResult, CausalRelationRow, DirectlyFollowsRow, ParallelRelationRow,
+    ProcessMiningResult,
+};
+use eg_types::result_contract::compute as results;
 
 // ─────────────────────────── Causal impact (ITS / DiD) ───────────────────────────
 
@@ -35,17 +40,27 @@ pub(in crate::server::handlers) fn handle_causal_impact(
     }
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({
-            "pre_mean": effect.pre_mean,
-            "post_mean": effect.post_mean,
-            "effect_size": effect.effect_size,
-            "relative_effect": effect.relative_effect,
-            "std_error": effect.std_error,
-            "confidence": effect.confidence,
-            "method": if control.is_empty() { "its" } else { "did" },
-            "written_back": written,
-        })),
+        ResultPayload::of::<results::MineCausalImpact>(CausalImpactMiningResult {
+            pre_mean: effect.pre_mean,
+            post_mean: effect.post_mean,
+            effect_size: effect.effect_size,
+            relative_effect: effect.relative_effect,
+            std_error: effect.std_error,
+            confidence: effect.confidence,
+            method: causal_method_name(&control).to_string(),
+            written_back: written,
+        }),
     )
+}
+
+/// `its` (interrupted time series) without a control series, else `did`
+/// (difference in differences).
+fn causal_method_name(control: &[f64]) -> &'static str {
+    if control.is_empty() {
+        "its"
+    } else {
+        "did"
+    }
 }
 
 /// Materialize the estimate as a typed `:CausalEffect` node (CONCEPT:EG-KG.mining.causal-impact),
@@ -151,33 +166,47 @@ pub(in crate::server::handlers) fn handle_process(
         materialize_process_model_claim(core, &model, &labels, &process_id);
     }
     let label_of = |i: process_mining::ActivityId| labels[i as usize].clone();
-    let dfg: Vec<serde_json::Value> = model
+    let dfg: Vec<DirectlyFollowsRow> = model
         .dfg_edges
         .iter()
-        .map(|&(a, b, c)| serde_json::json!({ "from": label_of(a), "to": label_of(b), "count": c }))
+        .map(|&(a, b, count)| DirectlyFollowsRow {
+            from: label_of(a),
+            to: label_of(b),
+            count,
+        })
         .collect();
-    let causal: Vec<serde_json::Value> = model
+    let causal: Vec<CausalRelationRow> = model
         .causal
         .iter()
-        .map(|&(a, b)| serde_json::json!({ "from": label_of(a), "to": label_of(b) }))
+        .map(|&(a, b)| CausalRelationRow {
+            from: label_of(a),
+            to: label_of(b),
+        })
         .collect();
-    let parallel: Vec<serde_json::Value> = model
+    let parallel: Vec<ParallelRelationRow> = model
         .parallel
         .iter()
-        .map(|&(a, b)| serde_json::json!({ "a": label_of(a), "b": label_of(b) }))
+        .map(|&(a, b)| ParallelRelationRow {
+            a: label_of(a),
+            b: label_of(b),
+        })
         .collect();
     Response::ok(
         req_id,
-        ResultPayload::Json(serde_json::json!({
-            "dfg": dfg,
-            "causal": causal,
-            "parallel": parallel,
-            "start_activities": model.start_activities.iter().map(|&i| label_of(i)).collect::<Vec<_>>(),
-            "end_activities": model.end_activities.iter().map(|&i| label_of(i)).collect::<Vec<_>>(),
-            "n_traces": traces.len(),
-            "n_activities": model.n_activities,
-            "written_back": written,
-        })),
+        ResultPayload::of::<results::MineProcess>(ProcessMiningResult {
+            dfg,
+            causal,
+            parallel,
+            start_activities: model
+                .start_activities
+                .iter()
+                .map(|&i| label_of(i))
+                .collect(),
+            end_activities: model.end_activities.iter().map(|&i| label_of(i)).collect(),
+            n_traces: traces.len(),
+            n_activities: model.n_activities,
+            written_back: written,
+        }),
     )
 }
 

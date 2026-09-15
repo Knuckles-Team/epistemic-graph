@@ -77,7 +77,8 @@ def test_exact_release_campaigns_are_serial_and_complete(tmp_path: Path) -> None
         "EPISTEMIC_GRAPH_PERFORMANCE_EVIDENCE is required for exact certification"
     )
     assert performance_digest, (
-        "EPISTEMIC_GRAPH_PERFORMANCE_EVIDENCE_SHA256 is required for exact certification"
+        "EPISTEMIC_GRAPH_PERFORMANCE_EVIDENCE_SHA256 is required for exact "
+        "certification"
     )
 
     for name, harness, expected_summary in CAMPAIGNS:
@@ -101,7 +102,7 @@ def test_exact_release_campaigns_are_serial_and_complete(tmp_path: Path) -> None
                     performance_digest,
                 )
             )
-        completed = subprocess.run(  # noqa: S603 - fixed harness, explicit artifact
+        completed = subprocess.run(
             command,
             cwd=ROOT,
             check=False,
@@ -117,4 +118,6 @@ def test_exact_release_campaigns_are_serial_and_complete(tmp_path: Path) -> None
         if name == "multimodal":
             assert evidence["binary"]["sealed_copy_verified"] is True
             assert evidence["performance"]["report_sha256"] == performance_digest
-            assert all(row["component_tck_not_applicable"] == 0 for row in evidence["matrix"])
+            assert all(
+                row["component_tck_not_applicable"] == 0 for row in evidence["matrix"]
+            )

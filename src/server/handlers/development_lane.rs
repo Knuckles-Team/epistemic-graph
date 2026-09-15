@@ -88,7 +88,14 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
                 .backend
                 .read_development_lane(&operation.graph, &request, operation.now_ms)
                 .await
-                .map(|result| Response::ok(ctx.req_id, ResultPayload::raw(&result)))
+                .map(|result| {
+                    Response::ok(
+                        ctx.req_id,
+                        ResultPayload::of::<
+                            eg_types::result_contract::coordination::QueryDevelopmentLane,
+                        >(result),
+                    )
+                })
                 .unwrap_or_else(|error| {
                     Response::err(
                         ctx.req_id,
@@ -105,7 +112,14 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
                 .backend
                 .read_development_lane_status(&operation.graph, &request, operation.now_ms)
                 .await
-                .map(|result| Response::ok(ctx.req_id, ResultPayload::raw(&result)))
+                .map(|result| {
+                    Response::ok(
+                        ctx.req_id,
+                        ResultPayload::of::<
+                            eg_types::result_contract::coordination::DevelopmentLaneStatus,
+                        >(result),
+                    )
+                })
                 .unwrap_or_else(|error| {
                     Response::err(
                         ctx.req_id,
@@ -119,6 +133,7 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
         | Method::FinishDevelopmentLane { .. }
         | Method::CleanupDevelopmentLane { .. }
         | Method::UpdateDevelopmentLaneQuota { .. }) => {
+            let declared = development_lane_commit_result(&method);
             let operation = match prepare(&ctx).await {
                 Ok(operation) => operation,
                 Err(response) => return Ok(response),
@@ -127,7 +142,7 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
                 .backend
                 .commit_development_lane(&operation.graph, method, operation.now_ms)
                 .await
-                .map(|bytes| Response::ok(ctx.req_id, ResultPayload::Raw(bytes)))
+                .map(|receipt| Response::ok(ctx.req_id, declared(&receipt)))
                 .unwrap_or_else(|error| {
                     Response::err(
                         ctx.req_id,
@@ -138,4 +153,39 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
         other => return Err(other),
     };
     Ok(response)
+}
+
+/// The declared result a development-lane commit receipt is served as.
+fn development_lane_commit_result(method: &Method) -> fn(&[u8]) -> Result<ResultPayload, String> {
+    match method {
+        Method::ReserveDevelopmentLane { .. } => {
+            ResultPayload::of_receipt::<
+                eg_types::result_contract::coordination::ReserveDevelopmentLane,
+            >
+        }
+        Method::RenewDevelopmentLane { .. } => {
+            ResultPayload::of_receipt::<eg_types::result_contract::coordination::RenewDevelopmentLane>
+        }
+        Method::ObserveDevelopmentLane { .. } => {
+            ResultPayload::of_receipt::<
+                eg_types::result_contract::coordination::ObserveDevelopmentLane,
+            >
+        }
+        Method::FinishDevelopmentLane { .. } => {
+            ResultPayload::of_receipt::<
+                eg_types::result_contract::coordination::FinishDevelopmentLane,
+            >
+        }
+        Method::CleanupDevelopmentLane { .. } => {
+            ResultPayload::of_receipt::<
+                eg_types::result_contract::coordination::CleanupDevelopmentLane,
+            >
+        }
+        Method::UpdateDevelopmentLaneQuota { .. } => {
+            ResultPayload::of_receipt::<
+                eg_types::result_contract::coordination::UpdateDevelopmentLaneQuota,
+            >
+        }
+        _ => |_| Err("development-lane commit receipt for a non-lane method".to_string()),
+    }
 }

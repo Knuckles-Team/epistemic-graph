@@ -1529,6 +1529,7 @@ pub mod partition {
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
     use super::NodeId;
+    use crate::lock_recovery::LockRecovery;
 
     /// node id → island id. Absent ⇒ island 0 (the fully-connected default).
     fn table() -> &'static Mutex<HashMap<NodeId, u64>> {
@@ -1547,10 +1548,11 @@ pub mod partition {
     /// Acquire exclusive ownership of the process-global partition table.
     pub fn test_guard() -> TestGuard {
         static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        // A serialization token guards no state, so a holder that panicked
+        // leaves nothing broken behind it: recover, and report that it happened.
         let lock = TEST_LOCK
             .get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+            .lock_recovering("raft partition test guard");
         heal();
         TestGuard { _lock: lock }
     }

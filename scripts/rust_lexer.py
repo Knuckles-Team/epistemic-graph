@@ -13,7 +13,10 @@ from __future__ import annotations
 import re
 
 
-def require(condition: bool, message: str) -> None:
+def require(condition: object, message: str) -> None:
+    """Fail closed unless ``condition`` is truthy -- like a bare ``assert``,
+    this deliberately accepts any object (a non-empty collection reads as
+    "require this is non-empty"), not just an actual ``bool``."""
     if not condition:
         raise SystemExit(f"Rust source scanner failed: {message}")
 
@@ -26,13 +29,13 @@ def _delimiter_depths(mask: str) -> list[tuple[int, int, int]]:
     closing = {"}": 0, ")": 1, "]": 2}
     opening = {"{": 0, "(": 1, "[": 2}
     for position, char in enumerate(mask):
-        depths[position] = tuple(current)
+        depths[position] = (current[0], current[1], current[2])
         if char in opening:
             current[opening[char]] += 1
         elif char in closing:
             current[closing[char]] -= 1
         require(min(current) >= 0, "unbalanced Rust module delimiters")
-    depths[-1] = tuple(current)
+    depths[-1] = (current[0], current[1], current[2])
     require(depths[-1] == (0, 0, 0), "unbalanced Rust module delimiters")
     return depths
 
@@ -121,7 +124,8 @@ def _balanced_non_code_step(
 
 
 def _balanced_span_from(source: str, start: int, opener: str, closer: str) -> int:
-    """Index of the `closer` that balances the `opener` at `start`, comment/string-aware.
+    """Index of the `closer` that balances the `opener` at `start`,
+    comment/string-aware.
 
     The position-based core `_balanced_block` (and the call-graph resolution in
     `_routing_call_offset`/`_function_with_callees`) share, factored out so the
@@ -290,9 +294,7 @@ _CFG_IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _ITEM_KIND = re.compile(
     r"\b(fn|struct|enum|union|impl|trait|mod|const|static|type|use|extern|macro_rules)\b"
 )
-_MACRO_ITEM = re.compile(
-    r"\b[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*!\s*$"
-)
+_MACRO_ITEM = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*!\s*$")
 _ITEM_DELIMITER_DELTAS = {"(": (1, 0), ")": (-1, 0), "[": (0, 1), "]": (0, -1)}
 
 
@@ -331,9 +333,7 @@ def _macro_rule_arrows(body: str, depths: list[tuple[int, int, int]]) -> list[in
     ]
 
 
-def _macro_rule_end(
-    body: str, arrow: int, depths: list[tuple[int, int, int]]
-) -> int:
+def _macro_rule_end(body: str, arrow: int, depths: list[tuple[int, int, int]]) -> int:
     for position in range(arrow + 2, len(body)):
         if body[position] in ";," and depths[position] == (0, 0, 0):
             return position
@@ -364,7 +364,9 @@ def _macro_templates_for_rule(
 ) -> set[int]:
     parsed = _macro_attribute_templates(body, rule_start, rule_end)
     bindings = {
-        name for position, name, fragment in parsed if position < arrow and fragment == "meta"
+        name
+        for position, name, fragment in parsed
+        if position < arrow and fragment == "meta"
     }
     return {
         body_start + position
@@ -396,9 +398,7 @@ def _macro_rule_template_attribute_starts(mask: str) -> set[int]:
         for arrow in arrows:
             rule_end = _macro_rule_end(body, arrow, depths)
             templates.update(
-                _macro_templates_for_rule(
-                    body_start, body, arrow, rule_start, rule_end
-                )
+                _macro_templates_for_rule(body_start, body, arrow, rule_start, rule_end)
             )
             rule_start = rule_end + 1
     return templates
@@ -412,6 +412,7 @@ def _cfg_tokens(expression: str) -> list[str]:
             break
         match = _CFG_TOKEN.match(expression, position)
         require(match is not None, f"unsupported Rust cfg expression: {expression}")
+        assert match is not None  # narrowed: require() above already enforces this
         tokens.append(
             match.group("ident") or match.group("string") or match.group("punct")
         )
@@ -534,6 +535,7 @@ def _item_block_end(mask: str, start: int, position: int) -> tuple[int, bool]:
         end = closer + 2 if mask[closer + 1 :].startswith(";") else closer + 1
         return end, False
     require(item_kind is not None, "unsupported cfg-disabled Rust item")
+    assert item_kind is not None  # narrowed: require() above already enforces this
     semicolon_bound = item_kind.group(1) in {"const", "static", "type", "use"}
     if item_kind.group(1) == "const":
         after_const = header[item_kind.end() :]

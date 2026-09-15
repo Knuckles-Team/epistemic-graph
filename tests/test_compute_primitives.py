@@ -1,5 +1,6 @@
 """Round-trip tests for the data-science and extended-finance compute methods
-exposed over the Tokio/MessagePack protocol (CONCEPT:AU-KG.memory.mementified-context, CONCEPT:EG-KG.compute.rust-native-training-loss).
+exposed over the Tokio/MessagePack protocol (CONCEPT:AU-KG.memory.mementified-context,
+CONCEPT:EG-KG.compute.rust-native-training-loss).
 
 These exercise the full path: Python client -> UDS -> Rust dispatch -> result.
 Uses the session-scoped server + `clean_graph` sync client from conftest.py.
@@ -69,9 +70,7 @@ def _xy_linear(n=30):
 
 def test_ridge_fit_predict_roundtrip(clean_graph):
     x, y = _xy_linear()
-    model = clean_graph.datascience.fit_estimator(
-        "ridge", x, y, {"alpha": 1e-6}
-    )
+    model = clean_graph.datascience.fit_estimator("ridge", x, y, {"alpha": 1e-6})
     assert model["kind"] == "Linear"
     preds = clean_graph.datascience.predict_estimator(model, x)
     err = max(abs(p - t) for p, t in zip(preds, y, strict=True))
@@ -95,9 +94,7 @@ def test_randomforest_fit_predict_roundtrip(clean_graph):
     )
     assert model["kind"] == "Forest"
     preds = clean_graph.datascience.predict_estimator(model, x)
-    rmse = (
-        sum((p - t) ** 2 for p, t in zip(preds, y, strict=True)) / len(y)
-    ) ** 0.5
+    rmse = (sum((p - t) ** 2 for p, t in zip(preds, y, strict=True)) / len(y)) ** 0.5
     assert rmse < 1.5
 
 
@@ -105,14 +102,14 @@ def test_svr_fit_predict_roundtrip(clean_graph):
     x = [[i * 0.15] for i in range(40)]
     y = [math.sin(xi[0]) for xi in x]
     model = clean_graph.datascience.fit_estimator(
-        "svr", x, y,
+        "svr",
+        x,
+        y,
         {"C": 10.0, "epsilon": 0.05, "gamma": 0.5, "kernel": "rbf", "max_iter": 3000},
     )
     assert model["kind"] == "Svr"
     preds = clean_graph.datascience.predict_estimator(model, x)
-    rmse = (
-        sum((p - t) ** 2 for p, t in zip(preds, y, strict=True)) / len(y)
-    ) ** 0.5
+    rmse = (sum((p - t) ** 2 for p, t in zip(preds, y, strict=True)) / len(y)) ** 0.5
     assert rmse < 0.4
 
 
@@ -175,7 +172,8 @@ def test_match_orders_roundtrip(clean_graph):
     assert len(fills) >= 1
 
 
-# ── Training loss / optimizer kernels (CONCEPT:EG-KG.compute.rust-native-training-loss) ────────────────────
+# ── Training loss / optimizer kernels (CONCEPT:EG-KG.compute.rust-native-training-loss)
+# ────────────────────
 
 
 def test_softmax_roundtrip(clean_graph):
@@ -192,7 +190,9 @@ def test_log_softmax_roundtrip(clean_graph):
 
 
 def test_cross_entropy_roundtrip(clean_graph):
-    res = clean_graph.datascience.cross_entropy([[2.0, 1.0, 0.1], [0.5, 2.5, 0.3]], [0, 1])
+    res = clean_graph.datascience.cross_entropy(
+        [[2.0, 1.0, 0.1], [0.5, 2.5, 0.3]], [0, 1]
+    )
     assert res["loss"] > 0.0
     for row in res["grad"]:
         assert math.isclose(sum(row), 0.0, abs_tol=1e-9)  # softmax−onehot sums to 0
@@ -213,7 +213,9 @@ def test_grpo_surrogate_roundtrip(clean_graph):
 
 def test_kl_divergence_roundtrip(clean_graph):
     lp = [0.1, -0.2, 0.3]
-    assert math.isclose(clean_graph.datascience.kl_divergence(lp, lp), 0.0, abs_tol=1e-9)
+    assert math.isclose(
+        clean_graph.datascience.kl_divergence(lp, lp), 0.0, abs_tol=1e-9
+    )
     assert clean_graph.datascience.kl_divergence(lp, [0.6, 0.1, 0.0]) >= 0.0
 
 

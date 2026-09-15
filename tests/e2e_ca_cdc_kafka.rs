@@ -110,31 +110,39 @@ fn cdc_hub_emit_stays_ordered_under_concurrent_writers() {
 
     const WRITERS: usize = 8;
     const PER_WRITER: usize = 25;
-    let handles: Vec<_> = (0..WRITERS)
-        .map(|w| {
-            let hub = Arc::clone(&hub);
-            let graph = Arc::clone(&graph);
-            std::thread::spawn(move || {
-                let mut seqs = Vec::with_capacity(PER_WRITER);
-                for i in 0..PER_WRITER {
-                    let seq = hub.emit(
-                        &graph,
-                        CdcKind::AddNode,
-                        format!("w{w}n{i}"),
-                        String::new(),
-                        None,
-                        Some(rmp_serde::to_vec(&serde_json::json!({"w": w, "i": i})).unwrap()),
-                    );
-                    seqs.push(seq);
-                }
-                seqs
-            })
-        })
-        .collect();
+    // Each writer hands its sequence numbers back over a bounded channel, so the
+    // collection below has a deadline: a writer that wedges inside `emit` fails
+    // the test by timing out, and one that panics drops its sender without sending.
+    const WRITER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(120);
+    let (finished, collected) = std::sync::mpsc::sync_channel(WRITERS);
+    for w in 0..WRITERS {
+        let hub = Arc::clone(&hub);
+        let graph = Arc::clone(&graph);
+        let finished = finished.clone();
+        std::thread::spawn(move || {
+            let mut seqs = Vec::with_capacity(PER_WRITER);
+            for i in 0..PER_WRITER {
+                let seq = hub.emit(
+                    &graph,
+                    CdcKind::AddNode,
+                    format!("w{w}n{i}"),
+                    String::new(),
+                    None,
+                    Some(rmp_serde::to_vec(&serde_json::json!({"w": w, "i": i})).unwrap()),
+                );
+                seqs.push(seq);
+            }
+            let _ = finished.send(seqs);
+        });
+    }
+    drop(finished);
 
-    let mut all_seqs: Vec<u64> = handles
-        .into_iter()
-        .flat_map(|h| h.join().expect("writer thread panicked"))
+    let mut all_seqs: Vec<u64> = (0..WRITERS)
+        .flat_map(|_| {
+            collected
+                .recv_timeout(WRITER_DEADLINE)
+                .expect("every writer thread must finish: one panicked or wedged")
+        })
         .collect();
 
     hub.flush_sink(15_000);

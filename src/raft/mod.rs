@@ -60,7 +60,6 @@ use openraft::BasicNode;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use crate::protocol::Method;
 use crate::server::ServerState;
 
 fn deserialize_required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
@@ -114,6 +113,14 @@ pub mod xread;
 /// Shared setup helpers for in-process Raft harnesses.
 #[cfg(any(test, feature = "harness", feature = "compute-dist"))]
 pub(crate) mod harness_support;
+
+/// The in-process Raft cluster fixture. It is shared by the `harness` gauntlets
+/// (through `harness::cluster::fixture`) and the `compute-dist` modality harness,
+/// so it is declared once, here, under the union of their gates. Loading the file
+/// from both places compiled it twice (`clippy::duplicate_mod`).
+#[cfg(any(test, feature = "harness", feature = "compute-dist"))]
+#[path = "harness/fixture.rs"]
+pub(crate) mod fixture;
 
 /// Correctness + load harness (CONCEPT:AU-KG.ontology.emits-database-ontology-entities) — the standing proof-engine that
 /// gates every distributed/durability claim. Compiled under tests OR the explicit
@@ -178,715 +185,11 @@ pub type NodeId = u64;
 pub use eg_storage::direct_state::{GroupId, DEFAULT_GROUP};
 const RAFT_RESPONSE_SCHEMA_VERSION: u16 = 2;
 #[cfg(feature = "modality-serving")]
-const MAX_REPLICATED_MODALITY_STATE_BYTES: usize = 128 * 1024 * 1024;
-
+mod modality;
 #[cfg(feature = "modality-serving")]
-const MAX_REPLICATED_MODALITY_RESULT_BYTES: usize = 4 * 1024;
+pub use modality::SanitizedModalityRaftCommand;
 #[cfg(feature = "modality-serving")]
-const MAX_REPLICATED_MODALITY_RESULT_ITEMS: usize = 64;
-#[cfg(feature = "modality-serving")]
-const SANITIZED_MODALITY_CODEC_VERSION: u16 = 1;
-
-#[cfg(feature = "modality-serving")]
-fn deserialize_bounded_modality_outcomes<'de, D>(
-    deserializer: D,
-) -> Result<Vec<eg_modality::ApplyOutcome>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    struct BoundedOutcomes;
-
-    impl<'de> serde::de::Visitor<'de> for BoundedOutcomes {
-        type Value = Vec<eg_modality::ApplyOutcome>;
-
-        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            formatter.write_str("a bounded sequence of modality outcomes")
-        }
-
-        fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
-        where
-            A: serde::de::SeqAccess<'de>,
-        {
-            let mut outcomes = Vec::new();
-            while let Some(outcome) = sequence.next_element()? {
-                if outcomes.len() >= MAX_REPLICATED_MODALITY_RESULT_ITEMS {
-                    return Err(serde::de::Error::custom(
-                        "sanitized modality result cardinality is outside bounds",
-                    ));
-                }
-                outcomes.push(outcome);
-            }
-            Ok(outcomes)
-        }
-    }
-
-    deserializer.deserialize_seq(BoundedOutcomes)
-}
-
-/// Mutation category retained by the sanitized command. It is sufficient for CDC
-/// classification but contains no occurrence, source, tenant, user, or endpoint.
-#[cfg(feature = "modality-serving")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum SanitizedModalityMutation {
-    Ingest,
-    IngestStream,
-    Delete,
-    MoveToCold,
-    Restore,
-    CollectTombstones,
-}
-
-#[cfg(feature = "modality-serving")]
-impl SanitizedModalityMutation {
-    pub(crate) fn from_served(
-        op: &eg_types::ServedModalityOp,
-    ) -> Option<(Self, eg_types::ServedModalityKind)> {
-        use eg_types::ServedModalityOp;
-        match op {
-            ServedModalityOp::Ingest { modality, .. } => Some((Self::Ingest, *modality)),
-            ServedModalityOp::IngestStream { modality, .. } => {
-                Some((Self::IngestStream, *modality))
-            }
-            ServedModalityOp::Delete { modality, .. } => Some((Self::Delete, *modality)),
-            ServedModalityOp::MoveToCold { modality, .. } => Some((Self::MoveToCold, *modality)),
-            ServedModalityOp::Restore { modality, .. } => Some((Self::Restore, *modality)),
-            ServedModalityOp::CollectTombstones { modality, .. } => {
-                Some((Self::CollectTombstones, *modality))
-            }
-            _ => None,
-        }
-    }
-
-    fn as_bytes(self) -> &'static [u8] {
-        match self {
-            Self::Ingest => b"ingest",
-            Self::IngestStream => b"ingest_stream",
-            Self::Delete => b"delete",
-            Self::MoveToCold => b"move_to_cold",
-            Self::Restore => b"restore",
-            Self::CollectTombstones => b"collect_tombstones",
-        }
-    }
-}
-
-/// The only result schema allowed in the sanitized modality Raft command.
-///
-/// The public response remains the compact `ResultPayload::Raw` envelope for
-/// client compatibility, but the replicated command carries this typed,
-/// versioned interpretation alongside that safe response. It contains only
-/// bounded outcome metadata — never source bytes, bundles, paths, or encrypted
-/// runtime material. Keeping the schema here gives every replica one canonical
-/// decode/validation path instead of accepting an arbitrary nested MessagePack
-/// value from a leader.
-#[cfg(feature = "modality-serving")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
-pub(crate) enum SanitizedModalityResultKind {
-    Single,
-    Stream,
-}
-
-#[cfg(feature = "modality-serving")]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
-pub(crate) struct SanitizedModalityResult {
-    pub(crate) schema_version: u16,
-    pub(crate) modality: eg_types::ServedModalityKind,
-    pub(crate) operation: SanitizedModalityMutation,
-    pub(crate) kind: SanitizedModalityResultKind,
-    #[serde(deserialize_with = "deserialize_bounded_modality_outcomes")]
-    pub(crate) outcomes: Vec<eg_modality::ApplyOutcome>,
-}
-
-#[cfg(feature = "modality-serving")]
-impl SanitizedModalityResult {
-    fn validate(&self) -> Result<(), String> {
-        if self.schema_version != SANITIZED_MODALITY_CODEC_VERSION {
-            return Err("sanitized modality result schema version is unsupported".to_string());
-        }
-        if self.outcomes.is_empty() || self.outcomes.len() > MAX_REPLICATED_MODALITY_RESULT_ITEMS {
-            return Err("sanitized modality result cardinality is outside bounds".to_string());
-        }
-        match (&self.kind, self.operation) {
-            (SanitizedModalityResultKind::Single, operation)
-                if !matches!(operation, SanitizedModalityMutation::IngestStream)
-                    && self.outcomes.len() == 1 =>
-            {
-                Ok(())
-            }
-            (SanitizedModalityResultKind::Stream, SanitizedModalityMutation::IngestStream)
-                if self.outcomes.len() >= 2 =>
-            {
-                Ok(())
-            }
-            _ => Err("sanitized modality result type does not match operation".to_string()),
-        }
-    }
-
-    fn from_wire(
-        modality: eg_types::ServedModalityKind,
-        operation: SanitizedModalityMutation,
-        result_msgpack: &[u8],
-    ) -> Result<Self, String> {
-        if result_msgpack.is_empty() || result_msgpack.len() > MAX_REPLICATED_MODALITY_RESULT_BYTES
-        {
-            return Err("sanitized modality Raft result is invalid".to_string());
-        }
-        let payload: crate::protocol::ResultPayload = eg_types::msgpack::decode_bounded(
-            result_msgpack,
-            eg_types::msgpack::MsgpackLimits::new(
-                MAX_REPLICATED_MODALITY_RESULT_BYTES,
-                MAX_REPLICATED_MODALITY_RESULT_ITEMS,
-                64,
-            ),
-        )
-        .map_err(|_| "sanitized modality Raft result is malformed".to_string())?;
-        // `ResultPayload` is intentionally untagged. The canonical modality
-        // contract is the bounded inner outcome schema below; all non-byte
-        // payloads remain invalid.
-        let outcome_bytes = match payload {
-            crate::protocol::ResultPayload::Raw(bytes) => bytes,
-            _ => {
-                return Err("sanitized modality Raft result has the wrong payload type".to_string())
-            }
-        };
-        let (kind, outcomes) = if matches!(operation, SanitizedModalityMutation::IngestStream) {
-            let outcomes: Vec<eg_modality::ApplyOutcome> = eg_types::msgpack::decode_bounded(
-                &outcome_bytes,
-                eg_types::msgpack::MsgpackLimits::new(
-                    MAX_REPLICATED_MODALITY_RESULT_BYTES,
-                    MAX_REPLICATED_MODALITY_RESULT_ITEMS,
-                    64,
-                ),
-            )
-            .map_err(|_| "sanitized modality Raft stream result is malformed".to_string())?;
-            (SanitizedModalityResultKind::Stream, outcomes)
-        } else {
-            let outcome: eg_modality::ApplyOutcome = eg_types::msgpack::decode_bounded(
-                &outcome_bytes,
-                eg_types::msgpack::MsgpackLimits::new(
-                    MAX_REPLICATED_MODALITY_RESULT_BYTES,
-                    MAX_REPLICATED_MODALITY_RESULT_ITEMS,
-                    64,
-                ),
-            )
-            .map_err(|_| "sanitized modality Raft result is malformed".to_string())?;
-            (SanitizedModalityResultKind::Single, vec![outcome])
-        };
-        let result = Self {
-            schema_version: SANITIZED_MODALITY_CODEC_VERSION,
-            modality,
-            operation,
-            kind,
-            outcomes,
-        };
-        result.validate()?;
-        if result.to_wire()?.as_slice() != result_msgpack {
-            return Err("sanitized modality Raft result is not canonical".to_string());
-        }
-        Ok(result)
-    }
-
-    fn to_wire(&self) -> Result<Vec<u8>, String> {
-        self.validate()?;
-        let payload = self.response_payload()?;
-        rmp_serde::to_vec_named(&payload).map_err(|_| {
-            "sanitized modality Raft result could not be canonically encoded".to_string()
-        })
-    }
-
-    fn response_payload(&self) -> Result<crate::protocol::ResultPayload, String> {
-        match self.kind {
-            SanitizedModalityResultKind::Single => {
-                crate::protocol::ResultPayload::raw(&self.outcomes[0])
-            }
-            SanitizedModalityResultKind::Stream => {
-                crate::protocol::ResultPayload::raw(&self.outcomes)
-            }
-        }
-    }
-
-    fn canonical_bytes(&self) -> Result<Vec<u8>, String> {
-        self.validate()?;
-        let bytes = rmp_serde::to_vec_named(self).map_err(|_| {
-            "sanitized modality Raft result could not be canonically encoded".to_string()
-        })?;
-        if bytes.len() > MAX_REPLICATED_MODALITY_RESULT_BYTES {
-            return Err("sanitized modality Raft result exceeds resource limits".to_string());
-        }
-        Ok(bytes)
-    }
-}
-
-/// Decode the only result representation accepted for a sanitized modality
-/// receipt and return the safe client payload. This is the shared authority for
-/// both Raft state-machine apply and leader retry/replay; callers must not
-/// reimplement the untagged `ResultPayload` or stream-cardinality checks.
-#[cfg(feature = "modality-serving")]
-pub(crate) fn decode_sanitized_modality_result(
-    modality: eg_types::ServedModalityKind,
-    operation: SanitizedModalityMutation,
-    result_msgpack: &[u8],
-) -> Result<crate::protocol::ResultPayload, String> {
-    let result = SanitizedModalityResult::from_wire(modality, operation, result_msgpack)?;
-    result.response_payload()
-}
-
-/// A Raft-log-safe modality command. Native decoding and policy checks happen on
-/// the verified leader request; consensus receives only an AEAD-sealed runtime
-/// value, its opaque partition node, a small non-identifying result, and integrity
-/// metadata. The raw document/media body is not a field and cannot be serialized
-/// into the consensus log by this type.
-#[cfg(feature = "modality-serving")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SanitizedModalityRaftCommand {
-    pub(crate) schema_version: u16,
-    pub(crate) modality: eg_types::ServedModalityKind,
-    pub(crate) operation: SanitizedModalityMutation,
-    pub(crate) node_id: String,
-    #[serde(with = "serde_bytes")]
-    pub(crate) sealed_runtime_state: Vec<u8>,
-    pub(crate) state_sha256: String,
-    pub(crate) receipt_query: String,
-    #[serde(with = "serde_bytes")]
-    pub(crate) result_msgpack: Vec<u8>,
-    pub(crate) result: SanitizedModalityResult,
-    pub(crate) result_sha256: String,
-    authentication_tag: String,
-}
-
-#[cfg(feature = "modality-serving")]
-impl SanitizedModalityRaftCommand {
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
-        server_secret: &str,
-        modality: eg_types::ServedModalityKind,
-        operation: SanitizedModalityMutation,
-        node_id: String,
-        sealed_runtime_state: Vec<u8>,
-        receipt_query: String,
-        result_msgpack: Vec<u8>,
-    ) -> Result<Self, String> {
-        use sha2::{Digest, Sha256};
-        let state_sha256 = hex::encode(Sha256::digest(&sealed_runtime_state));
-        let result = SanitizedModalityResult::from_wire(modality, operation, &result_msgpack)?;
-        let result_sha256 = hex::encode(Sha256::digest(result.canonical_bytes()?));
-        let authentication_tag = sanitized_modality_tag(
-            server_secret,
-            SANITIZED_MODALITY_CODEC_VERSION,
-            modality,
-            operation,
-            &node_id,
-            &state_sha256,
-            &receipt_query,
-            &result_sha256,
-            &result_msgpack,
-        )?;
-        let command = Self {
-            schema_version: SANITIZED_MODALITY_CODEC_VERSION,
-            modality,
-            operation,
-            node_id,
-            sealed_runtime_state,
-            state_sha256,
-            receipt_query,
-            result_msgpack,
-            result,
-            result_sha256,
-            authentication_tag,
-        };
-        command.validate(server_secret)?;
-        Ok(command)
-    }
-
-    pub(crate) fn receipt_method(&self) -> Method {
-        Method::ApplyMutation {
-            event_type: "served_modality_v1".to_string(),
-            query: self.receipt_query.clone(),
-        }
-    }
-
-    fn validate(&self, server_secret: &str) -> Result<(), String> {
-        use sha2::{Digest, Sha256};
-        if server_secret.is_empty() || self.schema_version != SANITIZED_MODALITY_CODEC_VERSION {
-            return Err(
-                "sanitized modality Raft command schema version is unsupported".to_string(),
-            );
-        }
-        if self.result.schema_version != self.schema_version
-            || self.result.modality != self.modality
-            || self.result.operation != self.operation
-        {
-            return Err("sanitized modality Raft result type does not match command".to_string());
-        }
-        self.result.validate()?;
-        let canonical_result = self.result.canonical_bytes()?;
-        let observed_result = hex::encode(Sha256::digest(&canonical_result));
-        if observed_result != self.result_sha256
-            || self.result_sha256.len() != 64
-            || !self
-                .result_sha256
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-        {
-            return Err("sanitized modality Raft result digest does not match".to_string());
-        }
-        if self.result.to_wire()? != self.result_msgpack {
-            return Err("sanitized modality Raft result is not canonical".to_string());
-        }
-        if server_secret.is_empty()
-            || self.sealed_runtime_state.is_empty()
-            || self.sealed_runtime_state.len() > MAX_REPLICATED_MODALITY_STATE_BYTES
-            || !crate::crypto::is_sealed(&self.sealed_runtime_state)
-        {
-            return Err("sanitized modality Raft state is invalid".to_string());
-        }
-        let expected_prefix = format!(
-            "__eg_internal_served_{}_",
-            sanitized_modality_name(self.modality)
-        );
-        let Some(partition) = self.node_id.strip_prefix(&expected_prefix) else {
-            return Err("sanitized modality Raft partition is invalid".to_string());
-        };
-        if partition.len() != 64
-            || !partition
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-        {
-            return Err("sanitized modality Raft partition is invalid".to_string());
-        }
-        if self.receipt_query.len() != 71
-            || !self.receipt_query.starts_with("sha256:")
-            || !self.receipt_query[7..]
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-        {
-            return Err("sanitized modality Raft receipt is invalid".to_string());
-        }
-        let observed_state = hex::encode(Sha256::digest(&self.sealed_runtime_state));
-        if observed_state != self.state_sha256 {
-            return Err("sanitized modality Raft state digest does not match".to_string());
-        }
-        if self.result_msgpack.is_empty()
-            || self.result_msgpack.len() > MAX_REPLICATED_MODALITY_RESULT_BYTES
-        {
-            return Err("sanitized modality Raft result is invalid".to_string());
-        }
-        let expected_tag = sanitized_modality_tag(
-            server_secret,
-            self.schema_version,
-            self.modality,
-            self.operation,
-            &self.node_id,
-            &self.state_sha256,
-            &self.receipt_query,
-            &self.result_sha256,
-            &self.result_msgpack,
-        )?;
-        if !constant_time_eq(expected_tag.as_bytes(), self.authentication_tag.as_bytes()) {
-            return Err("sanitized modality Raft authentication failed".to_string());
-        }
-        Ok(())
-    }
-}
-
-#[cfg(feature = "modality-serving")]
-fn sanitized_modality_name(modality: eg_types::ServedModalityKind) -> &'static str {
-    match modality {
-        eg_types::ServedModalityKind::Document => "document",
-        eg_types::ServedModalityKind::Image => "image",
-        eg_types::ServedModalityKind::Audio => "audio",
-        eg_types::ServedModalityKind::Video => "video",
-    }
-}
-
-#[cfg(feature = "modality-serving")]
-#[allow(clippy::too_many_arguments)]
-fn sanitized_modality_tag(
-    server_secret: &str,
-    schema_version: u16,
-    modality: eg_types::ServedModalityKind,
-    operation: SanitizedModalityMutation,
-    node_id: &str,
-    state_sha256: &str,
-    receipt_query: &str,
-    result_sha256: &str,
-    result_msgpack: &[u8],
-) -> Result<String, String> {
-    use hmac::{Hmac, Mac};
-    use sha2::Sha256;
-    let mut mac = Hmac::<Sha256>::new_from_slice(server_secret.as_bytes())
-        .map_err(|_| "sanitized modality Raft authentication failed".to_string())?;
-    for value in [
-        b"sanitized-modality-raft-v1".as_slice(),
-        sanitized_modality_name(modality).as_bytes(),
-        operation.as_bytes(),
-        node_id.as_bytes(),
-        state_sha256.as_bytes(),
-        receipt_query.as_bytes(),
-        result_sha256.as_bytes(),
-        result_msgpack,
-    ] {
-        mac.update(&(value.len() as u64).to_be_bytes());
-        mac.update(value);
-    }
-    mac.update(&schema_version.to_be_bytes());
-    Ok(hex::encode(mac.finalize().into_bytes()))
-}
-
-#[cfg(feature = "modality-serving")]
-fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
-    if left.len() != right.len() {
-        return false;
-    }
-    left.iter()
-        .zip(right)
-        .fold(0u8, |difference, (left, right)| {
-            difference | (*left ^ *right)
-        })
-        == 0
-}
-
-#[cfg(all(test, feature = "modality-serving"))]
-mod sanitized_modality_command_tests {
-    use super::*;
-
-    fn result() -> Vec<u8> {
-        let outcome = eg_modality::ApplyOutcome {
-            disposition: eg_modality::ApplyDisposition::Applied,
-            observation_version: 1,
-            event_sequence: 1,
-        };
-        rmp_serde::to_vec_named(&crate::protocol::ResultPayload::raw(&outcome).unwrap()).unwrap()
-    }
-
-    fn stream_result() -> Vec<u8> {
-        let outcomes = vec![
-            eg_modality::ApplyOutcome {
-                disposition: eg_modality::ApplyDisposition::Applied,
-                observation_version: 1,
-                event_sequence: 1,
-            },
-            eg_modality::ApplyOutcome {
-                disposition: eg_modality::ApplyDisposition::Applied,
-                observation_version: 2,
-                event_sequence: 2,
-            },
-        ];
-        rmp_serde::to_vec_named(&crate::protocol::ResultPayload::raw(&outcomes).unwrap()).unwrap()
-    }
-
-    #[test]
-    fn encrypted_command_round_trips_without_raw_source() {
-        let source = b"ephemeral non-identifying source fixture";
-        let cipher = crate::crypto::ValueCipher::from_key_material(b"replica-state-key");
-        let sealed = cipher.seal(source);
-        let command = SanitizedModalityRaftCommand::new(
-            "cluster-auth-secret",
-            eg_types::ServedModalityKind::Document,
-            SanitizedModalityMutation::Ingest,
-            format!("__eg_internal_served_document_{}", "a".repeat(64)),
-            sealed,
-            format!("sha256:{}", "b".repeat(64)),
-            result(),
-        )
-        .unwrap();
-        let replicated = ReplicatedMutation::served_modality(command.clone());
-        let encoded = rmp_serde::to_vec_named(&replicated).unwrap();
-        assert!(!encoded.windows(source.len()).any(|window| window == source));
-        let decoded: ReplicatedMutation = rmp_serde::from_slice(&encoded).unwrap();
-        let ReplicatedMutation::Native {
-            command: NativeMutationCommand::ServedModality { command: decoded },
-        } = decoded
-        else {
-            panic!("sanitized modality command did not round-trip as its typed variant");
-        };
-        decoded.validate("cluster-auth-secret").unwrap();
-        assert_eq!(decoded.schema_version, SANITIZED_MODALITY_CODEC_VERSION);
-        assert_eq!(
-            decoded.result.schema_version,
-            SANITIZED_MODALITY_CODEC_VERSION
-        );
-        assert_eq!(decoded.result.kind, SanitizedModalityResultKind::Single);
-    }
-
-    #[test]
-    fn stream_result_uses_the_typed_bounded_result_schema() {
-        let cipher = crate::crypto::ValueCipher::from_key_material(b"replica-state-key");
-        let command = SanitizedModalityRaftCommand::new(
-            "cluster-auth-secret",
-            eg_types::ServedModalityKind::Document,
-            SanitizedModalityMutation::IngestStream,
-            format!("__eg_internal_served_document_{}", "a".repeat(64)),
-            cipher.seal(b"opaque runtime state"),
-            format!("sha256:{}", "b".repeat(64)),
-            stream_result(),
-        )
-        .unwrap();
-        assert_eq!(command.result.kind, SanitizedModalityResultKind::Stream);
-        assert_eq!(command.result.outcomes.len(), 2);
-        command.validate("cluster-auth-secret").unwrap();
-    }
-
-    #[test]
-    fn malformed_result_type_length_version_and_digest_fail_closed() {
-        let cipher = crate::crypto::ValueCipher::from_key_material(b"replica-state-key");
-        let node_id = format!("__eg_internal_served_audio_{}", "a".repeat(64));
-        let receipt = format!("sha256:{}", "b".repeat(64));
-        let wrong_type =
-            rmp_serde::to_vec_named(&crate::protocol::ResultPayload::Bool(true)).unwrap();
-        assert!(SanitizedModalityRaftCommand::new(
-            "cluster-auth-secret",
-            eg_types::ServedModalityKind::Audio,
-            SanitizedModalityMutation::Delete,
-            node_id.clone(),
-            cipher.seal(b"opaque runtime state"),
-            receipt.clone(),
-            wrong_type,
-        )
-        .is_err());
-
-        assert!(SanitizedModalityRaftCommand::new(
-            "cluster-auth-secret",
-            eg_types::ServedModalityKind::Audio,
-            SanitizedModalityMutation::Delete,
-            node_id.clone(),
-            cipher.seal(b"opaque runtime state"),
-            receipt.clone(),
-            vec![0u8; MAX_REPLICATED_MODALITY_RESULT_BYTES + 1],
-        )
-        .is_err());
-
-        let mut command = SanitizedModalityRaftCommand::new(
-            "cluster-auth-secret",
-            eg_types::ServedModalityKind::Audio,
-            SanitizedModalityMutation::Delete,
-            node_id,
-            cipher.seal(b"opaque runtime state"),
-            receipt,
-            result(),
-        )
-        .unwrap();
-        command.schema_version = SANITIZED_MODALITY_CODEC_VERSION + 1;
-        assert!(command.validate("cluster-auth-secret").is_err());
-
-        let mut command = SanitizedModalityRaftCommand::new(
-            "cluster-auth-secret",
-            eg_types::ServedModalityKind::Audio,
-            SanitizedModalityMutation::Delete,
-            format!("__eg_internal_served_audio_{}", "a".repeat(64)),
-            cipher.seal(b"opaque runtime state"),
-            format!("sha256:{}", "b".repeat(64)),
-            result(),
-        )
-        .unwrap();
-        command.result.operation = SanitizedModalityMutation::IngestStream;
-        assert!(command.validate("cluster-auth-secret").is_err());
-
-        let mut command = SanitizedModalityRaftCommand::new(
-            "cluster-auth-secret",
-            eg_types::ServedModalityKind::Audio,
-            SanitizedModalityMutation::Delete,
-            format!("__eg_internal_served_audio_{}", "a".repeat(64)),
-            cipher.seal(b"opaque runtime state"),
-            format!("sha256:{}", "b".repeat(64)),
-            result(),
-        )
-        .unwrap();
-        command.result_sha256 = "0".repeat(64);
-        assert!(command.validate("cluster-auth-secret").is_err());
-
-        let mut command = SanitizedModalityRaftCommand::new(
-            "cluster-auth-secret",
-            eg_types::ServedModalityKind::Audio,
-            SanitizedModalityMutation::Delete,
-            format!("__eg_internal_served_audio_{}", "a".repeat(64)),
-            cipher.seal(b"opaque runtime state"),
-            format!("sha256:{}", "b".repeat(64)),
-            result(),
-        )
-        .unwrap();
-        command.result.outcomes[0].event_sequence = 99;
-        assert!(command.validate("cluster-auth-secret").is_err());
-    }
-
-    #[test]
-    fn unsealed_or_forged_replica_state_fails_closed() {
-        assert!(SanitizedModalityRaftCommand::new(
-            "cluster-auth-secret",
-            eg_types::ServedModalityKind::Audio,
-            SanitizedModalityMutation::Delete,
-            format!("__eg_internal_served_audio_{}", "a".repeat(64)),
-            b"plaintext".to_vec(),
-            format!("sha256:{}", "b".repeat(64)),
-            result(),
-        )
-        .is_err());
-
-        let cipher = crate::crypto::ValueCipher::from_key_material(b"replica-state-key");
-        let command = SanitizedModalityRaftCommand::new(
-            "cluster-auth-secret",
-            eg_types::ServedModalityKind::Video,
-            SanitizedModalityMutation::Restore,
-            format!("__eg_internal_served_video_{}", "a".repeat(64)),
-            cipher.seal(b"opaque state"),
-            format!("sha256:{}", "b".repeat(64)),
-            result(),
-        )
-        .unwrap();
-        assert!(command.validate("wrong-secret").is_err());
-    }
-
-    #[test]
-    fn mutation_batch_audit_and_outbox_retain_only_the_safe_receipt() {
-        let source = b"ephemeral source excluded from durable coordination";
-        let cipher = crate::crypto::ValueCipher::from_key_material(b"replica-state-key");
-        let sealed = cipher.seal(source);
-        let command = SanitizedModalityRaftCommand::new(
-            "cluster-auth-secret",
-            eg_types::ServedModalityKind::Image,
-            SanitizedModalityMutation::MoveToCold,
-            format!("__eg_internal_served_image_{}", "a".repeat(64)),
-            sealed.clone(),
-            format!("sha256:{}", "b".repeat(64)),
-            result(),
-        )
-        .unwrap();
-        let safe_receipt = command.receipt_method();
-        let batch = crate::server::mutation_batch::compile_methods(
-            crate::server::mutation_batch::CompileBatch {
-                batch_id: "opaque-batch",
-                request_id: 1,
-                attempt_nonce: None,
-                principal: Some("principal:sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-                tenant: "opaque-tenant",
-                graph: "opaque-graph",
-                placement_epoch: 1,
-                idempotency_key: "opaque-idempotency",
-                expected_graph_version: Some(0),
-                fencing_token: Some(1),
-                created_at_ms: 1,
-                default_surface: crate::mutation_batch::MutationSurface::Graph,
-                authoritative_state: Some(crate::mutation_batch::MutationStateDescriptor {
-                    algorithm: "sha256".to_string(),
-                    digest: "c".repeat(64),
-                    source_graph_version: 0,
-                    target_graph_version: 1,
-                }),
-            },
-            vec![safe_receipt],
-        )
-        .unwrap();
-        let encoded = rmp_serde::to_vec_named(&batch).unwrap();
-        assert!(!encoded.windows(source.len()).any(|window| window == source));
-        assert!(!encoded.windows(sealed.len()).any(|window| window == sealed));
-        assert_eq!(batch.outbox.len(), 1);
-        assert!(crate::audit::audit_line(&batch.operations[0].method)
-            .is_some_and(|line| line.starts_with("AUTHORITATIVE_STATE_MUTATION|sha256:")));
-    }
-}
+pub(crate) use modality::{decode_sanitized_modality_result, SanitizedModalityMutation};
 
 mod command;
 pub use command::{
@@ -942,10 +245,17 @@ pub struct RaftMutationContext {
     pub created_at_ms: u64,
 }
 
+/// The timing and placement fence attached to an already verified mutation.
+/// Grouping these adjacent fields keeps the request-boundary constructor small
+/// without changing the serialized authority shape.
+pub(crate) struct RaftMutationTiming {
+    pub(crate) fencing_token: Option<u64>,
+    pub(crate) created_at_ms: u64,
+}
+
 impl RaftMutationContext {
     /// Construct caller authority only from the already-verified, privacy-safe
     /// carrier facts at the dispatch boundary.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn from_verified_request(
         batch_id: String,
         request_id: u64,
@@ -954,8 +264,7 @@ impl RaftMutationContext {
         principal_fingerprint: String,
         identity_bootstrap: bool,
         placement_epoch: u64,
-        fencing_token: Option<u64>,
-        created_at_ms: u64,
+        timing: RaftMutationTiming,
     ) -> Result<Self, String> {
         let context = Self {
             batch_id,
@@ -965,8 +274,8 @@ impl RaftMutationContext {
             principal_fingerprint,
             identity_bootstrap,
             placement_epoch,
-            fencing_token,
-            created_at_ms,
+            fencing_token: timing.fencing_token,
+            created_at_ms: timing.created_at_ms,
         };
         context.validate()?;
         if context.tenant_scope == Self::internal_tenant_scope() {
@@ -996,11 +305,7 @@ impl RaftMutationContext {
             request_id,
             attempt_nonce: None,
             tenant_scope: Self::internal_tenant_scope(),
-            principal_fingerprint: crate::server::mutation_batch::opaque_coordinator_key(
-                "principal:sha256",
-                "epistemic-graph-raft-control-plane",
-                "authority",
-            ),
+            principal_fingerprint: Self::internal_principal_fingerprint(),
             identity_bootstrap: false,
             placement_epoch: 0,
             fencing_token: None,
@@ -1014,6 +319,21 @@ impl RaftMutationContext {
             "control-plane",
             "authority",
         )
+    }
+
+    fn internal_principal_fingerprint() -> String {
+        crate::server::mutation_batch::opaque_coordinator_key(
+            "principal:sha256",
+            "epistemic-graph-raft-control-plane",
+            "authority",
+        )
+    }
+
+    pub(in crate::raft) fn is_internal(&self) -> bool {
+        self.tenant_scope == Self::internal_tenant_scope()
+            && self.principal_fingerprint == Self::internal_principal_fingerprint()
+            && self.attempt_nonce.is_none()
+            && !self.identity_bootstrap
     }
 
     pub(crate) fn validate(&self) -> Result<(), String> {
@@ -1042,7 +362,17 @@ impl RaftRequest {
         if self.graph_fname.trim().is_empty() || self.graph_name.trim().is_empty() {
             return Err("Raft request graph authority must not be empty".to_string());
         }
+        if self.graph_fname != crate::persist::sanitize(&self.graph_name) {
+            return Err(
+                "Raft request graph file name does not match the sanitized graph name".to_string(),
+            );
+        }
         self.mutation.validate()?;
+        self.validate_identity_bootstrap()?;
+        self.validate_command_shape()
+    }
+
+    fn validate_identity_bootstrap(&self) -> Result<(), String> {
         if self.mutation.identity_bootstrap
             && (self.graph_name != "__commons__"
                 || self.graph_fname != crate::persist::sanitize("__commons__")
@@ -1059,6 +389,10 @@ impl RaftRequest {
                     .to_string(),
             );
         }
+        Ok(())
+    }
+
+    fn validate_command_shape(&self) -> Result<(), String> {
         match &self.command {
             ReplicatedMutation::Graph { sealed_method } => sealed_method.validate_shape()?,
             ReplicatedMutation::Native {
@@ -1071,6 +405,40 @@ impl RaftRequest {
             ReplicatedMutation::Native { command } => command.validate_shape()?,
         }
         Ok(())
+    }
+
+    pub(crate) fn bind_graph_command(
+        &mut self,
+        server_secret: &str,
+        group_id: GroupId,
+    ) -> Result<(), String> {
+        if self
+            .mutation
+            .fencing_token
+            .is_some_and(|token| token != group_id)
+        {
+            return Err("Raft mutation fencing token does not match selected group".to_string());
+        }
+        let mut command = self.command.clone();
+        command.bind_graph_command(server_secret, self, group_id)?;
+        self.command = command;
+        Ok(())
+    }
+
+    pub(crate) fn validate_graph_command(
+        &self,
+        server_secret: &str,
+        group_id: GroupId,
+    ) -> Result<(), String> {
+        if self
+            .mutation
+            .fencing_token
+            .is_some_and(|token| token != group_id)
+        {
+            return Err("Raft mutation fencing token does not match applying group".to_string());
+        }
+        self.command
+            .validate_graph_command(server_secret, self, group_id)
     }
 }
 
@@ -1090,6 +458,7 @@ fn lowercase_sha256_is_valid(value: &str) -> bool {
 #[cfg(test)]
 mod raft_authority_contract_tests {
     use super::*;
+    use crate::protocol::Method;
 
     #[derive(Serialize)]
     struct RequestWithoutAuthority {
@@ -1194,6 +563,52 @@ mod raft_authority_contract_tests {
         let encoded = rmp_serde::to_vec_named(&obsolete_shape).unwrap();
         assert!(rmp_serde::from_slice::<RaftRequest>(&encoded).is_err());
     }
+
+    fn request_for_graph(graph_name: &str, graph_fname: String) -> RaftRequest {
+        RaftRequest {
+            graph_fname,
+            graph_name: graph_name.to_string(),
+            graph_type: crate::protocol::GraphType::Global,
+            command: ReplicatedMutation::graph(method(), "cluster-test-key").unwrap(),
+            committed_at_ms: 1,
+            mutation: RaftMutationContext::internal(
+                "raft-contract-test",
+                graph_name,
+                "graph-name-binding",
+                1,
+                1,
+            ),
+        }
+    }
+
+    #[test]
+    fn request_rejects_logical_graph_names_in_the_physical_file_name_slot() {
+        let hashed_graph = "x".repeat(2_048);
+        for graph_name in ["a:b".to_string(), hashed_graph] {
+            let graph_fname = crate::persist::sanitize(&graph_name);
+            assert_ne!(graph_name, graph_fname);
+            assert!(request_for_graph(&graph_name, graph_fname.clone())
+                .validate()
+                .is_ok());
+
+            let logical_name = request_for_graph(&graph_name, graph_name.clone())
+                .validate()
+                .expect_err("logical graph name must not be accepted as a file name");
+            assert!(
+                logical_name.contains("sanitized graph name"),
+                "{logical_name}"
+            );
+
+            let mismatched_name =
+                request_for_graph(&graph_name, crate::persist::sanitize("different-graph"))
+                    .validate()
+                    .expect_err("a different sanitized graph must not be accepted");
+            assert!(
+                mismatched_name.contains("sanitized graph name"),
+                "{mismatched_name}"
+            );
+        }
+    }
 }
 
 /// openraft 0.10's `AppData` bound now requires `Display` (the log entry is
@@ -1278,31 +693,38 @@ impl RaftResponse {
             );
         }
         if let Some(commit) = &self.native_commit {
-            if !self.applied {
-                return Err("Raft native commit receipt requires applied=true".to_string());
-            }
-            commit
-                .validate()
-                .map_err(|error| format!("Raft native commit receipt is invalid: {error}"))?;
-            let durable_result = commit
-                .record
-                .result_msgpack
-                .as_deref()
-                .filter(|bytes| !bytes.is_empty())
-                .ok_or_else(|| {
-                    "Raft native commit receipt is missing its terminal result".to_string()
-                })?;
-            rmp_serde::from_slice::<crate::protocol::ResultPayload>(durable_result).map_err(
-                |_| "Raft native commit receipt has an invalid terminal result".to_string(),
-            )?;
-            if let Some(result) = &self.native_result {
-                let encoded = rmp_serde::to_vec_named(result)
-                    .map_err(|error| format!("Raft native result cannot be encoded: {error}"))?;
-                if durable_result != encoded.as_slice() {
-                    return Err(
-                        "Raft native result does not match its durable commit receipt".to_string(),
-                    );
-                }
+            self.validate_native_commit(commit)?;
+        }
+        Ok(())
+    }
+
+    fn validate_native_commit(
+        &self,
+        commit: &crate::mutation_batch::MutationBatchCommit,
+    ) -> Result<(), String> {
+        if !self.applied {
+            return Err("Raft native commit receipt requires applied=true".to_string());
+        }
+        commit
+            .validate()
+            .map_err(|error| format!("Raft native commit receipt is invalid: {error}"))?;
+        let durable_result = commit
+            .record
+            .result_msgpack
+            .as_deref()
+            .filter(|bytes| !bytes.is_empty())
+            .ok_or_else(|| {
+                "Raft native commit receipt is missing its terminal result".to_string()
+            })?;
+        rmp_serde::from_slice::<crate::protocol::ResultPayload>(durable_result)
+            .map_err(|_| "Raft native commit receipt has an invalid terminal result".to_string())?;
+        if let Some(result) = &self.native_result {
+            let encoded = rmp_serde::to_vec_named(result)
+                .map_err(|error| format!("Raft native result cannot be encoded: {error}"))?;
+            if durable_result != encoded.as_slice() {
+                return Err(
+                    "Raft native result does not match its durable commit receipt".to_string(),
+                );
             }
         }
         Ok(())

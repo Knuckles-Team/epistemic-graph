@@ -108,55 +108,88 @@ fn to_batch(rows: &[FixtureRow]) -> LakeBatch {
     LakeBatch::new(schema(), cells).expect("fixture batch is well-formed")
 }
 
-/// `rel` is relative to `location` (the shape `LakeTable::materialize`/`delta_log`
-/// return) — mirrors `LakeManager::materialize_batch`'s
-/// `format!("{location}/{rel_path}")` prefixing exactly.
-fn write_rel(location: &str, rel: &str, bytes: &[u8]) {
-    write_abs(&format!("{location}/{rel}"), bytes);
-}
-
 /// `abs` already carries the `location` prefix (the shape `LakeTable::iceberg`'s
 /// `metadata_location` and `LakeTable::iceberg_manifests`'s `manifest_path`/
 /// `manifest_list_path` return) — used as-is, exactly like
 /// `LakeManager::materialize_batch` does.
-fn write_abs(abs: &str, bytes: &[u8]) {
+fn write_abs(abs: &str, bytes: &[u8]) -> Result<(), String> {
     let full = Path::new(abs);
     if let Some(parent) = full.parent() {
-        fs::create_dir_all(parent).unwrap_or_else(|e| {
-            panic!("create parent dir for {abs}: {e}");
-        });
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("create parent dir for {abs}: {error}"))?;
     }
-    fs::write(full, bytes).unwrap_or_else(|e| panic!("write {abs}: {e}"));
+    fs::write(full, bytes).map_err(|error| format!("write {abs}: {error}"))
 }
 
-/// One commit: materialize `batch` at `lsn`, then write the Parquet data file + the
-/// FULL (re-rendered) Delta log + Iceberg metadata.json + Avro manifest/manifest-list
-/// to real files under `location` — the identical sequence
-/// `LakeManager::materialize_batch` runs against the blob CAS. Returns the just-written
-/// `metadata_location` (absolute).
+fn remove_written(paths: &[String]) -> Result<(), String> {
+    let mut failures = Vec::new();
+    for path in paths.iter().rev() {
+        if let Err(error) = fs::remove_file(path) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                failures.push(format!("remove {path}: {error}"));
+            }
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join(", "))
+    }
+}
+
+type CommitArtifact = (String, Vec<u8>);
+
+fn write_commit_artifacts(artifacts: Vec<CommitArtifact>) -> Result<(), String> {
+    let mut written = Vec::with_capacity(artifacts.len());
+    for (path, artifact_bytes) in artifacts {
+        if let Err(error) = write_abs(&path, &artifact_bytes) {
+            written.push(path);
+            return match remove_written(&written) {
+                Ok(()) => Err(error),
+                Err(cleanup) => Err(format!("{error}; rollback failed: {cleanup}")),
+            };
+        }
+        written.push(path);
+    }
+    Ok(())
+}
+
+/// One commit: build an owned candidate, write its new Parquet and Delta artifacts,
+/// then both Avro manifest artifacts, and publish metadata last. The caller's table is
+/// replaced only after every write succeeds; a failure removes the candidate's exact
+/// paths and leaves the previous table generation intact.
 fn commit(
     table: &mut LakeTable,
     location: &str,
     batch: &LakeBatch,
     lsn: Lsn,
     ts_ms: i64,
-) -> String {
-    let (rel_path, bytes) = table.materialize(batch, lsn).expect("materialize batch");
-    write_rel(location, &rel_path, &bytes);
-
-    for f in table.delta_log(ts_ms) {
-        write_rel(location, &f.path, f.content.as_bytes());
-    }
-
-    let ib = table.iceberg(ts_ms);
-    write_abs(&ib.metadata_location, ib.metadata_json.as_bytes());
-    let manifests = table
+) -> Result<String, String> {
+    let mut candidate = table.clone();
+    let (rel_path, bytes) = candidate.materialize(batch, lsn)?;
+    let delta = candidate
+        .delta_log(ts_ms)
+        .into_iter()
+        .last()
+        .ok_or_else(|| "materialization produced no Delta commit".to_string())?;
+    let manifests = candidate
         .iceberg_manifests()
-        .expect("build iceberg avro manifests");
-    write_abs(&manifests.manifest_path, &manifests.manifest_avro);
-    write_abs(&manifests.manifest_list_path, &manifests.manifest_list_avro);
-
-    ib.metadata_location
+        .map_err(|error| format!("build iceberg avro manifests: {error}"))?;
+    eg_lake::record_iceberg_commit(&mut candidate, ts_ms);
+    let ib = candidate.iceberg(ts_ms);
+    let artifacts = vec![
+        (format!("{location}/{rel_path}"), bytes),
+        (
+            format!("{location}/{}", delta.path),
+            delta.content.into_bytes(),
+        ),
+        (manifests.manifest_path, manifests.manifest_avro),
+        (manifests.manifest_list_path, manifests.manifest_list_avro),
+        (ib.metadata_location.clone(), ib.metadata_json.into_bytes()),
+    ];
+    write_commit_artifacts(artifacts)?;
+    *table = candidate;
+    Ok(ib.metadata_location)
 }
 
 fn row_json((id, price, symbol, active, ts): &FixtureRow) -> serde_json::Value {
@@ -184,10 +217,34 @@ fn main() {
     let mut table = LakeTable::new(NAMESPACE, TABLE, schema(), location.clone());
 
     let batch1 = to_batch(BATCH_1);
-    commit(&mut table, &location, &batch1, Lsn(1), 1_700_000_000_000);
+    let historical_metadata_location =
+        commit(&mut table, &location, &batch1, Lsn(1), 1_700_000_000_000)
+            .expect("write first fixture commit");
+
+    // LSNs 2 and 3 model non-emitted history points: a tombstone-only internal
+    // rewrite step and another table's global commit. Both must resolve to this
+    // table's latest actual generation (v1), whose bytes already exist.
+    let first_path = table.snapshot.live_files()[0].path.clone();
+    let mut tombstone_probe = table.clone();
+    tombstone_probe.snapshot.remove_file(&first_path, Lsn(2));
+    let tombstone_as_of = tombstone_probe.iceberg_as_of(Lsn(2), 1_700_000_100_000);
+    let unrelated_as_of = table.iceberg_as_of(Lsn(3), 1_700_000_200_000);
+    assert_eq!(
+        tombstone_as_of.metadata_location,
+        historical_metadata_location
+    );
+    assert_eq!(
+        unrelated_as_of.metadata_location,
+        historical_metadata_location
+    );
+    let historical_bytes = fs::read_to_string(&historical_metadata_location)
+        .expect("read first emitted metadata generation");
+    assert_eq!(tombstone_as_of.metadata_json, historical_bytes);
+    assert_eq!(unrelated_as_of.metadata_json, historical_bytes);
 
     let batch2 = to_batch(BATCH_2);
-    let metadata_location = commit(&mut table, &location, &batch2, Lsn(2), 1_700_000_300_000);
+    let metadata_location = commit(&mut table, &location, &batch2, Lsn(4), 1_700_000_300_000)
+        .expect("write second fixture commit");
 
     let rows: Vec<serde_json::Value> = BATCH_1.iter().chain(BATCH_2.iter()).map(row_json).collect();
     let summary = serde_json::json!({
@@ -195,6 +252,10 @@ fn main() {
         "table": TABLE,
         "location": location,
         "metadata_location": metadata_location,
+        "historical_metadata_location": historical_metadata_location,
+        "tombstone_as_of_metadata_location": tombstone_as_of.metadata_location,
+        "unrelated_as_of_metadata_location": unrelated_as_of.metadata_location,
+        "precreation_metadata_location": null,
         "row_count": rows.len(),
         "rows": rows,
     });

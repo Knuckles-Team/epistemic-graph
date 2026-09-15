@@ -1,0 +1,1120 @@
+{
+  "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
+  "$defs": {
+    "CdcEvent": {
+      "description": "One ordered change in a graph's CDC feed (CONCEPT:EG-KG.query.streaming-cdc-subscriptions). `seq` is the per-graph\nmonotonic cursor: a consumer tails with `CdcRead { from_seq }` and re-reads from a\nlater `seq` to skip what it has already seen. `before`/`after` carry the affected\nnode/edge property blob (MessagePack) pre- and post-mutation; `None` means absent\n(an add has no `before`, a remove no `after`).",
+      "properties": {
+        "after": {
+          "default": [],
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "before": {
+          "default": [],
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "graph": {
+          "type": "string"
+        },
+        "had_after": {
+          "default": false,
+          "description": "True when `after` carried a value.",
+          "type": "boolean"
+        },
+        "had_before": {
+          "default": false,
+          "description": "True when `before` carried a value (distinguishes an empty blob from absent).",
+          "type": "boolean"
+        },
+        "kind": {
+          "$ref": "#/$defs/CdcKind"
+        },
+        "label": {
+          "default": "",
+          "description": "The change's `type`/label property after the mutation (for label-filtered\nwatch + triggers); best-effort decoded from `after` (else `before`).",
+          "type": "string"
+        },
+        "node_id": {
+          "description": "The node id for node changes / the edge source for edge changes.",
+          "type": "string"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "target_id": {
+          "default": "",
+          "description": "The edge target (empty for node changes).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "seq",
+        "graph",
+        "kind",
+        "node_id"
+      ],
+      "type": "object"
+    },
+    "CdcKind": {
+      "description": "The kind of a captured change. Mirrors the durable-mutation `Method` set the CDC\nfeed records (the ledger's `is_durable_mutation` family), flattened to the unit a\nconsumer reasons about (node add/remove/update, edge add/remove).",
+      "enum": [
+        "AddNode",
+        "RemoveNode",
+        "UpdateNode",
+        "AddEdge",
+        "RemoveEdge"
+      ],
+      "type": "string"
+    },
+    "CdcReadResult": {
+      "description": "Materialized result of a `Method::CdcRead` call (B-8, 2026-08-13). Same\ndefect class as `GetLedger` (BUG A1): `CdcHub` (`src/server/cdc.rs`) backs\n`CdcRead`/`Watch`/`FiredTriggers` with a bounded, per-graph, PURELY\nIN-MEMORY ring (default 65,536 entries, `EPISTEMIC_GRAPH_CDC_RING` to\noverride) — deliberately EPHEMERAL, not durable (see that module's own\ndoc for the reasoning and why durability is a separate, out-of-scope,\nstorage-format decision). A caller that persists a `from_seq` cursor and\nresumes tailing can fall off the back of that ring in two distinct ways\nthat both used to look exactly like \"nothing happened\":\n\n  1. **within-epoch trim** — the ring exceeded its cap and dropped the\n     oldest entries past `from_seq` (same process, same epoch).\n  2. **epoch reset** — the process restarted (or the graph's feed was\n     rewound by `ClearGraph`/`FromMsgpack`/`Reconcile`), so the feed's\n     seq numbering restarted from 0 in a FRESH epoch. This is the more\n     dangerous case: `from_seq` can be numerically \"in range\" of the new\n     epoch's `[watermark, head_seq]` window WITHOUT naming the same\n     events at all — a purely numeric `from_seq <= head_seq` check\n     cannot tell the two epochs apart. `epoch` exists for exactly this:\n     it is a fresh id minted once when the hub is constructed\n     (`CdcHub::new()`), stable for the process's life. A caller that\n     persists `(epoch, from_seq)` alongside its cursor and observes a\n     DIFFERENT `epoch` on a later read has PROOF the feed restarted\n     under it, even when the server's own numeric check above could not\n     catch it.\n\n`gap: true` covers case 1 (server-detectable) explicitly — `events` is\nalways empty in that case, and `watermark`/`head_seq` are the current\nvalues so the caller can re-seed (`watermark` to replay everything still\nretained, `head_seq` to resume from \"now\" and accept the gap). `gap:\nfalse` means `events` is a complete, contiguous read from `from_seq`\nWITHIN the returned `epoch` — the caller is still responsible for\ncomparing `epoch` across resumed reads to catch case 2.",
+      "properties": {
+        "epoch": {
+          "description": "This hub instance's process-lifetime epoch id. See the struct doc.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/CdcEvent"
+          },
+          "type": "array"
+        },
+        "gap": {
+          "description": "True when `from_seq` fell behind the retained ring window in THIS\nepoch. `events` is always empty when `gap` is true.",
+          "type": "boolean"
+        },
+        "head_seq": {
+          "description": "The current head seq (next to be assigned) for this graph in this epoch.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "watermark": {
+          "description": "Oldest seq this epoch's ring can currently vouch for (0 if nothing\nhas been trimmed yet in this epoch, INCLUDING right after a restart —\nwhich is exactly why `epoch` exists alongside it).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "events",
+        "gap",
+        "watermark",
+        "head_seq",
+        "epoch"
+      ],
+      "type": "object"
+    },
+    "CepEvent": {
+      "properties": {
+        "attrs": {
+          "additionalProperties": true,
+          "default": {},
+          "type": "object"
+        },
+        "key": {
+          "type": "string"
+        },
+        "ts": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "ts",
+        "key"
+      ],
+      "type": "object"
+    },
+    "CepMatch": {
+      "properties": {
+        "end_ts": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/CepEvent"
+          },
+          "type": "array"
+        },
+        "start_ts": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "events",
+        "start_ts",
+        "end_ts"
+      ],
+      "type": "object"
+    },
+    "ChannelCreated": {
+      "description": "Result of `Method::CreateChannel`.",
+      "properties": {
+        "channel": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "channel"
+      ],
+      "type": "object"
+    },
+    "ChannelDeparture": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ChannelImprint"
+        },
+        {
+          "$ref": "#/$defs/ChannelDepartureStatus"
+        }
+      ],
+      "description": "Result of `Method::LeaveChannel` and `Method::CloseChannel`: the channel's imprint\nwhen the call closed it, else a bare status string."
+    },
+    "ChannelDepartureStatus": {
+      "description": "How a leave or close ended when it produced no imprint.",
+      "enum": [
+        "left",
+        "closed"
+      ],
+      "type": "string"
+    },
+    "ChannelImprint": {
+      "description": "KG imprint created when a channel is closed.",
+      "properties": {
+        "channel_id": {
+          "type": "string"
+        },
+        "channel_type": {
+          "$ref": "#/$defs/ChannelType"
+        },
+        "closed_at": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "created_at": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "creator": {
+          "type": "string"
+        },
+        "message_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "participants": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "summary_embedding": {
+          "items": {
+            "format": "float",
+            "type": "number"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "topic_metadata": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "channel_id",
+        "channel_type",
+        "creator",
+        "participants",
+        "message_count",
+        "created_at",
+        "closed_at"
+      ],
+      "type": "object"
+    },
+    "ChannelMessage": {
+      "description": "A single message in a channel.",
+      "properties": {
+        "payload": {
+          "type": "string"
+        },
+        "sender": {
+          "type": "string"
+        },
+        "timestamp": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sender",
+        "payload",
+        "timestamp"
+      ],
+      "type": "object"
+    },
+    "ChannelSummary": {
+      "description": "One channel visible to the caller, as `Method::ListChannels` lists it.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "members": {
+          "description": "Number of members.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "type": {
+          "$ref": "#/$defs/ChannelType"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "members"
+      ],
+      "type": "object"
+    },
+    "ChannelType": {
+      "description": "Channel type for dynamic communication.",
+      "oneOf": [
+        {
+          "const": "PeerToPeer",
+          "description": "1:1 direct messaging between two agents.",
+          "type": "string"
+        },
+        {
+          "const": "Group",
+          "description": "Many-to-many group channel.",
+          "type": "string"
+        }
+      ]
+    },
+    "ConfirmToken": {
+      "description": "A publisher-confirm token (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos): a\nbroker-wide monotonic `delivery_tag` identifying the publish, plus whether the broker\ndurably accepted it (`confirmed`) or nacked it (unknown exchange). Mirrors AMQP\npublisher confirms / Kafka acks.",
+      "properties": {
+        "confirmed": {
+          "type": "boolean"
+        },
+        "delivery_tag": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "delivery_tag",
+        "confirmed"
+      ],
+      "type": "object"
+    },
+    "ContinuousQueryResult": {
+      "description": "Current result of a continuous query — the incrementally-maintained value plus the\nCDC `seq` it reflects (so a reader knows how current it is).",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "through_seq": {
+          "description": "The CDC seq this result has folded in up to (the watermark).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "value": {
+          "description": "The aggregate value (count, or sum).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "value",
+        "through_seq"
+      ],
+      "type": "object"
+    },
+    "FiredAction": {
+      "description": "A recorded trigger firing (CONCEPT:EG-KG.query.wire-codec). Returned by `FiredTriggers` so a\nreaction consumer pulls the action payload + the change that fired it.",
+      "properties": {
+        "action": {
+          "default": [],
+          "description": "The opaque action payload registered with the trigger (MessagePack).",
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "change_seq": {
+          "description": "The CDC seq of the change that fired the trigger.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fire_seq": {
+          "description": "Per-graph monotonic fired-id (the cursor for `FiredTriggers`).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "graph": {
+          "type": "string"
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "trigger": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "fire_seq",
+        "trigger",
+        "graph",
+        "change_seq",
+        "node_id"
+      ],
+      "type": "object"
+    },
+    "FiredTriggersResult": {
+      "description": "Materialized result of a `Method::FiredTriggers` call (B-8 follow-up,\n2026-08-13). The fired-trigger log is a SECOND bounded in-memory ring on\nthe same per-graph `GraphFeed` the CDC ring lives on (`src/server/cdc.rs`),\nwith the identical ephemerality and the identical two gap shapes\n`CdcReadResult` documents — within-epoch trim and epoch reset — over its\nown `fire_seq` cursor rather than the CDC `seq` cursor. See\n`CdcReadResult`'s doc for the full reasoning; the fields here mean exactly\nthe same thing, scoped to the fired-trigger log instead of the change feed.",
+      "properties": {
+        "epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fired": {
+          "items": {
+            "$ref": "#/$defs/FiredAction"
+          },
+          "type": "array"
+        },
+        "gap": {
+          "type": "boolean"
+        },
+        "head_seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "watermark": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "fired",
+        "gap",
+        "watermark",
+        "head_seq",
+        "epoch"
+      ],
+      "type": "object"
+    },
+    "IdempotentPublish": {
+      "description": "Outcome of an idempotent publish (CONCEPT:EG-KG.ingest.broker-reject-publish).\n`confirmed` mirrors the EG-284 publisher-confirm (the exchange existed / the broker\naccepted it); `duplicate` is `true` when a `(producer_id, seq)` stamp was recognised\nas already-seen and the message was DROPPED (effectively-once — a duplicate still\nconfirms so the retrying publisher stops); `delivered` is the number of queues the\nmessage was routed to (`0` for a duplicate or an unroutable/nacked publish).",
+      "properties": {
+        "confirmed": {
+          "type": "boolean"
+        },
+        "delivered": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "duplicate": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "confirmed",
+        "duplicate",
+        "delivered"
+      ],
+      "type": "object"
+    },
+    "TriggerInfo": {
+      "description": "One trigger registration (CONCEPT:EG-KG.query.wire-codec). When a CDC change in `graph` matches\n`label` + `op`, the trigger fires its `action` (an opaque MessagePack payload the\nconsumer interprets — e.g. a notification topic / a webhook spec). Fired actions\nare recorded in a per-graph fired log a client polls with `FiredTriggers`.",
+      "properties": {
+        "fire_count": {
+          "description": "How many times this trigger has fired.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "graph": {
+          "type": "string"
+        },
+        "label": {
+          "default": "",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "op": {
+          "description": "\"add\" | \"remove\" | \"update\" | \"any\" — the change kind that fires it.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "graph",
+        "op",
+        "fire_count"
+      ],
+      "type": "object"
+    },
+    "WatchBatch": {
+      "description": "A batch returned by a `Watch` long-poll (CONCEPT:EG-KG.query.wire-codec): the matching changes\nsince the client's cursor plus the next cursor to resume from.\n\nB-8 (2026-08-13): `Watch` tails the SAME bounded, explicitly-ephemeral\n`CdcHub` ring `CdcRead` does (`src/server/cdc.rs`'s module doc) via the\nidentical `from_seq` cursor, so it can fall off the back of that ring in\nthe identical two ways `CdcReadResult` documents (within-epoch trim, or\nan epoch reset from a process restart / `ClearGraph`/`FromMsgpack`/\n`Reconcile`) — an empty `events` used to be indistinguishable from \"caught\nup\". `gap: true` makes that explicit (`events` is then always empty);\n`watermark`/`head_seq`/`epoch` carry the same meaning as on\n`CdcReadResult` so a caller resuming `Watch` can detect the gap exactly\nthe same way.",
+      "properties": {
+        "epoch": {
+          "default": 0,
+          "description": "This hub instance's process-lifetime epoch id. See `CdcReadResult::epoch`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/CdcEvent"
+          },
+          "type": "array"
+        },
+        "gap": {
+          "default": false,
+          "description": "True when `from_seq` could not be served contiguously (see the struct\ndoc). `events` is always empty when `gap` is true.",
+          "type": "boolean"
+        },
+        "head_seq": {
+          "default": 0,
+          "description": "The current head seq (next to be assigned) for this graph in this epoch.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "next_seq": {
+          "description": "The cursor to pass as `from_seq` next time (one past the last delivered seq).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "watermark": {
+          "default": 0,
+          "description": "Oldest seq this epoch's ring can currently vouch for. See\n`CdcReadResult::watermark` — same field, same ephemeral-ring caveat.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "events",
+        "next_seq"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "methods": {
+    "BindQueue": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BrokerAck": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BrokerAckTag": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BrokerConsume": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              true
+            ],
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BrokerNackTag": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BrokerReject": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BrokerRenewTag": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CdcRead": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/CdcReadResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CepPoll": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/CepMatch"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CepSubscribe": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CepUnsubscribe": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CloseChannel": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ChannelDeparture"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CreateChannel": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ChannelCreated"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DeclareExchange": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DeclareQueue": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DeleteExchange": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DropContinuousQuery": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DropTrigger": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FiredTriggers": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/FiredTriggersResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetChannelMembers": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Ids",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetChannelMessages": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/ChannelMessage"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "JoinChannel": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "LeaveChannel": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ChannelDeparture"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ListChannels": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/ChannelSummary"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ListTriggers": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/TriggerInfo"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Publish": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "PublishConfirmed": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ConfirmToken"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "PublishEx": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "PublishIdempotent": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/IdempotentPublish"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ReadContinuousQuery": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ContinuousQueryResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RegisterContinuousQuery": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RegisterTrigger": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "SendMessage": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "StreamCommitOffset": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "StreamCommittedOffset": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "StreamDeclare": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "StreamPublish": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "StreamRead": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                {
+                  "items": {
+                    "format": "uint8",
+                    "maximum": 255,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "StreamTrim": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "SweepExpired": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "UnbindQueue": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Watch": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/WatchBatch"
+          }
+        }
+      },
+      "selected_by": null
+    }
+  },
+  "title": "messaging method results"
+}

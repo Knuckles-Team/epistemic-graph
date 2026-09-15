@@ -7,12 +7,14 @@ and all mandatory workflow coverage remain owned by the parent gate.
 
 from __future__ import annotations
 
+import subprocess
 import sys
+from pathlib import Path
+from typing import Any
 
+import push_gate_evidence
 import pytest
-
-import scripts.push_gate_evidence as push_gate_evidence
-from scripts.push_gate_evidence import (
+from push_gate_evidence import (
     SUBSET_PROOFS,
     EvidenceStore,
     Selection,
@@ -25,7 +27,16 @@ from scripts.push_gate_evidence import (
 pytestmark = pytest.mark.no_engine
 
 
-def _success(selection: Selection) -> dict[str, object]:
+def test_imports_worktree_local_evidence_module() -> None:
+    module_path = Path(push_gate_evidence.__file__).resolve(strict=True)
+    expected_path = (
+        Path(__file__).resolve().parents[1] / "scripts/push_gate_evidence.py"
+    )
+
+    assert module_path == expected_path
+
+
+def _success(selection: Selection) -> dict[str, Any]:
     return {
         "status": "success",
         "exitCode": 0,
@@ -40,7 +51,7 @@ def _success(selection: Selection) -> dict[str, object]:
     }
 
 
-def _document(selection: Selection, *, status: str = "complete") -> dict[str, object]:
+def _document(selection: Selection, *, status: str = "complete") -> dict[str, Any]:
     key = selection.selection_digest
     return {
         "status": status,
@@ -64,13 +75,11 @@ def test_exact_reuse_requires_complete_success_and_identical_selection() -> None
     )
 
     failed = _document(selection)
-    failed["results"][selection.selection_digest]["status"] = "failed"  # type: ignore[index]
+    failed["results"][selection.selection_digest]["status"] = "failed"
     assert not EvidenceStore._admissible(failed, selection)
 
     tampered = _document(selection)
-    tampered["results"][selection.selection_digest]["resultDigest"] = (
-        "sha256:tampered"
-    )  # type: ignore[index]
+    tampered["results"][selection.selection_digest]["resultDigest"] = "sha256:tampered"
     assert not EvidenceStore._admissible(tampered, selection)
 
     different_environment = Selection.from_argv(
@@ -122,7 +131,7 @@ def test_subset_proof_does_not_make_an_unplanned_exact_result_admissible() -> No
         environment=environment,
     )
     document = _document(requested)
-    del document["plan"][requested.selection_digest]  # type: ignore[index]
+    del document["plan"][requested.selection_digest]
 
     assert requested.selection_digest not in document["plan"]
     assert not EvidenceStore._admissible(document, requested)
@@ -146,20 +155,24 @@ def test_cli_run_preserves_command_boundary(monkeypatch: pytest.MonkeyPatch) -> 
         )
         return 17
 
-    monkeypatch.setattr(sys, "argv", [
-        "push_gate_evidence.py",
-        "run",
-        "--selection",
-        "fixture-run",
-        "--kind",
-        "cargo",
-        "--produce-only",
-        "--",
-        "cargo",
-        "test",
-        "-p",
-        "eg-core",
-    ])
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "push_gate_evidence.py",
+            "run",
+            "--selection",
+            "fixture-run",
+            "--kind",
+            "cargo",
+            "--produce-only",
+            "--",
+            "cargo",
+            "test",
+            "-p",
+            "eg-core",
+        ],
+    )
     monkeypatch.setattr(push_gate_evidence, "run_or_consume", fake_run_or_consume)
 
     assert push_gate_evidence._cli() == 17
@@ -182,3 +195,41 @@ def test_cli_finalize_without_invocation_returns_cache_miss(
     )
 
     assert push_gate_evidence._cli() == 2
+
+
+def test_hostile_git_environment_cannot_redirect_fingerprint_or_private_gitdir(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    expected_git_directory = push_gate_evidence._git_directory()
+    expected_source = push_gate_evidence.source_fingerprint()
+    decoy = tmp_path / "decoy"
+    subprocess.run(
+        ["git", "init", "--quiet", str(decoy)],
+        check=True,
+        env=push_gate_evidence.sanitized_git_env(),
+    )
+    decoy_git_directory = (decoy / ".git").resolve(strict=True)
+    assert decoy_git_directory != expected_git_directory
+
+    hostile_environment = {
+        "GIT_DIR": str(decoy_git_directory),
+        "GIT_WORK_TREE": str(decoy),
+        "GIT_COMMON_DIR": str(decoy_git_directory),
+        "GIT_INDEX_FILE": str(decoy_git_directory / "index"),
+        "GIT_OBJECT_DIRECTORY": str(decoy_git_directory / "objects"),
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(decoy_git_directory / "objects"),
+        "GIT_CEILING_DIRECTORIES": str(decoy.parent),
+        "GIT_NAMESPACE": "redirected",
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "core.worktree",
+        "GIT_CONFIG_VALUE_0": str(decoy),
+        "GIT_CONFIG_GLOBAL": str(decoy / "global.gitconfig"),
+        "GIT_CONFIG_SYSTEM": str(decoy / "system.gitconfig"),
+    }
+    for key, value in hostile_environment.items():
+        monkeypatch.setenv(key, value)
+
+    assert push_gate_evidence.source_fingerprint() == expected_source
+    assert push_gate_evidence.source_fingerprint(hostile_environment) == expected_source
+    assert push_gate_evidence._git_directory() == expected_git_directory

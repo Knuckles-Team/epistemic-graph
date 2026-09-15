@@ -159,9 +159,10 @@ async def assert_parity(
         assert socket_exc is not None
         raise socket_exc
 
-    assert (
-        socket_result == embedded_result
-    ), f"{method}: result mismatch -- socket={socket_result!r} embedded={embedded_result!r}"
+    assert socket_result == embedded_result, (
+        f"{method}: result mismatch -- socket={socket_result!r} "
+        f"embedded={embedded_result!r}"
+    )
     return socket_result
 
 
@@ -191,19 +192,19 @@ async def assert_rls_isolation(
     owner_embedded, owner_embedded_exc = await _try_send(
         owner.embedded, method, params, graph
     )
-    assert (
-        owner_socket_exc is None
-    ), f"{method}: owner's own socket read failed: {owner_socket_exc!r}"
-    assert (
-        owner_embedded_exc is None
-    ), f"{method}: owner's own embedded read failed: {owner_embedded_exc!r}"
+    assert owner_socket_exc is None, (
+        f"{method}: owner's own socket read failed: {owner_socket_exc!r}"
+    )
+    assert owner_embedded_exc is None, (
+        f"{method}: owner's own embedded read failed: {owner_embedded_exc!r}"
+    )
     assert owner_socket == owner_embedded, (
         f"{method}: owner result mismatch across transports -- "
         f"socket={owner_socket!r} embedded={owner_embedded!r}"
     )
-    assert (
-        owner_socket
-    ), f"{method}: owner unexpectedly saw nothing -- was the data actually written?"
+    assert owner_socket, (
+        f"{method}: owner unexpectedly saw nothing -- was the data actually written?"
+    )
 
     other_socket, other_socket_exc = await _try_send(
         other.socket, method, params, graph
@@ -217,9 +218,9 @@ async def assert_rls_isolation(
         f"socket={other_socket_exc!r} embedded={other_embedded_exc!r}"
     )
     if other_socket_exc is None:
-        assert (
-            not other_socket
-        ), f"{method}: other unexpectedly saw owner's data (socket)"
-        assert (
-            not other_embedded
-        ), f"{method}: other unexpectedly saw owner's data (embedded)"
+        assert not other_socket, (
+            f"{method}: other unexpectedly saw owner's data (socket)"
+        )
+        assert not other_embedded, (
+            f"{method}: other unexpectedly saw owner's data (embedded)"
+        )

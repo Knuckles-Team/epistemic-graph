@@ -28,12 +28,12 @@ async def _run(ops: int) -> dict[str, float]:
     proc = subprocess.Popen(
         [str(SERVER), "--socket-path", sock],
         env={
-                **os.environ,
-                # Benchmarks measure pure transport: run unauthenticated,
-                # which now requires the explicit insecure opt-out.
-                "GRAPH_SERVICE_AUTH_SECRET": "",
-                "EPISTEMIC_GRAPH_ALLOW_INSECURE": "1",
-            },
+            **os.environ,
+            # Benchmarks measure pure transport: run unauthenticated,
+            # which now requires the explicit insecure opt-out.
+            "GRAPH_SERVICE_AUTH_SECRET": "",
+            "EPISTEMIC_GRAPH_ALLOW_INSECURE": "1",
+        },
     )
     try:
         # Wait for the socket to appear.
@@ -42,7 +42,20 @@ async def _run(ops: int) -> dict[str, float]:
                 break
             await asyncio.sleep(0.05)
 
-        client = await EpistemicGraphClient.connect(socket_path=sock, graph_name="bench")
+        client = await EpistemicGraphClient.connect(
+            socket_path=sock,
+            graph_name="bench",
+            verified_context={
+                "principal": "bench-agent",
+                "tenant": "bench",
+                "audience": "epistemic-graph-bench",
+                "agent_id": "bench-agent",
+                "roles": ["bench-agent"],
+                "scopes": ["*"],
+                "policy_version": "bench",
+                "delegation": [],
+            },
+        )
         await client.tenants.create("bench")
 
         add_lat: list[float] = []
@@ -92,7 +105,9 @@ def main() -> None:
     print("epistemic-graph UDS transport benchmark")
     print(f"  ops:        {res['ops']}")
     print(f"  AddNode     p50={res['add_p50_ms']:.3f}ms  p99={res['add_p99_ms']:.3f}ms")
-    print(f"  GetNodeProps p50={res['get_p50_ms']:.3f}ms  p99={res['get_p99_ms']:.3f}ms")
+    print(
+        f"  GetNodeProps p50={res['get_p50_ms']:.3f}ms  p99={res['get_p99_ms']:.3f}ms"
+    )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,5518 @@
+{
+  "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
+  "$defs": {
+    "AdamResult": {
+      "description": "One Adam step: the updated parameters and moment estimates.",
+      "properties": {
+        "m": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "params": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "v": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "params",
+        "m",
+        "v"
+      ],
+      "type": "object"
+    },
+    "AdfResult": {
+      "description": "Augmented Dickey-Fuller test result.",
+      "properties": {
+        "crit_10pct": {
+          "format": "double",
+          "type": "number"
+        },
+        "crit_1pct": {
+          "description": "Finite-sample-interpolated MacKinnon critical values (constant, no trend).",
+          "format": "double",
+          "type": "number"
+        },
+        "crit_5pct": {
+          "format": "double",
+          "type": "number"
+        },
+        "n_obs": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "p_value_approx": {
+          "description": "Approximate p-value (monotone interpolation across the critical points).",
+          "format": "double",
+          "type": "number"
+        },
+        "stationary_10pct": {
+          "type": "boolean"
+        },
+        "stationary_1pct": {
+          "type": "boolean"
+        },
+        "stationary_5pct": {
+          "type": "boolean"
+        },
+        "statistic": {
+          "format": "double",
+          "type": "number"
+        },
+        "used_lag": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "statistic",
+        "used_lag",
+        "n_obs",
+        "crit_1pct",
+        "crit_5pct",
+        "crit_10pct",
+        "p_value_approx",
+        "stationary_1pct",
+        "stationary_5pct",
+        "stationary_10pct"
+      ],
+      "type": "object"
+    },
+    "AnomalyMiningResult": {
+      "description": "`MineAnomaly`.",
+      "properties": {
+        "n_anomalies": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_rows": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/AnomalyRow"
+          },
+          "type": "array"
+        },
+        "threshold": {
+          "format": "double",
+          "type": "number"
+        },
+        "written_back": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rows",
+        "n_rows",
+        "n_anomalies",
+        "threshold",
+        "written_back"
+      ],
+      "type": "object"
+    },
+    "AnomalyRow": {
+      "description": "One scored row of `MineAnomaly`.",
+      "properties": {
+        "anomaly_score": {
+          "format": "double",
+          "type": "number"
+        },
+        "id": {
+          "$ref": "#/$defs/RowRef"
+        },
+        "is_anomaly": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "anomaly_score",
+        "is_anomaly"
+      ],
+      "type": "object"
+    },
+    "AssociationMiningResult": {
+      "description": "`MineAssociate`.",
+      "properties": {
+        "n_rules": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_transactions": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rules": {
+          "items": {
+            "$ref": "#/$defs/AssociationRuleRow"
+          },
+          "type": "array"
+        },
+        "written_back": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rules",
+        "n_transactions",
+        "n_rules",
+        "written_back"
+      ],
+      "type": "object"
+    },
+    "AssociationRuleRow": {
+      "description": "One association rule.",
+      "properties": {
+        "antecedent": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "confidence": {
+          "format": "double",
+          "type": "number"
+        },
+        "consequent": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "lift": {
+          "format": "double",
+          "type": "number"
+        },
+        "support": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "antecedent",
+        "consequent",
+        "support",
+        "confidence",
+        "lift"
+      ],
+      "type": "object"
+    },
+    "CausalImpactMiningResult": {
+      "description": "`MineCausalImpact`.",
+      "properties": {
+        "confidence": {
+          "format": "double",
+          "type": "number"
+        },
+        "effect_size": {
+          "format": "double",
+          "type": "number"
+        },
+        "method": {
+          "description": "`its` (interrupted time series) or `did` (difference in differences).",
+          "type": "string"
+        },
+        "post_mean": {
+          "format": "double",
+          "type": "number"
+        },
+        "pre_mean": {
+          "format": "double",
+          "type": "number"
+        },
+        "relative_effect": {
+          "format": "double",
+          "type": "number"
+        },
+        "std_error": {
+          "format": "double",
+          "type": "number"
+        },
+        "written_back": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "pre_mean",
+        "post_mean",
+        "effect_size",
+        "relative_effect",
+        "std_error",
+        "confidence",
+        "method",
+        "written_back"
+      ],
+      "type": "object"
+    },
+    "CausalRelationRow": {
+      "description": "A causal (`from` → `to`) activity relation.",
+      "properties": {
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "type": "object"
+    },
+    "ClassificationMiningResult": {
+      "description": "`MineClassifyPredict`.",
+      "properties": {
+        "classes": {
+          "items": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "n_rows": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/ClassifiedRow"
+          },
+          "type": "array"
+        },
+        "written_back": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rows",
+        "classes",
+        "n_rows",
+        "written_back"
+      ],
+      "type": "object"
+    },
+    "ClassifiedRow": {
+      "description": "One classified row of `MineClassifyPredict`.",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RowRef"
+        },
+        "label": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "proba": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "proba"
+      ],
+      "type": "object"
+    },
+    "ClassifierFitResult": {
+      "description": "`MineClassifyFit`: the fitted classifier, passed back to `MineClassifyPredict`.",
+      "properties": {
+        "algorithm": {
+          "type": "string"
+        },
+        "classes": {
+          "items": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "model": {
+          "$ref": "#/$defs/FittedClassifier"
+        },
+        "n_samples": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "model",
+        "algorithm",
+        "n_samples",
+        "classes"
+      ],
+      "type": "object"
+    },
+    "ClassifyPrediction": {
+      "description": "Predictions of a `classify`-family model.",
+      "properties": {
+        "classes": {
+          "items": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "model_id": {
+          "type": "string"
+        },
+        "n_rows": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/PipelineClassifiedRow"
+          },
+          "type": "array"
+        },
+        "written_back": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "model_id",
+        "rows",
+        "classes",
+        "n_rows",
+        "written_back"
+      ],
+      "type": "object"
+    },
+    "ClusterExpansion": {
+      "description": "`ClusterHierarchyExpand`: a level-1 cluster expands to its member nodes and edges\n(`child_clusters` empty); a coarser cluster expands to its children one level\nfiner (`nodes` and `edges` empty).",
+      "properties": {
+        "child_clusters": {
+          "items": {
+            "$ref": "#/$defs/ClusterSummary"
+          },
+          "type": "array"
+        },
+        "edges": {
+          "items": {
+            "$ref": "#/$defs/ClusterMemberEdge"
+          },
+          "type": "array"
+        },
+        "nodes": {
+          "items": {
+            "$ref": "#/$defs/ClusterMemberNode"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "nodes",
+        "edges",
+        "child_clusters"
+      ],
+      "type": "object"
+    },
+    "ClusterHierarchySummary": {
+      "description": "`ClusterHierarchyRefresh`: what was computed and whether it was cached durably.",
+      "properties": {
+        "base_edge_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "base_node_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cached": {
+          "description": "`false` when the backend has no persistence to cache the hierarchy in.",
+          "type": "boolean"
+        },
+        "graph": {
+          "type": "string"
+        },
+        "levels": {
+          "description": "Number of computed levels (level 1 is the finest).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "top_level_clusters": {
+          "description": "Cluster count of the coarsest level; 0 when no level was computed.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "graph",
+        "levels",
+        "base_node_count",
+        "base_edge_count",
+        "top_level_clusters",
+        "cached"
+      ],
+      "type": "object"
+    },
+    "ClusterLevelView": {
+      "description": "`ClusterHierarchyClusters`: one level of the cached hierarchy.",
+      "properties": {
+        "clusters": {
+          "items": {
+            "$ref": "#/$defs/ClusterSummary"
+          },
+          "type": "array"
+        },
+        "inter_cluster_edges": {
+          "items": {
+            "$ref": "#/$defs/InterClusterEdge"
+          },
+          "type": "array"
+        },
+        "level": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "level",
+        "clusters",
+        "inter_cluster_edges"
+      ],
+      "type": "object"
+    },
+    "ClusterMemberEdge": {
+      "description": "An edge between two member nodes of a level-1 cluster.",
+      "properties": {
+        "dst_id": {
+          "type": "string"
+        },
+        "src_id": {
+          "type": "string"
+        },
+        "type": {
+          "description": "The edge's `relationship` property, or `\"_\"` when it has none.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "src_id",
+        "dst_id",
+        "type"
+      ],
+      "type": "object"
+    },
+    "ClusterMemberNode": {
+      "description": "A member node of a level-1 cluster, read live off the graph.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "properties": {
+          "description": "The node's stored properties, decoded; `null` when undecodable."
+        }
+      },
+      "required": [
+        "id",
+        "properties"
+      ],
+      "type": "object"
+    },
+    "ClusterMiningResult": {
+      "description": "`MineCluster`.",
+      "properties": {
+        "clusters": {
+          "items": {
+            "$ref": "#/$defs/ClusterRow"
+          },
+          "type": "array"
+        },
+        "labels": {
+          "items": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "n_clusters": {
+          "description": "Clusters with a non-negative id.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_rows": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "responsibilities": {
+          "description": "Per-row soft assignments; present only for a mixture model.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "written_back": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "clusters",
+        "labels",
+        "n_rows",
+        "n_clusters",
+        "written_back"
+      ],
+      "type": "object"
+    },
+    "ClusterRow": {
+      "description": "One cluster; `cluster_id` is negative for a noise bucket.",
+      "properties": {
+        "centroid": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "cluster_id": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/RowRef"
+          },
+          "type": "array"
+        },
+        "score": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "cluster_id",
+        "members",
+        "centroid",
+        "score"
+      ],
+      "type": "object"
+    },
+    "ClusterSummary": {
+      "description": "One cluster as served to a visualization client.",
+      "properties": {
+        "edge_count": {
+          "description": "Sum of internal-edge weight (directed).",
+          "format": "double",
+          "type": "number"
+        },
+        "id": {
+          "description": "Stable, globally-addressable id: `\"L{level}-{local_index}\"`.",
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "node_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "top_node_types": {
+          "description": "Up to 5 most common node types among the members, descending.",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "node_count",
+        "edge_count",
+        "top_node_types"
+      ],
+      "type": "object"
+    },
+    "CommunityMiningResult": {
+      "description": "`MineCommunity`.",
+      "properties": {
+        "communities": {
+          "items": {
+            "$ref": "#/$defs/CommunityRow"
+          },
+          "type": "array"
+        },
+        "deadline_hit": {
+          "description": "`true` when the budget expired before convergence: the partition is the\nbest found so far, and a writeback has already persisted it.",
+          "type": "boolean"
+        },
+        "modularity": {
+          "description": "`null` for an algorithm that does not optimize modularity.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "n_nodes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "written_back": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "communities",
+        "n_nodes",
+        "written_back",
+        "deadline_hit"
+      ],
+      "type": "object"
+    },
+    "CommunityRow": {
+      "description": "One detected community.",
+      "properties": {
+        "density": {
+          "format": "double",
+          "type": "number"
+        },
+        "members": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "members",
+        "density"
+      ],
+      "type": "object"
+    },
+    "ConvergenceGate": {
+      "description": "Conviction gate over N signal strengths.",
+      "properties": {
+        "agree": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "direction": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "fraction": {
+          "format": "double",
+          "type": "number"
+        },
+        "pass": {
+          "type": "boolean"
+        },
+        "total": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "agree",
+        "total",
+        "fraction",
+        "direction",
+        "pass"
+      ],
+      "type": "object"
+    },
+    "CrossEntropyResult": {
+      "description": "Mean categorical cross-entropy and its gradient w.r.t. the logits.",
+      "properties": {
+        "grad": {
+          "description": "dL/dlogits, shape == logits (softmax - one_hot, averaged over the batch).",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "loss": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "loss",
+        "grad"
+      ],
+      "type": "object"
+    },
+    "CvSplit": {
+      "description": "One purged combinatorial cross-validation split.",
+      "properties": {
+        "test": {
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "train": {
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "train",
+        "test"
+      ],
+      "type": "object"
+    },
+    "DatasetStats": {
+      "description": "Dataset statistics.",
+      "properties": {
+        "correlation_matrix": {
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "maxs": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "means": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "mins": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "n_features": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_samples": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stds": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "means",
+        "stds",
+        "mins",
+        "maxs",
+        "correlation_matrix",
+        "n_samples",
+        "n_features"
+      ],
+      "type": "object"
+    },
+    "DecisionTree": {
+      "properties": {
+        "nodes": {
+          "items": {
+            "$ref": "#/$defs/TreeNode"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "nodes"
+      ],
+      "type": "object"
+    },
+    "DieboldMariano": {
+      "description": "Diebold-Mariano test of equal predictive accuracy.",
+      "properties": {
+        "a_better": {
+          "type": "boolean"
+        },
+        "p_value": {
+          "format": "double",
+          "type": "number"
+        },
+        "statistic": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "statistic",
+        "p_value",
+        "a_better"
+      ],
+      "type": "object"
+    },
+    "DirectlyFollowsRow": {
+      "description": "A directly-follows edge between two activities.",
+      "properties": {
+        "count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "count"
+      ],
+      "type": "object"
+    },
+    "DistResult": {
+      "description": "The result of a distributed computation, in a wire-ready form. Serialized to\n`ResultPayload::Raw` by the handler.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "PageRank: `(id, score)` rows, sorted by id (deterministic).",
+          "properties": {
+            "Scores": {
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "format": "double",
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "Scores"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Connected components: `(id, component_repr_index)` rows, sorted by id. The\ncomponent label is the index of the component's representative in the sorted\nvertex list (a stable small int), so it round-trips losslessly.",
+          "properties": {
+            "Labels": {
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "format": "int64",
+                    "type": "integer"
+                  }
+                ],
+                "type": "array"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "Labels"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DocTerms": {
+      "description": "A document's weighted terms.",
+      "properties": {
+        "doc_id": {
+          "type": "string"
+        },
+        "terms": {
+          "items": {
+            "$ref": "#/$defs/TermWeight"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "doc_id",
+        "terms"
+      ],
+      "type": "object"
+    },
+    "DpoResult": {
+      "description": "Bradley-Terry DPO loss and its gradients w.r.t. the chosen/rejected log-probs.",
+      "properties": {
+        "grad_chosen": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "grad_rejected": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "loss": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "loss",
+        "grad_chosen",
+        "grad_rejected"
+      ],
+      "type": "object"
+    },
+    "EdgeFunctionRow": {
+      "description": "One learned first-layer edge function.",
+      "properties": {
+        "basis": {
+          "description": "Polynomial basis family: `chebyshev` or `jacobi`.",
+          "type": "string"
+        },
+        "coefficients": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "feature": {
+          "type": "string"
+        },
+        "hidden_output": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "feature",
+        "hidden_output",
+        "basis",
+        "coefficients"
+      ],
+      "type": "object"
+    },
+    "EntityMatchRow": {
+      "description": "One matched record pair.",
+      "properties": {
+        "block_key": {
+          "type": "string"
+        },
+        "left": {
+          "type": "string"
+        },
+        "right": {
+          "type": "string"
+        },
+        "similarity": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "left",
+        "right",
+        "similarity",
+        "block_key"
+      ],
+      "type": "object"
+    },
+    "EntityResolutionMiningResult": {
+      "description": "`MineEntityResolve`.",
+      "properties": {
+        "matches": {
+          "items": {
+            "$ref": "#/$defs/EntityMatchRow"
+          },
+          "type": "array"
+        },
+        "n_matches": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_records": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "written_back": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "matches",
+        "n_records",
+        "n_matches",
+        "written_back"
+      ],
+      "type": "object"
+    },
+    "EstimatorPrediction": {
+      "description": "Predictions of an `estimator`-family model.",
+      "properties": {
+        "model_id": {
+          "type": "string"
+        },
+        "n_rows": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/PipelineValueRow"
+          },
+          "type": "array"
+        },
+        "written_back": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "model_id",
+        "rows",
+        "n_rows",
+        "written_back"
+      ],
+      "type": "object"
+    },
+    "Fill": {
+      "description": "Fill result from order matching.",
+      "properties": {
+        "fill_price": {
+          "format": "double",
+          "type": "number"
+        },
+        "fill_quantity": {
+          "format": "double",
+          "type": "number"
+        },
+        "order_id": {
+          "type": "string"
+        },
+        "side": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "order_id",
+        "fill_price",
+        "fill_quantity",
+        "side"
+      ],
+      "type": "object"
+    },
+    "FittedClassifier": {
+      "description": "Serializable fitted classifier returned by `mining::classify::fit` and consumed\nback by `mining::classify::predict` (the PREDICTIVE fit→blob→predict pair). Lives\nin eg-types so `Method::MineClassifyPredict` can embed the model over the wire —\nexactly like `FittedModel` carries the datascience regressors. `classes` is the\nsorted set of integer labels; every score/proba vector is column-ordered by it.",
+      "oneOf": [
+        {
+          "description": "Gaussian Naive Bayes — per-class prior + per-feature (mean, variance).",
+          "properties": {
+            "kind": {
+              "const": "GaussianNb",
+              "type": "string"
+            },
+            "model": {
+              "properties": {
+                "classes": {
+                  "items": {
+                    "format": "int64",
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "means": {
+                  "items": {
+                    "items": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": "array"
+                  },
+                  "type": "array"
+                },
+                "priors": {
+                  "items": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                "vars": {
+                  "items": {
+                    "items": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": "array"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "classes",
+                "priors",
+                "means",
+                "vars"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "model"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Multinomial Naive Bayes — per-class log-prior + Laplace-smoothed feature log-probs.",
+          "properties": {
+            "kind": {
+              "const": "MultinomialNb",
+              "type": "string"
+            },
+            "model": {
+              "properties": {
+                "class_log_prior": {
+                  "items": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                "classes": {
+                  "items": {
+                    "format": "int64",
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "feature_log_prob": {
+                  "items": {
+                    "items": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": "array"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "classes",
+                "class_log_prior",
+                "feature_log_prob"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "model"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "k-NN — the lazy classifier stores its training rows + labels for the vote.",
+          "properties": {
+            "kind": {
+              "const": "Knn",
+              "type": "string"
+            },
+            "model": {
+              "properties": {
+                "classes": {
+                  "items": {
+                    "format": "int64",
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "k": {
+                  "format": "uint",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "x": {
+                  "items": {
+                    "items": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": "array"
+                  },
+                  "type": "array"
+                },
+                "y": {
+                  "items": {
+                    "format": "int64",
+                    "type": "integer"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "k",
+                "classes",
+                "x",
+                "y"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "model"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "One-vs-rest linear classifier (`kind` = `logistic` | `svc`): a weight vector +\nbias per class. Prediction is argmax of the per-class score.",
+          "properties": {
+            "kind": {
+              "const": "LinearOvr",
+              "type": "string"
+            },
+            "model": {
+              "properties": {
+                "biases": {
+                  "items": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                "classes": {
+                  "items": {
+                    "format": "int64",
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "weights": {
+                  "items": {
+                    "items": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": "array"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "kind",
+                "classes",
+                "weights",
+                "biases"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "model"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "FittedModel": {
+      "description": "Serializable fitted model returned by `fit_estimator`.",
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "Linear",
+              "type": "string"
+            },
+            "model": {
+              "properties": {
+                "coefficients": {
+                  "items": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                "intercept": {
+                  "format": "double",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "coefficients",
+                "intercept"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "model"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "Tree",
+              "type": "string"
+            },
+            "model": {
+              "$ref": "#/$defs/DecisionTree"
+            }
+          },
+          "required": [
+            "kind",
+            "model"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "Forest",
+              "type": "string"
+            },
+            "model": {
+              "properties": {
+                "trees": {
+                  "items": {
+                    "$ref": "#/$defs/DecisionTree"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "trees"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "model"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "GradientBoosting",
+              "type": "string"
+            },
+            "model": {
+              "properties": {
+                "init": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "learning_rate": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "trees": {
+                  "items": {
+                    "$ref": "#/$defs/DecisionTree"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "init",
+                "learning_rate",
+                "trees"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "model"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "AdaBoost",
+              "type": "string"
+            },
+            "model": {
+              "properties": {
+                "trees": {
+                  "items": {
+                    "$ref": "#/$defs/DecisionTree"
+                  },
+                  "type": "array"
+                },
+                "weights": {
+                  "items": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "trees",
+                "weights"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "model"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "Svr",
+              "type": "string"
+            },
+            "model": {
+              "properties": {
+                "dual_coef": {
+                  "items": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": "array"
+                },
+                "gamma": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "intercept": {
+                  "format": "double",
+                  "type": "number"
+                },
+                "kernel": {
+                  "type": "string"
+                },
+                "support_vectors": {
+                  "items": {
+                    "items": {
+                      "format": "double",
+                      "type": "number"
+                    },
+                    "type": "array"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "support_vectors",
+                "dual_coef",
+                "intercept",
+                "kernel",
+                "gamma"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "model"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ForecastMiningResult": {
+      "description": "`MineForecast`.",
+      "properties": {
+        "algorithm": {
+          "type": "string"
+        },
+        "forecast": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "horizon": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lower": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "n_obs": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "residual": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "seasonal": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "trend": {
+          "description": "STL decomposition components; present only for the `stl` algorithm.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "upper": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "written_back": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "forecast",
+        "lower",
+        "upper",
+        "algorithm",
+        "horizon",
+        "n_obs",
+        "written_back"
+      ],
+      "type": "object"
+    },
+    "ForensicReport": {
+      "description": "Forensic-accounting scores for one fiscal year against the prior one.",
+      "properties": {
+        "accruals_ratio": {
+          "format": "double",
+          "type": "number"
+        },
+        "f_score": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "flags": {
+          "description": "Human-readable flags that crossed a threshold.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "m_score": {
+          "format": "double",
+          "type": "number"
+        },
+        "verdict": {
+          "type": "string"
+        },
+        "z_score": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "m_score",
+        "z_score",
+        "f_score",
+        "accruals_ratio",
+        "flags",
+        "verdict"
+      ],
+      "type": "object"
+    },
+    "GraphlearnPrediction": {
+      "description": "The top missing links scored by a `graphlearn`-family model.",
+      "properties": {
+        "model_id": {
+          "type": "string"
+        },
+        "n_predicted": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "predicted": {
+          "items": {
+            "$ref": "#/$defs/PredictedLink"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "model_id",
+        "predicted",
+        "n_predicted"
+      ],
+      "type": "object"
+    },
+    "GrpoResult": {
+      "description": "PPO/GRPO clipped surrogate loss and its gradient w.r.t. `logprob`.",
+      "properties": {
+        "grad": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "loss": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "loss",
+        "grad"
+      ],
+      "type": "object"
+    },
+    "GspanMiningResult": {
+      "description": "gSpan frequent-subgraph patterns.",
+      "properties": {
+        "algorithm": {
+          "type": "string"
+        },
+        "n_host_edges": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_host_nodes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "patterns": {
+          "items": {
+            "$ref": "#/$defs/SubgraphPatternRow"
+          },
+          "type": "array"
+        },
+        "written_back": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "patterns",
+        "algorithm",
+        "n_host_nodes",
+        "n_host_edges",
+        "written_back"
+      ],
+      "type": "object"
+    },
+    "HawkesFit": {
+      "description": "An exponential-kernel Hawkes process fit.",
+      "properties": {
+        "alpha": {
+          "format": "double",
+          "type": "number"
+        },
+        "beta": {
+          "format": "double",
+          "type": "number"
+        },
+        "branching_ratio": {
+          "format": "double",
+          "type": "number"
+        },
+        "converged": {
+          "type": "boolean"
+        },
+        "half_life_seconds": {
+          "format": "double",
+          "type": "number"
+        },
+        "log_likelihood": {
+          "format": "double",
+          "type": "number"
+        },
+        "mu": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "mu",
+        "alpha",
+        "beta",
+        "branching_ratio",
+        "half_life_seconds",
+        "log_likelihood",
+        "converged"
+      ],
+      "type": "object"
+    },
+    "InterClusterEdge": {
+      "description": "An edge between two clusters of one served level, by array-local index into\nthat response's `clusters`.",
+      "properties": {
+        "dst_idx": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "src_idx": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "weight": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "src_idx",
+        "dst_idx",
+        "weight"
+      ],
+      "type": "object"
+    },
+    "KMeansResult": {
+      "description": "Result of K-means clustering.",
+      "properties": {
+        "centroids": {
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "inertia": {
+          "format": "double",
+          "type": "number"
+        },
+        "labels": {
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "n_iterations": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "labels",
+        "centroids",
+        "inertia",
+        "n_iterations"
+      ],
+      "type": "object"
+    },
+    "KalmanState": {
+      "description": "Filtered states and variances of a scalar Kalman filter.",
+      "properties": {
+        "states": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "variances": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "states",
+        "variances"
+      ],
+      "type": "object"
+    },
+    "LinkPrediction": {
+      "description": "`GraphLearnPredict`: scored links and the model digest that scored them.",
+      "properties": {
+        "model": {
+          "description": "Digest of the model, `kanlink:<hex>`.",
+          "type": "string"
+        },
+        "n_predicted": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "predicted": {
+          "items": {
+            "$ref": "#/$defs/PredictedLink"
+          },
+          "type": "array"
+        },
+        "written_back": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "predicted",
+        "n_predicted",
+        "model",
+        "written_back"
+      ],
+      "type": "object"
+    },
+    "LinkPredictorFit": {
+      "description": "`GraphLearnFit`: the fitted model and a summary of what it learned.",
+      "properties": {
+        "basis": {
+          "type": "string"
+        },
+        "degree": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "edge_functions": {
+          "items": {
+            "$ref": "#/$defs/EdgeFunctionRow"
+          },
+          "type": "array"
+        },
+        "edge_functions_written": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "model": {
+          "description": "The fitted model, passed back verbatim to `GraphLearnPredict`. Opaque on the\nwire (the request carries it as JSON too), so no KAN type leaks here."
+        },
+        "n_edges": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_nodes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "train_auc": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "model",
+        "n_nodes",
+        "n_edges",
+        "train_auc",
+        "basis",
+        "degree",
+        "edge_functions",
+        "edge_functions_written"
+      ],
+      "type": "object"
+    },
+    "MergeProposal": {
+      "description": "One proposed entity-resolution action returned by `ResolveCandidates`.\n\nThe compute implementation owns the algorithm and therefore cannot be a\ndependency of this bottom-of-DAG crate. This wire mirror keeps the result\ncontract typed while preserving the implementation's four serialized fields.",
+      "properties": {
+        "canonical": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "members": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "score": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "canonical",
+        "members",
+        "score",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "MotifCountsRow": {
+      "description": "Three-node motif counts.",
+      "properties": {
+        "directed_cycle3": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "triangle": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "wedge": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "wedge",
+        "triangle",
+        "directed_cycle3"
+      ],
+      "type": "object"
+    },
+    "MotifMiningResult": {
+      "description": "Motif counting over the host graph; never writes back.",
+      "properties": {
+        "algorithm": {
+          "type": "string"
+        },
+        "motifs": {
+          "$ref": "#/$defs/MotifCountsRow"
+        },
+        "n_host_edges": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_host_nodes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "written_back": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "motifs",
+        "algorithm",
+        "n_host_nodes",
+        "n_host_edges",
+        "written_back"
+      ],
+      "type": "object"
+    },
+    "OntologyGapMiningResult": {
+      "description": "`MineOntologyGap`.",
+      "properties": {
+        "gaps": {
+          "items": {
+            "$ref": "#/$defs/OntologyGapRow"
+          },
+          "type": "array"
+        },
+        "n_classes": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_gaps": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "written_back": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "gaps",
+        "n_classes",
+        "n_gaps",
+        "written_back"
+      ],
+      "type": "object"
+    },
+    "OntologyGapRow": {
+      "description": "One ontology gap.",
+      "properties": {
+        "class": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "severity": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "class",
+        "kind",
+        "severity"
+      ],
+      "type": "object"
+    },
+    "OntologyMatch": {
+      "description": "One capability term found in a query by the ontology lexical gate\n(CONCEPT:EG-ORCH.routing.lexical-capability-escalation). `term` is the matched alias/name, `node_type` its capability\nclass (Tool/Skill/MCPServer/…), `label` the owning node's display name,\n`mcp_server` the owning fleet server (so a caller can bind that server's\ntoolset directly), and `score` the matched term's character length.",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "mcp_server": {
+          "type": "string"
+        },
+        "node_type": {
+          "type": "string"
+        },
+        "score": {
+          "format": "double",
+          "type": "number"
+        },
+        "term": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "term",
+        "node_type",
+        "label",
+        "mcp_server",
+        "score"
+      ],
+      "type": "object"
+    },
+    "OptimizationResult": {
+      "description": "A mean-variance / risk-parity / Black-Litterman portfolio.",
+      "properties": {
+        "expected_return": {
+          "format": "double",
+          "type": "number"
+        },
+        "expected_volatility": {
+          "format": "double",
+          "type": "number"
+        },
+        "method": {
+          "type": "string"
+        },
+        "sharpe_ratio": {
+          "format": "double",
+          "type": "number"
+        },
+        "weights": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "weights",
+        "expected_return",
+        "expected_volatility",
+        "sharpe_ratio",
+        "method"
+      ],
+      "type": "object"
+    },
+    "OuParams": {
+      "description": "Calibrated Ornstein-Uhlenbeck parameters.",
+      "properties": {
+        "half_life": {
+          "format": "double",
+          "type": "number"
+        },
+        "mu": {
+          "format": "double",
+          "type": "number"
+        },
+        "sigma": {
+          "format": "double",
+          "type": "number"
+        },
+        "sigma_eq": {
+          "format": "double",
+          "type": "number"
+        },
+        "theta": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "theta",
+        "mu",
+        "sigma",
+        "half_life",
+        "sigma_eq"
+      ],
+      "type": "object"
+    },
+    "OuThresholds": {
+      "description": "MFPT-optimal Ornstein-Uhlenbeck entry/exit thresholds.",
+      "properties": {
+        "entry_long": {
+          "format": "double",
+          "type": "number"
+        },
+        "entry_short": {
+          "format": "double",
+          "type": "number"
+        },
+        "exit": {
+          "format": "double",
+          "type": "number"
+        },
+        "expected_return_per_unit_time": {
+          "format": "double",
+          "type": "number"
+        },
+        "z": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "entry_long",
+        "entry_short",
+        "exit",
+        "z",
+        "expected_return_per_unit_time"
+      ],
+      "type": "object"
+    },
+    "PCAResult": {
+      "description": "Result of PCA dimensionality reduction.",
+      "properties": {
+        "components": {
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "explained_variance": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "explained_variance_ratio": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "transformed": {
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "components",
+        "explained_variance",
+        "explained_variance_ratio",
+        "transformed"
+      ],
+      "type": "object"
+    },
+    "ParallelRelationRow": {
+      "description": "A parallel activity relation.",
+      "properties": {
+        "a": {
+          "type": "string"
+        },
+        "b": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "a",
+        "b"
+      ],
+      "type": "object"
+    },
+    "PatternEdge": {
+      "description": "A labeled edge of a frequent subgraph pattern, by pattern-local node index.",
+      "properties": {
+        "from": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "label": {
+          "type": "string"
+        },
+        "to": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "label"
+      ],
+      "type": "object"
+    },
+    "PipelineClassifiedRow": {
+      "description": "One classified row.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "proba": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "proba"
+      ],
+      "type": "object"
+    },
+    "PipelineComparison": {
+      "description": "`MiningPipelineCompare`: two versions' recorded metrics and their numeric diff.",
+      "properties": {
+        "algorithm_a": {
+          "type": "string"
+        },
+        "algorithm_b": {
+          "type": "string"
+        },
+        "diff": {
+          "description": "`b - a` for every numeric primary metric both versions share; `null` when\neither version has no metric object."
+        },
+        "metrics_a": true,
+        "metrics_b": true,
+        "name": {
+          "type": "string"
+        },
+        "version_a": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "version_b": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "version_a",
+        "version_b",
+        "algorithm_a",
+        "algorithm_b",
+        "metrics_a",
+        "metrics_b",
+        "diff"
+      ],
+      "type": "object"
+    },
+    "PipelineEvaluation": {
+      "description": "`MiningPipelineEvaluate`: metrics of a served tabular model on caller data.",
+      "properties": {
+        "family": {
+          "type": "string"
+        },
+        "metrics": {
+          "description": "The family's metric object (accuracy/F1 for classify, R²/RMSE for estimator)."
+        },
+        "n": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "family",
+        "metrics",
+        "n"
+      ],
+      "type": "object"
+    },
+    "PipelinePrediction": {
+      "description": "`MiningPipelinePredict`: the body is selected by the served model's family,\npublished as the `family` field.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ClassifyPrediction",
+          "properties": {
+            "family": {
+              "const": "classify",
+              "type": "string"
+            }
+          },
+          "required": [
+            "family"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/EstimatorPrediction",
+          "properties": {
+            "family": {
+              "const": "estimator",
+              "type": "string"
+            }
+          },
+          "required": [
+            "family"
+          ],
+          "type": "object"
+        },
+        {
+          "$ref": "#/$defs/GraphlearnPrediction",
+          "properties": {
+            "family": {
+              "const": "graphlearn",
+              "type": "string"
+            }
+          },
+          "required": [
+            "family"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PipelineServeResult": {
+      "description": "`MiningPipelineServe`: the version now served for `name`.",
+      "properties": {
+        "model_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "served": {
+          "type": "boolean"
+        },
+        "version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "model_id",
+        "served"
+      ],
+      "type": "object"
+    },
+    "PipelineTrainResult": {
+      "description": "`MiningPipelineTrain`: the trained version and its held-out metrics.",
+      "properties": {
+        "algorithm": {
+          "type": "string"
+        },
+        "classes": {
+          "description": "The label classes of a classifier; `null` for other families."
+        },
+        "family": {
+          "type": "string"
+        },
+        "metrics": {
+          "description": "Per-split metric objects; their keys depend on the model family."
+        },
+        "model_id": {
+          "type": "string"
+        },
+        "n_features": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_test": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_train": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "description": "The assigned version; 0 when not written back.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "written_back": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "model_id",
+        "family",
+        "algorithm",
+        "metrics",
+        "n_features",
+        "n_train",
+        "n_test",
+        "classes",
+        "written_back"
+      ],
+      "type": "object"
+    },
+    "PipelineValueRow": {
+      "description": "One regressed row.",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "value": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PosteriorCredibleInterval": {
+      "description": "A Bayesian posterior credible interval.",
+      "properties": {
+        "lower": {
+          "format": "double",
+          "type": "number"
+        },
+        "upper": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "lower",
+        "upper"
+      ],
+      "type": "object"
+    },
+    "PredictedLink": {
+      "description": "One predicted link.",
+      "properties": {
+        "dst": {
+          "type": "string"
+        },
+        "score": {
+          "format": "double",
+          "type": "number"
+        },
+        "src": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "src",
+        "dst",
+        "score"
+      ],
+      "type": "object"
+    },
+    "ProcessMiningResult": {
+      "description": "`MineProcess`.",
+      "properties": {
+        "causal": {
+          "items": {
+            "$ref": "#/$defs/CausalRelationRow"
+          },
+          "type": "array"
+        },
+        "dfg": {
+          "items": {
+            "$ref": "#/$defs/DirectlyFollowsRow"
+          },
+          "type": "array"
+        },
+        "end_activities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "n_activities": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_traces": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "parallel": {
+          "items": {
+            "$ref": "#/$defs/ParallelRelationRow"
+          },
+          "type": "array"
+        },
+        "start_activities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "written_back": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "dfg",
+        "causal",
+        "parallel",
+        "start_activities",
+        "end_activities",
+        "n_traces",
+        "n_activities",
+        "written_back"
+      ],
+      "type": "object"
+    },
+    "QueueSignal": {
+      "description": "Queue-imbalance skew and per-side fill times.",
+      "properties": {
+        "ask_fill_time": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "bid_fill_time": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "skew": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "skew",
+        "bid_fill_time",
+        "ask_fill_time"
+      ],
+      "type": "object"
+    },
+    "Quote": {
+      "description": "A two-sided market-making quote.",
+      "properties": {
+        "ask": {
+          "format": "double",
+          "type": "number"
+        },
+        "bid": {
+          "format": "double",
+          "type": "number"
+        },
+        "half_spread": {
+          "format": "double",
+          "type": "number"
+        },
+        "reservation": {
+          "format": "double",
+          "type": "number"
+        },
+        "withdraw": {
+          "description": "True when an inventory / boundary cap says \"withdraw, do not quote\".",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "bid",
+        "ask",
+        "reservation",
+        "half_spread",
+        "withdraw"
+      ],
+      "type": "object"
+    },
+    "ReducedRow": {
+      "description": "One embedded row of `MineReduce`.",
+      "properties": {
+        "coords": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "id": {
+          "$ref": "#/$defs/RowRef"
+        }
+      },
+      "required": [
+        "id",
+        "coords"
+      ],
+      "type": "object"
+    },
+    "ReductionMiningResult": {
+      "description": "`MineReduce`.",
+      "properties": {
+        "algorithm": {
+          "type": "string"
+        },
+        "n_components": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_rows": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/ReducedRow"
+          },
+          "type": "array"
+        },
+        "singular_values": {
+          "description": "Present only for an algorithm that produces singular values.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "written_back": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rows",
+        "algorithm",
+        "n_rows",
+        "n_components",
+        "written_back"
+      ],
+      "type": "object"
+    },
+    "RegimeResult": {
+      "description": "A fitted Gaussian HMM regime model.",
+      "properties": {
+        "initial_probs": {
+          "description": "Initial state probabilities",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "log_likelihood": {
+          "description": "Log-likelihood of the final model",
+          "format": "double",
+          "type": "number"
+        },
+        "means": {
+          "description": "State means (emission parameters)",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "n_iterations": {
+          "description": "Number of EM iterations until convergence",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "states": {
+          "description": "Most likely state sequence (Viterbi path)",
+          "items": {
+            "format": "uint",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "stds": {
+          "description": "State standard deviations",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "transition_matrix": {
+          "description": "Transition matrix (n_states x n_states)",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "states",
+        "means",
+        "stds",
+        "transition_matrix",
+        "initial_probs",
+        "log_likelihood",
+        "n_iterations"
+      ],
+      "type": "object"
+    },
+    "RegressionResult": {
+      "description": "Result of an ordinary-least-squares regression.",
+      "properties": {
+        "coefficients": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "intercept": {
+          "format": "double",
+          "type": "number"
+        },
+        "r_squared": {
+          "format": "double",
+          "type": "number"
+        },
+        "residuals": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "coefficients",
+        "intercept",
+        "r_squared",
+        "residuals"
+      ],
+      "type": "object"
+    },
+    "RetrievalQualityMiningResult": {
+      "description": "`MineRetrievalQuality`: aggregate retrieval metrics over the traces.",
+      "properties": {
+        "f1": {
+          "format": "double",
+          "type": "number"
+        },
+        "k": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "mrr": {
+          "format": "double",
+          "type": "number"
+        },
+        "n_queries": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ndcg_at_k": {
+          "format": "double",
+          "type": "number"
+        },
+        "precision_at_k": {
+          "format": "double",
+          "type": "number"
+        },
+        "recall_at_k": {
+          "format": "double",
+          "type": "number"
+        },
+        "written_back": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "precision_at_k",
+        "recall_at_k",
+        "mrr",
+        "f1",
+        "ndcg_at_k",
+        "n_queries",
+        "k",
+        "written_back"
+      ],
+      "type": "object"
+    },
+    "RiskMetrics": {
+      "description": "Summary risk metrics of a return series.",
+      "properties": {
+        "calmar_ratio": {
+          "format": "double",
+          "type": "number"
+        },
+        "cvar_95": {
+          "format": "double",
+          "type": "number"
+        },
+        "cvar_99": {
+          "format": "double",
+          "type": "number"
+        },
+        "downside_deviation": {
+          "format": "double",
+          "type": "number"
+        },
+        "max_drawdown": {
+          "format": "double",
+          "type": "number"
+        },
+        "sortino_ratio": {
+          "format": "double",
+          "type": "number"
+        },
+        "var_95": {
+          "format": "double",
+          "type": "number"
+        },
+        "var_99": {
+          "format": "double",
+          "type": "number"
+        },
+        "volatility": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "var_95",
+        "var_99",
+        "cvar_95",
+        "cvar_99",
+        "max_drawdown",
+        "volatility",
+        "downside_deviation",
+        "sortino_ratio",
+        "calmar_ratio"
+      ],
+      "type": "object"
+    },
+    "RiskPropagationMiningResult": {
+      "description": "`MineRiskPropagation`.",
+      "properties": {
+        "converged": {
+          "type": "boolean"
+        },
+        "iterations": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "scores": {
+          "items": {
+            "$ref": "#/$defs/RiskScoreRow"
+          },
+          "type": "array"
+        },
+        "written_back": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "scores",
+        "iterations",
+        "converged",
+        "written_back"
+      ],
+      "type": "object"
+    },
+    "RiskScoreRow": {
+      "description": "One node's propagated risk.",
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "score": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "node",
+        "score"
+      ],
+      "type": "object"
+    },
+    "RootCauseCandidateRow": {
+      "description": "One root-cause candidate.",
+      "properties": {
+        "hops": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "node": {
+          "type": "string"
+        },
+        "score": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "node",
+        "score",
+        "hops"
+      ],
+      "type": "object"
+    },
+    "RootCauseMiningResult": {
+      "description": "`MineRootCause`.",
+      "properties": {
+        "best": {
+          "description": "The top candidate; `null` when there is none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/RootCauseCandidateRow"
+          },
+          "type": "array"
+        },
+        "symptom": {
+          "type": "string"
+        },
+        "written_back": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "symptom",
+        "candidates",
+        "written_back"
+      ],
+      "type": "object"
+    },
+    "RowRef": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      ],
+      "description": "A row of a vector-mining input: its node id when the rows came from a node\nsource, else its index in the explicit input matrix."
+    },
+    "SabrFit": {
+      "description": "A SABR smile calibration with `beta` fixed.",
+      "properties": {
+        "alpha": {
+          "format": "double",
+          "type": "number"
+        },
+        "beta": {
+          "format": "double",
+          "type": "number"
+        },
+        "converged": {
+          "type": "boolean"
+        },
+        "nu": {
+          "format": "double",
+          "type": "number"
+        },
+        "rho": {
+          "format": "double",
+          "type": "number"
+        },
+        "rmse": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "alpha",
+        "beta",
+        "rho",
+        "nu",
+        "rmse",
+        "converged"
+      ],
+      "type": "object"
+    },
+    "SequenceMiningResult": {
+      "description": "`MineSequence`.",
+      "properties": {
+        "n_patterns": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_sequences": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "patterns": {
+          "items": {
+            "$ref": "#/$defs/SequentialPatternRow"
+          },
+          "type": "array"
+        },
+        "written_back": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "patterns",
+        "n_sequences",
+        "n_patterns",
+        "written_back"
+      ],
+      "type": "object"
+    },
+    "SequentialPatternRow": {
+      "description": "One frequent sequential pattern.",
+      "properties": {
+        "count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "items": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "support": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "items",
+        "support",
+        "count"
+      ],
+      "type": "object"
+    },
+    "SpreadReversion": {
+      "description": "Rolling spread z-score and its mean-reversion signal.",
+      "properties": {
+        "signal": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "zscore": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "zscore",
+        "signal"
+      ],
+      "type": "object"
+    },
+    "SubgraphMiningResult": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GspanMiningResult"
+        },
+        {
+          "$ref": "#/$defs/MotifMiningResult"
+        }
+      ],
+      "description": "`MineSubgraph`: the body is selected by the request's algorithm."
+    },
+    "SubgraphPatternRow": {
+      "description": "One frequent subgraph pattern.",
+      "properties": {
+        "count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "edges": {
+          "items": {
+            "$ref": "#/$defs/PatternEdge"
+          },
+          "type": "array"
+        },
+        "nodes": {
+          "description": "Node labels, indexed by pattern-local node index.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "support": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "nodes",
+        "edges",
+        "support",
+        "count"
+      ],
+      "type": "object"
+    },
+    "SurveillanceRisk": {
+      "description": "Continuous-time-Kyle surveillance estimate over a trailing book/flow window.",
+      "properties": {
+        "cumulative_suspicion": {
+          "format": "double",
+          "type": "number"
+        },
+        "detection_hazard": {
+          "format": "double",
+          "type": "number"
+        },
+        "informed_share": {
+          "format": "double",
+          "type": "number"
+        },
+        "kyle_lambda": {
+          "format": "double",
+          "type": "number"
+        },
+        "legal_risk_score": {
+          "format": "double",
+          "type": "number"
+        },
+        "stealth_ratio": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "kyle_lambda",
+        "informed_share",
+        "detection_hazard",
+        "cumulative_suspicion",
+        "stealth_ratio",
+        "legal_risk_score"
+      ],
+      "type": "object"
+    },
+    "TermWeight": {
+      "description": "A weighted term.",
+      "properties": {
+        "term": {
+          "type": "string"
+        },
+        "weight": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "term",
+        "weight"
+      ],
+      "type": "object"
+    },
+    "TextMiningResult": {
+      "description": "`MineText`.",
+      "properties": {
+        "algorithm": {
+          "description": "Absent when there were no documents to mine.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "doc_terms": {
+          "items": {
+            "$ref": "#/$defs/DocTerms"
+          },
+          "type": "array"
+        },
+        "doc_topics": {
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "n_docs": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "topics": {
+          "items": {
+            "$ref": "#/$defs/TopicTerms"
+          },
+          "type": "array"
+        },
+        "written_back": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "doc_terms",
+        "topics",
+        "doc_topics",
+        "n_docs",
+        "written_back"
+      ],
+      "type": "object"
+    },
+    "TopicTerms": {
+      "description": "A topic's weighted terms.",
+      "properties": {
+        "terms": {
+          "items": {
+            "$ref": "#/$defs/TermWeight"
+          },
+          "type": "array"
+        },
+        "topic_id": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "topic_id",
+        "terms"
+      ],
+      "type": "object"
+    },
+    "TrainTestSplitResult": {
+      "description": "The four partitions of a train/test split.",
+      "properties": {
+        "x_test": {
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "x_train": {
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "y_test": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "y_train": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "x_train",
+        "x_test",
+        "y_train",
+        "y_test"
+      ],
+      "type": "object"
+    },
+    "TreeNode": {
+      "description": "A flat regression tree: node `i` is a leaf when `feature < 0`.",
+      "properties": {
+        "feature": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "left": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "right": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "threshold": {
+          "format": "double",
+          "type": "number"
+        },
+        "value": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "feature",
+        "threshold",
+        "left",
+        "right",
+        "value"
+      ],
+      "type": "object"
+    },
+    "Vf2MatchResult": {
+      "description": "Materialized result of a bounded VF2 subgraph-isomorphism search.\n\n`truncated` is true when either the requested match limit or search-step\nbudget stopped the search before the candidate space was exhausted.",
+      "properties": {
+        "matches": {
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "matches",
+        "truncated"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "methods": {
+    "BatchL2Normalize": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "BetweennessCentrality": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "format": "double",
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ClusterHierarchyClusters": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ClusterLevelView"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ClusterHierarchyExpand": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ClusterExpansion"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ClusterHierarchyRefresh": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ClusterHierarchySummary"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CommunityDetectEphemeral": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CommunityDetection": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ComputeSimilarityEdges": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "maxItems": 3,
+              "minItems": 3,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "format": "double",
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ConnectedComponents": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DegreeCentrality": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DegreeCentralityAll": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "format": "double",
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DistributedCompute": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/DistResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DsAdamStep": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/AdamResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DsComputeStats": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/DatasetStats"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DsCrossEntropy": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/CrossEntropyResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DsDpoLoss": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/DpoResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DsFitEstimator": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/FittedModel"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DsGrpoSurrogate": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/GrpoResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DsKMeans": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/KMeansResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DsKlDivergence": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DsLinearRegression": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/RegressionResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DsLogSoftmax": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DsPca": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/PCAResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DsPredictEstimator": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DsSgdStep": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DsSoftmax": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DsTrainTestSplit": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/TrainTestSplitResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceAdfTest": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/AdfResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceAlphaCombinationEngine": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceAvellanedaStoikov": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/Quote"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceBayesianKelly": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceBlackLitterman": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/OptimizationResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceBreakevenAlpha": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceBrierScore": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceCombineAlphas": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceConvergenceGate": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ConvergenceGate"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceCrossSectionalRank": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceCvar": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceDeflatedSharpe": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceDetectRegimes": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/RegimeResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceDieboldMariano": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/DieboldMariano"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceDownsideDeviation": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceDrawdownSeries": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceEffectiveIndependentN": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceEfficientFrontier": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/OptimizationResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceEmpiricalKelly": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceEwma": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceExpectedPnlRate": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceForensicReport": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ForensicReport"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceGlostenMilgromSpread": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceGltQuotes": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/Quote"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceHardimanBouchaud": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceHawkesMle": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/HawkesFit"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceInformationCoefficient": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceInformationRatio": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceKalmanBeta": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/KalmanState"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceKalmanFilter1d": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/KalmanState"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceKalmanVolatility": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceKellyFraction": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceKyleLambda": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceLogitQuotes": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/Quote"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceMarketImpact": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceMarkovTransitionMatrix": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceMatchOrders": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/Fill"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceMaxDrawdown": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceMeanReversion": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceMicropriceSeries": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceMomentum": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceMonteCarloVar": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceOfiSeries": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceOptimizePortfolio": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/OptimizationResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceOrderBookImbalance": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceOuCalibrate": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/OuParams"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceOuOptimalThresholds": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/OuThresholds"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinancePairsTrading": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinancePosteriorCredibleInterval": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/PosteriorCredibleInterval"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceProbabilityBacktestOverfit": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinancePurgedCpcv": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/CvSplit"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceQueueImbalance": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/QueueSignal"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceRealizedVolTick": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceRiskMetrics": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/RiskMetrics"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceRiskParity": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/OptimizationResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceRollingZscore": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceSabrCalibrate": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SabrFit"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceSabrImpliedVol": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceSabrSmile": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceSignalDecay": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceSpreadReversion": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SpreadReversion"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceStressTest": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceSurveillanceRisk": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SurveillanceRisk"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceTwap": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "format": "double",
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceVar": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceVpinPm": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Float",
+          "schema": {
+            "format": "double",
+            "type": "number"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinanceVwap": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "format": "double",
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FindCycle": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetBlastRadius": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetShortestPath": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GraphColoring": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "format": "uint",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GraphLearnFit": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/LinkPredictorFit"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GraphLearnPredict": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/LinkPrediction"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MatchOntologyTerms": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/OntologyMatch"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MineAnomaly": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/AnomalyMiningResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MineAssociate": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/AssociationMiningResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MineCausalImpact": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/CausalImpactMiningResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MineClassifyFit": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ClassifierFitResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MineClassifyPredict": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ClassificationMiningResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MineCluster": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ClusterMiningResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MineCommunity": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/CommunityMiningResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MineEntityResolve": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/EntityResolutionMiningResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MineForecast": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ForecastMiningResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MineOntologyGap": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/OntologyGapMiningResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MineProcess": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ProcessMiningResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MineReduce": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ReductionMiningResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MineRetrievalQuality": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/RetrievalQualityMiningResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MineRiskPropagation": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/RiskPropagationMiningResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MineRootCause": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/RootCauseMiningResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MineSequence": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/SequenceMiningResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MineSubgraph": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/SubgraphMiningResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MineText": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/TextMiningResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MinimumSpanningTree": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "maxItems": 3,
+              "minItems": 3,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "format": "double",
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MiningPipelineCompare": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/PipelineComparison"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MiningPipelineEvaluate": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/PipelineEvaluation"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MiningPipelinePredict": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/PipelinePrediction"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MiningPipelineServe": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/PipelineServeResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MiningPipelineTrain": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/PipelineTrainResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "PageRank": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "format": "double",
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "PersonalizedPageRank": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "format": "double",
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ResolveCandidates": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/MergeProposal"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RunUdf": {
+      "bodies": {
+        "result": {
+          "dynamic": {
+            "reason": "caller-bytes",
+            "summary": "opaque bytes the caller wrote or a caller-supplied program produced"
+          },
+          "encoding": "Raw",
+          "schema": true
+        }
+      },
+      "selected_by": null
+    },
+    "StronglyConnectedComponents": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TopologicalSort": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Vf2SubgraphMatch": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/Vf2MatchResult"
+          }
+        }
+      },
+      "selected_by": null
+    }
+  },
+  "title": "compute method results"
+}

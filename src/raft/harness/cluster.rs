@@ -26,8 +26,7 @@ use super::super::node::{self, StartedNode};
 use super::super::{NodeId, RaftRequest};
 use crate::protocol::{GraphType, Method};
 
-#[path = "fixture.rs"]
-pub(crate) mod fixture;
+pub(crate) use super::super::fixture;
 
 /// The graph every harness write targets.
 pub const GRAPH: &str = "__commons__";
@@ -128,12 +127,54 @@ fn free_ports(n: usize) -> Result<Vec<u16>, String> {
     Err(format!("unable to reserve {n} localhost Raft port(s)"))
 }
 
+/// A freshly created harness root that removes itself unless it is claimed.
+///
+/// Ownership replaces a handshake. The allocating thread used to send the root and
+/// then block until the caller confirmed receipt, so it could clean up after a
+/// caller that went away. Now the root travels as this value: a caller that
+/// receives it claims it, and one that never does drops it, whether the send
+/// failed or the value was still in the channel when the receiver was dropped.
+/// Nothing waits.
+struct AllocatedRoot(Option<std::path::PathBuf>);
+
+impl AllocatedRoot {
+    fn claim(mut self) -> std::path::PathBuf {
+        self.0
+            .take()
+            .expect("an allocated harness root is claimed at most once")
+    }
+}
+
+impl Drop for AllocatedRoot {
+    fn drop(&mut self) {
+        let Some(root) = self.0.take() else {
+            return;
+        };
+        // Removing a tree is blocking filesystem work, and this drop can run on an
+        // async executor thread (the receiver dropped with the value inside), so
+        // the removal gets a thread of its own.
+        let spawned = std::thread::Builder::new()
+            .name("eg-harness-root-cleanup".to_string())
+            .spawn(move || {
+                if let Err(error) = std::fs::remove_dir_all(&root) {
+                    tracing::error!(
+                        root = %root.display(),
+                        %error,
+                        "remove abandoned harness root failed"
+                    );
+                }
+            });
+        if let Err(error) = spawned {
+            tracing::error!(%error, "could not spawn the abandoned harness root cleanup");
+        }
+    }
+}
+
 async fn allocate_root(
     tag: &str,
     on_allocated: impl FnOnce(&std::path::Path) + Send + 'static,
 ) -> Result<std::path::PathBuf, String> {
     let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
-    let (claim_sender, claim_receiver) = std::sync::mpsc::sync_channel(1);
     let tag = tag.to_string();
     let _allocation_task = ::tokio::task::spawn_blocking(move || {
         let result = 'allocate: {
@@ -159,7 +200,7 @@ async fn allocate_root(
                             }
                             std::panic::resume_unwind(panic);
                         }
-                        break 'allocate Ok(root);
+                        break 'allocate Ok(AllocatedRoot(Some(root)));
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
                     Err(error) => {
@@ -174,26 +215,13 @@ async fn allocate_root(
                 "unable to allocate a unique harness root for tag {tag:?}"
             ))
         };
-        let abandoned_root = result.as_ref().ok().cloned();
-        if result_sender.send(result).is_err() || claim_receiver.recv().is_err() {
-            if let Some(root) = abandoned_root {
-                if let Err(error) = std::fs::remove_dir_all(&root) {
-                    tracing::error!(
-                        root = %root.display(),
-                        %error,
-                        "remove abandoned harness root failed"
-                    );
-                }
-            }
-        }
+        // A failed send hands the value back, and dropping it removes the root.
+        let _ = result_sender.send(result);
     });
     let root = result_receiver
         .await
         .map_err(|error| format!("allocate harness root task failed: {error}"))??;
-    claim_sender
-        .send(())
-        .map_err(|error| format!("claim allocated harness root failed: {error}"))?;
-    Ok(root)
+    Ok(root.claim())
 }
 
 fn port_is_free(port: u16) -> bool {
@@ -525,7 +553,7 @@ impl Cluster {
     /// (`impl/raft-catchup-apply`). Replicates as `NativeMutationCommand::GraphLifecycle`,
     /// the SAME encoding the real client `Method::CreateGraph` path produces.
     pub fn create_graph_req(graph_name: &str, graph_type: GraphType, seq: u64) -> RaftRequest {
-        let secret = "harness";
+        let secret = "harness"; // sanitizer:ignore
         let command = super::super::NativeMutationCommand::from_public_method(
             Method::CreateGraph {
                 graph_name: graph_name.to_string(),

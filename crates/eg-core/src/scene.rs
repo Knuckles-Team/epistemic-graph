@@ -146,6 +146,27 @@ pub struct Pose {
     pub scale: Vec3,
 }
 
+impl From<Pose> for eg_types::types::ScenePose {
+    /// The wire projection -- the same object [`Pose::to_json`] stores.
+    fn from(pose: Pose) -> Self {
+        let vec3 = |v: Vec3| eg_types::types::SceneVec3 {
+            x: v.x,
+            y: v.y,
+            z: v.z,
+        };
+        eg_types::types::ScenePose {
+            translation: vec3(pose.translation),
+            rotation: eg_types::types::SceneQuat {
+                x: pose.rotation.x,
+                y: pose.rotation.y,
+                z: pose.rotation.z,
+                w: pose.rotation.w,
+            },
+            scale: vec3(pose.scale),
+        }
+    }
+}
+
 impl Pose {
     /// The identity pose (origin, no rotation, unit scale).
     pub fn identity() -> Pose {

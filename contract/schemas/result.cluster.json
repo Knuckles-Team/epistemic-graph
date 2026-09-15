@@ -1,0 +1,1277 @@
+{
+  "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
+  "$defs": {
+    "CatalogListing": {
+      "description": "`CatalogList`.",
+      "properties": {
+        "placements": {
+          "items": {
+            "$ref": "#/$defs/CatalogPlacement"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "placements"
+      ],
+      "type": "object"
+    },
+    "CatalogPlacement": {
+      "description": "An explicit tenant-catalog placement.",
+      "properties": {
+        "graph": {
+          "type": "string"
+        },
+        "node": {
+          "description": "`null` for the local node.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "shard": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "graph",
+        "shard"
+      ],
+      "type": "object"
+    },
+    "ClusterDiscoverySnapshot": {
+      "description": "`ClusterMembers`: a signed, context-bound cluster topology snapshot.",
+      "properties": {
+        "auth_binding": {
+          "$ref": "#/$defs/DiscoveryAuthBinding"
+        },
+        "cluster_id": {
+          "type": "string"
+        },
+        "groups": {
+          "items": {
+            "$ref": "#/$defs/ClusterGroup"
+          },
+          "type": "array"
+        },
+        "leader": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ClusterLeader"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "leaders": {
+          "items": {
+            "$ref": "#/$defs/ClusterLeader"
+          },
+          "type": "array"
+        },
+        "membership_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "placement_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "signature": {
+          "description": "`hmac-sha256:<hex>` over the canonical snapshot.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "cluster_id",
+        "membership_epoch",
+        "placement_epoch",
+        "leaders",
+        "groups",
+        "auth_binding",
+        "signature"
+      ],
+      "type": "object"
+    },
+    "ClusterGroup": {
+      "description": "One Raft group and its members.",
+      "properties": {
+        "group_id": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "leader_id": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/ClusterMember"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "group_id",
+        "members"
+      ],
+      "type": "object"
+    },
+    "ClusterLeader": {
+      "description": "The current leader of one Raft group.",
+      "properties": {
+        "group_id": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "node_id": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "group_id",
+        "node_id"
+      ],
+      "type": "object"
+    },
+    "ClusterMember": {
+      "description": "One member of a Raft group.",
+      "properties": {
+        "certificate": {
+          "$ref": "#/$defs/ClusterMemberCertificate"
+        },
+        "client_endpoint": {
+          "type": "string"
+        },
+        "health": {
+          "description": "`healthy` when the group has an elected leader, else `degraded`.",
+          "type": "string"
+        },
+        "member_identity": {
+          "type": "string"
+        },
+        "node_id": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "role": {
+          "description": "`leader`, `follower` or `learner`.",
+          "type": "string"
+        },
+        "tls_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "node_id",
+        "member_identity",
+        "role",
+        "client_endpoint",
+        "health",
+        "certificate"
+      ],
+      "type": "object"
+    },
+    "ClusterMemberCertificate": {
+      "description": "Certificate metadata a member self-reported. Never key material.",
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "not_after_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "not_before_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rotation_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rotation_epoch"
+      ],
+      "type": "object"
+    },
+    "DiscoveryAuthBinding": {
+      "description": "Digests of the verified request context a discovery snapshot is signed for.",
+      "properties": {
+        "agent_digest": {
+          "type": "string"
+        },
+        "principal_digest": {
+          "type": "string"
+        },
+        "tenant_digest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_digest",
+        "principal_digest",
+        "agent_digest"
+      ],
+      "type": "object"
+    },
+    "DistResult": {
+      "description": "The result of a distributed computation, in a wire-ready form. Serialized to\n`ResultPayload::Raw` by the handler.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "PageRank: `(id, score)` rows, sorted by id (deterministic).",
+          "properties": {
+            "Scores": {
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "format": "double",
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "Scores"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Connected components: `(id, component_repr_index)` rows, sorted by id. The\ncomponent label is the index of the component's representative in the sorted\nvertex list (a stable small int), so it round-trips losslessly.",
+          "properties": {
+            "Labels": {
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "format": "int64",
+                    "type": "integer"
+                  }
+                ],
+                "type": "array"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "Labels"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "GraphCreated": {
+      "description": "`CreateGraph`: the created graph's name.",
+      "properties": {
+        "created": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "created"
+      ],
+      "type": "object"
+    },
+    "GraphDeleted": {
+      "description": "`DeleteGraph`: the deleted graph's name.",
+      "properties": {
+        "deleted": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "deleted"
+      ],
+      "type": "object"
+    },
+    "GraphLifecycleHealth": {
+      "description": "Graph materialization counts reported by `Health`.",
+      "properties": {
+        "all_resident_materializations_valid": {
+          "type": "boolean"
+        },
+        "catalog_graphs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "complete_graphs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "failed_graphs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "partial_graphs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "resident_graphs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "catalog_graphs",
+        "resident_graphs",
+        "complete_graphs",
+        "partial_graphs",
+        "failed_graphs",
+        "all_resident_materializations_valid"
+      ],
+      "type": "object"
+    },
+    "GraphListing": {
+      "description": "One graph the caller may read.",
+      "properties": {
+        "completeness_cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MaterializationCursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "index_manifests": {
+          "items": {
+            "$ref": "#/$defs/IndexManifestListing"
+          },
+          "type": "array"
+        },
+        "materialization": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MaterializationPhase"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "source_snapshot_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "type": {
+          "$ref": "#/$defs/GraphType"
+        },
+        "valid": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "valid",
+        "index_manifests"
+      ],
+      "type": "object"
+    },
+    "GraphType": {
+      "description": "Graph type for multi-tenant registry.",
+      "enum": [
+        "Agent",
+        "Team",
+        "Global",
+        "Commons"
+      ],
+      "type": "string"
+    },
+    "GroupReshardResult": {
+      "description": "One graph a placement move transferred between Raft groups.",
+      "properties": {
+        "from_group": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "graph": {
+          "type": "string"
+        },
+        "nodes_transferred": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "to_group": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "graph",
+        "from_group",
+        "to_group",
+        "nodes_transferred"
+      ],
+      "type": "object"
+    },
+    "HealthReport": {
+      "description": "`Health`: liveness plus the served-operation set clients negotiate against.",
+      "properties": {
+        "graph_lifecycle": {
+          "$ref": "#/$defs/GraphLifecycleHealth"
+        },
+        "mem_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ops": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "status": {
+          "type": "string"
+        },
+        "uptime_s": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "uptime_s",
+        "mem_bytes",
+        "version",
+        "graph_lifecycle",
+        "ops"
+      ],
+      "type": "object"
+    },
+    "IndexCompleteness": {
+      "description": "Source rows a maintained index covers.",
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "edges": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nodes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "nodes",
+        "edges",
+        "complete"
+      ],
+      "type": "object"
+    },
+    "IndexManifestListing": {
+      "description": "One server-maintained index of a listed graph.",
+      "properties": {
+        "build_version": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "completeness_cursor": {
+          "$ref": "#/$defs/IndexCompleteness"
+        },
+        "kind": {
+          "description": "`label`, `property`, `ontology`, `vector`, `text`, ...",
+          "type": "string"
+        },
+        "source_snapshot_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "validity": {
+          "description": "`building`, `valid`, `stale` or `failed`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "source_snapshot_version",
+        "build_version",
+        "completeness_cursor",
+        "validity"
+      ],
+      "type": "object"
+    },
+    "MaterializationCursor": {
+      "description": "Row offsets a partial materialization has reached.",
+      "properties": {
+        "edge_offset": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "node_offset": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "node_offset",
+        "edge_offset"
+      ],
+      "type": "object"
+    },
+    "MaterializationPhase": {
+      "description": "How much of a graph incarnation is materialized in memory.",
+      "enum": [
+        "catalog_only",
+        "partial",
+        "complete",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "PlacementEpoch": {
+      "description": "`PlacementAdmin` op `assign`: the new routing epoch.",
+      "properties": {
+        "epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "epoch"
+      ],
+      "type": "object"
+    },
+    "PlacementMoveResult": {
+      "description": "`PlacementAdmin` op `move`: the settled online partition move.",
+      "properties": {
+        "epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "graphs": {
+          "items": {
+            "$ref": "#/$defs/GroupReshardResult"
+          },
+          "type": "array"
+        },
+        "range": {
+          "description": "`[range_start, range_end]`.",
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        "target": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant",
+        "range",
+        "target",
+        "epoch",
+        "graphs"
+      ],
+      "type": "object"
+    },
+    "PlacementRouteSchemaVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "PlacementRouteWire": {
+      "description": "The `PlacementRoute` wire response: the schema-locked route fields plus\n`endpoints`, the client-reachable members of the resolved group, leader first\n(empty when no cluster topology is known).\n\nDeliberately a separate type from [`crate::epistemic_operations::PlacementRoute`],\nwhose cross-repo DTO carries no deployment endpoint material and denies unknown\nfields: a consumer of a route response must decode this tolerant superset.",
+      "properties": {
+        "authoritative": {
+          "type": "boolean"
+        },
+        "endpoints": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "group": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "leader_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "partition_ref": {
+          "type": "string"
+        },
+        "placed": {
+          "type": "boolean"
+        },
+        "route_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/PlacementRouteSchemaVersion"
+        },
+        "stale": {
+          "type": "boolean"
+        },
+        "tenant_ref": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "route_id",
+        "tenant_ref",
+        "partition_ref",
+        "authoritative",
+        "placed",
+        "group",
+        "epoch",
+        "fencing_token",
+        "stale",
+        "endpoints"
+      ],
+      "type": "object"
+    },
+    "RebalanceExecution": {
+      "description": "`RebalanceExecute`: every move the plan executed, in order.",
+      "properties": {
+        "executed": {
+          "items": {
+            "$ref": "#/$defs/ShardReshardReport"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "executed"
+      ],
+      "type": "object"
+    },
+    "RebalanceMove": {
+      "description": "One planned graph move.",
+      "properties": {
+        "from_shard": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "graph": {
+          "type": "string"
+        },
+        "to_shard": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "graph",
+        "from_shard",
+        "to_shard"
+      ],
+      "type": "object"
+    },
+    "RebalancePlanReport": {
+      "description": "`RebalancePlan`: the ordered moves plus the per-shard loads they were planned on.",
+      "properties": {
+        "moves": {
+          "items": {
+            "$ref": "#/$defs/RebalanceMove"
+          },
+          "type": "array"
+        },
+        "shards": {
+          "items": {
+            "$ref": "#/$defs/ShardLoadSummary"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "moves",
+        "shards"
+      ],
+      "type": "object"
+    },
+    "ShardLoadSummary": {
+      "description": "The load of one shard the plan was computed against.",
+      "properties": {
+        "graphs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "shard": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "shard",
+        "total",
+        "graphs"
+      ],
+      "type": "object"
+    },
+    "ShardReshardReport": {
+      "description": "One graph moved between durable shards.",
+      "properties": {
+        "audit": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "delta_edges": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "delta_nodes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "edges": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "from_shard": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "graph": {
+          "type": "string"
+        },
+        "ledger": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "no_op": {
+          "description": "The graph already lived on the target shard; nothing moved.",
+          "type": "boolean"
+        },
+        "nodes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "semantic": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "to_shard": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "graph",
+        "from_shard",
+        "to_shard",
+        "nodes",
+        "edges",
+        "ledger",
+        "semantic",
+        "audit",
+        "delta_nodes",
+        "delta_edges",
+        "no_op"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "methods": {
+    "CancelRequest": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CatalogAssign": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CatalogList": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/CatalogListing"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CatalogReassign": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CatalogRemove": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ClusterMembers": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ClusterDiscoverySnapshot"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CreateGraph": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/GraphCreated"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CreateMatView": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DeleteGraph": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/GraphDeleted"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetMatView": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/DistResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Health": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/HealthReport"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ListGraphs": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "items": {
+              "$ref": "#/$defs/GraphListing"
+            },
+            "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Ping": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "PlacementAdmin": {
+      "bodies": {
+        "abort_move": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        },
+        "assign": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/PlacementEpoch"
+          }
+        },
+        "move": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/PlacementMoveResult"
+          }
+        }
+      },
+      "selected_by": "op"
+    },
+    "PlacementRoute": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/PlacementRouteWire"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "PlanMatViewDefine": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "PlanMatViewDrop": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "PlanMatViewGet": {
+      "bodies": {
+        "result": {
+          "dynamic": {
+            "reason": "query-rows",
+            "summary": "rows whose columns and value types are chosen by the caller's query text"
+          },
+          "encoding": "Raw",
+          "schema": true
+        }
+      },
+      "selected_by": null
+    },
+    "PlanMatViewRefresh": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RaftAddLearner": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RaftChangeMembership": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RebalanceExecute": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/RebalanceExecution"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RebalancePlan": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/RebalancePlanReport"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RefreshMatView": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Count",
+          "schema": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RegisterForeignSource": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RegisterServer": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RegisterUdf": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Reshard": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ShardReshardReport"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Shutdown": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "String",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    }
+  },
+  "title": "cluster method results"
+}

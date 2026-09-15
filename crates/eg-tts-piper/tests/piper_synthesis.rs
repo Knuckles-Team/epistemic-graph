@@ -20,40 +20,32 @@ use eg_tts_piper::{
 };
 use support::{sha256_hex_bytes, FixtureConfig};
 
-/// Whether a real onnxruntime shared library is reachable for this run.
+/// Fail the test unless a real onnxruntime shared library is reachable.
 ///
-/// Every test below drives REAL inference, so each one needs a loadable
-/// runtime. Under `ort-load-dynamic` the operator supplies it via
-/// `ORT_DYLIB_PATH`; on a pre-AVX2 host that means an onnxruntime built from
-/// source with the ISA-gated options off (this crate's `Cargo.toml` and
-/// `docs/architecture/native_tts_piper.md` "Path 2" carry the exact flags).
-///
-/// Gated at RUNTIME rather than `#[ignore]`d so these tests still run wherever
-/// the runtime IS provided, and announced on stderr rather than skipped
-/// silently — a test that quietly does nothing is indistinguishable from one
-/// that passed.
-fn onnx_runtime_available() -> bool {
+/// Every test that calls this drives REAL inference. Under `ort-load-dynamic`,
+/// which `--all-features` turns on, `ort` dlopens the runtime from
+/// `ORT_DYLIB_PATH`, so a missing runtime means the test cannot do its job.
+/// That is a FAILURE, never a skip. This used to print a SKIP line and return,
+/// and libtest captures stderr for passing tests, so 10 of the 13 tests here
+/// "passed" in 0.00s without loading a model. `scripts/fetch_onnxruntime.sh`
+/// provides the pinned runtime.
+fn require_onnx_runtime() {
     if !cfg!(feature = "ort-load-dynamic") {
-        return true;
+        return;
     }
     match std::env::var_os("ORT_DYLIB_PATH") {
-        Some(path) if std::path::Path::new(&path).is_file() => true,
-        _ => {
-            eprintln!(
-                "SKIP: ORT_DYLIB_PATH does not name a readable onnxruntime shared library, \
-                 so real ONNX inference cannot run here"
-            );
-            false
-        }
+        Some(path) if std::path::Path::new(&path).is_file() => {}
+        other => panic!(
+            "this test needs a real onnxruntime: the crate is built with `ort-load-dynamic` \
+             (on under --all-features) and ORT_DYLIB_PATH={other:?} does not name a readable \
+             library. Run `export ORT_DYLIB_PATH=\"$(scripts/fetch_onnxruntime.sh)\"` first."
+        ),
     }
 }
 
-/// Early-return the enclosing test when no onnxruntime is reachable.
 macro_rules! require_onnx {
     () => {
-        if !onnx_runtime_available() {
-            return;
-        }
+        require_onnx_runtime()
     };
 }
 
@@ -219,15 +211,19 @@ fn full_contract_round_trip_produces_real_audio() {
     assert_eq!(result.deterministic, tts::DeterminismClaim::Unverified);
 }
 
-#[test]
-fn cancellation_stops_streaming_before_all_chunks_are_produced() {
-    require_onnx!();
+/// Chunks [`many_small_chunks_stream`] produces for one request.
+const MANY_SMALL_CHUNKS: u32 = 250;
+
+/// A stream of [`MANY_SMALL_CHUNKS`] real chunks from ONE phrase: far more than the
+/// stream's channel capacity of 4, so a consumer that stops reading leaves the
+/// producer blocked on a full channel.
+fn many_small_chunks_stream(tag: &str, cancel: CancellationToken) -> eg_tts_piper::ChunkStream {
     // A long single phrase, with a tiny max_chunk_decoded_bytes, so it splits into
     // many audio-byte chunks within ONE phrase — cancellation is checked between
     // every sub-chunk, not just between phrases.
     let template = clean_sine_template(2000, 0.2);
     let config = FixtureConfig::single_speaker(&['a']);
-    let fixture = support::write_fixture("cancel", &template, &config);
+    let fixture = support::write_fixture(tag, &template, &config);
     let voice_ref = tts::VoiceModelRef {
         model_artifact_id: id(&fixture.model_id),
         config_artifact_id: id(&fixture.config_id),
@@ -245,8 +241,7 @@ fn cancellation_stops_streaming_before_all_chunks_are_produced() {
     // chunk (max_chunk_decoded_bytes=64, 2 bytes/sample) -> 250 chunks total.
     tight_limits.max_chunk_decoded_bytes = 64;
 
-    let cancel = CancellationToken::new();
-    let stream = synthesize_streaming(
+    synthesize_streaming(
         voice,
         SynthesizeRequest {
             request_id: id("request-1"),
@@ -267,9 +262,16 @@ fn cancellation_stops_streaming_before_all_chunks_are_produced() {
             },
             limits: tight_limits,
         },
-        cancel.clone(),
+        cancel,
     )
-    .expect("synthesis starts");
+    .expect("synthesis starts")
+}
+
+#[test]
+fn cancellation_stops_streaming_before_all_chunks_are_produced() {
+    require_onnx!();
+    let cancel = CancellationToken::new();
+    let stream = many_small_chunks_stream("cancel", cancel.clone());
 
     let mut received = 0u32;
     let mut saw_cancelled_error = false;
@@ -289,12 +291,48 @@ fn cancellation_stops_streaming_before_all_chunks_are_produced() {
         }
     }
     assert!(
+        received >= 1,
+        "cancellation fires only after a real synthesized chunk arrives"
+    );
+    assert!(
         saw_cancelled_error,
         "a cancelled stream must report Cancelled"
     );
     assert!(
-        received < 250,
-        "cancellation must stop synthesis before all 250 chunks are produced, got {received}"
+        received < MANY_SMALL_CHUNKS,
+        "cancellation must stop synthesis before all {MANY_SMALL_CHUNKS} chunks are produced, got {received}"
+    );
+}
+
+/// The `ChunkStream` drop deadlock, with real chunks. The consumer reads one chunk
+/// and drops the stream WITHOUT cancelling, so the producer (249 chunks left) is
+/// at or heading for a blocked `send` on the full capacity-4 channel. A drop that
+/// waits on the producer while the receiver is still alive can never return. A
+/// drop that cancels and disconnects first releases the producer at once.
+///
+/// The bound (20s) is well under the request deadline (60s), so a drop that only
+/// returns because it gave up at the deadline also fails here.
+#[test]
+fn dropping_a_stream_whose_producer_is_blocked_returns_promptly() {
+    require_onnx!();
+    let mut stream = many_small_chunks_stream("drop-blocked", CancellationToken::new());
+    let first = stream
+        .next()
+        .expect("the producer sends a first item")
+        .expect("the first item is a real synthesized chunk");
+    assert!(!first.pcm.is_empty(), "the first chunk carries real PCM");
+
+    let (dropped, drop_done) = std::sync::mpsc::sync_channel(1);
+    std::thread::spawn(move || {
+        drop(stream);
+        let _ = dropped.send(());
+    });
+    assert!(
+        drop_done
+            .recv_timeout(std::time::Duration::from_secs(20))
+            .is_ok(),
+        "dropping a stream with a blocked producer did not return: the drop is waiting on a \
+         producer that cannot exit while the receiver is alive"
     );
 }
 

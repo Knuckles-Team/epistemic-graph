@@ -20,6 +20,17 @@ fn sample_schema() -> LakeSchema {
     ])
 }
 
+fn current_snapshot(metadata: &serde_json::Value) -> &serde_json::Value {
+    let current_id = &metadata["current-snapshot-id"];
+    metadata["snapshots"]
+        .as_array()
+        .expect("Iceberg snapshots array")
+        .iter()
+        .find(|snapshot| &snapshot["snapshot-id"] == current_id)
+        .expect("current-snapshot-id references an emitted snapshot")
+}
+
+#[cfg(feature = "lake")]
 fn sample_batch() -> LakeBatch {
     let rows = vec![
         vec![
@@ -135,7 +146,9 @@ fn eg_317_delta_remove_tombstones_file() {
 fn eg_317_lsn_as_of_snapshot_is_consistent() {
     let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
     table.record_file("data/part-0.parquet", 100, 1, Lsn(10));
+    eg_lake::record_iceberg_commit(&mut table, 1_000);
     table.record_file("data/part-1.parquet", 200, 2, Lsn(20));
+    eg_lake::record_iceberg_commit(&mut table, 2_000);
     table.snapshot.remove_file("data/part-0.parquet", Lsn(20));
 
     assert_eq!(table.current_lsn(), Lsn(20));
@@ -151,6 +164,50 @@ fn eg_317_lsn_as_of_snapshot_is_consistent() {
     assert!(table.snapshot.files_as_of(Lsn(0)).is_empty());
 }
 
+#[test]
+fn public_iceberg_builders_project_populated_snapshot_logs() {
+    let schema = sample_schema();
+    let schemas = vec![(0, schema)];
+    let mut snapshot = eg_lake::snapshot::SnapshotLog::new();
+    snapshot.add_file("data/part-0.parquet", 100, 1, Lsn(10), 0);
+    snapshot.add_file("data/part-1.parquet", 200, 2, Lsn(20), 0);
+
+    let current = iceberg::build_iceberg(
+        &schemas,
+        0,
+        &snapshot,
+        "public-builder-table",
+        "s3://lake/public-builder",
+        2_000,
+    );
+    let current_meta = iceberg::parse_metadata(&current.metadata_json).unwrap();
+    assert_eq!(current_meta["current-snapshot-id"], 20);
+    assert_eq!(
+        current_snapshot(&current_meta)["summary"]["total-data-files"],
+        "2"
+    );
+
+    let historical = iceberg::build_iceberg_as_of(
+        &schemas,
+        0,
+        &snapshot,
+        Lsn(15),
+        "public-builder-table",
+        "s3://lake/public-builder",
+        1_500,
+    );
+    let historical_meta = iceberg::parse_metadata(&historical.metadata_json).unwrap();
+    assert_eq!(historical_meta["current-snapshot-id"], 15);
+    assert_eq!(
+        current_snapshot(&historical_meta)["summary"]["total-data-files"],
+        "1"
+    );
+    assert_eq!(
+        historical.metadata_location,
+        "s3://lake/public-builder/metadata/v15.metadata.json"
+    );
+}
+
 /// BUG-224 — the `Op::AsOf -> Lsn` query-time closure (CA-19, GOC-77-W05):
 /// [`LakeTable::iceberg_as_of_ts`] resolves a caller-supplied timestamp through a
 /// [`eg_lake::AsOfLsnResolver`] closure to the exact historical snapshot committed at
@@ -160,7 +217,9 @@ fn eg_317_lsn_as_of_snapshot_is_consistent() {
 fn bug_224_iceberg_as_of_ts_resolves_through_the_caller_closure() {
     let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
     table.record_file("data/part-0.parquet", 100, 1, Lsn(10));
+    eg_lake::record_iceberg_commit(&mut table, 1_000);
     table.record_file("data/part-1.parquet", 200, 2, Lsn(20));
+    eg_lake::record_iceberg_commit(&mut table, 2_000);
 
     // A resolver standing in for the engine's real timestamp<->LSN correlation: any
     // ts >= 1000 resolves to LSN 10 (the "first commit" point in this fixture).
@@ -191,13 +250,14 @@ fn bug_224_iceberg_as_of_ts_resolves_through_the_caller_closure() {
 fn eg_317_iceberg_metadata_written_and_parseable() {
     let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
     table.record_file("data/part-0.parquet", 512, 3, Lsn(42));
+    eg_lake::record_iceberg_commit(&mut table, 1_700_000_000_000);
 
     let ib = table.iceberg(1_700_000_000_000);
     let meta = iceberg::parse_metadata(&ib.metadata_json).expect("parse metadata");
     assert_eq!(meta["format-version"], 2);
     assert_eq!(meta["current-snapshot-id"], 42);
     assert_eq!(meta["schemas"][0]["fields"].as_array().unwrap().len(), 5);
-    assert_eq!(meta["snapshots"][0]["summary"]["total-records"], "3");
+    assert_eq!(current_snapshot(&meta)["summary"]["total-records"], "3");
     // The metadata references the real Avro manifest-list path; the JSON preview mirrors
     // the entries (the real Avro is asserted in eg_333_iceberg_avro_manifest_roundtrip).
     let man: serde_json::Value = serde_json::from_str(&ib.manifest_json).unwrap();
@@ -207,6 +267,114 @@ fn eg_317_iceberg_metadata_written_and_parseable() {
         .ends_with("-manifest-list.avro"));
     assert!(man["manifest_file"].as_str().unwrap().ends_with("-m0.avro"));
     assert_eq!(man["entries"].as_array().unwrap().len(), 1);
+}
+
+/// A committed Iceberg generation remains in the next metadata file's snapshot,
+/// snapshot-log, and metadata-log histories with its original wall-clock timestamp.
+/// Merely recording a file is insufficient: callers mark a generation committed only
+/// after its metadata and manifest artifacts are durable.
+#[test]
+fn eg_317_iceberg_metadata_retains_emitted_snapshot_history() {
+    let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
+    table.record_file("data/part-0.parquet", 512, 3, Lsn(1));
+
+    let uncommitted = table.iceberg(1_700_000_000_000);
+    let uncommitted_meta =
+        iceberg::parse_metadata(&uncommitted.metadata_json).expect("parse uncommitted metadata");
+    assert_eq!(uncommitted_meta["current-snapshot-id"], -1);
+    assert!(uncommitted_meta["snapshots"].as_array().unwrap().is_empty());
+    let uncommitted_preview: serde_json::Value =
+        serde_json::from_str(&uncommitted.manifest_json).unwrap();
+    assert!(uncommitted_preview["manifest_list"].is_null());
+    assert!(uncommitted_preview["manifest_file"].is_null());
+    eg_lake::record_iceberg_commit(&mut table, 1_700_000_000_000);
+    let first = table.iceberg(1_700_000_000_000);
+    let first_meta = iceberg::parse_metadata(&first.metadata_json).expect("parse first metadata");
+    assert_eq!(first_meta["snapshots"].as_array().unwrap().len(), 1);
+
+    table.record_file("data/part-1.parquet", 640, 4, Lsn(2));
+    let before_second_emit = table.iceberg_as_of(Lsn(2), 1_700_000_300_000);
+    let before_second_meta = iceberg::parse_metadata(&before_second_emit.metadata_json)
+        .expect("parse metadata before second emit");
+    assert_eq!(before_second_meta["current-snapshot-id"], 1);
+    assert_eq!(before_second_meta["snapshots"].as_array().unwrap().len(), 1);
+    assert!(before_second_meta["snapshots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|snapshot| snapshot["manifest-list"]
+            .as_str()
+            .is_some_and(|path| !path.contains("snap-2-"))));
+    eg_lake::record_iceberg_commit(&mut table, 1_700_000_300_000);
+    let second = table.iceberg(1_700_000_300_000);
+    let second_meta =
+        iceberg::parse_metadata(&second.metadata_json).expect("parse second metadata");
+    let snapshots = second_meta["snapshots"].as_array().unwrap();
+    let snapshot_history: Vec<serde_json::Value> = snapshots
+        .iter()
+        .map(|snapshot| {
+            serde_json::json!({
+                "id": snapshot["snapshot-id"],
+                "timestamp": snapshot["timestamp-ms"],
+                "rows": snapshot["summary"]["total-records"],
+                "parent": snapshot["parent-snapshot-id"],
+                "sequence": snapshot["sequence-number"],
+            })
+        })
+        .collect();
+    let metadata_files: Vec<serde_json::Value> = second_meta["metadata-log"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry["metadata-file"].clone())
+        .collect();
+    assert_eq!(
+        serde_json::json!({
+            "snapshots": snapshot_history,
+            "snapshot_log_count": second_meta["snapshot-log"].as_array().unwrap().len(),
+            "metadata_files": metadata_files,
+        }),
+        serde_json::json!({
+            "snapshots": [
+                {
+                    "id": 1,
+                    "timestamp": 1_700_000_000_000_i64,
+                    "rows": "3",
+                    "parent": null,
+                    "sequence": 1,
+                },
+                {
+                    "id": 2,
+                    "timestamp": 1_700_000_300_000_i64,
+                    "rows": "7",
+                    "parent": 1,
+                    "sequence": 2,
+                },
+            ],
+            "snapshot_log_count": 2,
+            "metadata_files": ["s3://lake/quotes/metadata/v1.metadata.json"],
+        })
+    );
+}
+
+#[test]
+fn iceberg_history_never_records_zero_or_a_tombstone_only_lsn() {
+    let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
+    eg_lake::record_iceberg_commit(&mut table, 100);
+    table.record_file("data/part-0.parquet", 512, 3, Lsn(1));
+    eg_lake::record_iceberg_commit(&mut table, 200);
+    table.snapshot.remove_file("data/part-0.parquet", Lsn(2));
+    eg_lake::record_iceberg_commit(&mut table, 300);
+
+    let metadata = iceberg::parse_metadata(&table.iceberg(300).metadata_json).unwrap();
+    let ids: Vec<u64> = metadata["snapshots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|snapshot| snapshot["snapshot-id"].as_u64().unwrap())
+        .collect();
+    assert_eq!(ids, vec![1]);
+    assert_eq!(metadata["current-snapshot-id"], 1);
 }
 
 /// CONCEPT:EG-KG.storage.iceberg-per-file-schema-id (INT-P2-4) — each committed snapshot's `metadata.json` records the
@@ -223,6 +391,7 @@ fn int_p2_4_iceberg_schema_id_tracked_per_file_across_evolution() {
 
     // A file written under the ORIGINAL (5-column) schema.
     table.record_file("data/part-0.parquet", 512, 3, Lsn(10));
+    eg_lake::record_iceberg_commit(&mut table, 1_700_000_000_000);
 
     // Evolve: add a nullable column. Bumps the schema-id for FUTURE writes.
     let added = table.evolve_add_column(LakeField::new("venue", LakeType::String));
@@ -249,7 +418,8 @@ fn int_p2_4_iceberg_schema_id_tracked_per_file_across_evolution() {
         "re-adding an existing column doesn't bump again"
     );
 
-    let ib = table.iceberg(1_700_000_000_000);
+    eg_lake::record_iceberg_commit(&mut table, 1_700_000_300_000);
+    let ib = table.iceberg(1_700_000_300_000);
     let meta = iceberg::parse_metadata(&ib.metadata_json).expect("parse metadata");
 
     // `schemas[]` carries BOTH versions, each correctly tagged with its OWN id.
@@ -267,8 +437,25 @@ fn int_p2_4_iceberg_schema_id_tracked_per_file_across_evolution() {
         meta["current-schema-id"], 1,
         "current-schema-id tracks the LATEST version"
     );
-    // The current commit's own snapshot is written under the CURRENT schema.
-    assert_eq!(meta["snapshots"][0]["schema-id"], 1);
+    // Only metadata generations that were actually emitted become snapshots. The
+    // current generation was emitted after evolution and uses the current schema.
+    assert_eq!(current_snapshot(&meta)["schema-id"], 1);
+
+    // A historical load reuses only the schema history valid at that emitted
+    // generation. It must not leak the future schema into v10 metadata.
+    let historical = table.iceberg_as_of(Lsn(10), 1_700_000_000_000);
+    let historical_meta =
+        iceberg::parse_metadata(&historical.metadata_json).expect("parse historical metadata");
+    assert_eq!(
+        historical.metadata_location,
+        "s3://lake/quotes/metadata/v10.metadata.json"
+    );
+    assert_eq!(historical_meta["current-snapshot-id"], 10);
+    assert_eq!(historical_meta["current-schema-id"], 0);
+    let historical_schemas = historical_meta["schemas"].as_array().unwrap();
+    assert_eq!(historical_schemas.len(), 1);
+    assert_eq!(historical_schemas[0]["schema-id"], 0);
+    assert_eq!(historical_schemas[0]["fields"].as_array().unwrap().len(), 5);
 
     // The manifest-preview entries: the file recorded BEFORE the evolution keeps its
     // OLDER schema-id; the one recorded AFTER carries the newer one. Order matches
@@ -324,10 +511,11 @@ fn eg_333_iceberg_avro_manifest_roundtrip() {
     );
 
     // metadata.json's snapshot references the exact manifest-list path we wrote.
+    eg_lake::record_iceberg_commit(&mut table, 1_700_000_000_000);
     let ib = table.iceberg(1_700_000_000_000);
     let meta = iceberg::parse_metadata(&ib.metadata_json).expect("parse metadata");
     assert_eq!(
-        meta["snapshots"][0]["manifest-list"].as_str().unwrap(),
+        current_snapshot(&meta)["manifest-list"].as_str().unwrap(),
         m.manifest_list_path
     );
 
@@ -613,6 +801,7 @@ fn eg_350_stats_absent_when_not_gathered() {
 fn eg_317_catalog_lists_and_loads_table() {
     let mut table = LakeTable::new("market", "quotes", sample_schema(), "s3://lake/quotes");
     table.record_file("data/part-0.parquet", 512, 3, Lsn(7));
+    eg_lake::record_iceberg_commit(&mut table, 1_700_000_000_000);
 
     let mut cat = IcebergRestCatalog::new();
     table.register_in(&mut cat, 1_700_000_000_000);
@@ -650,6 +839,7 @@ fn eg_317_end_to_end_materialize_and_export() {
     assert_eq!(&bytes[..4], b"PAR1");
     assert!(path.ends_with(".parquet"));
     assert_eq!(table.current_lsn(), Lsn(100));
+    eg_lake::record_iceberg_commit(&mut table, 1);
 
     // Delta references the materialized part.
     let log = table.delta_log(1);

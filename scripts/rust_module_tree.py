@@ -14,7 +14,6 @@ from pathlib import Path
 
 from rust_lexer import (
     _balanced_span_from,
-    macro_rule_body_spans,
     _delimiter_depths,
     _evaluate_cfg,
     _item_end,
@@ -23,6 +22,7 @@ from rust_lexer import (
     _rust_code_mask,
     _rust_comments_mask,
     _top_level_parts,
+    macro_rule_body_spans,
     require,
 )
 
@@ -80,6 +80,8 @@ def _rust_attributes(mask: str) -> list[_RustAttribute]:
             continue
         name_match = re.match(r"\s*([A-Za-z_][A-Za-z0-9_]*)", mask[opener + 1 : closer])
         require(name_match is not None, "Rust attribute must start with an identifier")
+        # ``require`` above already enforces this; the assertion narrows for mypy.
+        assert name_match is not None
         name = name_match.group(1)
         cursor = opener + 1 + name_match.end()
         while cursor < closer and mask[cursor].isspace():
@@ -120,6 +122,7 @@ def _conditional_cfg_trees(
     for start, end in parts[1:]:
         nested = re.match(r"\s*([A-Za-z_][A-Za-z0-9_]*)", mask[start:end])
         require(nested is not None, "unsupported Rust cfg_attr attribute")
+        assert nested is not None  # narrowed: require() above already enforces this
         name = nested.group(1)
         cursor = start + nested.end()
         while cursor < end and mask[cursor].isspace():
@@ -167,9 +170,7 @@ def _validate_conditional_path_list(
     require(not mask[closer + 1 : end].strip(), failure)
     item = r"[A-Za-z_][A-Za-z0-9_]*(?:\s*::\s*[A-Za-z_][A-Za-z0-9_]*)*"
     require(
-        re.fullmatch(
-            rf"\s*{item}(?:\s*,\s*{item})*\s*,?\s*", mask[cursor + 1 : closer]
-        )
+        re.fullmatch(rf"\s*{item}(?:\s*,\s*{item})*\s*,?\s*", mask[cursor + 1 : closer])
         is not None,
         failure,
     )
@@ -304,7 +305,10 @@ def _static_string_literal(value: str, context: str) -> str:
         normal is not None or raw is not None,
         f"{context} must be one static Rust string literal",
     )
-    return normal.group(1) if normal is not None else raw.group("value")
+    if normal is not None:
+        return normal.group(1)
+    assert raw is not None  # narrowed: require() above already enforces this
+    return raw.group("value")
 
 
 def _path_override(comments_mask: str, attrs: list[_RustAttribute]) -> str | None:
@@ -316,6 +320,7 @@ def _path_override(comments_mask: str, attrs: list[_RustAttribute]) -> str | Non
     body = comments_mask[attr.start : attr.end]
     match = re.fullmatch(r"#\s*\[\s*path\s*=\s*(?P<value>.*?)\s*\]", body, re.S)
     require(match is not None, "unsupported Rust path attribute")
+    assert match is not None  # narrowed: require() above already enforces this
     return _static_string_literal(match.group("value"), "Rust path attribute")
 
 
@@ -487,7 +492,10 @@ class _ProductionScopeWalker:
     ) -> tuple[tuple, ...]:
         if self.include_tests:
             return scope_predicates
-        return (*scope_predicates, *_cfg_predicates(self.comments_mask, self.mask, attrs))
+        return (
+            *scope_predicates,
+            *_cfg_predicates(self.comments_mask, self.mask, attrs),
+        )
 
     def _visit_include(
         self,
@@ -583,7 +591,7 @@ class _ProductionScopeWalker:
 
 
 def _require_declarations_consumed(
-    path: Path, active_mask: str, walker: "_ProductionScopeWalker"
+    path: Path, active_mask: str, walker: _ProductionScopeWalker
 ) -> None:
     """Fail closed on a compiler-active declaration the traversal did not own.
 

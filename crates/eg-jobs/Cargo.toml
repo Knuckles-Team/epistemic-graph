@@ -42,6 +42,16 @@ tempfile = "3"
 # Already a dev-dependency of eg-plan (crates/eg-plan/Cargo.toml) — reused here for
 # DE7's replay-determinism property test, not a new crates.io dependency.
 proptest = "1"
+# `tests/replay_determinism.rs` opens its stores through `eg_jobs::dev_scope_grant`,
+# which is gated on `cfg(any(test, feature = "dev-scope-grant"))`. `cfg(test)` is set
+# only while compiling this crate's OWN unit tests -- an integration test links the
+# library WITHOUT it -- so the test compiled only when some other workspace member
+# (`eg-quantum-jobs`) happened to unify the feature on, i.e. under `--workspace` but
+# never under the release step's `cargo test -p eg-jobs --test replay_determinism`.
+# A self dev-dependency turns the feature on for test/bench builds of this package
+# only; normal builds (and every dependent's build) keep it off, so a production
+# build still cannot link the development verifier.
+eg-jobs = { path = ".", features = ["dev-scope-grant"] }
 
 [features]
 # The development/test composition root for the store's scope grant

@@ -222,20 +222,39 @@ mod tests {
         );
     }
 
+    /// The CUDA probe on a host with no usable device (every build host and CI runner):
+    /// `cuda::backend()` must absorb the driver-load failure (cudarc panics when libcuda
+    /// cannot be loaded) as `None`, and dispatch must then select and run the CPU backend.
+    /// On a host where a device does initialise this fails, directing the run to the
+    /// `eg_gpu_device_tests` parity test instead.
+    #[cfg(all(feature = "gpu-cuda", not(eg_gpu_device_tests)))]
+    #[test]
+    fn cuda_probe_without_a_device_falls_back_to_cpu() {
+        assert!(
+            cuda::backend().is_none(),
+            "a CUDA device initialised, so the device parity test must run: \
+             RUSTFLAGS=\"--cfg eg_gpu_device_tests\" cargo test -p eg-tensor --features gpu-cuda"
+        );
+        assert_eq!(active_backend_name(), "cpu");
+        assert_eq!(
+            elementwise_dispatch(&[1.5, -2.0, 7.0], ElementwiseOp::Sub, 0.5),
+            vec![1.0, -2.5, 6.5]
+        );
+    }
+
     /// GPU↔CPU parity (CONCEPT:EG-KG.compute.tensor-gpu-distance). When a CUDA device is present, the real CUDA
-    /// elementwise kernel MUST match the CPU ground truth for every op; when no device is
-    /// available `cuda::backend()` is `None` and the test SKIPS cleanly. So it is a no-op
-    /// in GPU-less CI yet auto-validates the EG-327 kernel wherever a compatible CUDA
-    /// device exists without breaking CI. Only compiled under `--features gpu-cuda`. The
+    /// elementwise kernel MUST match the CPU ground truth for every op.
+    /// It needs a real device, which no build host or CI runner has, so it is compiled
+    /// only under the explicit opt-in `--cfg eg_gpu_device_tests` and FAILS when no
+    /// device initialises. Run it on a CUDA host with
+    /// `RUSTFLAGS="--cfg eg_gpu_device_tests" cargo test -p eg-tensor --features gpu-cuda`. The
     /// per-element ops are single f64 add/sub/mul/div — each IEEE-754 correctly rounded on
     /// both devices with no accumulation — so parity is asserted BITWISE-exact.
-    #[cfg(feature = "gpu-cuda")]
+    #[cfg(all(feature = "gpu-cuda", eg_gpu_device_tests))]
     #[test]
     fn eg351_cuda_elementwise_matches_cpu_ground_truth() {
-        let Some(gpu) = cuda::backend() else {
-            eprintln!("SKIP eg351_cuda_elementwise: no CUDA device present (CPU-only host)");
-            return;
-        };
+        let gpu = cuda::backend()
+            .expect("--cfg eg_gpu_device_tests is set but no CUDA device initialised on this host");
         assert_eq!(gpu.name(), "cuda", "backend() returned a non-CUDA backend");
 
         // A batch that crosses several thread blocks, with mixed-sign / fractional values.

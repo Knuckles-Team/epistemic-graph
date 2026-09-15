@@ -79,10 +79,10 @@ cannot be trusted) all fail closed.
 Arm patterns are read from comment- and literal-masked source (`rust_lexer`), so
 a `_ =>` inside a string or a comment cannot invent a catch-all. The whole
 function body is brace-matched — **not** a fixed line window. A first attempt at
-this measurement used a 400-line window and classified
-`src/server/handlers/finance.rs::try_handle` (cyclomatic 69, cognitive 4) as
-exhaustive, because its `other => return Err(other)` sits ~616 lines below its
-signature. `tests/test_rust_exhaustive_match.py` pins that case and its opposite.
+this measurement used a 400-line window and misclassified a large dispatcher
+whose catch-all sat beyond that window. `tests/test_rust_exhaustive_match.py`
+pins the current streaming dispatcher shape and a synthetic case whose catch-all
+appears after 450 lines, preserving coverage of that regression.
 
 ### The rule is strictly tighter than what it replaces
 
@@ -173,6 +173,69 @@ AFTER  (thresholds of 2026-09-11)  1,010 violations
 ```
 
 **193 accepted by rule; 1,010 real backlog.**
+
+## `kiss-changed-rust` is diff-scoped, not whole-file (BUG-CX-136 / F6)
+
+`kiss check <file>` always reports EVERY violation the whole file carries,
+not just what a commit's diff touched. Before this rule, `kiss-changed-rust`
+therefore failed a commit that added a single comment to a large,
+already-violating file for debt the commit never touched — the standard
+workaround was `git commit --no-verify`, which silently disables every other
+pre-commit hook too, not just this one.
+
+The hook (`scripts/check_kiss_staged.sh`) now re-runs KISS a second time on
+the HEAD blob of each changed file (a second ephemeral tree,
+materialized once per run via `git archive HEAD`, alongside the existing
+staged-index tree) and narrows the staged report through
+`scripts/kiss_diff_scope.py` before deciding pass/fail:
+
+* **Function/item-scoped rules** (`statements_per_function`,
+  `returns_per_function`, `calls_per_function`, `local_variables_per_function`,
+  `max_indentation_depth`, `branches_per_function`, `boolean_parameters`,
+  `positional_args`, `annotations_per_function`, and other `*_per_function`
+  rules): a finding counts only if the enclosing function/method is NEW (no
+  same-named function existed at HEAD) or MODIFIED (the same-named
+  function's exact source text — extracted by locating `fn <name>` in a
+  comment/string-masked view of the file and matching its balanced `{...}`
+  body, the same lexical authority every other Rust scanner in this
+  repository shares) differs from its HEAD version. A same-named function
+  appearing more than once in a file is matched to its counterpart by
+  ordinal position (file order), not by name alone. **Touching a violating
+  function's body means fixing it** — a modification does not get to keep
+  riding on "it was already broken."
+* **File- or type-aggregate rules** (`lines_per_file`, `statements_per_file`,
+  `functions_per_file`, `interface_types_per_file`, `concrete_types_per_file`,
+  `imported_names_per_file`, and `methods_per_class` — which sums one type's
+  methods across every `impl` block in the file, so it has no single
+  contiguous span to diff): a finding counts only if the rule is absent from
+  the HEAD report for that file (newly crossed) or its reported count is
+  strictly larger than HEAD's (worsened). An unchanged or improved count is
+  pre-existing debt and does not fail the commit.
+
+Matching is **content-based, never line-number or bare-symbol-name based**:
+line numbers shift under reformatting and mechanical merges, and a bare
+symbol name breaks under extraction (a function moved to a new module keeps
+its name but is a different "item" for lineage purposes) — see
+`symbol-keyed-baselines-break-under-extraction` and
+`architecture-gates-key-on-byte-offsets` in the operator's working notes.
+There is **no baseline file, allowlist, or self-updating count** anywhere in
+this comparison: both the staged and the HEAD report are computed fresh, from
+the two Git blobs, on every hook invocation — a ratchet would let today's
+`kiss.toml` thresholds erode quietly; this rule instead re-derives "was this
+introduced or made worse by THIS diff" from scratch every time.
+`tests/test_kiss_diff_scope.py` fixtures the four defining scenarios directly
+against the matcher (comment-only change to a file with a pre-existing
+violation → pass; a new violating function → fail; modifying an
+already-violating function → fail; a file-level threshold newly crossed →
+fail); `tests/test_kiss_staged.py` additionally proves the hook's bash-level
+wiring (materializing the HEAD tree, running the second KISS pass, invoking
+the filter, propagating its exit status) end-to-end with a fake KISS binary.
+
+The pinned-version check, the `--config .kiss/kiss.toml` requirement, the
+one-path-per-invocation rule below, and the `.kissconfig` prohibition are all
+unchanged by this — diff-scoping narrows WHICH of KISS's own findings can
+fail the commit; it never changes what KISS itself measures or how it is
+invoked per file.
 
 ## Running the scanners
 

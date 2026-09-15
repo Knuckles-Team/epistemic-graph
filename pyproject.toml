@@ -139,13 +139,13 @@ line-length = 88
 target-version = "py310"
 
 [tool.ruff.lint]
-select = [ "E", "F", "I", "UP", "B" ]
-ignore = [ "E402", "E501", "B008" ]
+select = [ "E", "F", "I", "UP", "B", "RUF100" ]
 
 [tool.mypy]
 python_version = "3.10"
 ignore_missing_imports = true
 check_untyped_defs = true
+warn_unused_ignores = true
 
 [tool.vulture]
 exclude = [".venv", "venv", "build", "dist", "target"]

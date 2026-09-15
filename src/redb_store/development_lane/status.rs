@@ -42,18 +42,11 @@ pub(super) fn status_filters_reject(
     request: &DevelopmentLaneStatusRequest,
     hold: &DevelopmentLaneHold,
 ) -> bool {
-    request
-        .hold_id
-        .as_deref()
-        .is_some_and(|filter| filter != hold.hold_id)
-        || request
-            .lane_id
-            .as_deref()
-            .is_some_and(|filter| filter != hold.lane_id)
-        || request
-            .work_item_id
-            .as_deref()
-            .is_some_and(|filter| filter != hold.work_item_id)
+    crate::redb_store::any_optional_text_filter_mismatch([
+        (request.hold_id.as_deref(), hold.hold_id.as_str()),
+        (request.lane_id.as_deref(), hold.lane_id.as_str()),
+        (request.work_item_id.as_deref(), hold.work_item_id.as_str()),
+    ])
 }
 
 /// Walk the tenant keyset from `cursor` and project one bounded page of

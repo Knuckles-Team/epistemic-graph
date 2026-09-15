@@ -65,9 +65,14 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use serde::Serialize;
 use tokio::sync::RwLock;
 
+use eg_types::result_contract::ingestion as viz_results;
+use eg_types::result_contract::ingestion::{
+    VizCapabilityEntry, VizCapabilityMatrixResult, VizPayloadRef,
+    VizProvenanceRecord as VizProvenanceResult, VizRenderResponse as VizRenderResult,
+    VizViewResult,
+};
 use eg_types::viz::{VizColumnValues, VizDatasetSource, VizFormat, VizOp, VizRenderRequest};
 use eg_viz_columnstore::{ColumnData, ColumnInput, ColumnStore};
 use eg_viz_core::{
@@ -105,7 +110,8 @@ pub(crate) async fn handle(
     match op {
         VizOp::CapabilityMatrix => Response::ok(
             req_id,
-            ResultPayload::raw(&CapabilityMatrix::default_matrix()),
+            capability_matrix_result(&CapabilityMatrix::default_matrix())
+                .and_then(ResultPayload::of::<viz_results::VizCapabilityMatrix>),
         ),
         VizOp::Render(request) => {
             let mut request = request;
@@ -115,7 +121,10 @@ pub(crate) async fn handle(
             };
             let engine = engine_state(state).await;
             match render(&engine, authority, request) {
-                Ok(response) => Response::ok(req_id, ResultPayload::raw(&response)),
+                Ok(response) => Response::ok(
+                    req_id,
+                    render_result(response).and_then(ResultPayload::of::<viz_results::VizRender>),
+                ),
                 Err(message) => Response::err(req_id, message),
             }
         }
@@ -129,7 +138,11 @@ pub(crate) async fn handle(
             }
             let engine = engine_state(state).await;
             let record: Option<VizProvenanceRecord> = engine.provenance.get(&result_ref);
-            Response::ok(req_id, ResultPayload::raw(&record))
+            let record = record.map(provenance_result);
+            Response::ok(
+                req_id,
+                ResultPayload::of::<viz_results::VizRenderProvenance>(record),
+            )
         }
     }
 }
@@ -160,9 +173,10 @@ pub(crate) async fn engine_state(state: &Arc<RwLock<ServerState>>) -> Arc<VizEng
         .expect("just initialized on the line above")
 }
 
-/// The `ResultPayload::Raw`-encoded response shape for `VizOp::Render` — decoded
-/// client-side with a second `unpackb`, per `ResultPayload::raw`'s own doc.
-#[derive(Debug, Serialize)]
+/// Internal render response state. `render_result` projects it onto the exact
+/// `eg_types::result_contract::ingestion::VizRender` body at the protocol
+/// boundary.
+#[derive(Debug)]
 struct VizRenderResponse {
     view_result: eg_viz_core::ViewResult,
     format: VizFormat,
@@ -174,8 +188,108 @@ struct VizRenderResponse {
     /// cache (lane V4) with zero recomputation, or freshly resolved+rendered.
     /// Diagnostic only — the `bytes`/`view_result` are identical either way.
     cached: bool,
-    #[serde(with = "serde_bytes")]
     bytes: Vec<u8>,
+}
+
+fn capability_matrix_result(
+    matrix: &CapabilityMatrix,
+) -> Result<VizCapabilityMatrixResult, String> {
+    matrix
+        .entries()
+        .iter()
+        .map(capability_entry_result)
+        .collect::<Result<Vec<_>, _>>()
+        .map(|entries| VizCapabilityMatrixResult { entries })
+}
+
+fn capability_entry_result(
+    entry: &eg_viz_core::CapabilityEntry,
+) -> Result<VizCapabilityEntry, String> {
+    Ok(VizCapabilityEntry {
+        mark: enum_wire_name(&entry.mark)?,
+        surface: enum_wire_name(&entry.surface)?,
+        level: enum_wire_name(&entry.level)?,
+        status: enum_wire_name(&entry.status)?,
+        target_wave: entry.target_wave.clone(),
+        notes: entry.notes.clone(),
+    })
+}
+
+fn enum_wire_name<T: serde::Serialize>(value: &T) -> Result<String, String> {
+    let value = serde_json::to_value(value)
+        .map_err(|error| format!("viz enum serialization failed: {error}"))?;
+    value
+        .as_str()
+        .map(str::to_owned)
+        .ok_or_else(|| "viz enum serialization produced a non-string value".to_string())
+}
+
+fn render_result(response: VizRenderResponse) -> Result<VizRenderResult, String> {
+    Ok(VizRenderResult {
+        view_result: view_result_result(response.view_result)?,
+        format: response.format,
+        content_type: response.content_type.to_string(),
+        result_ref: response.result_ref,
+        cached: response.cached,
+        bytes: response.bytes,
+    })
+}
+
+fn view_result_result(result: eg_viz_core::ViewResult) -> Result<VizViewResult, String> {
+    let eg_viz_core::ViewResult {
+        query_hash,
+        seed,
+        row_count,
+        lod_tier,
+        reduction,
+        exact,
+        payloads,
+        wall_time_ms,
+        produced_at_unix_ms,
+    } = result;
+    let payloads = payloads
+        .into_iter()
+        .map(payload_ref_result)
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(VizViewResult {
+        query_hash,
+        seed,
+        row_count,
+        lod_tier: enum_wire_name(&lod_tier)?,
+        reduction: enum_wire_name(&reduction)?,
+        exact,
+        payloads,
+        wall_time_ms,
+        produced_at_unix_ms,
+    })
+}
+
+fn payload_ref_result(payload: eg_viz_core::PayloadRef) -> Result<VizPayloadRef, String> {
+    let eg_viz_core::PayloadRef { id, kind, byte_len } = payload;
+    Ok(VizPayloadRef {
+        id,
+        kind: enum_wire_name(&kind)?,
+        byte_len,
+    })
+}
+
+fn provenance_result(record: VizProvenanceRecord) -> VizProvenanceResult {
+    VizProvenanceResult {
+        result_ref: record.result_ref,
+        query_hash: record.query_hash,
+        dataset_ref: record.dataset_ref,
+        content_fingerprint: record.content_fingerprint,
+        algo_family: record.algo_family,
+        algo_name: record.algo_name,
+        lod_tier: record.lod_tier,
+        exact: record.exact,
+        row_count: record.row_count,
+        width_px: record.width_px,
+        height_px: record.height_px,
+        format: record.format,
+        wall_time_ms: record.wall_time_ms,
+        produced_at_unix_ms: record.produced_at_unix_ms,
+    }
 }
 
 /// Resolve `request` against `engine`'s persistent ColumnStore, honoring the

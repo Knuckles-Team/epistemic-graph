@@ -72,6 +72,7 @@ static REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 // callers set RUST_MIN_STACK or changing production runtime configuration.
 const CLUSTER_ACCEPTANCE_STACK_BYTES: usize = 16 * 1024 * 1024;
 const CLUSTER_ACCEPTANCE_SCENARIO_TIMEOUT: Duration = Duration::from_secs(180);
+const CLUSTER_ACCEPTANCE_TEARDOWN_MARGIN: Duration = Duration::from_secs(60);
 const PUBLIC_DISPATCH_TIMEOUT: Duration = Duration::from_secs(15);
 
 fn run_cluster_acceptance<F, Fut>(name: &'static str, scenario: F)
@@ -92,7 +93,7 @@ where
     // waiting out a concurrent key mutator must not be charged against
     // `CLUSTER_ACCEPTANCE_SCENARIO_TIMEOUT`.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock_blocking();
-    let outcome = std::thread::Builder::new()
+    let scenario_thread = std::thread::Builder::new()
         .name(name.to_string())
         .stack_size(CLUSTER_ACCEPTANCE_STACK_BYTES)
         .spawn(move || {
@@ -111,10 +112,15 @@ where
                     });
             });
         })
-        .expect("spawn cluster acceptance thread")
-        .join();
-    if let Err(panic) = outcome {
-        std::panic::resume_unwind(panic);
+        .expect("spawn cluster acceptance thread");
+    // The scenario already runs under its own deadline; the join is bounded by
+    // that deadline plus the runtime's teardown, so a wedged teardown fails too.
+    if let Err(error) = crate::bounded_join::join_within(
+        scenario_thread,
+        name,
+        CLUSTER_ACCEPTANCE_SCENARIO_TIMEOUT + CLUSTER_ACCEPTANCE_TEARDOWN_MARGIN,
+    ) {
+        panic!("{error}");
     }
 }
 
@@ -795,7 +801,7 @@ fn delegation_method(entry: &eg_types::AgentLibraryEntry) -> Method {
             capability_digest: raw_digest(&entry.tool_surface_digest()),
             catalog_digest: eg_capabilities::CONTRACT_CATALOG_DIGEST.to_string(),
             policy_digest: entry.policy_digest.clone(),
-            model_digest: Some(raw_digest(&entry.model_profile_digest())),
+            model_digest: Some(raw_digest(entry.model_profile_digest())),
             idempotency_key: "rmdd27-delegation-idempotency".to_string(),
             kind: "agent.execute".to_string(),
             actor_scope: entry.actor_scope.clone(),
@@ -963,7 +969,7 @@ fn restart_delegate_method(entry: &eg_types::AgentLibraryEntry) -> Method {
             capability_digest: unprefixed(&entry.tool_surface_digest()),
             catalog_digest: eg_capabilities::CONTRACT_CATALOG_DIGEST.to_string(),
             policy_digest: entry.policy_digest.clone(),
-            model_digest: Some(unprefixed(&entry.model_profile_digest())),
+            model_digest: Some(unprefixed(entry.model_profile_digest())),
             idempotency_key: "rmdd27-restart-delegate-idempotency".to_string(),
             kind: "agent.execute".to_string(),
             actor_scope: entry.actor_scope.clone(),

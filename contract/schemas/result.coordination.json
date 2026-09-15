@@ -1,0 +1,5618 @@
+{
+  "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
+  "$defs": {
+    "AgentGraphEntryRef": {
+      "additionalProperties": false,
+      "description": "One pinned agent GRAPH, as a delegation target (RF-ADR-008).\n\nMirrors [`AgentLibraryEntryRef`] exactly: both pin the record's\n`definition_digest`.\n\n# Why a delegation pins the RECORD digest and a composing parent does not\n\nA [`crate::agent_graph::AgentGraphNodeKind::Graph`] node deliberately pins\nthe child's `shape_digest` -- what a parent composes is the child's\nBEHAVIOUR, and the child's governance is re-checked live at every\nresolution, so pinning a stale copy of it would force a cascading republish\nof an entire tree for a change that alters no behaviour.\n\nA delegation is the opposite question. It names a record IDENTITY, and it is\nthe audit point: `synthesis_evidence` -- which RF-ADR-008 section D says is what\nmakes a synthesized graph auditable and reproducible -- is inside\n`definition_digest` and outside `shape_digest`, as are `version`, the actor\nscope, the purpose, the policy digest and the admitted\n`composed_work_ceiling`. A delegation that pinned only the shape would\nattest to what ran while leaving WHY it was composed unpinned.\n\nDo not \"unify\" the two by giving both the same digest: they answer different\nquestions, and [`crate::agent_graph::AgentGraphEntry`]'s own impl-block doc\ncarries the other half of this note.\n\nThe behaviour pin is not lost: `definition_digest` is a hash OVER\n`shape_digest`, and a shape digest covers every node, while an agent node\npins its own `definition_digest`, which pins every component it is assembled\nfrom. So the record digest still pins the ENTIRE tree transitively -- which\nis why a graph target needs no separate `model_digest` (see\n[`KgDelegateRequest::model_digest`]).",
+      "properties": {
+        "actor_scope": {
+          "type": "string"
+        },
+        "composed_work_ceiling": {
+          "description": "The composed work ceiling this graph was admitted with --\n`CompositionFacts::total_work` from its publish.\n\nCarried rather than recomputed for two reasons. An executor cannot\nderive it without re-resolving the whole composition tree, and more\nimportantly it must honour the ceiling that was VALIDATED at admission,\nnot one it recomputes later against a tree that may have grown new\nrevisions.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "definition_digest": {
+          "description": "The published RECORD digest -- see the type doc for why this is the\nrecord digest and not the shape digest.",
+          "type": "string"
+        },
+        "entry_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "graph_id": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "graph_id",
+        "entry_revision",
+        "definition_digest",
+        "actor_scope",
+        "purpose_id",
+        "policy_digest",
+        "composed_work_ceiling"
+      ],
+      "type": "object"
+    },
+    "AgentLibraryEntryRef": {
+      "additionalProperties": false,
+      "description": "The retained Agent Library identity pinned by a delegation.\n\nThe fields mirror the current Agent Library entry identity: the tenant and\nactor/purpose/policy binding are checked at admission, while the definition\nand source digests pin the exact retained revision.  EG never resolves this\nreference from a local cache; the admission owner supplies the retained\nentry and compares this exact value before creating a WorkItem.",
+      "properties": {
+        "actor_scope": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "definition_digest": {
+          "type": "string"
+        },
+        "entry_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "source_revision": {
+          "type": "string"
+        },
+        "source_revision_digest": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "agent_id",
+        "entry_revision",
+        "definition_digest",
+        "source_revision",
+        "source_revision_digest",
+        "actor_scope",
+        "purpose_id",
+        "policy_digest"
+      ],
+      "type": "object"
+    },
+    "AnalyticsJobRecord": {
+      "additionalProperties": false,
+      "description": "The durable analytics-job record, as a caller sees it.",
+      "properties": {
+        "algo": {
+          "$ref": "#/$defs/JobAlgoVersion"
+        },
+        "cancel_requested": {
+          "type": "boolean"
+        },
+        "created_at_ms": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "input_snapshot": {
+          "$ref": "#/$defs/JobInputSnapshot"
+        },
+        "job_id": {
+          "type": "string"
+        },
+        "last_worker_ref": {
+          "type": "string"
+        },
+        "lease": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/JobWorkerLease"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "not_before_ms": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "output": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/JobResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "policy": {
+          "$ref": "#/$defs/JobPolicy"
+        },
+        "retry": {
+          "$ref": "#/$defs/JobRetryPolicy"
+        },
+        "state": {
+          "$ref": "#/$defs/JobState"
+        },
+        "updated_at_ms": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "job_id",
+        "input_snapshot",
+        "policy",
+        "algo",
+        "retry",
+        "state",
+        "cancel_requested",
+        "lease_epoch",
+        "last_worker_ref",
+        "not_before_ms",
+        "created_at_ms",
+        "updated_at_ms"
+      ],
+      "type": "object"
+    },
+    "CapacityAcquireResult": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "items": {
+            "$ref": "#/$defs/CapacityAvailability"
+          },
+          "type": "array"
+        },
+        "decision": {
+          "$ref": "#/$defs/CapacityDecision"
+        },
+        "leases": {
+          "items": {
+            "$ref": "#/$defs/CapacityLease"
+          },
+          "type": "array"
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "$ref": "#/$defs/NativeControlSchemaVersion"
+        }
+      },
+      "required": [
+        "schema_version",
+        "decision",
+        "leases",
+        "available"
+      ],
+      "type": "object"
+    },
+    "CapacityAvailability": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cell_id": {
+          "type": "string"
+        },
+        "requested": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "resource_class": {
+          "$ref": "#/$defs/CapacityResourceClass"
+        }
+      },
+      "required": [
+        "cell_id",
+        "resource_class",
+        "available",
+        "requested"
+      ],
+      "type": "object"
+    },
+    "CapacityCell": {
+      "additionalProperties": false,
+      "description": "A durable capacity pool. `capacity` is the cell's total admittable amount at\nits current `epoch`; `reserved_floor` is the slice never available to\n`BackgroundIngestion` (invariant: \"Interactive and orchestration floors are\nreserved; background uses spare capacity but cannot starve a tenant\nindefinitely\").",
+      "properties": {
+        "capacity": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cell_id": {
+          "type": "string"
+        },
+        "epoch": {
+          "description": "Monotonic authority epoch (GOC-03 fencing concept, vendored — see module\ndoc). Bumped on cell-authority failover/repartition; an acquire/renew\ncarrying an epoch below this is a stale-authority rejection, never a\nbest-effort read of a foreign shape.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "parent_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "policy_digest": {
+          "description": "sha256 digest of the policy/catalog/model snapshot this cell was\nprovisioned under (checked at every hop per the lane doc's \"Security and\nprivacy\" section); opaque here, verified upstream.",
+          "type": "string"
+        },
+        "reserved_floor": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "resource_class": {
+          "$ref": "#/$defs/CapacityResourceClass"
+        },
+        "updated_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cell_id",
+        "resource_class",
+        "capacity",
+        "reserved_floor",
+        "epoch",
+        "policy_digest",
+        "updated_at_ms"
+      ],
+      "type": "object"
+    },
+    "CapacityCellUpdateResult": {
+      "additionalProperties": false,
+      "properties": {
+        "cell": {
+          "$ref": "#/$defs/CapacityCell"
+        },
+        "decision": {
+          "$ref": "#/$defs/CapacityDecision"
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "$ref": "#/$defs/NativeControlSchemaVersion"
+        }
+      },
+      "required": [
+        "schema_version",
+        "decision",
+        "cell"
+      ],
+      "type": "object"
+    },
+    "CapacityDecision": {
+      "enum": [
+        "accepted",
+        "replayed",
+        "released",
+        "renewed",
+        "reclaimed",
+        "exhausted",
+        "stale_epoch",
+        "stale_fence",
+        "expired",
+        "not_found",
+        "idempotency_conflict",
+        "invalid",
+        "backpressure"
+      ],
+      "type": "string"
+    },
+    "CapacityLease": {
+      "additionalProperties": false,
+      "description": "One tenant's durable claim on a `CapacityCell`. Field set matches the lane\ndoc's frozen schema.",
+      "properties": {
+        "actor_digest": {
+          "description": "Opaque authenticated actor identity (GOC-15 verified carrier digest).",
+          "type": "string"
+        },
+        "amount": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cell_id": {
+          "type": "string"
+        },
+        "cost_budget_micros": {
+          "description": "Spend ceiling in **micro-units (1e-6) of the deployment's accounting\ncurrency** — exact integer, never a float.\n\nThis was `Option<f64>` and that was wrong three ways, not just\ninconvenient for the `Eq` derive:\n\n1. **`NaN`/`±Inf`/negative were representable and unvalidated.**\n   `validate()` checks neither budget field, so a `NaN` ceiling passed\n   silently. A budget is a *control*; a control that admits a value\n   which compares false against everything fails open.\n2. **Float accumulation is inexact and non-associative.** A distributed\n   cost ledger summing leases must reach the same total on every node\n   regardless of summation order. `f64` does not guarantee that.\n3. **`NaN` is not JSON-representable.** It serializes to a bare `NaN`\n   token that strict parsers reject, so a non-finite ceiling is an\n   interop hazard at the AU boundary, not merely an odd number.\n\nAn unsigned integer makes all three unrepresentable rather than\nvalidated-against, and matches `token_budget` — the sibling ceiling in\nthis same struct, which was already exact. `None` means unbounded;\n`Some(0)` means \"may spend nothing\", a genuinely different state.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fence_token": {
+          "description": "Non-zero, unguessable-in-practice token minted at acquire time (GOC-03\nfencing concept, vendored). Renew/release must present the exact value\nlast minted for this `lease_id`; a mismatch is `StaleFence`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "issued_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lease_epoch": {
+          "description": "The `CapacityCell::epoch` this lease was acquired under. A renew/release\npresenting a lease whose `lease_epoch` is behind the cell's CURRENT\nepoch is `StaleEpoch` — the cell was repartitioned/failed-over and this\nholder's authority no longer applies, independent of whether its\n`expires_at_ms` has passed yet.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lease_id": {
+          "type": "string"
+        },
+        "priority": {
+          "$ref": "#/$defs/LeasePriority"
+        },
+        "renewed_count": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "resource_class": {
+          "$ref": "#/$defs/CapacityResourceClass"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "state": {
+          "$ref": "#/$defs/LeaseState"
+        },
+        "tenant_ref": {
+          "type": "string"
+        },
+        "token_budget": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "work_item_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "lease_id",
+        "work_item_id",
+        "tenant_ref",
+        "actor_digest",
+        "cell_id",
+        "resource_class",
+        "amount",
+        "priority",
+        "fence_token",
+        "lease_epoch",
+        "issued_at_ms",
+        "expires_at_ms",
+        "renewed_count",
+        "idempotency_key",
+        "state"
+      ],
+      "type": "object"
+    },
+    "CapacityMutationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "$ref": "#/$defs/CapacityDecision"
+        },
+        "leases": {
+          "items": {
+            "$ref": "#/$defs/CapacityLease"
+          },
+          "type": "array"
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "$ref": "#/$defs/NativeControlSchemaVersion"
+        }
+      },
+      "required": [
+        "schema_version",
+        "decision",
+        "leases"
+      ],
+      "type": "object"
+    },
+    "CapacityReclaimResult": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "$ref": "#/$defs/CapacityDecision"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reclaimed_lease_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/NativeControlSchemaVersion"
+        }
+      },
+      "required": [
+        "schema_version",
+        "decision",
+        "reclaimed_lease_ids"
+      ],
+      "type": "object"
+    },
+    "CapacityResourceClass": {
+      "description": "The resource a `CapacityCell` doles out. Mirrors the lane doc's \"CPU/LLM/GPU\ncapacity\" plus the existing AU gates this composes with\n(`resource_priority.py`'s shared-LLM gate, `worker_scheduler.py`'s host\nworker pool, `gpu_group_budget.py`'s per-GPU/model floors).",
+      "oneOf": [
+        {
+          "const": "llm_generator",
+          "description": "Shared LLM generator admission slots (composes with `resource_priority.py`).",
+          "type": "string"
+        },
+        {
+          "const": "llm_embedding",
+          "description": "A separate embedding endpoint's admission slots — never contends with\n`LlmGenerator` (mirrors `resource_priority.py`'s separate embedding gate key).",
+          "type": "string"
+        },
+        {
+          "const": "gpu",
+          "description": "GPU compute units (composes with `gpu_group_budget.py`).",
+          "type": "string"
+        },
+        {
+          "const": "worker",
+          "description": "Host worker pool slots (composes with `worker_scheduler.py`).",
+          "type": "string"
+        },
+        {
+          "const": "cpu",
+          "description": "CPU-bound compute slots.",
+          "type": "string"
+        },
+        {
+          "const": "broker",
+          "description": "Message-broker/engine dispatch admission slots.",
+          "type": "string"
+        }
+      ]
+    },
+    "CapacityStatusResult": {
+      "additionalProperties": false,
+      "properties": {
+        "cells": {
+          "items": {
+            "$ref": "#/$defs/CapacityCell"
+          },
+          "type": "array"
+        },
+        "leases": {
+          "items": {
+            "$ref": "#/$defs/CapacityLease"
+          },
+          "type": "array"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "$ref": "#/$defs/NativeControlSchemaVersion"
+        }
+      },
+      "required": [
+        "schema_version",
+        "cells",
+        "leases"
+      ],
+      "type": "object"
+    },
+    "CasWorkItemMetadataOutcome": {
+      "description": "Three distinct outcomes — deliberately never collapsed to a bool.  A\nfalsy/empty return here would be indistinguishable at the call site from\n\"no such item\" (AU-P0-3 fail-closed doctrine): a worker that cannot tell\n\"I lost a race\" from \"the item vanished\" cannot safely decide whether to\nretry, re-read, or abandon its lease.",
+      "oneOf": [
+        {
+          "const": "applied",
+          "description": "The compare-and-set matched and the field was durably written.",
+          "type": "string"
+        },
+        {
+          "const": "conflict",
+          "description": "The row exists but the observed condition (status / lease fence /\nthe field's own expected prior value) no longer matches — a genuine\nlost race, not an error. The caller re-reads and decides whether to\nretry.",
+          "type": "string"
+        },
+        {
+          "const": "not_found",
+          "description": "No WorkItem row `work_item_id` exists in this graph for `tenant_ref`.",
+          "type": "string"
+        }
+      ]
+    },
+    "CasWorkItemMetadataResult": {
+      "additionalProperties": false,
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "outcome": {
+          "$ref": "#/$defs/CasWorkItemMetadataOutcome"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/CasWorkItemMetadataResultSchemaVersion"
+        },
+        "work_item_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "outcome",
+        "work_item_id",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "CasWorkItemMetadataResultSchemaVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "ClaimWorkItemResult": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "claimed": {
+          "type": "boolean"
+        },
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lease_expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lease_holder_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "max_attempts": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "payload_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "$ref": "#/$defs/ClaimWorkItemResultReason"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/ClaimWorkItemResultSchemaVersion"
+        },
+        "tenant_in_flight": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "work_item_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "claimed",
+        "reason",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "ClaimWorkItemResultReason": {
+      "enum": [
+        "claimed",
+        "empty",
+        "tenant_quota"
+      ],
+      "type": "string"
+    },
+    "ClaimWorkItemResultSchemaVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "ClaimedAnalyticsJob": {
+      "description": "The job a worker claimed: its record plus the opaque executor payload the worker\nruns, which only the claiming worker ever receives.",
+      "properties": {
+        "algo": {
+          "$ref": "#/$defs/JobAlgoVersion"
+        },
+        "cancel_requested": {
+          "type": "boolean"
+        },
+        "created_at_ms": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "input_payload": {
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "input_snapshot": {
+          "$ref": "#/$defs/JobInputSnapshot"
+        },
+        "job_id": {
+          "type": "string"
+        },
+        "last_worker_ref": {
+          "type": "string"
+        },
+        "lease": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/JobWorkerLease"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "not_before_ms": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "output": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/JobResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "policy": {
+          "$ref": "#/$defs/JobPolicy"
+        },
+        "retry": {
+          "$ref": "#/$defs/JobRetryPolicy"
+        },
+        "state": {
+          "$ref": "#/$defs/JobState"
+        },
+        "updated_at_ms": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "job_id",
+        "input_snapshot",
+        "policy",
+        "algo",
+        "retry",
+        "state",
+        "cancel_requested",
+        "lease_epoch",
+        "last_worker_ref",
+        "not_before_ms",
+        "created_at_ms",
+        "updated_at_ms"
+      ],
+      "type": "object"
+    },
+    "DelegationTarget": {
+      "description": "What a delegation runs.\n\n# Why one delegation, not one per node\n\nA graph delegation admits exactly ONE work item. The child agent runs are\nthe executor's business, bounded by the graph's own composed ceiling.\n\nThe alternative -- admitting one work item per node -- was rejected because\n`max_tenant_in_flight` would then make a graph UNSCHEDULABLE whenever its\nnode count exceeded the tenant's limit: the parent would hold a slot while\nwaiting for children that cannot get one. That is a deadlock, not a\nthrottle.\n\nSo the two bounds govern two different things, and both are needed:\n\n* `max_tenant_in_flight` bounds how many DELEGATIONS a tenant may have in\n  flight;\n* `composed_work_ceiling` bounds what one delegation may do INTERNALLY.\n\nWithout the second, a graph would be a way to escape the first by fanning\nout. `MAX_COMPOSITION_WORK` is the global cap that makes the escape\nimpossible rather than merely discouraged.",
+      "oneOf": [
+        {
+          "description": "One published agent (layer 2).",
+          "properties": {
+            "entry": {
+              "$ref": "#/$defs/AgentLibraryEntryRef"
+            },
+            "target": {
+              "const": "agent",
+              "type": "string"
+            }
+          },
+          "required": [
+            "target",
+            "entry"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "One published agent graph -- a team (layer 3).",
+          "properties": {
+            "graph": {
+              "$ref": "#/$defs/AgentGraphEntryRef",
+              "description": "Boxed: a graph ref is the larger variant, and an unboxed enum pays\nits size on every delegation including single-agent ones."
+            },
+            "target": {
+              "const": "graph",
+              "type": "string"
+            }
+          },
+          "required": [
+            "target",
+            "graph"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DevelopmentLaneCleanupCompleteResult": {
+      "additionalProperties": false,
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "decision": {
+          "$ref": "#/$defs/DevelopmentLaneCleanupCompleteResultDecision"
+        },
+        "hold": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DevelopmentLaneHold"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hold_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lifecycle_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "quota_charge": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DevelopmentLaneQuotaCharge"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "schema_version": {
+          "$ref": "#/$defs/DevelopmentLaneCleanupCompleteResultSchemaVersion"
+        },
+        "tombstone": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema_version",
+        "decision",
+        "hold_revision",
+        "lifecycle_revision",
+        "tombstone",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "DevelopmentLaneCleanupCompleteResultDecision": {
+      "enum": [
+        "accepted",
+        "idempotent",
+        "stale",
+        "conflict",
+        "input_conflict",
+        "quota",
+        "policy",
+        "drained",
+        "not_found",
+        "wrong_kind",
+        "wrong_tenant",
+        "wrong_owner",
+        "wrong_attempt",
+        "wrong_lease_epoch",
+        "wrong_fence",
+        "expired",
+        "terminal",
+        "cleanup_required",
+        "exclusivity",
+        "invalid"
+      ],
+      "type": "string"
+    },
+    "DevelopmentLaneCleanupCompleteResultSchemaVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "DevelopmentLaneFinishResult": {
+      "additionalProperties": false,
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "decision": {
+          "$ref": "#/$defs/DevelopmentLaneFinishResultDecision"
+        },
+        "hold": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DevelopmentLaneHold"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hold_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lifecycle_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "quota_charge": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DevelopmentLaneQuotaCharge"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "schema_version": {
+          "$ref": "#/$defs/DevelopmentLaneFinishResultSchemaVersion"
+        },
+        "tombstone": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema_version",
+        "decision",
+        "hold_revision",
+        "lifecycle_revision",
+        "tombstone",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "DevelopmentLaneFinishResultDecision": {
+      "enum": [
+        "accepted",
+        "idempotent",
+        "stale",
+        "conflict",
+        "input_conflict",
+        "quota",
+        "policy",
+        "drained",
+        "not_found",
+        "wrong_kind",
+        "wrong_tenant",
+        "wrong_owner",
+        "wrong_attempt",
+        "wrong_lease_epoch",
+        "wrong_fence",
+        "expired",
+        "terminal",
+        "cleanup_required",
+        "exclusivity",
+        "invalid"
+      ],
+      "type": "string"
+    },
+    "DevelopmentLaneFinishResultSchemaVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "DevelopmentLaneHold": {
+      "additionalProperties": false,
+      "properties": {
+        "active_count_charged": {
+          "type": "boolean"
+        },
+        "allocation_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "attempt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "base_ref": {
+          "type": "string"
+        },
+        "base_sha": {
+          "type": "string"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "cleanup_attempt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cleanup_fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cleanup_lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cleanup_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cleanup_work_item_fence": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cleanup_work_item_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fairness_group": {
+          "type": "string"
+        },
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "hold_id": {
+          "type": "string"
+        },
+        "hold_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "host_ref": {
+          "type": "string"
+        },
+        "host_target_alias": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "host_target_kind": {
+          "$ref": "#/$defs/DevelopmentLaneHoldHostTargetKind"
+        },
+        "input_fingerprint": {
+          "type": "string"
+        },
+        "lane_id": {
+          "type": "string"
+        },
+        "last_renewed_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lifecycle_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "observed_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "owner_id": {
+          "type": "string"
+        },
+        "predicted_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "quota_charge": {
+          "$ref": "#/$defs/DevelopmentLaneQuotaCharge"
+        },
+        "quota_policy_name": {
+          "type": "string"
+        },
+        "quota_policy_version": {
+          "type": "string"
+        },
+        "repository_id": {
+          "type": "string"
+        },
+        "request_id": {
+          "type": "string"
+        },
+        "retained_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/DevelopmentLaneHoldSchemaVersion"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "state": {
+          "$ref": "#/$defs/DevelopmentLaneHoldState"
+        },
+        "tenant_ref": {
+          "type": "string"
+        },
+        "tombstone": {
+          "type": "boolean"
+        },
+        "work_item_fence": {
+          "type": "string"
+        },
+        "work_item_id": {
+          "type": "string"
+        },
+        "workspace_ref": {
+          "type": "string"
+        },
+        "worktree_locator": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "hold_id",
+        "lane_id",
+        "tenant_ref",
+        "request_id",
+        "work_item_id",
+        "owner_id",
+        "session_id",
+        "fairness_group",
+        "workspace_ref",
+        "repository_id",
+        "base_ref",
+        "base_sha",
+        "branch",
+        "worktree_locator",
+        "host_target_kind",
+        "host_ref",
+        "quota_policy_name",
+        "quota_policy_version",
+        "input_fingerprint",
+        "predicted_disk_bytes",
+        "observed_disk_bytes",
+        "retained_disk_bytes",
+        "active_count_charged",
+        "quota_charge",
+        "state",
+        "attempt",
+        "lease_epoch",
+        "fencing_token",
+        "work_item_fence",
+        "hold_revision",
+        "lifecycle_revision",
+        "allocation_revision",
+        "cleanup_revision",
+        "expires_at_ms",
+        "last_renewed_at_ms",
+        "tombstone"
+      ],
+      "type": "object"
+    },
+    "DevelopmentLaneHoldHostTargetKind": {
+      "enum": [
+        "local",
+        "inventory_alias"
+      ],
+      "type": "string"
+    },
+    "DevelopmentLaneHoldSchemaVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "DevelopmentLaneHoldState": {
+      "enum": [
+        "allocating",
+        "active",
+        "submitted",
+        "released",
+        "expired",
+        "cleanup_pending",
+        "cleaned",
+        "aborted",
+        "absent"
+      ],
+      "type": "string"
+    },
+    "DevelopmentLaneObserveResult": {
+      "additionalProperties": false,
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "decision": {
+          "$ref": "#/$defs/DevelopmentLaneObserveResultDecision"
+        },
+        "hold": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DevelopmentLaneHold"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hold_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lifecycle_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "quota_charge": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DevelopmentLaneQuotaCharge"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "schema_version": {
+          "$ref": "#/$defs/DevelopmentLaneObserveResultSchemaVersion"
+        },
+        "tombstone": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema_version",
+        "decision",
+        "hold_revision",
+        "lifecycle_revision",
+        "tombstone",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "DevelopmentLaneObserveResultDecision": {
+      "enum": [
+        "accepted",
+        "idempotent",
+        "stale",
+        "conflict",
+        "input_conflict",
+        "quota",
+        "policy",
+        "drained",
+        "not_found",
+        "wrong_kind",
+        "wrong_tenant",
+        "wrong_owner",
+        "wrong_attempt",
+        "wrong_lease_epoch",
+        "wrong_fence",
+        "expired",
+        "terminal",
+        "cleanup_required",
+        "exclusivity",
+        "invalid"
+      ],
+      "type": "string"
+    },
+    "DevelopmentLaneObserveResultSchemaVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "DevelopmentLaneQueryResult": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "$ref": "#/$defs/DevelopmentLaneQueryResultDecision"
+        },
+        "hold": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DevelopmentLaneHold"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hold_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lifecycle_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/DevelopmentLaneQueryResultSchemaVersion"
+        },
+        "tombstone": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema_version",
+        "decision",
+        "hold_revision",
+        "lifecycle_revision",
+        "tombstone"
+      ],
+      "type": "object"
+    },
+    "DevelopmentLaneQueryResultDecision": {
+      "enum": [
+        "accepted",
+        "idempotent",
+        "stale",
+        "conflict",
+        "input_conflict",
+        "quota",
+        "policy",
+        "drained",
+        "not_found",
+        "wrong_kind",
+        "wrong_tenant",
+        "wrong_owner",
+        "wrong_attempt",
+        "wrong_lease_epoch",
+        "wrong_fence",
+        "expired",
+        "terminal",
+        "cleanup_required",
+        "exclusivity",
+        "invalid"
+      ],
+      "type": "string"
+    },
+    "DevelopmentLaneQueryResultSchemaVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "DevelopmentLaneQuotaCharge": {
+      "additionalProperties": false,
+      "properties": {
+        "global_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "global_observed_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "global_predicted_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "global_retained_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "host_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "host_observed_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "host_predicted_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "host_retained_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "owner_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "owner_observed_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "owner_predicted_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "owner_retained_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "policy_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "repository_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "repository_observed_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "repository_predicted_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "repository_retained_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/DevelopmentLaneQuotaChargeSchemaVersion"
+        },
+        "session_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session_observed_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session_predicted_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session_retained_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_observed_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_predicted_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_retained_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "workspace_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "workspace_observed_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "workspace_predicted_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "workspace_retained_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "tenant_count",
+        "owner_count",
+        "session_count",
+        "workspace_count",
+        "repository_count",
+        "host_count",
+        "global_count",
+        "tenant_predicted_disk_bytes",
+        "owner_predicted_disk_bytes",
+        "session_predicted_disk_bytes",
+        "workspace_predicted_disk_bytes",
+        "repository_predicted_disk_bytes",
+        "host_predicted_disk_bytes",
+        "global_predicted_disk_bytes",
+        "tenant_observed_disk_bytes",
+        "owner_observed_disk_bytes",
+        "session_observed_disk_bytes",
+        "workspace_observed_disk_bytes",
+        "repository_observed_disk_bytes",
+        "host_observed_disk_bytes",
+        "global_observed_disk_bytes",
+        "tenant_retained_disk_bytes",
+        "owner_retained_disk_bytes",
+        "session_retained_disk_bytes",
+        "workspace_retained_disk_bytes",
+        "repository_retained_disk_bytes",
+        "host_retained_disk_bytes",
+        "global_retained_disk_bytes",
+        "revision",
+        "policy_revision"
+      ],
+      "type": "object"
+    },
+    "DevelopmentLaneQuotaChargeSchemaVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "DevelopmentLaneQuotaPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "drain_only": {
+          "type": "boolean"
+        },
+        "global_count_limit": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "global_observed_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "global_predicted_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "global_retained_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "host_count_limit": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "host_observed_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "host_predicted_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "host_retained_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_observation_staleness_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_ttl_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "min_ttl_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "owner_count_limit": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "owner_observed_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "owner_predicted_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "owner_retained_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "policy_name": {
+          "type": "string"
+        },
+        "policy_version": {
+          "type": "string"
+        },
+        "repository_count_limit": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "repository_observed_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "repository_predicted_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "repository_retained_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/DevelopmentLaneQuotaPolicySchemaVersion"
+        },
+        "session_count_limit": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session_observed_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session_predicted_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session_retained_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_count_limit": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_observed_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_predicted_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_retained_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "workspace_count_limit": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "workspace_observed_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "workspace_predicted_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "workspace_retained_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "policy_name",
+        "policy_version",
+        "tenant_count_limit",
+        "owner_count_limit",
+        "session_count_limit",
+        "workspace_count_limit",
+        "repository_count_limit",
+        "host_count_limit",
+        "global_count_limit",
+        "tenant_predicted_disk_bytes",
+        "owner_predicted_disk_bytes",
+        "session_predicted_disk_bytes",
+        "workspace_predicted_disk_bytes",
+        "repository_predicted_disk_bytes",
+        "host_predicted_disk_bytes",
+        "global_predicted_disk_bytes",
+        "tenant_observed_disk_bytes",
+        "owner_observed_disk_bytes",
+        "session_observed_disk_bytes",
+        "workspace_observed_disk_bytes",
+        "repository_observed_disk_bytes",
+        "host_observed_disk_bytes",
+        "global_observed_disk_bytes",
+        "tenant_retained_disk_bytes",
+        "owner_retained_disk_bytes",
+        "session_retained_disk_bytes",
+        "workspace_retained_disk_bytes",
+        "repository_retained_disk_bytes",
+        "host_retained_disk_bytes",
+        "global_retained_disk_bytes",
+        "min_ttl_ms",
+        "max_ttl_ms",
+        "max_observation_staleness_ms",
+        "drain_only"
+      ],
+      "type": "object"
+    },
+    "DevelopmentLaneQuotaPolicySchemaVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "DevelopmentLaneQuotaUpdateResult": {
+      "additionalProperties": false,
+      "properties": {
+        "counters": {
+          "$ref": "#/$defs/DevelopmentLaneQuotaCharge"
+        },
+        "decision": {
+          "$ref": "#/$defs/DevelopmentLaneQuotaUpdateResultDecision"
+        },
+        "policy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DevelopmentLaneQuotaPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "policy_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/DevelopmentLaneQuotaUpdateResultSchemaVersion"
+        }
+      },
+      "required": [
+        "schema_version",
+        "decision",
+        "counters",
+        "policy_revision"
+      ],
+      "type": "object"
+    },
+    "DevelopmentLaneQuotaUpdateResultDecision": {
+      "enum": [
+        "accepted",
+        "idempotent",
+        "stale",
+        "conflict",
+        "quota",
+        "policy",
+        "drained",
+        "invalid"
+      ],
+      "type": "string"
+    },
+    "DevelopmentLaneQuotaUpdateResultSchemaVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "DevelopmentLaneRenewResult": {
+      "additionalProperties": false,
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "decision": {
+          "$ref": "#/$defs/DevelopmentLaneRenewResultDecision"
+        },
+        "hold": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DevelopmentLaneHold"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hold_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lifecycle_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "quota_charge": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DevelopmentLaneQuotaCharge"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "schema_version": {
+          "$ref": "#/$defs/DevelopmentLaneRenewResultSchemaVersion"
+        },
+        "tombstone": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema_version",
+        "decision",
+        "hold_revision",
+        "lifecycle_revision",
+        "tombstone",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "DevelopmentLaneRenewResultDecision": {
+      "enum": [
+        "accepted",
+        "idempotent",
+        "stale",
+        "conflict",
+        "input_conflict",
+        "quota",
+        "policy",
+        "drained",
+        "not_found",
+        "wrong_kind",
+        "wrong_tenant",
+        "wrong_owner",
+        "wrong_attempt",
+        "wrong_lease_epoch",
+        "wrong_fence",
+        "expired",
+        "terminal",
+        "cleanup_required",
+        "exclusivity",
+        "invalid"
+      ],
+      "type": "string"
+    },
+    "DevelopmentLaneRenewResultSchemaVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "DevelopmentLaneResult": {
+      "additionalProperties": false,
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "decision": {
+          "$ref": "#/$defs/DevelopmentLaneResultDecision"
+        },
+        "hold": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DevelopmentLaneHold"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "hold_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lifecycle_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "quota_charge": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DevelopmentLaneQuotaCharge"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "schema_version": {
+          "$ref": "#/$defs/DevelopmentLaneResultSchemaVersion"
+        },
+        "tombstone": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema_version",
+        "decision",
+        "hold_revision",
+        "lifecycle_revision",
+        "tombstone",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "DevelopmentLaneResultDecision": {
+      "enum": [
+        "accepted",
+        "idempotent",
+        "stale",
+        "conflict",
+        "input_conflict",
+        "quota",
+        "policy",
+        "drained",
+        "not_found",
+        "wrong_kind",
+        "wrong_tenant",
+        "wrong_owner",
+        "wrong_attempt",
+        "wrong_lease_epoch",
+        "wrong_fence",
+        "expired",
+        "terminal",
+        "cleanup_required",
+        "exclusivity",
+        "invalid"
+      ],
+      "type": "string"
+    },
+    "DevelopmentLaneResultSchemaVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "DevelopmentLaneStatusResult": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "counters": {
+          "$ref": "#/$defs/DevelopmentLaneQuotaCharge"
+        },
+        "holds": {
+          "items": {
+            "$ref": "#/$defs/DevelopmentLaneHold"
+          },
+          "type": "array"
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "$ref": "#/$defs/DevelopmentLaneStatusResultSchemaVersion"
+        },
+        "tenant_active_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_retained_disk_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tombstone": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema_version",
+        "complete",
+        "holds",
+        "counters",
+        "tenant_active_count",
+        "tenant_retained_disk_bytes",
+        "tombstone"
+      ],
+      "type": "object"
+    },
+    "DevelopmentLaneStatusResultSchemaVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "GraphResourceStats": {
+      "description": "Per-graph resource snapshot (CONCEPT:EG-KG.compute.lane-v).",
+      "properties": {
+        "edges": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "graph": {
+          "type": "string"
+        },
+        "hibernated": {
+          "description": "`true` if hibernated (in-RAM state dropped, durable in redb).",
+          "type": "boolean"
+        },
+        "memory_bytes": {
+          "description": "Approximate resident RAM, bytes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nodes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "graph",
+        "tenant",
+        "nodes",
+        "edges",
+        "memory_bytes",
+        "hibernated"
+      ],
+      "type": "object"
+    },
+    "JobAlgoVersion": {
+      "additionalProperties": false,
+      "description": "The full algorithm lineage a job's result is bound to.",
+      "properties": {
+        "algorithm": {
+          "type": "string"
+        },
+        "code_version": {
+          "type": "string"
+        },
+        "env_version": {
+          "type": "string"
+        },
+        "family": {
+          "type": "string"
+        },
+        "params_digest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "family",
+        "algorithm",
+        "params_digest",
+        "code_version",
+        "env_version"
+      ],
+      "type": "object"
+    },
+    "JobCheckpoint": {
+      "additionalProperties": false,
+      "description": "The last progress checkpoint a job wrote.",
+      "properties": {
+        "progress": {
+          "format": "double",
+          "type": "number"
+        },
+        "stage": {
+          "type": "string"
+        },
+        "state_blob": {
+          "description": "An opaque external state reference, as bytes.",
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "updated_at_ms": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "progress",
+        "stage",
+        "updated_at_ms"
+      ],
+      "type": "object"
+    },
+    "JobInputSnapshot": {
+      "additionalProperties": false,
+      "description": "The graph snapshot a job reads.",
+      "properties": {
+        "content_digest": {
+          "type": "string"
+        },
+        "dataset_ref": {
+          "type": "string"
+        },
+        "graph": {
+          "type": "string"
+        },
+        "version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "graph",
+        "version",
+        "dataset_ref",
+        "content_digest"
+      ],
+      "type": "object"
+    },
+    "JobPlacement": {
+      "additionalProperties": false,
+      "description": "Where a job may run.",
+      "properties": {
+        "pool": {
+          "type": "string"
+        },
+        "region": {
+          "type": "string"
+        },
+        "required_capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "pool",
+        "region",
+        "required_capabilities"
+      ],
+      "type": "object"
+    },
+    "JobPolicy": {
+      "additionalProperties": false,
+      "description": "The authority and limits a job runs under.",
+      "properties": {
+        "actor": {
+          "type": "string"
+        },
+        "deadline_unix_ms": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "placement": {
+          "$ref": "#/$defs/JobPlacement"
+        },
+        "policy_fingerprint": {
+          "type": "string"
+        },
+        "priority": {
+          "format": "int32",
+          "type": "integer"
+        },
+        "purpose": {
+          "type": "string"
+        },
+        "quota_cpu_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "resources": {
+          "$ref": "#/$defs/JobResourceBudget"
+        },
+        "tenant": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant",
+        "actor",
+        "purpose",
+        "priority",
+        "policy_fingerprint",
+        "resources",
+        "placement"
+      ],
+      "type": "object"
+    },
+    "JobReproducibilityManifest": {
+      "description": "Reproducibility manifest bound server-side to the leased job lineage.",
+      "properties": {
+        "algorithm_ref": {
+          "type": "string"
+        },
+        "environment_version": {
+          "type": "string"
+        },
+        "implementation_version": {
+          "type": "string"
+        },
+        "input_content_digest": {
+          "type": "string"
+        },
+        "input_dataset_ref": {
+          "type": "string"
+        },
+        "input_snapshot_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "params_digest": {
+          "type": "string"
+        },
+        "policy_fingerprint": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "input_dataset_ref",
+        "input_content_digest",
+        "input_snapshot_version",
+        "algorithm_ref",
+        "params_digest",
+        "implementation_version",
+        "environment_version",
+        "policy_fingerprint"
+      ],
+      "type": "object"
+    },
+    "JobResourceBudget": {
+      "additionalProperties": false,
+      "description": "A job's resource budget.",
+      "properties": {
+        "cpu_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "io_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "memory_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "output_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "JobResult": {
+      "description": "KnowledgeBatch-shaped result currency accepted by [`JobOp::WorkerStage`].",
+      "properties": {
+        "calibration": {
+          "default": null,
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "format": "double",
+              "type": "number"
+            },
+            {
+              "format": "double",
+              "type": "number"
+            }
+          ],
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "content_digest": {
+          "type": "string"
+        },
+        "counterexample_refs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "dataset_ref": {
+          "type": "string"
+        },
+        "evidence_refs": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "reproducibility": {
+          "$ref": "#/$defs/JobReproducibilityManifest"
+        },
+        "rows": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "schema": {
+          "items": {
+            "$ref": "#/$defs/JobResultColumn"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "uncertainty": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "dataset_ref",
+        "content_digest",
+        "schema",
+        "rows",
+        "reproducibility"
+      ],
+      "type": "object"
+    },
+    "JobResultColumn": {
+      "description": "Portable typed result column for remote analytics workers.",
+      "properties": {
+        "logical_type": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "nullable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name",
+        "logical_type",
+        "nullable"
+      ],
+      "type": "object"
+    },
+    "JobRetryPolicy": {
+      "additionalProperties": false,
+      "description": "A job's retry policy and attempt counter.",
+      "properties": {
+        "attempts_made": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "backoff_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_attempts": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_attempts",
+        "backoff_ms",
+        "attempts_made"
+      ],
+      "type": "object"
+    },
+    "JobState": {
+      "description": "A job's lifecycle state.",
+      "oneOf": [
+        {
+          "enum": [
+            "Submitted"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Running": {
+              "additionalProperties": false,
+              "properties": {
+                "checkpoint": {
+                  "$ref": "#/$defs/JobCheckpoint"
+                }
+              },
+              "required": [
+                "checkpoint"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Running"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The typed result is durable; its evidence-bearing claims are not yet.",
+          "properties": {
+            "Publishing": {
+              "additionalProperties": false,
+              "properties": {
+                "checkpoint": {
+                  "$ref": "#/$defs/JobCheckpoint"
+                },
+                "result_ref": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "result_ref",
+                "checkpoint"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Publishing"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Succeeded": {
+              "additionalProperties": false,
+              "properties": {
+                "checkpoint": {
+                  "$ref": "#/$defs/JobCheckpoint"
+                },
+                "result_ref": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "result_ref",
+                "checkpoint"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Succeeded"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Failed": {
+              "additionalProperties": false,
+              "properties": {
+                "checkpoint": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/JobCheckpoint"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reason": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "reason"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Failed"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Cancelled": {
+              "additionalProperties": false,
+              "properties": {
+                "checkpoint": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/JobCheckpoint"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "type": "object"
+            }
+          },
+          "required": [
+            "Cancelled"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "JobWorkerLease": {
+      "additionalProperties": false,
+      "description": "Fenced ownership of one job attempt by a worker slot.",
+      "properties": {
+        "acquired_at_ms": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expires_at_ms": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "worker_ref": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "worker_ref",
+        "epoch",
+        "acquired_at_ms",
+        "expires_at_ms"
+      ],
+      "type": "object"
+    },
+    "KgDelegateDecision": {
+      "enum": [
+        "accepted",
+        "replayed"
+      ],
+      "type": "string"
+    },
+    "KgDelegateResult": {
+      "additionalProperties": false,
+      "description": "Result returned after the existing WorkItem admission transaction commits.\nThe outbox id is the native admission outbox identity; EG does not mint a\nparallel delegation ledger.",
+      "properties": {
+        "capability_digest": {
+          "type": "string"
+        },
+        "catalog_digest": {
+          "type": "string"
+        },
+        "command_digest": {
+          "type": "string"
+        },
+        "decision": {
+          "$ref": "#/$defs/KgDelegateDecision"
+        },
+        "delegation_id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "model_digest": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "outbox_id": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "run_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/KgDelegateSchemaVersion"
+        },
+        "target": {
+          "$ref": "#/$defs/DelegationTarget",
+          "description": "Echoes the admitted target, so a caller reading a receipt knows exactly\nwhat ran without resolving anything."
+        },
+        "trace_id": {
+          "type": "string"
+        },
+        "work_item_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "decision",
+        "delegation_id",
+        "run_id",
+        "trace_id",
+        "work_item_id",
+        "outbox_id",
+        "idempotency_key",
+        "target",
+        "command_digest",
+        "capability_digest",
+        "catalog_digest",
+        "policy_digest"
+      ],
+      "type": "object"
+    },
+    "KgDelegateSchemaVersion": {
+      "oneOf": [
+        {
+          "const": "2",
+          "description": "Format identity, not a component name (RF-ADR-006). See\n[`KG_DELEGATE_VERSION`] for what changed.",
+          "type": "string"
+        }
+      ]
+    },
+    "LeasePriority": {
+      "description": "The same four priority tiers `resource_priority.py::PriorityClass` defines,\nvendored here (not imported — this crate has no Python interop and must not\ndepend on AU) so a `CapacityLease` carries the identical vocabulary the AU\nscheduler already enforces at the LLM gate. `#[derive(Ord)]` on a fieldless\nenum compares by DECLARATION ORDER, so listing `Interactive` first and\n`BackgroundIngestion` last gives `Interactive < Orchestration < Hydration <\nBackgroundIngestion`, matching `core/cognitive_scheduler.py::SchedulerPriority`'s\n\"lower value = higher priority\" convention. `Orchestration`/`Hydration` are\nNOT equal-priority under this `Ord` (AU's equal LLM-gate WEIGHT for the two\nis a separate lookup table, `_PRIORITY_WEIGHTS`, not an enum-ordinal fact —\nsee `resource_priority.py`); only `may_spend_reserved_floor` below is a\nhard cell-admission rule.",
+      "enum": [
+        "interactive",
+        "orchestration",
+        "hydration",
+        "background_ingestion"
+      ],
+      "type": "string"
+    },
+    "LeaseRenewalRefusal": {
+      "description": "Why a `RenewWorkItemLease` renewed nothing.",
+      "oneOf": [
+        {
+          "const": "missing",
+          "description": "No WorkItem has this id.",
+          "type": "string"
+        },
+        {
+          "const": "fenced",
+          "description": "The caller no longer holds the live lease it named.",
+          "type": "string"
+        }
+      ]
+    },
+    "LeaseState": {
+      "description": "Lifecycle state of one `CapacityLease` (mirrors `work_item.py`'s closed\nstate vocabulary convention — a plain closed string-like enum, not an\nopen-ended status field).",
+      "oneOf": [
+        {
+          "enum": [
+            "active",
+            "renewed",
+            "released"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "expired",
+          "description": "Expiry reached with no renewal; capacity is reclaimable. A holder that\nkeeps working past this point is the classic fencing defect this module\nexists to prevent — `try_renew`/`try_release` reject a caller presenting\na lease in (or past) this state.",
+          "type": "string"
+        },
+        {
+          "const": "reclaimed",
+          "description": "An `ReclaimExpired` sweep already returned this lease's amount to the\ncell. Terminal, like `Released`.",
+          "type": "string"
+        }
+      ]
+    },
+    "NativeControlSchemaVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "ResourceCapacitySnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "cpu_weight": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "disk_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "host_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "memory_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "process_slots": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cpu_weight",
+        "memory_mib",
+        "disk_mib",
+        "process_slots",
+        "host_revision"
+      ],
+      "type": "object"
+    },
+    "ResourceHostUpdateCapacitySnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "cpu_weight": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "disk_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "memory_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "process_slots": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cpu_weight",
+        "memory_mib",
+        "disk_mib",
+        "process_slots"
+      ],
+      "type": "object"
+    },
+    "ResourceHostUpdateDiskPolicySnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "blocked": {
+          "type": "boolean"
+        },
+        "high_watermark_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "low_watermark_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "policy_key": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "policy_key",
+        "blocked",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "ResourceHostUpdateResult": {
+      "additionalProperties": false,
+      "properties": {
+        "accepted": {
+          "type": "boolean"
+        },
+        "draining": {
+          "type": "boolean"
+        },
+        "held_cpu_weight": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_disk_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_memory_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_process_slots": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "host_ref": {
+          "type": "string"
+        },
+        "host_snapshot": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResourceHostUpdateSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "quarantined": {
+          "type": "boolean"
+        },
+        "reason": {
+          "$ref": "#/$defs/ResourceHostUpdateResultReason"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/ResourceHostUpdateResultSchemaVersion"
+        }
+      },
+      "required": [
+        "schema_version",
+        "accepted",
+        "reason",
+        "host_ref",
+        "revision",
+        "held_cpu_weight",
+        "held_memory_mib",
+        "held_disk_mib",
+        "held_process_slots",
+        "draining",
+        "quarantined"
+      ],
+      "type": "object"
+    },
+    "ResourceHostUpdateResultReason": {
+      "enum": [
+        "accepted",
+        "stale_host",
+        "conflict",
+        "not_found"
+      ],
+      "type": "string"
+    },
+    "ResourceHostUpdateResultSchemaVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "ResourceHostUpdateSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "capacity": {
+          "$ref": "#/$defs/ResourceHostUpdateCapacitySnapshot"
+        },
+        "disk_capacity_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "disk_policies": {
+          "items": {
+            "$ref": "#/$defs/ResourceHostUpdateDiskPolicySnapshot"
+          },
+          "type": "array"
+        },
+        "disk_used_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "draining": {
+          "type": "boolean"
+        },
+        "heartbeat_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "heartbeat_ttl_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_cpu_weight": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_disk_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_memory_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_process_slots": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "host_ref": {
+          "type": "string"
+        },
+        "labels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "observed": {
+          "$ref": "#/$defs/ResourceHostUpdateCapacitySnapshot"
+        },
+        "quarantined": {
+          "type": "boolean"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "target_alias": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target_kind": {
+          "$ref": "#/$defs/ResourceHostUpdateSnapshotTargetKind"
+        }
+      },
+      "required": [
+        "host_ref",
+        "revision",
+        "capacity",
+        "observed",
+        "heartbeat_at_ms",
+        "heartbeat_ttl_ms",
+        "draining",
+        "quarantined",
+        "labels",
+        "target_kind",
+        "disk_used_mib",
+        "disk_capacity_mib",
+        "held_cpu_weight",
+        "held_memory_mib",
+        "held_disk_mib",
+        "held_process_slots",
+        "disk_policies"
+      ],
+      "type": "object"
+    },
+    "ResourceHostUpdateSnapshotTargetKind": {
+      "enum": [
+        "local",
+        "inventory_alias"
+      ],
+      "type": "string"
+    },
+    "ResourceRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "cpu_weight": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "disk_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "memory_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "process_slots": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cpu_weight",
+        "memory_mib",
+        "disk_mib",
+        "process_slots"
+      ],
+      "type": "object"
+    },
+    "ResourceReservationDiskPolicySnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "blocked": {
+          "type": "boolean"
+        },
+        "high_watermark_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "low_watermark_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "policy_key": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "policy_key",
+        "blocked",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "ResourceReservationHostCapacitySnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "cpu_weight": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "disk_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "memory_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "process_slots": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cpu_weight",
+        "memory_mib",
+        "disk_mib",
+        "process_slots"
+      ],
+      "type": "object"
+    },
+    "ResourceReservationHostSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "capacity": {
+          "$ref": "#/$defs/ResourceReservationHostCapacitySnapshot"
+        },
+        "disk_capacity_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "disk_policies": {
+          "items": {
+            "$ref": "#/$defs/ResourceReservationDiskPolicySnapshot"
+          },
+          "type": "array"
+        },
+        "disk_used_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "draining": {
+          "type": "boolean"
+        },
+        "heartbeat_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "heartbeat_ttl_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_cpu_weight": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_disk_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_memory_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_process_slots": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "host_ref": {
+          "type": "string"
+        },
+        "labels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "observed": {
+          "$ref": "#/$defs/ResourceReservationHostCapacitySnapshot"
+        },
+        "quarantined": {
+          "type": "boolean"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "target_alias": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target_kind": {
+          "$ref": "#/$defs/ResourceReservationHostSnapshotTargetKind"
+        }
+      },
+      "required": [
+        "host_ref",
+        "revision",
+        "capacity",
+        "observed",
+        "heartbeat_at_ms",
+        "heartbeat_ttl_ms",
+        "draining",
+        "quarantined",
+        "labels",
+        "target_kind",
+        "disk_used_mib",
+        "disk_capacity_mib",
+        "held_cpu_weight",
+        "held_memory_mib",
+        "held_disk_mib",
+        "held_process_slots",
+        "disk_policies"
+      ],
+      "type": "object"
+    },
+    "ResourceReservationHostSnapshotTargetKind": {
+      "enum": [
+        "local",
+        "inventory_alias"
+      ],
+      "type": "string"
+    },
+    "ResourceReservationRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "anti_affinity": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "attempt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "branch_exclusive": {
+          "type": "boolean"
+        },
+        "capacity_snapshot": {
+          "$ref": "#/$defs/ResourceCapacitySnapshot"
+        },
+        "concurrency_key": {
+          "type": "string"
+        },
+        "concurrency_limit": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "disk_high_watermark_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "disk_low_watermark_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "disk_policy_key": {
+          "type": "string"
+        },
+        "expected_host_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "expected_lifecycle_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fairness_cost": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fairness_group": {
+          "type": "string"
+        },
+        "fence": {
+          "type": "string"
+        },
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "host_ref": {
+          "type": "string"
+        },
+        "input_fingerprint": {
+          "type": "string"
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lifecycle_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "owner_id": {
+          "type": "string"
+        },
+        "profile_name": {
+          "type": "string"
+        },
+        "profile_version": {
+          "type": "string"
+        },
+        "repository_exclusive": {
+          "type": "boolean"
+        },
+        "repository_id": {
+          "type": "string"
+        },
+        "required_labels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "requirement": {
+          "$ref": "#/$defs/ResourceRequirement"
+        },
+        "reservation_id": {
+          "type": "string"
+        },
+        "reserved_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "selected_target": {
+          "$ref": "#/$defs/ResourceTargetSnapshot"
+        },
+        "state": {
+          "$ref": "#/$defs/ResourceReservationRecordState"
+        },
+        "target_alias": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target_kind": {
+          "$ref": "#/$defs/ResourceReservationRecordTargetKind"
+        },
+        "tenant_ref": {
+          "type": "string"
+        },
+        "tombstone": {
+          "type": "boolean"
+        },
+        "work_item_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reservation_id",
+        "tenant_ref",
+        "owner_id",
+        "work_item_id",
+        "fence",
+        "attempt",
+        "lease_epoch",
+        "fencing_token",
+        "input_fingerprint",
+        "host_ref",
+        "profile_name",
+        "profile_version",
+        "requirement",
+        "capacity_snapshot",
+        "selected_target",
+        "target_kind",
+        "repository_id",
+        "branch",
+        "concurrency_key",
+        "repository_exclusive",
+        "branch_exclusive",
+        "required_labels",
+        "anti_affinity",
+        "fairness_group",
+        "fairness_cost",
+        "disk_policy_key",
+        "reserved_at_ms",
+        "expires_at_ms",
+        "state",
+        "revision",
+        "lifecycle_revision",
+        "tombstone"
+      ],
+      "type": "object"
+    },
+    "ResourceReservationRecordState": {
+      "enum": [
+        "reserved",
+        "released",
+        "reclaimed",
+        "expired",
+        "superseded",
+        "absent"
+      ],
+      "type": "string"
+    },
+    "ResourceReservationRecordTargetKind": {
+      "enum": [
+        "local",
+        "inventory_alias"
+      ],
+      "type": "string"
+    },
+    "ResourceReservationResult": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "decision": {
+          "$ref": "#/$defs/ResourceReservationResultDecision"
+        },
+        "fairness_debt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_cpu_weight": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_disk_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_memory_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_process_slots": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "host_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "host_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lifecycle_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "record": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResourceReservationRecord"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reservation_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "$ref": "#/$defs/ResourceReservationResultSchemaVersion"
+        },
+        "state": {
+          "$ref": "#/$defs/ResourceReservationResultState"
+        },
+        "tombstone": {
+          "type": "boolean"
+        },
+        "work_item_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "decision",
+        "work_item_id",
+        "attempt",
+        "lease_epoch",
+        "fencing_token",
+        "lifecycle_revision",
+        "host_revision",
+        "state",
+        "held_cpu_weight",
+        "held_memory_mib",
+        "held_disk_mib",
+        "held_process_slots",
+        "fairness_debt",
+        "tombstone",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "ResourceReservationResultDecision": {
+      "enum": [
+        "accepted",
+        "idempotent",
+        "stale",
+        "conflict",
+        "input_conflict",
+        "capacity",
+        "policy",
+        "drained",
+        "quarantined",
+        "stale_host",
+        "labels",
+        "anti_affinity",
+        "disk",
+        "concurrency",
+        "exclusivity",
+        "not_found"
+      ],
+      "type": "string"
+    },
+    "ResourceReservationResultSchemaVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "ResourceReservationResultState": {
+      "enum": [
+        "reserved",
+        "released",
+        "reclaimed",
+        "expired",
+        "superseded",
+        "absent"
+      ],
+      "type": "string"
+    },
+    "ResourceReservationStatusResult": {
+      "additionalProperties": false,
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "fairness_debt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_cpu_weight": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_disk_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_memory_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_process_slots": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "host_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "host_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "host_snapshot": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ResourceReservationHostSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "orphan_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reservations": {
+          "items": {
+            "$ref": "#/$defs/ResourceReservationSummary"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/ResourceReservationStatusResultSchemaVersion"
+        },
+        "superseded_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "complete",
+        "host_revision",
+        "held_cpu_weight",
+        "held_memory_mib",
+        "held_disk_mib",
+        "held_process_slots",
+        "fairness_debt",
+        "reservations",
+        "orphan_count",
+        "superseded_count"
+      ],
+      "type": "object"
+    },
+    "ResourceReservationStatusResultSchemaVersion": {
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "ResourceReservationSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "attempt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fairness_group": {
+          "type": "string"
+        },
+        "held_cpu_weight": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_disk_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_memory_mib": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "held_process_slots": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "host_ref": {
+          "type": "string"
+        },
+        "profile_name": {
+          "type": "string"
+        },
+        "reservation_id": {
+          "type": "string"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "state": {
+          "$ref": "#/$defs/ResourceReservationSummaryState"
+        },
+        "tombstone": {
+          "type": "boolean"
+        },
+        "work_item_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reservation_id",
+        "work_item_id",
+        "attempt",
+        "host_ref",
+        "profile_name",
+        "fairness_group",
+        "state",
+        "revision",
+        "expires_at_ms",
+        "held_cpu_weight",
+        "held_memory_mib",
+        "held_disk_mib",
+        "held_process_slots",
+        "tombstone"
+      ],
+      "type": "object"
+    },
+    "ResourceReservationSummaryState": {
+      "enum": [
+        "reserved",
+        "released",
+        "reclaimed",
+        "expired",
+        "superseded",
+        "absent"
+      ],
+      "type": "string"
+    },
+    "ResourceSnapshot": {
+      "description": "The full resource snapshot returned by `Method::ResourceStatsPage`\n(CONCEPT:EG-KG.compute.lane-v) and scraped into Prometheus: the signals an\nautoscaler (OS-5.27) needs in one round-trip.",
+      "properties": {
+        "budget_evictions_total": {
+          "description": "Cumulative LRU nodes evicted by the budget enforcer (rate = delta/interval).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "budget_hibernations_total": {
+          "description": "Cumulative graphs hibernated by the budget enforcer.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "coalescer_operations_total": {
+          "description": "Cumulative structural operations applied by the coalescer, including\noperations that used the bounded inline fallback.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "coalescer_queue_bytes": {
+          "description": "Approximate bytes held by those queued writes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "coalescer_queue_depth": {
+          "description": "Number of structural writes waiting in all per-graph coalescer queues.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cursor": {
+          "description": "Exclusive keyset cursor accepted for this page, if any.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "effective_cpu_cores": {
+          "description": "Effective cgroup-aware CPU lanes after the shared headroom policy.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "effective_memory_limit_bytes": {
+          "description": "Effective cgroup-aware RAM after the shared headroom policy.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "global_ceiling_bytes": {
+          "description": "Configured global ceiling. The cgroup-aware automatic policy is always\npositive; an explicit override can lower it but cannot disable it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "graph_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "graphs": {
+          "items": {
+            "$ref": "#/$defs/GraphResourceStats"
+          },
+          "type": "array"
+        },
+        "has_more": {
+          "type": "boolean"
+        },
+        "hibernated_graphs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "in_flight": {
+          "description": "Requests currently holding an admission permit (in-flight depth).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "inflight_permits_available": {
+          "description": "Admission permits still available (`max_inflight - in_flight`); a small value\nmeans the queue is saturated (shedding BUSY).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "limit": {
+          "description": "Finite page size applied to the detail arrays (or the explicit request\nlimit in summary mode).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "next_cursor": {
+          "description": "Exclusive cursor for the next visible page. `None` means this page was\nthe final page after ACL/tenant filtering.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "process_rss_bytes": {
+          "description": "Current process RSS (falling back to peak RSS), bytes -- the OS-observed\nfootprint used for calibration and hard-ceiling pressure.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "resident_graphs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "summary": {
+          "description": "`true` when this response intentionally omits detail arrays.",
+          "type": "boolean"
+        },
+        "tenant_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_count_truncated": {
+          "description": "True when the bounded tenant rollup reached its cap. In that case\n`tenant_count` is a lower bound and the returned tenant array is partial.",
+          "type": "boolean"
+        },
+        "tenants": {
+          "items": {
+            "$ref": "#/$defs/TenantResourceStats"
+          },
+          "type": "array"
+        },
+        "total_edges": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total_memory_bytes": {
+          "description": "Total resident RAM across all graphs (sum of `memory_bytes`).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total_nodes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "limit",
+        "has_more",
+        "summary",
+        "total_memory_bytes",
+        "process_rss_bytes",
+        "global_ceiling_bytes",
+        "total_nodes",
+        "total_edges",
+        "graph_count",
+        "tenant_count",
+        "resident_graphs",
+        "hibernated_graphs",
+        "effective_cpu_cores",
+        "effective_memory_limit_bytes",
+        "tenant_count_truncated",
+        "in_flight",
+        "inflight_permits_available",
+        "budget_evictions_total",
+        "budget_hibernations_total",
+        "coalescer_queue_depth",
+        "coalescer_queue_bytes",
+        "coalescer_operations_total",
+        "tenants",
+        "graphs"
+      ],
+      "type": "object"
+    },
+    "ResourceTargetSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "alias": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "capability_labels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "$ref": "#/$defs/ResourceTargetSnapshotKind"
+        }
+      },
+      "required": [
+        "kind",
+        "capability_labels"
+      ],
+      "type": "object"
+    },
+    "ResourceTargetSnapshotKind": {
+      "enum": [
+        "local",
+        "inventory_alias"
+      ],
+      "type": "string"
+    },
+    "StatechartAction": {
+      "description": "One action a step performed or asks the interpreter to perform.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "do": {
+              "const": "assign",
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/StatechartActionValue"
+            }
+          },
+          "required": [
+            "do",
+            "key",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "do": {
+              "const": "remove",
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "do",
+            "key"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "do": {
+              "const": "emit",
+              "type": "string"
+            },
+            "signal": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "do",
+            "signal"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "do": {
+              "const": "log",
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "do",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "args": true,
+            "do": {
+              "const": "custom",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "do",
+            "name",
+            "args"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "StatechartActionValue": {
+      "description": "Where an `assign` action takes its value from.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "from": {
+              "const": "const",
+              "type": "string"
+            },
+            "value": true
+          },
+          "required": [
+            "from",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "from": {
+              "const": "event",
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "from",
+            "key"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "from": {
+              "const": "context",
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "from",
+            "key"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "StatechartConfiguration": {
+      "additionalProperties": false,
+      "description": "The active states of an instance, plus composite-state history memory.",
+      "properties": {
+        "active": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "history": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "active",
+        "history"
+      ],
+      "type": "object"
+    },
+    "StatechartDefinitionId": {
+      "additionalProperties": false,
+      "description": "`Statechart` op `Define`: the content-addressed definition id.",
+      "properties": {
+        "def_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "def_id"
+      ],
+      "type": "object"
+    },
+    "StatechartEventOutcome": {
+      "additionalProperties": false,
+      "description": "`Statechart` op `SendEvent`: the instance after the event and the step it took.",
+      "properties": {
+        "actions": {
+          "description": "Every action of the step, context mutations included.",
+          "items": {
+            "$ref": "#/$defs/StatechartAction"
+          },
+          "type": "array"
+        },
+        "effects": {
+          "description": "The actions the interpreter still has to perform.",
+          "items": {
+            "$ref": "#/$defs/StatechartAction"
+          },
+          "type": "array"
+        },
+        "fired": {
+          "type": "boolean"
+        },
+        "fired_label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "instance": {
+          "$ref": "#/$defs/StatechartInstance"
+        },
+        "no_op_reason": {
+          "description": "`NoTransitionDefined` or `AllGuardsFalse` on a no-op.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "instance",
+        "fired",
+        "actions",
+        "effects"
+      ],
+      "type": "object"
+    },
+    "StatechartInstance": {
+      "additionalProperties": false,
+      "description": "A durable statechart instance. `context` is the extended state the caller's\ndefinition and events wrote.",
+      "properties": {
+        "actor": {
+          "type": "string"
+        },
+        "configuration": {
+          "$ref": "#/$defs/StatechartConfiguration"
+        },
+        "context": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "created_at_ms": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "def_id": {
+          "type": "string"
+        },
+        "events_seen": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "instance_id": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/StatechartInstanceStatus"
+        },
+        "tenant": {
+          "type": "string"
+        },
+        "transitions_fired": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "updated_at_ms": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "instance_id",
+        "def_id",
+        "configuration",
+        "context",
+        "version",
+        "status",
+        "tenant",
+        "actor",
+        "events_seen",
+        "transitions_fired",
+        "created_at_ms",
+        "updated_at_ms"
+      ],
+      "type": "object"
+    },
+    "StatechartInstanceList": {
+      "additionalProperties": false,
+      "description": "`Statechart` op `List`: the caller's instances.",
+      "properties": {
+        "count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "instance_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "instance_ids",
+        "count"
+      ],
+      "type": "object"
+    },
+    "StatechartInstanceStatus": {
+      "description": "Whether an instance has reached a final state.",
+      "enum": [
+        "active",
+        "final"
+      ],
+      "type": "string"
+    },
+    "SubmitWorkItemResult": {
+      "additionalProperties": false,
+      "properties": {
+        "admitted_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "command_digest": {
+          "type": "string"
+        },
+        "command_sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "created": {
+          "type": "boolean"
+        },
+        "dependency_count": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "max_tenant_in_flight": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "outbox_id": {
+          "type": "string"
+        },
+        "provenance_refs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "replayed": {
+          "type": "boolean"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/NativeControlSchemaVersion"
+        },
+        "status": {
+          "type": "string"
+        },
+        "work_item_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "work_item_id",
+        "status",
+        "created",
+        "replayed",
+        "command_sequence",
+        "idempotency_key",
+        "dependency_count",
+        "admitted_count",
+        "max_tenant_in_flight",
+        "outbox_id",
+        "command_digest",
+        "provenance_refs",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "SubmitWorkItemsResult": {
+      "additionalProperties": false,
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "outbox_id": {
+          "type": "string"
+        },
+        "replayed": {
+          "type": "boolean"
+        },
+        "results": {
+          "items": {
+            "$ref": "#/$defs/SubmitWorkItemResult"
+          },
+          "type": "array"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/NativeControlSchemaVersion"
+        }
+      },
+      "required": [
+        "schema_version",
+        "results",
+        "replayed",
+        "outbox_id",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "TenantResourceStats": {
+      "description": "Per-tenant rollup (CONCEPT:EG-KG.compute.lane-v).",
+      "properties": {
+        "budget_bytes": {
+          "description": "The tenant's configured byte budget (before the fair-share cap).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "edges": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "graphs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "hibernated_graphs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "memory_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nodes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "over_budget": {
+          "description": "`true` when `memory_bytes > budget_bytes` (the enforcer is reclaiming).",
+          "type": "boolean"
+        },
+        "resident_graphs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant",
+        "graphs",
+        "resident_graphs",
+        "hibernated_graphs",
+        "nodes",
+        "edges",
+        "memory_bytes",
+        "budget_bytes",
+        "over_budget"
+      ],
+      "type": "object"
+    },
+    "WorkItemCancelStatus": {
+      "description": "The status a `CancelWorkItem` answers with.",
+      "oneOf": [
+        {
+          "enum": [
+            "cancelled"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "missing",
+          "description": "No WorkItem with this id is visible to the tenant.",
+          "type": "string"
+        },
+        {
+          "const": "noop",
+          "description": "The WorkItem was already terminal; nothing changed.",
+          "type": "string"
+        },
+        {
+          "const": "in_flight",
+          "description": "The WorkItem is running under a live lease and cannot be cancelled now.",
+          "type": "string"
+        },
+        {
+          "const": "not_cancellable",
+          "description": "The WorkItem is in a state cancellation does not apply to.",
+          "type": "string"
+        }
+      ]
+    },
+    "WorkItemClaimCapabilityDecision": {
+      "description": "Privacy-safe decision vocabulary.  No authority tuple, owner, lease, or\ncapability metadata is projected in the result.",
+      "enum": [
+        "minted",
+        "replayed",
+        "verified",
+        "input_conflict",
+        "not_found",
+        "unauthorized",
+        "expired",
+        "stale",
+        "malformed",
+        "retention_exhausted"
+      ],
+      "type": "string"
+    },
+    "WorkItemClaimCapabilityResult": {
+      "additionalProperties": false,
+      "description": "Capability operation result.  Only mint/replay returns the opaque bytes;\nverification returns a boolean and a privacy-safe decision.",
+      "properties": {
+        "capability": {
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "decision": {
+          "$ref": "#/$defs/WorkItemClaimCapabilityDecision"
+        },
+        "schema_version": {
+          "$ref": "#/$defs/WorkItemClaimCapabilityResultSchemaVersion"
+        },
+        "valid": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema_version",
+        "decision",
+        "valid"
+      ],
+      "type": "object"
+    },
+    "WorkItemClaimCapabilityResultSchemaVersion": {
+      "description": "Stable result schema for the narrow native claim-capability checkpoint.",
+      "enum": [
+        "1"
+      ],
+      "type": "string"
+    },
+    "WorkItemCommitStatus": {
+      "description": "The status a `CommitWorkItemResult` answers with.",
+      "oneOf": [
+        {
+          "enum": [
+            "succeeded",
+            "failed",
+            "cancelled"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "missing",
+          "description": "No WorkItem with this id is visible to the tenant.",
+          "type": "string"
+        },
+        {
+          "const": "noop",
+          "description": "The WorkItem was already terminal; nothing changed.",
+          "type": "string"
+        },
+        {
+          "const": "fenced",
+          "description": "The caller no longer holds the live lease it named.",
+          "type": "string"
+        },
+        {
+          "const": "dead_letter",
+          "description": "A retryable failure that exhausted its attempts.",
+          "type": "string"
+        },
+        {
+          "const": "retry_scheduled",
+          "description": "A retryable failure below its attempt ceiling, rescheduled with backoff.",
+          "type": "string"
+        }
+      ]
+    },
+    "WorkItemDeferStatus": {
+      "description": "The status a `DeferWorkItem` answers with.",
+      "oneOf": [
+        {
+          "const": "missing",
+          "description": "No WorkItem with this id exists.",
+          "type": "string"
+        },
+        {
+          "const": "fenced",
+          "description": "The caller no longer holds the live lease it named.",
+          "type": "string"
+        },
+        {
+          "const": "deferred",
+          "description": "The lease was released and the WorkItem returned to `ready` for a later retry.",
+          "type": "string"
+        }
+      ]
+    },
+    "WorkItemDeferral": {
+      "description": "`DeferWorkItem`. A deferral carries the bumped fence and the retry schedule.",
+      "properties": {
+        "attempt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "defer_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "next_retry_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/WorkItemDeferStatus"
+        },
+        "work_item_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "WorkItemLeaseRenewal": {
+      "description": "`RenewWorkItemLease`. A renewal carries the renewed lease; a refusal carries only\nits reason. Every outcome names the WorkItem rows it changed, so the serving\nprojection can be refreshed from authority.",
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lease_expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LeaseRenewalRefusal"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "renewed": {
+          "type": "boolean"
+        },
+        "work_item_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "renewed",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "WorkItemTransition": {
+      "description": "A terminal-direction WorkItem transition (`CommitWorkItemResult`,\n`CancelWorkItem`). The WorkItem id and fence are present once the item was found;\nthe fence is present only when the transition applied.",
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/WorkItemCommitStatus"
+        },
+        "work_item_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "WorkItemTransition2": {
+      "description": "A terminal-direction WorkItem transition (`CommitWorkItemResult`,\n`CancelWorkItem`). The WorkItem id and fence are present once the item was found;\nthe fence is present only when the transition applied.",
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/WorkItemCancelStatus"
+        },
+        "work_item_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "WorkerJobClaim": {
+      "description": "`AnalyticsJob` op `WorkerClaim`: the claimed job and the lease fencing it.",
+      "properties": {
+        "job": {
+          "$ref": "#/$defs/ClaimedAnalyticsJob"
+        },
+        "lease": {
+          "$ref": "#/$defs/JobWorkerLease"
+        }
+      },
+      "required": [
+        "job",
+        "lease"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "methods": {
+    "AcquireCapacity": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/CapacityAcquireResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "AnalyticsJob": {
+      "bodies": {
+        "Cancel": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/AnalyticsJobRecord"
+          }
+        },
+        "Resume": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/AnalyticsJobRecord"
+          }
+        },
+        "Status": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/AnalyticsJobRecord"
+          }
+        },
+        "Submit": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/AnalyticsJobRecord"
+          }
+        },
+        "WorkerCancel": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/AnalyticsJobRecord"
+          }
+        },
+        "WorkerCheckpoint": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/AnalyticsJobRecord"
+          }
+        },
+        "WorkerClaim": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/WorkerJobClaim"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "WorkerFail": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/AnalyticsJobRecord"
+          }
+        },
+        "WorkerPublish": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/AnalyticsJobRecord"
+          }
+        },
+        "WorkerRenew": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/JobWorkerLease"
+          }
+        },
+        "WorkerStage": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/AnalyticsJobRecord"
+          }
+        }
+      },
+      "selected_by": "op"
+    },
+    "CancelWorkItem": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/WorkItemTransition2"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CapacityStatus": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/CapacityStatusResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CasWorkItemMetadata": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/CasWorkItemMetadataResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ClaimNext": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              true
+            ],
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ClaimWorkItem": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ClaimWorkItemResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CleanupDevelopmentLane": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/DevelopmentLaneCleanupCompleteResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CommitWorkItemResult": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/WorkItemTransition"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DeferWorkItem": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/WorkItemDeferral"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "DevelopmentLaneStatus": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/DevelopmentLaneStatusResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "FinishDevelopmentLane": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/DevelopmentLaneFinishResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "KgDelegate": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/KgDelegateResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "MintWorkItemClaimCapability": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/WorkItemClaimCapabilityResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ObserveDevelopmentLane": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/DevelopmentLaneObserveResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "QueryDevelopmentLane": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/DevelopmentLaneQueryResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "QueryWorkItemReservation": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ResourceReservationResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ReclaimExpiredCapacity": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/CapacityReclaimResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ReclaimWorkItemResources": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ResourceReservationResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ReconcileCapacity": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/CapacityStatusResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ReleaseCapacity": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/CapacityMutationResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ReleaseWorkItemResources": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ResourceReservationResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RenewCapacity": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/CapacityMutationResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RenewDevelopmentLane": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/DevelopmentLaneRenewResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RenewWorkItemLease": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/WorkItemLeaseRenewal"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ReserveDevelopmentLane": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/DevelopmentLaneResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ReserveWorkItemResources": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ResourceReservationResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ResourceReservationStatus": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ResourceReservationStatusResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ResourceStatsPage": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ResourceSnapshot"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Statechart": {
+      "bodies": {
+        "Define": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/StatechartDefinitionId"
+          }
+        },
+        "GetState": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/StatechartInstance"
+          }
+        },
+        "Instantiate": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/StatechartInstance"
+          }
+        },
+        "List": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/StatechartInstanceList"
+          }
+        },
+        "SendEvent": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/StatechartEventOutcome"
+          }
+        }
+      },
+      "selected_by": "op"
+    },
+    "SubmitWorkItem": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SubmitWorkItemResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "SubmitWorkItems": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SubmitWorkItemsResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "UpdateCapacityCell": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/CapacityCellUpdateResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "UpdateDevelopmentLaneQuota": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/DevelopmentLaneQuotaUpdateResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "UpdateResourceHost": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ResourceHostUpdateResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "VerifyWorkItemClaimCapability": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/WorkItemClaimCapabilityResult"
+          }
+        }
+      },
+      "selected_by": null
+    }
+  },
+  "title": "coordination method results"
+}

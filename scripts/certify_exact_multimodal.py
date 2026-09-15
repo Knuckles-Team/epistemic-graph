@@ -155,9 +155,7 @@ def _boxed(kind: bytes, body: bytes) -> bytes:
 
 def _wav_fixture(*, silent: bool = False) -> bytes:
     samples = (
-        (0,) * 8
-        if silent
-        else (0, 8_000, 16_000, 8_000, 0, -8_000, -16_000, -8_000)
+        (0,) * 8 if silent else (0, 8_000, 16_000, 8_000, 0, -8_000, -16_000, -8_000)
     )
     pcm = b"".join(struct.pack("<h", sample) for sample in samples)
     return b"".join(
@@ -350,9 +348,7 @@ def _bundle(
             ],
             "features": [
                 {
-                    "id": _opaque(
-                        "feature", modality, 1, "feature", variant=variant
-                    ),
+                    "id": _opaque("feature", modality, 1, "feature", variant=variant),
                     "subject": {"kind": "segment", "id": segment},
                     "kind": "statistic",
                     "value_ref": _opaque(
@@ -792,9 +788,7 @@ def _scan_modality_source(path: Path, source: bytes) -> None:
             candidate = overlap + block
             if source in candidate:
                 _fail("raw_modality_source_was_persisted")
-            overlap = (
-                candidate[-(len(source) - 1) :] if len(source) > 1 else b""
-            )
+            overlap = candidate[-(len(source) - 1) :] if len(source) > 1 else b""
 
 
 def _assert_sources_absent(root: Path, sources: tuple[bytes, ...]) -> None:
@@ -1133,9 +1127,7 @@ def _exercise_invalid_modality_inputs(
         "modality codec failure",
         "malformed_modality_codec_was_accepted",
     )
-    oversized = bytes([97 + MODALITIES.index(modality)]) * (
-        MODALITY_SOURCE_LIMIT + 1
-    )
+    oversized = bytes([97 + MODALITIES.index(modality)]) * (MODALITY_SOURCE_LIMIT + 1)
     attempted_sources.append(oversized)
     oversized_bundle, oversized_occurrence = _bundle(
         authority,
@@ -1509,9 +1501,10 @@ def _collect_modality_tombstones(client: SyncEpistemicGraphClient) -> None:
             events=7,
             indexes_present=False,
         )
-        if client.modalities.collect_tombstones(
-            modality, through_event_sequence=6
-        ) != 1:
+        if (
+            client.modalities.collect_tombstones(modality, through_event_sequence=6)
+            != 1
+        ):
             _fail("modality_tombstone_retention_fence_mismatch")
         _assert_stats(
             client,
@@ -1522,9 +1515,10 @@ def _collect_modality_tombstones(client: SyncEpistemicGraphClient) -> None:
             events=7,
             indexes_present=False,
         )
-        if client.modalities.collect_tombstones(
-            modality, through_event_sequence=7
-        ) != 1:
+        if (
+            client.modalities.collect_tombstones(modality, through_event_sequence=7)
+            != 1
+        ):
             _fail("modality_tombstone_collection_mismatch")
         _assert_stats(
             client,
@@ -1669,9 +1663,7 @@ def _run(
                 client.close()
 
             engine.crash()
-            engine.start(
-                lazy_page_size=1, modality_source_limit=MODALITY_SOURCE_LIMIT
-            )
+            engine.start(lazy_page_size=1, modality_source_limit=MODALITY_SOURCE_LIMIT)
             client = engine.connect(MODALITY_GRAPH)
             try:
                 _assert_restarted_modalities(client, sources, bundles, occurrences)
@@ -1683,9 +1675,7 @@ def _run(
             _restore_migrated_store(engine, root)
             client = engine.connect(MODALITY_GRAPH)
             try:
-                _delete_modalities(
-                    client, sources, bundles, occurrences, event_kinds
-                )
+                _delete_modalities(client, sources, bundles, occurrences, event_kinds)
             finally:
                 client.close()
 
@@ -1725,7 +1715,8 @@ def _run(
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Certify four served modalities on one exact Epistemic Graph artifact."
+        description="Certify four served modalities on one exact Epistemic Graph "
+        "artifact."
     )
     parser.add_argument("--binary", required=True)
     parser.add_argument("--binary-sha256", required=True)

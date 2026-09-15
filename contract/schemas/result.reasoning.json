@@ -1,0 +1,551 @@
+{
+  "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
+  "$defs": {
+    "DatalogReasoningResult": {
+      "description": "Result of `Method::RunDatalogReasoning`: every inferred triple, each a string map\n(`subject`, `predicate`, `object`, `inference_type`), and their count.",
+      "properties": {
+        "inferred_count": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "inferred_triples": {
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "inferred_count",
+        "inferred_triples"
+      ],
+      "type": "object"
+    },
+    "OwlExplainResult": {
+      "description": "Materialized result of a `Method::OwlExplain` run (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation). Returned\nvia `ResultPayload::raw`. `tree` is `None` when `sub ⊑ sup` does not hold (nothing\nto explain) — `found` mirrors that as a convenience boolean for callers that only\njson-decode the top level.",
+      "properties": {
+        "consistent": {
+          "description": "`true` iff the classified ontology is consistent.",
+          "type": "boolean"
+        },
+        "found": {
+          "description": "Whether `sub ⊑ sup` holds under the classification (`tree.is_some()`).",
+          "type": "boolean"
+        },
+        "tree": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProofNodeWire"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The reconstructed proof tree, or `None` when `sub ⊑ sup` does not hold."
+        },
+        "unsatisfiable": {
+          "description": "Named classes derived to be unsatisfiable; empty when consistent.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "found",
+        "consistent",
+        "unsatisfiable"
+      ],
+      "type": "object"
+    },
+    "OwlReasonResult": {
+      "description": "Materialized result of a `Method::OwlReason` run (CONCEPT:EG-KG.ontology.incremental-materialization). Returned via\n`ResultPayload::raw`. The reasoner lives in eg-rdf; this is the wire projection.",
+      "properties": {
+        "consistent": {
+          "description": "`true` iff the ontology is consistent (no class forced to subsume `owl:Nothing`).",
+          "type": "boolean"
+        },
+        "instance_conf": {
+          "description": "Per-membership confidence in `[0,1]` (CONCEPT:EG-KG.ontology.concept-13), ALIGNED index-for-index\nwith `instances`: the type fact's confidence (per-node confidence × Ebbinghaus\ndecay) × the subsumption confidence — so an old/decayed or weakly-asserted fact\nyields a lower-confidence membership.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "instances": {
+          "description": "Inferred instance memberships `(instance, class)` — every individual mapped to\nevery class it (provably) belongs to, INCLUDING classes reached only through\nexistential restrictions / role chains. When `target_class` was set, restricted\nto that class's members. Only memberships with confidence `≥ min_confidence`.",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "subclass_conf": {
+          "description": "Per-subsumption confidence in `[0,1]` (CONCEPT:EG-KG.ontology.concept-13), ALIGNED index-for-index\nwith `subclasses`. `1.0` for a hard/asserted subsumption; the propagated\n`axiom_conf × ∏ premise_conf` (max over alternative derivations) for an uncertain\none. A fully-hard ontology yields all `1.0`.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": "array"
+        },
+        "subclasses": {
+          "description": "Derived named-class subsumptions `(sub, sup)` (the reflexive/asserted ones are\nincluded; the closure is the full classification hierarchy).",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "unsatisfiable": {
+          "description": "Named classes derived to be unsatisfiable (`A ⊑ ⊥`); empty when consistent.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "subclasses",
+        "subclass_conf",
+        "instances",
+        "instance_conf",
+        "consistent",
+        "unsatisfiable"
+      ],
+      "type": "object"
+    },
+    "ProofNodeWire": {
+      "description": "One node of a reconstructed OWL proof tree (CONCEPT:EG-KG.ontology.owl-proof-tree-explanation) — the wire\nprojection of `eg_rdf::owl::ProofNode`. `rule == \"asserted\"` marks a LEAF (a\nreflexive seed or a base fact with no recorded justification — the proof bottoms\nout there); any other `rule` is a completion rule name (`\"CR-sub\"`, `\"CR-some⁺\"`,\n`\"CR-instance\"`, …) that consumed `premises` (each itself a full sub-proof) plus the\ncited `axioms`. Recursive — `premises` nests to the tree's actual depth (never\nflattened), so a client walks it exactly like the reasoner derived it.",
+      "properties": {
+        "axioms": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "confidence": {
+          "format": "double",
+          "type": "number"
+        },
+        "premises": {
+          "items": {
+            "$ref": "#/$defs/ProofNodeWire"
+          },
+          "type": "array"
+        },
+        "rule": {
+          "type": "string"
+        },
+        "sub": {
+          "type": "string"
+        },
+        "sup": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "sub",
+        "sup",
+        "rule",
+        "axioms",
+        "confidence",
+        "premises"
+      ],
+      "type": "object"
+    },
+    "RuleFact": {
+      "description": "One fact in a [`RuleReasonResponse`].",
+      "properties": {
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "confidence": {
+          "format": "double",
+          "type": "number"
+        },
+        "derived": {
+          "type": "boolean"
+        },
+        "predicate": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "predicate",
+        "args",
+        "confidence",
+        "derived"
+      ],
+      "type": "object"
+    },
+    "RuleReasonResponse": {
+      "description": "The serialisable rule-reasoning response.",
+      "properties": {
+        "conflicts": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "consistent": {
+          "type": "boolean"
+        },
+        "facts": {
+          "items": {
+            "$ref": "#/$defs/RuleFact"
+          },
+          "type": "array"
+        },
+        "registered_rules": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "same_as": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "facts",
+        "same_as",
+        "consistent",
+        "conflicts",
+        "registered_rules"
+      ],
+      "type": "object"
+    },
+    "ShaclSeverity": {
+      "description": "SHACL result severity -- `sh:Violation` / `sh:Warning` / `sh:Info`.",
+      "enum": [
+        "Violation",
+        "Warning",
+        "Info"
+      ],
+      "type": "string"
+    },
+    "ShaclValidationReport": {
+      "description": "An `sh:ValidationReport` (`Method::ShaclValidate`).",
+      "properties": {
+        "conforms": {
+          "description": "`sh:conforms` -- true iff there are no results.",
+          "type": "boolean"
+        },
+        "results": {
+          "description": "The `sh:result` list.",
+          "items": {
+            "$ref": "#/$defs/ShaclValidationResult"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "conforms",
+        "results"
+      ],
+      "type": "object"
+    },
+    "ShaclValidationResult": {
+      "description": "One `sh:ValidationResult`. Terms are N-Triples lexical forms.",
+      "properties": {
+        "constraint_component": {
+          "description": "`sh:sourceConstraintComponent`.",
+          "type": "string"
+        },
+        "focus_node": {
+          "description": "`sh:focusNode`.",
+          "type": "string"
+        },
+        "message": {
+          "description": "`sh:resultMessage`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "`sh:resultPath`, for a property-shape result.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "severity": {
+          "$ref": "#/$defs/ShaclSeverity",
+          "description": "`sh:resultSeverity`."
+        },
+        "source_shape": {
+          "description": "`sh:sourceShape`.",
+          "type": "string"
+        },
+        "value": {
+          "description": "`sh:value`, when the constraint component reports one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "focus_node",
+        "source_shape",
+        "constraint_component",
+        "severity"
+      ],
+      "type": "object"
+    },
+    "ShexNodeResult": {
+      "description": "One entry of a ShEx result shape map: one focus node tested against one shape label.",
+      "properties": {
+        "conforms": {
+          "type": "boolean"
+        },
+        "node": {
+          "description": "The focus node (N-Triples term form).",
+          "type": "string"
+        },
+        "reason": {
+          "description": "Why the node does not conform, when it does not.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "shape": {
+          "description": "The shape label (an IRI, or `START`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "node",
+        "shape",
+        "conforms"
+      ],
+      "type": "object"
+    },
+    "ShexValidationReport": {
+      "description": "A ShEx validation report over a whole shape map (`Method::ShexValidate`).",
+      "properties": {
+        "conforms": {
+          "description": "True iff every tested (node, shape) pair conforms.",
+          "type": "boolean"
+        },
+        "results": {
+          "description": "One result per shape-map entry, in input order.",
+          "items": {
+            "$ref": "#/$defs/ShexNodeResult"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "conforms",
+        "results"
+      ],
+      "type": "object"
+    },
+    "SparqlResult": {
+      "description": "Materialized result of a `Method::Sparql` SELECT (CONCEPT:EG-KG.ontology.concept-11). Returned via\n`ResultPayload::raw`. `vars` is the projected variable order; each row is aligned\nto `vars` with `None` for an unbound (OPTIONAL) variable. Lives in eg-types (the\nwire-DTO crate) so the protocol can embed it; the evaluator lives in eg-rdf.",
+      "properties": {
+        "rows": {
+          "items": {
+            "items": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "vars": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "vars",
+        "rows"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "methods": {
+    "GetRdf": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "IcvConfigure": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Bool",
+          "schema": {
+            "type": "boolean"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "OwlExplain": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/OwlExplainResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "OwlReason": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/OwlReasonResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "OwlReasonDistributed": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/OwlReasonResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RunDatalogReasoning": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/DatalogReasoningResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "RunRules": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/RuleReasonResponse"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ShaclValidate": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ShaclValidationReport"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ShexValidate": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ShexValidationReport"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Sparql": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SparqlResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "SparqlVirtual": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SparqlResult"
+          }
+        }
+      },
+      "selected_by": null
+    }
+  },
+  "title": "reasoning method results"
+}

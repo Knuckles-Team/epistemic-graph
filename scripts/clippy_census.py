@@ -24,7 +24,6 @@ import argparse
 import collections
 import json
 import subprocess
-import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -95,7 +94,9 @@ def main() -> int:
         by_crate[crate] += 1
         rows.append({"lint": code, "crate": crate, "file": file, "line": line})
 
-    print(f"clippy census: {len(rows)} finding(s) across {len(by_crate)} crate target(s)")
+    print(
+        f"clippy census: {len(rows)} finding(s) across {len(by_crate)} crate target(s)"
+    )
     print("\nby lint:")
     for code, count in by_lint.most_common():
         print(f"  {count:5d}  {code}")
@@ -103,7 +104,9 @@ def main() -> int:
     for crate, count in by_crate.most_common(20):
         print(f"  {count:5d}  {crate}")
     if arguments.json_out:
-        Path(arguments.json_out).write_text(json.dumps(rows, indent=2), encoding="utf-8")
+        Path(arguments.json_out).write_text(
+            json.dumps(rows, indent=2), encoding="utf-8"
+        )
         print(f"\nper-finding rows written to {arguments.json_out}")
     return 0
 

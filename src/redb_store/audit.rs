@@ -13,10 +13,13 @@
 //! through [`Shard::read`] + `scoped_owner_table`. There is no file-wide row in
 //! this module at all.
 
+#[cfg(feature = "security")]
 use super::*;
 
+#[cfg(feature = "security")]
 use eg_storage::ScopedOwnerTableMut;
 
+#[cfg(feature = "security")]
 use super::shard::{Shard, ShardWrite};
 
 /// Per-graph audit-chain tail cache (CONCEPT:EG-KG.storage.embedded-store): `graph -> (last_seq, last_hash)`.

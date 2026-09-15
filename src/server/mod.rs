@@ -53,6 +53,7 @@ pub fn join_engine_driver<T>(driver: std::thread::JoinHandle<T>) -> std::io::Res
     // than a wait for a concurrent party to arrive. Any deadline here would
     // mean "stop serving after N seconds", and there is no bounded replacement
     // for "run until the server is asked to stop".
+    // Invariant `process-lifetime-join`: docs/architecture/liveness_invariants.md.
     #[allow(clippy::disallowed_methods)]
     driver
         .join()
@@ -80,19 +81,21 @@ pub fn decode_unified_ids(response: &crate::protocol::Response) -> Vec<String> {
     rows.into_iter().map(|(id, _)| id).collect()
 }
 
+fn loopback_hostname_addr(addr: &str) -> bool {
+    addr.rsplit_once(':')
+        .map(|(host, port)| {
+            host.trim_matches(|character| character == '[' || character == ']')
+                .eq_ignore_ascii_case("localhost")
+                && !port.is_empty()
+                && port.chars().all(|character| character.is_ascii_digit())
+        })
+        .unwrap_or(false)
+}
+
 fn direct_wire_addr_is_loopback(addr: &str) -> bool {
     addr.parse::<std::net::SocketAddr>()
         .map(|socket| socket.ip().is_loopback())
-        .unwrap_or_else(|_| {
-            addr.rsplit_once(':')
-                .map(|(host, port)| {
-                    host.trim_matches(|character| character == '[' || character == ']')
-                        .eq_ignore_ascii_case("localhost")
-                        && !port.is_empty()
-                        && port.chars().all(|character| character.is_ascii_digit())
-                })
-                .unwrap_or(false)
-        })
+        .unwrap_or_else(|_| loopback_hostname_addr(addr))
 }
 
 /// Validate a plaintext database-compatibility listener before it binds.
@@ -420,9 +423,10 @@ pub(crate) mod broker_wire;
 // Wire-agnostic SQL execution core (CONCEPT:EG-KG.compute.subsystems-reference) — the multi-wire keystone. The
 // wire-NEUTRAL `classify → dispatch → exec` pipeline + per-connection session/txn
 // state that EVERY wire (Postgres today; SQLite/MySQL/MSSQL Phase J; AMQP Phase Y)
-// reuses. Behind the `wire` facade feature (pulled in by `pgwire`; a future wire's
-// feature pulls it in too). Kept OUT of `node`/`full` — the orchestrator folds it in.
-#[cfg(feature = "wire")]
+// reuses. Built with `query`: the native `Method::Sql` catalog path shares its SQL
+// authorization and replay-receipt authority (`authorize_table_txn`,
+// `committed_sql_replay_receipt`), so every SQL-serving build carries it.
+#[cfg(feature = "query")]
 pub mod wire;
 // Postgres wire-protocol shim (CONCEPT:AU-KG.query.raw-python). Facade-only, behind the `pgwire`
 // cargo feature (cluster tier). The FIRST `wire::WireProtocol` adapter (CONCEPT:EG-KG.compute.subsystems-reference).
@@ -2969,6 +2973,7 @@ mod tests {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        #[cfg(any(feature = "security", feature = "raft"))]
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         // D-DPF-1: GetNeighborsBatch fetches neighbor ids for N nodes in one
         // request/one topo-lock acquisition instead of N GetNeighbors round-trips.
@@ -3266,6 +3271,7 @@ mod tests {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        #[cfg(any(feature = "security", feature = "raft"))]
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = multi_tenant_state().await;
         let resp = dispatch_on_heap(
@@ -3287,6 +3293,7 @@ mod tests {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        #[cfg(any(feature = "security", feature = "raft"))]
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         // Deliberately NOT `request(.., None, ..)`: that helper's `agent_id`
         // defaults `None` to `"system"` (`agent_id.unwrap_or("system")`), which
@@ -3369,6 +3376,7 @@ mod tests {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        #[cfg(any(feature = "security", feature = "raft"))]
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = multi_tenant_state().await;
         let resp = dispatch_on_heap(
@@ -3916,6 +3924,7 @@ mod tests {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        #[cfg(any(feature = "security", feature = "raft"))]
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = test_state();
         {
@@ -4103,6 +4112,7 @@ mod tests {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        #[cfg(any(feature = "security", feature = "raft"))]
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = multi_tenant_state().await;
         // worker2 owns nothing here; create their graph for the diff source.
@@ -4514,7 +4524,10 @@ mod tests {
             .unwrap();
         assert_ok(&coalesced_resp);
         assert!(
-            matches!(committed_resp.result, Some(ResultPayload::Bool(true))),
+            matches!(
+                committed_resp.result,
+                Some(ResultPayload::Json(serde_json::Value::Bool(true)))
+            ),
             "commit: {:?}",
             committed_resp.error
         );
@@ -4709,12 +4722,14 @@ mod tests {
     // ── Multi-op OCC ACID transactions (CONCEPT:EG-KG.txn.multi-op-occ-acid) ───────────────
 
     /// Open a txn on `graph` and return its server-issued id.
+    #[cfg(feature = "redb")]
     async fn begin_txn(state: &Arc<RwLock<ServerState>>, id: u64, graph: &str) -> String {
         begin_txn_iso(state, id, graph, None).await
     }
 
     /// Open a txn on `graph` with an explicit isolation hint (CONCEPT:EG-KG.txn.serializable-zero-cost) and
     /// return its server-issued id.
+    #[cfg(feature = "redb")]
     async fn begin_txn_iso(
         state: &Arc<RwLock<ServerState>>,
         id: u64,
@@ -4828,7 +4843,10 @@ mod tests {
         )
         .await;
         assert!(
-            matches!(r.result, Some(ResultPayload::Bool(true))),
+            matches!(
+                r.result,
+                Some(ResultPayload::Json(serde_json::Value::Bool(true)))
+            ),
             "commit ok: {:?}",
             r.error
         );
@@ -4887,9 +4905,17 @@ mod tests {
         )
         .await;
         assert!(
-            matches!(r.result, Some(ResultPayload::Bool(true))),
-            "no idempotency_key -> bare Bool, unchanged wire shape: {:?}",
+            matches!(
+                r.result,
+                Some(ResultPayload::Json(serde_json::Value::Bool(true)))
+            ),
+            "no idempotency_key -> bare boolean body: {:?}",
             r.result
+        );
+        assert_eq!(
+            rmp_serde::to_vec_named(&r.result).unwrap(),
+            rmp_serde::to_vec_named(&Some(ResultPayload::Bool(true))).unwrap(),
+            "no idempotency_key -> the unchanged bare-Bool wire bytes"
         );
     }
 
@@ -5024,11 +5050,13 @@ mod tests {
     }
 
     /// (b) Rollback: begin → stage → rollback → graph unchanged, nothing persisted.
+    #[cfg(feature = "redb")]
     #[tokio::test]
     async fn txn_rollback_applies_nothing() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        #[cfg(any(feature = "security", feature = "raft"))]
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = test_state();
         let core = {
@@ -5145,7 +5173,10 @@ mod tests {
         )
         .await;
         assert!(
-            matches!(r1.result, Some(ResultPayload::Bool(true))),
+            matches!(
+                r1.result,
+                Some(ResultPayload::Json(serde_json::Value::Bool(true)))
+            ),
             "t1 commits"
         );
 
@@ -5164,7 +5195,10 @@ mod tests {
         )
         .await;
         assert!(
-            matches!(r2.result, Some(ResultPayload::Bool(false))),
+            matches!(
+                r2.result,
+                Some(ResultPayload::Json(serde_json::Value::Bool(false)))
+            ),
             "t2 must conflict, got {:?} err={:?}",
             r2.result,
             r2.error
@@ -5184,11 +5218,13 @@ mod tests {
     }
 
     /// (d) Abandoned txn auto-rolls-back after the TTL (drive the sweep directly).
+    #[cfg(feature = "redb")]
     #[tokio::test]
     async fn txn_ttl_sweep_reclaims_idle() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        #[cfg(any(feature = "security", feature = "raft"))]
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         use crate::server::txn::{now_ms, sweep_expired_txns};
         let state = test_state();
@@ -5307,8 +5343,11 @@ mod tests {
         )
         .await;
         match r.result {
-            Some(ResultPayload::Bool(b)) => b,
-            other => panic!("Commit must return Bool, got {other:?} (err={:?})", r.error),
+            Some(ResultPayload::Json(serde_json::Value::Bool(b))) => b,
+            other => panic!(
+                "Commit must return its unkeyed boolean body, got {other:?} (err={:?})",
+                r.error
+            ),
         }
     }
 
@@ -5517,11 +5556,51 @@ mod tests {
     }
 
     /// (c) An unknown isolation value is rejected at BeginTxn (no txn opened).
+    /// Feature-gating contract for the transaction lifecycle: every lifecycle
+    /// receipt is a redb MutationBatch saga, so a build without `redb` must refuse
+    /// `BeginTxn` with the explicit coordinator error and register nothing -- never
+    /// hand out a txn id it could not commit. (Compiled out when `redb` is on,
+    /// where this module's `redb`-gated `txn_*` tests exercise the real lifecycle.)
+    #[cfg(not(feature = "redb"))]
+    #[tokio::test]
+    async fn txn_lifecycle_gated_out_requires_redb() {
+        let state = test_state();
+        let resp = dispatch_on_heap(
+            &state,
+            request(
+                1,
+                "__commons__",
+                None,
+                Method::BeginTxn {
+                    graph: None,
+                    isolation: None,
+                },
+            ),
+        )
+        .await;
+        assert!(
+            resp.result.is_none(),
+            "a build without redb must not open a transaction, got ok={:?}",
+            resp.result
+        );
+        assert_eq!(
+            resp.error.as_deref(),
+            Some("transaction lifecycle requires the redb MutationBatch coordinator"),
+        );
+        assert_eq!(
+            state.read().await.open_txns.len(),
+            0,
+            "a refused BeginTxn opens no txn"
+        );
+    }
+
+    #[cfg(feature = "redb")]
     #[tokio::test]
     async fn txn_unknown_isolation_rejected() {
         // Reads the ambient encryption env at its durable open, so the env must hold
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+        #[cfg(any(feature = "security", feature = "raft"))]
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
         let state = test_state();
         let resp = dispatch_on_heap(

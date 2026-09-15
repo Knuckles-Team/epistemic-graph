@@ -46,6 +46,7 @@ use super::store::EgStore;
 use super::{
     AppCtx, EgRaft, GroupId, NodeId, RaftHandle, RaftRequest, RaftResponse, DEFAULT_GROUP,
 };
+use crate::lock_recovery::LockRecovery;
 use crate::protocol::{Method, ResultPayload};
 
 /// Routes a graph name to the Raft group that owns it (CONCEPT:EG-KG.sharding.raft-resharding +
@@ -330,13 +331,20 @@ struct ConnectionTaskSet {
     tasks: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
+// The task-handle slots below hold only abortable handles: `Vec`/`Option`
+// operations leave them structurally valid even if a holder panicked, and the
+// worst a lost handle costs is one task that shutdown aborts by drop instead of
+// by name. Rebuildable, so recover and report rather than propagate the panic
+// into shutdown.
+const CONNECTION_TASKS_LOCK: &str = "raft connection task set";
+const HEARTBEAT_TASK_LOCK: &str = "raft heartbeat flush task slot";
+const LEADER_BALANCE_TASK_LOCK: &str = "raft leader-balance task slot";
+const LISTENER_HANDLE_LOCK: &str = "raft listener handle slot";
+
 impl ConnectionTaskSet {
     async fn register(&self, task: tokio::task::JoinHandle<()>) {
         let late_task = {
-            let mut tasks = self
-                .tasks
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut tasks = self.tasks.lock_recovering(CONNECTION_TASKS_LOCK);
             tasks.retain(|task| !task.is_finished());
             if self.stopping.load(Ordering::Acquire) {
                 Some(task)
@@ -353,10 +361,7 @@ impl ConnectionTaskSet {
 
     fn stop(&self) {
         self.stopping.store(true, Ordering::Release);
-        let tasks = self
-            .tasks
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let tasks = self.tasks.lock_recovering(CONNECTION_TASKS_LOCK);
         // Retain the handles so a later full shutdown can await cancellation and
         // prove that every backend-retaining future has actually dropped.
         for task in tasks.iter() {
@@ -367,10 +372,7 @@ impl ConnectionTaskSet {
     async fn stop_and_wait(&self) {
         self.stopping.store(true, Ordering::Release);
         let tasks = {
-            let mut tasks = self
-                .tasks
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut tasks = self.tasks.lock_recovering(CONNECTION_TASKS_LOCK);
             tasks.drain(..).collect::<Vec<_>>()
         };
         for task in tasks {
@@ -603,8 +605,7 @@ impl MultiRaft {
         let heartbeat_task = tokio::spawn(heartbeat_coalescer.run(multi.pool.clone()));
         *multi
             .heartbeat_flush_task
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(heartbeat_task);
+            .lock_recovering(HEARTBEAT_TASK_LOCK) = Some(heartbeat_task);
 
         let weak_multi = Arc::downgrade(&multi);
         let leader_task = tokio::spawn(async move {
@@ -631,8 +632,7 @@ impl MultiRaft {
         });
         *multi
             .leader_balance_task
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(leader_task);
+            .lock_recovering(LEADER_BALANCE_TASK_LOCK) = Some(leader_task);
         Ok(multi)
     }
 
@@ -1987,8 +1987,7 @@ impl MultiRaft {
     pub fn stop_listener(&self) {
         if let Some(listener) = self
             .listener_handle
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .lock_recovering(LISTENER_HANDLE_LOCK)
             .as_ref()
         {
             listener.abort();
@@ -2009,8 +2008,7 @@ impl MultiRaft {
         self.heartbeat_coalescer.stop();
         let heartbeat_task = self
             .heartbeat_flush_task
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .lock_recovering(HEARTBEAT_TASK_LOCK)
             .take();
         if let Some(task) = heartbeat_task {
             task.abort();
@@ -2018,8 +2016,7 @@ impl MultiRaft {
         }
         let leader_task = self
             .leader_balance_task
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .lock_recovering(LEADER_BALANCE_TASK_LOCK)
             .take();
         if let Some(task) = leader_task {
             task.abort();
@@ -2027,10 +2024,7 @@ impl MultiRaft {
         }
 
         let listener = {
-            let mut listener = self
-                .listener_handle
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut listener = self.listener_handle.lock_recovering(LISTENER_HANDLE_LOCK);
             listener.take()
         };
         if let Some(listener) = listener {

@@ -1,5 +1,6 @@
 """Round-trip tests for the state-space / stat-arb / signal-combination kernels
-(CONCEPT:EG-KG.domains.state-space-statistical-arbitrage / KG-2.20i). Full path: client -> UDS -> Rust -> result.
+(CONCEPT:EG-KG.domains.state-space-statistical-arbitrage / KG-2.20i). Full path: client
+-> UDS -> Rust -> result.
 Uses the session-scoped server + `clean_graph` sync client from conftest.py.
 """
 
@@ -80,7 +81,10 @@ def test_alpha_combination_and_obi_roundtrip(clean_graph):
 
 
 def test_brier_and_convergence_gate_roundtrip(clean_graph):
-    assert abs(clean_graph.finance.brier_score([0.5] * 4, [1.0, 0.0, 1.0, 0.0]) - 0.25) < 1e-9
+    assert (
+        abs(clean_graph.finance.brier_score([0.5] * 4, [1.0, 0.0, 1.0, 0.0]) - 0.25)
+        < 1e-9
+    )
     g = clean_graph.finance.convergence_gate([0.9, 0.8, 0.95, 0.85, 0.9], 0.6, 5)
     assert g["pass"] is True and g["direction"] == 1
     g2 = clean_graph.finance.convergence_gate([0.9, 0.8, 0.1, 0.0, 0.7], 0.6, 5)
@@ -89,6 +93,8 @@ def test_brier_and_convergence_gate_roundtrip(clean_graph):
 
 def test_empirical_kelly_roundtrip(clean_graph):
     stable = [0.02] * 200
-    f = clean_graph.finance.empirical_kelly(0.6, 1.0, stable, n_simulations=500, seed=42)
+    f = clean_graph.finance.empirical_kelly(
+        0.6, 1.0, stable, n_simulations=500, seed=42
+    )
     assert f > 0.0
     assert clean_graph.finance.empirical_kelly(0.4, 1.0, stable, 100, 1) == 0.0

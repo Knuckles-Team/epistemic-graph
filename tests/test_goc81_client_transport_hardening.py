@@ -129,7 +129,9 @@ class _EchoHealthServer:
         self.last_ssl_object: ssl.SSLObject | None = None
         self._writers: list[asyncio.StreamWriter] = []
 
-    async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    async def _handle(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
         self._writers.append(writer)
         # Only set for a TLS-wrapped connection -- proves a real handshake
         # completed (asyncio decrypts transparently below the StreamReader,
@@ -283,15 +285,11 @@ def test_service_specific_ca_directory_selects_tls(monkeypatch):
     separate `GRAPH_SERVICE_TLS=on` switch.
     """
     _clear_tls_env(monkeypatch)
-    monkeypatch.setenv(
-        "GRAPH_SERVICE_TLS_CA_DIRECTORY", "/etc/epistemic-graph/ca.d"
-    )
+    monkeypatch.setenv("GRAPH_SERVICE_TLS_CA_DIRECTORY", "/etc/epistemic-graph/ca.d")
     decision = EpistemicGraphClient._resolve_tls_decision(
         None, client_cert=None, client_key=None, server_hostname=None
     )
-    assert decision == _TlsDecision(
-        True, "named-profile", None, "ca_directory"
-    )
+    assert decision == _TlsDecision(True, "named-profile", None, "ca_directory")
 
 
 def test_conflicting_tls_disabled_with_client_cert_is_rejected(monkeypatch):
@@ -454,7 +452,9 @@ async def test_served_tls_connection_succeeds_when_explicitly_selected(
             tls_server_hostname="epistemic-graph-test.example.invalid",
         )
         assert await client.ping() == "pong"
-        assert server.last_ssl_object is not None, "expected a real completed TLS handshake"
+        assert server.last_ssl_object is not None, (
+            "expected a real completed TLS handshake"
+        )
         assert server.last_ssl_object.cipher() is not None
     finally:
         if client is not None:
@@ -544,7 +544,9 @@ async def test_close_is_idempotent_repeated_calls():
 
 
 @pytest.mark.asyncio
-async def test_cancelled_close_finishes_shared_writer_shutdown():
+async def test_cancelled_close_finishes_shared_writer_shutdown(
+    monkeypatch: pytest.MonkeyPatch,
+):
     """Canceling one close waiter must not strand the shared teardown task;
     the caller observes cancellation only after the writer has been joined.
     """
@@ -569,7 +571,7 @@ async def test_cancelled_close_finishes_shared_writer_shutdown():
             await release_wait.wait()
             return await original_wait_closed()
 
-        writer.wait_closed = _controlled_wait_closed
+        monkeypatch.setattr(writer, "wait_closed", _controlled_wait_closed)
         close_task = asyncio.ensure_future(client.close())
         await asyncio.wait_for(wait_started.wait(), timeout=2.0)
         close_task.cancel()
@@ -589,7 +591,9 @@ async def test_cancelled_close_finishes_shared_writer_shutdown():
 
 
 @pytest.mark.asyncio
-async def test_close_after_peer_eof_still_tears_down_writer():
+async def test_close_after_peer_eof_still_tears_down_writer(
+    monkeypatch: pytest.MonkeyPatch,
+):
     """THE core GOC-81 W02 regression: the reader loop observing EOF first
     must NOT make a later `close()` a silent no-op that skips
     `writer.close()`/`writer.wait_closed()` -- that was the leak.
@@ -625,7 +629,7 @@ async def test_close_after_peer_eof_still_tears_down_writer():
             wrapped_wait_closed_calls["n"] += 1
             return await original_wait_closed()
 
-        writer.wait_closed = _counting_wait_closed
+        monkeypatch.setattr(writer, "wait_closed", _counting_wait_closed)
 
         # Pre-fix: `close()` checked `if not self._closed` and returned
         # immediately here without ever calling `wait_closed()`.
@@ -661,7 +665,9 @@ async def test_close_preserves_first_terminal_error():
 
 
 @pytest.mark.asyncio
-async def test_close_after_transport_error_closes_writer_once():
+async def test_close_after_transport_error_closes_writer_once(
+    monkeypatch: pytest.MonkeyPatch,
+):
     """An error path may close the poisoned stream before the owner calls
     `close()`; the final close must still await it without issuing a duplicate
     writer-close request.
@@ -691,8 +697,8 @@ async def test_close_after_transport_error_closes_writer_once():
             wait_closed_calls["n"] += 1
             return await original_wait_closed()
 
-        writer.close = _counting_close
-        writer.wait_closed = _counting_wait_closed
+        monkeypatch.setattr(writer, "close", _counting_close)
+        monkeypatch.setattr(writer, "wait_closed", _counting_wait_closed)
         client._mark_dead(ConnectionError("transport failed"))
         await client.close()
 
@@ -744,7 +750,9 @@ async def test_close_during_connect_does_not_leak_or_hang(monkeypatch):
 
         close_task = asyncio.ensure_future(client.close())
         await asyncio.sleep(0.05)
-        assert not close_task.done(), "close() must wait for the in-flight dial, not race it"
+        assert not close_task.done(), (
+            "close() must wait for the in-flight dial, not race it"
+        )
 
         release_dial.set()
         await asyncio.wait_for(asyncio.gather(reconnect_task, close_task), timeout=2.0)
@@ -779,7 +787,9 @@ async def test_close_during_in_flight_request_fails_it_cleanly():
 
 
 @pytest.mark.asyncio
-async def test_cancelled_request_releases_pending_and_close_is_clean():
+async def test_cancelled_request_releases_pending_and_close_is_clean(
+    monkeypatch: pytest.MonkeyPatch,
+):
     """Caller cancellation removes only that request from the demux map;
     the shared stream remains usable until the explicit owner close, which
     still performs one complete writer shutdown.
@@ -807,8 +817,8 @@ async def test_cancelled_request_releases_pending_and_close_is_clean():
             wait_closed_calls["n"] += 1
             return await original_wait_closed()
 
-        writer.close = _counting_close
-        writer.wait_closed = _counting_wait_closed
+        monkeypatch.setattr(writer, "close", _counting_close)
+        monkeypatch.setattr(writer, "wait_closed", _counting_wait_closed)
 
         pending = asyncio.ensure_future(client._send("Hang"))
         await asyncio.sleep(0.05)
@@ -827,7 +837,7 @@ async def test_cancelled_request_releases_pending_and_close_is_clean():
 
 
 @pytest.mark.asyncio
-async def test_two_concurrent_closes_run_teardown_once():
+async def test_two_concurrent_closes_run_teardown_once(monkeypatch: pytest.MonkeyPatch):
     server = _EchoHealthServer()
     await server.start()
     try:
@@ -847,7 +857,7 @@ async def test_two_concurrent_closes_run_teardown_once():
             close_calls["n"] += 1
             return original_close()
 
-        writer.close = _counting_close
+        monkeypatch.setattr(writer, "close", _counting_close)
 
         await asyncio.gather(client.close(), client.close())
         assert close_calls["n"] == 1
@@ -891,7 +901,9 @@ async def test_reconnect_after_eof_uses_new_generation():
             client._on_reader_terminated(
                 starting_generation, ConnectionError("stale reader callback")
             )
-            assert client._closed is False, "a stale-generation callback marked the NEW connection dead"
+            assert client._closed is False, (
+                "a stale-generation callback marked the NEW connection dead"
+            )
             assert client._terminal_error is None
         finally:
             await server2.stop()

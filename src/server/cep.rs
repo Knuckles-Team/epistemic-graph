@@ -68,6 +68,7 @@ use tokio::task::JoinHandle;
 
 use eg_stream::live::{CepEngine, CepSubscription, DEFAULT_MATCH_BUFFER};
 use eg_stream::{AttrPredicate, CepPattern, Event, EventMatcher, Match, Window};
+use eg_types::result_contract::messaging::{CepEvent, CepMatch, CepPoll};
 
 use super::state::ServerState;
 use crate::protocol::{Method, Response, ResultPayload};
@@ -495,7 +496,10 @@ pub(crate) async fn try_handle(
             // when `EPISTEMIC_GRAPH_CEP_BROKER_EXCHANGE` is unset — see the module doc.
             #[cfg(feature = "broker")]
             forward_to_broker_if_configured(state, &surface, id).await;
-            Ok(Response::ok(req_id, ResultPayload::Count(id)))
+            Ok(Response::ok(
+                req_id,
+                ResultPayload::scalar::<eg_types::result_contract::messaging::CepSubscribe>(id),
+            ))
         }
 
         Method::CepPoll { sub_id, timeout_ms } => {
@@ -504,7 +508,27 @@ pub(crate) async fn try_handle(
                 Err(r) => return Ok(r),
             };
             Ok(match surface.poll(sub_id, timeout_ms).await {
-                Ok(matches) => Response::ok(req_id, ResultPayload::raw(&matches)),
+                Ok(matches) => Response::ok(
+                    req_id,
+                    ResultPayload::of::<CepPoll>(
+                        matches
+                            .into_iter()
+                            .map(|matched| CepMatch {
+                                events: matched
+                                    .events
+                                    .into_iter()
+                                    .map(|event| CepEvent {
+                                        ts: event.ts,
+                                        key: event.key,
+                                        attrs: event.attrs,
+                                    })
+                                    .collect(),
+                                start_ts: matched.start_ts,
+                                end_ts: matched.end_ts,
+                            })
+                            .collect(),
+                    ),
+                ),
                 Err(e) => Response::err(req_id, e),
             })
         }
@@ -516,7 +540,9 @@ pub(crate) async fn try_handle(
             };
             Ok(Response::ok(
                 req_id,
-                ResultPayload::Bool(surface.unsubscribe(sub_id)),
+                ResultPayload::scalar::<eg_types::result_contract::messaging::CepUnsubscribe>(
+                    surface.unsubscribe(sub_id),
+                ),
             ))
         }
 

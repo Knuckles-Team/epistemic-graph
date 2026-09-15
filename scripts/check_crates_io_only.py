@@ -58,7 +58,7 @@ def _dependency_tables(doc: dict) -> list[tuple[str, dict]]:
             workspace.get("dependencies") if isinstance(workspace, dict) else None,
         )
     )
-    for cfg_name, cfg_table in (target.items() if isinstance(target, dict) else ()):
+    for cfg_name, cfg_table in target.items() if isinstance(target, dict) else ():
         if isinstance(cfg_table, dict):
             candidates.extend(
                 (f"target.{cfg_name}.{prefix}", cfg_table.get(prefix))
@@ -92,7 +92,8 @@ def check_manifest(manifest_path: Path, failures: list[str]) -> None:
             if "git" in spec:
                 failures.append(
                     f"{relative_manifest} [{label}] '{dep_name}' has a git = source "
-                    f"({spec.get('git')!r}). Rust dependencies must come from crates.io "
+                    f"({spec.get('git')!r}). Rust dependencies must come from "
+                    f"crates.io "
                     "-- see AGENTS.md, 'crates.io-only Rust dependency edict'."
                 )
             escaped = _escaping_path_dependency(manifest_dir, spec)
@@ -110,7 +111,9 @@ def check_lockfile(failures: list[str]) -> None:
     lock_path = ROOT / "Cargo.lock"
     if not lock_path.exists():
         return
-    for line_number, line in enumerate(lock_path.read_text(encoding="utf-8").splitlines(), 1):
+    for line_number, line in enumerate(
+        lock_path.read_text(encoding="utf-8").splitlines(), 1
+    ):
         stripped = line.strip()
         if stripped.startswith("source") and "git+" in stripped:
             failures.append(
@@ -135,15 +138,19 @@ def main() -> int:
         for failure in failures:
             print(f"  - {failure}", file=sys.stderr)
         print(
-            "\nThe only sanctioned exception is an unreleased security fix pinned to an "
-            "immutable rev = \"<full sha>\", commented with the advisory ID and the "
+            "\nThe only sanctioned exception is an unreleased security fix pinned to "
+            "an "
+            'immutable rev = "<full sha>", commented with the advisory ID and the '
             "crates.io version that will replace it, removed the moment that version "
             "publishes. See AGENTS.md, 'crates.io-only Rust dependency edict'.",
             file=sys.stderr,
         )
         return 1
 
-    print(f"OK: {len(manifests)} Cargo.toml manifest(s) and Cargo.lock are crates.io-only.")
+    print(
+        f"OK: {len(manifests)} Cargo.toml manifest(s) and Cargo.lock are "
+        f"crates.io-only."
+    )
     return 0
 
 

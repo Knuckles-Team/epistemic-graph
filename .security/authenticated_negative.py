@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# ruff: noqa: I001 -- synchronized across repositories with different import policies
+
 """Bounded negative authorization checks for repository workflow control planes."""
 
 from __future__ import annotations
@@ -9,12 +9,13 @@ import re
 import sys
 from pathlib import Path
 
-
 CASES = (
     "on:\n  pull_request_target:\npermissions: {}\n",
     "on: push\npermissions: write-all\n",
-    "on: push\npermissions: {}\njobs:\n  x:\n    steps:\n      - uses: owner/action@main\n",
-    "on: push\npermissions: {}\njobs:\n  x:\n    steps:\n      - run: echo '${{ secrets.RUNTIME_TOKEN }}'\n",
+    "on: push\npermissions: {}\njobs:\n  x:\n    steps:\n      - uses: "
+    "owner/action@main\n",
+    "on: push\npermissions: {}\njobs:\n  x:\n    steps:\n      - run: echo '${{ "
+    "secrets.RUNTIME_TOKEN }}'\n",
 )
 ACTION_REF = re.compile(r"^\s*-?\s*uses:\s*([^\s#]+)", re.MULTILINE)
 

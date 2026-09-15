@@ -237,12 +237,24 @@ fn concurrent_replays_have_one_nonce_winner() {
     let fixture = std::sync::Arc::new(fixture);
     let owner = std::sync::Arc::new(owner);
     let candidate = std::sync::Arc::new(retry_of(&first));
-    let ready = std::sync::Arc::new(std::sync::Barrier::new(2));
+    // A bounded start line: each contender reports ready and then waits for its
+    // go signal, so a contender that never arrives fails the test by name
+    // instead of parking the other one for the life of the process.
+    const START_LINE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+    let (ready, arrived) = std::sync::mpsc::sync_channel::<()>(2);
+    let (go_first, first_go) = std::sync::mpsc::sync_channel::<()>(1);
+    let (go_second, second_go) = std::sync::mpsc::sync_channel::<()>(1);
     let run = |fixture: std::sync::Arc<Fixture>,
                owner: std::sync::Arc<OwnedStoreHandle<LedgerOnlyOwner>>,
                candidate: std::sync::Arc<MutationBatch>,
-               ready: std::sync::Arc<std::sync::Barrier>| {
-        ready.wait();
+               ready: std::sync::mpsc::SyncSender<()>,
+               go: std::sync::mpsc::Receiver<()>| {
+        if ready.send(()).is_err() {
+            return Err("the test stopped waiting at the start line".to_string());
+        }
+        if go.recv_timeout(START_LINE_TIMEOUT).is_err() {
+            return Err("the replay race was never started".to_string());
+        }
         match fixture.mutations.admit(&owner, &candidate) {
             Ok((write, Begin::Replay(_))) => fixture.mutations.commit(write, &candidate),
             Ok((write, Begin::Apply { .. })) => {
@@ -257,16 +269,27 @@ fn concurrent_replays_have_one_nonce_winner() {
             let fixture = std::sync::Arc::clone(&fixture);
             let owner = std::sync::Arc::clone(&owner);
             let candidate = std::sync::Arc::clone(&candidate);
-            let ready = std::sync::Arc::clone(&ready);
-            move || run(fixture, owner, candidate, ready)
+            let ready = ready.clone();
+            move || run(fixture, owner, candidate, ready, first_go)
         });
         let second = scope.spawn({
             let fixture = std::sync::Arc::clone(&fixture);
             let owner = std::sync::Arc::clone(&owner);
             let candidate = std::sync::Arc::clone(&candidate);
-            let ready = std::sync::Arc::clone(&ready);
-            move || run(fixture, owner, candidate, ready)
+            let ready = ready.clone();
+            move || run(fixture, owner, candidate, ready, second_go)
         });
+        for _ in 0..2 {
+            arrived
+                .recv_timeout(START_LINE_TIMEOUT)
+                .expect("both replay contenders reach the start line");
+        }
+        go_first
+            .send(())
+            .expect("the first contender is at the start line");
+        go_second
+            .send(())
+            .expect("the second contender is at the start line");
         (first.join().unwrap(), second.join().unwrap())
     });
     let results = [first_result, second_result];

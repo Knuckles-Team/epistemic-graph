@@ -10,18 +10,17 @@ from __future__ import annotations
 import base64
 import csv
 import hashlib
+import inspect
 import io
 import os
-import sys
 import zipfile
+from collections.abc import Set as AbstractSet
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-
-from check_wheel_completeness import check_wheel, main  # noqa: E402
+from scripts.check_wheel_completeness import check_wheel, main
 
 # This module exercises only the static wheel checker against in-memory fixtures.
 # Keep the session-scoped native-engine fixture out of the complete wheel suite,
@@ -70,7 +69,7 @@ def _build_wheel(
     path: Path,
     *,
     members: dict[str, bytes],
-    executable: set[str] = frozenset(),
+    executable: AbstractSet[str] = frozenset(),
     corrupt_record: bool = False,
 ) -> Path:
     rows: list[tuple[str, bytes]] = []
@@ -345,7 +344,11 @@ def test_engine_selected_control_still_enters_startup(
 
     previous_environment = dict(os.environ)
     try:
-        fixture = conftest.start_epistemic_graph_server.__wrapped__
+        # `inspect.unwrap` (not a direct `.__wrapped__` attribute access, which
+        # pytest's `FixtureFunctionDefinition` stub does not declare even
+        # though `functools.wraps` sets it at runtime) reaches the fixture's
+        # own undecorated generator function.
+        fixture = inspect.unwrap(conftest.start_epistemic_graph_server)
         generator = fixture(_Request(), _TmpPathFactory())
         assert next(generator) is process
         assert events == ["build", "start", "connect", "bootstrap", "close"]

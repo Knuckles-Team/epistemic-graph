@@ -71,7 +71,7 @@ def test_sql_query_omitting_params_msgpack_from_the_signed_body_fails_closed():
             # params dict it is given.
             try:
                 await client._send("Sql", {"query": "SELECT count(*) AS n FROM nodes"})
-            except Exception as exc:  # noqa: BLE001 -- want the exact server error text
+            except Exception as exc:
                 return str(exc)
             return None
         finally:

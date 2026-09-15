@@ -10,12 +10,14 @@
 //! ## What is authored vs derived
 //!
 //! A domain row authors only the facts that are genuinely per-method: the
-//! [`MethodPolicy`], the [`SchemaRef`] of the RESULT, the consumer profiles, and the
-//! stability tag. Everything else is a DERIVATION with one documented rule, so 400+
-//! rows cannot drift into 400+ independent guesses:
+//! [`MethodPolicy`], the consumer profiles, and the stability tag. Everything else is a
+//! DERIVATION with one documented rule, so 400+ rows cannot drift into 400+ independent
+//! guesses:
 //!
-//! - `request_schema` is always [`SchemaRef::MethodVariant`] — a `Method` variant's
-//!   inline fields ARE its request schema, keyed by the row's own id.
+//! - the request schema is always the `Method` variant's own subschema, keyed by the
+//!   row's id -- a variant's inline fields ARE its request schema.
+//! - the RESULT is not authored here at all: it is the `eg_types::result_contract`
+//!   marker the handler encodes through, so the compiler, not a row, fixes its type.
 //! - `error_set` follows [`error_set_for`] (policy-shaped, not per-method prose).
 //! - `replay_class` follows [`replay_class_for`] (RF-RULING-004's two replay identities).
 //! - `format_identities` follows [`format_identities_for`] (the durability domain names
@@ -30,124 +32,6 @@ pub struct MethodId(pub &'static str);
 impl MethodId {
     pub const fn as_str(&self) -> &'static str {
         self.0
-    }
-}
-
-/// One typed `ResultPayload` variant. Each has a generated JSON Schema.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PayloadShape {
-    Bool,
-    Count,
-    Float,
-    Text,
-    Ids,
-    NodeList,
-    EdgeList,
-}
-
-impl PayloadShape {
-    pub const fn as_str(&self) -> &'static str {
-        match self {
-            PayloadShape::Bool => "Bool",
-            PayloadShape::Count => "Count",
-            PayloadShape::Float => "Float",
-            PayloadShape::Text => "String",
-            PayloadShape::Ids => "Ids",
-            PayloadShape::NodeList => "NodeList",
-            PayloadShape::EdgeList => "EdgeList",
-        }
-    }
-}
-
-/// Why a body carries no declared schema.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum OpaqueKind {
-    /// A free-form `ResultPayload::Json` body built inline by the handler.
-    Json,
-    /// Opaque MessagePack bytes (`ResultPayload::Raw`) the client never re-decodes.
-    Raw,
-    /// NO evidence named a shape: neither a dispatch arm that constructs exactly one
-    /// `ResultPayload` variant nor a client wrapper's declared return type. That is a
-    /// statement about the EVIDENCE, not a positive claim that the handler chooses at
-    /// run time -- see [`SchemaProvenance`]. Converting these to named result DTOs is
-    /// the follow-on work this field makes countable instead of invisible.
-    Undeclared,
-    /// The two evidence sources named DIFFERENT shapes. The disagreement is recorded,
-    /// not resolved by preference: a contract may not guess. [`SchemaProvenance`]
-    /// carries what each source actually said.
-    Conflicting,
-}
-
-impl OpaqueKind {
-    pub const fn as_str(&self) -> &'static str {
-        match self {
-            OpaqueKind::Json => "Json",
-            OpaqueKind::Raw => "Raw",
-            OpaqueKind::Undeclared => "Undeclared",
-            OpaqueKind::Conflicting => "Conflicting",
-        }
-    }
-}
-
-/// Where a request or result body's schema lives.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SchemaRef {
-    /// The `Method` enum's own variant subschema, keyed by the descriptor's id.
-    /// The generator emits it to `contract/schemas/request/<id>.json`.
-    MethodVariant,
-    /// Exactly one typed `ResultPayload` variant, schema at
-    /// `contract/schemas/result/<shape>.json`.
-    Payload(PayloadShape),
-    /// No named schema — see [`OpaqueKind`].
-    Opaque(OpaqueKind),
-}
-
-impl SchemaRef {
-    /// True when this reference resolves to a generated, validatable JSON Schema.
-    pub const fn is_typed(&self) -> bool {
-        matches!(self, SchemaRef::MethodVariant | SchemaRef::Payload(_))
-    }
-}
-
-/// Where a descriptor's `result_schema` came from.
-///
-/// EG declares no result DTOs, so the shape of a result is EVIDENCE, not a declaration,
-/// and a contract must say how strong that evidence is. Two independent static sources
-/// were read: the `ResultPayload::` variant a dispatch arm constructs under `src/` +
-/// `crates/`, and the declared return type of the Python wrapper that sent the method.
-///
-/// Neither source is re-read at build time -- `eg-capabilities` depends on `eg-types`
-/// alone and cannot see `src/server/**`. Making the dispatch-arm link a checked
-/// derivation belongs to the root-binary lane that owns `src/server/dispatch`; until
-/// then this field is what makes each row's authority auditable instead of uniform,
-/// and the generated client fails closed at run time on a claim the payload contradicts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum SchemaProvenance {
-    /// Both sources named the same shape. The strongest claim in the registry.
-    Confirmed,
-    /// Only the client wrapper's declared return type named a shape.
-    AnnotationOnly,
-    /// Only a dispatch arm named a shape.
-    DispatchOnly,
-    /// Neither source named a shape.
-    Undeclared,
-    /// The sources DISAGREED. Recorded verbatim and refused, never resolved by
-    /// preference; the result schema is `Opaque(Conflicting)`.
-    Contradicted {
-        dispatch: &'static str,
-        annotation: &'static str,
-    },
-}
-
-impl SchemaProvenance {
-    pub const fn as_str(&self) -> &'static str {
-        match self {
-            SchemaProvenance::Confirmed => "confirmed",
-            SchemaProvenance::AnnotationOnly => "annotation-only",
-            SchemaProvenance::DispatchOnly => "dispatch-only",
-            SchemaProvenance::Undeclared => "undeclared",
-            SchemaProvenance::Contradicted { .. } => "contradicted",
-        }
     }
 }
 
@@ -218,8 +102,6 @@ pub(crate) const NO_CONSUMER: &[ConsumerProfile] = &[];
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MethodSpec {
     pub policy: MethodPolicy,
-    pub result_schema: SchemaRef,
-    pub result_provenance: SchemaProvenance,
     pub consumer_profiles: &'static [ConsumerProfile],
     pub stability: Stability,
 }
@@ -229,10 +111,6 @@ pub struct MethodSpec {
 pub struct MethodDescriptor {
     pub id: MethodId,
     pub domain: &'static str,
-    pub request_schema: SchemaRef,
-    pub result_schema: SchemaRef,
-    /// How strong the evidence behind `result_schema` is -- see [`SchemaProvenance`].
-    pub result_provenance: SchemaProvenance,
     pub error_set: &'static [&'static str],
     pub policy: MethodPolicy,
     pub replay_class: ReplayClass,
@@ -254,9 +132,6 @@ impl MethodDescriptor {
         Self {
             id: MethodId(id),
             domain,
-            request_schema: SchemaRef::MethodVariant,
-            result_schema: spec.result_schema,
-            result_provenance: spec.result_provenance,
             error_set: error_set_for(&spec.policy),
             policy: spec.policy,
             replay_class: replay_class_for(&spec.policy),

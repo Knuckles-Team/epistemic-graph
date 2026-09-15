@@ -124,8 +124,25 @@ jobs:
       # also executed verbatim by the blocking local pre-push CI-gate replica.
       - name: Test (canonical capability policy and generated ledger)
         run: cargo test --locked -p eg-capabilities --features contract --no-fail-fast
+      # The facade's sqlite `.db` round-trip test diffs against a real sqlite3 CLI and
+      # FAILS without one. Provision the pinned, sha256-verified CLI rather than
+      # relying on whatever sqlite3 the runner image happens to ship.
+      - name: Provision pinned sqlite3 CLI (differential sqlite tests)
+        run: |
+          set -euo pipefail
+          sqlite3_bin="$(scripts/fetch_sqlite3.sh "$RUNNER_TEMP/eg-sqlite3")"
+          echo "EG_SQLITE3=$sqlite3_bin" >> "$GITHUB_ENV"
+      - name: Test (SQLite format differential conformance)
+        run: cargo test --locked -p eg-sqlite-format --test differential --no-fail-fast
       - name: Test (facade full)
         run: cargo test -p epistemic-graph --features full --no-fail-fast
+      # These real-model tests fail loudly when their fixture is absent. Fetch the
+      # pinned, sha256-verified model and WAV, export both paths, then exercise the
+      # provider rather than counting an unconfigured test as a pass.
+      - name: Provision pinned Whisper real-model fixture
+        run: scripts/fetch_whisper_test_fixture.sh "$RUNNER_TEMP/eg-whisper-test" >> "$GITHUB_ENV"
+      - name: Test (Whisper real-model transcription and cancellation)
+        run: cargo test --locked -p eg-asr-whisper --test real_transcription --no-fail-fast
       # The blob RSS-bound tests read WHOLE-PROCESS RSS, so they are #[ignore]d out
       # of the parallel run above (a concurrent sibling's 256MB blob inflates the
       # shared RSS past the cap). Run them here in isolation — serial + ignored — so
@@ -288,6 +305,55 @@ jobs:
           PYTHONNOUSERSITE=1 "$REPO/.gates-wheel-venv/bin/python" -c \
             "import epistemic_graph.engine as e; print('engine kernel OK:', e.__file__, '| __engine__=', getattr(e, '__engine__', None))"
 
+  # ── eg-tts-piper synthesis against a REAL onnxruntime.
+  #
+  # `--all-features` builds eg-tts-piper with `ort-load-dynamic`, so `ort` dlopens
+  # onnxruntime from ORT_DYLIB_PATH. These tests used to print SKIP and return when
+  # it was unset; libtest hides stderr for passing tests, so 10 of 13 "passed" in
+  # 0.00s without loading a model. They now FAIL without a runtime, so this job must
+  # provide one: scripts/fetch_onnxruntime.sh downloads the pinned official release
+  # (sha256-checked) and exits non-zero on any fetch or checksum failure. There is
+  # deliberately no fallback. A missing runtime fails this job.
+  #
+  # Native build dependencies, by exact apt package name. espeak-rs-sys builds
+  # espeak-ng with CMake and generates its bindings with bindgen, which loads
+  # libclang. Measured on an Ubuntu 26.04 build host, where this job's steps were run
+  # verbatim in a clean tree with a fresh target dir:
+  #   * build-essential, cmake, clang, pkg-config, curl, ca-certificates: already
+  #     on that host, and on the ubuntu-24.04 image (CMake 3.31, clang 16/17/18,
+  #     g++ 13, pkg-config 1.8, curl 8.5). Installed explicitly anyway so the job does
+  #     not depend on the image's tool list.
+  #   * libclang-dev: NOT on that host (bindgen found libclang-21.so.1 from
+  #     libclang1-21, which `clang` pulls in), and libclang is not listed on the
+  #     runner image. Installed so bindgen's libclang lookup does not depend on
+  #     which clang packages the image happens to ship.
+  tts-piper-inference:
+    name: eg-tts-piper real-inference tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - name: Install espeak-ng / bindgen native build dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake clang libclang-dev pkg-config curl ca-certificates
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: Test eg-tts-piper against the pinned onnxruntime (fails, never skips, without it)
+        run: |
+          set -euo pipefail
+          # A failed fetch or checksum fails this assignment, and `set -e` stops here.
+          ORT_DYLIB_PATH="$(scripts/fetch_onnxruntime.sh "$RUNNER_TEMP/eg-onnxruntime")"
+          export ORT_DYLIB_PATH
+          test -f "$ORT_DYLIB_PATH"
+          echo "ORT_DYLIB_PATH=$ORT_DYLIB_PATH"
+          cargo test --locked -p eg-tts-piper --all-features --no-fail-fast
+
   # ── STAGE 1b: architecture/documentation-contract gates + lint. Folded in
   # from the former advisory.yml `lint-and-architecture` job (wD9-CIGATE,
   # 2026-08-28): every step below was measured green against this commit
@@ -427,7 +493,9 @@ jobs:
       - name: Install scanner adapter test dependency
         run: python -m pip install --disable-pip-version-check --no-input pytest
       - name: Dupehound adapter contract tests
-        run: python -m pytest -q tests/test_dupehound_census.py
+        # --noconftest: the adapter tests own their fixtures; the suite conftest
+        # imports the full client (msgpack), which this job does not install.
+        run: python -m pytest -q --noconftest tests/test_dupehound_census.py
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '20'
@@ -482,7 +550,9 @@ jobs:
           set -euo pipefail
           scanner_root="$RUNNER_TEMP/epistemic-graph-scanners"
           mkdir -p "$scanner_root"
-          cargo install --locked --version 1.6.0 --root "$scanner_root/cccc" cccc-cli
+          # cccc 1.6.0 is not published to crates.io (cccc-cli stops at 1.0.0);
+          # install the upstream v1.6.0 tag by its immutable commit.
+          cargo install --locked --git https://github.com/moznion/cccc --rev d728759323be5d9977b7390a27133e8eaf481f26 --root "$scanner_root/cccc" cccc-cli
           cargo install --locked --version 0.4.10 --root "$scanner_root/kiss" kiss-ai
           cargo install --locked --version 0.1.2 --root "$scanner_root/dupehound" dupehound
           cargo install --locked --version 0.5.0 --root "$scanner_root/arch-lint" arch-lint-cli
@@ -611,7 +681,7 @@ jobs:
   # change this job's build/determinism logic here).
   build:
     name: wheel ${{ matrix.name }}
-    needs: [gates, lint-and-architecture, scanner-quality]
+    needs: [gates, lint-and-architecture, scanner-quality, tts-piper-inference]
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.optional || false }}
     # An OPTIONAL leg must not hold the whole run open. Measured on run

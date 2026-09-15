@@ -142,6 +142,7 @@ impl EdgeData {
 
 /// Runtime metrics for monitoring and observability.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct GraphMetrics {
     pub node_count: usize,
     pub edge_count: usize,
@@ -156,6 +157,7 @@ pub struct GraphMetrics {
 
 /// Result of a lifecycle-aware pruning operation.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct PruneStats {
     pub nodes_removed: usize,
     pub edges_removed: usize,
@@ -170,6 +172,7 @@ pub struct PruneStats {
 /// `*_pruned` count items removed because their decayed confidence fell below
 /// the sweep `floor`.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct DecayStats {
     pub nodes_decayed: usize,
     pub edges_decayed: usize,
@@ -181,6 +184,7 @@ pub struct DecayStats {
 
 /// Optimized context view returned by get_context_view.
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ContextView {
     pub agent_id: String,
     pub nodes: Vec<String>,
@@ -188,6 +192,115 @@ pub struct ContextView {
     pub budget_used: u32,
     pub budget_max: u32,
 }
+
+// ── Scene Pose ───────────────────────────────────────────────────────────
+
+/// A 3-vector of a scene-graph pose on the wire.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SceneVec3 {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+}
+
+/// A rotation quaternion `(x, y, z, w)` of a scene-graph pose on the wire.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SceneQuat {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+    pub w: f64,
+}
+
+/// A scene object's composed world transform (`Method::WorldTransform`) -- the wire
+/// projection of `eg_core::scene::Pose`, the same `{translation, rotation, scale}` object a
+/// scene node stores under its `pose` property.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ScenePose {
+    pub translation: SceneVec3,
+    pub rotation: SceneQuat,
+    pub scale: SceneVec3,
+}
+
+// ── Subgraph ─────────────────────────────────────────────────────────────
+
+/// One node of a `Method::GetSubgraph` result, with its decoded property object.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SubgraphNode {
+    pub id: String,
+    /// The node's property object, or `null` when it does not decode.
+    pub properties: serde_json::Value,
+}
+
+/// One edge of a `Method::GetSubgraph` result -- one entry per parallel edge.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SubgraphEdge {
+    pub source: String,
+    pub target: String,
+    /// The edge's property object, or `null` when it does not decode.
+    pub properties: serde_json::Value,
+}
+
+/// The induced subgraph over a node-id set (`Method::GetSubgraph`): the nodes that exist
+/// and every edge among them.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SubgraphResult {
+    pub nodes: Vec<SubgraphNode>,
+    pub edges: Vec<SubgraphEdge>,
+}
+
+// ── Graph Diff ───────────────────────────────────────────────────────────
+
+/// What another graph has relative to this one (`Method::DiffAgainst`): nodes and
+/// `(source, target)` edge keys added or removed, and nodes whose property bytes differ.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct GraphDiff {
+    pub nodes_added: Vec<String>,
+    pub nodes_removed: Vec<String>,
+    pub nodes_modified: Vec<String>,
+    pub edges_added: Vec<(String, String)>,
+    pub edges_removed: Vec<(String, String)>,
+}
+
+// ── Compaction ───────────────────────────────────────────────────────────
+
+/// Result of `Method::CompactNodesByType`: the ids of the nodes compaction removed.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct CompactNodesResult {
+    pub removed_nodes: Vec<String>,
+}
+
+// ── Datalog Reasoning ────────────────────────────────────────────────────
+
+/// Result of `Method::RunDatalogReasoning`: every inferred triple, each a string map
+/// (`subject`, `predicate`, `object`, `inference_type`), and their count.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct DatalogReasoningResult {
+    pub inferred_count: usize,
+    pub inferred_triples: Vec<std::collections::HashMap<String, String>>,
+}
+
+// ── Property Blobs ───────────────────────────────────────────────────────
+
+/// A node or edge property object exactly as stored -- MessagePack bytes, carried as a
+/// MessagePack `bin` on the wire.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct PropertyBlob(
+    #[serde(with = "serde_bytes")]
+    #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
+    pub Vec<u8>,
+);
 
 // ── Tests ────────────────────────────────────────────────────────────────
 

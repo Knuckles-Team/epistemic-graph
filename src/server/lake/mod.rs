@@ -56,6 +56,7 @@
 //! [`lineage_transport`]'s module doc for the full design and the `DEC-CA-05`
 //! reconciliation note on inbound facets.
 
+mod catalog_ops;
 pub mod lineage;
 // OpenLineage transport (CA-15, feature `lineage-transport`). A best-effort HTTP push to
 // `EPISTEMIC_GRAPH_OPENLINEAGE_URL` already existed at `lineage::maybe_push_http`
@@ -70,7 +71,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use parking_lot::Mutex;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use eg_lake::catalog::IcebergRestCatalog;
 use eg_lake::schema::{CellValue, LakeBatch, LakeField, LakeSchema, LakeType};
@@ -79,7 +80,11 @@ use eg_lake::LakeTable;
 use eg_tsdb::point::Point;
 use eg_tsdb::store::SeriesStore;
 
-use crate::server::blob::store::{hex_digest, BlobManifest, ChunkStore, DEFAULT_CHUNK_SIZE};
+use crate::server::blob::store::ChunkStore;
+
+use catalog_ops::{
+    prepare_materialization, publish_artifacts, rollback_artifacts, stage_artifacts,
+};
 
 /// Env var naming the periodic WAL/series→lake materialization sweep interval in
 /// seconds (`0`/unset ⇒ disabled — the standing sweep never runs; a caller can still
@@ -137,9 +142,13 @@ pub struct MaterializeReport {
 /// handle plus the source series id it was drained from (empty for a table only ever
 /// written via `compact`/`delete_where`/the REST commit bridge), plus the REST-facing
 /// ownership tag (W04, GOC-75-W04) used for catalog row-level visibility.
+#[derive(Clone)]
 struct TableEntry {
     table: LakeTable,
     source_series: Option<String>,
+    /// Optimistic publication token. Every mutation of `table` advances this even
+    /// when the mutation does not advance the materialization LSN (schema evolution).
+    mutation_revision: u64,
     /// `None` = engine-internal/system table (e.g. drained straight from a tsdb
     /// series by the materialization sweep) — visible to every authenticated
     /// caller, matching this tier's behavior before W04. `Some(owner_scope)` = a
@@ -148,6 +157,92 @@ struct TableEntry {
     /// SAME per-agent ownership key `GraphReadAuthority`'s row-level security
     /// already uses elsewhere in this engine — see [`LakeVisibility`]).
     owner_tenant: Option<String>,
+}
+
+/// One materialization request. Grouping the table identity, row batch, lineage
+/// hint, and optional ownership metadata keeps the write boundary explicit as the
+/// pipeline grows.
+struct MaterializeInput<'a> {
+    namespace: &'a str,
+    table: &'a str,
+    schema: &'a LakeSchema,
+    batch: &'a LakeBatch,
+    source_series: Option<&'a str>,
+    op_hint: LakeOp,
+    input_dataset: Option<(&'a str, &'a str)>,
+    owner_tenant: Option<&'a str>,
+    /// Existing live files retired by this same atomic materialization LSN.
+    retire_paths: &'a [String],
+    /// Source materialization LSN a read-modify-write must still observe at publication.
+    expected_lsn: Option<Lsn>,
+    /// Complete table mutation revision the candidate must still observe at publication.
+    expected_revision: Option<u64>,
+}
+
+fn materialization_base(
+    tables: &HashMap<(String, String), TableEntry>,
+    key: &(String, String),
+    input: &MaterializeInput<'_>,
+) -> Result<(Option<TableEntry>, Option<u64>), String> {
+    let existing = tables.get(key);
+    let observed_lsn = existing.map(|entry| entry.table.current_lsn());
+    let observed_revision = existing.map(|entry| entry.mutation_revision);
+    if (input.expected_lsn.is_some() && input.expected_lsn != observed_lsn)
+        || (input.expected_revision.is_some() && input.expected_revision != observed_revision)
+    {
+        return Err(format!(
+            "lake write conflict for {}.{}: expected source LSN/revision {:?}/{:?}, observed {:?}/{:?}",
+            input.namespace,
+            input.table,
+            input.expected_lsn,
+            input.expected_revision,
+            observed_lsn,
+            observed_revision
+        ));
+    }
+    Ok((
+        existing.cloned(),
+        input.expected_revision.or(observed_revision),
+    ))
+}
+
+fn publication_conflict(
+    input: &MaterializeInput<'_>,
+    expected_revision: Option<u64>,
+    observed_revision: Option<u64>,
+) -> Option<String> {
+    if observed_revision == expected_revision {
+        return None;
+    }
+    Some(format!(
+        "lake write conflict for {}.{}: expected source revision {:?}, observed {:?}",
+        input.namespace, input.table, expected_revision, observed_revision
+    ))
+}
+
+fn rollback_publication_conflict(
+    store: &dyn ChunkStore,
+    staged_artifacts: &[catalog_ops::StagedArtifact],
+    conflict: String,
+) -> Result<MaterializeReport, String> {
+    match rollback_artifacts(store, staged_artifacts) {
+        Ok(()) => Err(conflict),
+        Err(cleanup) => Err(format!("{conflict}; rollback failed: {cleanup}")),
+    }
+}
+
+fn materialization_op(is_new: bool, op_hint: LakeOp) -> LakeOp {
+    if is_new {
+        LakeOp::Create
+    } else {
+        op_hint
+    }
+}
+
+fn evolve_entry_schema(entry: &mut TableEntry, field: LakeField) -> bool {
+    let evolved = entry.table.evolve_add_column(field);
+    entry.mutation_revision = entry.mutation_revision.wrapping_add(u64::from(evolved));
+    evolved
 }
 
 /// Row-level catalog visibility for one Iceberg-REST request (W04, GOC-75-W04).
@@ -193,7 +288,8 @@ impl LakeVisibility {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LoadTableAsOfError {
     /// The requested LSN is not a representable, committed point in the
-    /// manager's history.  LSN 0 is reserved for the valid empty history.
+    /// manager's history. LSN 0 is a valid global boundary, represented by
+    /// `Ok(None)` because no table generation exists there.
     LsnUnavailable { requested: u64, current_lsn: u64 },
 }
 
@@ -323,9 +419,8 @@ pub struct LakeManager {
     audit: Mutex<VecDeque<Value>>,
     /// Coalesced ranges of every successfully persisted write LSN.  This is
     /// deliberately separate from each table's snapshot log: a committed
-    /// global LSN before a table was created is a valid empty history for that
-    /// table, while a reserved LSN from a failed write must never be accepted
-    /// as an as-of boundary.
+    /// global LSN can resolve to that table's latest earlier emitted snapshot,
+    /// while a reservation from a failed write must never be accepted.
     committed_lsns: Mutex<CommittedLsnLedger>,
     next_lsn: AtomicU64,
 }
@@ -373,38 +468,6 @@ impl LakeManager {
     /// bytes live in the blob CAS, addressed through [`Self::paths`].
     fn location_for(namespace: &str, table: &str) -> String {
         format!("lake://{namespace}/{table}")
-    }
-
-    /// Store bytes in the blob CAS (chunked through [`DEFAULT_CHUNK_SIZE`], exactly the
-    /// pattern `crate::server::obs::segment::store_segment_bytes` uses for Parquet log
-    /// segments) and index them by their virtual path.
-    fn put_path_bytes(
-        &self,
-        store: &dyn ChunkStore,
-        path: &str,
-        bytes: &[u8],
-    ) -> Result<(), String> {
-        let mut chunks = Vec::new();
-        let mut chunk_lens = Vec::new();
-        for part in bytes.chunks(DEFAULT_CHUNK_SIZE) {
-            let (digest, _was_new) = store.put_chunk(part)?;
-            chunks.push(digest);
-            chunk_lens.push(part.len() as u32);
-        }
-        let manifest = BlobManifest {
-            schema_version: crate::server::blob::BLOB_MANIFEST_VERSION,
-            owner_scope: crate::server::blob::ENGINE_BLOB_OWNER_SCOPE.to_string(),
-            chunks,
-            chunk_lens,
-            len: bytes.len() as u64,
-            chunk_size: 0,
-        };
-        let mbytes = rmp_serde::to_vec_named(&manifest).map_err(|e| e.to_string())?;
-        let digest = hex_digest(&mbytes);
-        store.put_manifest(&digest, &manifest)?;
-        store.incref(&digest)?;
-        self.paths.lock().insert(path.to_string(), digest);
-        Ok(())
     }
 
     /// Read bytes previously stored at `path` back out of the blob CAS.
@@ -466,120 +529,68 @@ impl LakeManager {
         LakeBatch::new(schema.clone(), rows)
     }
 
-    /// Get-or-create the `(namespace, table)` entry, seeding its schema on first
-    /// creation. Returns whether the table is brand-new (CREATE) this call.
-    #[allow(clippy::too_many_arguments)]
-    fn get_or_create<'a>(
-        tables: &'a mut HashMap<(String, String), TableEntry>,
-        namespace: &str,
-        table: &str,
-        schema: &LakeSchema,
-        source_series: Option<&str>,
-        owner_tenant: Option<&str>,
-    ) -> (&'a mut TableEntry, bool) {
-        let key = (namespace.to_string(), table.to_string());
-        let is_new = !tables.contains_key(&key);
-        let entry = tables.entry(key).or_insert_with(|| TableEntry {
-            table: LakeTable::new(
-                namespace.to_string(),
-                table.to_string(),
-                schema.clone(),
-                Self::location_for(namespace, table),
-            ),
-            source_series: source_series.map(str::to_string),
-            owner_tenant: owner_tenant.map(str::to_string),
-        });
-        (entry, is_new)
-    }
-
     /// Materialize one write (a fresh batch of rows) into `(namespace, table)`,
     /// persisting the Parquet file + the Delta log + the Iceberg metadata/Avro
     /// manifests to the blob CAS, registering the table into the catalog, and emitting
     /// an OpenLineage event. `op` should be `Append` for an incremental add — CREATE is
     /// detected automatically for a table's first write.
-    #[allow(clippy::too_many_arguments)]
     fn materialize_batch(
         &self,
         store: &dyn ChunkStore,
-        namespace: &str,
-        table: &str,
-        schema: &LakeSchema,
-        batch: &LakeBatch,
-        source_series: Option<&str>,
-        op_hint: LakeOp,
-        input_dataset: Option<(&str, &str)>,
-        owner_tenant: Option<&str>,
+        input: MaterializeInput<'_>,
     ) -> Result<MaterializeReport, String> {
         let lsn = self.alloc_lsn();
         let ts_ms = lineage::now_ms();
+        let key = (input.namespace.to_string(), input.table.to_string());
+        let (existing, expected_revision) = {
+            let tables = self.tables.lock();
+            materialization_base(&tables, &key, &input)?
+        };
+        let is_new = existing.is_none();
+        let prepared = prepare_materialization(&input, existing.as_ref(), lsn, ts_ms as i64)?;
+        let staged_artifacts = stage_artifacts(store, &prepared.artifacts)?;
+
+        // Publishing is intentionally after every fallible write. From this point
+        // onward only in-memory inserts remain, so readers see the previous table or
+        // the complete candidate and never a half-written snapshot.
         let mut tables = self.tables.lock();
-        let (entry, is_new) = Self::get_or_create(
-            &mut tables,
-            namespace,
-            table,
-            schema,
-            source_series,
-            owner_tenant,
-        );
-        let location = entry.table.location.clone();
-
-        let (rel_path, bytes) = entry.table.materialize(batch, lsn)?;
-        let bytes_len = bytes.len() as u64;
-        let num_rows = batch.num_rows() as u64;
-        self.put_path_bytes(store, &format!("{location}/{rel_path}"), &bytes)?;
-
-        // Delta `_delta_log` (pure JSON — table-relative paths need the location prefix
-        // added here; the Iceberg/Avro artifacts below already carry it internally).
-        for f in entry.table.delta_log(ts_ms as i64) {
-            self.put_path_bytes(
-                store,
-                &format!("{location}/{}", f.path),
-                f.content.as_bytes(),
-            )?;
+        let observed_revision = tables.get(&key).map(|entry| entry.mutation_revision);
+        if let Some(conflict) = publication_conflict(&input, expected_revision, observed_revision) {
+            drop(tables);
+            return rollback_publication_conflict(store, &staged_artifacts, conflict);
         }
-
-        // Iceberg metadata.json + the real Avro manifest / manifest-list.
-        let ib = entry.table.iceberg(ts_ms as i64);
-        self.put_path_bytes(store, &ib.metadata_location, ib.metadata_json.as_bytes())?;
-        let manifests = entry.table.iceberg_manifests()?;
-        self.put_path_bytes(store, &manifests.manifest_path, &manifests.manifest_avro)?;
-        self.put_path_bytes(
-            store,
-            &manifests.manifest_list_path,
-            &manifests.manifest_list_avro,
-        )?;
-
+        publish_artifacts(&self.paths, staged_artifacts);
         let mut cat = self.catalog.lock();
-        entry.table.register_in(&mut cat, ts_ms as i64);
-        let metadata_location = ib.metadata_location.clone();
+        prepared.candidate.table.register_in(&mut cat, ts_ms as i64);
+        tables.insert(key, prepared.candidate);
         self.record_committed_lsn(lsn);
         drop(cat);
         drop(tables);
 
-        let op = if is_new { LakeOp::Create } else { op_hint };
+        let op = materialization_op(is_new, input.op_hint);
         let event = lineage::build_run_event(
-            namespace,
-            table,
+            input.namespace,
+            input.table,
             op,
-            schema,
-            num_rows,
-            bytes_len,
-            &location,
+            input.schema,
+            prepared.num_rows,
+            prepared.bytes_len,
+            &prepared.location,
             lsn.value(),
-            manifests.snapshot_id,
-            input_dataset,
+            prepared.snapshot_id,
+            input.input_dataset,
         );
         self.push_lineage(event.clone());
 
         Ok(MaterializeReport {
-            namespace: namespace.to_string(),
-            table: table.to_string(),
+            namespace: input.namespace.to_string(),
+            table: input.table.to_string(),
             op,
-            path: rel_path,
-            bytes_len,
-            num_rows,
+            path: prepared.rel_path,
+            bytes_len: prepared.bytes_len,
+            num_rows: prepared.num_rows,
             lsn: lsn.value(),
-            metadata_location,
+            metadata_location: prepared.metadata_location,
             lineage_event: event,
         })
     }
@@ -609,14 +620,19 @@ impl LakeManager {
         let max_ts = points.iter().map(|p| p.ts).max().unwrap_or(from);
         let report = self.materialize_batch(
             store,
-            DEFAULT_NAMESPACE,
-            &table,
-            &schema,
-            &batch,
-            Some(series_id),
-            LakeOp::Append,
-            Some(("epistemic-graph.tsdb", series_id)),
-            None,
+            MaterializeInput {
+                namespace: DEFAULT_NAMESPACE,
+                table: &table,
+                schema: &schema,
+                batch: &batch,
+                source_series: Some(series_id),
+                op_hint: LakeOp::Append,
+                input_dataset: Some(("epistemic-graph.tsdb", series_id)),
+                owner_tenant: None,
+                retire_paths: &[],
+                expected_lsn: None,
+                expected_revision: None,
+            },
         )?;
         self.drain_cursor
             .lock()
@@ -636,7 +652,7 @@ impl LakeManager {
         table: &str,
         keep: impl Fn(&[CellValue]) -> bool,
     ) -> Result<Option<MaterializeReport>, String> {
-        let (schema, location, live_paths, source_series) = {
+        let (schema, location, live_paths, source_series, source_lsn, source_revision) = {
             let tables = self.tables.lock();
             let Some(entry) = tables.get(&(namespace.to_string(), table.to_string())) else {
                 return Ok(None);
@@ -656,6 +672,8 @@ impl LakeManager {
                 entry.table.location.clone(),
                 live,
                 entry.source_series.clone(),
+                entry.table.current_lsn(),
+                entry.mutation_revision,
             )
         };
 
@@ -689,23 +707,6 @@ impl LakeManager {
         let had_rows = !kept_rows.is_empty();
         let new_batch = LakeBatch::new(schema.clone(), kept_rows)?;
 
-        // Tombstone the old files at a reserved rewrite LSN, then materialize
-        // the replacement batch at the next LSN.  The ledger records both
-        // successful boundaries, preserving the valid intermediate empty
-        // projection as well as the final overwrite.
-        let lsn = self.alloc_lsn();
-        {
-            let mut tables = self.tables.lock();
-            let entry = tables
-                .get_mut(&(namespace.to_string(), table.to_string()))
-                .ok_or_else(|| format!("table {namespace}.{table} vanished mid-rewrite"))?;
-            for rel in &live_paths {
-                entry.table.snapshot.remove_file(rel, lsn);
-            }
-        }
-        // materialize_batch allocates its OWN lsn for the new file; that is fine (it is
-        // strictly greater, so the file is recorded live from that point on) — the
-        // tombstone above already advanced `current` to at least this rewrite's lsn.
         let op = if had_rows {
             LakeOp::Overwrite
         } else {
@@ -713,20 +714,20 @@ impl LakeManager {
         };
         let report = self.materialize_batch(
             store,
-            namespace,
-            table,
-            &schema,
-            &new_batch,
-            source_series.as_deref(),
-            op,
-            None,
-            None,
+            MaterializeInput {
+                namespace,
+                table,
+                schema: &schema,
+                batch: &new_batch,
+                source_series: source_series.as_deref(),
+                op_hint: op,
+                input_dataset: None,
+                owner_tenant: None,
+                retire_paths: &live_paths,
+                expected_lsn: Some(source_lsn),
+                expected_revision: Some(source_revision),
+            },
         )?;
-        // The rewrite's tombstone and replacement file have distinct LSNs in
-        // the current implementation.  Both are committed boundaries: callers
-        // may legitimately ask for the point between them and observe the
-        // transiently empty file set.
-        self.record_committed_lsn(lsn);
         Ok(Some(report))
     }
 
@@ -760,309 +761,7 @@ impl LakeManager {
         let entry = tables
             .get_mut(&(namespace.to_string(), table.to_string()))
             .ok_or_else(|| format!("no such table: {namespace}.{table}"))?;
-        Ok(entry.table.evolve_add_column(field))
-    }
-
-    // ── Iceberg-REST catalog reads (delegated straight to `eg_lake::catalog`) ──────
-
-    pub fn list_namespaces(&self) -> Value {
-        self.catalog.lock().list_namespaces()
-    }
-
-    pub fn list_tables(&self, namespace: &str) -> Value {
-        self.catalog.lock().list_tables(namespace)
-    }
-
-    pub fn load_table(&self, namespace: &str, table: &str) -> Option<Value> {
-        self.catalog.lock().load_table(namespace, table)
-    }
-
-    /// Time-travel `LoadTable`: resolve a query-time as-of request — already reduced
-    /// to a concrete engine `lsn` by the caller — and render the table's Iceberg
-    /// metadata for the file set that was actually live AT THAT POINT (BUG-224, the
-    /// `Op::AsOf` → `Lsn` seam `crates/eg-lake`'s docs flag as the server tier's to
-    /// own: `eg_lake::snapshot::SnapshotLog::files_as_of` existed, but nothing on this
-    /// server tier ever called it with anything but "now" — [`Self::load_table`]
-    /// only ever serves the catalog's cached CURRENT snapshot). Unlike `load_table`,
-    /// this reads the live [`LakeTable`] directly (the catalog only caches the latest
-    /// metadata.json, not history), so a `lsn` from before a later
-    /// compact/delete_where/drain_series still resolves to the file set live at that
-    /// lsn, not today's. Returns the same `{"metadata-location", "metadata",
-    /// "config"}` shape [`Self::load_table`] returns. `Ok(None)` means the table
-    /// is unknown or hidden by `visibility`, matching [`Self::load_table_visible`]
-    /// and preventing existence/error side channels. `Err` means the table is
-    /// visible but `lsn` is not a committed point in this manager's global
-    /// history. LSN `0` is always valid and represents the empty history; a
-    /// committed LSN from before this table was created is also valid and
-    /// returns an empty projection. Values above `i64::MAX` are rejected because
-    /// Iceberg snapshot ids are signed 64-bit values.
-    pub fn load_table_as_of(
-        &self,
-        namespace: &str,
-        table: &str,
-        lsn: u64,
-        visibility: &LakeVisibility,
-    ) -> Result<Option<Value>, LoadTableAsOfError> {
-        let tables = self.tables.lock();
-        let Some(entry) = tables.get(&(namespace.to_string(), table.to_string())) else {
-            return Ok(None);
-        };
-        if !visibility.allows(entry.owner_tenant.as_deref()) {
-            return Ok(None);
-        }
-        let current_lsn = entry.table.current_lsn().value();
-        if lsn > i64::MAX as u64 || !self.is_committed_lsn(lsn) {
-            return Err(LoadTableAsOfError::LsnUnavailable {
-                requested: lsn,
-                current_lsn,
-            });
-        }
-        let ts_ms = lineage::now_ms();
-        let ib = entry.table.iceberg_as_of(Lsn(lsn), ts_ms as i64);
-        let metadata: Value = serde_json::from_str(&ib.metadata_json).unwrap_or(Value::Null);
-        Ok(Some(json!({
-            "metadata-location": ib.metadata_location,
-            "metadata": metadata,
-            "config": {},
-        })))
-    }
-
-    pub fn namespace_exists(&self, namespace: &str) -> bool {
-        let cat = self.catalog.lock();
-        cat.list_namespaces()["namespaces"]
-            .as_array()
-            .map(|levels| levels.iter().any(|n| n[0] == namespace))
-            .unwrap_or(false)
-    }
-
-    /// CommitTable bridge for the REST surface (INT-P2-3, honest scope note per the
-    /// `lake-rest` feature docs): the REST `POST .../tables/{table}` endpoint is
-    /// accepted per the Iceberg-REST spec's request/response envelope, but this tier
-    /// does not ingest externally-authored manifests/data files (the engine is the
-    /// sole writer of its own tables) — a commit simply triggers the engine's own
-    /// compaction pass and returns the resulting `LoadTableResponse` shape.
-    pub fn commit_table(
-        &self,
-        store: &dyn ChunkStore,
-        namespace: &str,
-        table: &str,
-    ) -> Result<Value, String> {
-        self.compact(store, namespace, table)?;
-        self.load_table(namespace, table)
-            .ok_or_else(|| format!("no such table: {namespace}.{table}"))
-    }
-
-    // ── Iceberg-REST catalog reads, visibility-projected (W04, GOC-75-W04) ─────────
-    //
-    // These are ADDITIVE siblings of the plain `list_namespaces`/`list_tables`/
-    // `load_table`/`namespace_exists` above (kept byte-for-byte unchanged for their
-    // existing internal callers — the drain sweep, this module's own tests). The
-    // REST surface (`rest.rs`) calls these instead once a request's
-    // `LakeVisibility` is known, so an owner-scoped table never appears in another
-    // owner's listing, existence check, or load — the SAME 404 an actually-missing
-    // table gets, never a distinguishing 403 (closes the existence/count/error-
-    // message side channels the lane's security section calls out).
-
-    fn namespace_visible(&self, namespace: &str, visibility: &LakeVisibility) -> bool {
-        let tables = self.tables.lock();
-        tables.iter().any(|((ns, _), entry)| {
-            ns == namespace && visibility.allows(entry.owner_tenant.as_deref())
-        })
-    }
-
-    pub(crate) fn list_namespaces_visible(
-        &self,
-        visibility: &LakeVisibility,
-        page_token: Option<&str>,
-        page_size: Option<usize>,
-    ) -> Value {
-        let mut namespaces: Vec<String> = {
-            let tables = self.tables.lock();
-            tables
-                .iter()
-                .filter(|(_, entry)| visibility.allows(entry.owner_tenant.as_deref()))
-                .map(|((ns, _), _)| ns.clone())
-                .collect()
-        };
-        namespaces.sort();
-        namespaces.dedup();
-        let (page, next) = paginate(&namespaces, page_token, page_size);
-        let namespaces_json: Vec<Value> =
-            page.iter().map(|ns| json!(namespace_levels(ns))).collect();
-        let mut out = json!({ "namespaces": namespaces_json });
-        if let Some(t) = next {
-            out["next-page-token"] = json!(t);
-        }
-        out
-    }
-
-    pub(crate) fn namespace_exists_visible(
-        &self,
-        namespace: &str,
-        visibility: &LakeVisibility,
-    ) -> bool {
-        self.namespace_visible(namespace, visibility)
-    }
-
-    pub(crate) fn list_tables_visible(
-        &self,
-        namespace: &str,
-        visibility: &LakeVisibility,
-        page_token: Option<&str>,
-        page_size: Option<usize>,
-    ) -> Value {
-        let mut names: Vec<String> = {
-            let tables = self.tables.lock();
-            tables
-                .iter()
-                .filter(|((ns, _), entry)| {
-                    ns == namespace && visibility.allows(entry.owner_tenant.as_deref())
-                })
-                .map(|((_, name), _)| name.clone())
-                .collect()
-        };
-        names.sort();
-        let (page, next) = paginate(&names, page_token, page_size);
-        let levels = namespace_levels(namespace);
-        let identifiers: Vec<Value> = page
-            .iter()
-            .map(|name| json!({ "namespace": levels, "name": name }))
-            .collect();
-        let mut out = json!({ "identifiers": identifiers });
-        if let Some(t) = next {
-            out["next-page-token"] = json!(t);
-        }
-        out
-    }
-
-    pub(crate) fn load_table_visible(
-        &self,
-        namespace: &str,
-        table: &str,
-        visibility: &LakeVisibility,
-    ) -> Option<Value> {
-        {
-            let tables = self.tables.lock();
-            let entry = tables.get(&(namespace.to_string(), table.to_string()))?;
-            if !visibility.allows(entry.owner_tenant.as_deref()) {
-                return None;
-            }
-        }
-        self.load_table(namespace, table)
-    }
-
-    // ── Iceberg-REST catalog writes: CreateTable / DropTable / RenameTable ─────────
-    // (W03, GOC-75-W03 — the REST surface's remaining verbs named in the lane's
-    // "Still open" list; each still routes through THIS manager's one table store,
-    // never a second catalog.)
-
-    /// `CreateTable`: register a brand-new, empty `(namespace, table)` under
-    /// `schema`, tagged with `owner_tenant` (W04's ownership tag — `None` from the
-    /// non-security `serve()` path, `Some(carrier.owner_scope())` from an
-    /// authenticated REST request). Materializes one (zero-row) Parquet/Delta/
-    /// Iceberg-Avro commit via the SAME [`Self::materialize_batch`] pipeline every
-    /// other write uses, so a freshly created table is immediately a real,
-    /// loadable Iceberg table (`LoadTable` right after `CreateTable` needs no
-    /// special-casing).
-    pub fn create_table(
-        &self,
-        store: &dyn ChunkStore,
-        namespace: &str,
-        table: &str,
-        schema: LakeSchema,
-        owner_tenant: Option<&str>,
-    ) -> Result<Value, CreateTableError> {
-        {
-            let tables = self.tables.lock();
-            if tables.contains_key(&(namespace.to_string(), table.to_string())) {
-                return Err(CreateTableError::AlreadyExists);
-            }
-        }
-        let batch = LakeBatch::new(schema.clone(), Vec::new()).map_err(CreateTableError::Other)?;
-        self.materialize_batch(
-            store,
-            namespace,
-            table,
-            &schema,
-            &batch,
-            None,
-            LakeOp::Create,
-            None,
-            owner_tenant,
-        )
-        .map_err(CreateTableError::Other)?;
-        self.load_table(namespace, table).ok_or_else(|| {
-            CreateTableError::Other(format!(
-                "table {namespace}.{table} vanished immediately after create"
-            ))
-        })
-    }
-
-    /// `DropTable`: remove `(namespace, table)` from both this manager's table
-    /// store and the Iceberg-REST catalog index. `false` if the table does not
-    /// exist OR is not visible to `visibility` — a caller cannot distinguish
-    /// "doesn't exist" from "exists but isn't yours" (W04's error-message bar).
-    /// The blob-CAS bytes under the table's location are released from the path
-    /// index (a real Iceberg catalog similarly only ever unregisters the
-    /// pointer; VACUUM/GC of orphaned files is a separate, out-of-band concern
-    /// this tier does not model).
-    pub fn drop_table(&self, namespace: &str, table: &str, visibility: &LakeVisibility) -> bool {
-        let key = (namespace.to_string(), table.to_string());
-        let removed = {
-            let mut tables = self.tables.lock();
-            match tables.get(&key) {
-                Some(entry) if visibility.allows(entry.owner_tenant.as_deref()) => {
-                    tables.remove(&key);
-                    true
-                }
-                _ => false,
-            }
-        };
-        if removed {
-            self.catalog.lock().remove(namespace, table);
-            let prefix = format!("{}/", Self::location_for(namespace, table));
-            self.paths
-                .lock()
-                .retain(|path, _| !path.starts_with(&prefix));
-        }
-        removed
-    }
-
-    /// `RenameTable` (`POST /v1/tables/rename`): re-key `(from_ns, from_table)` to
-    /// `(to_ns, to_table)` in both this manager's table store and the catalog. No
-    /// data files move — Iceberg's `location` is independent of the catalog
-    /// identifier, so only the catalog pointer changes, matching real Iceberg
-    /// rename semantics. `visibility` gates the SOURCE the same way `load_table_
-    /// visible`/`drop_table` do (folded into `SourceNotFound`, never a 403).
-    pub fn rename_table(
-        &self,
-        from_ns: &str,
-        from_table: &str,
-        to_ns: &str,
-        to_table: &str,
-        visibility: &LakeVisibility,
-    ) -> Result<(), RenameTableError> {
-        let from_key = (from_ns.to_string(), from_table.to_string());
-        let to_key = (to_ns.to_string(), to_table.to_string());
-        let mut tables = self.tables.lock();
-        match tables.get(&from_key) {
-            Some(entry) if visibility.allows(entry.owner_tenant.as_deref()) => {}
-            _ => return Err(RenameTableError::SourceNotFound),
-        }
-        if from_key != to_key && tables.contains_key(&to_key) {
-            return Err(RenameTableError::DestinationExists);
-        }
-        let mut entry = tables.remove(&from_key).expect("checked above");
-        entry.table.namespace = to_ns.to_string();
-        entry.table.name = to_table.to_string();
-        let ts_ms = lineage::now_ms();
-        {
-            let mut cat = self.catalog.lock();
-            cat.remove(from_ns, from_table);
-            entry.table.register_in(&mut cat, ts_ms as i64);
-        }
-        tables.insert(to_key, entry);
-        Ok(())
+        Ok(evolve_entry_schema(entry, field))
     }
 
     // ── OpenLineage ─────────────────────────────────────────────────────────────
@@ -1143,13 +842,225 @@ fn sanitize_table_name(series_id: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::server::blob::store::RedbChunkStore;
+    use crate::server::blob::store::{BlobManifest, RedbChunkStore, SweepStats};
+
+    struct FailureState {
+        fail_on_manifest: Option<usize>,
+        fail_on_incref: Option<usize>,
+        fail_on_decref: Option<usize>,
+        pause_manifest: Option<(
+            std::sync::mpsc::SyncSender<()>,
+            std::sync::mpsc::Receiver<()>,
+        )>,
+        manifest_calls: usize,
+        incref_calls: usize,
+        decref_calls: usize,
+        refcount_baselines: HashMap<String, u64>,
+    }
+
+    struct FailingStore {
+        inner: RedbChunkStore,
+        state: std::sync::Mutex<FailureState>,
+    }
+
+    impl FailingStore {
+        fn new() -> Self {
+            Self {
+                inner: store(),
+                state: std::sync::Mutex::new(FailureState {
+                    fail_on_manifest: None,
+                    fail_on_incref: None,
+                    fail_on_decref: None,
+                    pause_manifest: None,
+                    manifest_calls: 0,
+                    incref_calls: 0,
+                    decref_calls: 0,
+                    refcount_baselines: HashMap::new(),
+                }),
+            }
+        }
+
+        fn fail_artifact(&self, artifact_ordinal: usize) {
+            let mut state = self.state.lock().unwrap();
+            state.fail_on_manifest = Some(artifact_ordinal);
+            state.fail_on_incref = None;
+            state.fail_on_decref = None;
+            state.pause_manifest = None;
+            state.manifest_calls = 0;
+            state.incref_calls = 0;
+            state.decref_calls = 0;
+            state.refcount_baselines.clear();
+        }
+
+        fn fail_incref(&self, artifact_ordinal: usize) {
+            let mut state = self.state.lock().unwrap();
+            state.fail_on_manifest = None;
+            state.fail_on_incref = Some(artifact_ordinal);
+            state.fail_on_decref = None;
+            state.pause_manifest = None;
+            state.manifest_calls = 0;
+            state.incref_calls = 0;
+            state.decref_calls = 0;
+            state.refcount_baselines.clear();
+        }
+
+        fn fail_manifest_and_decref(&self, artifact_ordinal: usize) {
+            self.fail_artifact(artifact_ordinal);
+            self.state.lock().unwrap().fail_on_decref = Some(1);
+        }
+
+        fn pause_next_manifest(
+            &self,
+        ) -> (
+            std::sync::mpsc::Receiver<()>,
+            std::sync::mpsc::SyncSender<()>,
+        ) {
+            let (entered_tx, entered_rx) = std::sync::mpsc::sync_channel(0);
+            let (release_tx, release_rx) = std::sync::mpsc::sync_channel(0);
+            self.state.lock().unwrap().pause_manifest = Some((entered_tx, release_rx));
+            (entered_rx, release_tx)
+        }
+
+        fn disarm(&self) {
+            let mut state = self.state.lock().unwrap();
+            state.fail_on_manifest = None;
+            state.fail_on_incref = None;
+            state.fail_on_decref = None;
+            state.pause_manifest = None;
+            state.refcount_baselines.clear();
+        }
+
+        fn assert_staged_refs_rolled_back(&self) {
+            let baselines = self.state.lock().unwrap().refcount_baselines.clone();
+            for (digest, baseline) in baselines {
+                assert_eq!(
+                    self.inner.refcount(&digest).unwrap(),
+                    baseline,
+                    "failed lake commit leaked a CAS reference for {digest}"
+                );
+            }
+        }
+
+        fn repair_staged_refs(&self) {
+            let baselines = self.state.lock().unwrap().refcount_baselines.clone();
+            for (digest, baseline) in baselines {
+                while self.inner.refcount(&digest).unwrap() > baseline {
+                    self.inner.decref(&digest).unwrap();
+                }
+            }
+        }
+
+        fn staged_ref_mismatches(&self) -> usize {
+            let baselines = self.state.lock().unwrap().refcount_baselines.clone();
+            baselines
+                .iter()
+                .filter(|(digest, baseline)| self.inner.refcount(digest).unwrap() != **baseline)
+                .count()
+        }
+    }
+
+    impl ChunkStore for FailingStore {
+        fn put_chunk(&self, bytes: &[u8]) -> Result<(String, bool), String> {
+            self.inner.put_chunk(bytes)
+        }
+
+        fn get_chunk(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
+            self.inner.get_chunk(digest)
+        }
+
+        fn put_manifest(&self, digest: &str, manifest: &BlobManifest) -> Result<(), String> {
+            let pause = self.state.lock().unwrap().pause_manifest.take();
+            if let Some((entered, release)) = pause {
+                entered
+                    .send(())
+                    .map_err(|error| format!("signal paused lake write: {error}"))?;
+                release
+                    .recv()
+                    .map_err(|error| format!("resume paused lake write: {error}"))?;
+            }
+            let should_fail = {
+                let mut state = self.state.lock().unwrap();
+                state.manifest_calls += 1;
+                state.fail_on_manifest == Some(state.manifest_calls)
+            };
+            if should_fail {
+                Err("injected lake artifact failure".to_string())
+            } else {
+                self.inner.put_manifest(digest, manifest)
+            }
+        }
+
+        fn get_manifest(&self, digest: &str) -> Result<Option<BlobManifest>, String> {
+            self.inner.get_manifest(digest)
+        }
+
+        fn incref(&self, digest: &str) -> Result<u64, String> {
+            let (should_fail, track_baseline) = {
+                let mut state = self.state.lock().unwrap();
+                state.incref_calls += 1;
+                (
+                    state.fail_on_incref == Some(state.incref_calls),
+                    state.fail_on_manifest.is_some()
+                        || state.fail_on_incref.is_some()
+                        || state.fail_on_decref.is_some(),
+                )
+            };
+            if should_fail {
+                return Err("injected lake incref failure".to_string());
+            }
+            let baseline = self.inner.refcount(digest)?;
+            if track_baseline {
+                let mut state = self.state.lock().unwrap();
+                state
+                    .refcount_baselines
+                    .entry(digest.to_string())
+                    .or_insert(baseline);
+            }
+            self.inner.incref(digest)
+        }
+
+        fn decref(&self, digest: &str) -> Result<u64, String> {
+            let should_fail = {
+                let mut state = self.state.lock().unwrap();
+                state.decref_calls += 1;
+                state.fail_on_decref == Some(state.decref_calls)
+            };
+            if should_fail {
+                Err("injected lake decref failure".to_string())
+            } else {
+                self.inner.decref(digest)
+            }
+        }
+
+        fn refcount(&self, digest: &str) -> Result<u64, String> {
+            self.inner.refcount(digest)
+        }
+
+        fn sweep(&self) -> Result<SweepStats, String> {
+            self.inner.sweep()
+        }
+
+        fn chunk_count(&self) -> Result<u64, String> {
+            self.inner.chunk_count()
+        }
+
+        fn blob_count(&self) -> Result<u64, String> {
+            self.inner.blob_count()
+        }
+    }
 
     fn store() -> RedbChunkStore {
         RedbChunkStore::open_temp().unwrap()
     }
 
     const TEST_BUCKET_NS: u64 = 3_600_000_000_000;
+    const FAILURE_PHASES: &[(usize, &str)] = &[
+        (1, "data"),
+        (2, "delta"),
+        (3, "manifest"),
+        (4, "manifest-list"),
+        (5, "metadata"),
+    ];
 
     fn points(from: i64, n: i64) -> Vec<Point> {
         (0..n)
@@ -1160,6 +1071,32 @@ mod tests {
     fn append(tsdb: &SeriesStore, series_id: &str, pts: &[Point]) {
         tsdb.append_batch(series_id, 1, TEST_BUCKET_NS, &["v".to_string()], pts)
             .unwrap();
+    }
+
+    fn current_snapshot(response: &Value) -> &Value {
+        let current_id = &response["metadata"]["current-snapshot-id"];
+        response["metadata"]["snapshots"]
+            .as_array()
+            .expect("Iceberg snapshots array")
+            .iter()
+            .find(|snapshot| &snapshot["snapshot-id"] == current_id)
+            .expect("current-snapshot-id references an emitted snapshot")
+    }
+
+    fn assert_manifest_lists_are_published(manager: &LakeManager, response: &Value) {
+        let paths = manager.paths.lock();
+        for snapshot in response["metadata"]["snapshots"]
+            .as_array()
+            .expect("Iceberg snapshots array")
+        {
+            let manifest_list = snapshot["manifest-list"]
+                .as_str()
+                .expect("snapshot manifest-list path");
+            assert!(
+                paths.contains_key(manifest_list),
+                "snapshot references unpublished manifest list {manifest_list}"
+            );
+        }
     }
 
     #[test]
@@ -1178,6 +1115,333 @@ mod tests {
             "an uncommitted reservation stays a hole"
         );
         assert!(ledger.contains(5));
+    }
+
+    #[test]
+    fn failed_create_never_publishes_a_table_or_artifact_path() {
+        let store = FailingStore::new();
+        let schema = LakeSchema::new(vec![LakeField::new("v", LakeType::Double)]);
+        for &(artifact_ordinal, phase) in FAILURE_PHASES {
+            let manager = LakeManager::new();
+            store.fail_artifact(artifact_ordinal);
+            let result = manager.create_table(
+                &store,
+                DEFAULT_NAMESPACE,
+                "failure-injected-create",
+                schema.clone(),
+                None,
+            );
+            assert!(result.is_err(), "{phase} must fail create");
+            assert!(manager
+                .load_table(DEFAULT_NAMESPACE, "failure-injected-create")
+                .is_none());
+            assert!(manager.paths.lock().is_empty());
+            assert!(manager.recent_lineage(1).is_empty());
+            store.assert_staged_refs_rolled_back();
+        }
+        store.disarm();
+    }
+
+    #[test]
+    fn incref_and_rollback_failures_are_visible_without_publishing_state() {
+        let store = FailingStore::new();
+        let schema = LakeSchema::new(vec![LakeField::new("v", LakeType::Double)]);
+
+        let incref_manager = LakeManager::new();
+        store.fail_incref(3);
+        let incref_error = match incref_manager.create_table(
+            &store,
+            DEFAULT_NAMESPACE,
+            "incref-failure",
+            schema.clone(),
+            None,
+        ) {
+            Err(CreateTableError::Other(error)) => error,
+            other => panic!("expected injected incref failure, got {other:?}"),
+        };
+        assert!(incref_error.contains("injected lake incref failure"));
+        assert!(incref_manager.paths.lock().is_empty());
+        assert!(incref_manager
+            .load_table(DEFAULT_NAMESPACE, "incref-failure")
+            .is_none());
+        store.assert_staged_refs_rolled_back();
+
+        let rollback_manager = LakeManager::new();
+        store.fail_manifest_and_decref(4);
+        let rollback_error = match rollback_manager.create_table(
+            &store,
+            DEFAULT_NAMESPACE,
+            "rollback-failure",
+            schema,
+            None,
+        ) {
+            Err(CreateTableError::Other(error)) => error,
+            other => panic!("expected injected rollback failure, got {other:?}"),
+        };
+        assert!(rollback_error.contains("rollback failed"));
+        assert!(rollback_error.contains("injected lake decref failure"));
+        assert!(rollback_manager.paths.lock().is_empty());
+        assert!(rollback_manager
+            .load_table(DEFAULT_NAMESPACE, "rollback-failure")
+            .is_none());
+        assert_eq!(store.staged_ref_mismatches(), 1);
+        store.repair_staged_refs();
+        store.assert_staged_refs_rolled_back();
+        store.disarm();
+    }
+
+    #[test]
+    fn failed_append_and_rewrite_preserve_the_previous_complete_snapshot() {
+        let store = FailingStore::new();
+        let tsdb = SeriesStore::open_in_dir(
+            &std::env::temp_dir().join(format!(
+                "eg-lake-test-atomic-failure-{}",
+                std::process::id()
+            )),
+            crate::store_authority::process_verifier(),
+            crate::store_authority::process_authority().principal(),
+            &crate::store_authority::process_authority().proof(),
+        )
+        .unwrap();
+        let manager = LakeManager::new();
+        let series = "atomic-failure";
+        append(&tsdb, series, &points(0, 3));
+        let first = manager
+            .drain_series(&store, &tsdb, series)
+            .unwrap()
+            .unwrap();
+        let table = sanitize_table_name(series);
+        let first_view = manager.load_table(DEFAULT_NAMESPACE, &table).unwrap();
+        let first_path_count = manager.paths.lock().len();
+        append(&tsdb, series, &points(3, 2));
+
+        for &(artifact_ordinal, phase) in FAILURE_PHASES {
+            store.fail_artifact(artifact_ordinal);
+            assert!(manager.drain_series(&store, &tsdb, series).is_err());
+            assert_eq!(
+                manager.load_table(DEFAULT_NAMESPACE, &table).unwrap(),
+                first_view,
+                "failed {phase} append changed the live table"
+            );
+            assert_eq!(manager.paths.lock().len(), first_path_count);
+            assert_eq!(manager.recent_lineage(10).len(), 1);
+            assert_manifest_lists_are_published(&manager, &first_view);
+            store.assert_staged_refs_rolled_back();
+        }
+
+        store.disarm();
+        let second = manager
+            .drain_series(&store, &tsdb, series)
+            .unwrap()
+            .unwrap();
+        assert!(
+            second.lsn > first.lsn + 5,
+            "failed reservations remain holes"
+        );
+        let second_view = manager.load_table(DEFAULT_NAMESPACE, &table).unwrap();
+        assert_manifest_lists_are_published(&manager, &second_view);
+        let before_rewrite = second_view.clone();
+        let before_rewrite_path_count = manager.paths.lock().len();
+
+        for &(artifact_ordinal, phase) in FAILURE_PHASES {
+            store.fail_artifact(artifact_ordinal);
+            assert!(manager.compact(&store, DEFAULT_NAMESPACE, &table).is_err());
+            assert_eq!(
+                manager.load_table(DEFAULT_NAMESPACE, &table).unwrap(),
+                before_rewrite,
+                "failed {phase} rewrite changed the live table"
+            );
+            assert_eq!(manager.paths.lock().len(), before_rewrite_path_count);
+            assert_eq!(manager.recent_lineage(10).len(), 2);
+            assert_manifest_lists_are_published(&manager, &before_rewrite);
+            store.assert_staged_refs_rolled_back();
+        }
+
+        store.disarm();
+        let rewrite = manager
+            .compact(&store, DEFAULT_NAMESPACE, &table)
+            .unwrap()
+            .unwrap();
+        let rewritten = manager.load_table(DEFAULT_NAMESPACE, &table).unwrap();
+        assert_eq!(
+            current_snapshot(&rewritten)["snapshot-id"],
+            rewrite.lsn as i64
+        );
+        assert_eq!(
+            current_snapshot(&rewritten)["summary"]["total-data-files"],
+            "1"
+        );
+        assert_manifest_lists_are_published(&manager, &rewritten);
+        let emitted_ids: Vec<u64> = rewritten["metadata"]["snapshots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|snapshot| snapshot["snapshot-id"].as_u64().unwrap())
+            .collect();
+        assert_eq!(emitted_ids, vec![first.lsn, second.lsn, rewrite.lsn]);
+    }
+
+    #[test]
+    fn concurrent_append_fences_a_stale_delete_until_it_retries() {
+        let store = std::sync::Arc::new(FailingStore::new());
+        let tsdb = SeriesStore::open_in_dir(
+            &std::env::temp_dir().join(format!(
+                "eg-lake-test-delete-interleave-{}",
+                std::process::id()
+            )),
+            crate::store_authority::process_verifier(),
+            crate::store_authority::process_authority().principal(),
+            &crate::store_authority::process_authority().proof(),
+        )
+        .unwrap();
+        let manager = std::sync::Arc::new(LakeManager::new());
+        let series = "delete-interleave";
+        let table = sanitize_table_name(series);
+        append(&tsdb, series, &points(0, 3));
+        let first = manager
+            .drain_series(store.as_ref(), &tsdb, series)
+            .unwrap()
+            .unwrap();
+
+        // The append exists in the source while the lake delete snapshots only the
+        // first file. Pause that stale delete during object I/O, then let the append
+        // publish before the delete reaches its expected-LSN publication fence.
+        append(&tsdb, series, &points(3, 2));
+        let (delete_entered, release_delete) = store.pause_next_manifest();
+        let delete_manager = std::sync::Arc::clone(&manager);
+        let delete_store = std::sync::Arc::clone(&store);
+        let delete_table = table.clone();
+        let stale_delete = std::thread::spawn(move || {
+            delete_manager.delete_where(
+                delete_store.as_ref(),
+                DEFAULT_NAMESPACE,
+                &delete_table,
+                |_row| false,
+            )
+        });
+        delete_entered
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("stale delete reached object publication");
+        let concurrent_append = manager
+            .drain_series(store.as_ref(), &tsdb, series)
+            .unwrap()
+            .unwrap();
+        let path_count_after_append = manager.paths.lock().len();
+        release_delete.send(()).expect("release stale delete");
+        let conflict = stale_delete
+            .join()
+            .expect("delete thread did not panic")
+            .expect_err("stale delete must fail its expected-LSN fence");
+        assert!(conflict.contains("lake write conflict"));
+
+        let after_conflict = manager.load_table(DEFAULT_NAMESPACE, &table).unwrap();
+        assert_eq!(manager.paths.lock().len(), path_count_after_append);
+        assert_eq!(
+            current_snapshot(&after_conflict)["summary"]["total-data-files"],
+            "2",
+            "the stale delete must not overwrite the concurrent append"
+        );
+        assert_eq!(
+            current_snapshot(&after_conflict)["summary"]["total-records"],
+            "5"
+        );
+        let after_conflict_ids: Vec<u64> = after_conflict["metadata"]["snapshots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|snapshot| snapshot["snapshot-id"].as_u64().unwrap())
+            .collect();
+        assert_eq!(after_conflict_ids, vec![first.lsn, concurrent_append.lsn]);
+
+        // A fresh delete retries from the new two-file snapshot and commits at an
+        // LSN after the append, so the append cannot escape a successful delete.
+        let retry = manager
+            .delete_where(store.as_ref(), DEFAULT_NAMESPACE, &table, |_row| false)
+            .unwrap()
+            .unwrap();
+        assert!(retry.lsn > concurrent_append.lsn);
+        let deleted = manager.load_table(DEFAULT_NAMESPACE, &table).unwrap();
+        assert_eq!(current_snapshot(&deleted)["summary"]["total-records"], "0");
+        let emitted_ids: Vec<u64> = deleted["metadata"]["snapshots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|snapshot| snapshot["snapshot-id"].as_u64().unwrap())
+            .collect();
+        assert_eq!(
+            emitted_ids,
+            vec![first.lsn, concurrent_append.lsn, retry.lsn]
+        );
+    }
+
+    #[test]
+    fn schema_evolution_fences_a_paused_materialization_candidate() {
+        let store = std::sync::Arc::new(FailingStore::new());
+        let tsdb = SeriesStore::open_in_dir(
+            &std::env::temp_dir().join(format!(
+                "eg-lake-test-evolve-interleave-{}",
+                std::process::id()
+            )),
+            crate::store_authority::process_verifier(),
+            crate::store_authority::process_authority().principal(),
+            &crate::store_authority::process_authority().proof(),
+        )
+        .unwrap();
+        let manager = std::sync::Arc::new(LakeManager::new());
+        let series = "evolve-interleave";
+        let table = sanitize_table_name(series);
+        append(&tsdb, series, &points(0, 3));
+        manager
+            .drain_series(store.as_ref(), &tsdb, series)
+            .unwrap()
+            .unwrap();
+        let initial_catalog = manager.load_table(DEFAULT_NAMESPACE, &table).unwrap();
+        let initial_path_count = manager.paths.lock().len();
+
+        let (write_entered, release_write) = store.pause_next_manifest();
+        let write_manager = std::sync::Arc::clone(&manager);
+        let write_store = std::sync::Arc::clone(&store);
+        let write_table = table.clone();
+        let stale_compaction = std::thread::spawn(move || {
+            write_manager.compact(write_store.as_ref(), DEFAULT_NAMESPACE, &write_table)
+        });
+        write_entered
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("compaction reached object publication");
+        assert!(manager
+            .evolve_add_column(
+                DEFAULT_NAMESPACE,
+                &table,
+                LakeField::new("note", LakeType::String),
+            )
+            .unwrap());
+        release_write.send(()).expect("release stale compaction");
+        let conflict = stale_compaction
+            .join()
+            .expect("compaction thread did not panic")
+            .expect_err("pre-evolution candidate must fail its revision fence");
+        assert!(conflict.contains("lake write conflict"));
+        assert_eq!(manager.paths.lock().len(), initial_path_count);
+        assert_eq!(
+            manager.load_table(DEFAULT_NAMESPACE, &table).unwrap(),
+            initial_catalog,
+            "failed stale publication must preserve the prior emitted catalog"
+        );
+        assert!(!manager
+            .evolve_add_column(
+                DEFAULT_NAMESPACE,
+                &table,
+                LakeField::new("note", LakeType::String),
+            )
+            .unwrap());
+
+        manager
+            .compact(store.as_ref(), DEFAULT_NAMESPACE, &table)
+            .unwrap()
+            .expect("retry compacts from evolved state");
+        let evolved = manager.load_table(DEFAULT_NAMESPACE, &table).unwrap();
+        assert_eq!(evolved["metadata"]["current-schema-id"], 1);
+        assert_eq!(evolved["metadata"]["schemas"].as_array().unwrap().len(), 2);
     }
 
     #[test]
@@ -1223,7 +1487,7 @@ mod tests {
             .load_table(DEFAULT_NAMESPACE, "temp_sensor1")
             .expect("table registered");
         assert_eq!(
-            loaded["metadata"]["snapshots"][0]["summary"]["total-data-files"],
+            current_snapshot(&loaded)["summary"]["total-data-files"],
             "2"
         );
     }
@@ -1247,7 +1511,7 @@ mod tests {
         let table = sanitize_table_name("s1");
         let loaded_before = mgr.load_table(DEFAULT_NAMESPACE, &table).unwrap();
         assert_eq!(
-            loaded_before["metadata"]["snapshots"][0]["summary"]["total-data-files"],
+            current_snapshot(&loaded_before)["summary"]["total-data-files"],
             "2"
         );
 
@@ -1260,7 +1524,8 @@ mod tests {
 
         let loaded_after = mgr.load_table(DEFAULT_NAMESPACE, &table).unwrap();
         assert_eq!(
-            loaded_after["metadata"]["snapshots"][0]["summary"]["total-data-files"], "1",
+            current_snapshot(&loaded_after)["summary"]["total-data-files"],
+            "1",
             "compaction merges to ONE live file"
         );
     }
@@ -1301,7 +1566,8 @@ mod tests {
 
         let now = mgr.load_table(DEFAULT_NAMESPACE, &table).unwrap();
         assert_eq!(
-            now["metadata"]["snapshots"][0]["summary"]["total-data-files"], "1",
+            current_snapshot(&now)["summary"]["total-data-files"],
+            "1",
             "the CURRENT view is post-compaction: one live file"
         );
 
@@ -1315,12 +1581,13 @@ mod tests {
             .expect("historical lsn was committed")
             .expect("table known and visible, as-of resolves to a snapshot");
         assert_eq!(
-            historical["metadata"]["snapshots"][0]["summary"]["total-data-files"], "2",
+            current_snapshot(&historical)["summary"]["total-data-files"],
+            "2",
             "as-of the pre-compaction lsn, BOTH original files are still visible \
              — a real historical read, not the current projection"
         );
         assert_eq!(
-            historical["metadata"]["snapshots"][0]["summary"]["epistemic-graph-lsn"],
+            current_snapshot(&historical)["summary"]["epistemic-graph-lsn"],
             historical_lsn.to_string(),
         );
         assert_eq!(
@@ -1389,7 +1656,10 @@ mod tests {
         .unwrap();
         append(&tsdb, "s3", &points(0, 2));
         let mgr = LakeManager::new();
-        mgr.drain_series(&s, &tsdb, "s3").unwrap();
+        let first = mgr
+            .drain_series(&s, &tsdb, "s3")
+            .unwrap()
+            .expect("first materialization");
         let table = sanitize_table_name("s3");
 
         assert!(mgr
@@ -1447,6 +1717,30 @@ mod tests {
             fields_before + 1,
             "compaction re-renders metadata.json under the widened schema"
         );
+
+        let historical = mgr
+            .load_table_as_of(
+                DEFAULT_NAMESPACE,
+                &table,
+                first.lsn,
+                &LakeVisibility::Unfiltered,
+            )
+            .expect("first LSN is committed")
+            .expect("table existed at its first emitted generation");
+        assert_eq!(historical["metadata"]["current-schema-id"], 0);
+        let historical_schemas = historical["metadata"]["schemas"].as_array().unwrap();
+        assert_eq!(historical_schemas.len(), 1);
+        assert_eq!(
+            historical_schemas[0]["fields"].as_array().unwrap().len(),
+            fields_before
+        );
+        let metadata_path = historical["metadata-location"].as_str().unwrap();
+        let emitted_metadata: Value = serde_json::from_slice(
+            &mgr.read_path_bytes(&s, metadata_path)
+                .expect("historical metadata path was published"),
+        )
+        .expect("historical metadata is JSON");
+        assert_eq!(historical["metadata"], emitted_metadata);
     }
 
     #[test]

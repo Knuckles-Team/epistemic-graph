@@ -1070,7 +1070,7 @@ mod http_json_security_tests {
 
     #[test]
     fn destination_errors_do_not_reflect_url_secrets() {
-        let secret = "test-sensitive-token-value";
+        let secret = "test-sensitive-token-value"; // sanitizer:ignore
         let error = validate_http_json_target(&format!("ftp://example.invalid/?token={secret}"))
             .err()
             .expect("unsupported scheme must fail");

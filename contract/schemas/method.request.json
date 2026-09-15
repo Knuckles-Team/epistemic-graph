@@ -5637,7 +5637,7 @@
             "Sql": {
               "properties": {
                 "dsn": {
-                  "description": "The external database DSN (e.g. `postgres://user:changeme@host:5432/db`).",
+                  "description": "The external database DSN (e.g. `postgres://host:5432/db`).",
                   "type": "string"
                 },
                 "id_field": {
