@@ -385,26 +385,52 @@ def _invocation_context() -> dict[str, str]:
     }
 
 
+#: Flags taking a separate next-token value, keyed to which bucket they fill.
+_CARGO_PAIR_FLAGS: dict[str, str] = {
+    "-p": "packages",
+    "--package": "packages",
+    "--features": "features",
+    "-F": "features",
+    "--target": "targets",
+    "--test": "targets",
+    "--bin": "targets",
+}
+#: `--target=`/`--test=`/`--bin=` keep the whole token in the targets bucket;
+#: `--package=`/`--features=` are handled separately since they split their value.
+_CARGO_TARGET_PREFIXES: tuple[str, ...] = ("--target=", "--test=", "--bin=")
+
+
+def _append_cargo_pair_value(
+    buckets: dict[str, list[str]], kind: str, token: str, value: str
+) -> None:
+    if kind == "features":
+        buckets["features"].extend(value.replace(",", " ").split())
+    elif kind == "targets":
+        buckets["targets"].append(f"{token}={value}")
+    else:
+        buckets["packages"].append(value)
+
+
 def _extract_cargo(
     argv: Sequence[str],
 ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
-    packages: list[str] = []
-    features: list[str] = []
-    targets: list[str] = []
+    buckets: dict[str, list[str]] = {"packages": [], "features": [], "targets": []}
     for index, token in enumerate(argv):
-        if token in ("-p", "--package") and index + 1 < len(argv):
-            packages.append(argv[index + 1])
-        elif token.startswith("--package="):
-            packages.append(token.split("=", 1)[1])
-        elif token in ("--features", "-F") and index + 1 < len(argv):
-            features.extend(argv[index + 1].replace(",", " ").split())
+        kind = _CARGO_PAIR_FLAGS.get(token)
+        if kind is not None and index + 1 < len(argv):
+            _append_cargo_pair_value(buckets, kind, token, argv[index + 1])
+            continue
+        if token.startswith("--package="):
+            buckets["packages"].append(token.split("=", 1)[1])
         elif token.startswith("--features="):
-            features.extend(token.split("=", 1)[1].replace(",", " ").split())
-        elif token in ("--target", "--test", "--bin") and index + 1 < len(argv):
-            targets.append(f"{token}={argv[index + 1]}")
-        elif token.startswith(("--target=", "--test=", "--bin=")):
-            targets.append(token)
-    return tuple(sorted(packages)), tuple(sorted(features)), tuple(targets)
+            buckets["features"].extend(token.split("=", 1)[1].replace(",", " ").split())
+        elif token.startswith(_CARGO_TARGET_PREFIXES):
+            buckets["targets"].append(token)
+    return (
+        tuple(sorted(buckets["packages"])),
+        tuple(sorted(buckets["features"])),
+        tuple(buckets["targets"]),
+    )
 
 
 @dataclass(frozen=True)
@@ -708,6 +734,32 @@ def _signed_core(document: dict[str, Any], *, signature_field: str) -> dict[str,
     return core
 
 
+def _ensure_cache_directory(directory: Path) -> None:
+    if directory.is_symlink() or (directory.exists() and not directory.is_dir()):
+        raise EvidenceError("private evidence cache unavailable")
+    directory.mkdir(mode=0o700, exist_ok=True)
+    try:
+        os.chmod(directory, 0o700)
+    except OSError:
+        pass
+
+
+def _marker_matches_invocation(
+    marker: dict[str, Any],
+    *,
+    parent_identity: str,
+    source: dict[str, str],
+    context: dict[str, str],
+) -> bool:
+    return (
+        marker.get("schema") == SCHEMA
+        and marker.get("parentIdentity") == parent_identity
+        and _age_is_valid(marker.get("startedAt"))
+        and marker.get("source") == source
+        and marker.get("context") == context
+    )
+
+
 class EvidenceStore:
     """Private same-invocation evidence store."""
 
@@ -737,55 +789,52 @@ class EvidenceStore:
         self.parent_identity = parent_identity
 
     @classmethod
-    def begin_or_resume(cls) -> EvidenceStore:
-        directory = _git_directory() / CACHE_DIRECTORY
-        if directory.is_symlink() or (directory.exists() and not directory.is_dir()):
-            raise EvidenceError("private evidence cache unavailable")
-        directory.mkdir(mode=0o700, exist_ok=True)
-        try:
-            os.chmod(directory, 0o700)
-        except OSError:
-            pass
-        source = source_fingerprint()
-        context = _invocation_context()
-        parent_pid = os.getppid()
-        parent_identity = _invocation_owner_identity()
-        current_path = directory / "current.json"
-        try:
-            marker = _read_json(current_path)
-            if (
-                marker.get("schema") == SCHEMA
-                and marker.get("parentIdentity") == parent_identity
-                and _age_is_valid(marker.get("startedAt"))
-                and marker.get("source") == source
-                and marker.get("context") == context
-            ):
-                invocation_id = str(marker["invocationId"])
-                key_path = _cache_child(directory, marker["keyFile"])
-                evidence_path = _cache_child(directory, marker["evidenceFile"])
-                key = _key_bytes(key_path)
-                if not _signature_matches(
-                    _sign(_signed_core(marker, signature_field="signature"), key),
-                    marker.get("signature"),
-                ):
-                    raise EvidenceError("invocation marker signature mismatch")
-                store = cls(
-                    directory=directory,
-                    invocation_id=invocation_id,
-                    key_path=key_path,
-                    evidence_path=evidence_path,
-                    marker_path=current_path,
-                    key=key,
-                    source=source,
-                    context=context,
-                    parent_pid=parent_pid,
-                    parent_identity=parent_identity,
-                )
-                store._load_evidence()
-                return store
-        except (EvidenceError, KeyError, TypeError, ValueError, OSError):
-            pass
+    def _resume_from_marker(
+        cls,
+        directory: Path,
+        current_path: Path,
+        marker: dict[str, Any],
+        *,
+        source: dict[str, str],
+        context: dict[str, str],
+        parent_pid: int,
+        parent_identity: str,
+    ) -> EvidenceStore:
+        invocation_id = str(marker["invocationId"])
+        key_path = _cache_child(directory, marker["keyFile"])
+        evidence_path = _cache_child(directory, marker["evidenceFile"])
+        key = _key_bytes(key_path)
+        if not _signature_matches(
+            _sign(_signed_core(marker, signature_field="signature"), key),
+            marker.get("signature"),
+        ):
+            raise EvidenceError("invocation marker signature mismatch")
+        store = cls(
+            directory=directory,
+            invocation_id=invocation_id,
+            key_path=key_path,
+            evidence_path=evidence_path,
+            marker_path=current_path,
+            key=key,
+            source=source,
+            context=context,
+            parent_pid=parent_pid,
+            parent_identity=parent_identity,
+        )
+        store._load_evidence()
+        return store
 
+    @classmethod
+    def _start_new_invocation(
+        cls,
+        directory: Path,
+        current_path: Path,
+        *,
+        source: dict[str, str],
+        context: dict[str, str],
+        parent_pid: int,
+        parent_identity: str,
+    ) -> EvidenceStore:
         invocation_id = secrets.token_hex(16)
         key = secrets.token_bytes(32)
         key_path = directory / f"{invocation_id}.key"
@@ -806,6 +855,44 @@ class EvidenceStore:
         store._write_marker(time.time())
         store._write_evidence({"status": "running", "plan": {}, "results": {}})
         return store
+
+    @classmethod
+    def begin_or_resume(cls) -> EvidenceStore:
+        directory = _git_directory() / CACHE_DIRECTORY
+        _ensure_cache_directory(directory)
+        source = source_fingerprint()
+        context = _invocation_context()
+        parent_pid = os.getppid()
+        parent_identity = _invocation_owner_identity()
+        current_path = directory / "current.json"
+        try:
+            marker = _read_json(current_path)
+            if _marker_matches_invocation(
+                marker,
+                parent_identity=parent_identity,
+                source=source,
+                context=context,
+            ):
+                return cls._resume_from_marker(
+                    directory,
+                    current_path,
+                    marker,
+                    source=source,
+                    context=context,
+                    parent_pid=parent_pid,
+                    parent_identity=parent_identity,
+                )
+        except (EvidenceError, KeyError, TypeError, ValueError, OSError):
+            pass
+
+        return cls._start_new_invocation(
+            directory,
+            current_path,
+            source=source,
+            context=context,
+            parent_pid=parent_pid,
+            parent_identity=parent_identity,
+        )
 
     @classmethod
     def current(cls) -> EvidenceStore | None:
