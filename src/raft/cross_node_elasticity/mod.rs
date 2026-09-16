@@ -577,6 +577,24 @@ pub struct PlannerInput {
 
 impl PlannerInput {
     pub fn validate(&self) -> Result<(), PlannerError> {
+        self.validate_bounds_and_policy()?;
+        self.validate_canonical_order()?;
+        if self.nodes.iter().any(|node| !node.validate()) {
+            return Err(PlannerError::InvalidInput(
+                "node capacity contains a zero or invalid limit".to_string(),
+            ));
+        }
+        let node_ids = self
+            .nodes
+            .iter()
+            .map(|node| node.node_id)
+            .collect::<BTreeSet<_>>();
+        let shard_keys = self.validate_placements(&node_ids)?;
+        self.validate_active_moves(&node_ids, &shard_keys)?;
+        Ok(())
+    }
+
+    fn validate_bounds_and_policy(&self) -> Result<(), PlannerError> {
         if self.nodes.len() > MAX_NODES
             || self.placements.len() > MAX_PLACEMENTS
             || self.active_moves.len() > MAX_ACTIVE_MOVES
@@ -586,6 +604,10 @@ impl PlannerInput {
                 "elasticity input exceeds a bound or has invalid policy".to_string(),
             ));
         }
+        Ok(())
+    }
+
+    fn validate_canonical_order(&self) -> Result<(), PlannerError> {
         if self
             .nodes
             .windows(2)
@@ -603,16 +625,15 @@ impl PlannerInput {
                 "elasticity input must be canonically sorted".to_string(),
             ));
         }
-        if self.nodes.iter().any(|node| !node.validate()) {
-            return Err(PlannerError::InvalidInput(
-                "node capacity contains a zero or invalid limit".to_string(),
-            ));
-        }
-        let node_ids = self
-            .nodes
-            .iter()
-            .map(|node| node.node_id)
-            .collect::<BTreeSet<_>>();
+        Ok(())
+    }
+
+    /// Validate every placement's graph/node/follower fields and shard identity,
+    /// returning the accumulated set of valid shard keys for the active-move pass.
+    fn validate_placements(
+        &self,
+        node_ids: &BTreeSet<NodeId>,
+    ) -> Result<BTreeSet<(&str, u64)>, PlannerError> {
         let mut shard_keys = BTreeSet::new();
         for placement in &self.placements {
             if placement.graph.is_empty()
@@ -643,6 +664,14 @@ impl PlannerInput {
                 ));
             }
         }
+        Ok(shard_keys)
+    }
+
+    fn validate_active_moves(
+        &self,
+        node_ids: &BTreeSet<NodeId>,
+        shard_keys: &BTreeSet<(&str, u64)>,
+    ) -> Result<(), PlannerError> {
         let mut move_ids = BTreeSet::new();
         let mut move_keys = BTreeSet::new();
         for checkpoint in &self.active_moves {
@@ -734,6 +763,13 @@ pub enum PlannerError {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CrossNodeElasticityPlanner;
 
+// CCCC burn-down (L-raft-a): the per-placement admission helpers `plan()`
+// dispatches to (and the `MoveBudget` they thread through) live in this
+// submodule rather than as further items in this already-oversized file --
+// see `plan.rs`'s module doc for why.
+mod plan;
+use plan::MoveBudget;
+
 impl CrossNodeElasticityPlanner {
     pub fn plan(&self, input: &PlannerInput) -> Result<ElasticityPlan, PlannerError> {
         input.validate()?;
@@ -753,246 +789,32 @@ impl CrossNodeElasticityPlanner {
             proposals: Vec::new(),
             aborts: Vec::new(),
         };
-        let mut planned_additions = std::collections::BTreeMap::<NodeId, ResourceVector>::new();
-        let mut planned_removals = std::collections::BTreeMap::<NodeId, ResourceVector>::new();
-        let mut network_budget_used = 0u64;
-        let mut total_budget_used = 0u64;
+        let mut budget = MoveBudget::default();
 
         for placement in &input.placements {
             let active = input.active_moves.iter().find(|move_| {
                 move_.graph == placement.graph && move_.shard_id == placement.shard_id
             });
-            if let Some(checkpoint) = active {
-                if !checkpoint.validate() {
-                    plan.aborts
-                        .push(Self::abort(placement, PlanAbortReason::InvalidCheckpoint));
-                    continue;
-                }
-                if checkpoint.placement_epoch != placement.placement_epoch
-                    || checkpoint.source_node != placement.primary_node
-                {
-                    plan.aborts
-                        .push(Self::abort(placement, PlanAbortReason::StaleTopology));
-                    continue;
-                }
-                if checkpoint.target_node == placement.primary_node {
-                    plan.aborts
-                        .push(Self::abort(placement, PlanAbortReason::DuplicateInFlight));
-                    continue;
-                }
-                let Some(target) = input
-                    .nodes
-                    .iter()
-                    .find(|node| node.node_id == checkpoint.target_node)
-                else {
-                    plan.aborts
-                        .push(Self::abort(placement, PlanAbortReason::NoSafeTarget));
-                    continue;
-                };
-                if target.availability != NodeAvailability::Eligible {
-                    plan.aborts
-                        .push(Self::abort(placement, PlanAbortReason::NoSafeTarget));
-                    continue;
-                }
-                if plan.proposals.len() >= input.policy.max_proposals {
-                    plan.aborts
-                        .push(Self::abort(placement, PlanAbortReason::ProposalLimit));
-                    continue;
-                }
-                let Some((source_load, target_load)) = Self::projected_loads(
+            let outcome = match active {
+                Some(checkpoint) => Self::continue_in_flight_move(
                     input,
                     placement,
-                    checkpoint.target_node,
-                    &planned_additions,
-                    &planned_removals,
-                ) else {
-                    plan.aborts
-                        .push(Self::abort(placement, PlanAbortReason::SourceLoadMismatch));
-                    continue;
-                };
-                let projected_target = target_load.saturating_add(placement.load);
-                let cost = MovementCost::estimate(
-                    placement,
-                    checkpoint.kind,
-                    target.network_bytes_per_sec,
-                    input.policy.delta_window_seconds,
-                );
-                if !projected_target.fits_in(target.limits) {
-                    plan.aborts.push(Self::abort(
-                        placement,
-                        PlanAbortReason::InsufficientCapacity,
-                    ));
-                    continue;
-                }
-                if Self::violates_slo(projected_target, &input.policy) {
-                    plan.aborts
-                        .push(Self::abort(placement, PlanAbortReason::SloRisk));
-                    continue;
-                }
-                if !Self::within_budget(cost, network_budget_used, total_budget_used, &input.policy)
-                {
-                    plan.aborts
-                        .push(Self::abort(placement, PlanAbortReason::BudgetExceeded));
-                    continue;
-                }
-                let proposal = Self::proposal(
+                    checkpoint,
+                    &mut budget,
+                    plan.proposals.len(),
+                ),
+                None => Self::plan_new_move(
                     input,
                     placement,
-                    checkpoint.kind,
-                    checkpoint.clone(),
-                    source_load,
-                    projected_target,
-                    cost,
-                );
-                network_budget_used = network_budget_used.saturating_add(cost.network_bytes);
-                total_budget_used = total_budget_used.saturating_add(cost.budget_units);
-                Self::record_load_delta(
-                    &mut planned_additions,
-                    &mut planned_removals,
-                    checkpoint.source_node,
-                    checkpoint.target_node,
-                    placement.load,
-                    checkpoint.kind,
-                );
-                plan.proposals.push(proposal);
-                continue;
+                    trigger_bp,
+                    &mut budget,
+                    plan.proposals.len(),
+                ),
+            };
+            match outcome {
+                Ok(proposal) => plan.proposals.push(proposal),
+                Err(reason) => plan.aborts.push(Self::abort(placement, reason)),
             }
-
-            let Some(source) = input
-                .nodes
-                .iter()
-                .find(|node| node.node_id == placement.primary_node)
-            else {
-                plan.aborts
-                    .push(Self::abort(placement, PlanAbortReason::NoSafeTarget));
-                continue;
-            };
-            let Some((source_load, _)) = Self::projected_loads(
-                input,
-                placement,
-                placement.primary_node,
-                &planned_additions,
-                &planned_removals,
-            ) else {
-                plan.aborts
-                    .push(Self::abort(placement, PlanAbortReason::SourceLoadMismatch));
-                continue;
-            };
-            let source_pressure = source_load.pressure_bp(source.limits);
-            let kind = match placement.state {
-                PlacementState::Cold => {
-                    if !input.policy.allow_hydration
-                        || placement.load.read_ops_per_sec < input.policy.hydrate_read_ops_per_sec
-                    {
-                        plan.aborts.push(Self::abort(
-                            placement,
-                            PlanAbortReason::HysteresisNotCrossed {
-                                pressure_bp: source_pressure,
-                                trigger_bp,
-                            },
-                        ));
-                        continue;
-                    }
-                    MoveKind::Hydrate
-                }
-                PlacementState::Hydrating
-                | PlacementState::Snapshotting
-                | PlacementState::DeltaCatchUp
-                | PlacementState::FencedCutover => {
-                    plan.aborts
-                        .push(Self::abort(placement, PlanAbortReason::DuplicateInFlight));
-                    continue;
-                }
-                PlacementState::Quarantined => {
-                    plan.aborts
-                        .push(Self::abort(placement, PlanAbortReason::NoSafeTarget));
-                    continue;
-                }
-                PlacementState::Resident | PlacementState::Follower | PlacementState::Draining => {
-                    if source.availability != NodeAvailability::Draining
-                        && source_pressure < trigger_bp
-                    {
-                        plan.aborts.push(Self::abort(
-                            placement,
-                            PlanAbortReason::HysteresisNotCrossed {
-                                pressure_bp: source_pressure,
-                                trigger_bp,
-                            },
-                        ));
-                        continue;
-                    }
-                    MoveKind::MovePrimary
-                }
-            };
-            if input.now_tick
-                < placement
-                    .last_transition_tick
-                    .saturating_add(input.policy.cooldown_ticks)
-            {
-                plan.aborts.push(Self::abort(
-                    placement,
-                    PlanAbortReason::CooldownActive {
-                        until_tick: placement
-                            .last_transition_tick
-                            .saturating_add(input.policy.cooldown_ticks),
-                    },
-                ));
-                continue;
-            }
-            if plan.proposals.len() >= input.policy.max_proposals {
-                plan.aborts
-                    .push(Self::abort(placement, PlanAbortReason::ProposalLimit));
-                continue;
-            }
-
-            let target = Self::select_target(
-                input,
-                placement,
-                kind,
-                &planned_additions,
-                &planned_removals,
-                network_budget_used,
-                total_budget_used,
-            );
-            let (target, projected_target, cost) = match target {
-                Ok(value) => value,
-                Err(reason) => {
-                    plan.aborts.push(Self::abort(placement, reason));
-                    continue;
-                }
-            };
-            let checkpoint = MoveCheckpoint::new(
-                placement,
-                placement.primary_node,
-                target.node_id,
-                kind,
-                if kind == MoveKind::Hydrate {
-                    MovePhase::Hydrate
-                } else {
-                    MovePhase::Snapshot
-                },
-                input.now_tick,
-            );
-            let proposal = Self::proposal(
-                input,
-                placement,
-                kind,
-                checkpoint,
-                source_load,
-                projected_target,
-                cost,
-            );
-            network_budget_used = network_budget_used.saturating_add(cost.network_bytes);
-            total_budget_used = total_budget_used.saturating_add(cost.budget_units);
-            Self::record_load_delta(
-                &mut planned_additions,
-                &mut planned_removals,
-                placement.primary_node,
-                target.node_id,
-                placement.load,
-                kind,
-            );
-            plan.proposals.push(proposal);
         }
 
         plan.proposals
@@ -1318,5 +1140,69 @@ mod tests {
         i.policy.max_queue_depth = 10;
         let result = CrossNodeElasticityPlanner.plan(&i).expect("valid plan");
         assert_eq!(result.aborts[0].reason, PlanAbortReason::SloRisk);
+    }
+
+    #[test]
+    fn cooldown_active_blocks_a_new_move() {
+        let mut i = input(placement("graph-a", 80));
+        i.policy.cooldown_ticks = 500;
+        i.placements[0].last_transition_tick = 800; // now_tick=1_000 < 800+500
+        let result = CrossNodeElasticityPlanner.plan(&i).expect("valid plan");
+        assert_eq!(result.proposals.len(), 0);
+        assert!(matches!(
+            result.aborts[0].reason,
+            PlanAbortReason::CooldownActive { .. }
+        ));
+    }
+
+    #[test]
+    fn quarantined_state_has_no_safe_target() {
+        let mut p = placement("graph-a", 80);
+        p.state = PlacementState::Quarantined;
+        let i = input(p);
+        let result = CrossNodeElasticityPlanner.plan(&i).expect("valid plan");
+        assert_eq!(result.proposals.len(), 0);
+        assert_eq!(result.aborts[0].reason, PlanAbortReason::NoSafeTarget);
+    }
+
+    #[test]
+    fn in_flight_lifecycle_state_is_duplicate_in_flight() {
+        let mut p = placement("graph-a", 80);
+        p.state = PlacementState::Hydrating;
+        let i = input(p);
+        let result = CrossNodeElasticityPlanner.plan(&i).expect("valid plan");
+        assert_eq!(result.proposals.len(), 0);
+        assert_eq!(result.aborts[0].reason, PlanAbortReason::DuplicateInFlight);
+    }
+
+    #[test]
+    fn cold_state_without_enough_reads_is_hysteresis_not_crossed() {
+        let mut p = placement("graph-a", 0);
+        p.state = PlacementState::Cold;
+        p.load.read_ops_per_sec = 0;
+        let i = input(p);
+        let result = CrossNodeElasticityPlanner.plan(&i).expect("valid plan");
+        assert_eq!(result.proposals.len(), 0);
+        assert!(matches!(
+            result.aborts[0].reason,
+            PlanAbortReason::HysteresisNotCrossed { .. }
+        ));
+    }
+
+    #[test]
+    fn stale_checkpoint_topology_aborts_in_flight_resume() {
+        let planner = CrossNodeElasticityPlanner;
+        let first_input = input(placement("graph-a", 80));
+        let first = planner.plan(&first_input).expect("valid plan");
+        let mut resumed_input = first_input.clone();
+        resumed_input.active_moves = vec![first.proposals[0].checkpoint.clone()];
+        // The topology moved since the checkpoint was taken (e.g. another
+        // membership change bumped the placement epoch); the checkpoint itself
+        // is still internally well-formed, so this exercises StaleTopology
+        // specifically, not InvalidCheckpoint.
+        resumed_input.placements[0].placement_epoch += 1;
+        let resumed = planner.plan(&resumed_input).expect("valid resumed plan");
+        assert_eq!(resumed.proposals.len(), 0);
+        assert_eq!(resumed.aborts[0].reason, PlanAbortReason::StaleTopology);
     }
 }
