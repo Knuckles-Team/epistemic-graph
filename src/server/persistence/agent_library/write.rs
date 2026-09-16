@@ -10,7 +10,6 @@ use super::*;
 /// `resolve_replay` and `finish_with_replay` all take the two together (the
 /// last one already as an inline tuple) -- so they are threaded as one value
 /// rather than as two positional arguments that could drift apart.
-
 struct ReplayIdentity<'a> {
     operation: &'a eg_types::authority::OperationReplayIdentity,
     nonce: &'a eg_types::authority::NonceReplayKey,
@@ -36,18 +35,21 @@ struct AgentLibraryAdmission {
     replay: ReplayResolution,
 }
 
+/// The outcome of admitting one publish/retire before anything is committed.
+/// The variant-specific payloads are large and differ in size, so they are
+/// boxed; the enum itself stays small whichever path is taken.
 enum PreparedLibraryWrite {
     Replay {
         operation: eg_types::authority::OperationReplayIdentity,
         nonce: eg_types::authority::NonceReplayKey,
-        result: AgentLibraryWriteResult,
-        receipt: MutationReceipt,
+        result: Box<AgentLibraryWriteResult>,
+        receipt: Box<MutationReceipt>,
     },
     Fresh {
         operation: eg_types::authority::OperationReplayIdentity,
         nonce: eg_types::authority::NonceReplayKey,
-        context: AgentLibraryMutationContext,
-        entry: AgentLibraryEntry,
+        context: Box<AgentLibraryMutationContext>,
+        entry: Box<AgentLibraryEntry>,
     },
 }
 
@@ -152,8 +154,8 @@ fn prepare_publish(
         return Ok(PreparedLibraryWrite::Replay {
             operation,
             nonce,
-            result,
-            receipt,
+            result: Box::new(result),
+            receipt: Box::new(receipt),
         });
     }
     let (context, entry) = prepare_publish_entry(
@@ -167,8 +169,8 @@ fn prepare_publish(
     Ok(PreparedLibraryWrite::Fresh {
         operation,
         nonce,
-        context,
-        entry,
+        context: Box::new(context),
+        entry: Box::new(entry),
     })
 }
 
@@ -219,8 +221,8 @@ fn prepare_retire(
         return Ok(PreparedLibraryWrite::Replay {
             operation,
             nonce,
-            result,
-            receipt,
+            result: Box::new(result),
+            receipt: Box::new(receipt),
         });
     }
     let (context, entry) = prepare_retire_entry(
@@ -234,8 +236,8 @@ fn prepare_retire(
     Ok(PreparedLibraryWrite::Fresh {
         operation,
         nonce,
-        context,
-        entry,
+        context: Box::new(context),
+        entry: Box::new(entry),
     })
 }
 
@@ -608,7 +610,7 @@ impl AgentLibraryStore {
                 nonce,
                 result,
                 receipt,
-            } => finish_replayed(&self.mutations, txn, &operation, &nonce, result, receipt),
+            } => finish_replayed(&self.mutations, txn, &operation, &nonce, *result, *receipt),
             PreparedLibraryWrite::Fresh {
                 operation,
                 nonce,
@@ -621,7 +623,7 @@ impl AgentLibraryStore {
                 AgentLibraryRevisionCommit {
                     expected_revision,
                     kind: AgentLibraryMutationKind::Publish,
-                    entry,
+                    entry: *entry,
                 },
                 ReplayIdentity {
                     operation: &operation,
@@ -663,7 +665,7 @@ impl AgentLibraryStore {
                 nonce,
                 result,
                 receipt,
-            } => finish_replayed(&self.mutations, txn, &operation, &nonce, result, receipt),
+            } => finish_replayed(&self.mutations, txn, &operation, &nonce, *result, *receipt),
             PreparedLibraryWrite::Fresh {
                 operation,
                 nonce,
@@ -676,7 +678,7 @@ impl AgentLibraryStore {
                 AgentLibraryRevisionCommit {
                     expected_revision,
                     kind: AgentLibraryMutationKind::Retire,
-                    entry,
+                    entry: *entry,
                 },
                 ReplayIdentity {
                     operation: &operation,

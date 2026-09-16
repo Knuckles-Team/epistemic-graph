@@ -32,6 +32,17 @@ struct ReplayEffect {
     headers: BTreeMap<String, String>,
 }
 
+/// What a recorded replay receipt claims was committed: the receipt, the
+/// stable result decoded from it, the outbox effect rebuilt from that result,
+/// and the lifecycle change. `validate_replay_evidence` checks the ledger
+/// batch against all of it together.
+struct ClaimedReplay<'r> {
+    receipt: &'r MutationReceipt,
+    stable_result: &'r AgentLibraryCommittedResult,
+    effect: &'r ReplayEffect,
+    kind: AgentLibraryMutationKind,
+}
+
 pub(super) fn replayed_receipt(
     mutations: &MutationKernel,
     txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
@@ -54,10 +65,12 @@ pub(super) fn replayed_receipt(
         txn,
         operation,
         context,
-        &receipt,
-        &stable_result,
-        &effect,
-        kind,
+        &ClaimedReplay {
+            receipt: &receipt,
+            stable_result: &stable_result,
+            effect: &effect,
+            kind,
+        },
     )?;
     Ok(Some((stable_result.response(true), receipt)))
 }
@@ -183,11 +196,14 @@ fn validate_replay_evidence(
     txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
     operation: &eg_types::authority::OperationReplayIdentity,
     context: &AgentLibraryMutationContext,
-    receipt: &MutationReceipt,
-    stable_result: &AgentLibraryCommittedResult,
-    effect: &ReplayEffect,
-    kind: AgentLibraryMutationKind,
+    claimed: &ClaimedReplay<'_>,
 ) -> Result<(), String> {
+    let ClaimedReplay {
+        receipt,
+        stable_result,
+        effect,
+        kind,
+    } = *claimed;
     let Some((record, class, physical_outbox)) =
         mutations.read_replay_evidence(txn, &stable_result.batch_id)?
     else {
