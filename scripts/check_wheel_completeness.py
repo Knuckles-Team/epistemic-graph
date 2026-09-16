@@ -152,6 +152,37 @@ def _base_requirements(archive: zipfile.ZipFile) -> set[str]:
     }
 
 
+def _record_rows(
+    archive: zipfile.ZipFile, record_name: str
+) -> dict[str, tuple[str, str]]:
+    """Parse `dist-info/RECORD`'s CSV rows into {filename: (hash, size)}."""
+    return {
+        row[0]: (row[1], row[2])
+        for row in csv.reader(
+            io.StringIO(archive.read(record_name).decode(), newline="")
+        )
+        if row
+    }
+
+
+def _entry_record_failures(
+    archive: zipfile.ZipFile, info: zipfile.ZipInfo, rows: dict[str, tuple[str, str]]
+) -> list[str]:
+    """RECORD failures for one archive entry: a missing row, or a hash/size
+    mismatch against its recorded values."""
+    entry = rows.get(info.filename)
+    if entry is None:
+        return [f"RECORD is missing an entry for {info.filename}"]
+    recorded_hash, recorded_size = entry
+    data = archive.read(info.filename)
+    failures = []
+    if recorded_hash != _urlsafe_sha256(data):
+        failures.append(f"RECORD hash mismatch for {info.filename}")
+    if str(recorded_size) != str(len(data)):
+        failures.append(f"RECORD size mismatch for {info.filename}")
+    return failures
+
+
 def _record_failures(archive: zipfile.ZipFile) -> list[str]:
     """Return RECORD inconsistencies (missing rows, wrong hash, wrong size)."""
     record_names = [
@@ -160,29 +191,90 @@ def _record_failures(archive: zipfile.ZipFile) -> list[str]:
     if len(record_names) != 1:
         return [f"expected exactly one dist-info/RECORD, found {len(record_names)}"]
     record_name = record_names[0]
-    rows = {
-        row[0]: (row[1], row[2])
-        for row in csv.reader(
-            io.StringIO(archive.read(record_name).decode(), newline="")
-        )
-        if row
-    }
+    rows = _record_rows(archive, record_name)
 
     failures: list[str] = []
     for info in archive.infolist():
         if info.is_dir() or info.filename == record_name:
             continue
-        entry = rows.get(info.filename)
-        if entry is None:
-            failures.append(f"RECORD is missing an entry for {info.filename}")
-            continue
-        recorded_hash, recorded_size = entry
-        data = archive.read(info.filename)
-        if recorded_hash != _urlsafe_sha256(data):
-            failures.append(f"RECORD hash mismatch for {info.filename}")
-        if str(recorded_size) != str(len(data)):
-            failures.append(f"RECORD size mismatch for {info.filename}")
+        failures.extend(_entry_record_failures(archive, info, rows))
     return failures
+
+
+def _check_numeric_kernel(names: Sequence[str]) -> list[str]:
+    if _kernel_members(names):
+        return []
+    return [
+        f"no numeric kernel: expected {TARGET_PACKAGE}/numeric*"
+        f"{{{','.join(KERNEL_SUFFIXES)}}} — the eg-numeric inject did not run "
+        "or was undone (import epistemic_graph.numeric would fail)"
+    ]
+
+
+def _check_engine_kernel(
+    names: Sequence[str], require_engine_kernel: bool
+) -> list[str]:
+    if not require_engine_kernel or _engine_kernel_members(names):
+        return []
+    return [
+        f"no engine kernel: expected {TARGET_PACKAGE}/engine*"
+        f"{{{','.join(KERNEL_SUFFIXES)}}} — --require-engine-kernel was set but "
+        "the eg-pyengine inject did not run or was undone "
+        "(import epistemic_graph.engine would fail)"
+    ]
+
+
+def _check_server_entries(archive: zipfile.ZipFile) -> list[str]:
+    server_entries = _server_entries(archive)
+    if not server_entries:
+        return [f"no console binary: expected *.data/scripts/{SERVER_BINARY}"]
+    failures = []
+    for info in server_entries:
+        # A Windows `.exe` carries no POSIX mode bits and needs none.
+        if info.filename.endswith(".exe"):
+            continue
+        mode = (info.external_attr >> 16) & 0o7777
+        if not mode & 0o100:
+            failures.append(
+                f"{info.filename} is not executable (mode {mode:o}); "
+                "re-zipping must preserve 0755"
+            )
+    return failures
+
+
+def _check_python_surface(names: Sequence[str]) -> list[str]:
+    failures = []
+    if f"{TARGET_PACKAGE}/__init__.py" not in names:
+        failures.append(f"no {TARGET_PACKAGE}/__init__.py — python surface missing")
+    for subpackage in REQUIRED_SUBPACKAGES:
+        if not any(
+            name.startswith(f"{TARGET_PACKAGE}/{subpackage}/") for name in names
+        ):
+            failures.append(f"no {TARGET_PACKAGE}/{subpackage}/ package data")
+    return failures
+
+
+def _check_base_dependencies(archive: zipfile.ZipFile) -> list[str]:
+    base_requirements = _base_requirements(archive)
+    return [
+        f"{requirement!r} is not an unconditional Requires-Dist — the "
+        "bundled kernel needs it on a bare `pip install epistemic-graph`, "
+        "so it must not sit behind an extra"
+        for requirement in REQUIRED_BASE_DEPENDENCIES
+        if requirement not in base_requirements
+    ]
+
+
+def _check_forbidden_dependencies(archive: zipfile.ZipFile) -> list[str]:
+    declared_requirements = {
+        name for name, _extra_gated in _metadata_requirements(archive)
+    }
+    return [
+        f"{forbidden!r} is a forbidden wheel dependency — native numeric "
+        "runtime must not resolve the retired interpreter package"
+        for forbidden in FORBIDDEN_DEPENDENCIES
+        if forbidden in declared_requirements
+    ]
 
 
 def check_wheel(path: Path, *, require_engine_kernel: bool = False) -> list[str]:
@@ -196,67 +288,12 @@ def check_wheel(path: Path, *, require_engine_kernel: bool = False) -> list[str]
     failures: list[str] = []
     with zipfile.ZipFile(path) as archive:
         names = archive.namelist()
-
-        if not _kernel_members(names):
-            failures.append(
-                f"no numeric kernel: expected {TARGET_PACKAGE}/numeric*"
-                f"{{{','.join(KERNEL_SUFFIXES)}}} — the eg-numeric inject did not run "
-                "or was undone (import epistemic_graph.numeric would fail)"
-            )
-
-        if require_engine_kernel and not _engine_kernel_members(names):
-            failures.append(
-                f"no engine kernel: expected {TARGET_PACKAGE}/engine*"
-                f"{{{','.join(KERNEL_SUFFIXES)}}} — --require-engine-kernel was set "
-                f"but "
-                "the eg-pyengine inject did not run or was undone "
-                "(import epistemic_graph.engine would fail)"
-            )
-
-        server_entries = _server_entries(archive)
-        if not server_entries:
-            failures.append(
-                f"no console binary: expected *.data/scripts/{SERVER_BINARY}"
-            )
-        else:
-            for info in server_entries:
-                # A Windows `.exe` carries no POSIX mode bits and needs none.
-                if info.filename.endswith(".exe"):
-                    continue
-                mode = (info.external_attr >> 16) & 0o7777
-                if not mode & 0o100:
-                    failures.append(
-                        f"{info.filename} is not executable (mode {mode:o}); "
-                        "re-zipping must preserve 0755"
-                    )
-
-        if f"{TARGET_PACKAGE}/__init__.py" not in names:
-            failures.append(f"no {TARGET_PACKAGE}/__init__.py — python surface missing")
-        for subpackage in REQUIRED_SUBPACKAGES:
-            if not any(
-                name.startswith(f"{TARGET_PACKAGE}/{subpackage}/") for name in names
-            ):
-                failures.append(f"no {TARGET_PACKAGE}/{subpackage}/ package data")
-
-        base_requirements = _base_requirements(archive)
-        for requirement in REQUIRED_BASE_DEPENDENCIES:
-            if requirement not in base_requirements:
-                failures.append(
-                    f"{requirement!r} is not an unconditional Requires-Dist — the "
-                    "bundled kernel needs it on a bare `pip install epistemic-graph`, "
-                    "so it must not sit behind an extra"
-                )
-
-        declared_requirements = {
-            name for name, _extra_gated in _metadata_requirements(archive)
-        }
-        for forbidden in FORBIDDEN_DEPENDENCIES:
-            if forbidden in declared_requirements:
-                failures.append(
-                    f"{forbidden!r} is a forbidden wheel dependency — native numeric "
-                    "runtime must not resolve the retired interpreter package"
-                )
-
+        failures.extend(_check_numeric_kernel(names))
+        failures.extend(_check_engine_kernel(names, require_engine_kernel))
+        failures.extend(_check_server_entries(archive))
+        failures.extend(_check_python_surface(names))
+        failures.extend(_check_base_dependencies(archive))
+        failures.extend(_check_forbidden_dependencies(archive))
         failures.extend(_record_failures(archive))
     return failures
 

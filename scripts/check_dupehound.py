@@ -165,7 +165,7 @@ def changed_paths(base_ref: str | None = None) -> list[str]:
         )
         paths = _git_paths(staged)
         if not paths:
-            paths = git(
+            unstaged = git(
                 "diff",
                 "--name-only",
                 "-z",
@@ -173,7 +173,7 @@ def changed_paths(base_ref: str | None = None) -> list[str]:
                 "HEAD",
                 preserve_index=False,
             )
-            paths = _git_paths(paths)
+            paths = _git_paths(unstaged)
             paths.extend(
                 _git_paths(
                     git(
@@ -422,7 +422,7 @@ def _validated_findings(
     return findings
 
 
-def main(argv: list[str] | None = None) -> int:
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--base-ref",
@@ -431,19 +431,14 @@ def main(argv: list[str] | None = None) -> int:
         default=os.environ.get("CX_DUP_BASE_REF"),
         help="compare the current commit with this revision (CI/PR semantics)",
     )
-    args = parser.parse_args(argv)
-    config = contract()
-    paths = selected_paths(changed_paths(args.base_ref), config)
-    if not paths:
-        print("dupehound gate: OK: no changed supported-language source")
-        return 0
+    return parser.parse_args(argv)
 
-    executable = _resolve_dupehound(config)
-    _check_version(executable, config)
 
-    print("dupehound gate: checking changed source (" + ", ".join(paths) + ")")
+def _run_dupehound(
+    executable: str, config: scanner_contract.ScannerContract, args: argparse.Namespace
+) -> subprocess.CompletedProcess[str]:
     try:
-        result = subprocess.run(
+        return subprocess.run(
             command(executable, config, args.base_ref),
             cwd=str(ROOT),
             env=scanner_contract.sanitized_env(preserve_index=args.base_ref is None),
@@ -456,7 +451,9 @@ def main(argv: list[str] | None = None) -> int:
         fail(f"dupehound timed out after {exc.timeout}s")
     except (OSError, UnicodeError) as exc:
         fail(f"could not execute dupehound: {exc}")
-    findings = _validated_findings(result)
+
+
+def _load_reviewed_register() -> list[Any]:
     # A small number of pairs are structurally identical and semantically
     # unrelated -- `matches!` over different literal sets, over different
     # argument types. Those are recorded in the reviewed register with a reason
@@ -464,15 +461,22 @@ def main(argv: list[str] | None = None) -> int:
     # a baseline: it is hand-written, it never updates itself, and it ROTS -- if
     # either function changes, or an entry matches nothing, the gate fails.
     try:
-        register = dupehound_ledger.load_register()
+        return dupehound_ledger.load_register()
     except dupehound_ledger.LedgerError as error:
         fail(f"reviewed-distinct register is invalid: {error}")
-    unregistered, changed, notes, unused = dupehound_ledger.partition(
-        findings, register
-    )
+
+
+def _print_resolved_notes(notes: list[str]) -> None:
     for note in notes:
         if note.startswith("resolved: "):
             print(f"dupehound gate: {note}")
+
+
+def _report_rotted_register(
+    unused: list[Any], changed: list[dict[str, Any]], notes: list[str]
+) -> int | None:
+    """Report a rotted reviewed-distinct register, if any. Returns the exit
+    code to use (1) when it has, else None to signal "keep going"."""
     if unused:
         print(
             f"dupehound gate: FAIL: {len(unused)} reviewed-distinct entr(ies) no longer"
@@ -490,6 +494,12 @@ def main(argv: list[str] | None = None) -> int:
         for note in notes:
             print(f"  {note}")
         return 1
+    return None
+
+
+def _report_clean_or_unregistered(
+    unregistered: list[dict[str, Any]], register: list[Any]
+) -> int:
     if not unregistered:
         if register:
             print(
@@ -508,6 +518,31 @@ def main(argv: list[str] | None = None) -> int:
             f"(similarity {float(finding['similarity']):.3f})"
         )
     return 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
+    config = contract()
+    paths = selected_paths(changed_paths(args.base_ref), config)
+    if not paths:
+        print("dupehound gate: OK: no changed supported-language source")
+        return 0
+
+    executable = _resolve_dupehound(config)
+    _check_version(executable, config)
+
+    print("dupehound gate: checking changed source (" + ", ".join(paths) + ")")
+    result = _run_dupehound(executable, config, args)
+    findings = _validated_findings(result)
+    register = _load_reviewed_register()
+    unregistered, changed, notes, unused = dupehound_ledger.partition(
+        findings, register
+    )
+    _print_resolved_notes(notes)
+    rotted_exit_code = _report_rotted_register(unused, changed, notes)
+    if rotted_exit_code is not None:
+        return rotted_exit_code
+    return _report_clean_or_unregistered(unregistered, register)
 
 
 if __name__ == "__main__":

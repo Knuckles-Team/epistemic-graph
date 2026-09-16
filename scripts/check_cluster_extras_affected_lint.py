@@ -210,7 +210,9 @@ def _owning_crate(path: str) -> str | None:
     return None
 
 
-def main() -> int:
+def _reuse_previous_selection() -> bool:
+    """True if a successful all-features clippy selection from earlier in
+    this pre-push invocation can stand in for running it again here."""
     try:
         consumer_environment = push_gate_evidence.local_build_environment()
     except push_gate_evidence.EvidenceError as exc:
@@ -233,17 +235,11 @@ def main() -> int:
             "reusing the successful advisory all-features clippy selection "
             "from this pre-push invocation"
         )
-        return 0
+    return reusable
 
-    files = _changed_files()
-    if files is None:
-        return run_heavy(
-            "could not determine the push's changed-file range "
-            "(PRE_COMMIT_FROM_REF/PRE_COMMIT_TO_REF unset or `git diff` failed) -- "
-            "fail closed"
-        )
 
-    rust_relevant = [
+def _rust_relevant_files(files: list[str]) -> list[str]:
+    return [
         f
         for f in files
         if f in ("Cargo.toml", "Cargo.lock", "build.rs")
@@ -251,18 +247,11 @@ def main() -> int:
         or f.startswith("src/")
     ]
 
-    if not rust_relevant:
-        _log(
-            "no Rust-relevant files changed -- skipping the heavy --all-features clippy"
-        )
-        _log("the everyday `cargo-clippy` (full,ast-extended) hook already ran above")
-        return 0
 
-    if "Cargo.toml" in rust_relevant or "Cargo.lock" in rust_relevant:
-        return run_heavy(
-            "Cargo.toml/Cargo.lock changed -- the dependency graph itself moved"
-        )
-
+def _decide_extras_reachability(rust_relevant: list[str]) -> int:
+    """Run (or skip) the heavy lint based on whether the touched crates can
+    reach `cluster`/`full-extras`. Assumes the caller already fast-pathed a
+    Cargo.toml/Cargo.lock change."""
     touched_crates = {c for c in (_owning_crate(f) for f in rust_relevant) if c}
 
     try:
@@ -291,6 +280,34 @@ def main() -> int:
         "and locally via `pre-commit run --all-files --hook-stage manual`"
     )
     return 0
+
+
+def main() -> int:
+    if _reuse_previous_selection():
+        return 0
+
+    files = _changed_files()
+    if files is None:
+        return run_heavy(
+            "could not determine the push's changed-file range "
+            "(PRE_COMMIT_FROM_REF/PRE_COMMIT_TO_REF unset or `git diff` failed) -- "
+            "fail closed"
+        )
+
+    rust_relevant = _rust_relevant_files(files)
+    if not rust_relevant:
+        _log(
+            "no Rust-relevant files changed -- skipping the heavy --all-features clippy"
+        )
+        _log("the everyday `cargo-clippy` (full,ast-extended) hook already ran above")
+        return 0
+
+    if "Cargo.toml" in rust_relevant or "Cargo.lock" in rust_relevant:
+        return run_heavy(
+            "Cargo.toml/Cargo.lock changed -- the dependency graph itself moved"
+        )
+
+    return _decide_extras_reachability(rust_relevant)
 
 
 if __name__ == "__main__":

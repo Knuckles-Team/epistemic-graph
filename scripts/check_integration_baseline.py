@@ -177,7 +177,7 @@ def _node_id(captured: str) -> str:
     return (head if separator else captured).strip()
 
 
-def main(argv: list[str] | None = None) -> int:
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--today",
@@ -185,43 +185,37 @@ def main(argv: list[str] | None = None) -> int:
         help="Override today's date (YYYY-MM-DD) for the review-by ratchet.",
     )
     parser.add_argument("pytest_args", nargs=argparse.REMAINDER)
-    namespace = parser.parse_args(argv)
+    return parser.parse_args(argv)
 
-    baseline, dated = load_baseline()
 
-    arguments = namespace.pytest_args
+def _run_pytest(pytest_args: list[str]) -> subprocess.CompletedProcess[str]:
+    arguments = pytest_args
     if arguments and arguments[0] == "--":
         arguments = arguments[1:]
-    completed = subprocess.run(
+    return subprocess.run(
         [sys.executable, "-m", "pytest", *arguments],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         stdin=subprocess.DEVNULL,
     )
-    output = completed.stdout + completed.stderr
-    print(output)
 
-    failing = parse_outcomes(output)
-    # An exit code that reports neither "all passed" (0) nor "tests failed" (1)
-    # means pytest itself broke — a collection error, an internal error, an
-    # interrupt. Its failure list is not trustworthy, so the gate must not
-    # reason about it at all.
-    if completed.returncode not in (0, 1):
-        print(
-            f"REFUSED: pytest exited {completed.returncode}, which is not a test "
-            f"verdict (0=all passed, 1=tests failed). Nothing was compared to the "
-            f"baseline.",
-            file=sys.stderr,
-        )
-        return 1
 
-    # A baseline entry written WITHOUT brackets covers every parametrisation of
-    # that test. Three of the known failures are parametrised variants of one
-    # `test_inventory_drift_fails_closed` case whose ids embed multi-line source
-    # snippets; listing each verbatim would be brittle for no added precision,
-    # since they share one root cause. An entry WITH brackets still matches only
-    # that exact case.
+def _diff_against_baseline(
+    failing: set[str],
+    baseline: set[str],
+    dated: list[tuple[str, datetime.date]],
+    today: datetime.date,
+) -> tuple[list[str], list[str], list[str]]:
+    """(regressions, repaired, stale) of `failing` against the required baseline.
+
+    A baseline entry written WITHOUT brackets covers every parametrisation of
+    that test. Three of the known failures are parametrised variants of one
+    `test_inventory_drift_fails_closed` case whose ids embed multi-line source
+    snippets; listing each verbatim would be brittle for no added precision,
+    since they share one root cause. An entry WITH brackets still matches only
+    that exact case.
+    """
     covered = {node for node in failing if node in baseline or _base(node) in baseline}
     regressions = sorted(failing - covered)
     satisfied = {
@@ -231,17 +225,14 @@ def main(argv: list[str] | None = None) -> int:
         if node == entry or _base(node) == entry
     }
     repaired = sorted(baseline - satisfied)
-    stale = sorted(
-        node
-        for node, review in dated
-        if review
-        < (
-            datetime.date.fromisoformat(namespace.today)
-            if namespace.today
-            else datetime.date.today()
-        )
-    )
+    stale = sorted(node for node, review in dated if review < today)
+    return regressions, repaired, stale
 
+
+def _report_baseline_problems(
+    regressions: list[str], repaired: list[str], stale: list[str]
+) -> bool:
+    """Print every non-empty problem category. Returns whether any exist."""
     problems = False
     if regressions:
         problems = True
@@ -274,9 +265,10 @@ def main(argv: list[str] | None = None) -> int:
         )
         for node in stale:
             print(f"  {node}", file=sys.stderr)
+    return problems
 
-    if problems:
-        return 1
+
+def _report_clean_outcome(failing: set[str]) -> None:
     if failing:
         print(
             f"\nintegration baseline: OK — {len(failing)} known failure(s), no "
@@ -284,6 +276,42 @@ def main(argv: list[str] | None = None) -> int:
         )
     else:
         print("\nintegration baseline: OK — nothing failing at all.")
+
+
+def main(argv: list[str] | None = None) -> int:
+    namespace = _parse_args(argv)
+    baseline, dated = load_baseline()
+
+    completed = _run_pytest(namespace.pytest_args)
+    output = completed.stdout + completed.stderr
+    print(output)
+
+    failing = parse_outcomes(output)
+    # An exit code that reports neither "all passed" (0) nor "tests failed" (1)
+    # means pytest itself broke — a collection error, an internal error, an
+    # interrupt. Its failure list is not trustworthy, so the gate must not
+    # reason about it at all.
+    if completed.returncode not in (0, 1):
+        print(
+            f"REFUSED: pytest exited {completed.returncode}, which is not a test "
+            f"verdict (0=all passed, 1=tests failed). Nothing was compared to the "
+            f"baseline.",
+            file=sys.stderr,
+        )
+        return 1
+
+    today = (
+        datetime.date.fromisoformat(namespace.today)
+        if namespace.today
+        else datetime.date.today()
+    )
+    regressions, repaired, stale = _diff_against_baseline(
+        failing, baseline, dated, today
+    )
+
+    if _report_baseline_problems(regressions, repaired, stale):
+        return 1
+    _report_clean_outcome(failing)
     return 0
 
 
