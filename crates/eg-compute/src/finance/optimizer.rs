@@ -255,14 +255,7 @@ pub fn efficient_frontier(
         return vec![];
     }
 
-    let min_ret = expected_returns
-        .iter()
-        .cloned()
-        .fold(f64::INFINITY, f64::min);
-    let max_ret = expected_returns
-        .iter()
-        .cloned()
-        .fold(f64::NEG_INFINITY, f64::max);
+    let (min_ret, max_ret) = return_bounds(expected_returns);
     let step = if n_points > 1 {
         (max_ret - min_ret) / (n_points as f64 - 1.0)
     } else {
@@ -272,47 +265,109 @@ pub fn efficient_frontier(
     let mut frontier = Vec::with_capacity(n_points);
     for k in 0..n_points {
         let target_return = min_ret + step * k as f64;
-
-        // Minimize variance subject to target return via penalized gradient descent
-        let mut weights = vec![1.0 / n as f64; n];
-        let lr = 0.005;
-        let penalty = 100.0;
-
-        for _ in 0..300 {
-            let port_ret = portfolio_return(&weights, expected_returns);
-            let mut grad = vec![0.0; n];
-            for i in 0..n {
-                for j in 0..n {
-                    grad[i] += 2.0 * weights[j] * cov_matrix[i][j];
-                }
-                // Penalty for deviating from target return
-                grad[i] += penalty * 2.0 * (port_ret - target_return) * expected_returns[i];
-            }
-            for i in 0..n {
-                weights[i] -= lr * grad[i];
-            }
-            weights = project_simplex(&weights);
-        }
-
-        let port_ret = portfolio_return(&weights, expected_returns);
-        let port_var = portfolio_variance(&weights, cov_matrix);
-        let port_vol = port_var.sqrt();
-        let sharpe = if port_vol > 0.0 {
-            (port_ret - risk_free_rate) / port_vol
-        } else {
-            0.0
-        };
-
-        frontier.push(OptimizationResult {
+        let weights = minimize_variance_for_target(n, expected_returns, cov_matrix, target_return);
+        frontier.push(frontier_point(
             weights,
-            expected_return: port_ret,
-            expected_volatility: port_vol,
-            sharpe_ratio: sharpe,
-            method: format!("efficient_frontier_point_{}", k),
-        });
+            expected_returns,
+            cov_matrix,
+            risk_free_rate,
+            k,
+        ));
     }
 
     frontier
+}
+
+/// `(min, max)` of `expected_returns`, the span the frontier is sampled over.
+fn return_bounds(expected_returns: &[f64]) -> (f64, f64) {
+    let min_ret = expected_returns
+        .iter()
+        .cloned()
+        .fold(f64::INFINITY, f64::min);
+    let max_ret = expected_returns
+        .iter()
+        .cloned()
+        .fold(f64::NEG_INFINITY, f64::max);
+    (min_ret, max_ret)
+}
+
+/// Minimize portfolio variance subject to a target expected return, via
+/// penalized gradient descent projected onto the simplex each step.
+fn minimize_variance_for_target(
+    n: usize,
+    expected_returns: &[f64],
+    cov_matrix: &[Vec<f64>],
+    target_return: f64,
+) -> Vec<f64> {
+    let mut weights = vec![1.0 / n as f64; n];
+    let lr = 0.005;
+    let penalty = 100.0;
+
+    for _ in 0..300 {
+        let port_ret = portfolio_return(&weights, expected_returns);
+        let grad = target_return_gradient(
+            n,
+            &weights,
+            cov_matrix,
+            expected_returns,
+            port_ret,
+            target_return,
+            penalty,
+        );
+        for i in 0..n {
+            weights[i] -= lr * grad[i];
+        }
+        weights = project_simplex(&weights);
+    }
+
+    weights
+}
+
+/// Gradient of `variance + penalty * (return - target)^2` at the current weights.
+fn target_return_gradient(
+    n: usize,
+    weights: &[f64],
+    cov_matrix: &[Vec<f64>],
+    expected_returns: &[f64],
+    port_ret: f64,
+    target_return: f64,
+    penalty: f64,
+) -> Vec<f64> {
+    let mut grad = vec![0.0; n];
+    for i in 0..n {
+        for j in 0..n {
+            grad[i] += 2.0 * weights[j] * cov_matrix[i][j];
+        }
+        // Penalty for deviating from target return
+        grad[i] += penalty * 2.0 * (port_ret - target_return) * expected_returns[i];
+    }
+    grad
+}
+
+/// Build the frontier point's `OptimizationResult` from its converged weights.
+fn frontier_point(
+    weights: Vec<f64>,
+    expected_returns: &[f64],
+    cov_matrix: &[Vec<f64>],
+    risk_free_rate: f64,
+    k: usize,
+) -> OptimizationResult {
+    let port_ret = portfolio_return(&weights, expected_returns);
+    let port_var = portfolio_variance(&weights, cov_matrix);
+    let port_vol = port_var.sqrt();
+    let sharpe = if port_vol > 0.0 {
+        (port_ret - risk_free_rate) / port_vol
+    } else {
+        0.0
+    };
+
+    OptimizationResult {
+        weights,
+        expected_return: port_ret,
+        expected_volatility: port_vol,
+        sharpe_ratio: sharpe,
+        method: format!("efficient_frontier_point_{}", k),
+    }
 }
 
 /// Invert a matrix, falling back to a tiny ridge regulariser if it is singular.

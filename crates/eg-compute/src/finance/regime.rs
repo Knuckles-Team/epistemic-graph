@@ -270,34 +270,81 @@ fn viterbi(
 
     let mut v = vec![vec![0.0_f64; n]; t];
     let mut backtrack = vec![vec![0usize; n]; t];
+    let model = ViterbiModel {
+        means,
+        stds,
+        trans,
+        n,
+    };
 
-    for s in 0..n {
-        v[0][s] = pi[s].max(1e-300).ln()
-            + normal_pdf(observations[0], means[s], stds[s])
-                .max(1e-300)
-                .ln();
-    }
+    init_viterbi_start(&mut v[0], observations[0], &model, pi);
 
     for tt in 1..t {
-        for j in 0..n {
-            let emission = normal_pdf(observations[tt], means[j], stds[j])
-                .max(1e-300)
-                .ln();
-            let mut best_val = f64::NEG_INFINITY;
-            let mut best_state = 0;
-            for i in 0..n {
-                let score = v[tt - 1][i] + trans[i][j].max(1e-300).ln();
-                if score > best_val {
-                    best_val = score;
-                    best_state = i;
-                }
-            }
-            v[tt][j] = best_val + emission;
-            backtrack[tt][j] = best_state;
-        }
+        viterbi_step(&mut v, &mut backtrack, tt, observations, &model);
     }
 
-    // Backtrack
+    backtrack_viterbi_path(&v, &backtrack, t, n)
+}
+
+/// The emission means/stds and transition matrix a Viterbi pass runs against,
+/// bundled so the per-step helpers stay under a handful of parameters.
+struct ViterbiModel<'a> {
+    means: &'a [f64],
+    stds: &'a [f64],
+    trans: &'a [Vec<f64>],
+    n: usize,
+}
+
+/// `t = 0` row: `log(π_s) + log N(x_0 | μ_s, σ_s)` for every state `s`.
+fn init_viterbi_start(v0: &mut [f64], x0: f64, model: &ViterbiModel, pi: &[f64]) {
+    for s in 0..model.n {
+        v0[s] = pi[s].max(1e-300).ln()
+            + normal_pdf(x0, model.means[s], model.stds[s])
+                .max(1e-300)
+                .ln();
+    }
+}
+
+/// One Viterbi recursion step at time `tt`: for every state `j`, the best
+/// predecessor at `tt - 1` plus the emission log-probability.
+fn viterbi_step(
+    v: &mut [Vec<f64>],
+    backtrack: &mut [Vec<usize>],
+    tt: usize,
+    observations: &[f64],
+    model: &ViterbiModel,
+) {
+    for j in 0..model.n {
+        let emission = normal_pdf(observations[tt], model.means[j], model.stds[j])
+            .max(1e-300)
+            .ln();
+        let (best_state, best_val) = best_predecessor(&v[tt - 1], j, model.trans, model.n);
+        v[tt][j] = best_val + emission;
+        backtrack[tt][j] = best_state;
+    }
+}
+
+/// The predecessor state `i` maximizing `v_prev[i] + log(trans[i][j])`.
+fn best_predecessor(v_prev: &[f64], j: usize, trans: &[Vec<f64>], n: usize) -> (usize, f64) {
+    let mut best_val = f64::NEG_INFINITY;
+    let mut best_state = 0;
+    for i in 0..n {
+        let score = v_prev[i] + trans[i][j].max(1e-300).ln();
+        if score > best_val {
+            best_val = score;
+            best_state = i;
+        }
+    }
+    (best_state, best_val)
+}
+
+/// Recover the most-likely state sequence from the Viterbi trellis.
+fn backtrack_viterbi_path(
+    v: &[Vec<f64>],
+    backtrack: &[Vec<usize>],
+    t: usize,
+    n: usize,
+) -> Vec<usize> {
     let mut states = vec![0usize; t];
     let mut best_last = 0;
     let mut best_val = f64::NEG_INFINITY;

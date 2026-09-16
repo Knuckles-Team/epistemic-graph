@@ -78,46 +78,67 @@ where
     let dim = feats[0].len();
     let mut out = Vec::with_capacity(n);
     for v in 0..n {
-        // Collect undirected neighbour weights (sum both directions).
-        let mut weighted: Vec<(usize, f64)> = Vec::new();
-        for &(t, w) in graph.out_edges(v) {
-            if t != v {
-                weighted.push((t, w));
-            }
-        }
-        for &(s, w) in graph.in_edges(v) {
-            if s != v {
-                weighted.push((s, w));
-            }
-        }
-        if weighted.is_empty() {
-            out.push(feats[v].clone());
-            continue;
-        }
-        let mut agg = vec![0.0; dim];
-        let mut total = 0.0;
-        for &(u, w) in &weighted {
-            let gate = edge_fn.eval(w).max(0.0);
-            if gate <= 0.0 {
-                continue;
-            }
-            total += gate;
-            for (a, f) in agg.iter_mut().zip(feats[u].iter()) {
-                *a += gate * *f;
-            }
-        }
-        if total <= 0.0 {
-            out.push(feats[v].clone());
-            continue;
-        }
-        let inv = 1.0 / total;
-        let mut row = vec![0.0; dim];
-        for k in 0..dim {
-            row[k] = alpha * feats[v][k] + (1.0 - alpha) * (agg[k] * inv);
-        }
-        out.push(row);
+        let weighted = undirected_neighbor_weights(graph, v);
+        out.push(gated_aggregate_row(
+            feats, v, &weighted, edge_fn, alpha, dim,
+        ));
     }
     out
+}
+
+/// Undirected neighbour `(index, weight)` pairs of `v` — sums both edge directions.
+fn undirected_neighbor_weights<N>(graph: &AdjacencyGraph<N>, v: usize) -> Vec<(usize, f64)>
+where
+    N: Clone + Eq + Hash + Ord,
+{
+    let mut weighted: Vec<(usize, f64)> = Vec::new();
+    for &(t, w) in graph.out_edges(v) {
+        if t != v {
+            weighted.push((t, w));
+        }
+    }
+    for &(s, w) in graph.in_edges(v) {
+        if s != v {
+            weighted.push((s, w));
+        }
+    }
+    weighted
+}
+
+/// The gated-sum aggregation for one node, falling back to its own vector when
+/// it has no neighbour or none gate positively.
+fn gated_aggregate_row(
+    feats: &[Vec<f64>],
+    v: usize,
+    weighted: &[(usize, f64)],
+    edge_fn: &KanEdgeFn,
+    alpha: f64,
+    dim: usize,
+) -> Vec<f64> {
+    if weighted.is_empty() {
+        return feats[v].clone();
+    }
+    let mut agg = vec![0.0; dim];
+    let mut total = 0.0;
+    for &(u, w) in weighted {
+        let gate = edge_fn.eval(w).max(0.0);
+        if gate <= 0.0 {
+            continue;
+        }
+        total += gate;
+        for (a, f) in agg.iter_mut().zip(feats[u].iter()) {
+            *a += gate * *f;
+        }
+    }
+    if total <= 0.0 {
+        return feats[v].clone();
+    }
+    let inv = 1.0 / total;
+    let mut row = vec![0.0; dim];
+    for k in 0..dim {
+        row[k] = alpha * feats[v][k] + (1.0 - alpha) * (agg[k] * inv);
+    }
+    row
 }
 
 #[cfg(test)]

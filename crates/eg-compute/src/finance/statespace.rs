@@ -367,27 +367,11 @@ fn ou_mfpt(theta: f64, b: f64, n: usize) -> f64 {
 pub fn ou_optimal_thresholds(params: &OuParams, cost: f64) -> OuThresholds {
     let s = params.sigma_eq;
     let theta = params.theta;
-    let mut best_z = 1.0;
-    let mut best_j = f64::NEG_INFINITY;
-    if s > 1e-12 && theta > 1e-12 {
-        let steps = 60;
-        for i in 1..=steps {
-            let z = 0.05 * i as f64; // up to 3.0 σ_eq
-            let profit = z * s - cost;
-            if profit <= 0.0 {
-                continue;
-            }
-            let t = ou_mfpt(theta, z, 50);
-            if !t.is_finite() || t <= 0.0 {
-                continue;
-            }
-            let j = profit / t;
-            if j > best_j {
-                best_j = j;
-                best_z = z;
-            }
-        }
-    }
+    let (best_z, best_j) = if s > 1e-12 && theta > 1e-12 {
+        search_best_entry_z(theta, s, cost)
+    } else {
+        (1.0, f64::NEG_INFINITY)
+    };
     OuThresholds {
         entry_long: params.mu - best_z * s,
         entry_short: params.mu + best_z * s,
@@ -395,6 +379,31 @@ pub fn ou_optimal_thresholds(params: &OuParams, cost: f64) -> OuThresholds {
         z: best_z,
         expected_return_per_unit_time: if best_j.is_finite() { best_j } else { 0.0 },
     }
+}
+
+/// Grid-search the entry deviation `z` (in `σ_eq` units) maximizing expected
+/// profit per unit time `J(z) = (z·σ_eq − cost) / MFPT(z)`. Returns `(best_z, best_j)`.
+fn search_best_entry_z(theta: f64, s: f64, cost: f64) -> (f64, f64) {
+    let mut best_z = 1.0;
+    let mut best_j = f64::NEG_INFINITY;
+    let steps = 60;
+    for i in 1..=steps {
+        let z = 0.05 * i as f64; // up to 3.0 σ_eq
+        let profit = z * s - cost;
+        if profit <= 0.0 {
+            continue;
+        }
+        let t = ou_mfpt(theta, z, 50);
+        if !t.is_finite() || t <= 0.0 {
+            continue;
+        }
+        let j = profit / t;
+        if j > best_j {
+            best_j = j;
+            best_z = z;
+        }
+    }
+    (best_z, best_j)
 }
 
 // ════════════════════════════════════════════════════════════════════════

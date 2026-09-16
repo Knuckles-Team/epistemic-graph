@@ -164,41 +164,82 @@ fn leiden_partition(
     let mut deadline_hit = false;
 
     for _level in 0..config.max_levels {
-        if Instant::now() >= deadline {
-            deadline_hit = true;
-            break;
-        }
-        let (p, improved, _n_p, moving_expired) =
-            local_moving(&current, resolution, m2, seed, config.max_sweeps, deadline);
-        deadline_hit |= moving_expired;
-        if !improved {
-            break;
-        }
-        let (refined, refine_expired) = refine(&current, &p, resolution, m2, deadline);
-        deadline_hit |= refine_expired;
-        let n_refined = refined.iter().copied().max().map(|x| x + 1).unwrap_or(0);
-
-        for slot in node_to_super.iter_mut() {
-            *slot = refined[*slot];
-        }
-        if moving_expired || refine_expired || n_refined == current.len() {
-            break; // out of time, or refinement found no merges at all ⇒ stable
-        }
-        current = aggregate(&current, &refined, n_refined);
-        if n_refined == 1 {
-            break;
+        let (step, hit) = run_leiden_level(
+            &current,
+            &mut node_to_super,
+            resolution,
+            seed,
+            config,
+            m2,
+            deadline,
+        );
+        deadline_hit |= hit;
+        match step {
+            LevelStep::Stop => break,
+            LevelStep::Continue { next_current } => current = next_current,
         }
     }
 
-    // Densify community ids into 0..k in first-appearance order.
+    (densify_membership(&node_to_super), deadline_hit)
+}
+
+/// What one local-moving + refinement level decided: stop (out of time, no
+/// improvement, or the refined partition is already stable) or continue with
+/// the aggregated next-level adjacency.
+enum LevelStep {
+    Stop,
+    Continue {
+        next_current: Vec<Vec<(usize, f64)>>,
+    },
+}
+
+/// Run one Leiden level (local-moving, then refinement, then — unless the level
+/// decides to stop — aggregation) and fold its refined membership into
+/// `node_to_super`. Mirrors the per-level body of [`leiden_partition`]'s loop.
+fn run_leiden_level(
+    current: &[Vec<(usize, f64)>],
+    node_to_super: &mut [usize],
+    resolution: f64,
+    seed: Option<u64>,
+    config: &LeidenConfig,
+    m2: f64,
+    deadline: Instant,
+) -> (LevelStep, bool) {
+    if Instant::now() >= deadline {
+        return (LevelStep::Stop, true);
+    }
+    let (p, improved, _n_p, moving_expired) =
+        local_moving(current, resolution, m2, seed, config.max_sweeps, deadline);
+    if !improved {
+        return (LevelStep::Stop, moving_expired);
+    }
+    let (refined, refine_expired) = refine(current, &p, resolution, m2, deadline);
+    let deadline_hit = moving_expired || refine_expired;
+    let n_refined = refined.iter().copied().max().map(|x| x + 1).unwrap_or(0);
+
+    for slot in node_to_super.iter_mut() {
+        *slot = refined[*slot];
+    }
+    if moving_expired || refine_expired || n_refined == current.len() {
+        return (LevelStep::Stop, deadline_hit); // out of time, or refinement found no merges at all ⇒ stable
+    }
+    let next_current = aggregate(current, &refined, n_refined);
+    if n_refined == 1 {
+        return (LevelStep::Stop, deadline_hit);
+    }
+    (LevelStep::Continue { next_current }, deadline_hit)
+}
+
+/// Densify community ids into `0..k` in first-appearance order.
+fn densify_membership(node_to_super: &[usize]) -> Vec<usize> {
     let mut relabel: HashMap<usize, usize> = HashMap::new();
-    let mut membership = vec![0usize; n];
+    let mut membership = vec![0usize; node_to_super.len()];
     for (o, &c) in node_to_super.iter().enumerate() {
         let next = relabel.len();
         let dense = *relabel.entry(c).or_insert(next);
         membership[o] = dense;
     }
-    (membership, deadline_hit)
+    membership
 }
 
 /// The refinement phase (CONCEPT:EG-KG.compute.leiden-community-detection). Starting from

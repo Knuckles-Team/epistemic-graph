@@ -79,18 +79,10 @@ where
     }
 
     // Symmetric undirected adjacency (each undirected edge's weight summed once) +
-    // per-node weighted degree — the diffusion operator, built once. O(V + E).
+    // per-node weighted degree, pre-raised to the −s power — the diffusion
+    // operator, built once. O(V + E).
     let adj = graph.undirected_weighted_adjacency();
-    let deg: Vec<f64> = adj
-        .iter()
-        .map(|row| row.iter().map(|(_, w)| *w).sum())
-        .collect();
-    let s = config.normalization_strength;
-    // Pre-raise degrees to the −s power once (guarded for isolated nodes).
-    let deg_norm: Vec<f64> = deg
-        .iter()
-        .map(|&dv| if dv > 0.0 { dv.powf(-s) } else { 0.0 })
-        .collect();
+    let deg_norm = normalized_degrees(&adj, config.normalization_strength);
 
     // n_0 = the very-sparse random projection R (per-node-seeded ⇒ order-independent).
     let mut prev = random_projection(n, d, config.sparsity, config.seed);
@@ -99,33 +91,9 @@ where
 
     for iter in 1..=config.iterations.max(1) {
         let weight = iteration_weight(&config.iteration_weights, iter, config.iterations);
-        // One diffusion step: cur[v] = Σ_{u∈N(v)} deg(v)^-s · w_uv · deg(u)^-s · prev[u].
-        let mut cur = vec![vec![0.0f64; d]; n];
-        for v in 0..n {
-            let dv = deg_norm[v];
-            if dv == 0.0 {
-                continue; // isolated ⇒ empty sum ⇒ zero row
-            }
-            let out = &mut cur[v];
-            for &(u, w) in &adj[v] {
-                let c = dv * w * deg_norm[u];
-                if c == 0.0 {
-                    continue;
-                }
-                let src = &prev[u];
-                for (o, s) in out.iter_mut().zip(src.iter()) {
-                    *o += c * s;
-                }
-            }
-        }
+        let cur = diffuse_step(&prev, &adj, &deg_norm, d);
         if weight != 0.0 {
-            for v in 0..n {
-                let a = &mut acc[v];
-                let c = &cur[v];
-                for (av, cv) in a.iter_mut().zip(c.iter()) {
-                    *av += weight * cv;
-                }
-            }
+            accumulate_weighted(&mut acc, &cur, weight);
         }
         prev = cur;
     }
@@ -136,6 +104,71 @@ where
     acc.into_iter()
         .map(|row| row.into_iter().map(|x| x as f32).collect())
         .collect()
+}
+
+/// Per-node weighted degree, guarded for isolated nodes and pre-raised to the
+/// `−s` power once so the diffusion step is a plain multiply.
+fn normalized_degrees(adj: &[Vec<(usize, f64)>], s: f64) -> Vec<f64> {
+    adj.iter()
+        .map(|row| {
+            let dv: f64 = row.iter().map(|(_, w)| *w).sum();
+            if dv > 0.0 {
+                dv.powf(-s)
+            } else {
+                0.0
+            }
+        })
+        .collect()
+}
+
+/// One diffusion step: `cur[v] = Σ_{u∈N(v)} deg(v)^-s · w_uv · deg(u)^-s · prev[u]`.
+fn diffuse_step(
+    prev: &[Vec<f64>],
+    adj: &[Vec<(usize, f64)>],
+    deg_norm: &[f64],
+    d: usize,
+) -> Vec<Vec<f64>> {
+    let n = adj.len();
+    let mut cur = vec![vec![0.0f64; d]; n];
+    for v in 0..n {
+        let dv = deg_norm[v];
+        if dv == 0.0 {
+            continue; // isolated ⇒ empty sum ⇒ zero row
+        }
+        diffuse_into_row(&mut cur[v], &adj[v], dv, deg_norm, prev);
+    }
+    cur
+}
+
+/// Accumulate node `v`'s neighbour contributions into its diffusion output row.
+fn diffuse_into_row(
+    out: &mut [f64],
+    edges: &[(usize, f64)],
+    dv: f64,
+    deg_norm: &[f64],
+    prev: &[Vec<f64>],
+) {
+    for &(u, w) in edges {
+        let c = dv * w * deg_norm[u];
+        if c == 0.0 {
+            continue;
+        }
+        let src = &prev[u];
+        for (o, s) in out.iter_mut().zip(src.iter()) {
+            *o += c * s;
+        }
+    }
+}
+
+/// `acc += weight * cur`, row-wise.
+fn accumulate_weighted(acc: &mut [Vec<f64>], cur: &[Vec<f64>], weight: f64) {
+    for v in 0..acc.len() {
+        let a = &mut acc[v];
+        let c = &cur[v];
+        for (av, cv) in a.iter_mut().zip(c.iter()) {
+            *av += weight * cv;
+        }
+    }
 }
 
 /// The weight applied to iteration `iter` (1-based). Empty config weights ⇒ every
