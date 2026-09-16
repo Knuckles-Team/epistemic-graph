@@ -25,10 +25,6 @@ pub(crate) use ast::{decode_call_sites, DecodedSite};
 #[cfg(test)]
 use walk::hash_fields;
 
-/// Resolve a file path to its tree-sitter grammar plus a stable language label
-/// (the label is stamped on every extracted symbol so the graph can answer
-/// "show me all Java code" and compute per-language metrics). Returns ``None``
-/// for paths we don't have a grammar for.
 /// A grammar constructor, deferred so [`CORE_LANGUAGES`] can be a plain data
 /// table (rather than one `match` arm per extension) with no runtime cost —
 /// the closures are non-capturing and coerce to bare `fn` pointers.
@@ -78,6 +74,10 @@ const CORE_LANGUAGES: &[(&[&str], LangCtor, &str)] = &[
     ),
 ];
 
+/// Resolve a file path to its tree-sitter grammar plus a stable language label
+/// (the label is stamped on every extracted symbol so the graph can answer
+/// "show me all Java code" and compute per-language metrics). Returns ``None``
+/// for paths we don't have a grammar for.
 fn lang_for_path(file_path: &str) -> Option<(Language, &'static str)> {
     let ext = file_path
         .rsplit('.')
