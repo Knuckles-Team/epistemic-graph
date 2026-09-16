@@ -21,7 +21,7 @@ import re
 import sys
 import zipfile
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from email import policy
 from email.parser import BytesParser
 from email.utils import getaddresses
@@ -90,6 +90,19 @@ class Finding:
 class AuditResult:
     findings: tuple[Finding, ...]
     member_count: int
+
+
+@dataclass
+class _AuditProgress:
+    """What an audit has found so far, mutated in place.
+
+    ``audit_wheel`` reads it after an archive error too, so a member that
+    fails part-way (bad CRC, encryption) does not discard the findings and
+    member count collected before it.
+    """
+
+    findings: set[Finding] = field(default_factory=set)
+    member_count: int = 0
 
 
 def _member_id(name: str) -> str:
@@ -308,29 +321,34 @@ def _audit_member(
     info: zipfile.ZipInfo,
     exact_patterns: Sequence[re.Pattern[bytes]],
     artifact: int,
-) -> set[Finding]:
+    findings: set[Finding],
+) -> None:
+    """Add one member's findings to ``findings`` in place; name findings land
+    before the member is read, so they survive a read that fails part-way."""
     member_id = _member_id(info.filename)
-    findings = _member_name_findings(member_id, info, exact_patterns, artifact)
+    findings.update(_member_name_findings(member_id, info, exact_patterns, artifact))
     if info.is_dir():
-        return findings
+        return
     categories, metadata = _scan_member(archive, info, exact_patterns)
     findings.update(Finding(artifact, member_id, category) for category in categories)
     if metadata is not None and not _neutral_metadata(metadata):
         findings.add(Finding(artifact, member_id, "first-party-metadata-identity"))
-    return findings
 
 
 def _audit_archive(
     archive: zipfile.ZipFile,
     exact_patterns: Sequence[re.Pattern[bytes]],
     artifact: int,
-) -> tuple[set[Finding], int]:
-    findings = _comment_findings(archive.comment, exact_patterns, artifact)
+    progress: _AuditProgress,
+) -> None:
+    progress.findings.update(
+        _comment_findings(archive.comment, exact_patterns, artifact)
+    )
     infos = sorted(archive.infolist(), key=lambda item: item.filename)
-    findings.update(_duplicate_member_findings(infos, artifact))
+    progress.findings.update(_duplicate_member_findings(infos, artifact))
     for info in infos:
-        findings.update(_audit_member(archive, info, exact_patterns, artifact))
-    return findings, len(infos)
+        progress.member_count += 1
+        _audit_member(archive, info, exact_patterns, artifact, progress.findings)
 
 
 def audit_wheel(
@@ -344,16 +362,15 @@ def audit_wheel(
     runtime_prefixes = runtime_deny_prefixes(environ, checkout=checkout)
     all_prefixes = (*runtime_prefixes, *filter(None, map(_safe_prefix, deny_prefixes)))
     exact_patterns = _exact_prefix_patterns(all_prefixes)
-    findings: set[Finding] = set()
-    member_count = 0
+    progress = _AuditProgress()
 
     try:
         with zipfile.ZipFile(path) as archive:
-            findings, member_count = _audit_archive(archive, exact_patterns, artifact)
+            _audit_archive(archive, exact_patterns, artifact, progress)
     except (OSError, ValueError, zipfile.BadZipFile, RuntimeError):
-        findings.add(Finding(artifact, "archive-index", "invalid-wheel"))
+        progress.findings.add(Finding(artifact, "archive-index", "invalid-wheel"))
 
-    return AuditResult(tuple(sorted(findings)), member_count)
+    return AuditResult(tuple(sorted(progress.findings)), progress.member_count)
 
 
 def main(argv: Sequence[str] | None = None) -> int:

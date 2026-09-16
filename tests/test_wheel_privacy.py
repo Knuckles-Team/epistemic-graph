@@ -721,6 +721,37 @@ def test_only_core_metadata_identity_fields_must_be_neutral(tmp_path: Path):
     assert _categories(wheel) == {"first-party-metadata-identity"}
 
 
+def test_findings_before_a_corrupt_member_survive_the_invalid_wheel_finding(
+    tmp_path: Path,
+):
+    """A member that fails part-way (CRC mismatch) must not discard what the
+    audit already found: the leaking archive comment, the earlier leaking
+    member, and the member count reached so far all stay in the result."""
+
+    comment_leak = PurePosixPath("/", "home", "fixture-commenter", "src")
+    member_leak = PurePosixPath("/", "home", "fixture-builder", "work", "x")
+    corrupt_payload = b"stored-payload-whose-crc-will-not-match"
+    wheel = tmp_path / "fixture_package-1.0.0-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "w", zipfile.ZIP_STORED) as archive:
+        archive.comment = str(comment_leak).encode()
+        archive.writestr("a_leaking.so", f"ELF\x00{member_leak}\x00".encode())
+        archive.writestr("b_corrupt.so", corrupt_payload)
+    raw = bytearray(wheel.read_bytes())
+    offset = raw.index(corrupt_payload)
+    raw[offset] ^= 0xFF
+    wheel.write_bytes(bytes(raw))
+
+    result = audit_wheel(wheel, environ={})
+
+    assert result.member_count == 2
+    categories = sorted(finding.category for finding in result.findings)
+    assert categories == ["invalid-wheel", "posix-home-prefix", "posix-home-prefix"]
+    assert {finding.member_id for finding in result.findings} >= {
+        "archive-comment",
+        "archive-index",
+    }
+
+
 def test_cli_never_echoes_a_sensitive_prefix(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ):
