@@ -427,43 +427,63 @@ pub fn train_test_split(
 /// Solve Ax = b using Gaussian elimination with partial pivoting.
 pub(crate) fn solve_linear_system(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
     let n = a.len();
-    let mut aug: Vec<Vec<f64>> = a
-        .iter()
+    let mut aug = augmented_matrix(a, b);
+    forward_eliminate(&mut aug, n);
+    back_substitute(&aug, n)
+}
+
+/// `[A | b]`, the augmented matrix Gaussian elimination operates on.
+fn augmented_matrix(a: &[Vec<f64>], b: &[f64]) -> Vec<Vec<f64>> {
+    a.iter()
         .enumerate()
         .map(|(i, row)| {
             let mut r = row.clone();
             r.push(b[i]);
             r
         })
-        .collect();
+        .collect()
+}
 
-    // Forward elimination
+/// Forward elimination with partial pivoting, in place.
+fn forward_eliminate(aug: &mut [Vec<f64>], n: usize) {
     for col in 0..n {
-        // Partial pivoting
-        let mut max_row = col;
-        let mut max_val = aug[col][col].abs();
-        for row in (col + 1)..n {
-            if aug[row][col].abs() > max_val {
-                max_val = aug[row][col].abs();
-                max_row = row;
-            }
-        }
+        let max_row = pivot_row(aug, col, n);
         aug.swap(col, max_row);
 
         let pivot = aug[col][col];
         if pivot.abs() < 1e-15 {
             continue;
         }
+        eliminate_below_pivot(aug, col, n, pivot);
+    }
+}
 
-        for row in (col + 1)..n {
-            let factor = aug[row][col] / pivot;
-            for j in col..=n {
-                aug[row][j] -= factor * aug[col][j];
-            }
+/// The row in `col..n` with the largest-magnitude entry in column `col`
+/// (partial pivoting).
+fn pivot_row(aug: &[Vec<f64>], col: usize, n: usize) -> usize {
+    let mut max_row = col;
+    let mut max_val = aug[col][col].abs();
+    for row in (col + 1)..n {
+        if aug[row][col].abs() > max_val {
+            max_val = aug[row][col].abs();
+            max_row = row;
         }
     }
+    max_row
+}
 
-    // Back substitution
+/// Eliminate column `col` from every row below it using the pivot row.
+fn eliminate_below_pivot(aug: &mut [Vec<f64>], col: usize, n: usize, pivot: f64) {
+    for row in (col + 1)..n {
+        let factor = aug[row][col] / pivot;
+        for j in col..=n {
+            aug[row][j] -= factor * aug[col][j];
+        }
+    }
+}
+
+/// Back substitution over the row-echelon augmented matrix.
+fn back_substitute(aug: &[Vec<f64>], n: usize) -> Vec<f64> {
     let mut result = vec![0.0; n];
     for i in (0..n).rev() {
         let mut sum = aug[i][n];
@@ -474,7 +494,6 @@ pub(crate) fn solve_linear_system(a: &[Vec<f64>], b: &[f64]) -> Vec<f64> {
             result[i] = sum / aug[i][i];
         }
     }
-
     result
 }
 

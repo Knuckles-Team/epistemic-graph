@@ -37,39 +37,56 @@ pub fn macro_f1(y_true: &[i64], y_pred: &[i64]) -> f64 {
     if classes.is_empty() {
         return 0.0;
     }
-    let mut f1_sum = 0.0;
-    for &c in &classes {
-        let mut tp = 0usize;
-        let mut fp = 0usize;
-        let mut fn_ = 0usize;
-        for i in 0..n {
-            let actual = y_true[i] == c;
-            let predicted = y_pred[i] == c;
-            match (actual, predicted) {
-                (true, true) => tp += 1,
-                (false, true) => fp += 1,
-                (true, false) => fn_ += 1,
-                (false, false) => {}
-            }
-        }
-        let precision = if tp + fp == 0 {
-            0.0
-        } else {
-            tp as f64 / (tp + fp) as f64
-        };
-        let recall = if tp + fn_ == 0 {
-            0.0
-        } else {
-            tp as f64 / (tp + fn_) as f64
-        };
-        let f1 = if precision + recall == 0.0 {
-            0.0
-        } else {
-            2.0 * precision * recall / (precision + recall)
-        };
-        f1_sum += f1;
-    }
+    let f1_sum: f64 = classes
+        .iter()
+        .map(|&c| class_f1(y_true, y_pred, n, c))
+        .sum();
     f1_sum / classes.len() as f64
+}
+
+/// Confusion counts for one class `c` over the first `n` predictions: how many
+/// true positives / false positives / false negatives it contributed.
+fn class_confusion_counts(
+    y_true: &[i64],
+    y_pred: &[i64],
+    n: usize,
+    c: i64,
+) -> (usize, usize, usize) {
+    let mut tp = 0usize;
+    let mut fp = 0usize;
+    let mut fn_ = 0usize;
+    for i in 0..n {
+        let actual = y_true[i] == c;
+        let predicted = y_pred[i] == c;
+        match (actual, predicted) {
+            (true, true) => tp += 1,
+            (false, true) => fp += 1,
+            (true, false) => fn_ += 1,
+            (false, false) => {}
+        }
+    }
+    (tp, fp, fn_)
+}
+
+/// F1 score for one class `c`, `0.0` when precision and recall are both undefined
+/// or both zero.
+fn class_f1(y_true: &[i64], y_pred: &[i64], n: usize, c: i64) -> f64 {
+    let (tp, fp, fn_) = class_confusion_counts(y_true, y_pred, n, c);
+    let precision = if tp + fp == 0 {
+        0.0
+    } else {
+        tp as f64 / (tp + fp) as f64
+    };
+    let recall = if tp + fn_ == 0 {
+        0.0
+    } else {
+        tp as f64 / (tp + fn_) as f64
+    };
+    if precision + recall == 0.0 {
+        0.0
+    } else {
+        2.0 * precision * recall / (precision + recall)
+    }
 }
 
 /// Coefficient of determination R² = 1 − SS_res/SS_tot. Returns `0.0` when the target
