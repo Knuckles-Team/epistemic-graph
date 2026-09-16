@@ -539,15 +539,30 @@ impl SqlMutation<'_> {
     where
         F: FnOnce(&SqlWrite<'_>) -> Result<T, String>,
     {
+        self.owner_rows_with_epoch(apply, |_, value, _| Ok(value))
+    }
+
+    /// Finalize owner metadata using the epoch actually staged by this write.
+    ///
+    /// Source rows, their checkpoint and the terminal result must share one
+    /// owner-write gate. The finalizer runs after successful row application
+    /// and epoch advancement, before that gate closes. Any error must be
+    /// handled by aborting the admitted mutation, as with `owner_rows`.
+    pub(crate) fn owner_rows_with_epoch<T, R, F, G>(
+        &self,
+        apply: F,
+        finalize: G,
+    ) -> Result<R, String>
+    where
+        F: FnOnce(&SqlWrite<'_>) -> Result<T, String>,
+        G: FnOnce(&SqlWrite<'_>, T, u64) -> Result<R, String>,
+    {
         let owner_write = self.write.owner_rows(self.owner.as_ref(), &self.batch)?;
-        let outcome = apply(&owner_write);
-        let source_epoch = if outcome.is_ok() {
-            advance_source_epoch(&owner_write, self.authority.source_authority_digest)
-        } else {
-            Ok(())
-        };
+        let outcome = apply(&owner_write).and_then(|value| {
+            let epoch = advance_source_epoch(&owner_write, self.authority.source_authority_digest)?;
+            finalize(&owner_write, value, epoch)
+        });
         owner_write.finish_owner()?;
-        source_epoch?;
         outcome
     }
 
@@ -584,7 +599,7 @@ impl SqlMutation<'_> {
     }
 }
 
-fn advance_source_epoch(write: &SqlWrite<'_>, authority_digest: [u8; 32]) -> Result<(), String> {
+fn advance_source_epoch(write: &SqlWrite<'_>, authority_digest: [u8; 32]) -> Result<u64, String> {
     let mut table = write
         .open_table(SQL_SOURCE_AUTHORITY)
         .map_err(|error| error.to_string())?;
@@ -611,5 +626,8 @@ fn advance_source_epoch(write: &SqlWrite<'_>, authority_digest: [u8; 32]) -> Res
     table
         .insert(SQL_SOURCE_AUTHORITY_KEY, bytes.as_slice())
         .map_err(|error| error.to_string())?;
-    Ok(())
+    Ok(epoch)
 }
+
+#[cfg(test)]
+mod epoch_tests;

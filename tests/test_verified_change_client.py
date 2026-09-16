@@ -617,6 +617,37 @@ def _assert_f32_schema_locations_unchanged(root: Path) -> None:
             ("semantic_index/response.rs", "pub fused_score: f32,"),
             ("semantic_index/response.rs", "pub lexical_score: Option<f32>,"),
             ("semantic_index/response.rs", "pub vector_score: Option<f32>,"),
+            # `SqlSourceBatch` carries finite f32 vector cells in a Method body, but
+            # the Python client never re-encodes them: `_canonical_method_body`
+            # delegates that method to the native eg-types codec, and
+            # `test_sql_source_native_client.py` pins the f32 MessagePack width.
+            (
+                "storage_wire/source_batch/tests.rs",
+                "SqlSourceVector::new(vec![f32::MAX, f32::MIN_POSITIVE]).unwrap(),",
+            ),
+            (
+                "storage_wire/source_batch/tests.rs",
+                "assert!(rmp_serde::from_slice::<SqlSourceVector>"
+                "(&encoded(&vec![f32::NAN])).is_err());",
+            ),
+            (
+                "storage_wire/source_batch/values.rs",
+                "pub struct SqlSourceVector(BoundedVec<f32, "
+                "MAX_SQL_SOURCE_VECTOR_DIMENSIONS>);",
+            ),
+            (
+                "storage_wire/source_batch/values.rs",
+                "pub fn new(values: Vec<f32>) -> Result<Self, String> {",
+            ),
+            (
+                "storage_wire/source_batch/values.rs",
+                "fn checked(values: BoundedVec<f32, MAX_SQL_SOURCE_VECTOR_DIMENSIONS>) "
+                "-> Result<Self, String> {",
+            ),
+            (
+                "storage_wire/source_batch/values.rs",
+                "pub fn as_slice(&self) -> &[f32] {",
+            ),
             # NodeData is a stored/result DTO, never nested in Method request bodies.
             ("types.rs", "pub embedding: Option<Vec<f32>>,"),
             ("wire_query_core.rs", "FuseRrf { branches: Vec<Vec<Op>>, k: f32 },"),

@@ -164,17 +164,23 @@ LEGACY_COALESCER_METHODS = (
     "CompareAndSetNodeFields",
 )
 
-# The current merged dispatch compiler family has 75 distinct cfg predicates.
+# The current merged dispatch compiler family has 76 distinct cfg predicates
+# (75 -> 76: `not(feature = "query")` on the SQL source preflight resolver).
 # The SPARQL HTTP mutation path is constrained by its redb/security/raft
 # combinations, and the compiler-declared module walk is the source universe.
-CFG_FINGERPRINT = "35aeaf654089d9dc52eedef7da795bf39805eba94ceecc42bdb0c5f9c45304d8"
-PRODUCTION_FUNCTION_COUNT = 355
+CFG_FINGERPRINT = "2e141e590f2b06b59db3a4605b39812ad46fcc8cc0386138cd814092aa3ab65b"
+# 355 -> 358 production / 440 -> 443 compiler functions: `Method::SqlSourceBatch`
+# added the data-plane route group `dispatch_sql_source_methods`, the request
+# preflight resolver `preflight_sql_source_msgpack`, and
+# `clustered_route_admission` (the non-local placement admission match, split
+# out of `check_cluster_placement_before_consensus` when it gained LocalOnly).
+PRODUCTION_FUNCTION_COUNT = 358
 PRODUCTION_FUNCTION_DIGEST = (
-    "c425d7d9ec01712f70b9fdc81d750f274095a923fc467ddf41b76f9b32ea326d"
+    "4758f3845a069de9fea7c8f491a35c40784b4cfda551174d372f884d69031be8"
 )
-COMPILER_FUNCTION_COUNT = 440
+COMPILER_FUNCTION_COUNT = 443
 COMPILER_FUNCTION_DIGEST = (
-    "af06cb2a46a9cc9bbb0910a86f2ea0a6cb6c2e067ccd69b603504029e223265e"
+    "f21c0e7073edcc73a4e2e6dc1fcc7effce4f0ea10a47272b6a558a96f9c27d19"
 )
 TEST_FUNCTION_COUNT = 52
 TEST_FUNCTION_DIGEST = (
@@ -339,7 +345,7 @@ def check_cfg_contract(parts: dict[str, str]) -> None:
     )
     digest = hashlib.sha256("\n".join(predicates).encode()).hexdigest()
     require(
-        len(predicates) == 75 and digest == CFG_FINGERPRINT, "cfg boundary set changed"
+        len(predicates) == 76 and digest == CFG_FINGERPRINT, "cfg boundary set changed"
     )
 
 

@@ -480,6 +480,7 @@ const CLASSIFICATION_GOLDEN: &[(&str, &str)] = &[
     ("ReclaimExpiredCapacity", "ControlPlane"),
     ("UpdateCapacityCell", "ControlPlane"),
     ("Sql", "SqlCatalog"),
+    ("SqlSourceBatch", "SqlCatalog"),
     ("AddTriples", "RdfDataset"),
     ("RemoveTriples", "RdfDataset"),
     ("DropNamedGraph", "RdfDataset"),

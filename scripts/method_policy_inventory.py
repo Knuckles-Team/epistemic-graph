@@ -59,7 +59,10 @@ class MethodPolicyRow:
 # off the queue and declaring a stage durable are four different grants. The row
 # below records the binding-write leg as its conservative upper bound, exactly
 # as the four agent layers record theirs.
-EXPECTED_METHOD_POLICY_ROWS = 414
+# 414 -> 415: `SqlSourceBatch` (storage) admits typed SQL source rows through
+# the native SQL-catalog owner: rows, provider cursor, source epoch, terminal
+# result, replay receipt and outbox commit in one MutationBatch.
+EXPECTED_METHOD_POLICY_ROWS = 415
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",

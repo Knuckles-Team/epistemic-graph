@@ -158,6 +158,27 @@ pub(super) async fn dispatch_store_methods(
     }
 }
 
+/// Typed SQL source batches self-route before the graph chain: they append
+/// exact typed rows through the tenant's SQL owner, not a graph.
+#[cfg(feature = "query")]
+pub(super) async fn dispatch_sql_source_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    ControlFlow::Break(match method {
+        Method::SqlSourceBatch { batch } => {
+            dispatch_boxed(handlers::source_batch::handle(
+                ctx.state,
+                ctx.req.id,
+                ctx.verified_context,
+                batch,
+            ))
+            .await
+        }
+        other => return ControlFlow::Continue(other),
+    })
+}
+
 /// The reactive subscription plane: CDC tailing, continuous queries, watches,
 /// triggers and live CEP standing queries.
 ///

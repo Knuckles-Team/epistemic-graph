@@ -102,6 +102,8 @@ pub fn decode_entry(blob: &[u8]) -> Option<(Hash, Hash, &[u8])> {
 /// different from its general fallback further down: the MutationBatch compiler
 /// creates that specific `event_type`/`query` shape internally as a digest-only
 /// receipt for an authoritative staged-state commit.
+mod sql_catalog;
+
 pub fn audit_line(method: &Method) -> Option<String> {
     let graph_crud = || -> Option<String> {
         match method {
@@ -649,18 +651,6 @@ pub fn audit_line(method: &Method) -> Option<String> {
         }
     };
 
-    let transfer = || -> Option<String> {
-        match method {
-            // Transfer paths are logical operator-provisioned names. Keep them out
-            // of the chain so audit records never persist filesystem details.
-            #[cfg(feature = "sqlite-file")]
-            Method::ImportSqliteFile { .. } => Some("IMPORT_SQLITE_FILE".to_string()),
-            #[cfg(feature = "sqlite-file")]
-            Method::ExportSqliteFile { .. } => Some("EXPORT_SQLITE_FILE".to_string()),
-            _ => None,
-        }
-    };
-
     // Every non-durable method (`DurabilityDomain::None`) never reaches this
     // function via the redb write path in the first place; still falls through
     // here harmlessly for any caller that invokes `audit_line` directly.
@@ -685,7 +675,7 @@ pub fn audit_line(method: &Method) -> Option<String> {
         .or_else(broker_setup)
         .or_else(broker_consume)
         .or_else(broker_misc)
-        .or_else(transfer)
+        .or_else(|| sql_catalog::audit_line(method))
 }
 
 /// Walk an ordered iterator of `(seq, stored_blob)` entries and verify the chain.

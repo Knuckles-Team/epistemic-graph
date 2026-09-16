@@ -415,7 +415,7 @@ impl SqlSourceAuthorityWrite<'_, '_> {
         source_acl_snapshot_locked(self, &self.acl, self.authority, table)
     }
 
-    fn authorized_snapshot(
+    pub(crate) fn authorized_snapshot(
         &self,
         table: &str,
         privilege: SqlPrivilege,

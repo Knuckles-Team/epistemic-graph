@@ -389,6 +389,7 @@ SEND_BY_METHOD = {
     "Sparql": reasoning.send_sparql,
     "SparqlVirtual": reasoning.send_sparql_virtual,
     "Sql": query.send_sql,
+    "SqlSourceBatch": storage.send_sql_source_batch,
     "StaleMaterializations": query.send_stale_materializations,
     "StartTrajectory": graph.send_start_trajectory,
     "Statechart": coordination.send_statechart,

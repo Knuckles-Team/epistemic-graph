@@ -43,7 +43,8 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // catalog tables `eg-query` wrote without declaring, MINUS the five
     // `__sql_mutation_*__` tables of the private ledger RF-RULING-006 retired
     // onto `MutationKernel`'s.
-    assert_eq!(owner_table_names(OwnerLayout::Sql).len(), 18);
+    // One SQL-owned provider-checkpoint table joins the existing owner rows.
+    assert_eq!(owner_table_names(OwnerLayout::Sql).len(), 19);
     assert_eq!(owner_table_names(OwnerLayout::PathIndex).len(), 1);
     // Six root-binary sidecar layouts. Each is one physical file with one
     // fixed native ControlPlane scope, so each declares only its own table(s):
@@ -132,7 +133,9 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
     // cursor high-water (`cas_holders`, `cas_retention`, `cas_counters`). All
     // three are `DomainService` rows written through the blob store's admitted
     // owner write, so `shared` stays the two CAS tables: service 127 = 124 + 3.
-    assert_eq!((names.len(), service, shared), (129, 127, 2));
+    // 129 -> 130: the SQL provider checkpoint head row. It is DomainService,
+    // not another ledger, so service 128 = 127 + 1; `shared` is unchanged.
+    assert_eq!((names.len(), service, shared), (130, 128, 2));
 }
 
 #[test]
@@ -787,7 +790,9 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     // `agent_library`'s.
     // 144 -> 147: the Blob layout's holder rows, manifest retention and upload
     // cursor high-water mark (`cas_holders`, `cas_retention`, `cas_counters`).
-    assert_eq!(names.len(), 147);
+    // 147 -> 148: the SQL provider checkpoint table this lane adds. Every
+    // registered mutation table must refuse plain recovery, including it.
+    assert_eq!(names.len(), 148);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();

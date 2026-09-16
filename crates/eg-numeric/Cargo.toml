@@ -21,7 +21,7 @@ default = []
 # crates/; and this crate keeps pyo3 out of any engine-linked build). Only the
 # wheel build (maturin) turns this on. The boundary accepts/returns Python built-ins;
 # it deliberately has no NumPy runtime dependency.
-python = ["dep:pyo3", "analytics"]
+python = ["dep:pyo3", "analytics", "dep:eg-types"]
 # Analytics stats ops (CONCEPT:EG-357/EG-358): spearmanr / ks_2samp / normal
 # ppf+pdf. Pulls `statrs` for the distribution CDFs (Student-t, Normal). Kept OUT
 # of `default` so an engine `pi`/`node`/`full` build that links the eg-numeric rlib
@@ -85,6 +85,9 @@ libm = { version = "=0.2.16", default-features = false, features = ["force-soft-
 
 # Surface-A only (feature `python`): built-in Python sequence conversion + GIL release.
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"], optional = true }
+# The mandatory wheel's private wire adapter delegates to the existing protocol
+# authority. It is absent from engine-linked/default numeric builds.
+eg-types = { path = "../eg-types", features = ["query"], optional = true }
 # Analytics only (feature `analytics`): distribution CDFs/quantiles for the
 # scipy-parity stats ops (Student-t p-value, Normal ppf/pdf). Pure Rust, no BLAS.
 statrs = { version = "0.18", default-features = false, optional = true }

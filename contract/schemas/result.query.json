@@ -2266,6 +2266,35 @@
       ],
       "type": "object"
     },
+    "BoundedVec_BoundedVec_SqlSourceCell_256_1024": {
+      "items": {
+        "$ref": "#/$defs/BoundedVec_SqlSourceCell_256"
+      },
+      "maxItems": 1024,
+      "type": "array"
+    },
+    "BoundedVec_SqlSourceCell_256": {
+      "items": {
+        "$ref": "#/$defs/SqlSourceCell"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
+    "BoundedVec_float_4096": {
+      "items": {
+        "format": "float",
+        "type": "number"
+      },
+      "maxItems": 4096,
+      "type": "array"
+    },
+    "BoundedVec_string_256": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
     "BoundedVec_string_64": {
       "items": {
         "type": "string"
@@ -21253,6 +21282,33 @@
         },
         {
           "additionalProperties": false,
+          "description": "Typed SQL source batch. One native SQL-catalog MutationBatch commits the\nrows, provider cursor, exact source epoch, terminal result and dirty outbox\natomically. Its authority is process-local: clustered mode refuses it.",
+          "properties": {
+            "method": {
+              "const": "SqlSourceBatch",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "batch": {
+                  "$ref": "#/$defs/SqlSourceBatchRequest"
+                }
+              },
+              "required": [
+                "batch"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "Import every user table (+ its rows) from logical `.db` filename `path`\ninto the engine's user-table store (CONCEPT:EG-KG.query.eg-feature). A table that already exists\nis REPLACED (drop-then-recreate) so the import mirrors the file. Returns a `Json`\nreport `{\"source\":\"sqlite\", \"imported_tables\":[{\"table\",\"rows\"},…]}`.",
           "properties": {
             "method": {
@@ -30970,6 +31026,302 @@
         "column_id"
       ],
       "type": "object"
+    },
+    "SqlSourceBatch": {
+      "additionalProperties": false,
+      "description": "Builder data for a checked submission. No request id, nonce, actor, tenant,\nclock, or client-guessed epoch participates in its semantic content digest.",
+      "properties": {
+        "columns": {
+          "$ref": "#/$defs/BoundedVec_string_256"
+        },
+        "expected_previous": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CursorPosition"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "expected_schema_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "expected_schema_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "mapping_descriptor": {
+          "$ref": "#/$defs/SqlSourceMappingDescriptor"
+        },
+        "partition": {
+          "$ref": "#/$defs/SqlSourceText",
+          "description": "Empty names the provider's unpartitioned stream. Tokens are preserved."
+        },
+        "position": {
+          "$ref": "#/$defs/CursorPosition"
+        },
+        "rows": {
+          "$ref": "#/$defs/BoundedVec_BoundedVec_SqlSourceCell_256_1024"
+        },
+        "source": {
+          "type": "string"
+        },
+        "source_descriptor": {
+          "$ref": "#/$defs/SqlSourceDescriptor"
+        },
+        "table": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "partition",
+        "position",
+        "source_descriptor",
+        "mapping_descriptor",
+        "table",
+        "columns",
+        "rows",
+        "expected_schema_version",
+        "expected_schema_digest"
+      ],
+      "type": "object"
+    },
+    "SqlSourceBatchRequest": {
+      "$ref": "#/$defs/SqlSourceBatch",
+      "description": "Checked on deserialization before any SQL transaction can open. The\nserver must additionally preflight the outer frame using shared MsgpackLimits\nand verify tenant/actor, mapping authority, schema and persisted cursor in its\nauthoritative transaction. This type cannot verify those external facts."
+    },
+    "SqlSourceCell": {
+      "description": "A closed cell vocabulary; bytes and canonical JSON ride as MessagePack bin,\nintegers/timestamps stay i64, and embeddings stay finite f32 values.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "null",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "int",
+              "type": "string"
+            },
+            "value": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "finite_float",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/SqlSourceFloat"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "text",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/SqlSourceText"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "bool",
+              "type": "string"
+            },
+            "value": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Microseconds since Unix epoch, matching the native SQL cell convention.",
+          "properties": {
+            "kind": {
+              "const": "timestamp",
+              "type": "string"
+            },
+            "value": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "bytes",
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "json",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/SqlSourceJson"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "finite_vector",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/SqlSourceVector"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "SqlSourceDescriptor": {
+      "additionalProperties": false,
+      "description": "Bounded source identity content. Metadata must be a JSON object and must not\ncontain credentials. A future adapter validates provider-specific authority;\nmerely presenting this descriptor does not grant source or table access.",
+      "properties": {
+        "dataset": {
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/SqlSourceJson"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "dataset",
+        "metadata"
+      ],
+      "type": "object"
+    },
+    "SqlSourceFloat": {
+      "description": "A finite IEEE-754 double. Invalid values cannot enter through deserialization.",
+      "format": "double",
+      "type": "number"
+    },
+    "SqlSourceJson": {
+      "description": "Bounded JSON content, stored as canonical JSON bytes so object ordering does\nnot change semantic digests. This is JSON data, never JSON-encoded row cells.",
+      "items": {
+        "format": "uint8",
+        "maximum": 255,
+        "minimum": 0,
+        "type": "integer"
+      },
+      "type": "array"
+    },
+    "SqlSourceMappingDescriptor": {
+      "additionalProperties": false,
+      "description": "Actual bounded mapping content, not a caller's unverified digest assertion.\nFormat interpretation/normalization belongs to the future trusted adapter.",
+      "properties": {
+        "content": {
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "format": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "format",
+        "content"
+      ],
+      "type": "object"
+    },
+    "SqlSourceText": {
+      "description": "Text is capped in UTF-8 bytes, without restricting source-system characters.",
+      "type": "string"
+    },
+    "SqlSourceVector": {
+      "$ref": "#/$defs/BoundedVec_float_4096",
+      "description": "A bounded, finite native f32 embedding. An empty embedding is invalid."
     },
     "StaleMaterializationsResult": {
       "description": "Materialized result of a `Method::StaleMaterializations` run (Seam 3 follow-up).\n`ids` is every opaque materialization reference currently `Stale` in the\ndurable per-graph projection, sorted by its persisted `BTreeSet`. Empty means\nnothing is stale; missing or corrupt projection authority is an error.\nReturned via `ResultPayload::raw`.",

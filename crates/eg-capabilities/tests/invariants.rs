@@ -22,7 +22,7 @@ fn method_policy_registry_has_no_duplicates() {
         // classifier comparisons live in `tests/consistency.rs`.
         let _ = table_policy;
     }
-    // The ledger currently contains 414 rows: 407 unconditional rows plus one
+    // The ledger currently contains 415 rows: 408 unconditional rows plus one
     // row for each of the seven feature-gated surfaces below. Keep this formula
     // aligned with the cfg rows in the domain row inventory so every supported
     // feature combination checks the same coverage invariant.
@@ -34,7 +34,9 @@ fn method_policy_registry_has_no_duplicates() {
     // queue. Unconditional, like the four agent layers: the `ann-redb`/`query`
     // gate lives on the dispatch arm that serves the method, not on whether the
     // method is in the contract.
-    let expected = 407
+    // 407 -> 408: `SqlSourceBatch`, typed SQL source rows admitted through the
+    // native SQL-catalog owner.
+    let expected = 408
         + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
@@ -47,6 +49,28 @@ fn method_policy_registry_has_no_duplicates() {
         expected,
         "expected exactly {expected} Method variants"
     );
+}
+
+#[test]
+fn sql_source_batch_policy_is_native_and_audited() {
+    let (_, policy, note) = method_policy_entries()
+        .find(|(name, _, _)| *name == "SqlSourceBatch")
+        .expect("missing SQL source batch policy");
+    assert_eq!(
+        policy,
+        MethodPolicy {
+            mutates: true,
+            durability_domain: DurabilityDomain::ControlRedb,
+            authz_action: "query:sql",
+            idempotent: true,
+            audited: true,
+            emits_cdc: false,
+            txn_participation: TxnParticipation::Atomic,
+        }
+    );
+    assert!(note.contains("native SQL-catalog MutationBatch"));
+    assert!(note.contains("refused in clustered mode"));
+    assert!(!note.contains("runtime-conditional"));
 }
 
 #[test]

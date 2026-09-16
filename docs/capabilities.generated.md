@@ -406,6 +406,7 @@
 | `KvDelete` | true | KvRedb | `kv:write` | true | false | false | Atomic | durable via its own kv.redb (redb::Durability::Immediate); self-routes before dispatch_graph_op |
 | `KvScan` | false | None | `kv:read` | true | false | false | Snapshot |  |
 | `KvCas` | true | KvRedb | `kv:write` | false | false | false | Atomic | durable via its own kv.redb (redb::Durability::Immediate, commit-before-ack); self-routes before graph dispatch |
+| `SqlSourceBatch` | true | ControlRedb | `query:sql` | true | true | false | Atomic | native SQL-catalog MutationBatch: typed source rows, provider cursor, committed source epoch, terminal result, replay/idempotency and outbox in one WTX; self-routes before graph dispatch; local-only authority, refused in clustered mode |
 | `ImportSqliteFile` | true | ControlRedb | `admin:sqlite-file` | true | true | false | Atomic | native SQL-catalog MutationBatch; logical transfer name is excluded from the durable receipt |
 | `ExportSqliteFile` | false | None | `admin:sqlite-file` | true | true | false | Snapshot | operator-provisioned transfer root; logical filenames only |
 | `BatchUpdate` | true | GraphRedb | `node:write` | false | true | false | Atomic |  |

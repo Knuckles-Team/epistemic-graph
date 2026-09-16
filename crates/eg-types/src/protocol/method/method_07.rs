@@ -19,6 +19,14 @@ $($variants)*
     },
 
 
+    /// Typed SQL source batch. One native SQL-catalog MutationBatch commits the
+    /// rows, provider cursor, exact source epoch, terminal result and dirty outbox
+    /// atomically. Its authority is process-local: clustered mode refuses it.
+    #[cfg(feature = "query")]
+    SqlSourceBatch {
+        batch: crate::storage_wire::SqlSourceBatchRequest,
+    },
+
     // ── SQLite `.db` file import/export (CONCEPT:EG-KG.query.eg-feature/EG-332) ─────────
     // Read/write a real on-disk `sqlite3` `.db` FILE (the documented EG-075 follow-up),
     // distinct from the `sqlite-wire` NDJSON dialect surface. NOT graph-scoped: both ops

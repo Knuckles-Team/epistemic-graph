@@ -250,7 +250,7 @@ def main() -> None:
     policies = capability_inventory()
     methods, reads = require_protocol_inventory(protocol, policies)
 
-    access = read("src/server/access.rs")
+    access = read_module_tree("src/server/access.rs", root_dir=ROOT, include_tests=True)
     isolation, can_see_row = isolation_source()
     dispatch = read_module_tree("src/server/dispatch.rs", root_dir=ROOT)
     graph_ops = read_module_tree("src/server/handlers/graph_ops.rs", root_dir=ROOT)

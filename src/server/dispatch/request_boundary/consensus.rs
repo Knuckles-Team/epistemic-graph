@@ -5,7 +5,6 @@ pub(crate) async fn check_cluster_placement_before_consensus(
     state: &Arc<RwLock<ServerState>>,
     req: &Request,
 ) -> Result<(), Response> {
-    use crate::server::mutation::ClusterMutationRoute;
     if is_replicated_apply() {
         // The command is already committed in the owning group's log. Its
         // domain kernel must apply locally on every replica without proposing
@@ -20,31 +19,49 @@ pub(crate) async fn check_cluster_placement_before_consensus(
         placement,
         crate::server::state::PlacementAuthorityKind::Local
     ) {
-        match crate::server::mutation::cluster_mutation_route(&req.method) {
-            // `SelfRoutedAdmin` owns its OWN `MultiRaft`-presence check
-            // (`handlers::raft_admin::try_handle` answers
-            // `RAFT_NOT_CONFIGURED`/`CLUSTER_CONFIGURATION_INVALID` itself,
-            // matching this exact pair of messages) — it must not be
-            // preempted here, exactly like `ReadOnly`/`VolatileControl`.
-            ClusterMutationRoute::ReadOnly
-            | ClusterMutationRoute::VolatileControl
-            | ClusterMutationRoute::SelfRoutedAdmin => {}
-            ClusterMutationRoute::ConsensusGraph
-            | ClusterMutationRoute::ConsensusNative
-            | ClusterMutationRoute::ConsensusFanout
-                if placement.missing_error().is_some() =>
-            {
-                return Err(Response::err(
-                    req.id,
-                    placement
-                        .missing_error()
-                        .expect("missing placement authority has a typed error"),
-                ));
-            }
-            ClusterMutationRoute::ConsensusGraph
-            | ClusterMutationRoute::ConsensusNative
-            | ClusterMutationRoute::ConsensusFanout => {}
+        return clustered_route_admission(req, &placement);
+    }
+    Ok(())
+}
+
+/// Admission of one mutation under a non-local placement authority: refuse
+/// local-only mutations and missing placement before any proposal.
+#[cfg(feature = "raft")]
+fn clustered_route_admission(
+    req: &Request,
+    placement: &crate::server::state::PlacementAuthorityKind,
+) -> Result<(), Response> {
+    use crate::server::mutation::ClusterMutationRoute;
+    match crate::server::mutation::cluster_mutation_route(&req.method) {
+        // `SelfRoutedAdmin` owns its OWN `MultiRaft`-presence check
+        // (`handlers::raft_admin::try_handle` answers
+        // `RAFT_NOT_CONFIGURED`/`CLUSTER_CONFIGURATION_INVALID` itself,
+        // matching this exact pair of messages) — it must not be
+        // preempted here, exactly like `ReadOnly`/`VolatileControl`.
+        ClusterMutationRoute::ReadOnly
+        | ClusterMutationRoute::VolatileControl
+        | ClusterMutationRoute::SelfRoutedAdmin => {}
+        ClusterMutationRoute::LocalOnly => {
+            return Err(Response::err(
+                req.id,
+                crate::server::mutation::LOCAL_ONLY_CLUSTER_REFUSAL,
+            ));
         }
+        ClusterMutationRoute::ConsensusGraph
+        | ClusterMutationRoute::ConsensusNative
+        | ClusterMutationRoute::ConsensusFanout
+            if placement.missing_error().is_some() =>
+        {
+            return Err(Response::err(
+                req.id,
+                placement
+                    .missing_error()
+                    .expect("missing placement authority has a typed error"),
+            ));
+        }
+        ClusterMutationRoute::ConsensusGraph
+        | ClusterMutationRoute::ConsensusNative
+        | ClusterMutationRoute::ConsensusFanout => {}
     }
     Ok(())
 }

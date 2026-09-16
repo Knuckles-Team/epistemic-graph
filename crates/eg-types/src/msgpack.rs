@@ -269,7 +269,7 @@ pub fn decode_edge_relationship(input: &[u8]) -> Option<String> {
 /// every nesting level. Deserializing directly into `serde_json::Value` would make
 /// duplicate maps last-write-wins, which is ambiguous for schemas, authorization
 /// metadata, and graph properties.
-struct UniqueJsonValue(serde_json::Value);
+pub(crate) struct UniqueJsonValue(pub(crate) serde_json::Value);
 
 impl<'de> Deserialize<'de> for UniqueJsonValue {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>

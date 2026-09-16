@@ -2936,6 +2936,7 @@ name = "eg-numeric"
 version = "0.1.0"
 dependencies = [
  "eg-modality",
+ "eg-types",
  "libm",
  "nalgebra",
  "ndarray 0.17.2",

@@ -379,6 +379,7 @@ METHOD_IDS = frozenset(
         "BlobRef",
         "BlobUnref",
         "BlobGc",
+        "SqlSourceBatch",
         "ImportSqliteFile",
         "ExportSqliteFile",
         "BatchUpdate",

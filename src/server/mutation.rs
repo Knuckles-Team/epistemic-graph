@@ -118,6 +118,8 @@ mod plan;
 use plan::consensus_apply_is_authorized;
 #[cfg(test)]
 pub use plan::GATEWAY_ROUTED;
+#[cfg(feature = "raft")]
+pub use plan::LOCAL_ONLY_CLUSTER_REFUSAL;
 #[cfg(any(feature = "raft", test))]
 pub use plan::{cluster_mutation_route, ClusterMutationRoute};
 pub use plan::{is_gateway_routed, method_variant_name, GatewayAuthzCtx, MutationPlan};
@@ -1995,6 +1997,7 @@ mod tests {
         // rather than an ordering convention.
         ("SemanticIndex", "native MutationBatch in the OwnerLayout::SemanticIndex owner: binding/stage row + artifact + successor intent + lease ack in one WTX via eg-transaction, exactly like AnalyticsJob in jobs.redb"),
         ("ImportSqliteFile", "native SQL-catalog MutationBatch: all imported tables + exact result/coordinator metadata in one WTX"),
+        ("SqlSourceBatch", "native SQL owner MutationBatch: typed source rows, provider checkpoint, committed epoch, terminal result, replay and outbox in one WTX; LocalOnly authority refuses active Raft"),
         // ── Process-global registries on ServerState: opaque control-redb sagas,
         // no GraphCore/graph_name; dispatched directly in the top-level match. ──
         ("CreateChannel", "opaque prepared/committed session-control MutationBatch"),
@@ -2206,6 +2209,7 @@ mod tests {
         covered.extend(crate::raft::NATIVE_CONSENSUS_METHODS.iter().copied());
         covered.extend(CONSENSUS_FANOUT_METHODS.iter().copied());
         covered.extend(SELF_ROUTED_ADMIN_METHODS.iter().copied());
+        covered.extend(plan::LOCAL_ONLY_METHODS.iter().copied());
         covered.insert("ApplyChangeEnvelope");
         covered.insert("ServedModality");
         covered.insert("Shutdown");
@@ -2243,10 +2247,13 @@ mod tests {
             .iter()
             .copied()
             .collect();
-        for name in SELF_ROUTED_ADMIN_METHODS {
+        for name in SELF_ROUTED_ADMIN_METHODS
+            .iter()
+            .chain(plan::LOCAL_ONLY_METHODS)
+        {
             assert!(
                 !native_consensus.contains(name),
-                "'{name}' is in both SELF_ROUTED_ADMIN_METHODS and \
+                "'{name}' is both self-routed or local-only and in \
                  raft::NATIVE_CONSENSUS_METHODS -- cluster_mutation_route would be ambiguous"
             );
         }

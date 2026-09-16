@@ -3397,6 +3397,7 @@ components:
     contract_state: unknown_not_inventory_complete
     owned_crates: []
     owned_source_roots:
+      - "src/server/access"
       - "src/server/access.rs"
       - "src/server/amqp_wire"
       - "src/server/auth.rs"
@@ -3681,6 +3682,7 @@ components:
       - "src/cost"
       - "src/performance_probe.rs"
       - "src/performance_probe"
+      - "src/audit"
       - "src/audit.rs"
       - "src/autosize.rs"
       - "src/channels.rs"
@@ -3934,6 +3936,7 @@ components:
       - "tests/test_service_layer.py"
       - "tests/test_source_guards.py"
       - "tests/test_sql_query_auth.py"
+      - "tests/test_sql_source_native_client.py"
       - "tests/test_startup.py"
       - "tests/test_statespace_kernels.py"
       - "tests/test_streaming_cdc.py"

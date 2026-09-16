@@ -12,8 +12,10 @@ import concurrent.futures
 import contextlib
 import contextvars
 import copy
+import functools
 import hashlib
 import hmac
+import importlib
 import inspect
 import json
 import logging
@@ -24,7 +26,7 @@ import ssl
 import struct
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any, Literal, NamedTuple, NoReturn, TypedDict, cast
 
@@ -812,12 +814,171 @@ def _pack_binary_msgpack(value: Any) -> bytes:
     return msgpack.packb(value, use_bin_type=True)
 
 
-def _canonical_method_body(method: str, params: dict[str, Any] | None = None) -> bytes:
+_SQL_SOURCE_CODEC = "eg/sql-source/v1"
+
+
+def _sql_source_native_codec() -> Any:
+    """Resolve lazily, after the package's editable native overlay is installed."""
+    from .client_capabilities import ClientCapabilityError
+
+    try:
+        # The compiled kernel ships no type stub, so it is resolved by name.
+        numeric = importlib.import_module(f"{__package__}.numeric")
+    except ImportError as exc:
+        raise ClientCapabilityError(
+            "SQL source preparation requires the native codec"
+        ) from exc
+    helpers = ("_prepare_sql_source_batch", "_canonical_sql_source_json")
+    limits = getattr(numeric, "__sql_source_limits__", None)
+    valid_limits = (
+        type(limits) is tuple
+        and len(limits) == 3
+        and all(type(limit) is int and limit > 0 for limit in limits)
+    )
+    if (
+        getattr(numeric, "__sql_source_codec__", None) != _SQL_SOURCE_CODEC
+        or not valid_limits
+        or not all(callable(getattr(numeric, helper, None)) for helper in helpers)
+    ):
+        raise ClientCapabilityError(
+            "SQL source preparation requires the current native codec"
+        )
+    return numeric
+
+
+class _SqlSourceSnapshot:
+    """Copy only built-ins, checking a MessagePack size upper bound first.
+
+    Nine bytes per value bounds scalar/container headers. UTF-8 is measured in
+    small chunks before copying or packing. Conservative accounting can reject
+    an input near the wire ceiling; it never builds an oversized unchecked copy.
+    """
+
+    def __init__(self, limits: tuple[int, int, int]) -> None:
+        self.bytes_left, self.items_left, self.max_depth = limits
+
+    def take(self, size: int, *, item: bool = False) -> None:
+        if size > self.bytes_left or (item and self.items_left == 0):
+            raise ValueError("SQL source input exceeds native resource limits")
+        self.bytes_left -= size
+        self.items_left -= int(item)
+
+    def text(self, value: str) -> str:
+        if len(value) > self.bytes_left:
+            raise ValueError("SQL source text exceeds the byte limit")
+        for start in range(0, len(value), 4096):
+            self.take(len(value[start : start + 4096].encode("utf-8")))
+        return value
+
+    def scalar(self, value: Any) -> Any:
+        if value is None or type(value) is bool:
+            return value
+        if type(value) is int and -(1 << 63) <= value < (1 << 64):
+            return value
+        if type(value) is float and math.isfinite(value):
+            return value
+        raise TypeError(
+            "SQL source input requires bounded finite MessagePack built-ins"
+        )
+
+    def mapping(self, value: dict[str, Any], depth: int) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, item in value.items():
+            if type(key) is not str:
+                raise TypeError("SQL source map keys must be strings")
+            copied_key = self.clone(key, depth + 1)
+            result[copied_key] = self.clone(item, depth + 1)
+        return result
+
+    def sequence(self, value: list[Any] | tuple[Any, ...], depth: int) -> list[Any]:
+        result: list[Any] = []
+        for item in value:
+            result.append(self.clone(item, depth + 1))
+        return result
+
+    def clone(self, value: Any, depth: int = 0) -> Any:
+        if depth > self.max_depth:
+            raise ValueError("SQL source input exceeds the nesting limit")
+        self.take(9, item=True)
+        if type(value) is dict:
+            return self.mapping(value, depth)
+        if type(value) in (list, tuple):
+            return self.sequence(value, depth)
+        if type(value) is str:
+            return self.text(value)
+        if type(value) is bytes:
+            self.take(len(value))
+            return value
+        return self.scalar(value)
+
+
+def _snapshot_sql_source_input(value: Any, codec: Any) -> Any:
+    return _SqlSourceSnapshot(codec.__sql_source_limits__).clone(value)
+
+
+def _sql_source_input_bytes(value: Any, codec: Any) -> bytes:
+    if type(value) is bytes:
+        if len(value) > codec.__sql_source_limits__[0]:
+            raise ValueError("SQL source input exceeds the byte limit")
+        return value
+    snapshot = _snapshot_sql_source_input(value, codec)
+    return _pack_binary_msgpack(snapshot)
+
+
+class SqlSourceBatchPreparation(NamedTuple):
+    """Native checked bytes and integrity digests; these grant no source authority."""
+
+    canonical_batch: bytes
+    source_digest: str
+    mapping_digest: str
+    batch_digest: str
+    method_body: bytes
+
+    def as_params(self) -> dict[str, Any]:
+        """Return an independent typed-wire params copy for sending the batch."""
+        checked = _prepare_sql_source_batch(self.canonical_batch)
+        if checked != self:
+            raise ValueError(
+                "SQL source preparation does not match its native checked batch"
+            )
+        return msgpack.unpackb(checked.method_body, raw=False)["params"]
+
+
+def _prepare_sql_source_batch(value: Any) -> SqlSourceBatchPreparation:
+    codec = _sql_source_native_codec()
+    return SqlSourceBatchPreparation(
+        *codec._prepare_sql_source_batch(_sql_source_input_bytes(value, codec))
+    )
+
+
+def _sql_source_batch_param(params: Any) -> Any:
+    if type(params) is not dict or len(params) != 1 or "batch" not in params:
+        raise ValueError("SqlSourceBatch requires exactly one batch parameter")
+    return params["batch"]
+
+
+def _sql_source_method_body(method: str, params: dict[str, Any] | None) -> bytes:
+    """The native eg-types codec owns this body; Python never re-encodes it."""
+    del method
+    return _prepare_sql_source_batch(_sql_source_batch_param(params)).method_body
+
+
+def _python_method_body(method: str, params: dict[str, Any] | None) -> bytes:
     method_wire: dict[str, Any] = {"method": method}
     if params is not None:
         method_wire["params"] = _canonicalize_method_value(params, method=method)
     _mark_method_f32(method_wire)
     return _pack_canonical_msgpack(method_wire)
+
+
+# Methods whose canonical body is produced by a native codec, not by Python.
+_NATIVE_METHOD_BODIES: dict[str, Callable[[str, dict[str, Any] | None], bytes]] = {
+    "SqlSourceBatch": _sql_source_method_body,
+}
+
+
+def _canonical_method_body(method: str, params: dict[str, Any] | None = None) -> bytes:
+    return _NATIVE_METHOD_BODIES.get(method, _python_method_body)(method, params)
 
 
 def _canonicalize_method_value(value: Any, *, method: str, field: str = "") -> Any:
@@ -10831,10 +10992,58 @@ class QueryClient:
     ``props`` blob column plus ``json_get(props, key)`` /
     ``json_get_f64`` / ``json_get_i64`` UDFs reach fields the inferred schema
     widened or dropped.
+
+    Typed source ingestion shares this SQL namespace. Local preparation grants
+    no mutation authority; serving the source method requires server admission.
     """
 
     def __init__(self, client: EpistemicGraphClient) -> None:
         self._client = client
+
+    @staticmethod
+    def canonical_sql_source_json(value: Any, *, raw_json: bool = False) -> bytes:
+        """Canonical native JSON bin for metadata or a JSON cell.
+
+        Ordinary values travel through MessagePack, avoiding a second JSON
+        serializer. ``raw_json=True`` accepts immutable JSON bytes and preserves
+        native duplicate-key rejection. This is a local synchronous operation.
+        """
+        codec = _sql_source_native_codec()
+        if raw_json and type(value) is not bytes:
+            raise TypeError("raw SQL source JSON must be immutable bytes")
+        if not raw_json:
+            value = _snapshot_sql_source_input(value, codec)
+            value = _pack_binary_msgpack(value)
+        return codec._canonical_sql_source_json(
+            _sql_source_input_bytes(value, codec), raw_json=raw_json
+        )
+
+    @staticmethod
+    def prepare_sql_source_batch(value: Any) -> SqlSourceBatchPreparation:
+        """Locally validate a typed batch and obtain native bytes/digests.
+
+        JSON fields must be JSON bytes, produced by ``canonical_sql_source_json``
+        or supplied as raw JSON bytes. The result proves integrity, not source,
+        tenant, schema, cursor, or transaction authorization. It never contacts
+        a server and does not advertise that the server serves this operation.
+        """
+        return _prepare_sql_source_batch(value)
+
+    async def sql_source_batch(self, value: Any) -> Any:
+        """Send one source batch through the ordinary authenticated SQL method.
+
+        Sending snapshots built-ins with conservative native resource ceilings.
+        Packing and signing run in one owned worker, serialized per connection;
+        transport and request IDs remain event-loop owned. Cancellation waits for
+        this bounded worker to finish before releasing its slot and never sends
+        its discarded request. Python cannot forcibly terminate a worker thread;
+        it uses the loop's existing executor, with no new scheduler or pool.
+        """
+        if isinstance(value, SqlSourceBatchPreparation):
+            value = value.canonical_batch
+        return (
+            await _gen.storage.send_sql_source_batch(self._client, {"batch": value})
+        ).payload
 
     async def sql(
         self, query: str, params_msgpack: bytes = b""
@@ -14429,6 +14638,9 @@ class EpistemicGraphClient:
         # write so two callers never interleave bytes on the wire.
         self._lock = asyncio.Lock()
         self._write_lock = asyncio.Lock()
+        # At most one SQL preparation producer per client, including cancellation
+        # cleanup. This uses the loop's existing executor rather than a new pool.
+        self._sql_source_prepare_lock = asyncio.Lock()
         self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
         self._reader_task: asyncio.Task[None] | None = None
         # One shared teardown task gives concurrent callers (and a caller that
@@ -15222,6 +15434,95 @@ class EpistemicGraphClient:
             self._mark_dead(e)
             raise
 
+    def _build_sql_source_payload(
+        self,
+        params: dict[str, Any],
+        *,
+        req_id: int,
+        target_graph: str,
+        idempotency_key: str | None,
+    ) -> bytes:
+        prepared = _prepare_sql_source_batch(_sql_source_batch_param(params))
+        # Only decode bytes just produced by the checked native codec. Do not
+        # deserialize caller-provided prepared bytes or trust asserted digests.
+        params = msgpack.unpackb(prepared.method_body, raw=False)["params"]
+        request = self._build_send_request(
+            "SqlSourceBatch",
+            params,
+            req_id=req_id,
+            target_graph=target_graph,
+            idempotency_key=idempotency_key,
+        )
+        return _pack_binary_msgpack(request)
+
+    @staticmethod
+    async def _finish_sql_source_preparation(task: asyncio.Task[bytes]) -> bytes:
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            # A thread cannot be killed safely. Retain ownership and retrieve its
+            # outcome before cancellation releases admission; repeated cancels
+            # must not orphan it or permit a second producer in the same slot.
+            while not task.done():
+                try:
+                    await asyncio.shield(task)
+                except asyncio.CancelledError:
+                    continue
+                except Exception:
+                    break
+            if not task.cancelled():
+                with contextlib.suppress(Exception):
+                    task.result()
+            raise
+
+    async def _sql_source_send_payload(
+        self,
+        params: dict[str, Any] | None,
+        *,
+        req_id: int,
+        target_graph: str,
+        idempotency_key: str | None,
+    ) -> bytes:
+        codec = _sql_source_native_codec()
+        async with self._sql_source_prepare_lock:
+            # No await occurs while snapshotting caller data. Only bounded owned
+            # containers and immutable leaves are subsequently given to a worker.
+            snapshot = _snapshot_sql_source_input(params, codec)
+            task = asyncio.create_task(
+                asyncio.to_thread(
+                    self._build_sql_source_payload,
+                    snapshot,
+                    req_id=req_id,
+                    target_graph=target_graph,
+                    idempotency_key=idempotency_key,
+                )
+            )
+            return await self._finish_sql_source_preparation(task)
+
+    def _send_payload_builder(self, method: str) -> Callable[..., Awaitable[bytes]]:
+        """Select the payload producer: a native codec method or the Python one."""
+        if method in _NATIVE_METHOD_BODIES:
+            return self._sql_source_send_payload
+        return functools.partial(self._python_send_payload, method)
+
+    async def _python_send_payload(
+        self,
+        method: str,
+        params: dict[str, Any] | None,
+        *,
+        req_id: int,
+        target_graph: str,
+        idempotency_key: str | None,
+    ) -> bytes:
+        request = self._build_send_request(
+            method,
+            params,
+            req_id=req_id,
+            target_graph=target_graph,
+            idempotency_key=idempotency_key,
+        )
+        return msgpack.packb(request, use_bin_type=True)
+
     async def _send(
         self,
         method: str,
@@ -15231,14 +15532,12 @@ class EpistemicGraphClient:
         idempotency_key: str | None = None,
     ) -> Any:
         req_id = self._next_id()
-        request = self._build_send_request(
-            method,
+        payload = await self._send_payload_builder(method)(
             params,
             req_id=req_id,
             target_graph=graph or self._graph_name,
             idempotency_key=idempotency_key,
         )
-        payload = msgpack.packb(request, use_bin_type=True)
         resp = await self._roundtrip(payload, req_id=req_id, method=method)
 
         if resp.get("error") is not None:

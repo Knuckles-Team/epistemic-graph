@@ -16,12 +16,18 @@ from collections.abc import Iterable
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any, Final
 
-from .client import ConsensusClient, WorkItemClient
+from .client import (
+    ConsensusClient,
+    QueryClient,
+    WorkItemClient,
+    _sql_source_native_codec,
+)
 
 PACKAGE_NAME: Final = "epistemic-graph"
 CLIENT_CAPABILITY_SCHEMA_VERSION: Final = 1
 WORK_ITEM_METADATA_CAS_CAPABILITY: Final = "work_items.cas_metadata"
 CONSENSUS_GET_IDENTITY_CAPABILITY: Final = "consensus.get_identity"
+SQL_SOURCE_PREPARATION_CAPABILITY: Final = "query.prepare_sql_source_batch"
 
 
 class ClientCapabilityError(RuntimeError):
@@ -40,10 +46,23 @@ def _package_version() -> str:
     return package_version
 
 
+def _sql_source_preparation_available() -> bool:
+    if not callable(getattr(QueryClient, "prepare_sql_source_batch", None)):
+        return False
+    if not callable(getattr(QueryClient, "canonical_sql_source_json", None)):
+        return False
+    try:
+        _sql_source_native_codec()
+    except ClientCapabilityError:
+        return False
+    return True
+
+
 def _capabilities() -> dict[str, bool]:
     """Report only capabilities present on this imported client class."""
 
     return {
+        SQL_SOURCE_PREPARATION_CAPABILITY: _sql_source_preparation_available(),
         WORK_ITEM_METADATA_CAS_CAPABILITY: callable(
             getattr(WorkItemClient, "cas_metadata", None)
         ),

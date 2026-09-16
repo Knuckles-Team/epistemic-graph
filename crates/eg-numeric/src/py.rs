@@ -21,6 +21,7 @@ fn map_err(e: crate::NumericError) -> PyErr {
 }
 
 mod conversion;
+mod wire;
 use conversion::{
     check_output_size, finish, norm_axis, py_array, to_bool_1d, to_f64_1d, to_f64_2d, to_f64_dyn,
 };
@@ -466,6 +467,7 @@ fn permutation_indices(py: Python<'_>, population: usize, seed: u64) -> PyResult
 /// The `epistemic_graph.numeric` extension module.
 #[pymodule]
 fn numeric(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    wire::register(m)?;
     m.add("LinAlgError", m.py().get_type::<LinAlgError>())?;
     m.add("__kernel__", "eg-numeric")?;
     // NE-249: scalar constants, natively defined. Previously these were

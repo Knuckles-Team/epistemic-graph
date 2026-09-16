@@ -86,6 +86,7 @@ pub use contract::{
     MAX_DIRECT_STATE_OWNER_TABLES,
 };
 pub use filesystem::ensure_private_directory;
+pub(crate) use filesystem::PinnedPrivateDirectory;
 pub use generation::{
     AssembledDirectStateGeneration, DirectStateDomainValue, DirectStateGeneration,
     DirectStateGenerationEntry, DirectStatePinnedValue, DirectStateRegistryIdentity,

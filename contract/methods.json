@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 414,
+  "method_count": 415,
   "methods": [
     {
       "consumer_profiles": [
@@ -16734,6 +16734,52 @@
         "selected_by": null
       },
       "stability": "internal"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "storage",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "RBAC_SCOPE_INCARNATION",
+        "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
+      ],
+      "id": "SqlSourceBatch",
+      "note": "native SQL-catalog MutationBatch: typed source rows, provider cursor, committed source epoch, terminal result, replay/idempotency and outbox in one WTX; self-routes before graph dispatch; local-only authority, refused in clustered mode",
+      "policy": {
+        "audited": true,
+        "authz_action": "query:sql",
+        "durability_domain": "ControlRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/SqlSourceBatch"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/SqlSourceBatch",
+        "selected_by": null
+      },
+      "stability": "stable"
     },
     {
       "consumer_profiles": [

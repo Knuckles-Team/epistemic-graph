@@ -261,6 +261,43 @@ pub(crate) fn compile_opaque_method_in_scope(
     )
 }
 
+/// Compile the closed SQL source append before issuing its bound envelope.
+/// The owner consumes the exact typed method; only digests enter wakeup metadata.
+/// Generic opaque callers retain their original ApplyMutation representation.
+#[cfg(feature = "query")]
+pub(crate) fn compile_sql_source_batch(
+    ctx: CompileBatch<'_>,
+    request: eg_types::storage_wire::SqlSourceBatchRequest,
+) -> Result<MutationBatch, String> {
+    if ctx.authoritative_state.is_some() {
+        return Err("SQL source append cannot use authoritative graph state".into());
+    }
+    let batch_digest = request.canonical_digests()?.batch_digest;
+    let operation = MutationOperation {
+        ordinal: 0,
+        surface: MutationSurface::Query,
+        domain: DurabilityDomain::SqlCatalog,
+        method: Method::SqlSourceBatch { batch: request },
+    };
+    finish_batch(
+        ctx,
+        vec![operation],
+        false,
+        CompiledOutbox {
+            extra: Vec::new(),
+            semantic_source_dirty_input: Some(
+                eg_types::semantic_index::SemanticDigest::from_bytes(*batch_digest.as_bytes()),
+            ),
+            #[cfg(feature = "epistemic-tms")]
+            reasoning_events: vec![eg_epistemic::IncrementalReasoningEvent::InvalidateAll],
+        },
+        None,
+    )
+}
+
+#[cfg(all(test, feature = "query"))]
+mod sql_source_tests;
+
 /// Compile a coordinator operation already represented by a SHA-256 digest.  This
 /// is the binding used for encrypted private recovery material: only the digest is
 /// retained in the canonical batch/outbox, while ciphertext is stored out-of-line

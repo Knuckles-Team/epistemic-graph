@@ -1568,6 +1568,82 @@
         }
       ]
     },
+    "CursorPosition": {
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "sequence",
+              "type": "string"
+            },
+            "value": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "timestamp_millis",
+              "type": "string"
+            },
+            "value": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Provider-defined cursors are never ordered lexically.",
+          "properties": {
+            "kind": {
+              "const": "opaque",
+              "type": "string"
+            },
+            "value": {
+              "properties": {
+                "cursor_type": {
+                  "description": "Stable provider cursor type (for example `page_token_v2`).",
+                  "type": "string"
+                },
+                "value": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "cursor_type",
+                "value"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Digest256": {
+      "description": "32 bytes of SHA-256 as lowercase hexadecimal",
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
     "PromptMode": {
       "description": "How a prompt's text is resolved.",
       "oneOf": [
@@ -1771,6 +1847,59 @@
         "admin_batches",
         "prepared_parents",
         "encrypted_recovery_plans"
+      ],
+      "type": "object"
+    },
+    "SqlSourceBatchDigests": {
+      "additionalProperties": false,
+      "properties": {
+        "batch_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "mapping_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "source_digest": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "source_digest",
+        "mapping_digest",
+        "batch_digest"
+      ],
+      "type": "object"
+    },
+    "SqlSourceBatchResult": {
+      "additionalProperties": false,
+      "description": "Durable terminal result, generated after the exact SQL source epoch increment\ninside the owner transaction and retained unchanged for idempotent replay.\nNever construct from a server preflight or a freshly sampled current epoch.",
+      "properties": {
+        "accepted_position": {
+          "$ref": "#/$defs/CursorPosition"
+        },
+        "affected_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "authority_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "canonical_digests": {
+          "$ref": "#/$defs/SqlSourceBatchDigests"
+        },
+        "committed_source_epoch": {
+          "format": "uint64",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "canonical_digests",
+        "accepted_position",
+        "affected_count",
+        "committed_source_epoch",
+        "authority_digest"
       ],
       "type": "object"
     },
@@ -2468,6 +2597,18 @@
           "encoding": "Json",
           "schema": {
             "$ref": "#/$defs/RestoreReceipt"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "SqlSourceBatch": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SqlSourceBatchResult"
           }
         }
       },

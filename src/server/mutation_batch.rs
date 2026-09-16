@@ -31,6 +31,8 @@ pub(crate) use commit::{
 };
 #[cfg(feature = "jobs")]
 pub(crate) use compile::compile_opaque_method_in_scope;
+#[cfg(feature = "query")]
+pub(crate) use compile::compile_sql_source_batch;
 pub(crate) use compile::{
     authoritative_graph_version, compile_crossmodal, compile_methods, CompileBatch,
 };

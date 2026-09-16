@@ -1,7 +1,7 @@
 {
   "artifact_digests": {
-    "contract/methods.json": "e7f63200a4dbf0c69add159f136a0961524759b8caa5533f08ab8f52cff89ff6",
-    "contract/schemas/method.request.json": "1b641bce8438c3840f6a2b60029cfaa186807465e082fd3a6311e2b0a6e10f59",
+    "contract/methods.json": "4f52e3c03c1037977c012059d48a6968a2184aede9ee21ccaf0c41d8cb447eed",
+    "contract/schemas/method.request.json": "882133f2afa51b999ad3af11ed0b7191b98b7464e23969a83a9bd70751f19516",
     "contract/schemas/result.cluster.json": "daa015c68e2a0e7780d0e24bfecc1c9ce7bd3288c6c05fc974098a022e03a8d4",
     "contract/schemas/result.compute.json": "c1ba1544c6611818120f91b13a64dd6f45c8a4fdb6bad8b9cebc7fb3c61a3351",
     "contract/schemas/result.coordination.json": "5d3a4c9f90a91c5843a76e9486beab8514bb70967807b1f966561be8e4e78400",
@@ -9,16 +9,16 @@
     "contract/schemas/result.ingestion.json": "7621f1ee96abd6a69da48adffca7fe3df8091f3c147a2d244ea861a3af6216f3",
     "contract/schemas/result.messaging.json": "eaa28f229255ef4b26195218eac9f34ecf2c35b196f1784baefef1aa7179aa3e",
     "contract/schemas/result.payload.json": "1bd5261c36024a16810f262e65449f3cf81de819c1d8189abd68a75133cae8c8",
-    "contract/schemas/result.query.json": "37946690afb843a740a0aeb3209b7445d078e56502b421965ef073914ab23040",
+    "contract/schemas/result.query.json": "b0a1bcbbc71a64949247d3a64b6c0a106f1c5ba4a2626345ae34890fb7f2cc76",
     "contract/schemas/result.reasoning.json": "8fd557235e519a9013be36e38d485b856c9a5e83e0a30bd5d5a8335a46a7ac1f",
     "contract/schemas/result.security.json": "af85883a336f9b8d93f2fba7e6f0b47cccd1697deeb9fb92c7565cf58417267c",
-    "contract/schemas/result.storage.json": "1bb21d5bce442aa94feb5b44d2cedf80ac42a84d7ab3f226b668e63a9183786c",
+    "contract/schemas/result.storage.json": "6c0ad1a0b2475b2b25951596909c79dc8c1d9f6123864127c69addf12ac6b149",
     "contract/schemas/result.transactions.json": "838fd317479843c0085bd8367ccbf310e0f2c0c7fcb10bcc3ee78db9fefe3cb5",
-    "crates/eg-capabilities/generated/method_catalog.rs": "6d6044a771817f5b912e82607ce5642cf0f5f672a0c380654210a2bc02863fe2",
-    "docs/capabilities.generated.md": "5e98d2c213e8a4e9dfe80a50b40750b66a399494cb927bdd6567a8a9f70e4262",
+    "crates/eg-capabilities/generated/method_catalog.rs": "26d8715009965eb9677b08780ea6f00922ef9097f21422dad896a34b87064ce5",
+    "docs/capabilities.generated.md": "ddcc97c9972f8de978942563ee1b359cc02ec06d5082c38e2172df5615180916",
     "epistemic_graph/contract/__init__.py": "0484338d63b99278f479a60dca4830f54a5e81d8fe98b6720e808d4c008c7be7",
-    "epistemic_graph/generated/__init__.py": "0393777edbe10078167209681257a27c6870a2a5623adabd7baa3208efa443af",
-    "epistemic_graph/generated/_ids.py": "c8230107c3bea09b553d280f73956e4442394ca6a02536c6d4399ad542532851",
+    "epistemic_graph/generated/__init__.py": "343cbcc05371a8c857773586243687ccaa469a04212ce7a665151d9d71f8fd5e",
+    "epistemic_graph/generated/_ids.py": "0d7cc454f3064ccf1a3ca65e80983cf91293bf34d5422d1f481a881849a0a09f",
     "epistemic_graph/generated/_runtime.py": "74ed6fd21563ae75c27757676cd4e633c7a2f29215199574bc4ddbe8d59fdebc",
     "epistemic_graph/generated/cluster.py": "6215352c31f018fb25329f1aec6150d635314ef360962ec953d895e808117432",
     "epistemic_graph/generated/compute.py": "7c80667caaa1861e4b1f18ce933dc8b5427cd9be01df1ef669c5af3b6c895da0",
@@ -29,11 +29,11 @@
     "epistemic_graph/generated/query.py": "1adee9d07089cc64a2c8d48b3aa34ce5ff80f7b9c52df357794a04071cd527f4",
     "epistemic_graph/generated/reasoning.py": "ffc3885ae7adf421c23125994a6a29169e7bde51c32f7a6bdbe292a1d0188ac0",
     "epistemic_graph/generated/security.py": "571745314a4957a0b0ec9c007212dd4f67d196e113dab36e26df9e825e319c39",
-    "epistemic_graph/generated/storage.py": "50e319ced5fb2415d8b7df043dabc493e2adfc0c96a31bf527e688154fb0e0ad",
+    "epistemic_graph/generated/storage.py": "3f9649aa1b5e8f48b11c0ce640a19044412fd983ef14b7642f802fdefd2944e5",
     "epistemic_graph/generated/transactions.py": "0bf478adf1635161340242db05401621756deb4ccb0bce6736fe8e64c8253047"
   },
-  "cargo_lock_sha256": "dc69e86a2b041c1eaeffa83c7be5e1129a0a2c274109843adbc5ba2d01192abd",
-  "contract_digest": "cd85e404cf1512c17d78f9f34b5fe8a1d479816fd68392d5a2af03abdc86010f",
+  "cargo_lock_sha256": "fad4000a4c22b133cbbc8f6210d8d49bbf3b20de617c54ca4a4532681b336626",
+  "contract_digest": "aafaa13b32bd03084e7e63028b92fef075d07b4507fbe835bddd383c12cb8e7f",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -123,6 +123,13 @@
         "file": "src/server/persistence/tenant_catalog.rs",
         "scope": "",
         "value": "\"tenant-catalog:v1\""
+      }
+    ],
+    "CHECKPOINT_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-query/src/tables/store/source_batch/checkpoint.rs",
+        "scope": "",
+        "value": "1"
       }
     ],
     "CLUSTER_HIERARCHY_SCOPE_INCARNATION": [
@@ -381,21 +388,6 @@
         "file": "src/performance_probe.rs",
         "scope": "",
         "value": "\"1\""
-      },
-      {
-        "file": "src/server/persistence/agent_component.rs",
-        "scope": "impl RevisionLayer for ComponentLayer",
-        "value": "AGENT_COMPONENT_SCHEMA_VERSION"
-      },
-      {
-        "file": "src/server/persistence/agent_graph.rs",
-        "scope": "impl RevisionLayer for GraphLayer",
-        "value": "AGENT_GRAPH_ENTRY_SCHEMA_VERSION"
-      },
-      {
-        "file": "src/server/persistence/agent_template.rs",
-        "scope": "impl RevisionLayer for TemplateLayer",
-        "value": "AGENT_TEMPLATE_SCHEMA_VERSION"
       }
     ],
     "SECONDARY_INDEX_SCHEMA_VERSION": [
@@ -422,13 +414,13 @@
   },
   "generator": "eg-capabilities/gen_contract",
   "internal_only_methods": 19,
-  "method_count": 414,
-  "python_client_methods": 395,
+  "method_count": 415,
+  "python_client_methods": 396,
   "result_classification": {
     "declared_dynamic": 12,
     "mixed": 1,
-    "schematized": 401,
+    "schematized": 402,
     "unclassified": 0
   },
-  "source_tree_oid": "e6903d344e96bad254fd2612003687b15247609a60f82f758ed5e535ba5210bf"
+  "source_tree_oid": "d21c845896639102295e1520aa137d58bd63d1398bc01c00633c6dcd48b01c06"
 }

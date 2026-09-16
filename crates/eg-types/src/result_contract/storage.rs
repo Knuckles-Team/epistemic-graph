@@ -11,6 +11,8 @@ use crate::agent_library::AgentLibraryEntryDraft;
 use crate::agent_library::AgentLibraryWriteResult;
 use crate::agent_template::AgentTemplateCommittedResult;
 use crate::agent_template::AgentTemplateEntry;
+#[cfg(feature = "query")]
+use crate::storage_wire::SqlSourceBatchResult;
 use crate::storage_wire::{BackupReceipt, RestoreReceipt, SqliteExportReport, SqliteImportReport};
 
 method_results! {
@@ -75,6 +77,8 @@ method_results! {
     // `(key, value)` pairs; each value is the caller's stored bytes as a MessagePack `bin`.
     KvScan(KvScan) => Raw<Dynamic> dynamic CallerBytes;
     KvCas(KvCas) => Bool<bool>;
+    #[cfg(feature = "query")]
+    SqlSourceBatch(SqlSourceBatch) => Raw<SqlSourceBatchResult>;
     ImportSqliteFile(ImportSqliteFile) => Json<SqliteImportReport>;
     ExportSqliteFile(ExportSqliteFile) => Json<SqliteExportReport>;
 }

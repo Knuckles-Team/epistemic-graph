@@ -53,10 +53,16 @@ pub use owner::registry::{
     SEMANTIC_DEAD_LETTERS, SEMANTIC_GRAPH_PROJECTIONS, SEMANTIC_HEADS, SEMANTIC_LEXICAL,
     SEMANTIC_POINTERS, SEMANTIC_SOURCE_PROGRESS, SEMANTIC_SQL_SOURCES, SEMANTIC_STAGES,
     SEMANTIC_STATES, SEMANTIC_TOMBSTONES, SEMANTIC_VECTORS, SQL_SOURCE_AUTHORITY,
+    SQL_SOURCE_CHECKPOINTS,
 };
 pub use owner::row_key::{
     is_control_scope, owner_row_key, reserved_control_graph, OwnerRowScope, OwnerRowScopeStart,
     RowKey, GRAPH_SHARD_CONTROL_GRAPH, GRAPH_SHARD_TENANT,
+};
+pub use owner::sql_checkpoint_upgrade::{
+    inspect_sql_source_checkpoint_upgrade, upgrade_sql_source_checkpoints,
+    SqlSourceCheckpointInspectionOptions, SqlSourceCheckpointUpgradeReport,
+    ValidatedSqlSourceCheckpointUpgrade,
 };
 pub use owner::table_api::*;
 pub use payload::private_payload_digest;

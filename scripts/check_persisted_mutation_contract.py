@@ -655,6 +655,12 @@ def _check_mutation_cluster_inventory(
         _const_slice(mutation_runtime, "SELF_ROUTED_ADMIN_METHODS"),
         "SELF_ROUTED_ADMIN_METHODS",
     )
+    # Local-only mutations are refused in clustered mode at the request boundary;
+    # the Rust test extends `covered` from `LOCAL_ONLY_METHODS` the same way.
+    local_only = _string_set(
+        _const_slice(mutation_runtime, "LOCAL_ONLY_METHODS"),
+        "LOCAL_ONLY_METHODS",
+    )
     cluster_test = _function(
         sources["mutation_runtime_tests"],
         "clustered_mutation_inventory_is_complete",
@@ -663,7 +669,12 @@ def _check_mutation_cluster_inventory(
         re.findall(r'covered\.insert\("([A-Z][A-Za-z0-9_]*)"\)', cluster_test)
     )
     cluster_owned = (
-        routed | native_consensus | fanout | self_routed_admin | explicit_cluster
+        routed
+        | native_consensus
+        | fanout
+        | self_routed_admin
+        | local_only
+        | explicit_cluster
     )
     require(
         cluster_owned == mutating,

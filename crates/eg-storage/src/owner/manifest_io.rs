@@ -62,7 +62,11 @@ where
 
 /// Decode the single manifest row WITHOUT validating it against this build's
 /// layouts, so a predecessor file can be identified rather than refused as a
-/// generic mismatch. Callers that serve the store use [`read_manifest`].
+/// generic mismatch. Callers that serve the store use [`read_manifest`];
+/// decoding grants no serving authority of its own -- the ordinary reader
+/// validates the current contract and an explicit offline upgrader (the SQL
+/// checkpoint upgrader, `persisted_layout`'s predecessor-layout refusal)
+/// validates its frozen predecessor instead.
 pub(crate) fn read_manifest_slot<T>(table: &T) -> Result<OwnerManifest, String>
 where
     T: redb::ReadableTable<&'static str, &'static [u8]>,

@@ -1,10 +1,12 @@
 use crate::owner::contract::expected_owner_table_contract;
 use crate::owner::layout::OwnerLayout;
 use crate::physical::root::is_retired_prototype_table;
-use crate::recovery::evidence::{copy_table, HashSnapshot, StrictTableEvidence};
+use crate::recovery::evidence::{
+    copy_table, HashSnapshot, StrictRecoveryEvidence, StrictTableEvidence,
+};
 use crate::tables::open_declared_ledger_tables;
 use redb::{Key, ReadTransaction, TableDefinition, TableHandle, Value, WriteTransaction};
-use sha2::Sha256;
+use sha2::{Digest, Sha256};
 
 // Closed owner-table registry. These names and types are the manifest contract.
 const RBAC: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("rbac");
@@ -75,6 +77,11 @@ pub const ANN_CODES: TableDefinition<'static, (&str, &str, u64, &str), &[u8]> =
 /// the source epoch in the same owner write; it is not a second ledger.
 pub const SQL_SOURCE_AUTHORITY: TableDefinition<'static, &str, &[u8]> =
     TableDefinition::new("__sql_source_authority__");
+/// Provider progress owned by SQL, not another mutation ledger. Keys are
+/// `(verified tenant, source, partition)`; values are bounded typed MessagePack
+/// checkpoint records supplied by the SQL source adapter.
+pub const SQL_SOURCE_CHECKPOINTS: TableDefinition<'static, (&str, &str, &str), &[u8]> =
+    TableDefinition::new("__sql_source_checkpoints__");
 const SQL_STR_BYTES: [TableDefinition<'static, &str, &[u8]>; 7] = [
     TableDefinition::new("__sql_catalog__"),
     TableDefinition::new("__sql_functions__"),
@@ -279,6 +286,7 @@ macro_rules! visit_owner_tables {
                 $visit!(SQL_SCHEMA_CATALOG_ORDER);
                 $visit!(SQL_PROPERTY_GRAPHS);
                 $visit!(SQL_PROPERTY_GRAPH_SEQ);
+                $visit!(SQL_SOURCE_CHECKPOINTS);
             }
             OwnerLayout::Blob => {
                 $visit!(BLOB_CHUNKS);
@@ -504,6 +512,7 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
             "__sql_schema_catalog_order__",
             "__sql_property_graphs__",
             "__sql_property_graph_seq__",
+            "__sql_source_checkpoints__",
         ],
         OwnerLayout::Blob => &[
             "cas_chunks",
@@ -684,4 +693,39 @@ where
     rtx.open_table(table)
         .map(|_| ())
         .map_err(|error| error.to_string())
+}
+
+/// The exact predecessor evidence for the one explicit SQL checkpoint upgrade.
+/// Callers must prove the frozen predecessor contract and its actual table
+/// census before invoking this: write-side typed opens can create tables.
+/// Uses the strict recovery hash engine and the canonical typed visitors; only
+/// the newly declared checkpoint table is omitted, never any ledger table.
+pub(super) fn sql_pre_checkpoint_evidence(
+    source: HashSnapshot<'_>,
+) -> Result<StrictRecoveryEvidence, String> {
+    let mut hasher = Sha256::new();
+    let mut tables = Vec::new();
+    let mut rows = 0;
+    macro_rules! hash_predecessor {
+        ($table:expr) => {{
+            if $table.name() != SQL_SOURCE_CHECKPOINTS.name() {
+                let (count, fingerprint) = source.hash_table(&mut hasher, $table)?;
+                rows += count;
+                tables.push(StrictTableEvidence {
+                    table_id: $table.name().to_string(),
+                    rows: count,
+                    fingerprint,
+                });
+            }
+        }};
+    }
+    crate::tables::visit_ledger_tables!(hash_predecessor);
+    let ledger_rows = rows;
+    visit_owner_tables!(OwnerLayout::Sql, hash_predecessor);
+    Ok(StrictRecoveryEvidence {
+        ledger_rows,
+        owner_rows: rows - ledger_rows,
+        fingerprint: hasher.finalize().into(),
+        tables,
+    })
 }

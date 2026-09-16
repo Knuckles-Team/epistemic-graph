@@ -33,6 +33,8 @@ use control_plane::{
     dispatch_agent_library_methods, dispatch_cluster_admin_methods,
     dispatch_compute_and_media_methods,
 };
+#[cfg(feature = "query")]
+use data_plane::dispatch_sql_source_methods;
 use data_plane::{
     dispatch_change_envelope_methods, dispatch_governed_stream_write_methods,
     dispatch_method_scoped_graph_methods, dispatch_store_methods, dispatch_streaming_methods,
@@ -135,6 +137,8 @@ async fn dispatch_data_plane_methods(
 ) -> ControlFlow<Response, Method> {
     let method = dispatch_transaction_methods(ctx, method).await?;
     let method = dispatch_store_methods(ctx, method).await?;
+    #[cfg(feature = "query")]
+    let method = dispatch_sql_source_methods(ctx, method).await?;
     let method = dispatch_streaming_methods(ctx, method).await?;
     let method = dispatch_governed_stream_write_methods(ctx, method).await?;
     let method = dispatch_change_envelope_methods(ctx, method).await?;

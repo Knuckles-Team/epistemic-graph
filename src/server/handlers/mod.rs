@@ -107,6 +107,10 @@ pub(crate) mod dist_compute;
 // catch-all.
 #[cfg(feature = "federation")]
 pub(crate) mod federation;
+// Closed typed SQL source batches append through the native SQL owner gate.
+#[cfg(feature = "query")]
+pub(crate) mod source_batch;
+
 // SQLite `.db` FILE import/export (CONCEPT:EG-KG.query.eg-feature/EG-332, feature `sqlite-file`). The
 // ImportSqliteFile/ExportSqliteFile methods move rows between an on-disk `sqlite3` `.db`
 // file and the verified caller's owner-scoped `eg_query::TableStore` (behind `query`), via the pure-Rust

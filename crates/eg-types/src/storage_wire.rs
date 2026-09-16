@@ -4,6 +4,13 @@
 //! They live here, at the bottom of the crate DAG, so the result contract
 //! (`result_contract::storage`) can name the exact body a handler encodes.
 
+pub mod source_batch;
+pub use source_batch::{
+    SqlSourceBatch, SqlSourceBatchDigests, SqlSourceBatchRequest, SqlSourceBatchResult,
+    SqlSourceCell, SqlSourceDescriptor, SqlSourceFloat, SqlSourceJson, SqlSourceMappingDescriptor,
+    SqlSourceRow, SqlSourceRows, SqlSourceText, SqlSourceVector,
+};
+
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};

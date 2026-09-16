@@ -82,6 +82,23 @@ fn preflight_memory_msgpack(method: &Method) -> Option<Result<(), &'static str>>
 }
 
 /// Batch, ingestion, SQL and time-series blobs.
+/// A typed SQL source batch is already bounded by construction; re-derive its
+/// canonical bytes so an over-bound value can never reach the SQL owner.
+fn preflight_sql_source_msgpack(method: &Method) -> Option<Result<(), &'static str>> {
+    #[cfg(feature = "query")]
+    if let Method::SqlSourceBatch { batch } = method {
+        return Some(
+            batch
+                .canonical_bytes()
+                .map(|_| ())
+                .map_err(|_| "SQL source batch exceeds its canonical byte bound"),
+        );
+    }
+    #[cfg(not(feature = "query"))]
+    let _ = method;
+    None
+}
+
 fn preflight_batch_msgpack(method: &Method) -> Option<Result<(), &'static str>> {
     match method {
         Method::BatchUpdate { operations_msgpack } => {
@@ -179,6 +196,7 @@ pub(crate) fn preflight_request_msgpack(method: &Method) -> Result<(), &'static 
     preflight_graph_write_msgpack(method)
         .or_else(|| preflight_memory_msgpack(method))
         .or_else(|| preflight_batch_msgpack(method))
+        .or_else(|| preflight_sql_source_msgpack(method))
         .or_else(|| preflight_feature_surface_msgpack(method))
         .unwrap_or(Ok(()))
 }

@@ -1,12 +1,12 @@
 use super::{contract::*, *};
 
-pub(super) struct PinnedPrivateDirectory {
+pub(crate) struct PinnedPrivateDirectory {
     pub(super) path: PathBuf,
     pub(super) authority: File,
 }
 
 impl PinnedPrivateDirectory {
-    pub(super) fn open(path: &Path) -> Result<Self, String> {
+    pub(crate) fn open(path: &Path) -> Result<Self, String> {
         ensure_private_directory(path)?;
         let authority = open_directory_nofollow(path, "open direct-state private root")?;
         let pinned = Self {
@@ -17,7 +17,7 @@ impl PinnedPrivateDirectory {
         Ok(pinned)
     }
 
-    pub(super) fn validate_live(&self, label: &str) -> Result<(), String> {
+    pub(crate) fn validate_live(&self, label: &str) -> Result<(), String> {
         validate_same_file_identity(
             &self.authority,
             &open_directory_nofollow(&self.path, &format!("open {label}"))?,
@@ -50,7 +50,7 @@ impl PinnedPrivateDirectory {
         Ok(name)
     }
 
-    pub(super) fn validate_file(
+    pub(crate) fn validate_file(
         &self,
         path: &Path,
         expected: &File,
@@ -65,7 +65,7 @@ impl PinnedPrivateDirectory {
         PinnedDirectoryRead { root: self }
     }
 
-    pub(super) fn mutations(&self) -> PinnedDirectoryMutations<'_> {
+    pub(crate) fn mutations(&self) -> PinnedDirectoryMutations<'_> {
         PinnedDirectoryMutations { root: self }
     }
 
@@ -175,12 +175,12 @@ impl PinnedDirectoryRead<'_> {
     }
 }
 
-pub(super) struct PinnedDirectoryMutations<'a> {
+pub(crate) struct PinnedDirectoryMutations<'a> {
     root: &'a PinnedPrivateDirectory,
 }
 
 impl PinnedDirectoryMutations<'_> {
-    pub(super) fn create_new(&self, name: &str, operation: &str) -> Result<File, String> {
+    pub(crate) fn create_new(&self, name: &str, operation: &str) -> Result<File, String> {
         #[cfg(unix)]
         {
             validate_relative_basename(name)?;
@@ -343,7 +343,7 @@ impl PinnedDirectoryMutations<'_> {
     /// that may have been ABA-reused. The public name is atomically moved to a
     /// unique quarantine, the moved inode is compared with the pinned descriptor,
     /// and only that quarantine name is then removed.
-    pub(super) fn retire_unjournaled_exact(
+    pub(crate) fn retire_unjournaled_exact(
         &self,
         name: &str,
         expected: &File,

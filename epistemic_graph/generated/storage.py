@@ -1484,6 +1484,61 @@ async def send_blob_gc(
     return OpaqueResult("BlobGc", payload)
 
 
+class SqlSourceBatchRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        SqlSourceBatch
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/SqlSourceBatch
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    batch: Any
+
+
+async def send_sql_source_batch(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        SqlSourceBatch
+    Authorization:
+        query:sql
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/SqlSourceBatch
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    SqlSourceBatchRequest.model_validate(params or {})
+    payload = await client._send(
+        "SqlSourceBatch",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("SqlSourceBatch", payload)
+
+
 class ImportSqliteFileRequest(BaseModel):
     """Validate one engine-contract request body.
 

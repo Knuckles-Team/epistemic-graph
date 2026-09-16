@@ -89,6 +89,12 @@ pub(crate) fn domain_for(method: &Method, surface: MutationSurface) -> Durabilit
         // `Sql` is likewise wire-unconditional (gated only downstream behind
         // `query`); see the `Ts*` note above -- same reason, same fix.
         Method::Sql { .. } => DurabilityDomain::SqlCatalog,
+        // Unlike `Sql`, `SqlSourceBatch` really is declared
+        // `#[cfg(feature = "query")]` in eg-types (method_07.rs) with nothing
+        // forcing that feature on unconditionally, so it keeps its own gate
+        // as a separate arm rather than sharing `Sql`'s now-unconditional one.
+        #[cfg(feature = "query")]
+        Method::SqlSourceBatch { .. } => DurabilityDomain::SqlCatalog,
         #[cfg(feature = "rdf")]
         Method::AddTriples { .. } | Method::RemoveTriples { .. } | Method::DropNamedGraph => {
             DurabilityDomain::RdfDataset
@@ -574,6 +580,7 @@ pub(super) fn lower_canonical_operation(method: Method) -> Method {
 pub(super) fn surface_for(method: &Method) -> Option<MutationSurface> {
     match method {
         Method::Sql { .. }
+        | Method::SqlSourceBatch { .. }
         | Method::CypherQuery {
             mode: CypherMode::Write,
             ..

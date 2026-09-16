@@ -444,6 +444,17 @@ fn query_method_name(m: &Method) -> Option<&'static str> {
     }
 }
 
+/// Resolve the typed SQL source append surface.
+fn sql_source_method_name(m: &Method) -> Option<&'static str> {
+    #[cfg(feature = "query")]
+    if matches!(m, Method::SqlSourceBatch { .. }) {
+        return Some("SqlSourceBatch");
+    }
+    #[cfg(not(feature = "query"))]
+    let _ = m;
+    None
+}
+
 /// Resolve the native RDF write surface.
 fn rdf_method_name(m: &Method) -> Option<&'static str> {
     match m {
@@ -502,6 +513,7 @@ const METHOD_NAME_RESOLVERS: &[fn(&Method) -> Option<&'static str>] = &[
     mining_reasoning_method_name,
     mining_graph_quality_method_name,
     query_method_name,
+    sql_source_method_name,
     rdf_method_name,
     modality_method_name,
     cluster_admin_method_name,
@@ -531,11 +543,16 @@ pub fn is_gateway_routed(m: &Method) -> bool {
 /// Only commands with a deterministic Raft state-machine representation may be
 /// acknowledged in clustered mode. The complete mutating capability ledger is
 /// covered by graph commands, typed native commands, explicit service control,
-/// or a self-routed admin handler.
+/// a self-routed admin handler, or an explicit local-only refusal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClusterMutationRoute {
     ReadOnly,
     VolatileControl,
+    /// A mutation whose durable authority has process-local ordering only (see
+    /// [`LOCAL_ONLY_METHODS`]). A single-node server serves it through its own
+    /// owner transaction; clustered admission refuses it with
+    /// `LOCAL_ONLY_CLUSTER_REFUSAL` before placement, proposal, saga or store.
+    LocalOnly,
     ConsensusGraph,
     ConsensusNative,
     ConsensusFanout,
@@ -580,6 +597,18 @@ pub const CONSENSUS_FANOUT_METHODS: &[&str] = &["MultiGraphBatchUpdate", "ApplyC
 /// test, not a silent `CLUSTER_MUTATION_UNAVAILABLE` at request time.
 pub const SELF_ROUTED_ADMIN_METHODS: &[&str] = &["RaftAddLearner", "RaftChangeMembership"];
 
+/// Mutating methods whose authority has no replicated ordering yet. The SQL
+/// source owner serializes the source cursor, grant snapshot and receipt under
+/// a process-local authority lock, so replicas cannot apply it identically.
+/// These are refused in clustered mode rather than proposed as a native
+/// command that does not exist or applied on one node only.
+pub const LOCAL_ONLY_METHODS: &[&str] = &["SqlSourceBatch"];
+
+/// The typed clustered-mode refusal for [`LOCAL_ONLY_METHODS`].
+#[cfg(feature = "raft")]
+pub const LOCAL_ONLY_CLUSTER_REFUSAL: &str =
+    "CLUSTER_MUTATION_UNAVAILABLE: this mutation authority has no replicated ordering";
+
 /// Closed current-schema `ApplyMutation.event_type` values that are consumed by
 /// a served native coordinator before the ordinary single-graph gateway. Their
 /// payloads remain exact signed protocol data; no open-ended event dispatch is
@@ -610,7 +639,7 @@ pub fn cluster_mutation_route(method: &Method) -> ClusterMutationRoute {
     if !eg_capabilities::policy(method).mutates {
         return ClusterMutationRoute::ReadOnly;
     }
-    if let Some(route) = cluster_mutation_route_admin(method) {
+    if let Some(route) = local_only_route(method).or_else(|| cluster_mutation_route_admin(method)) {
         return route;
     }
     if let Some(route) = cluster_mutation_route_consensus(method) {
@@ -636,6 +665,13 @@ pub fn cluster_mutation_route(method: &Method) -> ClusterMutationRoute {
         // locally because dispatch proposes this route unconditionally.
         ClusterMutationRoute::ConsensusNative
     }
+}
+
+/// [`LOCAL_ONLY_METHODS`] are refused in clustered mode, never proposed.
+fn local_only_route(method: &Method) -> Option<ClusterMutationRoute> {
+    LOCAL_ONLY_METHODS
+        .contains(&method_variant_name(method))
+        .then_some(ClusterMutationRoute::LocalOnly)
 }
 
 /// The admin/control-plane arms of [`cluster_mutation_route`]: `Shutdown`,
