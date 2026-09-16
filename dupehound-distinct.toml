@@ -167,26 +167,6 @@ reviewed_on = "2026-09-10"
 reason = """Two exhaustive match-to-&str renderings over unrelated enums: the agent component KIND vocabulary (model_profile, system_prompt, tool, toolset, mcp_server, mcp_prompt, mcp_resource, skill, ontology, schema, output_validator, predicate) versus a DSPy adapter kind (chat, json, xml, two_step, document, citations). Not one variant is shared and the two live in different crates serving different layers. Sharing the shape would require a common enum over two vocabularies that have nothing in common, which is an invented abstraction. Same family as the already-registered eg-modality served-error pair against this identical right-hand side -- every Rust enum with a string rendering has this body."""
 
 [[pair]]
-left_file = "crates/eg-plan/src/result_stream.rs"
-left_name = "cursor_context_matches"
-left_digest = "sha256:0f5bccf950e7f2a1dfb04c2bb654e0015b212d304beb84a0d505a70c3e43305b"
-right_file = "crates/eg-types/src/outcome_bundle.rs"
-right_name = "event_identity_matches_bundle"
-right_digest = "sha256:960369108de3093d69c2aec009582d337794f998349884559f09cae6a47972ce"
-reviewed_on = "2026-09-16"
-reason = """The same &&-chained field-equality shape over completely unrelated types: a served result-stream cursor's 7-field placement/policy binding (ResultStreamCursor against KnowledgeStreamContext) versus a delegation outcome bundle's 16-field identity binding (RunEvent against CommitOutcomeBundle) checked in agent_library/replay.rs and outcome_bundle.rs. Neither field set nor caller has anything in common with the other; a shared helper would need a trait spanning two domains that share no concept, which is an invented abstraction over the same idiom every "does X match Y" comparator uses."""
-
-[[pair]]
-left_file = "src/server/persistence/agent_library/replay.rs"
-left_name = "replay_event_authority_matches"
-left_digest = "sha256:45419459d44ed97d25c84512eb3f87698fedc5e7ecad53b49c0bc51a73884be8"
-right_file = "crates/eg-types/src/outcome_bundle.rs"
-right_name = "event_identity_matches_bundle"
-right_digest = "sha256:960369108de3093d69c2aec009582d337794f998349884559f09cae6a47972ce"
-reviewed_on = "2026-09-16"
-reason = """Same coincidental shape as the result_stream/outcome_bundle pair above, against the same right-hand side: this one checks a 6-field Agent Library outbox event's actor/policy binding against its mutation context, not the 16-field delegation-outcome identity on the right. Different crate, different types, no shared concept -- the &&-chain-of-equality shape is simply what every exact-match comparator over a durable record looks like."""
-
-[[pair]]
 left_file = "crates/eg-program/src/commit/validation.rs"
 left_name = "candidate_record_matches_revision"
 left_digest = "sha256:fc097f9e7f4377375a8f54df61e2e32d6a426dccf876b8cda34a38051b083c56"
@@ -205,3 +185,23 @@ right_name = "template_outbox_headers"
 right_digest = "sha256:e478eb957f64f7340003eb2d643d4edcfcdd9a75e8dfe4d273fce1eb714fe7af"
 reviewed_on = "2026-09-16"
 reason = """Two of the four agent-layer outbox header builders (Library and Template; see check_pinned_reference_resolution.py's docstring for the four-layer contract) build the same-shaped BTreeMap from their own layer's entry and mutation context. They are genuinely parallel by design, not copy-paste of one another: AgentLibraryEntry keys on agent_id, AgentTemplateEntry keys on template_id, and each already calls only its own layer's outbox topic/schema-version constants. The Library layer's two former near-duplicates within its own file (build_batch_headers and replay.rs's expected_headers) WERE the same function and have been merged onto this one; this remaining pair is cross-layer and stays distinct, the same intentional per-layer parallelism as the rest of the four-layer admission contract."""
+
+[[pair]]
+left_file = "crates/eg-types/src/outcome_bundle/validation.rs"
+left_name = "event_execution_identity_matches_bundle"
+left_digest = "sha256:109fe0620e57b569ddfe690cb980edab69df8c62fba828498b2620e489f898f4"
+right_file = "src/redb_store/resource/fingerprint.rs"
+right_name = "resource_request_matches_identity"
+right_digest = "sha256:e47c67fcc566a75c91435c0a8be7ab248f235f0e684cedd239c6f1c930a03ae7"
+reviewed_on = "2026-09-16"
+reason = """The same &&-chained field-equality shape over completely unrelated types: this half of a delegation-outcome RunEvent/CommitOutcomeBundle identity check (delegation_id, delegator_id, selected_agent_id, executor_lease_actor, outcome, work_item_id, run_id, fence_token, outbox_id) versus a resource-reservation request/record fencing check (reservation_id, tenant_ref, owner_id, work_item_id, fence, attempt, lease_epoch, fencing_token) in an entirely different subsystem (src/redb_store/resource). Two fields share a name (work_item_id) but neither type nor the other seven fields do. Coincidental shape, not shared logic -- this is what every exact-match comparator over a durable record looks like. (This pair replaces the now-stale entry that named the pre-decomposition event_identity_matches_bundle: that function is now a thin 2-call composition in the same file, and the &&-chain moved into this helper as part of reducing its calls_per_function below cap.)"""
+
+[[pair]]
+left_file = "crates/eg-types/src/outcome_bundle/validation.rs"
+left_name = "event_result_provenance_matches_bundle"
+left_digest = "sha256:4eb50334857681b571fdb8c1f1e28b75c1177a940d1eb4f86398a3ed2926f0b3"
+right_file = "src/redb_store/resource/fingerprint.rs"
+right_name = "resource_request_matches_identity"
+right_digest = "sha256:e47c67fcc566a75c91435c0a8be7ab248f235f0e684cedd239c6f1c930a03ae7"
+reviewed_on = "2026-09-16"
+reason = """Same coincidental shape as the sibling entry above, against the same right-hand side: this is the OTHER half of the delegation-outcome identity check (result_ref, capability_digest, catalog_digest, policy_digest, model_digest, event_sequence, completeness, missing_refs) -- provenance/result fields, not the resource-reservation fencing fields on the right. No field in common, different subsystem, same idiom every exact-match comparator uses."""

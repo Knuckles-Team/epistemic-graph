@@ -113,6 +113,91 @@ fn validate_non_empty(field: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_commit_descriptor_identity(descriptor: &CommitDescriptor) -> Result<(), String> {
+    if descriptor.schema_version != COMMIT_DESCRIPTOR_VERSION {
+        return Err(format!(
+            "unsupported commit descriptor version {} (expected {})",
+            descriptor.schema_version, COMMIT_DESCRIPTOR_VERSION
+        ));
+    }
+    for (field, value) in [
+        ("commit_id", &descriptor.commit_id),
+        ("txn_id", &descriptor.txn_id),
+        ("tenant_ref", &descriptor.tenant_ref),
+        ("authority_ref", &descriptor.authority_ref),
+        ("idempotency_key", &descriptor.idempotency_key),
+    ] {
+        validate_non_empty(field, value)?;
+    }
+    let principal_digest = descriptor
+        .principal_ref
+        .strip_prefix("principal:sha256:")
+        .ok_or_else(|| "principal_ref must be an opaque sha256 id".to_string())?;
+    validate_hex_digest("principal_ref digest", principal_digest)?;
+    validate_hex_digest("mutation_digest", &descriptor.mutation_digest)?;
+    validate_hex_digest("policy_digest", &descriptor.policy_digest)
+}
+
+fn validate_commit_descriptor_versions(descriptor: &CommitDescriptor) -> Result<(), String> {
+    if descriptor.commit_seq == 0 {
+        return Err("commit_seq must be non-zero".to_string());
+    }
+    if descriptor.fencing_token == 0 {
+        return Err("fencing_token must be non-zero".to_string());
+    }
+    if descriptor.source_graph_version == 0 {
+        if descriptor.target_graph_version != 0 {
+            return Err(
+                "a non-graph-authoritative commit (source_graph_version 0) must repeat \
+                 target_graph_version 0"
+                    .to_string(),
+            );
+        }
+    } else {
+        let expected_target = descriptor
+            .source_graph_version
+            .checked_add(1)
+            .ok_or_else(|| "source_graph_version overflow".to_string())?;
+        if descriptor.target_graph_version != expected_target {
+            return Err(
+                "target_graph_version must equal source_graph_version + 1 for a \
+                 graph-authoritative commit"
+                    .to_string(),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn validate_commit_participant_digests(descriptor: &CommitDescriptor) -> Result<(), String> {
+    if descriptor.participant_digests.is_empty() {
+        return Err("commit descriptor requires at least one participant digest".to_string());
+    }
+    for (domain, digest) in &descriptor.participant_digests {
+        validate_hex_digest(&format!("participant_digests[{domain:?}]"), digest)?;
+    }
+    Ok(())
+}
+
+fn validate_commit_descriptor_status(descriptor: &CommitDescriptor) -> Result<(), String> {
+    match descriptor.status {
+        CommitStatus::Prepared => {
+            if descriptor.decided_at_ms.is_some() {
+                return Err("a Prepared descriptor must not carry decided_at_ms".to_string());
+            }
+        }
+        CommitStatus::Committed | CommitStatus::Aborted | CommitStatus::ReconcileRequired => {
+            let decided = descriptor
+                .decided_at_ms
+                .ok_or_else(|| "a decided descriptor requires decided_at_ms".to_string())?;
+            if decided < descriptor.prepared_at_ms {
+                return Err("decided_at_ms must not precede prepared_at_ms".to_string());
+            }
+        }
+    }
+    Ok(())
+}
+
 /// The one durable, authenticated commit descriptor shared across every
 /// participant domain (lane doc "Commit descriptor"). See each field's doc for
 /// its exact contract; [`CommitDescriptor::validate`] enforces the invariants
@@ -188,77 +273,10 @@ pub struct CommitDescriptor {
 
 impl CommitDescriptor {
     pub fn validate(&self) -> Result<(), String> {
-        if self.schema_version != COMMIT_DESCRIPTOR_VERSION {
-            return Err(format!(
-                "unsupported commit descriptor version {} (expected {})",
-                self.schema_version, COMMIT_DESCRIPTOR_VERSION
-            ));
-        }
-        for (field, value) in [
-            ("commit_id", &self.commit_id),
-            ("txn_id", &self.txn_id),
-            ("tenant_ref", &self.tenant_ref),
-            ("authority_ref", &self.authority_ref),
-            ("idempotency_key", &self.idempotency_key),
-        ] {
-            validate_non_empty(field, value)?;
-        }
-        let principal_digest = self
-            .principal_ref
-            .strip_prefix("principal:sha256:")
-            .ok_or_else(|| "principal_ref must be an opaque sha256 id".to_string())?;
-        validate_hex_digest("principal_ref digest", principal_digest)?;
-        validate_hex_digest("mutation_digest", &self.mutation_digest)?;
-        validate_hex_digest("policy_digest", &self.policy_digest)?;
-        if self.commit_seq == 0 {
-            return Err("commit_seq must be non-zero".to_string());
-        }
-        if self.fencing_token == 0 {
-            return Err("fencing_token must be non-zero".to_string());
-        }
-        if self.source_graph_version == 0 {
-            if self.target_graph_version != 0 {
-                return Err(
-                    "a non-graph-authoritative commit (source_graph_version 0) must repeat \
-                     target_graph_version 0"
-                        .to_string(),
-                );
-            }
-        } else {
-            let expected_target = self
-                .source_graph_version
-                .checked_add(1)
-                .ok_or_else(|| "source_graph_version overflow".to_string())?;
-            if self.target_graph_version != expected_target {
-                return Err(
-                    "target_graph_version must equal source_graph_version + 1 for a \
-                     graph-authoritative commit"
-                        .to_string(),
-                );
-            }
-        }
-        if self.participant_digests.is_empty() {
-            return Err("commit descriptor requires at least one participant digest".to_string());
-        }
-        for (domain, digest) in &self.participant_digests {
-            validate_hex_digest(&format!("participant_digests[{domain:?}]"), digest)?;
-        }
-        match self.status {
-            CommitStatus::Prepared => {
-                if self.decided_at_ms.is_some() {
-                    return Err("a Prepared descriptor must not carry decided_at_ms".to_string());
-                }
-            }
-            CommitStatus::Committed | CommitStatus::Aborted | CommitStatus::ReconcileRequired => {
-                let decided = self
-                    .decided_at_ms
-                    .ok_or_else(|| "a decided descriptor requires decided_at_ms".to_string())?;
-                if decided < self.prepared_at_ms {
-                    return Err("decided_at_ms must not precede prepared_at_ms".to_string());
-                }
-            }
-        }
-        Ok(())
+        validate_commit_descriptor_identity(self)?;
+        validate_commit_descriptor_versions(self)?;
+        validate_commit_participant_digests(self)?;
+        validate_commit_descriptor_status(self)
     }
 }
 
@@ -312,6 +330,48 @@ pub struct ProjectionCursor {
     pub updated_at_ms: u64,
 }
 
+fn validate_projection_watermark(cursor: &ProjectionCursor) -> Result<(), String> {
+    if cursor.applied_seq > cursor.committed_seq {
+        return Err("applied_seq must not exceed committed_seq".to_string());
+    }
+    if cursor.applied_seq == 0 {
+        if cursor.fence != 0 {
+            return Err("fence must be 0 while applied_seq is 0".to_string());
+        }
+        if cursor.applied_digest.is_some() {
+            return Err("applied_digest must be unset while applied_seq is 0".to_string());
+        }
+    } else if cursor.fence == 0 {
+        return Err("fence must be non-zero once applied_seq is non-zero".to_string());
+    }
+    Ok(())
+}
+
+fn validate_projection_state(cursor: &ProjectionCursor) -> Result<(), String> {
+    match cursor.state {
+        ProjectionState::Ready => {
+            if cursor.applied_seq != cursor.committed_seq {
+                return Err("Ready requires applied_seq == committed_seq".to_string());
+            }
+            if cursor.applied_digest.is_none() && cursor.applied_seq != 0 {
+                return Err(
+                    "Ready requires applied_digest once applied_seq is non-zero".to_string()
+                );
+            }
+            if cursor.last_error_ref.is_some() {
+                return Err("Ready must not carry last_error_ref".to_string());
+            }
+        }
+        ProjectionState::Degraded => {
+            if cursor.last_error_ref.is_none() {
+                return Err("Degraded requires last_error_ref".to_string());
+            }
+        }
+        ProjectionState::CatchingUp => {}
+    }
+    Ok(())
+}
+
 impl ProjectionCursor {
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != COMMIT_DESCRIPTOR_VERSION {
@@ -321,41 +381,8 @@ impl ProjectionCursor {
             ));
         }
         validate_non_empty("authority_ref", &self.authority_ref)?;
-        if self.applied_seq > self.committed_seq {
-            return Err("applied_seq must not exceed committed_seq".to_string());
-        }
-        if self.applied_seq == 0 {
-            if self.fence != 0 {
-                return Err("fence must be 0 while applied_seq is 0".to_string());
-            }
-            if self.applied_digest.is_some() {
-                return Err("applied_digest must be unset while applied_seq is 0".to_string());
-            }
-        } else if self.fence == 0 {
-            return Err("fence must be non-zero once applied_seq is non-zero".to_string());
-        }
-        match self.state {
-            ProjectionState::Ready => {
-                if self.applied_seq != self.committed_seq {
-                    return Err("Ready requires applied_seq == committed_seq".to_string());
-                }
-                if self.applied_digest.is_none() && self.applied_seq != 0 {
-                    return Err(
-                        "Ready requires applied_digest once applied_seq is non-zero".to_string()
-                    );
-                }
-                if self.last_error_ref.is_some() {
-                    return Err("Ready must not carry last_error_ref".to_string());
-                }
-            }
-            ProjectionState::Degraded => {
-                if self.last_error_ref.is_none() {
-                    return Err("Degraded requires last_error_ref".to_string());
-                }
-            }
-            ProjectionState::CatchingUp => {}
-        }
-        Ok(())
+        validate_projection_watermark(self)?;
+        validate_projection_state(self)
     }
 
     /// Attempt to advance this cursor to a newer commit. Rejects sequence
