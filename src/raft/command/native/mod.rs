@@ -297,7 +297,7 @@ impl NativeMutationCommand {
         let Some(domain) = native_domain(&method) else {
             return Err(Box::new(method));
         };
-        let sealed_method = match SealedNativeMethod::new(server_secret, &method) {
+        let sealed_method = match SealedNativeMethod::new_native(server_secret, &method) {
             Ok(value) => value,
             Err(_) => return Err(Box::new(method)),
         };

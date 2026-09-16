@@ -86,6 +86,18 @@ impl SealedNativeMethod {
         )
     }
 
+    /// Seal a public method admitted to a typed native consensus domain. The
+    /// payload is the bare method: the enclosing [`super::NativeMutationCommand`]
+    /// variant is its domain binding, and [`Self::open`] decodes exactly this
+    /// shape. The schema-versioned [`InternalGraphCommand`] wrapper belongs only
+    /// to engine-owned `ReplicatedMutation::Graph` commands.
+    pub(in crate::raft::command) fn new_native(
+        server_secret: &str,
+        method: &Method,
+    ) -> Result<Self, String> {
+        Self::seal_value(server_secret, method)
+    }
+
     pub(in crate::raft::command) fn new_caller_graph(
         server_secret: &str,
         method: &Method,
