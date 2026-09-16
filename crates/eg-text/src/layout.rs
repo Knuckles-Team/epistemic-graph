@@ -131,51 +131,69 @@ fn is_separator_row(cells: &[String]) -> bool {
         })
 }
 
+fn indexed_source_lines<'a>(text: &'a str) -> (Vec<usize>, Vec<&'a str>) {
+    let mut line_starts = Vec::new();
+    let mut plain_lines = Vec::new();
+    let mut offset = 0usize;
+    for line in text.split_inclusive('\n') {
+        line_starts.push(offset);
+        offset += line.len();
+        plain_lines.push(line.trim_end_matches('\n').trim_end_matches('\r'));
+    }
+    (line_starts, plain_lines)
+}
+
+fn extend_table_rows(
+    plain_lines: &[&str],
+    start: usize,
+    ncols: usize,
+    rows: &mut Vec<Vec<String>>,
+) -> usize {
+    let mut next = start + 1;
+    while next < plain_lines.len() {
+        let cells = split_row(plain_lines[next]);
+        if is_separator_row(&cells) && cells.len() == ncols {
+            next += 1;
+            continue;
+        }
+        if cells.len() != ncols {
+            break;
+        }
+        rows.push(cells);
+        next += 1;
+    }
+    next
+}
+
+fn table_candidate(plain_lines: &[&str], start: usize) -> Option<(Vec<Vec<String>>, usize)> {
+    let cells = split_row(plain_lines[start]);
+    if cells.len() < 2 || is_separator_row(&cells) {
+        return None;
+    }
+    let ncols = cells.len();
+    let mut rows = vec![cells];
+    let next = extend_table_rows(plain_lines, start, ncols, &mut rows);
+    if rows.len() >= 2 {
+        Some((rows, next))
+    } else {
+        None
+    }
+}
+
 /// Detect tabular blocks in `text`: contiguous runs of >= 2 lines that each split
 /// into the SAME (>= 2) cell count. A markdown separator row (`---|---`) is
 /// dropped from the parsed grid but still counts toward the run. Returns one
 /// [`ExtractedTable`] per detected block, `table_id`s numbered `table-0`,
 /// `table-1`, … in document order.
 pub fn extract_tables(text: &str) -> Vec<ExtractedTable> {
-    // (line, byte_start_of_line) pairs, preserving exact byte offsets into `text`.
-    let mut line_starts: Vec<usize> = Vec::new();
-    let mut offset = 0usize;
-    let lines: Vec<&str> = text.split_inclusive('\n').collect();
-    let mut plain_lines: Vec<&str> = Vec::new();
-    for l in &lines {
-        line_starts.push(offset);
-        offset += l.len();
-        plain_lines.push(l.trim_end_matches('\n').trim_end_matches('\r'));
-    }
-
+    let (line_starts, plain_lines) = indexed_source_lines(text);
     let mut tables = Vec::new();
     let mut i = 0usize;
     while i < plain_lines.len() {
-        let cells = split_row(plain_lines[i]);
-        if cells.len() < 2 || is_separator_row(&cells) {
-            i += 1;
-            continue;
-        }
-        let ncols = cells.len();
-        let block_start = i;
-        let mut rows: Vec<Vec<String>> = vec![cells];
-        let mut j = i + 1;
-        while j < plain_lines.len() {
-            let c = split_row(plain_lines[j]);
-            if is_separator_row(&c) && c.len() == ncols {
-                j += 1;
-                continue; // skip the markdown separator row, don't end the block
-            }
-            if c.len() != ncols {
-                break;
-            }
-            rows.push(c);
-            j += 1;
-        }
-        if rows.len() >= 2 {
-            let byte_start = line_starts[block_start];
-            let byte_end = if j < line_starts.len() {
-                line_starts[j]
+        if let Some((rows, next)) = table_candidate(&plain_lines, i) {
+            let byte_start = line_starts[i];
+            let byte_end = if next < line_starts.len() {
+                line_starts[next]
             } else {
                 text.len()
             };
@@ -185,7 +203,7 @@ pub fn extract_tables(text: &str) -> Vec<ExtractedTable> {
                 byte_start,
                 byte_end,
             });
-            i = j;
+            i = next;
         } else {
             i += 1;
         }
@@ -430,52 +448,63 @@ fn contains_plausible_year(s: &str) -> bool {
     false
 }
 
+fn clause_span_at(text: &str, start: usize, keyword: &str) -> Option<CitationSpan> {
+    // Word-boundary check on the left (don't match mid-word, e.g. "Subsection").
+    let left_ok = start == 0
+        || !text[..start]
+            .chars()
+            .next_back()
+            .map(|c| c.is_alphanumeric())
+            .unwrap_or(false);
+    let after = start + keyword.len();
+    if !left_ok || !text[after..].starts_with(char::is_whitespace) {
+        return None;
+    }
+    let rest = &text[after..];
+    let locator_start = after + rest.len() - rest.trim_start().len();
+    let locator = rest.trim_start();
+    let loc_len = locator
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '.' || *c == '(' || *c == ')')
+        .count();
+    if loc_len == 0 || !locator.chars().next().unwrap().is_ascii_digit() {
+        return None;
+    }
+
+    // The span anchors the LOCATOR itself (e.g. `3.2`, `12`), not the leading
+    // keyword: `text` is the clause identifier callers key on, and keeping
+    // `start`/`end` on the locator preserves the crate-wide
+    // `text == text[start..end]` invariant that `to_evidence_address` relies on.
+    let end = locator_start + loc_len;
+    Some(CitationSpan {
+        kind: CitationKind::ClauseReference,
+        start: locator_start,
+        end,
+        text: text[locator_start..end].to_string(),
+    })
+}
+
+fn scan_clause_keyword(text: &str, keyword: &str) -> Vec<CitationSpan> {
+    let mut out = Vec::new();
+    let mut search_from = 0usize;
+    while let Some(rel) = text[search_from..].find(keyword) {
+        let start = search_from + rel;
+        if let Some(span) = clause_span_at(text, start, keyword) {
+            out.push(span);
+        }
+        search_from = start + keyword.len();
+    }
+    out
+}
+
 /// "Section 3.2" / "Clause 4(a)" / "Article 12" style legal/structural clause
 /// references: one of a small keyword set followed by whitespace and an
 /// alphanumeric/dotted locator.
 fn scan_clause_references(text: &str) -> Vec<CitationSpan> {
     const KEYWORDS: &[&str] = &["Section", "Clause", "Article", "Paragraph", "Appendix"];
     let mut out = Vec::new();
-    for kw in KEYWORDS {
-        let mut search_from = 0usize;
-        while let Some(rel) = text[search_from..].find(kw) {
-            let start = search_from + rel;
-            // Word-boundary check on the left (don't match mid-word, e.g. "Subsection").
-            let left_ok = start == 0
-                || !text[..start]
-                    .chars()
-                    .next_back()
-                    .map(|c| c.is_alphanumeric())
-                    .unwrap_or(false);
-            let after = start + kw.len();
-            if left_ok && text[after..].starts_with(char::is_whitespace) {
-                let rest = &text[after..];
-                let locator_start = after + rest.len() - rest.trim_start().len();
-                let locator = rest.trim_start();
-                let loc_len = locator
-                    .chars()
-                    .take_while(|c| c.is_alphanumeric() || *c == '.' || *c == '(' || *c == ')')
-                    .count();
-                if loc_len > 0 {
-                    let first = locator.chars().next().unwrap();
-                    if first.is_ascii_digit() {
-                        // The span anchors the LOCATOR itself (e.g. `3.2`, `12`),
-                        // not the leading keyword: `text` is the clause identifier
-                        // callers key on, and keeping `start`/`end` on the locator
-                        // preserves the crate-wide `text == text[start..end]`
-                        // invariant that `to_evidence_address` relies on.
-                        let end = locator_start + loc_len;
-                        out.push(CitationSpan {
-                            kind: CitationKind::ClauseReference,
-                            start: locator_start,
-                            end,
-                            text: text[locator_start..end].to_string(),
-                        });
-                    }
-                }
-            }
-            search_from = start + kw.len();
-        }
+    for keyword in KEYWORDS {
+        out.extend(scan_clause_keyword(text, keyword));
     }
     out
 }

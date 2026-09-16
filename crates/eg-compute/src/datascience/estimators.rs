@@ -206,6 +206,70 @@ fn soft_threshold(x: f64, t: f64) -> f64 {
     }
 }
 
+fn centered_columns(x: &[Vec<f64>], p: usize, means: &[f64]) -> Vec<Vec<f64>> {
+    let n = x.len();
+    let mut centered = vec![vec![0.0; n]; p];
+    for (i, row) in x.iter().enumerate() {
+        for j in 0..p {
+            centered[j][i] = row[j] - means[j];
+        }
+    }
+    centered
+}
+
+fn column_squared_norms(centered: &[Vec<f64>], nf: f64) -> Vec<f64> {
+    (0..centered.len())
+        .map(|j| centered[j].iter().map(|value| value * value).sum::<f64>() / nf)
+        .collect()
+}
+
+struct ElasticCoordinateState<'a> {
+    centered: &'a [Vec<f64>],
+    residual: &'a mut [f64],
+    beta: &'a mut [f64],
+    column_norms: &'a [f64],
+    nf: f64,
+    alpha: f64,
+    l1_ratio: f64,
+    l1: f64,
+}
+
+impl ElasticCoordinateState<'_> {
+    fn update_coordinate(&mut self, j: usize) -> Option<f64> {
+        if self.column_norms[j] <= 0.0 {
+            return None;
+        }
+        let beta_old = self.beta[j];
+        let column_len = self.centered[j].len();
+        let mut rho = 0.0;
+        for i in 0..column_len {
+            rho += self.centered[j][i] * (self.residual[i] + beta_old * self.centered[j][i]);
+        }
+        rho /= self.nf;
+        let denominator = self.column_norms[j] + self.alpha * (1.0 - self.l1_ratio);
+        let beta_new = soft_threshold(rho, self.l1) / denominator;
+        let delta = beta_new - beta_old;
+        if delta == 0.0 {
+            return None;
+        }
+        for i in 0..column_len {
+            self.residual[i] -= delta * self.centered[j][i];
+        }
+        self.beta[j] = beta_new;
+        Some(delta.abs())
+    }
+
+    fn sweep(&mut self) -> f64 {
+        let mut max_delta = 0.0_f64;
+        for j in 0..self.beta.len() {
+            if let Some(delta) = self.update_coordinate(j) {
+                max_delta = max_delta.max(delta);
+            }
+        }
+        max_delta
+    }
+}
+
 /// ElasticNet / Lasso (l1_ratio=1) via cyclic coordinate descent, matching the
 /// scikit-learn objective
 /// 1/(2n)||y - Xb - b0||^2 + alpha*l1_ratio*||b||_1 + 0.5*alpha*(1-l1_ratio)||b||^2.
@@ -232,48 +296,29 @@ fn fit_elastic_net(
     let ybar = y.iter().sum::<f64>() / nf;
 
     // Centered design, stored column-major for cache-friendly coordinate sweeps.
-    let mut xc: Vec<Vec<f64>> = vec![vec![0.0; n]; p];
-    for (i, row) in x.iter().enumerate() {
-        for j in 0..p {
-            xc[j][i] = row[j] - xbar[j];
-        }
-    }
+    let xc = centered_columns(x, p, &xbar);
     let yc: Vec<f64> = y.iter().map(|&v| v - ybar).collect();
-    let col_sq: Vec<f64> = (0..p)
-        .map(|j| xc[j].iter().map(|v| v * v).sum::<f64>() / nf)
-        .collect();
+    let col_sq = column_squared_norms(&xc, nf);
 
     let mut beta = vec![0.0; p];
     let mut resid = yc.clone(); // r = yc - Xc*beta  (beta starts at 0)
 
     let l1 = alpha * l1_ratio;
-    for _ in 0..max_iter {
-        let mut max_delta = 0.0_f64;
-        for j in 0..p {
-            if col_sq[j] <= 0.0 {
-                continue;
+    {
+        let mut state = ElasticCoordinateState {
+            centered: &xc,
+            residual: &mut resid,
+            beta: &mut beta,
+            column_norms: &col_sq,
+            nf,
+            alpha,
+            l1_ratio,
+            l1,
+        };
+        for _ in 0..max_iter {
+            if state.sweep() < tol {
+                break;
             }
-            let bj_old = beta[j];
-            // rho = (1/n) * xc_j . (r + beta_j * xc_j)
-            let mut rho = 0.0;
-            for i in 0..n {
-                rho += xc[j][i] * (resid[i] + bj_old * xc[j][i]);
-            }
-            rho /= nf;
-            let denom = col_sq[j] + alpha * (1.0 - l1_ratio);
-            let bj_new = soft_threshold(rho, l1) / denom;
-            let delta = bj_new - bj_old;
-            if delta != 0.0 {
-                // r -= delta * xc_j
-                for i in 0..n {
-                    resid[i] -= delta * xc[j][i];
-                }
-                beta[j] = bj_new;
-                max_delta = max_delta.max(delta.abs());
-            }
-        }
-        if max_delta < tol {
-            break;
         }
     }
     let intercept = ybar
@@ -306,36 +351,117 @@ fn fit_tree(
     let mut nodes: Vec<TreeNode> = Vec::new();
     // Own an optional RNG so recursion can borrow it mutably without lifetime knots.
     let mut owned_rng = rng.map(|r| r.clone());
-    build_node(
-        x,
-        y,
-        indices,
-        0,
+    let grow_params = TreeGrowParams {
         max_depth,
         min_samples_split,
         min_samples_leaf,
         p,
         max_features,
-        &mut owned_rng,
-        &mut nodes,
-    );
+    };
+    build_node(x, y, indices, 0, grow_params, &mut owned_rng, &mut nodes);
     DecisionTree { nodes }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn build_node(
+struct TreeSplit {
+    feature: i64,
+    threshold: f64,
+    left: Vec<usize>,
+    right: Vec<usize>,
+}
+
+fn best_tree_split(
     x: &[Vec<f64>],
     y: &[f64],
     indices: &[usize],
-    depth: usize,
+    features: &[usize],
+    min_samples_leaf: usize,
+) -> Option<TreeSplit> {
+    let mut best_feat: i64 = -1;
+    let mut best_thresh = 0.0;
+    let mut best_sse = f64::INFINITY;
+    let mut best_left: Vec<usize> = Vec::new();
+    let mut best_right: Vec<usize> = Vec::new();
+
+    for &feature in features {
+        // Sort sample indices by feature.
+        let mut sorted: Vec<usize> = indices.to_vec();
+        sorted.sort_by(|&a, &b| {
+            x[a][feature]
+                .partial_cmp(&x[b][feature])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // Prefix sums of y and y^2 for O(1) child SSE.
+        let m = sorted.len();
+        let mut psum = vec![0.0; m + 1];
+        let mut psq = vec![0.0; m + 1];
+        for k in 0..m {
+            let yi = y[sorted[k]];
+            psum[k + 1] = psum[k] + yi;
+            psq[k + 1] = psq[k] + yi * yi;
+        }
+        let total = m;
+        for k in min_samples_leaf..=(total - min_samples_leaf) {
+            // Split between sorted[k-1] and sorted[k]; require a real value gap.
+            let v_left = x[sorted[k - 1]][feature];
+            let v_right = x[sorted[k]][feature];
+            if (v_right - v_left).abs() < 1e-12 {
+                continue;
+            }
+            let sse_l = psq[k] - psum[k] * psum[k] / k as f64;
+            let nr = (total - k) as f64;
+            let sse_r = (psq[total] - psq[k]) - (psum[total] - psum[k]).powi(2) / nr;
+            let sse = sse_l + sse_r;
+            if sse < best_sse {
+                best_sse = sse;
+                best_feat = feature as i64;
+                best_thresh = 0.5 * (v_left + v_right);
+                best_left = sorted[..k].to_vec();
+                best_right = sorted[k..].to_vec();
+            }
+        }
+    }
+
+    if best_feat < 0 {
+        None
+    } else {
+        Some(TreeSplit {
+            feature: best_feat,
+            threshold: best_thresh,
+            left: best_left,
+            right: best_right,
+        })
+    }
+}
+
+/// Hyperparameters that stay fixed across one `fit_tree` call: every
+/// recursive `build_node` invocation passes the same values on, so they are
+/// grouped into one type instead of five separate positional parameters.
+#[derive(Clone, Copy)]
+struct TreeGrowParams {
     max_depth: usize,
     min_samples_split: usize,
     min_samples_leaf: usize,
     p: usize,
     max_features: Option<usize>,
+}
+
+fn build_node(
+    x: &[Vec<f64>],
+    y: &[f64],
+    indices: &[usize],
+    depth: usize,
+    params: TreeGrowParams,
     rng: &mut Option<ChaCha8Rng>,
     nodes: &mut Vec<TreeNode>,
 ) -> i64 {
+    let TreeGrowParams {
+        max_depth,
+        min_samples_split,
+        min_samples_leaf,
+        p,
+        max_features,
+    } = params;
     let n = indices.len();
     let mean = indices.iter().map(|&i| y[i]).sum::<f64>() / n as f64;
 
@@ -365,91 +491,21 @@ fn build_node(
         _ => (0..p).collect(),
     };
 
-    let mut best_feat: i64 = -1;
-    let mut best_thresh = 0.0;
-    let mut best_sse = f64::INFINITY;
-    let mut best_left: Vec<usize> = Vec::new();
-    let mut best_right: Vec<usize> = Vec::new();
-
-    for &f in &feats {
-        // Sort sample indices by feature f.
-        let mut sorted: Vec<usize> = indices.to_vec();
-        sorted.sort_by(|&a, &b| {
-            x[a][f]
-                .partial_cmp(&x[b][f])
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        // Prefix sums of y and y^2 for O(1) child SSE.
-        let m = sorted.len();
-        let mut psum = vec![0.0; m + 1];
-        let mut psq = vec![0.0; m + 1];
-        for k in 0..m {
-            let yi = y[sorted[k]];
-            psum[k + 1] = psum[k] + yi;
-            psq[k + 1] = psq[k] + yi * yi;
-        }
-        let total = m;
-        for k in min_samples_leaf..=(total - min_samples_leaf) {
-            // Split between sorted[k-1] and sorted[k]; require a real value gap.
-            let v_left = x[sorted[k - 1]][f];
-            let v_right = x[sorted[k]][f];
-            if (v_right - v_left).abs() < 1e-12 {
-                continue;
-            }
-            let sse_l = psq[k] - psum[k] * psum[k] / k as f64;
-            let nr = (total - k) as f64;
-            let sse_r = (psq[total] - psq[k]) - (psum[total] - psum[k]).powi(2) / nr;
-            let sse = sse_l + sse_r;
-            if sse < best_sse {
-                best_sse = sse;
-                best_feat = f as i64;
-                best_thresh = 0.5 * (v_left + v_right);
-                best_left = sorted[..k].to_vec();
-                best_right = sorted[k..].to_vec();
-            }
-        }
-    }
-
-    if best_feat < 0 {
+    let Some(split) = best_tree_split(x, y, indices, &feats, min_samples_leaf) else {
         return make_leaf(nodes);
-    }
+    };
 
     // Reserve this node's slot, then build children and patch links.
     let node_idx = nodes.len();
     nodes.push(TreeNode {
-        feature: best_feat,
-        threshold: best_thresh,
+        feature: split.feature,
+        threshold: split.threshold,
         left: -1,
         right: -1,
         value: mean,
     });
-    let left_idx = build_node(
-        x,
-        y,
-        &best_left,
-        depth + 1,
-        max_depth,
-        min_samples_split,
-        min_samples_leaf,
-        p,
-        max_features,
-        rng,
-        nodes,
-    );
-    let right_idx = build_node(
-        x,
-        y,
-        &best_right,
-        depth + 1,
-        max_depth,
-        min_samples_split,
-        min_samples_leaf,
-        p,
-        max_features,
-        rng,
-        nodes,
-    );
+    let left_idx = build_node(x, y, &split.left, depth + 1, params, rng, nodes);
+    let right_idx = build_node(x, y, &split.right, depth + 1, params, rng, nodes);
     nodes[node_idx].left = left_idx;
     nodes[node_idx].right = right_idx;
     node_idx as i64

@@ -99,24 +99,7 @@ pub(crate) fn finalize_replay_in<D: OwnerDomain>(
     batch: &MutationBatch,
     replay: &MutationBatchRecord,
 ) -> Result<(), String> {
-    if batch.is_maintenance() {
-        return Err(
-            "MAINTENANCE_HAS_NO_REPLAY_IDENTITY: maintenance writes cannot finalize a replay"
-                .to_string(),
-        );
-    }
-    write.verify_scope(&batch.identity)?;
-    batch.validate_write_budget()?;
-    replay.validate_write_budget()?;
-    if replay.status != MutationBatchStatus::Committed
-        || replay.identity != batch.identity
-        || replay.batch.identity != batch.identity
-    {
-        return Err(
-            "REPLAY_FINALIZATION_RECORD_MISMATCH: replay receipt is not a committed record for this scope"
-                .to_string(),
-        );
-    }
+    validate_replay_batch(write, batch, replay)?;
 
     let envelope = batch
         .envelope
@@ -132,38 +115,15 @@ pub(crate) fn finalize_replay_in<D: OwnerDomain>(
             "CORRUPT_MUTATION_LEDGER: replay finalization has no operation row for key '{idempotency_key}'"
         )
     })?;
-    if operation_row.identity != batch.identity
-        || operation_row.idempotency_key != idempotency_key
-        || operation_row.operation_replay_digest != proposed_digest
-        || operation_row.recorded.batch_id() != Some(replay.batch.batch_id.as_str())
-    {
-        return Err(
-            "REPLAY_FINALIZATION_RECORD_MISMATCH: operation row does not name this replay"
-                .to_string(),
-        );
-    }
+    validate_batch_operation(
+        &operation_row,
+        batch,
+        replay,
+        idempotency_key,
+        proposed_digest,
+    )?;
 
-    let durable = read_record_in_write(write, &batch.identity, &replay.batch.batch_id)?
-        .ok_or_else(|| {
-            format!(
-                "CORRUPT_MUTATION_LEDGER: replay operation points to missing batch '{}'",
-                replay.batch.batch_id
-            )
-        })?;
-    let durable_batch = encode_bounded(&durable.batch, "replay batch")?;
-    let replay_batch = encode_bounded(&replay.batch, "replay batch")?;
-    if durable_batch != replay_batch
-        || durable.identity != replay.identity
-        || durable.status != replay.status
-        || durable.committed_version != replay.committed_version
-        || durable.result_msgpack != replay.result_msgpack
-        || durable.committed_at_ms != replay.committed_at_ms
-    {
-        return Err(
-            "REPLAY_FINALIZATION_RECORD_MISMATCH: supplied replay receipt differs from durable record"
-                .to_string(),
-        );
-    }
+    validate_durable_replay_batch(write, batch, replay)?;
 
     let nonce_digest = nonce.digest()?.to_hex();
     if read_nonce(write, &scope_key, &nonce_digest)?.is_some() {
@@ -193,43 +153,8 @@ pub(crate) fn finalize_replay_receipt_in<D: OwnerDomain>(
     let scope_key = ledger_scope_key(write.scope());
     let row = read_operation(write, &scope_key, operation.idempotency_key.as_str())?
         .ok_or_else(|| "CORRUPT_MUTATION_LEDGER: replay receipt row is missing".to_string())?;
-    if row.batch_id.is_empty() {
-        return Err("CORRUPT_MUTATION_LEDGER: replay receipt row has no owner batch".to_string());
-    }
-    let durable_batch =
-        read_record_in_write(write, write.scope(), &row.batch_id)?.ok_or_else(|| {
-            format!(
-                "CORRUPT_MUTATION_LEDGER: replay receipt row points to missing batch '{}'",
-                row.batch_id
-            )
-        })?;
-    if durable_batch.status != MutationBatchStatus::Committed
-        || durable_batch.identity != *write.scope()
-        || durable_batch.batch.batch_id != row.batch_id
-    {
-        return Err(
-            "REPLAY_FINALIZATION_RECORD_MISMATCH: replay receipt row is not bound to a committed batch"
-                .to_string(),
-        );
-    }
-    let result_bytes = encode_bounded(&receipt.result, "mutation receipt result")?;
-    if durable_batch.result_msgpack.as_deref() != Some(result_bytes.as_slice()) {
-        return Err(
-            "REPLAY_FINALIZATION_RECORD_MISMATCH: replay receipt result differs from durable batch"
-                .to_string(),
-        );
-    }
-    if row.identity != *write.scope()
-        || row.idempotency_key != operation.idempotency_key.as_str()
-        || row.operation_replay_digest != operation_digest
-        || row.nonce_replay_digest != receipt.nonce_replay_digest
-        || row.recorded != RecordedOperation::Receipt(Box::new(receipt.clone()))
-    {
-        return Err(
-            "REPLAY_FINALIZATION_RECORD_MISMATCH: typed replay receipt differs from durable row"
-                .to_string(),
-        );
-    }
+    validate_receipt_batch(write, &row, receipt)?;
+    validate_receipt_operation(write, &row, operation, operation_digest, receipt)?;
     let nonce_key = nonce_digest.to_hex();
     if read_nonce(write, &scope_key, &nonce_key)?.is_some() {
         return Err(format!(
@@ -272,41 +197,27 @@ pub(crate) fn record_operation_in<D: OwnerDomain>(
     let nonce_digest = nonce_replay_digest.to_hex();
     let batch_id = write.admitted_batch_id()?;
     let existing = read_operation(write, &scope_key, idempotency_key)?;
-    if let Some(existing) = &existing {
-        // The SAME attempt of the SAME operation, re-recording the SAME BATCH:
-        // the row is already exactly what this call would write, so writing it
-        // again is a no-op rather than a second claim. This is how a saga's
-        // commit finishes a batch its prepare already claimed, and it is the
-        // only caller that records one row twice by construction.
-        //
-        // Deliberately NOT extended to a receipt: `record_replay_in` is the
-        // authority-context path, whose accepted contract is that it fails
-        // closed on ANY pre-existing row for the key, because an identical
-        // digest there means the caller resolved `Fresh` against a stale view
-        // and re-executed an operation it should have replayed. The nonce must
-        // match too -- a different attempt is a different attempt either way.
-        if matches!(recorded, RecordedOperation::Batch(_))
-            && existing.operation_replay_digest == operation_replay_digest
-            && existing.nonce_replay_digest == nonce_replay_digest
-            && (existing.batch_id.is_empty() || existing.batch_id == batch_id)
-            && existing.recorded == recorded
-        {
-            return Ok(());
-        }
+    if existing.as_ref().is_some_and(|existing| {
+        is_same_saga_batch(
+            existing,
+            &recorded,
+            operation_replay_digest,
+            nonce_replay_digest,
+            &batch_id,
+        )
+    }) {
+        return Ok(());
     }
     if read_nonce(write, &scope_key, &nonce_digest)?.is_some() {
         return Err("REPLAY_NONCE_CONSUMED: this attempt nonce was already recorded".to_string());
     }
     if let Some(existing) = existing {
-        return Err(
-            if existing.operation_replay_digest == operation_replay_digest {
-                "REPLAY_ALREADY_RECORDED: this operation was recorded and must be replayed, not re-executed"
-                    .to_string()
-            } else {
-                "IDEMPOTENCY_CONFLICT: key was already used by a different operation".to_string()
-            },
-        );
+        return Err(operation_record_conflict(
+            &existing,
+            operation_replay_digest,
+        ));
     }
+
     let row = OperationReplayRow {
         identity: write.scope().clone(),
         idempotency_key: idempotency_key.to_string(),
@@ -357,6 +268,177 @@ pub(crate) fn record_replay_in<D: OwnerDomain>(
         nonce,
         RecordedOperation::Receipt(Box::new(receipt.clone())),
     )
+}
+
+fn validate_replay_batch<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+    batch: &MutationBatch,
+    replay: &MutationBatchRecord,
+) -> Result<(), String> {
+    if batch.is_maintenance() {
+        return Err(
+            "MAINTENANCE_HAS_NO_REPLAY_IDENTITY: maintenance writes cannot finalize a replay"
+                .to_string(),
+        );
+    }
+    write.verify_scope(&batch.identity)?;
+    batch.validate_write_budget()?;
+    replay.validate_write_budget()?;
+    if replay.status != MutationBatchStatus::Committed
+        || replay.identity != batch.identity
+        || replay.batch.identity != batch.identity
+    {
+        return Err(
+            "REPLAY_FINALIZATION_RECORD_MISMATCH: replay receipt is not a committed record for this scope"
+                .to_string(),
+        );
+    }
+
+    Ok(())
+}
+
+fn validate_batch_operation(
+    operation_row: &OperationReplayRow,
+    batch: &MutationBatch,
+    replay: &MutationBatchRecord,
+    idempotency_key: &str,
+    proposed_digest: Digest256,
+) -> Result<(), String> {
+    if operation_row.identity != batch.identity
+        || operation_row.idempotency_key != idempotency_key
+        || operation_row.operation_replay_digest != proposed_digest
+        || operation_row.recorded.batch_id() != Some(replay.batch.batch_id.as_str())
+    {
+        return Err(
+            "REPLAY_FINALIZATION_RECORD_MISMATCH: operation row does not name this replay"
+                .to_string(),
+        );
+    }
+
+    Ok(())
+}
+
+fn validate_durable_replay_batch<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+    batch: &MutationBatch,
+    replay: &MutationBatchRecord,
+) -> Result<(), String> {
+    let durable = read_record_in_write(write, &batch.identity, &replay.batch.batch_id)?
+        .ok_or_else(|| {
+            format!(
+                "CORRUPT_MUTATION_LEDGER: replay operation points to missing batch '{}'",
+                replay.batch.batch_id
+            )
+        })?;
+    let durable_batch = encode_bounded(&durable.batch, "replay batch")?;
+    let replay_batch = encode_bounded(&replay.batch, "replay batch")?;
+    if durable_batch != replay_batch
+        || durable.identity != replay.identity
+        || durable.status != replay.status
+        || durable.committed_version != replay.committed_version
+        || durable.result_msgpack != replay.result_msgpack
+        || durable.committed_at_ms != replay.committed_at_ms
+    {
+        return Err(
+            "REPLAY_FINALIZATION_RECORD_MISMATCH: supplied replay receipt differs from durable record"
+                .to_string(),
+        );
+    }
+
+    Ok(())
+}
+
+fn validate_receipt_batch<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+    row: &OperationReplayRow,
+    receipt: &MutationReceipt,
+) -> Result<(), String> {
+    if row.batch_id.is_empty() {
+        return Err("CORRUPT_MUTATION_LEDGER: replay receipt row has no owner batch".to_string());
+    }
+    let durable_batch =
+        read_record_in_write(write, write.scope(), &row.batch_id)?.ok_or_else(|| {
+            format!(
+                "CORRUPT_MUTATION_LEDGER: replay receipt row points to missing batch '{}'",
+                row.batch_id
+            )
+        })?;
+    if durable_batch.status != MutationBatchStatus::Committed
+        || durable_batch.identity != *write.scope()
+        || durable_batch.batch.batch_id != row.batch_id
+    {
+        return Err(
+            "REPLAY_FINALIZATION_RECORD_MISMATCH: replay receipt row is not bound to a committed batch"
+                .to_string(),
+        );
+    }
+    let result_bytes = encode_bounded(&receipt.result, "mutation receipt result")?;
+    if durable_batch.result_msgpack.as_deref() != Some(result_bytes.as_slice()) {
+        return Err(
+            "REPLAY_FINALIZATION_RECORD_MISMATCH: replay receipt result differs from durable batch"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+fn validate_receipt_operation<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+    row: &OperationReplayRow,
+    operation: &OperationReplayIdentity,
+    operation_digest: Digest256,
+    receipt: &MutationReceipt,
+) -> Result<(), String> {
+    if row.identity != *write.scope()
+        || row.idempotency_key != operation.idempotency_key.as_str()
+        || row.operation_replay_digest != operation_digest
+        || row.nonce_replay_digest != receipt.nonce_replay_digest
+        || row.recorded != RecordedOperation::Receipt(Box::new(receipt.clone()))
+    {
+        return Err(
+            "REPLAY_FINALIZATION_RECORD_MISMATCH: typed replay receipt differs from durable row"
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+fn is_same_saga_batch(
+    existing: &OperationReplayRow,
+    recorded: &RecordedOperation,
+    operation_replay_digest: Digest256,
+    nonce_replay_digest: Digest256,
+    batch_id: &str,
+) -> bool {
+    // The SAME attempt of the SAME operation, re-recording the SAME BATCH:
+    // the row is already exactly what this call would write, so writing it
+    // again is a no-op rather than a second claim. This is how a saga's
+    // commit finishes a batch its prepare already claimed, and it is the
+    // only caller that records one row twice by construction.
+    //
+    // Deliberately NOT extended to a receipt: `record_replay_in` is the
+    // authority-context path, whose accepted contract is that it fails
+    // closed on ANY pre-existing row for the key, because an identical
+    // digest there means the caller resolved `Fresh` against a stale view
+    // and re-executed an operation it should have replayed. The nonce must
+    // match too -- a different attempt is a different attempt either way.
+    matches!(recorded, RecordedOperation::Batch(_))
+        && existing.operation_replay_digest == operation_replay_digest
+        && existing.nonce_replay_digest == nonce_replay_digest
+        && (existing.batch_id.is_empty() || existing.batch_id == batch_id)
+        && &existing.recorded == recorded
+}
+
+fn operation_record_conflict(
+    existing: &OperationReplayRow,
+    operation_replay_digest: Digest256,
+) -> String {
+    if existing.operation_replay_digest == operation_replay_digest {
+        "REPLAY_ALREADY_RECORDED: this operation was recorded and must be replayed, not re-executed"
+            .to_string()
+    } else {
+        "IDEMPOTENCY_CONFLICT: key was already used by a different operation".to_string()
+    }
 }
 
 fn read_nonce<D: OwnerDomain>(

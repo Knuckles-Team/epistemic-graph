@@ -156,16 +156,8 @@ where
         mut self,
         cursor: &ResultStreamCursor,
     ) -> Result<Self, KnowledgeStreamError> {
-        if cursor.family != self.family
-            || cursor.tenant_ref != self.context.tenant_ref
-            || cursor.access_policy_ref != self.context.access_policy_ref
-            || cursor.placement_ref != self.context.placement_ref
-            || cursor.snapshot_ref != self.context.snapshot_ref
-            || cursor.query_ref != self.context.query_ref
-            || cursor.derivation_ref != self.context.derivation_ref
-            || cursor.evidence_set_ref != self.context.evidence_set_ref
-            || cursor.batch_size as usize != self.batch_size
-            || !valid_cursor_position(cursor)
+        if !cursor_context_matches(cursor, self.family, &self.context)
+            || !cursor_position_matches(cursor, self.batch_size)
         {
             return Err(KnowledgeStreamError::CursorMismatch);
         }
@@ -299,38 +291,9 @@ fn validate_native_row(
     row: &KnowledgeBatchRow,
     score_names: &[String],
 ) -> Result<(), KnowledgeStreamError> {
-    if !safe_reference(&row.id)
-        || !safe_token(&row.kind)
-        || !row.confidence.is_finite()
-        || !(0.0..=1.0).contains(&row.confidence)
-        || row.scores.len() != score_names.len()
-        || row
-            .scores
-            .iter()
-            .zip(score_names)
-            .any(|((name, score), expected)| {
-                name != expected || score.is_some_and(|value| !value.is_finite())
-            })
-        || !valid_window(row.valid_time)
-        || !valid_window(row.tx_time)
-        || row
-            .source_refs
-            .iter()
-            .chain(&row.policy_labels)
-            .chain(&row.transformation_ids)
-            .chain(&row.proof_ids)
-            .chain(&row.alternative_ids)
-            .chain(&row.contradiction_ids)
-            .any(|value| !safe_reference(value))
-        || row
-            .blob_handle
-            .as_ref()
-            .is_some_and(|value| !safe_reference(value))
-        || row.has_payload != row.blob_handle.is_some()
-        || row
-            .evidence_refs
-            .iter()
-            .any(|evidence| !safe_evidence(evidence))
+    if !valid_row_identity_and_scores(row, score_names)
+        || !valid_row_windows(row)
+        || !valid_row_references(row)
     {
         return Err(KnowledgeStreamError::RowInvariant);
     }
@@ -341,6 +304,61 @@ fn validate_native_row(
         return Err(KnowledgeStreamError::GovernanceInvariant);
     }
     Ok(())
+}
+
+fn cursor_context_matches(
+    cursor: &ResultStreamCursor,
+    family: ServedResultFamily,
+    context: &KnowledgeStreamContext,
+) -> bool {
+    cursor.family == family
+        && cursor.tenant_ref == context.tenant_ref
+        && cursor.access_policy_ref == context.access_policy_ref
+        && cursor.placement_ref == context.placement_ref
+        && cursor.snapshot_ref == context.snapshot_ref
+        && cursor.query_ref == context.query_ref
+        && cursor.derivation_ref == context.derivation_ref
+        && cursor.evidence_set_ref == context.evidence_set_ref
+}
+
+fn cursor_position_matches(cursor: &ResultStreamCursor, batch_size: usize) -> bool {
+    cursor.batch_size as usize == batch_size && valid_cursor_position(cursor)
+}
+
+fn valid_row_identity_and_scores(row: &KnowledgeBatchRow, score_names: &[String]) -> bool {
+    safe_reference(&row.id)
+        && safe_token(&row.kind)
+        && row.confidence.is_finite()
+        && (0.0..=1.0).contains(&row.confidence)
+        && row.scores.len() == score_names.len()
+        && row
+            .scores
+            .iter()
+            .zip(score_names)
+            .all(|((name, score), expected)| {
+                name == expected && score.map_or(true, |value| value.is_finite())
+            })
+}
+
+fn valid_row_windows(row: &KnowledgeBatchRow) -> bool {
+    valid_window(row.valid_time) && valid_window(row.tx_time)
+}
+
+fn valid_row_references(row: &KnowledgeBatchRow) -> bool {
+    row.source_refs
+        .iter()
+        .chain(&row.policy_labels)
+        .chain(&row.transformation_ids)
+        .chain(&row.proof_ids)
+        .chain(&row.alternative_ids)
+        .chain(&row.contradiction_ids)
+        .all(|value| safe_reference(value))
+        && row
+            .blob_handle
+            .as_ref()
+            .map_or(true, |value| safe_reference(value))
+        && row.has_payload == row.blob_handle.is_some()
+        && row.evidence_refs.iter().all(safe_evidence)
 }
 
 fn valid_window(window: (Option<u64>, Option<u64>)) -> bool {

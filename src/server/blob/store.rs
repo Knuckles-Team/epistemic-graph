@@ -36,8 +36,8 @@ use crate::mutation_batch::{
     ScopeTenantId,
 };
 use eg_storage::{
-    BlobOwner, BlobSharedRead, BlobSharedServiceHandle, CasChunkRows, OwnedStoreHandle,
-    PhysicalStoreIdentity, ScopedRead, StorageKernel, StoreOpenOptions,
+    BlobOwner, BlobSharedRead, BlobSharedServiceHandle, BlobSharedWrite, CasChunkRows,
+    OwnedStoreHandle, PhysicalStoreIdentity, ScopedRead, StorageKernel, StoreOpenOptions,
 };
 use eg_transaction::{AdmittedOwnerWrite, Begin, MaintenanceBatch, MutationKernel};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -141,6 +141,18 @@ pub struct BlobManifest {
 
 impl BlobManifest {
     pub(super) fn validate(&self) -> Result<(), String> {
+        self.validate_shape()?;
+        if self.chunks.is_empty() {
+            return if self.len == 0 && self.chunk_lens.is_empty() {
+                Ok(())
+            } else {
+                Err("blob manifest is inconsistent".to_string())
+            };
+        }
+        self.validate_nonempty_lengths()
+    }
+
+    fn validate_shape(&self) -> Result<(), String> {
         if self.schema_version != BLOB_MANIFEST_VERSION
             || self.owner_scope.is_empty()
             || self.owner_scope.len() > 256
@@ -151,13 +163,10 @@ impl BlobManifest {
         {
             return Err("blob manifest is invalid or exceeds resource limits".to_string());
         }
-        if self.chunks.is_empty() {
-            return if self.len == 0 && self.chunk_lens.is_empty() {
-                Ok(())
-            } else {
-                Err("blob manifest is inconsistent".to_string())
-            };
-        }
+        Ok(())
+    }
+
+    fn validate_nonempty_lengths(&self) -> Result<(), String> {
         if self.chunk_lens.len() != self.chunks.len()
             || self.chunk_size as usize > MAX_BLOB_CHUNK_BYTES
             || self
@@ -910,84 +919,121 @@ fn sweep_rows(
     service: &BlobSharedServiceHandle,
 ) -> Result<SweepStats, String> {
     let shared = wtx.blob_shared_write(service, crate::store_authority::ENGINE_PRINCIPAL)?;
-    let dead: Vec<String> = {
-        let mut dead = Vec::new();
-        shared.for_each_refcount(|digest, count| {
-            if count == 0 {
-                if dead.len() >= MAX_BLOB_GC_TRACKED_DIGESTS {
-                    return Err("blob garbage collection exceeds resource limits".to_string());
-                }
-                dead.push(digest.to_string());
-            }
-            Ok(())
-        })?;
-        dead
-    };
-    let orphan_manifests: Vec<String> = {
-        let blobs = wtx.open_table(CAS_BLOBS)?;
-        let mut orphans = Vec::new();
-        for row in blobs.iter().map_err(|e| e.to_string())? {
-            let (key, _) = row.map_err(|e| e.to_string())?;
-            let digest = key.value();
-            validate_digest(digest)?;
-            if shared.refcount(digest)? == 0 {
-                if orphans.len() >= MAX_BLOB_GC_TRACKED_DIGESTS {
-                    return Err("blob garbage collection exceeds resource limits".to_string());
-                }
-                orphans.push(digest.to_string());
-            }
-        }
-        orphans
-    };
+    let dead = collect_dead_refcounts(&shared)?;
+    let orphan_manifests = collect_orphan_manifests(wtx, &shared)?;
     let mut to_delete: HashSet<String> = dead.into_iter().collect();
     to_delete.extend(orphan_manifests);
     if to_delete.len() > MAX_BLOB_GC_TRACKED_DIGESTS {
         return Err("blob garbage collection exceeds resource limits".to_string());
     }
-    let live_chunks: HashSet<String> = {
-        let blobs = wtx.open_table(CAS_BLOBS)?;
-        let mut live = HashSet::new();
-        for row in blobs.iter().map_err(|e| e.to_string())? {
-            let (key, value) = row.map_err(|e| e.to_string())?;
-            if to_delete.contains(key.value()) {
-                continue;
+    let live_chunks = collect_live_chunks(wtx, &to_delete)?;
+    let mut orphan_chunks = collect_orphan_manifest_chunks(wtx, &to_delete, &live_chunks)?;
+    compensate_direct_chunks(&shared, &to_delete, &live_chunks, &mut orphan_chunks)?;
+    reclaim_sweep_rows(wtx, &shared, &to_delete, &orphan_chunks)
+}
+
+fn collect_dead_refcounts(shared: &BlobSharedWrite<'_>) -> Result<Vec<String>, String> {
+    let mut dead = Vec::new();
+    shared.for_each_refcount(|digest, count| {
+        if count == 0 {
+            if dead.len() >= MAX_BLOB_GC_TRACKED_DIGESTS {
+                return Err("blob garbage collection exceeds resource limits".to_string());
             }
+            dead.push(digest.to_string());
+        }
+        Ok(())
+    })?;
+    Ok(dead)
+}
+
+fn collect_orphan_manifests(
+    wtx: &AdmittedOwnerWrite<'_, BlobOwner>,
+    shared: &BlobSharedWrite<'_>,
+) -> Result<Vec<String>, String> {
+    let blobs = wtx.open_table(CAS_BLOBS)?;
+    let mut orphans = Vec::new();
+    for row in blobs.iter().map_err(|e| e.to_string())? {
+        let (key, _) = row.map_err(|e| e.to_string())?;
+        let digest = key.value();
+        validate_digest(digest)?;
+        if shared.refcount(digest)? == 0 {
+            if orphans.len() >= MAX_BLOB_GC_TRACKED_DIGESTS {
+                return Err("blob garbage collection exceeds resource limits".to_string());
+            }
+            orphans.push(digest.to_string());
+        }
+    }
+    Ok(orphans)
+}
+
+fn collect_live_chunks(
+    wtx: &AdmittedOwnerWrite<'_, BlobOwner>,
+    to_delete: &HashSet<String>,
+) -> Result<HashSet<String>, String> {
+    let blobs = wtx.open_table(CAS_BLOBS)?;
+    let mut live = HashSet::new();
+    for row in blobs.iter().map_err(|e| e.to_string())? {
+        let (key, value) = row.map_err(|e| e.to_string())?;
+        if to_delete.contains(key.value()) {
+            continue;
+        }
+        let manifest = decode_manifest(value.value())?;
+        for chunk in manifest.chunks {
+            track_gc_digest(&mut live, chunk)?;
+        }
+    }
+    Ok(live)
+}
+
+fn collect_orphan_manifest_chunks(
+    wtx: &AdmittedOwnerWrite<'_, BlobOwner>,
+    to_delete: &HashSet<String>,
+    live_chunks: &HashSet<String>,
+) -> Result<HashSet<String>, String> {
+    let blobs = wtx.open_table(CAS_BLOBS)?;
+    let mut orphans = HashSet::new();
+    for digest in to_delete {
+        if let Some(value) = blobs.get(digest.as_str()).map_err(|e| e.to_string())? {
             let manifest = decode_manifest(value.value())?;
             for chunk in manifest.chunks {
-                track_gc_digest(&mut live, chunk)?;
-            }
-        }
-        live
-    };
-    let mut orphan_chunks: HashSet<String> = {
-        let blobs = wtx.open_table(CAS_BLOBS)?;
-        let mut orphans = HashSet::new();
-        for digest in &to_delete {
-            if let Some(value) = blobs.get(digest.as_str()).map_err(|e| e.to_string())? {
-                let manifest = decode_manifest(value.value())?;
-                for chunk in manifest.chunks {
-                    if !live_chunks.contains(&chunk) {
-                        track_gc_digest(&mut orphans, chunk)?;
-                    }
+                if !live_chunks.contains(&chunk) {
+                    track_gc_digest(&mut orphans, chunk)?;
                 }
             }
         }
-        orphans
-    };
-    // `put_chunk_ref_batch` is the direct-artifact fast path: its refcount key is the
-    // chunk digest itself and deliberately has no manifest row, so a zero-ref direct
-    // chunk cannot be found by walking dead manifests. Reclaim it here unless a
-    // surviving manifest still names it — leak-free compensation/restart replay
-    // without endangering a chunk still reachable from a live blob.
-    for digest in &to_delete {
+    }
+    Ok(orphans)
+}
+
+// `put_chunk_ref_batch` is the direct-artifact fast path: its refcount key is the
+// chunk digest itself and deliberately has no manifest row, so a zero-ref direct
+// chunk cannot be found by walking dead manifests. Reclaim it here unless a
+// surviving manifest still names it — leak-free compensation/restart replay
+// without endangering a chunk still reachable from a live blob.
+fn compensate_direct_chunks(
+    shared: &BlobSharedWrite<'_>,
+    to_delete: &HashSet<String>,
+    live_chunks: &HashSet<String>,
+    orphan_chunks: &mut HashSet<String>,
+) -> Result<(), String> {
+    for digest in to_delete {
         if !live_chunks.contains(digest) && shared.chunk_present(digest)? {
-            track_gc_digest(&mut orphan_chunks, digest.clone())?;
+            track_gc_digest(orphan_chunks, digest.clone())?;
         }
     }
+    Ok(())
+}
+
+fn reclaim_sweep_rows(
+    wtx: &AdmittedOwnerWrite<'_, BlobOwner>,
+    shared: &BlobSharedWrite<'_>,
+    to_delete: &HashSet<String>,
+    orphan_chunks: &HashSet<String>,
+) -> Result<SweepStats, String> {
     let mut stats = SweepStats::default();
     {
         let mut blobs = wtx.open_table(CAS_BLOBS)?;
-        for digest in &to_delete {
+        for digest in to_delete {
             if blobs
                 .remove(digest.as_str())
                 .map_err(|e| e.to_string())?
@@ -998,12 +1044,71 @@ fn sweep_rows(
             shared.remove_refcount(digest)?;
         }
     }
-    for digest in &orphan_chunks {
+    for digest in orphan_chunks {
         if shared.remove_chunk(digest)? {
             stats.chunks_reclaimed += 1;
         }
     }
     Ok(stats)
+}
+
+#[cfg(feature = "blob-s3")]
+fn preview_orphan_manifests(
+    read: &ScopedRead<'_, BlobOwner>,
+    shared: &BlobSharedRead,
+) -> Result<HashSet<String>, String> {
+    let blobs = read.open_owner_table(CAS_BLOBS)?;
+    let mut to_delete = HashSet::new();
+    for row in blobs.iter().map_err(|e| e.to_string())? {
+        let (key, _) = row.map_err(|e| e.to_string())?;
+        let digest = key.value();
+        validate_digest(digest)?;
+        if shared.refcount(digest)? == 0 {
+            track_gc_digest(&mut to_delete, digest.to_string())?;
+        }
+    }
+    Ok(to_delete)
+}
+
+#[cfg(feature = "blob-s3")]
+fn preview_live_chunks(
+    read: &ScopedRead<'_, BlobOwner>,
+    to_delete: &HashSet<String>,
+) -> Result<HashSet<String>, String> {
+    let blobs = read.open_owner_table(CAS_BLOBS)?;
+    let mut live_chunks = HashSet::new();
+    for row in blobs.iter().map_err(|e| e.to_string())? {
+        let (key, value) = row.map_err(|e| e.to_string())?;
+        if to_delete.contains(key.value()) {
+            continue;
+        }
+        let manifest = decode_manifest(value.value())?;
+        for chunk in manifest.chunks {
+            track_gc_digest(&mut live_chunks, chunk)?;
+        }
+    }
+    Ok(live_chunks)
+}
+
+#[cfg(feature = "blob-s3")]
+fn preview_orphan_manifest_chunks(
+    read: &ScopedRead<'_, BlobOwner>,
+    to_delete: &HashSet<String>,
+    live_chunks: &HashSet<String>,
+) -> Result<HashSet<String>, String> {
+    let blobs = read.open_owner_table(CAS_BLOBS)?;
+    let mut orphans = HashSet::new();
+    for digest in to_delete {
+        if let Some(value) = blobs.get(digest.as_str()).map_err(|e| e.to_string())? {
+            let manifest = decode_manifest(value.value())?;
+            for chunk in manifest.chunks {
+                if !live_chunks.contains(&chunk) {
+                    track_gc_digest(&mut orphans, chunk)?;
+                }
+            }
+        }
+    }
+    Ok(orphans)
 }
 
 impl Drop for RedbChunkStore {
@@ -1207,39 +1312,9 @@ impl RedbChunkStore {
         self.flush_chunks()?;
         let read = self.read()?;
         let shared = self.shared_read()?;
-        let blobs = read.open_owner_table(CAS_BLOBS)?;
-        let mut to_delete: HashSet<String> = HashSet::new();
-        for row in blobs.iter().map_err(|e| e.to_string())? {
-            let (k, _) = row.map_err(|e| e.to_string())?;
-            let d = k.value();
-            validate_digest(d)?;
-            if shared.refcount(d)? == 0 {
-                track_gc_digest(&mut to_delete, d.to_string())?;
-            }
-        }
-        let mut live_chunks: HashSet<String> = HashSet::new();
-        for row in blobs.iter().map_err(|e| e.to_string())? {
-            let (k, v) = row.map_err(|e| e.to_string())?;
-            if to_delete.contains(k.value()) {
-                continue;
-            }
-            let m = decode_manifest(v.value())?;
-            for chunk in m.chunks {
-                track_gc_digest(&mut live_chunks, chunk)?;
-            }
-        }
-        let mut orphans = HashSet::new();
-        for digest in &to_delete {
-            if let Some(v) = blobs.get(digest.as_str()).map_err(|e| e.to_string())? {
-                let m = decode_manifest(v.value())?;
-                for c in m.chunks {
-                    if !live_chunks.contains(&c) {
-                        track_gc_digest(&mut orphans, c)?;
-                    }
-                }
-            }
-        }
-        Ok(orphans)
+        let to_delete = preview_orphan_manifests(&read, &shared)?;
+        let live_chunks = preview_live_chunks(&read, &to_delete)?;
+        preview_orphan_manifest_chunks(&read, &to_delete, &live_chunks)
     }
 
     /// Count of distinct chunk digests referenced by all surviving manifests

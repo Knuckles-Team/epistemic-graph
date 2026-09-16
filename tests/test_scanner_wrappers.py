@@ -6,6 +6,7 @@ import json
 import sys
 import tarfile
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -21,6 +22,48 @@ def _load_script(name: str):
     sys.modules[name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def _metric_summary(value: int = 0) -> dict[str, int]:
+    return {"sum": value, "max": value, "median": value, "p90": value, "p95": value}
+
+
+def _native_summary(
+    file_count: int,
+    function_count: int,
+    *,
+    cognitive: dict[str, int] | None = None,
+    cyclomatic: dict[str, int] | None = None,
+    parse_error_count: int = 0,
+    parse_error_file_count: int = 0,
+) -> dict[str, object]:
+    return {
+        "file_count": file_count,
+        "function_count": function_count,
+        "parse_error_count": parse_error_count,
+        "parse_error_file_count": parse_error_file_count,
+        "cognitive": cognitive or _metric_summary(),
+        "cyclomatic": cyclomatic or _metric_summary(),
+    }
+
+
+def _native_file(
+    path: str,
+    *,
+    functions: list[dict] | None = None,
+    cognitive: int = 0,
+    cyclomatic: int = 0,
+    parse_errors: list[str] | None = None,
+) -> dict[str, object]:
+    result: dict[str, object] = {
+        "path": path,
+        "cognitive": cognitive,
+        "cyclomatic": cyclomatic,
+        "functions": functions if functions is not None else [],
+    }
+    if parse_errors is not None:
+        result["parse_errors"] = parse_errors
+    return result
 
 
 @pytest.fixture(scope="module")
@@ -92,16 +135,27 @@ def test_cccc_registry_excludes_unsupported_frontends():
     )
 
 
-def test_cccc_census_validator_requires_top_level_parse_count(tmp_path):
+def test_cccc_census_validator_requires_native_summary(tmp_path):
     validator = _load_script("validate_cccc_census")
     report = tmp_path / "cccc.json"
-    valid = {"files": [{}], "summary": {"parse_error_count": 0}}
+    valid = {
+        "files": [_native_file("src/empty.py", cognitive=1, cyclomatic=1)],
+        "summary": _native_summary(1, 0),
+    }
     report.write_text(json.dumps(valid), encoding="utf-8")
     assert validator.validate_report(report) == 1
 
-    for summary in ({}, {"parse_error_count": 1}, {"parse_error_count": "0"}):
+    mismatched = json.loads(json.dumps(valid))
+    mismatched["summary"]["function_count"] = 1
+    for summary in (
+        {},
+        {"parse_error_count": 1},
+        {"parse_error_count": "0"},
+        mismatched["summary"],
+    ):
         report.write_text(
-            json.dumps({"files": [{}], "summary": summary}), encoding="utf-8"
+            json.dumps({"files": valid["files"], "summary": summary}),
+            encoding="utf-8",
         )
         with pytest.raises(SystemExit) as raised:
             validator.validate_report(report)
@@ -114,14 +168,265 @@ def test_cccc_census_validator_rejects_file_parse_errors(tmp_path):
     report.write_text(
         json.dumps(
             {
-                "files": [{"parse_errors": ["unexpected token"]}],
-                "summary": {"parse_error_count": 0},
+                "files": [
+                    _native_file("src/bad.py", parse_errors=["unexpected token"])
+                ],
+                "summary": _native_summary(
+                    1,
+                    0,
+                    parse_error_count=1,
+                    parse_error_file_count=1,
+                ),
             }
         ),
         encoding="utf-8",
     )
     with pytest.raises(SystemExit) as raised:
         validator.validate_report(report)
+    assert raised.value.code == 2
+
+
+def test_cccc_census_validator_requires_exact_nul_manifest_coverage(tmp_path):
+    validator = _load_script("validate_cccc_census")
+    report = tmp_path / "cccc.json"
+    manifest = tmp_path / "sources.nul"
+
+    def write_report(paths):
+        report.write_text(
+            json.dumps(
+                {
+                    "files": [_native_file(path) for path in paths],
+                    "summary": _native_summary(len(paths), 0),
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    write_report(["src/a.rs", "src/b.rs"])
+    manifest.write_bytes(b"src/a.rs\0src/b.rs\0")
+    assert validator.validate_report(report, manifest) == 2
+
+    invalid_cases = (
+        (["src/a.rs"], b"src/a.rs\0src/b.rs\0"),
+        (["src/a.rs", "src/b.rs", "src/c.rs"], b"src/a.rs\0src/b.rs\0"),
+        (["src/a.rs", "src/a.rs"], b"src/a.rs\0src/b.rs\0"),
+        (["src/a.rs"], b"src/a.rs\0src/a.rs\0"),
+        (["src/a.rs"], b"src/a.rs\0src/b.rs"),
+    )
+    for paths, raw_manifest in invalid_cases:
+        write_report(paths)
+        manifest.write_bytes(raw_manifest)
+        with pytest.raises(SystemExit) as raised:
+            validator.validate_report(report, manifest)
+        assert raised.value.code == 2
+
+
+def test_cccc_validator_counts_recursive_native_children_without_inventing_rows(
+    tmp_path,
+):
+    validator = _load_script("validate_cccc_census")
+    report = tmp_path / "cccc.json"
+    nested_functions = [
+        {
+            "name": "outer",
+            "kind": "function",
+            "line": 1,
+            "cognitive": 1,
+            "cyclomatic": 2,
+            "children": [
+                {
+                    "name": "inner",
+                    "kind": "function",
+                    "line": 2,
+                    "cognitive": 0,
+                    "cyclomatic": 1,
+                }
+            ],
+        }
+    ]
+    valid_document = {
+        "files": [
+            _native_file(
+                "src/nested.py",
+                functions=nested_functions,
+                cognitive=1,
+                cyclomatic=3,
+            )
+        ],
+        "summary": _native_summary(
+            1,
+            2,
+            cognitive={"sum": 1, "max": 1, "median": 0, "p90": 1, "p95": 1},
+            cyclomatic={
+                "sum": 3,
+                "max": 2,
+                "median": 1,
+                "p90": 2,
+                "p95": 2,
+            },
+        ),
+    }
+    report.write_text(json.dumps(valid_document), encoding="utf-8")
+    assert validator.validate_report(report) == 1
+
+    for field, value in (("cognitive", 0), ("cyclomatic", 2)):
+        invalid = json.loads(json.dumps(valid_document))
+        invalid["files"][0][field] = value
+        report.write_text(json.dumps(invalid), encoding="utf-8")
+        with pytest.raises(SystemExit) as raised:
+            validator.validate_report(report)
+        assert raised.value.code == 2
+
+
+def test_complexity_terms_require_zero_is_opt_in_and_fails_actionable_backlog(
+    tmp_path, capsys
+):
+    terms = _load_script("report_complexity_terms")
+    report = tmp_path / "cccc.json"
+    functions = [
+        {
+            "name": "complex",
+            "kind": "function",
+            "line": 1,
+            "cyclomatic": 11,
+            "cognitive": 1,
+        }
+    ]
+    report.write_text(
+        json.dumps(
+            {
+                "files": [
+                    _native_file(
+                        "src/example.py",
+                        functions=functions,
+                        cognitive=1,
+                        cyclomatic=11,
+                    )
+                ],
+                "summary": _native_summary(
+                    1,
+                    1,
+                    cognitive=_metric_summary(1),
+                    cyclomatic=_metric_summary(11),
+                ),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert terms.main([str(report)]) == 0
+    assert "REAL BACKLOG" in capsys.readouterr().out
+    assert terms.main(["--require-zero", str(report)]) == 1
+    assert "REAL BACKLOG" in capsys.readouterr().out
+
+
+def test_complexity_terms_keeps_accepted_dispatch_visible_and_zero_gate_passes(
+    tmp_path, capsys
+):
+    terms = _load_script("report_complexity_terms")
+    report = tmp_path / "cccc.json"
+    source_lines = (ROOT / "src/server/wire/mod.rs").read_text().splitlines()
+    line = next(
+        index
+        for index, text in enumerate(source_lines, 1)
+        if "fn dispatch_kind" in text
+    )
+    functions = [
+        {
+            "name": "dispatch_kind",
+            "kind": "method",
+            "line": line,
+            "cognitive": 1,
+            "cyclomatic": 32,
+        }
+    ]
+    report.write_text(
+        json.dumps(
+            {
+                "files": [
+                    _native_file(
+                        "src/server/wire/mod.rs",
+                        functions=functions,
+                        cognitive=1,
+                        cyclomatic=32,
+                    )
+                ],
+                "summary": _native_summary(
+                    1,
+                    1,
+                    cognitive=_metric_summary(1),
+                    cyclomatic=_metric_summary(32),
+                ),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert terms.main(["--require-zero", str(report)]) == 0
+    output = capsys.readouterr().out
+    accepted_line = next(
+        line for line in output.splitlines() if line.strip().startswith("accepted")
+    )
+    backlog_line = next(
+        line for line in output.splitlines() if line.strip().startswith("REAL BACKLOG")
+    )
+    assert accepted_line.strip().split()[1] == "1"
+    assert "ACCEPTED BY RULE" in output
+    assert backlog_line.strip().split()[2] == "0"
+
+
+def test_complexity_terms_rejects_non_native_function_numbers(tmp_path):
+    terms = _load_script("report_complexity_terms")
+    report = tmp_path / "cccc.json"
+    function = {
+        "name": "complex",
+        "kind": "function",
+        "line": 1,
+        "cyclomatic": 11,
+        "cognitive": 1,
+    }
+    document: dict[str, Any] = {
+        "files": [
+            _native_file(
+                "src/example.py", functions=[function], cognitive=1, cyclomatic=11
+            )
+        ],
+        "summary": _native_summary(
+            1,
+            1,
+            cognitive=_metric_summary(1),
+            cyclomatic=_metric_summary(11),
+        ),
+    }
+    for field, value in (
+        ("name", 1),
+        ("name", " "),
+        ("line", "1"),
+        ("line", -1),
+        ("line", 2**32),
+        ("cyclomatic", "11"),
+        ("cyclomatic", -1),
+        ("cyclomatic", 2**32),
+        ("cognitive", "1"),
+        ("cognitive", -1),
+        ("cognitive", 2**32),
+    ):
+        document["files"][0]["functions"][0][field] = value
+        report.write_text(json.dumps(document), encoding="utf-8")
+        with pytest.raises(SystemExit) as raised:
+            terms.main(["--require-zero", str(report)])
+        assert raised.value.code == 2
+        document["files"][0]["functions"][0][field] = {
+            "name": "complex",
+            "line": 1,
+            "cyclomatic": 11,
+            "cognitive": 1,
+        }[field]
+
+    document["summary"]["cognitive"]["max"] = 2**32
+    report.write_text(json.dumps(document), encoding="utf-8")
+    with pytest.raises(SystemExit) as raised:
+        terms.main(["--require-zero", str(report)])
     assert raised.value.code == 2
 
 

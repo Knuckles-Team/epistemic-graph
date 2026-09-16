@@ -1026,14 +1026,11 @@ def _native_member(
     return normalized, key, entry.language
 
 
-def _native_cluster(
-    cluster: Any,
-    *,
-    index: int,
-    snapshot: Path,
-    production: dict[str, ClassifiedEntry],
-    cluster_ids: set[int],
-) -> dict[str, Any]:
+def _native_cluster_coordinates(
+    cluster: Any, index: int, cluster_ids: set[int]
+) -> tuple[int, int, float, int, bool, list[Any]]:
+    """Validate native cluster coordinates before any member joins."""
+
     if not isinstance(cluster, dict):
         raise CensusError(f"dupehound cluster {index} is not an object")
     cluster_id = _positive_int(cluster.get("id"), f"clusters[{index}].id")
@@ -1056,6 +1053,19 @@ def _native_cluster(
     members = cluster.get("members")
     if not isinstance(members, list) or len(members) != copies or not members:
         raise CensusError(f"dupehound cluster {index} has an invalid member count")
+    return cluster_id, copies, similarity, deletable_lines, test_only, members
+
+
+def _validated_native_cluster_members(
+    members: list[Any],
+    *,
+    index: int,
+    snapshot: Path,
+    production: dict[str, ClassifiedEntry],
+    test_only: bool,
+) -> tuple[list[dict[str, Any]], str]:
+    """Join members and validate representative, test, and language consistency."""
+
     normalized_members: list[dict[str, Any]] = []
     member_keys: set[tuple[Any, ...]] = set()
     languages: set[str] = set()
@@ -1095,8 +1105,14 @@ def _native_cluster(
         )
     )
     language = next(iter(languages))
-    production_members = [member for member in normalized_members if not member["test"]]
-    test_member_count = len(normalized_members) - len(production_members)
+    return normalized_members, language
+
+
+def _production_representative(
+    production_members: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Retain the native representative, or choose the existing stable fallback."""
+
     projected_representative = next(
         (member for member in production_members if member["representative"]),
         None,
@@ -1111,6 +1127,17 @@ def _native_cluster(
                 member["name"],
             ),
         )
+    return projected_representative
+
+
+def _production_cluster_projection(
+    normalized_members: list[dict[str, Any]], language: str
+) -> dict[str, Any]:
+    """Retain native test telemetry while projecting only non-test copies."""
+
+    production_members = [member for member in normalized_members if not member["test"]]
+    test_member_count = len(normalized_members) - len(production_members)
+    projected_representative = _production_representative(production_members)
     production_deletable_lines = (
         sum(
             member["lines"]
@@ -1139,13 +1166,6 @@ def _native_cluster(
         ],
     }
     return {
-        "native_id": cluster_id,
-        "copies": copies,
-        "similarity": similarity,
-        "deletable_lines": deletable_lines,
-        "test_only": test_only,
-        "language": language,
-        "members": normalized_members,
         "production_members": production_members,
         "production_representative": projected_representative,
         "production_copies": len(production_members),
@@ -1155,6 +1175,37 @@ def _native_cluster(
             "product_debt" if len(production_members) >= 2 else "telemetry_only"
         ),
         "_finding_subject": finding_subject,
+    }
+
+
+def _native_cluster(
+    cluster: Any,
+    *,
+    index: int,
+    snapshot: Path,
+    production: dict[str, ClassifiedEntry],
+    cluster_ids: set[int],
+) -> dict[str, Any]:
+    cluster_id, copies, similarity, deletable_lines, test_only, members = (
+        _native_cluster_coordinates(cluster, index, cluster_ids)
+    )
+    normalized_members, language = _validated_native_cluster_members(
+        members,
+        index=index,
+        snapshot=snapshot,
+        production=production,
+        test_only=test_only,
+    )
+    projection = _production_cluster_projection(normalized_members, language)
+    return {
+        "native_id": cluster_id,
+        "copies": copies,
+        "similarity": similarity,
+        "deletable_lines": deletable_lines,
+        "test_only": test_only,
+        "language": language,
+        "members": normalized_members,
+        **projection,
     }
 
 
@@ -1314,46 +1365,56 @@ def _public_native_report(normalized: dict[str, Any]) -> dict[str, Any]:
     return report
 
 
+def _native_test_projection_metrics(clusters: list[dict[str, Any]]) -> dict[str, Any]:
+    """Summarize the complete native cluster telemetry."""
+
+    return {
+        "cluster_count": len(clusters),
+        "extra_copies": sum(max(0, cluster["copies"] - 1) for cluster in clusters),
+        "deletable_lines": sum(cluster["deletable_lines"] for cluster in clusters),
+        "test_only_cluster_count": sum(cluster["test_only"] for cluster in clusters),
+        "clusters_with_test_members": sum(
+            cluster["test_member_count"] > 0 for cluster in clusters
+        ),
+        "test_member_count": sum(cluster["test_member_count"] for cluster in clusters),
+    }
+
+
+def _production_test_projection_metrics(
+    clusters: list[dict[str, Any]], projected: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Summarize the auditable projection without removing native test members."""
+
+    return {
+        "rule": "at_least_two_native_non_test_members",
+        "cluster_count": len(projected),
+        "extra_copies": sum(
+            max(0, cluster["production_copies"] - 1) for cluster in projected
+        ),
+        "deletable_lines": sum(
+            cluster["production_deletable_lines"] for cluster in projected
+        ),
+        "mixed_cluster_count": sum(
+            cluster["test_member_count"] > 0 and cluster["production_copies"] > 0
+            for cluster in clusters
+        ),
+        "single_production_member_cluster_count": sum(
+            cluster["production_copies"] == 1 for cluster in clusters
+        ),
+        "test_only_cluster_count": sum(
+            cluster["production_copies"] == 0 for cluster in clusters
+        ),
+    }
+
+
 def _test_projection_metrics(clusters: list[dict[str, Any]]) -> dict[str, Any]:
     """Summarize native test telemetry and the auditable product projection."""
 
     projected = [cluster for cluster in clusters if cluster["production_copies"] >= 2]
     return {
         "policy_id": INLINE_TEST_PROJECTION_ID,
-        "native": {
-            "cluster_count": len(clusters),
-            "extra_copies": sum(max(0, cluster["copies"] - 1) for cluster in clusters),
-            "deletable_lines": sum(cluster["deletable_lines"] for cluster in clusters),
-            "test_only_cluster_count": sum(
-                cluster["test_only"] for cluster in clusters
-            ),
-            "clusters_with_test_members": sum(
-                cluster["test_member_count"] > 0 for cluster in clusters
-            ),
-            "test_member_count": sum(
-                cluster["test_member_count"] for cluster in clusters
-            ),
-        },
-        "production": {
-            "rule": "at_least_two_native_non_test_members",
-            "cluster_count": len(projected),
-            "extra_copies": sum(
-                max(0, cluster["production_copies"] - 1) for cluster in projected
-            ),
-            "deletable_lines": sum(
-                cluster["production_deletable_lines"] for cluster in projected
-            ),
-            "mixed_cluster_count": sum(
-                cluster["test_member_count"] > 0 and cluster["production_copies"] > 0
-                for cluster in clusters
-            ),
-            "single_production_member_cluster_count": sum(
-                cluster["production_copies"] == 1 for cluster in clusters
-            ),
-            "test_only_cluster_count": sum(
-                cluster["production_copies"] == 0 for cluster in clusters
-            ),
-        },
+        "native": _native_test_projection_metrics(clusters),
+        "production": _production_test_projection_metrics(clusters, projected),
     }
 
 
@@ -1734,6 +1795,35 @@ def _validate_native_output(
         ) from exc
 
 
+def _production_success_metrics(
+    classified: list[ClassifiedEntry],
+    normalized: dict[str, Any] | None,
+    projection: dict[str, Any],
+    findings: list[dict[str, Any]],
+    scope: str,
+) -> dict[str, Any]:
+    """Build the production view while preserving native applicability and counts."""
+
+    return {
+        "file_count": sum(entry.class_name == "production" for entry in classified),
+        "function_count": (
+            normalized["stats"]["functions"] if normalized is not None else 0
+        ),
+        "function_count_scope": (
+            "native_production_files_including_inline_test_members"
+            if normalized is not None
+            else "not_applicable"
+        ),
+        "cluster_count": projection["production"]["cluster_count"],
+        "extra_copies": projection["production"]["extra_copies"],
+        "deletable_lines": projection["production"]["deletable_lines"],
+        "advisory_finding_count": len(findings),
+        "not_applicable_count": int(scope == "not_applicable"),
+        "native_scan_executed": normalized is not None,
+        "test_projection": projection["production"],
+    }
+
+
 def _success_evidence(
     *,
     context: CandidateContext,
@@ -1816,24 +1906,9 @@ def _success_evidence(
         },
         "profile_id": PROFILE_ID,
         "native": native_report,
-        "production": {
-            "file_count": sum(entry.class_name == "production" for entry in classified),
-            "function_count": (
-                normalized["stats"]["functions"] if normalized is not None else 0
-            ),
-            "function_count_scope": (
-                "native_production_files_including_inline_test_members"
-                if normalized is not None
-                else "not_applicable"
-            ),
-            "cluster_count": projection["production"]["cluster_count"],
-            "extra_copies": projection["production"]["extra_copies"],
-            "deletable_lines": projection["production"]["deletable_lines"],
-            "advisory_finding_count": len(findings),
-            "not_applicable_count": int(scope == "not_applicable"),
-            "native_scan_executed": normalized is not None,
-            "test_projection": projection["production"],
-        },
+        "production": _production_success_metrics(
+            classified, normalized, projection, findings, scope
+        ),
         "manifest": {
             "included_count": len(manifest["included"]),
             "excluded_count": len(manifest["excluded"]),

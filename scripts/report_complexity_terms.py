@@ -10,28 +10,34 @@ findings by the terms of acceptance in `scripts/rust_exhaustive_match.py`, so
 the census reports clean-with-known-exceptions and the backlog number is the
 one a burndown lane can actually own.
 
-It is a REPORT, not a gate: it never fails on a count, holds no threshold, and
-writes nothing. `check_complexity_staged.py` is what enforces, on the diff, and
-it applies the identical rule from the identical module -- one authority, so
-the census and the hook can never disagree about what is accepted.
+It is an advisory report by default.  The optional ``--require-zero`` mode is
+the whole-tree publication gate: it keeps the complete report visible and
+fails only when the reported real backlog is nonzero.  It holds no threshold,
+baseline, or suppression list, and writes nothing.  `check_complexity_staged.py`
+is what enforces the same terms on the diff, using the identical module -- one
+authority, so the census and the hook can never disagree about what is
+accepted.
 
-Exit codes: 0 printed a report, 2 the report could not be produced (an
-ENVIRONMENT fact -- never reported as "no findings").
+Exit codes: 0 printed a report (or the required backlog was zero), 1 the
+required-zero mode found actionable backlog, and 2 the report could not be
+produced (an ENVIRONMENT fact -- never reported as "no findings").
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from collections import Counter
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import NoReturn
 
 from rust_exhaustive_match import dispatch_shape
 from scanner_contract import (
     CCCC_MAX_COGNITIVE,
     CCCC_MAX_CYCLOMATIC,
 )
+from validate_cccc_census import ValidatedReport, validate_document
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -53,37 +59,11 @@ def fail(message: str) -> NoReturn:
     raise SystemExit(2)
 
 
-def _rows(document: dict[str, Any]) -> list[tuple[str, str, int, int, int]]:
-    files = document.get("files")
-    if not isinstance(files, list) or not files:
-        fail("report has no files array")
-    out: list[tuple[str, str, int, int, int]] = []
-
-    def walk(fn: object, path: str, prefix: str) -> None:
-        if not isinstance(fn, dict):
-            fail("report contains a function that is not an object")
-        for field in ("name", "line", "cyclomatic", "cognitive"):
-            if not isinstance(fn.get(field), (str, int)) or isinstance(
-                fn.get(field), bool
-            ):
-                fail(f"report contains a function without a valid {field}")
-        name = f"{prefix}{fn['name']}"
-        out.append((name, path, int(fn["line"]), fn["cyclomatic"], fn["cognitive"]))
-        children = fn.get("children", [])
-        if not isinstance(children, list):
-            fail(f"report function {name} has invalid children")
-        for kid in children:
-            walk(kid, path, f"{name}.")
-
-    for entry in files:
-        if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
-            fail("report contains a file without a path")
-        functions = entry.get("functions")
-        if not isinstance(functions, list):
-            fail(f"report file {entry['path']} has no functions array")
-        for fn in functions:
-            walk(fn, entry["path"], "")
-    return out
+def _rows(document: ValidatedReport) -> list[tuple[str, str, int, int, int]]:
+    return [
+        (row.name, row.path, row.line, row.cyclomatic, row.cognitive)
+        for row in document.functions
+    ]
 
 
 def _source(path: str, cache: dict[str, str | None]) -> str | None:
@@ -119,14 +99,14 @@ def classify(
     return "accepted" if residual <= max_cyc else "residual"
 
 
-def _document(path: Path) -> dict[str, Any]:
+def _document(path: Path) -> ValidatedReport:
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         fail(f"cannot read report {path}: {exc}")
     if not isinstance(document, dict):
         fail(f"report {path} is not a JSON object")
-    return document
+    return validate_document(document, path)
 
 
 def _print_report(measured: int, over: int, cognitive: int, tally: Counter) -> int:
@@ -164,12 +144,28 @@ def report(path: Path) -> int:
     return _print_report(len(rows), len(over), len(over) - len(cyclomatic_only), tally)
 
 
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--require-zero",
+        action="store_true",
+        help="exit 1 when the reported REAL BACKLOG is nonzero",
+    )
+    parser.add_argument("report", type=Path, metavar="REPORT.json")
+    return parser
+
+
+def _exit_code(require_zero: bool, backlog: int) -> int:
+    if require_zero and backlog:
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if len(argv) != 1:
-        fail("usage: report_complexity_terms.py REPORT.json")
-    report(Path(argv[0]))
-    return 0
+    args = _build_parser().parse_args(argv)
+    backlog = report(args.report)
+    return _exit_code(args.require_zero, backlog)
 
 
 if __name__ == "__main__":

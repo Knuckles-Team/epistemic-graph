@@ -35,6 +35,20 @@ use eg_types::{
 
 use super::durable_stores::BundledStoreSource;
 
+mod batch;
+mod history;
+mod receipt;
+mod replay;
+mod write;
+
+pub(super) use batch::build_batch;
+pub(super) use history::read_history;
+pub(super) use receipt::{agent_library_effect_digest, owner_receipt, OwnerReceiptInput};
+pub(super) use replay::{
+    expected_headers_from_event, receipt_result, record_event, record_result, replay_record,
+    replayed_receipt, ExpectedAgentLibraryMutation,
+};
+
 /// Persist-dir file for the EG-owned Agent Library.
 pub const AGENT_LIBRARY_FILE: &str = "agent_library.redb";
 /// Stable physical identity used by staged backup adoption.
@@ -187,11 +201,51 @@ impl AgentLibraryStore {
         eg_types::agent_library::validate_key(&request.context.tenant_id, &request.agent_id)?;
         let owner = self.scope_handle(&request.context.tenant_id)?;
         let batch_id = batch_id(&request.context.idempotency_key)?;
-        let read = self.kernel.read_scope(&owner)?;
-        let record = eg_transaction::read_ledger(&read, &batch_id)?;
-        let replay_row =
-            eg_transaction::read_replay_operation(&read, &request.context.idempotency_key)?;
-        let (record, replay_row) = match (record, replay_row) {
+        let Some(evidence) = read_status_evidence(self, &owner, &request.context, &batch_id)?
+        else {
+            return Ok(None);
+        };
+        if receipt_result(&evidence.receipt)? != record_result(&evidence.record)? {
+            return Err(
+                "CORRUPT_MUTATION_LEDGER: Agent Library status result differs from its receipt"
+                    .to_string(),
+            );
+        }
+        let expected_event_bytes = evidence
+            .record
+            .batch
+            .outbox
+            .first()
+            .map(|intent| intent.payload.as_slice())
+            .ok_or_else(|| "Agent Library receipt has no outbox event".to_string())?;
+        let result = replay_record(
+            &evidence.record,
+            &request.context,
+            request.kind,
+            &request.agent_id,
+            None,
+            expected_event_bytes,
+        )?;
+        Ok(Some(result))
+    }
+}
+
+struct AgentLibraryStatusEvidence {
+    record: eg_types::MutationBatchRecord,
+    receipt: MutationReceipt,
+}
+
+fn read_status_evidence(
+    store: &AgentLibraryStore,
+    owner: &Arc<OwnedStoreHandle<eg_storage::AgentLibraryOwner>>,
+    context: &AgentLibraryMutationContext,
+    batch_id: &str,
+) -> Result<Option<AgentLibraryStatusEvidence>, String> {
+    let read = store.kernel.read_scope(owner)?;
+    let record = eg_transaction::read_ledger(&read, batch_id)?;
+    let replay_row = eg_transaction::read_replay_operation(&read, &context.idempotency_key)?;
+    let (record, replay_row) =
+        match (record, replay_row) {
             (None, None) => return Ok(None),
             (None, Some(_)) => return Err(
                 "CORRUPT_MUTATION_LEDGER: Agent Library status has a dangling typed replay receipt"
@@ -205,784 +259,53 @@ impl AgentLibraryStore {
             }
             (Some(record), Some(replay_row)) => (record, replay_row),
         };
-        let RecordedOperation::Receipt(receipt) = replay_row.recorded else {
+    let receipt = match &replay_row.recorded {
+        RecordedOperation::Receipt(receipt) => receipt.as_ref(),
+        RecordedOperation::Batch(_) => {
             return Err(
                 "CORRUPT_MUTATION_LEDGER: Agent Library status has no typed replay receipt"
                     .to_string(),
             );
-        };
-        let receipt = *receipt;
-        receipt.validate()?;
-        let expected_scope = eg_types::mutation_batch::authority_scope_for(owner.identity())?;
-        if replay_row.identity != *owner.identity()
-            || replay_row.idempotency_key != request.context.idempotency_key
-            || replay_row.batch_id != batch_id
-            || record.identity != *owner.identity()
-            || record.batch.batch_id != batch_id
-            || receipt.disposition.as_str() != "committed"
-            || receipt.scope != expected_scope
-            || receipt.operation_replay_digest != replay_row.operation_replay_digest
-        {
-            return Err(
-                "CORRUPT_MUTATION_LEDGER: Agent Library status receipt identity is invalid"
-                    .to_string(),
-            );
         }
-        if receipt_result(&receipt)? != record_result(&record)? {
-            return Err(
-                "CORRUPT_MUTATION_LEDGER: Agent Library status result differs from its receipt"
-                    .to_string(),
-            );
-        }
-        let expected_event_bytes = record
-            .batch
-            .outbox
-            .first()
-            .map(|intent| intent.payload.as_slice())
-            .ok_or_else(|| "Agent Library receipt has no outbox event".to_string())?;
-        let result = replay_record(
-            &record,
-            &request.context,
-            request.kind,
-            &request.agent_id,
-            None,
-            expected_event_bytes,
-        )?;
-        Ok(Some(result))
-    }
-
-    fn entry_at_revision_in_write(
-        &self,
-        write: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
-        tenant_id: &str,
-        agent_id: &str,
-        revision: u64,
-    ) -> Result<Option<AgentLibraryEntry>, String> {
-        if revision == 0 {
-            return Ok(None);
-        }
-        let revisions = write.open_read_table(eg_storage::AGENT_LIBRARY_REVISIONS)?;
-        let Some(value) = revisions.get((tenant_id, agent_id, revision))? else {
-            return Ok(None);
-        };
-        let entry = decode_entry(value.value())?;
-        validate_entry_key(&entry, tenant_id, agent_id, revision)?;
-        Ok(Some(entry))
-    }
-
-    /// Resolve every cross-record reference ONE AGENT DRAFT makes.
-    ///
-    /// L2 -> L1: every component the agent is assembled from, plus the values a
-    /// template instantiation bound into it. Both are pins, and a pin nothing
-    /// resolves is a claim nothing checks whichever list it sits in -- but they
-    /// are gathered here rather than folded into `dependencies()`, which
-    /// answers "what is this agent ASSEMBLED from" and must not start answering
-    /// a different question.
-    ///
-    /// L2 -> TEMPLATE: `instantiated_from` is what makes "which agents came
-    /// from this template?" a traversal rather than a guess. Unresolved it was
-    /// a free-text provenance claim that `definition_digest` then attested to.
-    ///
-    /// # Why an agent DRAFT rather than an Agent Library publish
-    ///
-    /// Two admissions put an `AgentLibraryEntryDraft` on durable storage: this
-    /// layer's own publish, and a TEMPLATE publish, whose `base` is one. They
-    /// ask the identical question of it, so they ask it in one place -- `subject`
-    /// is the only thing that differs, and only so a refusal names the record
-    /// the caller was actually publishing.
-    ///
-    /// Sharing it also keeps the template side honest as the contract moves.
-    /// `AgentTemplateDraft::validate` refuses a `base` that is itself a
-    /// template instance, so today a base carries no `instantiated_from` and
-    /// the template and binding halves below are unreachable from that caller.
-    /// A resolver written to today's reachability -- just
-    /// `base.dependencies()` -- would silently stop covering the base the day
-    /// that rule relaxed. This one would not.
-    pub(super) fn admit_entry_references_in_write(
-        &self,
-        write: &super::agent_pin_resolution::Write<'_>,
-        tenant_id: &str,
-        subject: &str,
-        entry: &AgentLibraryEntryDraft,
-    ) -> Result<(), String> {
-        let mut components = entry.dependencies();
-        components.extend(
-            entry
-                .instantiated_from
-                .iter()
-                .flat_map(|instance| instance.bindings.values()),
-        );
-        self.resolve_component_pins_in_write(write, tenant_id, subject, &components)?;
-        let templates: Vec<super::agent_pin_resolution::TemplatePin<'_>> = entry
-            .instantiated_from
-            .iter()
-            .map(|instance| super::agent_pin_resolution::TemplatePin {
-                template_id: &instance.template_id,
-                definition_digest: &instance.definition_digest,
-                entry_revision: Some(instance.entry_revision),
-            })
-            .collect();
-        super::agent_pin_resolution::resolve_template_pins_in_write(
-            write, tenant_id, subject, &templates,
-        )
-    }
-
-    /// Publish a new immutable Agent Library definition revision.
-    pub fn publish(
-        &self,
-        request: AgentLibraryPublishRequest,
-    ) -> Result<AgentLibraryWriteResult, String> {
-        validate_context(self, &request.context)?;
-        request.entry.validate()?;
-        validate_context_matches_draft(&request.context, &request.entry)?;
-        let expected_revision = request.context.expected_revision.ok_or_else(|| {
-            "agent library writes require an explicit expected_revision".to_string()
-        })?;
-        let owner = self.scope_handle(&request.context.tenant_id)?;
-        let txn = self.mutations.open_write(&owner)?;
-        let nonce = match resolve_nonce_first(&self.mutations, &txn, &request.context) {
-            Ok(nonce) => nonce,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let next_revision = match next_revision(expected_revision) {
-            Ok(next_revision) => next_revision,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let definition_digest = AgentLibraryEntry::publish(request.entry.clone(), next_revision, 0)
-            .map(|entry| entry.definition_digest)?;
-        let replay_context = admitted_context(&request.context, "agent-library:publish")?;
-        let operation = agent_library_operation_identity(
-            &owner,
-            &replay_context,
-            "publish",
-            &request.entry.agent_id,
-            expected_revision,
-            Some(&definition_digest),
-        )?;
-        let replay = match self.mutations.resolve_replay(&txn, &operation, &nonce) {
-            Ok(replay) => replay,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let replayed = match replayed_receipt(
-            &self.mutations,
-            &txn,
-            replay,
-            &operation,
-            &replay_context,
-            ExpectedAgentLibraryMutation {
-                kind: AgentLibraryMutationKind::Publish,
-                agent_id: request.entry.agent_id.as_str(),
-                draft: Some(&request.entry),
-            },
-        ) {
-            Ok(replayed) => replayed,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        if let Some((result, receipt)) = replayed {
-            self.mutations
-                .finalize_replay_receipt(&txn, &operation, &nonce, &receipt)?;
-            self.mutations.commit_replay_receipt(txn)?;
-            return Ok(result);
-        }
-        // L2 -> L1: every component this agent is assembled from must actually
-        // exist, at the exact revision it pins, in this tenant, under the kind
-        // the slot expects, and not withdrawn.
-        //
-        // Local validation checks only that a pin is WELL-FORMED. Without this
-        // resolution, 64 invented hex characters publish an agent that claims a
-        // component -- a tool, a system prompt, a model profile -- it was never
-        // granted, and `capability_digest` then attests to the claim. It also
-        // makes the documented property true: "republishing a component changes
-        // its digest, so an agent assembled from the old one no longer
-        // resolves" has no meaning until something resolves it.
-        //
-        // Inside this transaction, deliberately: resolving from a separate read
-        // could admit an agent whose component was retired between the two.
-        // After the replay check, so a retry of a committed publish is not
-        // re-resolved against a tree that may have changed since.
-        // L2 -> TEMPLATE travels with it: an instantiated agent records WHICH
-        // template, at which revision, with which bindings. See
-        // `admit_entry_references_in_write`.
-        if let Err(error) = self.admit_entry_references_in_write(
-            &txn,
-            &request.context.tenant_id,
-            "agent library entry",
-            &request.entry,
-        ) {
-            txn.abort()?;
-            return Err(error);
-        }
-        let previous_updated_at_ms = if expected_revision == 0 {
-            0
-        } else {
-            self.entry_at_revision_in_write(
-                &txn,
-                &request.context.tenant_id,
-                &request.entry.agent_id,
-                expected_revision,
-            )?
-            .map(|entry| entry.updated_at_ms)
-            .unwrap_or(0)
-        };
-        let mut write_context = replay_context.clone();
-        write_context.created_at_ms =
-            crate::server::dispatch::authoritative_now_ms().max(previous_updated_at_ms);
-        // A retry may carry a different transport timestamp.  If this exact
-        // target revision is already retained, reconstruct the event from the
-        // durable row so its canonical payload remains byte-identical and the
-        // replay kernel can decide before OCC/effect admission.
-        let entry = if let Some(existing) = self.entry_at_revision_in_write(
-            &txn,
-            &request.context.tenant_id,
-            &request.entry.agent_id,
-            next_revision,
-        )? {
-            if existing.as_draft() != request.entry {
-                txn.abort()?;
-                return Err(
-                    "IDEMPOTENCY_CONFLICT: target Agent Library revision has different definition"
-                        .to_string(),
-                );
-            }
-            existing
-        } else {
-            AgentLibraryEntry::publish(
-                request.entry.clone(),
-                next_revision,
-                write_context.created_at_ms,
-            )?
-        };
-        self.commit_entry_in_write(
-            txn,
-            &owner,
-            &write_context,
-            AgentLibraryRevisionCommit {
-                expected_revision,
-                kind: AgentLibraryMutationKind::Publish,
-                entry,
-            },
-            ReplayIdentity {
-                operation: &operation,
-                nonce: &nonce,
-            },
-        )
-    }
-
-    /// Retire the current definition with a durable tombstone revision.
-    pub fn retire(
-        &self,
-        request: AgentLibraryRetireRequest,
-    ) -> Result<AgentLibraryWriteResult, String> {
-        validate_context(self, &request.context)?;
-        eg_types::agent_library::validate_key(&request.context.tenant_id, &request.agent_id)?;
-        let expected_revision = request.context.expected_revision.ok_or_else(|| {
-            "agent library writes require an explicit expected_revision".to_string()
-        })?;
-        let owner = self.scope_handle(&request.context.tenant_id)?;
-        let txn = self.mutations.open_write(&owner)?;
-        let nonce = match resolve_nonce_first(&self.mutations, &txn, &request.context) {
-            Ok(nonce) => nonce,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let next_revision = match next_revision(expected_revision) {
-            Ok(next_revision) => next_revision,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let replay_context = admitted_context(&request.context, "agent-library:retire")?;
-        let operation = agent_library_operation_identity(
-            &owner,
-            &replay_context,
-            "retire",
-            &request.agent_id,
-            expected_revision,
-            None,
-        )?;
-        let replay = match self.mutations.resolve_replay(&txn, &operation, &nonce) {
-            Ok(replay) => replay,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let replayed = match replayed_receipt(
-            &self.mutations,
-            &txn,
-            replay,
-            &operation,
-            &replay_context,
-            ExpectedAgentLibraryMutation {
-                kind: AgentLibraryMutationKind::Retire,
-                agent_id: request.agent_id.as_str(),
-                draft: None,
-            },
-        ) {
-            Ok(replayed) => replayed,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        if let Some((result, receipt)) = replayed {
-            self.mutations
-                .finalize_replay_receipt(&txn, &operation, &nonce, &receipt)?;
-            self.mutations.commit_replay_receipt(txn)?;
-            return Ok(result);
-        }
-        let retained = self
-            .entry_at_revision_in_write(
-                &txn,
-                &request.context.tenant_id,
-                &request.agent_id,
-                expected_revision,
-            )?
-            .ok_or_else(|| "agent library entry does not exist".to_string())?;
-        if retained.is_retired() {
-            txn.abort()?;
-            return Err("agent library entry is already retired".to_string());
-        }
-        let mut write_context = replay_context.clone();
-        write_context.created_at_ms =
-            crate::server::dispatch::authoritative_now_ms().max(retained.updated_at_ms);
-        let entry = if let Some(existing) = self.entry_at_revision_in_write(
-            &txn,
-            &request.context.tenant_id,
-            &request.agent_id,
-            next_revision,
-        )? {
-            if existing.is_retired() && existing.as_draft() == retained.as_draft() {
-                existing
-            } else {
-                txn.abort()?;
-                return Err(
-                    "IDEMPOTENCY_CONFLICT: target Agent Library revision has different lifecycle"
-                        .to_string(),
-                );
-            }
-        } else {
-            retained.retire(next_revision, write_context.created_at_ms)?
-        };
-        self.commit_entry_in_write(
-            txn,
-            &owner,
-            &write_context,
-            AgentLibraryRevisionCommit {
-                expected_revision,
-                kind: AgentLibraryMutationKind::Retire,
-                entry,
-            },
-            ReplayIdentity {
-                operation: &operation,
-                nonce: &nonce,
-            },
-        )
-    }
-
-    fn commit_entry_in_write(
-        &self,
-        txn: eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
-        owner: &OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
-        context: &AgentLibraryMutationContext,
-        commit: AgentLibraryRevisionCommit,
-        replay: ReplayIdentity<'_>,
-    ) -> Result<AgentLibraryWriteResult, String> {
-        let AgentLibraryRevisionCommit {
-            expected_revision,
-            kind,
-            entry,
-        } = commit;
-        let ReplayIdentity { operation, nonce } = replay;
-        let operations = agent_library_operations(kind, &entry);
-        let policy_digest = effective_agent_library_policy_digest(&operations)?;
-        let mut admitted_context = context.clone();
-        admitted_context.policy_digest = format!("sha256:{}", policy_digest.to_hex());
-        let event = AgentLibraryOutboxEvent::new(kind, entry.clone(), &admitted_context)?;
-        let event_bytes = eg_storage::encode_bounded(&event, "agent library outbox event")?;
-        let entry_bytes = eg_storage::encode_bounded(&entry, "agent library revision")?;
-        let batch_id = batch_id(&admitted_context.idempotency_key)?;
-        let authoritative_version = match self.mutations.current_version(&txn, owner) {
-            Ok(version) => version,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let batch = match build_batch(
-            owner,
-            &admitted_context,
-            kind,
-            &entry,
-            authoritative_version,
-            &batch_id,
-            event_bytes.clone(),
-        ) {
-            Ok(batch) => batch,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let begun = match txn.begin_with_replay_identity(&batch, operation, nonce) {
-            Ok(begun) => begun,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let source_version = match begun {
-            Begin::Apply {
-                source_version: Some(source_version),
-            } => source_version,
-            Begin::Apply {
-                source_version: None,
-            } => {
-                txn.abort()?;
-                return Err("agent library admission has no native source version".to_string());
-            }
-            Begin::Replay(_) => {
-                txn.abort()?;
-                return Err(
-                    "CORRUPT_MUTATION_LEDGER: replay became visible after a fresh admission decision"
-                        .to_string(),
-                );
-            }
-        };
-        if source_version != authoritative_version {
-            txn.abort()?;
-            return Err("agent library source version changed while admitting write".to_string());
-        }
-        let committed_version = source_version
-            .checked_add(1)
-            .ok_or_else(|| "agent library committed version overflow".to_string())?;
-        let stable_result =
-            AgentLibraryCommittedResult::new(entry.clone(), batch_id.clone(), committed_version)?;
-        let result_bytes = encode_domain_result(&stable_result)?;
-        let receipt = owner_receipt(
-            operation,
-            nonce,
-            &batch,
-            "agent-library",
-            AGENT_LIBRARY_OUTBOX_TOPIC,
-            &format!(
-                "{}:{}:{}",
-                entry.tenant_id, entry.agent_id, entry.entry_revision
-            ),
-            &event_bytes,
-            &expected_headers_from_event(&event),
-            domain_result_for(&stable_result)?,
-            committed_version,
-            admitted_context.created_at_ms,
-        )?;
-
-        let owner_write_result: Result<(), String> = (|| {
-            let owner_write = txn.owner_rows(owner, &batch)?;
-            apply_entry_rows(
-                &owner_write,
-                &admitted_context,
-                expected_revision,
-                &entry,
-                entry_bytes.as_slice(),
-            )?;
-            owner_write.finish_owner()
-        })();
-        if let Err(error) = owner_write_result {
-            txn.abort()?;
-            return Err(error);
-        }
-        let record = match self.mutations.finish_with_replay(
-            &txn,
-            &batch,
-            Some(result_bytes),
-            admitted_context.created_at_ms,
-            Some(source_version),
-            (operation, nonce, &receipt),
-        ) {
-            Ok(record) => record,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let recorded_version = record
-            .committed_version
-            .target()
-            .ok_or_else(|| "agent library commit has no target version".to_string())?;
-        if recorded_version != committed_version {
-            txn.abort()?;
-            return Err(
-                "agent library result version differs from the committed version".to_string(),
-            );
-        }
-        self.mutations.commit(txn, &batch)?;
-        Ok(stable_result.response(false))
-    }
-}
-
-/// The pair the mutation kernel treats as one replay identity: an attempt is
-/// the same attempt only when BOTH the operation class and the attempt nonce
-/// match.  The kernel's own API says so -- `begin_with_replay_identity`,
-/// `resolve_replay` and `finish_with_replay` all take the two together (the
-/// last one already as an inline tuple) -- so they are threaded as one value
-/// rather than as two positional arguments that could drift apart.
-struct ReplayIdentity<'a> {
-    operation: &'a eg_types::authority::OperationReplayIdentity,
-    nonce: &'a eg_types::authority::NonceReplayKey,
-}
-
-/// One append-only revision transition to commit: the entry as it will be
-/// retained, the `kind` of lifecycle change that produced it, and the revision
-/// the caller observed before it.  All three are needed together to stay
-/// consistent -- `expected_revision` is what the head row is compact-and-swapped
-/// against, and `kind` + `entry` decide the operation, outbox event and
-/// retained row -- so a caller cannot supply one without the others.
-struct AgentLibraryRevisionCommit {
-    expected_revision: u64,
-    kind: AgentLibraryMutationKind,
-    entry: AgentLibraryEntry,
-}
-
-/// What the caller believes its idempotency key committed.  A replayed receipt
-/// is only safe to return when the recorded entry matches this expectation, so
-/// these three travel as the single "expected mutation" the comparison is made
-/// against: the agent it addressed, the lifecycle change it made, and -- for a
-/// publish -- the exact draft it published.
-struct ExpectedAgentLibraryMutation<'a> {
-    kind: AgentLibraryMutationKind,
-    agent_id: &'a str,
-    /// `None` for a retire, which has no submitted draft to compare.
-    draft: Option<&'a AgentLibraryEntryDraft>,
-}
-
-fn replayed_receipt(
-    mutations: &MutationKernel,
-    txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
-    replay: ReplayResolution,
-    operation: &eg_types::authority::OperationReplayIdentity,
-    context: &AgentLibraryMutationContext,
-    expected: ExpectedAgentLibraryMutation<'_>,
-) -> Result<Option<(AgentLibraryWriteResult, MutationReceipt)>, String> {
-    let ExpectedAgentLibraryMutation {
-        kind,
-        agent_id,
-        draft,
-    } = expected;
-    let recorded = match replay {
-        ReplayResolution::Fresh => return Ok(None),
-        ReplayResolution::NonceRejected { idempotency_key } => {
-            return Err(format!(
-                "REPLAY_NONCE_CONSUMED: attempt nonce already consumed by '{idempotency_key}'"
-            ));
-        }
-        ReplayResolution::Conflict { .. } => {
-            return Err(
-                "IDEMPOTENCY_CONFLICT: key was already used by a different Agent Library mutation"
-                    .to_string(),
-            );
-        }
-        ReplayResolution::ReplayedResult(recorded) => *recorded,
     };
-    let RecordedOperation::Receipt(receipt) = recorded else {
-        return Err(
-            "CORRUPT_MUTATION_LEDGER: Agent Library replay is missing its typed receipt"
-                .to_string(),
-        );
-    };
-    let receipt = *receipt;
     receipt.validate()?;
-    if receipt.disposition.as_str() != "committed"
-        || receipt.operation_replay_digest != operation.digest()?
-        || receipt.scope != operation.authority_scope
-    {
-        return Err(
-            "CORRUPT_MUTATION_LEDGER: Agent Library replay receipt identity is invalid".to_string(),
-        );
-    }
-    let stable_result = receipt_result(&receipt)?;
-    let expected_batch_id = batch_id(&context.idempotency_key)?;
-    let expected_entry_revision = context
-        .expected_revision
-        .and_then(|revision| revision.checked_add(1));
-    if stable_result.batch_id != expected_batch_id
-        || stable_result.entry.agent_id != agent_id
-        || stable_result.entry.tenant_id != context.tenant_id
-        || expected_entry_revision != Some(stable_result.entry.entry_revision)
-        || stable_result.entry.lifecycle
-            != match kind {
-                AgentLibraryMutationKind::Publish => AgentLibraryLifecycle::Published,
-                AgentLibraryMutationKind::Retire => AgentLibraryLifecycle::Retired,
-            }
-        || draft.is_some_and(|expected| stable_result.entry.as_draft() != *expected)
-    {
-        return Err(
-            "IDEMPOTENCY_CONFLICT: key was already used by a different Agent Library mutation"
-                .to_string(),
-        );
-    }
-    let event = AgentLibraryOutboxEvent::new(kind, stable_result.entry.clone(), context)?;
-    let event_bytes = eg_storage::encode_bounded(&event, "agent library replay event")?;
-    let expected_key = format!(
-        "{}:{}:{}",
-        stable_result.entry.tenant_id,
-        stable_result.entry.agent_id,
-        stable_result.entry.entry_revision
-    );
-    let headers = expected_headers(context, &stable_result.entry);
-    let effect_digest = agent_library_effect_digest(
-        AGENT_LIBRARY_OUTBOX_TOPIC,
-        &expected_key,
-        &event_bytes,
-        &headers,
+    validate_status_identity(
+        owner.as_ref(),
+        context,
+        batch_id,
+        &record,
+        &replay_row,
+        receipt,
     )?;
-    if receipt.effect_digest != Some(effect_digest) {
-        return Err(
-            "CORRUPT_MUTATION_LEDGER: Agent Library replay receipt does not bind its outbox"
-                .to_string(),
-        );
-    }
-
-    // A typed replay receipt is only authoritative when the kernel can show
-    // the one committed batch, its operation class and its physical outbox
-    // row in the same owner snapshot.  The replay table alone is not enough:
-    // accepting it after a batch, class or outbox row was redirected would
-    // return a result for an effect the ledger did not actually commit.
-    let Some((record, class, physical_outbox)) =
-        mutations.read_replay_evidence(txn, &stable_result.batch_id)?
-    else {
-        return Err(
-            "CORRUPT_MUTATION_LEDGER: Agent Library replay receipt points to a missing batch"
-                .to_string(),
-        );
-    };
-    record.validate().map_err(|error| {
-        format!("CORRUPT_MUTATION_LEDGER: Agent Library replay batch is invalid: {error}")
-    })?;
-    if record.status != MutationBatchStatus::Committed
-        || class != eg_storage::MutationClass::Operation
-        || record.identity != *txn.scope()
-        || record.batch.identity != *txn.scope()
-        || record.batch.batch_id != stable_result.batch_id
-        || record.batch.operations.len() != 1
-        || record.batch.outbox.len() != 1
-        || record.committed_version.target() != Some(stable_result.committed_version)
-        || record.batch.idempotency_key() != context.idempotency_key.as_str()
-        || record.batch.serving_principal() != context.principal.as_str()
-        || record.committing_actor()? != context.caller_principal.as_str()
-    {
-        return Err(
-            "CORRUPT_MUTATION_LEDGER: Agent Library replay batch identity is invalid".to_string(),
-        );
-    }
-    let expected_operation = agent_library_operations(kind, &stable_result.entry)
-        .into_iter()
-        .next()
-        .ok_or_else(|| {
-            "CORRUPT_MUTATION_LEDGER: Agent Library replay operation is missing".to_string()
-        })?;
-    let actual_operation_bytes = eg_storage::encode_bounded(
-        &record.batch.operations[0],
-        "Agent Library replay operation",
-    )?;
-    let expected_operation_bytes =
-        eg_storage::encode_bounded(&expected_operation, "Agent Library expected operation")?;
-    if actual_operation_bytes != expected_operation_bytes {
-        return Err(
-            "CORRUPT_MUTATION_LEDGER: Agent Library replay operation differs from its receipt"
-                .to_string(),
-        );
-    }
-    let receipt_result_bytes =
-        eg_storage::encode_bounded(&receipt.result, "mutation receipt result")?;
-    if record.result_msgpack.as_deref() != Some(receipt_result_bytes.as_slice()) {
-        return Err(
-            "CORRUPT_MUTATION_LEDGER: Agent Library replay result bytes differ from its receipt"
-                .to_string(),
-        );
-    }
-    let physical_envelope = record.batch.envelope.operation().ok_or_else(|| {
-        "CORRUPT_MUTATION_LEDGER: Agent Library replay batch is not an operation".to_string()
-    })?;
-    let physical_operation = physical_envelope.operation_identity()?;
-    let mut comparable_operation = physical_operation;
-    comparable_operation.canonical_payload_digest = operation.canonical_payload_digest;
-    let physical_nonce = physical_envelope.nonce_replay_key()?;
-    if comparable_operation != *operation || physical_nonce.digest()? != receipt.nonce_replay_digest
-    {
-        return Err(
-            "CORRUPT_MUTATION_LEDGER: Agent Library replay operation identity is invalid"
-                .to_string(),
-        );
-    }
-    let intent = &record.batch.outbox[0];
-    if intent.topic != AGENT_LIBRARY_OUTBOX_TOPIC
-        || intent.key != expected_key
-        || intent.payload != event_bytes
-        || intent.headers != headers
-    {
-        return Err(
-            "CORRUPT_MUTATION_LEDGER: Agent Library replay batch outbox intent differs".to_string(),
-        );
-    }
-    if physical_outbox.len() != 1 {
-        return Err(
-            "CORRUPT_MUTATION_LEDGER: Agent Library replay must contain one outbox row".to_string(),
-        );
-    }
-    let outbox = &physical_outbox[0];
-    outbox.validate().map_err(|error| {
-        format!("CORRUPT_MUTATION_LEDGER: Agent Library replay outbox row is invalid: {error}")
-    })?;
-    if outbox.batch_id != record.batch.batch_id
-        || outbox.ordinal != 0
-        || outbox.identity != *txn.scope()
-        || outbox.committed_version != record.committed_version
-        || outbox.created_at_ms != record.batch.created_at_ms
-        || outbox.intent != *intent
-    {
-        return Err(
-            "CORRUPT_MUTATION_LEDGER: Agent Library replay outbox row differs from its batch"
-                .to_string(),
-        );
-    }
-    if record_event(&record)? != event {
-        return Err(
-            "CORRUPT_MUTATION_LEDGER: Agent Library replay event differs from its receipt"
-                .to_string(),
-        );
-    }
-    Ok(Some((stable_result.response(true), receipt)))
+    Ok(Some(AgentLibraryStatusEvidence {
+        record,
+        receipt: receipt.clone(),
+    }))
 }
 
-fn receipt_result(receipt: &MutationReceipt) -> Result<AgentLibraryCommittedResult, String> {
-    let MutationResult::DomainResult {
-        schema_id, payload, ..
-    } = &receipt.result
-    else {
-        return Err("Agent Library replay receipt has no DomainResult".to_string());
-    };
-    if schema_id.as_str() != AGENT_LIBRARY_RESULT_SCHEMA_ID {
-        return Err("Agent Library replay receipt has an unexpected result schema".to_string());
+fn validate_status_identity(
+    owner: &OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
+    context: &AgentLibraryMutationContext,
+    batch_id: &str,
+    record: &eg_types::MutationBatchRecord,
+    replay_row: &eg_storage::OperationReplayRow,
+    receipt: &MutationReceipt,
+) -> Result<(), String> {
+    let expected_scope = eg_types::mutation_batch::authority_scope_for(owner.identity())?;
+    if replay_row.identity != *owner.identity()
+        || replay_row.idempotency_key != context.idempotency_key
+        || replay_row.batch_id != batch_id
+        || record.identity != *owner.identity()
+        || record.batch.batch_id != batch_id
+        || receipt.disposition.as_str() != "committed"
+        || receipt.scope != expected_scope
+        || receipt.operation_replay_digest != replay_row.operation_replay_digest
+    {
+        return Err(
+            "CORRUPT_MUTATION_LEDGER: Agent Library status receipt identity is invalid".to_string(),
+        );
     }
-    let result: AgentLibraryCommittedResult =
-        super::agent_row::decode(payload.as_slice(), "Agent Library replay result payload")?;
-    result.validate()?;
-    Ok(result)
+    Ok(())
 }
 
 fn bind_scope(
@@ -1114,74 +437,6 @@ pub(super) fn agent_library_operation_identity(
     Ok(operation)
 }
 
-fn read_history(
-    read: &ScopedRead<'_, eg_storage::AgentLibraryOwner>,
-    tenant_id: &str,
-    agent_id: &str,
-) -> Result<(Option<u64>, Vec<AgentLibraryEntry>), String> {
-    let head = read
-        .open_owner_table(eg_storage::AGENT_LIBRARY_HEADS)?
-        .get((tenant_id, agent_id))
-        .map_err(|error| error.to_string())?
-        .map(|value| value.value());
-    let table = read.open_owner_table(eg_storage::AGENT_LIBRARY_REVISIONS)?;
-    let mut entries = Vec::new();
-    let mut bytes = 0usize;
-    for row in table
-        .range((tenant_id, agent_id, 0)..=(tenant_id, agent_id, u64::MAX))
-        .map_err(|error| error.to_string())?
-    {
-        let (key, value) = row.map_err(|error| error.to_string())?;
-        let (row_tenant, row_agent, revision) = key.value();
-        if row_tenant != tenant_id || row_agent != agent_id {
-            return Err("agent library revision range escaped its key prefix".to_string());
-        }
-        bytes = bytes
-            .checked_add(value.value().len())
-            .filter(|total| *total <= MAX_AGENT_LIBRARY_HISTORY_BYTES)
-            .ok_or_else(|| "agent library revision history exceeds resource limits".to_string())?;
-        if entries.len() >= MAX_AGENT_LIBRARY_REVISIONS {
-            return Err("agent library revision history exceeds resource limits".to_string());
-        }
-        let entry = decode_entry(value.value())?;
-        validate_entry_key(&entry, tenant_id, agent_id, revision)?;
-        entries.push(entry);
-    }
-    match (head, entries.last()) {
-        (None, None) => return Ok((None, entries)),
-        (None, Some(_)) => return Err("agent library revisions exist without a head".to_string()),
-        (Some(_), None) => {
-            return Err("agent library head points to an empty revision chain".to_string());
-        }
-        (Some(head), Some(last)) if head != last.entry_revision => {
-            return Err("agent library head does not match the final revision".to_string());
-        }
-        (Some(_), Some(_)) => {}
-    }
-    for (index, entry) in entries.iter().enumerate() {
-        let expected = (index as u64).saturating_add(1);
-        if entry.entry_revision != expected {
-            return Err("agent library revision chain has a gap".to_string());
-        }
-        if entry.is_retired() {
-            let Some(previous) = index.checked_sub(1).and_then(|i| entries.get(i)) else {
-                return Err("agent library revision one cannot be a tombstone".to_string());
-            };
-            if previous.is_retired()
-                || !entries[index + 1..].is_empty()
-                || entry.as_draft() != previous.as_draft()
-                || entry.created_at_ms != previous.created_at_ms
-                || entry.updated_at_ms < previous.updated_at_ms
-            {
-                return Err(
-                    "agent library tombstone does not preserve its prior definition".to_string(),
-                );
-            }
-        }
-    }
-    Ok((head, entries))
-}
-
 pub(super) fn validate_context(
     store: &AgentLibraryStore,
     context: &AgentLibraryMutationContext,
@@ -1272,118 +527,6 @@ pub(crate) fn current_agent_library_policy_digest() -> Result<String, String> {
     ))
 }
 
-fn build_batch(
-    owner: &eg_storage::OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
-    context: &AgentLibraryMutationContext,
-    kind: AgentLibraryMutationKind,
-    entry: &AgentLibraryEntry,
-    version: u64,
-    batch_id: &str,
-    event_bytes: Vec<u8>,
-) -> Result<MutationBatch, String> {
-    let key = format!(
-        "{}:{}:{}",
-        entry.tenant_id, entry.agent_id, entry.entry_revision
-    );
-    let mut headers = BTreeMap::new();
-    headers.insert(
-        "schema_version".to_string(),
-        AGENT_LIBRARY_OUTBOX_SCHEMA_VERSION.to_string(),
-    );
-    headers.insert("tenant_id".to_string(), entry.tenant_id.clone());
-    headers.insert("agent_id".to_string(), entry.agent_id.clone());
-    headers.insert(
-        "entry_revision".to_string(),
-        entry.entry_revision.to_string(),
-    );
-    headers.insert(
-        "definition_digest".to_string(),
-        entry.definition_digest.clone(),
-    );
-    headers.insert(
-        "definition_actor_scope".to_string(),
-        entry.actor_scope.clone(),
-    );
-    headers.insert(
-        "definition_purpose_id".to_string(),
-        entry.purpose_id.clone(),
-    );
-    headers.insert(
-        "definition_policy_digest".to_string(),
-        entry.policy_digest.clone(),
-    );
-    headers.insert("actor".to_string(), context.caller_principal.clone());
-    headers.insert(
-        "action_actor_scope".to_string(),
-        context.actor_scope.clone(),
-    );
-    headers.insert("action_purpose_id".to_string(), context.purpose_id.clone());
-    headers.insert(
-        "action_policy_revision".to_string(),
-        context.policy_revision.clone(),
-    );
-    headers.insert(
-        "action_policy_digest".to_string(),
-        context.policy_digest.clone(),
-    );
-    headers.insert(
-        "action_policy_decision_id".to_string(),
-        context.policy_decision_id.clone(),
-    );
-    headers.insert(
-        "source_revision_digest".to_string(),
-        entry.source_revision_digest.clone(),
-    );
-    let operations = agent_library_operations(kind, entry);
-    let outbox = vec![MutationOutboxIntent {
-        topic: AGENT_LIBRARY_OUTBOX_TOPIC.to_string(),
-        key,
-        payload: event_bytes,
-        headers,
-    }];
-    let content = BatchContent {
-        operations: &operations,
-        outbox: &outbox,
-        authoritative_state: None,
-    };
-    let method_schema_digest = eg_capabilities::method_schema("ApplyMutation")
-        .map(|(_, digest)| eg_types::contract::Digest256::from_bytes(digest))
-        .ok_or_else(|| "ApplyMutation is missing from the contract catalog".to_string())?;
-    let compiled = CompiledOperation::for_content(owner.identity(), content, method_schema_digest)?;
-    let mut compiled_envelope = CompiledEnvelope::new(
-        CompiledScope {
-            identity: owner.identity(),
-            actor: &context.caller_principal,
-            serving_principal: owner.principal(),
-            request_id: context.request_id,
-            idempotency_key: context.idempotency_key.as_str(),
-            nonce: context.attempt_nonce,
-            now_ms: context.created_at_ms,
-        },
-        compiled,
-    )?;
-    compiled_envelope.catalog_digest =
-        eg_types::contract::Digest256::parse(eg_capabilities::CONTRACT_CATALOG_DIGEST)?;
-    compiled_envelope.policy_digest = parse_prefixed_digest(&context.policy_digest)?;
-    compiled_envelope.policy_revision = context.policy_revision.clone();
-    compiled_envelope.policy_decision_id = context.policy_decision_id.clone();
-    let batch = MutationBatch {
-        schema_version: MUTATION_BATCH_VERSION,
-        batch_id: batch_id.to_string(),
-        envelope: MutationEnvelope::for_compiled_batch(compiled_envelope)?,
-        identity: owner.identity().clone(),
-        placement_epoch: 0,
-        version_expectation: VersionExpectation::Native(version),
-        fencing_token: None,
-        authoritative_state: None,
-        operations,
-        outbox,
-        created_at_ms: context.created_at_ms,
-    };
-    batch.validate_write_budget()?;
-    Ok(batch)
-}
-
 pub(super) fn parse_prefixed_digest(value: &str) -> Result<eg_types::contract::Digest256, String> {
     value
         .strip_prefix("sha256:")
@@ -1453,71 +596,6 @@ fn apply_entry_rows(
     Ok(())
 }
 
-fn replay_record(
-    record: &eg_types::MutationBatchRecord,
-    context: &AgentLibraryMutationContext,
-    kind: AgentLibraryMutationKind,
-    agent_id: &str,
-    draft: Option<&AgentLibraryEntryDraft>,
-    expected_event_bytes: &[u8],
-) -> Result<AgentLibraryWriteResult, String> {
-    let event = record_event(record)?;
-    let stable_result = record_result(record)?;
-    let intent = record
-        .batch
-        .outbox
-        .first()
-        .ok_or_else(|| "Agent Library receipt has no outbox event".to_string())?;
-    let expected_batch_id = batch_id(&context.idempotency_key)?;
-    let expected_key = format!(
-        "{}:{}:{}",
-        context.tenant_id, agent_id, event.entry.entry_revision
-    );
-    let expected_headers = expected_headers(context, &event.entry);
-    let exact_receipt = record.status == MutationBatchStatus::Committed
-        && record.validate_identity().is_ok()
-        && record.batch.batch_id == expected_batch_id
-        && record.batch.idempotency_key() == context.idempotency_key
-        && record.batch.identity.tenant().as_str() == context.tenant_id
-        && record.batch.serving_principal() == context.principal
-        && record.batch.operations.len() == 1
-        && record.batch.outbox.len() == 1
-        && record.committing_actor()? == context.caller_principal.as_str()
-        && intent.topic == AGENT_LIBRARY_OUTBOX_TOPIC
-        && intent.key == expected_key
-        && intent.payload == expected_event_bytes
-        && intent.headers == expected_headers
-        && stable_result.batch_id == expected_batch_id
-        && stable_result.entry == event.entry
-        && stable_result.committed_version == record.committed_version.target().unwrap_or(0);
-    if !exact_receipt
-        || event.kind != kind
-        || event.entry.agent_id != agent_id
-        || event.entry.tenant_id != context.tenant_id
-        || event.performing_actor != context.caller_principal
-        || event.action_actor_scope != context.actor_scope
-        || event.action_purpose_id != context.purpose_id
-        || event.action_policy_revision != context.policy_revision
-        || event.action_policy_digest != context.policy_digest
-        || event.action_policy_decision_id != context.policy_decision_id
-        || event.entry.lifecycle
-            != match kind {
-                AgentLibraryMutationKind::Publish => AgentLibraryLifecycle::Published,
-                AgentLibraryMutationKind::Retire => AgentLibraryLifecycle::Retired,
-            }
-        || draft.is_some_and(|expected| event.entry.as_draft() != *expected)
-    {
-        return Err(
-            "IDEMPOTENCY_CONFLICT: key was already used by a different Agent Library mutation"
-                .to_string(),
-        );
-    }
-    if record.committed_version.target().is_none() {
-        return Err("replayed Agent Library receipt has no target version".to_string());
-    }
-    Ok(stable_result.response(true))
-}
-
 /// Encode the stable Agent Library result through the shared DomainResult
 /// contract. The legacy batch record still carries opaque bytes, but those
 /// bytes now have one schema-tagged representation instead of reusing the
@@ -1537,270 +615,6 @@ fn domain_result_for(result: &AgentLibraryCommittedResult) -> Result<MutationRes
         payload_digest: payload.digest()?,
         payload,
     })
-}
-
-/// The typed receipt one committed owner mutation records.
-///
-/// Takes the effect in primitives (`topic`, `key`, `event_bytes`, `headers`)
-/// and an already-built `MutationResult`, rather than the entry-typed event and
-/// result it used to. Both record families in this owner (RF-ADR-008) mint the
-/// same receipt shape over different payloads, and every field below is derived
-/// from the operation, the nonce, the batch, or those primitives.
-///
-/// `slug` names the record family in the receipt's opaque ids so an entry
-/// receipt and a graph receipt are distinguishable in the ledger.
-#[allow(clippy::too_many_arguments)]
-pub(super) fn owner_receipt(
-    operation: &eg_types::authority::OperationReplayIdentity,
-    nonce: &eg_types::authority::NonceReplayKey,
-    batch: &MutationBatch,
-    slug: &str,
-    topic: &str,
-    key: &str,
-    event_bytes: &[u8],
-    headers: &BTreeMap<String, String>,
-    mutation_result: MutationResult,
-    committed_version: u64,
-    committed_at_ms: u64,
-) -> Result<MutationReceipt, String> {
-    use eg_types::contract::{MutationDisposition, OpaqueId, UtcUnixNanos};
-
-    let operation_digest = operation.digest()?;
-    let nonce_digest = nonce.digest()?;
-    let context_digest = batch
-        .envelope
-        .operation()
-        .map(|envelope| envelope.authority.context_digest)
-        .unwrap_or(operation_digest);
-    let suffix = operation_digest.to_hex();
-    let effect_digest = agent_library_effect_digest(topic, key, event_bytes, headers)?;
-    let recorded_at = committed_at_ms
-        .checked_mul(1_000_000)
-        .and_then(|value| i64::try_from(value).ok())
-        .map(UtcUnixNanos::new)
-        .ok_or_else(|| "agent library receipt time exceeds the supported range".to_string())?;
-    let receipt = MutationReceipt {
-        receipt_id: OpaqueId::new(format!("{slug}-receipt-{suffix}"))?,
-        mutation_id: OpaqueId::new(format!("{slug}-mutation-{suffix}"))?,
-        scope: operation.authority_scope.clone(),
-        authority_receipt_id: OpaqueId::new(format!("{slug}-authority-{suffix}"))?,
-        authority_evidence_digest: context_digest,
-        disposition: MutationDisposition::new("committed")?,
-        operation_replay_digest: operation_digest,
-        nonce_replay_digest: nonce_digest,
-        envelope_digest: context_digest,
-        effect_id: Some(OpaqueId::new(format!("{slug}-effect-{suffix}"))?),
-        effect_digest: Some(effect_digest),
-        result_digest: mutation_result.digest()?,
-        commit_id: Some(OpaqueId::new(format!(
-            "{slug}-commit-{suffix}-{committed_version}"
-        ))?),
-        result: mutation_result,
-        recorded_at,
-    };
-    receipt.validate()?;
-    Ok(receipt)
-}
-
-fn expected_headers_from_event(event: &AgentLibraryOutboxEvent) -> BTreeMap<String, String> {
-    BTreeMap::from([
-        (
-            "schema_version".to_string(),
-            AGENT_LIBRARY_OUTBOX_SCHEMA_VERSION.to_string(),
-        ),
-        ("tenant_id".to_string(), event.entry.tenant_id.clone()),
-        ("agent_id".to_string(), event.entry.agent_id.clone()),
-        (
-            "entry_revision".to_string(),
-            event.entry.entry_revision.to_string(),
-        ),
-        (
-            "definition_digest".to_string(),
-            event.entry.definition_digest.clone(),
-        ),
-        (
-            "definition_actor_scope".to_string(),
-            event.entry.actor_scope.clone(),
-        ),
-        (
-            "definition_purpose_id".to_string(),
-            event.entry.purpose_id.clone(),
-        ),
-        (
-            "definition_policy_digest".to_string(),
-            event.entry.policy_digest.clone(),
-        ),
-        ("actor".to_string(), event.performing_actor.clone()),
-        (
-            "action_actor_scope".to_string(),
-            event.action_actor_scope.clone(),
-        ),
-        (
-            "action_purpose_id".to_string(),
-            event.action_purpose_id.clone(),
-        ),
-        (
-            "action_policy_revision".to_string(),
-            event.action_policy_revision.clone(),
-        ),
-        (
-            "action_policy_digest".to_string(),
-            event.action_policy_digest.clone(),
-        ),
-        (
-            "action_policy_decision_id".to_string(),
-            event.action_policy_decision_id.clone(),
-        ),
-        (
-            "source_revision_digest".to_string(),
-            event.entry.source_revision_digest.clone(),
-        ),
-    ])
-}
-
-pub(super) fn agent_library_effect_digest(
-    topic: &str,
-    key: &str,
-    payload: &[u8],
-    headers: &BTreeMap<String, String>,
-) -> Result<eg_types::contract::Digest256, String> {
-    let mut header_digest =
-        eg_types::contract::Digest256::framed(b"eg/agent-library-effect-headers/v1", &[])?;
-    for (header, value) in headers {
-        header_digest = eg_types::contract::Digest256::framed(
-            b"eg/agent-library-effect-header/v1",
-            &[
-                header_digest.as_bytes(),
-                header.as_bytes(),
-                value.as_bytes(),
-            ],
-        )?;
-    }
-    eg_types::contract::Digest256::framed(
-        b"eg/agent-library-effect/v1",
-        &[
-            topic.as_bytes(),
-            key.as_bytes(),
-            payload,
-            header_digest.as_bytes(),
-        ],
-    )
-}
-
-fn record_result(
-    record: &eg_types::MutationBatchRecord,
-) -> Result<AgentLibraryCommittedResult, String> {
-    let bytes = record
-        .result_msgpack
-        .as_deref()
-        .ok_or_else(|| "Agent Library receipt has no typed domain result".to_string())?;
-    let decoded = super::agent_row::try_decode::<MutationResult>(bytes);
-    let mutation_result = match decoded {
-        Ok(mutation_result) => mutation_result,
-        // v6 Batch rows encoded the outbox event itself as result_msgpack.
-        // Keep those rows readable for status/recovery projections, while the
-        // nonce-first operation path remains Receipt-only and therefore cannot
-        // silently treat a legacy row as replay authority.
-        Err(_) => {
-            let event: AgentLibraryOutboxEvent =
-                super::agent_row::decode(bytes, "Agent Library domain result")?;
-            event.validate()?;
-            let committed_version = record
-                .committed_version
-                .target()
-                .ok_or_else(|| "legacy Agent Library receipt has no target version".to_string())?;
-            return AgentLibraryCommittedResult::new(
-                event.entry,
-                record.batch.batch_id.clone(),
-                committed_version,
-            );
-        }
-    };
-    mutation_result.validate()?;
-    let MutationResult::DomainResult {
-        schema_id, payload, ..
-    } = mutation_result
-    else {
-        return Err("Agent Library receipt does not contain a DomainResult".to_string());
-    };
-    if schema_id.as_str() != AGENT_LIBRARY_RESULT_SCHEMA_ID {
-        return Err("Agent Library receipt has an unexpected result schema".to_string());
-    }
-    let result: AgentLibraryCommittedResult =
-        super::agent_row::decode(payload.as_slice(), "Agent Library domain result payload")?;
-    result.validate()?;
-    Ok(result)
-}
-
-fn record_event(record: &eg_types::MutationBatchRecord) -> Result<AgentLibraryOutboxEvent, String> {
-    if record.batch.outbox.len() != 1 {
-        return Err("Agent Library receipt must contain exactly one outbox event".to_string());
-    }
-    let intent = record
-        .batch
-        .outbox
-        .first()
-        .ok_or_else(|| "Agent Library receipt has no outbox event".to_string())?;
-    let event: AgentLibraryOutboxEvent =
-        super::agent_row::decode(intent.payload.as_slice(), "Agent Library outbox event")?;
-    event.validate()?;
-    Ok(event)
-}
-
-fn expected_headers(
-    context: &AgentLibraryMutationContext,
-    entry: &AgentLibraryEntry,
-) -> BTreeMap<String, String> {
-    BTreeMap::from([
-        (
-            "schema_version".to_string(),
-            AGENT_LIBRARY_OUTBOX_SCHEMA_VERSION.to_string(),
-        ),
-        ("tenant_id".to_string(), entry.tenant_id.clone()),
-        ("agent_id".to_string(), entry.agent_id.clone()),
-        (
-            "entry_revision".to_string(),
-            entry.entry_revision.to_string(),
-        ),
-        (
-            "definition_digest".to_string(),
-            entry.definition_digest.clone(),
-        ),
-        (
-            "definition_actor_scope".to_string(),
-            entry.actor_scope.clone(),
-        ),
-        (
-            "definition_purpose_id".to_string(),
-            entry.purpose_id.clone(),
-        ),
-        (
-            "definition_policy_digest".to_string(),
-            entry.policy_digest.clone(),
-        ),
-        ("actor".to_string(), context.caller_principal.clone()),
-        (
-            "action_actor_scope".to_string(),
-            context.actor_scope.clone(),
-        ),
-        ("action_purpose_id".to_string(), context.purpose_id.clone()),
-        (
-            "action_policy_revision".to_string(),
-            context.policy_revision.clone(),
-        ),
-        (
-            "action_policy_digest".to_string(),
-            context.policy_digest.clone(),
-        ),
-        (
-            "action_policy_decision_id".to_string(),
-            context.policy_decision_id.clone(),
-        ),
-        (
-            "source_revision_digest".to_string(),
-            entry.source_revision_digest.clone(),
-        ),
-    ])
 }
 
 /// `pub(super)` for [`super::agent_pin_resolution`], which resolves a pin

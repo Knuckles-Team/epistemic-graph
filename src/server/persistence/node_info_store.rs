@@ -97,6 +97,22 @@ pub struct NodeInfo {
     pub certificate_not_after_ms: Option<u64>,
 }
 
+fn split_host_port(address: &str) -> Option<(&str, &str)> {
+    if let Some(rest) = address.strip_prefix('[') {
+        let (host, port) = rest.split_once("]:")?;
+        if host.is_empty() || host.contains(']') {
+            return None;
+        }
+        Some((host, port))
+    } else {
+        let (host, port) = address.rsplit_once(':')?;
+        if host.is_empty() || host.contains(':') {
+            return None;
+        }
+        Some((host, port))
+    }
+}
+
 fn valid_host_port(value: &str, scheme: Option<&str>) -> bool {
     if value.is_empty()
         || value.len() > MAX_NODE_INFO_FIELD_BYTES
@@ -126,49 +142,13 @@ fn valid_host_port(value: &str, scheme: Option<&str>) -> bool {
     {
         return false;
     }
-    let (_host, port) = if let Some(rest) = address.strip_prefix('[') {
-        let Some((host, port)) = rest.split_once("]:") else {
-            return false;
-        };
-        if host.is_empty() || host.contains(']') {
-            return false;
-        }
-        (host, port)
-    } else {
-        let Some((host, port)) = address.rsplit_once(':') else {
-            return false;
-        };
-        if host.is_empty() || host.contains(':') {
-            return false;
-        }
-        (host, port)
+    let Some((_host, port)) = split_host_port(address) else {
+        return false;
     };
     port.parse::<u16>().is_ok_and(|port| port > 0)
 }
 
-fn validate_node_info(info: &NodeInfo) -> Result<(), String> {
-    if info.cluster_id.is_empty()
-        || info.cluster_id.len() > MAX_NODE_INFO_FIELD_BYTES
-        || info
-            .cluster_id
-            .chars()
-            .any(|character| character.is_whitespace() || character.is_control())
-    {
-        return Err("node info cluster_id exceeds resource limits".to_string());
-    }
-    if info.member_identity != member_identity_for(&info.cluster_id, info.node_id) {
-        return Err("node info member_identity does not match cluster identity".to_string());
-    }
-    if !valid_host_port(&info.raft_addr, None) {
-        return Err("node info raft_addr is not a bounded host:port endpoint".to_string());
-    }
-    if !valid_host_port(&info.advertised_client_addr, Some("tcp://"))
-        && !valid_host_port(&info.advertised_client_addr, Some("tls://"))
-    {
-        return Err(
-            "node info advertised_client_addr must be tcp:// or tls:// host:port".to_string(),
-        );
-    }
+fn validate_certificate_metadata(info: &NodeInfo) -> Result<(), String> {
     if info.tls_server_name.as_deref().is_some_and(|name| {
         name.is_empty()
             || name.len() > MAX_NODE_INFO_FIELD_BYTES
@@ -204,6 +184,32 @@ fn validate_node_info(info: &NodeInfo) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_node_info(info: &NodeInfo) -> Result<(), String> {
+    if info.cluster_id.is_empty()
+        || info.cluster_id.len() > MAX_NODE_INFO_FIELD_BYTES
+        || info
+            .cluster_id
+            .chars()
+            .any(|character| character.is_whitespace() || character.is_control())
+    {
+        return Err("node info cluster_id exceeds resource limits".to_string());
+    }
+    if info.member_identity != member_identity_for(&info.cluster_id, info.node_id) {
+        return Err("node info member_identity does not match cluster identity".to_string());
+    }
+    if !valid_host_port(&info.raft_addr, None) {
+        return Err("node info raft_addr is not a bounded host:port endpoint".to_string());
+    }
+    if !valid_host_port(&info.advertised_client_addr, Some("tcp://"))
+        && !valid_host_port(&info.advertised_client_addr, Some("tls://"))
+    {
+        return Err(
+            "node info advertised_client_addr must be tcp:// or tls:// host:port".to_string(),
+        );
+    }
+    validate_certificate_metadata(info)
+}
+
 fn validate_legacy_node_info(info: &NodeInfo) -> Result<(), String> {
     if info.raft_addr.is_empty() || info.raft_addr.len() > MAX_NODE_INFO_FIELD_BYTES {
         return Err("node info raft_addr exceeds resource limits".to_string());
@@ -233,6 +239,65 @@ fn decode_node_info(bytes: &[u8]) -> Result<NodeInfo, String> {
         ),
     )
     .map_err(|_| "node info row is invalid or exceeds resource limits".to_string())
+}
+
+fn load_node_info_entries(
+    durable: &crate::sidecar_store::SidecarStore<eg_storage::NodeInfoOwner>,
+) -> Result<HashMap<u64, NodeInfo>, String> {
+    let mut entries = HashMap::new();
+    let read = durable.read()?;
+    let table = read.open_owner_table(NODE_INFO)?;
+    for row in table.iter().map_err(|e| e.to_string())? {
+        if entries.len() >= MAX_NODE_INFO_ENTRIES {
+            return Err("node info store exceeds resource limits".to_string());
+        }
+        let (k, v) = row.map_err(|e| e.to_string())?;
+        let info = decode_node_info(v.value())?;
+        if info.node_id != k.value() {
+            return Err("node info row key/value node_id mismatch".to_string());
+        }
+        if info.cluster_id.is_empty() || info.member_identity.is_empty() {
+            validate_legacy_node_info(&info)?;
+        } else {
+            validate_node_info(&info)?;
+        }
+        entries.insert(k.value(), info);
+    }
+    Ok(entries)
+}
+
+fn load_node_info_metadata(
+    durable: &crate::sidecar_store::SidecarStore<eg_storage::NodeInfoOwner>,
+    entry_count: usize,
+) -> Result<(Option<String>, u64), String> {
+    let read = durable.read()?;
+    let table = read.open_owner_table(NODE_INFO_META)?;
+    let (metadata_cluster_id, metadata_generation) = table
+        .get(NODE_INFO_META_KEY)
+        .map_err(|e| e.to_string())?
+        .map(|value| {
+            eg_types::msgpack::decode_bounded::<NodeInfoMeta>(
+                value.value(),
+                eg_types::msgpack::MsgpackLimits::new(1024, 16, 8),
+            )
+            .map_err(|_| "node info metadata is invalid".to_string())
+        })
+        .transpose()?
+        .map(|meta| (Some(meta.cluster_id), meta.generation))
+        .unwrap_or((None, entry_count as u64));
+    if metadata_cluster_id.as_deref().is_some_and(|cluster_id| {
+        cluster_id.is_empty()
+            || cluster_id.len() > MAX_NODE_INFO_FIELD_BYTES
+            || cluster_id
+                .chars()
+                .any(|character| character.is_whitespace() || character.is_control())
+    }) {
+        return Err("node info metadata cluster_id exceeds resource limits".to_string());
+    }
+    if metadata_generation < entry_count as u64 {
+        return Err("node info metadata generation regressed below row count".to_string());
+    }
+    Ok((metadata_cluster_id, metadata_generation))
 }
 
 /// Durable, replicated (via deterministic command re-execution — see module docs)
@@ -281,56 +346,9 @@ impl NodeInfoStore {
             NODE_INFO_SCOPE_INCARNATION,
             crate::store_authority::process_authority(),
         )?;
-        let mut entries = HashMap::new();
-        {
-            let read = durable.read()?;
-            let table = read.open_owner_table(NODE_INFO)?;
-            for row in table.iter().map_err(|e| e.to_string())? {
-                if entries.len() >= MAX_NODE_INFO_ENTRIES {
-                    return Err("node info store exceeds resource limits".to_string());
-                }
-                let (k, v) = row.map_err(|e| e.to_string())?;
-                let info = decode_node_info(v.value())?;
-                if info.node_id != k.value() {
-                    return Err("node info row key/value node_id mismatch".to_string());
-                }
-                if info.cluster_id.is_empty() || info.member_identity.is_empty() {
-                    validate_legacy_node_info(&info)?;
-                } else {
-                    validate_node_info(&info)?;
-                }
-                entries.insert(k.value(), info);
-            }
-        }
-        let (metadata_cluster_id, metadata_generation) = {
-            let read = durable.read()?;
-            let table = read.open_owner_table(NODE_INFO_META)?;
-            table
-                .get(NODE_INFO_META_KEY)
-                .map_err(|e| e.to_string())?
-                .map(|value| {
-                    eg_types::msgpack::decode_bounded::<NodeInfoMeta>(
-                        value.value(),
-                        eg_types::msgpack::MsgpackLimits::new(1024, 16, 8),
-                    )
-                    .map_err(|_| "node info metadata is invalid".to_string())
-                })
-                .transpose()?
-                .map(|meta| (Some(meta.cluster_id), meta.generation))
-                .unwrap_or((None, entries.len() as u64))
-        };
-        if metadata_cluster_id.as_deref().is_some_and(|cluster_id| {
-            cluster_id.is_empty()
-                || cluster_id.len() > MAX_NODE_INFO_FIELD_BYTES
-                || cluster_id
-                    .chars()
-                    .any(|character| character.is_whitespace() || character.is_control())
-        }) {
-            return Err("node info metadata cluster_id exceeds resource limits".to_string());
-        }
-        if metadata_generation < entries.len() as u64 {
-            return Err("node info metadata generation regressed below row count".to_string());
-        }
+        let entries = load_node_info_entries(&durable)?;
+        let (metadata_cluster_id, metadata_generation) =
+            load_node_info_metadata(&durable, entries.len())?;
         let mut entry_cluster_id: Option<String> = None;
         for info in entries.values().filter(|info| !info.cluster_id.is_empty()) {
             if entry_cluster_id

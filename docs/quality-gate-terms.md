@@ -84,6 +84,14 @@ whose catch-all sat beyond that window. `tests/test_rust_exhaustive_match.py`
 pins the current streaming dispatcher shape and a synthetic case whose catch-all
 appears after 450 lines, preserving coverage of that regression.
 
+Before the terms report is classified, `scripts/validate_cccc_census.py`
+requires the native CCCC schema: numeric fields stay in native ranges, names
+are nonempty, and summary file/function/parse counts plus recursive child
+metrics exactly match the retained report tree. File totals may also include
+module-level code, so they only need to be at least the recursive function
+totals. A file with no functions remains valid when its summary function
+metrics legitimately report zero.
+
 ### The rule is strictly tighter than what it replaces
 
 Nothing previously checked whether a high-cyclomatic match was exhaustive at
@@ -108,9 +116,13 @@ rule makes that population visible for the first time. That is the intent.
   REAL BACKLOG                347
 ```
 
-`scripts/report_complexity_terms.py` prints exactly this table; the `cccc-census`
-hook runs it on every invocation. It is a report, never a gate: it holds no
-threshold, fails on no count, and writes nothing.
+`scripts/report_complexity_terms.py` prints exactly this table. Its default
+invocation remains an advisory report, so existing inspection commands keep
+working. The `cccc-census` hook and the release scanner run it with
+`--require-zero`: the complete accepted and backlog breakdown remains visible,
+and the command exits 1 when `REAL BACKLOG` is nonzero. This is a live
+whole-tree gate with no threshold, baseline, or suppression list, and it writes
+nothing.
 
 The **41 with no `match` at all** are worth calling out. An earlier
 classification that only grepped for a catch-all pattern counted them as

@@ -48,6 +48,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::agent_library::AgentLibraryLifecycle;
 
+mod validation;
+
 /// Advanced to 2 by the pre-freeze contract review.
 /// [`ComponentProvenance::McpServer`] stopped naming its server by bare id and
 /// now PINS it as a [`ComponentDependency`], so the definition digest's input
@@ -635,117 +637,7 @@ impl AgentComponentDraft {
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        for (field, value) in [
-            ("component_id", self.component_id.as_str()),
-            ("version", self.version.as_str()),
-            ("tenant_id", self.tenant_id.as_str()),
-            ("actor_scope", self.actor_scope.as_str()),
-            ("purpose_id", self.purpose_id.as_str()),
-            ("source_revision", self.source_revision.as_str()),
-        ] {
-            validate_text(field, value)?;
-        }
-        for (field, value) in [
-            ("content_digest", self.content_digest.as_str()),
-            ("policy_digest", self.policy_digest.as_str()),
-            (
-                "source_revision_digest",
-                self.source_revision_digest.as_str(),
-            ),
-        ] {
-            validate_digest(field, value)?;
-        }
-        if let Some(content_ref) = &self.content_ref {
-            validate_text("content_ref", content_ref)?;
-        }
-
-        // Facts and kind must agree. Without this a `Tool` could carry model
-        // facts, and every query that reads facts by kind would be wrong in a
-        // way nothing else detects.
-        if let Some(required) = self.facts.required_kind() {
-            if required != self.kind {
-                return Err(format!(
-                    "agent component kind '{}' cannot carry '{}' facts",
-                    self.kind.as_str(),
-                    self.facts.label()
-                ));
-            }
-        }
-        self.facts.validate()?;
-        self.provenance.validate()?;
-        validate_text("summary", &self.summary)?;
-
-        // An MCP tool/prompt/resource must name the server it came from, and
-        // only those kinds may. Without this a re-ingest cannot tell which
-        // records belong to a server, so "which agents break if this server
-        // changes?" degrades to a scan over free text.
-        let mcp_served = matches!(
-            self.kind,
-            AgentComponentKind::McpPrompt | AgentComponentKind::McpResource
-        );
-        match (&self.provenance, mcp_served) {
-            (ComponentProvenance::McpServer { .. }, _)
-                if self.kind == AgentComponentKind::McpServer =>
-            {
-                return Err(
-                    "an mcp_server component cannot itself be provenanced to an mcp server"
-                        .to_string(),
-                )
-            }
-            (provenance, true) if !matches!(provenance, ComponentProvenance::McpServer { .. }) => {
-                return Err(format!(
-                    "agent component kind '{}' must be provenanced to the mcp server that \
-                     serves it, got '{}'",
-                    self.kind.as_str(),
-                    provenance.label()
-                ))
-            }
-            _ => {}
-        }
-
-        validate_names("classification", &self.classification, MAX_CAPABILITIES)?;
-
-        if self.requires.len() > MAX_DEPENDENCIES {
-            return Err("agent component has too many dependencies".to_string());
-        }
-        let mut seen = BTreeSet::new();
-        for dependency in &self.requires {
-            validate_text("dependency component_id", &dependency.component_id)?;
-            validate_digest(
-                "dependency definition_digest",
-                &dependency.definition_digest,
-            )?;
-            // Self-reference is the one cycle a single record CAN express, and
-            // it is unrepresentable in a valid one: a dependency pins a digest,
-            // and a component's own digest covers its dependencies, so pinning
-            // yourself is a hash preimage. Rejecting by id makes the intent
-            // explicit rather than relying on that.
-            if dependency.component_id == self.component_id {
-                return Err(format!(
-                    "agent component '{}' cannot require itself",
-                    self.component_id
-                ));
-            }
-            if !seen.insert((&dependency.component_id, dependency.kind)) {
-                return Err(format!(
-                    "agent component requires '{}' ({}) twice",
-                    dependency.component_id,
-                    dependency.kind.as_str()
-                ));
-            }
-        }
-        validate_names("provides", &self.provides, MAX_CAPABILITIES)?;
-
-        if self.attributes.len() > MAX_ATTRIBUTES {
-            return Err("agent component has too many attributes".to_string());
-        }
-        for (name, value) in &self.attributes {
-            validate_text("attribute name", name)?;
-            if value.len() > MAX_TEXT_BYTES {
-                return Err("agent component attribute value exceeds its size limit".to_string());
-            }
-        }
-        Ok(())
+        validation::validate_draft(self)
     }
 }
 
@@ -1030,32 +922,7 @@ pub struct AgentComponentSearchRequest {
 
 impl AgentComponentSearchRequest {
     pub fn validate(&self) -> Result<(), String> {
-        validate_text("tenant_id", &self.tenant_id)?;
-        if let Some(task) = &self.task {
-            validate_text("task", task)?;
-        }
-        validate_names("capabilities", &self.capabilities, MAX_CAPABILITIES)?;
-        if self.kinds.len() > 16 {
-            return Err("agent component search names too many kinds".to_string());
-        }
-        if self.task.is_none() && self.capabilities.is_empty() {
-            return Err(
-                "agent component search needs a task or at least one capability".to_string(),
-            );
-        }
-        if let Some(limit) = self.limit {
-            if limit == 0 || limit > MAX_AGENT_COMPONENT_SEARCH_LIMIT {
-                return Err(format!(
-                    "agent component search limit must be 1..={MAX_AGENT_COMPONENT_SEARCH_LIMIT}"
-                ));
-            }
-        }
-        if let Some(cursor) = &self.cursor {
-            if cursor.is_empty() || cursor.len() > MAX_AGENT_COMPONENT_SEARCH_CURSOR_BYTES {
-                return Err("agent component search cursor is outside its bound".to_string());
-            }
-        }
-        Ok(())
+        validation::validate_search_request(self)
     }
 
     /// The page size this request asks for, defaulted and already bounded.

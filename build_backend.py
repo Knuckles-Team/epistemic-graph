@@ -311,22 +311,28 @@ def _record_valid(archive: zipfile.ZipFile) -> bool:
     if len(names) != len(set(names)) or set(recorded) != set(names):
         return False
     for name, (digest, size) in recorded.items():
-        if name == record_names[0]:
-            if digest or size:
-                return False
-            continue
-        if not digest.startswith("sha256=") or not size.isdecimal():
-            return False
-        expected = (
-            base64.urlsafe_b64encode(hashlib.sha256(archive.read(name)).digest())
-            .decode("ascii")
-            .rstrip("=")
-        )
-        if digest.removeprefix("sha256=") != expected or int(size) != len(
-            archive.read(name)
-        ):
+        if not _record_entry_valid(archive, name, record_names[0], digest, size):
             return False
     return True
+
+
+def _record_entry_valid(
+    archive: zipfile.ZipFile, name: str, record_name: str, digest: str, size: str
+) -> bool:
+    """Verify one RECORD row, including the unhashed RECORD self-entry."""
+
+    if name == record_name:
+        return not (digest or size)
+    if not digest.startswith("sha256=") or not size.isdecimal():
+        return False
+    expected = (
+        base64.urlsafe_b64encode(hashlib.sha256(archive.read(name)).digest())
+        .decode("ascii")
+        .rstrip("=")
+    )
+    return digest.removeprefix("sha256=") == expected and int(size) == len(
+        archive.read(name)
+    )
 
 
 def _resolved_editable_source(payload: bytes) -> Path | None:
@@ -372,34 +378,40 @@ def _validate_editable_wheel(wheel: Path) -> None:
             names = archive.namelist()
             if not _record_valid(archive):
                 raise RuntimeError("cached editable wheel has an invalid RECORD")
-            pth = "epistemic_graph.pth"
-            if pth not in names:
-                raise RuntimeError("cached editable wheel does not point at source")
-            embedded_source = _resolved_editable_source(archive.read(pth))
-            if embedded_source is None:
-                raise RuntimeError("cached editable wheel does not point at source")
-            if embedded_source != ROOT.resolve(strict=True):
-                raise RuntimeError(
-                    "cached editable wheel points at another source checkout"
-                )
+            _validate_editable_source(archive, names)
             if any(name.endswith(".dist-info/direct_url.json") for name in names):
                 raise RuntimeError("cached editable wheel embeds installer provenance")
-            numeric = [
-                name for name in names if name.startswith("epistemic_graph/numeric.")
-            ]
-            servers = [
-                name for name in names if name.endswith("/epistemic-graph-server")
-            ]
-            if len(numeric) != 1 or len(servers) != 1:
-                raise RuntimeError("cached editable wheel is missing native payloads")
-            for name in (*numeric, *servers):
-                mode = archive.getinfo(name).external_attr >> 16
-                if not mode & 0o111:
-                    raise RuntimeError(
-                        "cached editable wheel has a non-executable native payload"
-                    )
+            _validate_native_payloads(archive, names)
     except zipfile.BadZipFile as exc:
         raise RuntimeError("cached editable wheel is corrupt") from exc
+
+
+def _validate_editable_source(archive: zipfile.ZipFile, names: list[str]) -> None:
+    """Bind the wheel's single source pointer to this resolved checkout."""
+
+    pth = "epistemic_graph.pth"
+    if pth not in names:
+        raise RuntimeError("cached editable wheel does not point at source")
+    embedded_source = _resolved_editable_source(archive.read(pth))
+    if embedded_source is None:
+        raise RuntimeError("cached editable wheel does not point at source")
+    if embedded_source != ROOT.resolve(strict=True):
+        raise RuntimeError("cached editable wheel points at another source checkout")
+
+
+def _validate_native_payloads(archive: zipfile.ZipFile, names: list[str]) -> None:
+    """Require exactly one executable numeric module and server payload."""
+
+    numeric = [name for name in names if name.startswith("epistemic_graph/numeric.")]
+    servers = [name for name in names if name.endswith("/epistemic-graph-server")]
+    if len(numeric) != 1 or len(servers) != 1:
+        raise RuntimeError("cached editable wheel is missing native payloads")
+    for name in (*numeric, *servers):
+        mode = archive.getinfo(name).external_attr >> 16
+        if not mode & 0o111:
+            raise RuntimeError(
+                "cached editable wheel has a non-executable native payload"
+            )
 
 
 def _manifest_path(entry: Path) -> Path:
@@ -418,21 +430,9 @@ def _cached_wheel(
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         filename = manifest["filename"]
         expected_hash = manifest["sha256"]
-        expected_inputs = _input_fingerprints(inputs)
-        recorded_inputs = manifest["input_fingerprints"]
-        if (
-            manifest["schema"] != _CACHE_SCHEMA
-            or manifest["key"] != key
-            or _cache_key(inputs) != key
-            or recorded_inputs != expected_inputs
-            or not all(
-                isinstance(field, str) and isinstance(digest, str) and len(digest) == 64
-                for field, digest in recorded_inputs.items()
-            )
-            or not isinstance(filename, str)
-            or Path(filename).name != filename
-            or not isinstance(expected_hash, str)
-        ):
+        if not _manifest_inputs_match(
+            manifest, key, inputs
+        ) or not _manifest_wheel_matches(filename, expected_hash):
             return None
         wheel = entry / filename
         if _sha256(wheel) != expected_hash:
@@ -448,6 +448,35 @@ def _cached_wheel(
     ):
         return None
     return wheel, filename
+
+
+def _manifest_inputs_match(
+    manifest: Mapping[str, Any], key: str, inputs: Mapping[str, Any]
+) -> bool:
+    """Verify cache schema, content key and non-secret input fingerprints."""
+
+    expected_inputs = _input_fingerprints(inputs)
+    recorded_inputs = manifest["input_fingerprints"]
+    return (
+        manifest["schema"] == _CACHE_SCHEMA
+        and manifest["key"] == key
+        and _cache_key(inputs) == key
+        and recorded_inputs == expected_inputs
+        and all(
+            isinstance(field, str) and isinstance(digest, str) and len(digest) == 64
+            for field, digest in recorded_inputs.items()
+        )
+    )
+
+
+def _manifest_wheel_matches(filename: object, expected_hash: object) -> bool:
+    """Require a local wheel filename and a textual expected payload digest."""
+
+    return (
+        isinstance(filename, str)
+        and Path(filename).name == filename
+        and isinstance(expected_hash, str)
+    )
 
 
 def _make_writable(path: Path) -> None:

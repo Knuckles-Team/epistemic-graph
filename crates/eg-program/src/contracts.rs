@@ -5,6 +5,8 @@
 //! identities, endpoints, credentials, and filesystem paths are ephemeral data and
 //! are not representable in this module.
 
+mod address;
+
 use std::collections::BTreeSet;
 
 use eg_modality::{EvidenceAddress, EvidenceLocus, OpaqueRef, PolicyEnvelope, PrivacyAttestation};
@@ -75,65 +77,7 @@ impl ProgramModality {
     }
 
     pub fn accepts(self, address: &EvidenceAddress) -> bool {
-        match (self, address) {
-            (Self::Text | Self::Document, EvidenceAddress::CharacterRange { start, end }) => {
-                end > start
-            }
-            (
-                Self::Image,
-                EvidenceAddress::ImageRegion {
-                    x,
-                    y,
-                    width,
-                    height,
-                },
-            ) => {
-                x.is_finite()
-                    && y.is_finite()
-                    && width.is_finite()
-                    && height.is_finite()
-                    && *width > 0.0
-                    && *height > 0.0
-            }
-            (Self::Audio, EvidenceAddress::AudioRange { start_ms, end_ms }) => end_ms > start_ms,
-            (Self::Video, EvidenceAddress::VideoTimeRange { start_ms, end_ms }) => {
-                end_ms > start_ms
-            }
-            (Self::TimeSeries, EvidenceAddress::MetricWindow { start_ms, end_ms }) => {
-                end_ms > start_ms
-            }
-            (
-                Self::Video,
-                EvidenceAddress::FrameRange {
-                    start_frame,
-                    end_frame,
-                },
-            ) => end_frame >= start_frame,
-            (
-                Self::Graph | Self::Table | Self::Vector | Self::Tensor | Self::Binary,
-                EvidenceAddress::RowVersion { version, .. },
-            ) => *version > 0,
-            (
-                Self::Table | Self::Tensor,
-                EvidenceAddress::TableCellRange {
-                    row_start,
-                    row_end,
-                    col_start,
-                    col_end,
-                },
-            ) => row_end >= row_start && col_end >= col_start,
-            (Self::Spatial, EvidenceAddress::Point { x, y }) => x.is_finite() && y.is_finite(),
-            (
-                Self::Code,
-                EvidenceAddress::CodeSymbol {
-                    start_line,
-                    end_line,
-                    ..
-                },
-            ) => end_line >= start_line,
-            (Self::Trace, EvidenceAddress::TraceSpan { .. }) => true,
-            _ => false,
-        }
+        address::accepts(self, address)
     }
 }
 
@@ -348,17 +292,7 @@ pub struct TrainingExample {
 
 impl TrainingExample {
     pub fn validate(&self, policy: &PolicyEnvelope) -> Result<(), ProgramError> {
-        if self.input_refs.is_empty()
-            || self.input_refs.len() > MAX_INPUT_REFS
-            || self.evidence.is_empty()
-            || self.evidence.len() > MAX_EVIDENCE_PER_EXAMPLE
-            || !self.score.is_finite()
-            || !(0.0..=1.0).contains(&self.score)
-            || !self.weight.is_finite()
-            || self.weight < 0.0
-        {
-            return Err(ProgramError::InvalidExample);
-        }
+        self.validate_measurements()?;
         if self.input_refs.iter().collect::<BTreeSet<_>>().len() != self.input_refs.len() {
             return Err(ProgramError::InvalidExample);
         }
@@ -370,6 +304,21 @@ impl TrainingExample {
             if &binding.policy != policy {
                 return Err(ProgramError::PolicyMismatch);
             }
+        }
+        Ok(())
+    }
+
+    fn validate_measurements(&self) -> Result<(), ProgramError> {
+        if self.input_refs.is_empty()
+            || self.input_refs.len() > MAX_INPUT_REFS
+            || self.evidence.is_empty()
+            || self.evidence.len() > MAX_EVIDENCE_PER_EXAMPLE
+            || !self.score.is_finite()
+            || !(0.0..=1.0).contains(&self.score)
+            || !self.weight.is_finite()
+            || self.weight < 0.0
+        {
+            return Err(ProgramError::InvalidExample);
         }
         Ok(())
     }

@@ -28,144 +28,23 @@ use super::dispatch::dispatch_verified_request;
 use super::{dispatch, ServerState};
 use crate::protocol::{Method, Request, Response};
 
-const DEFAULT_MAX_REQUEST_FRAME_BYTES: usize = 64 * 1024 * 1024;
-const HARD_MAX_REQUEST_FRAME_BYTES: usize = 384 * 1024 * 1024;
-const DEFAULT_MAX_RESPONSE_FRAME_BYTES: usize = 64 * 1024 * 1024;
-const HARD_MAX_RESPONSE_FRAME_BYTES: usize = 384 * 1024 * 1024;
-const DEFAULT_MAX_MSGPACK_ITEMS: usize = 1_000_000;
-const HARD_MAX_MSGPACK_ITEMS: usize = 4_000_000;
-const MAX_MSGPACK_NESTING_DEPTH: usize = 64;
-const DEFAULT_CONNECTION_IO_TIMEOUT_SECS: u64 = 120;
+mod framing;
+mod tls;
+
+pub(crate) use framing::validate_nested_msgpack;
+#[cfg(test)]
+use framing::{
+    dispatch_deadline, max_request_frame_bytes, read_request_frame, recover_request_id,
+    validate_msgpack_frame, FrameReadError, HARD_MAX_REQUEST_FRAME_BYTES,
+    MAX_MSGPACK_NESTING_DEPTH,
+};
+use framing::{
+    encode_bounded_frame, encode_frame, next_request, seconds_from_env, write_responses,
+    ConnectionLimits,
+};
+pub use tls::{prepare_tcp_tls, PreparedTcpTls, TcpTlsConfig};
+
 const DEFAULT_TLS_HANDSHAKE_TIMEOUT_SECS: u64 = 10;
-/// Hard ceiling on ONE dispatch, after which its admission permits are released and
-/// the client is answered with an error (see [`dispatch_within_deadline`]). Sized ~20x
-/// the widest dispatch-latency bucket the server records (30 s), so it can only ever
-/// fire on work that is genuinely stuck, never on a slow-but-live request.
-const DEFAULT_DISPATCH_DEADLINE_SECS: u64 = 600;
-
-/// Runtime-only TLS material for the native TCP service. Certificate contents
-/// are never copied into engine configuration or logs. Supplying
-/// `client_ca_path` enables mutual TLS and requires a valid client certificate.
-#[derive(Clone, Debug)]
-pub struct TcpTlsConfig {
-    pub cert_path: String,
-    pub key_path: String,
-    pub client_ca_path: Option<String>,
-}
-
-/// A completely loaded and validated native-TCP identity. Filesystem access and
-/// parsing stay inside [`prepare_tcp_tls`]'s blocking job; the accept loop only
-/// receives the ready async acceptor and the non-secret mTLS posture.
-#[derive(Clone)]
-pub struct PreparedTcpTls {
-    #[cfg(feature = "server-tls")]
-    acceptor: tokio_rustls::TlsAcceptor,
-    mutual_tls: bool,
-}
-
-/// Validate configured native-TCP identity before background listeners spawn.
-/// This makes missing/invalid TLS material a startup failure rather than leaving
-/// an otherwise healthy UDS process with a silently absent remote listener. The
-/// complete read, parse, permission check, and rustls build happen once off the
-/// async executor; the resulting acceptor is reused by the live listener.
-#[cfg(feature = "server-tls")]
-pub async fn prepare_tcp_tls(config: TcpTlsConfig) -> std::io::Result<PreparedTcpTls> {
-    let mutual_tls = config.client_ca_path.is_some();
-    let server_config = ::tokio::task::spawn_blocking(move || {
-        use rustls::pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer};
-        use std::io::{BufReader, Error, ErrorKind};
-
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let cert_file = std::fs::File::open(&config.cert_path).map_err(|_| {
-            Error::new(
-                ErrorKind::InvalidInput,
-                "server TLS certificate unavailable",
-            )
-        })?;
-        let certs = CertificateDer::pem_reader_iter(BufReader::new(cert_file))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| Error::new(ErrorKind::InvalidInput, "server TLS certificate invalid"))?;
-        if certs.is_empty() {
-            return Err(Error::new(
-                ErrorKind::InvalidInput,
-                "server TLS certificate invalid",
-            ));
-        }
-        let key_file = std::fs::File::open(&config.key_path).map_err(|_| {
-            Error::new(
-                ErrorKind::InvalidInput,
-                "server TLS private key unavailable",
-            )
-        })?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = key_file
-                .metadata()
-                .map_err(|_| {
-                    Error::new(
-                        ErrorKind::InvalidInput,
-                        "server TLS private key unavailable",
-                    )
-                })?
-                .permissions()
-                .mode();
-            if mode & 0o077 != 0 {
-                return Err(Error::new(
-                    ErrorKind::PermissionDenied,
-                    "server TLS private key permissions are too broad",
-                ));
-            }
-        }
-        let key = PrivateKeyDer::from_pem_reader(BufReader::new(key_file))
-            .map_err(|_| Error::new(ErrorKind::InvalidInput, "server TLS private key invalid"))?;
-
-        let builder = rustls::ServerConfig::builder();
-        let server_config = if let Some(client_ca_path) = &config.client_ca_path {
-            let ca_file = std::fs::File::open(client_ca_path)
-                .map_err(|_| Error::new(ErrorKind::InvalidInput, "client CA bundle unavailable"))?;
-            let mut roots = rustls::RootCertStore::empty();
-            for cert in CertificateDer::pem_reader_iter(BufReader::new(ca_file)) {
-                let cert = cert
-                    .map_err(|_| Error::new(ErrorKind::InvalidInput, "client CA bundle invalid"))?;
-                roots
-                    .add(cert)
-                    .map_err(|_| Error::new(ErrorKind::InvalidInput, "client CA bundle invalid"))?;
-            }
-            if roots.is_empty() {
-                return Err(Error::new(
-                    ErrorKind::InvalidInput,
-                    "client CA bundle invalid",
-                ));
-            }
-            let verifier = rustls::server::WebPkiClientVerifier::builder(Arc::new(roots))
-                .build()
-                .map_err(|_| Error::new(ErrorKind::InvalidInput, "client CA bundle invalid"))?;
-            builder
-                .with_client_cert_verifier(verifier)
-                .with_single_cert(certs, key)
-        } else {
-            builder.with_no_client_auth().with_single_cert(certs, key)
-        }
-        .map_err(|_| Error::new(ErrorKind::InvalidInput, "server TLS identity invalid"))?;
-        Ok::<_, std::io::Error>(server_config)
-    })
-    .await
-    .map_err(|_| std::io::Error::other("native TCP TLS preparation worker failed"))??;
-
-    Ok(PreparedTcpTls {
-        acceptor: tokio_rustls::TlsAcceptor::from(Arc::new(server_config)),
-        mutual_tls,
-    })
-}
-
-#[cfg(not(feature = "server-tls"))]
-pub async fn prepare_tcp_tls(_config: TcpTlsConfig) -> std::io::Result<PreparedTcpTls> {
-    Err(std::io::Error::new(
-        std::io::ErrorKind::Unsupported,
-        "native TCP TLS is unavailable in this build",
-    ))
-}
 
 /// Coordinates reference-counted graceful shutdown across the listeners and the
 /// per-connection tasks. Shared via `Arc`. `active` is the live connection count
@@ -280,48 +159,6 @@ pub async fn run_idle_watcher(coord: Arc<ShutdownCoordinator>, idle_secs: u64) {
     }
 }
 
-/// Serialize a response to a length-prefixable frame. On the (essentially
-/// impossible) event that encoding fails, emit a VALID error frame rather than an
-/// empty one — a 0-length frame would be read by the client as a zero-byte
-/// response and desync the stream. Replaces a previous `unwrap_or_default()` that
-/// silently produced exactly that empty frame.
-fn encode_response(resp: &Response) -> Vec<u8> {
-    match rmp_serde::to_vec_named(resp) {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            tracing::error!("response encode failed (id={}): {}", resp.id, e);
-            rmp_serde::to_vec_named(&Response::err(
-                resp.id,
-                "internal: response serialization failed",
-            ))
-            .unwrap_or_default()
-        }
-    }
-}
-
-/// Serialize a [`Response`] to a complete, length-prefixed wire frame
-/// (`4-byte big-endian len ++ MessagePack body`). The id-tagged response is what
-/// the client demuxes by, so a frame can be written in ANY order relative to the
-/// requests that produced it (CONCEPT:EG-KG.backend.framed-response).
-fn encode_frame(resp: &Response) -> Vec<u8> {
-    let body = encode_response(resp);
-    let mut frame = Vec::with_capacity(4 + body.len());
-    frame.extend_from_slice(&(body.len() as u32).to_be_bytes());
-    frame.extend_from_slice(&body);
-    frame
-}
-
-fn encode_bounded_frame(resp: &Response, max_frame_bytes: usize) -> Vec<u8> {
-    let frame = encode_frame(resp);
-    if frame.len().saturating_sub(4) <= max_frame_bytes {
-        return frame;
-    }
-    encode_frame(&Response::err(
-        resp.id,
-        "response frame exceeds the configured resource limit",
-    ))
-}
-
 /// Per-connection in-flight cap (CONCEPT:EG-KG.backend.framed-response). Bounds how many requests ONE
 /// connection may have dispatching CONCURRENTLY, so a single client cannot spawn
 /// unbounded server tasks/memory — the global `ServerState::max_in_flight`
@@ -331,144 +168,6 @@ fn encode_bounded_frame(resp: &Response, max_frame_bytes: usize) -> Vec<u8> {
 /// effective budget. The hard ceiling remains 1024.
 fn per_connection_inflight_limit() -> usize {
     crate::autosize::detect_capacity().per_connection_inflight()
-}
-
-/// Bound the allocation driven by an untrusted frame prefix. The hard ceiling is
-/// large enough for the modality service's separately capped source + bundle
-/// maximum, while the lower default protects ordinary deployments. Operators that
-/// raise a modality limit must explicitly raise this transport limit too.
-fn max_request_frame_bytes() -> usize {
-    std::env::var("EPISTEMIC_GRAPH_MAX_REQUEST_BYTES")
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(DEFAULT_MAX_REQUEST_FRAME_BYTES)
-        .min(HARD_MAX_REQUEST_FRAME_BYTES)
-}
-
-fn max_response_frame_bytes() -> usize {
-    std::env::var("EPISTEMIC_GRAPH_MAX_RESPONSE_BYTES")
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(DEFAULT_MAX_RESPONSE_FRAME_BYTES)
-        .min(HARD_MAX_RESPONSE_FRAME_BYTES)
-}
-
-/// Bound the number of values/collection slots a MessagePack request may ask the
-/// decoder to allocate. A frame-length cap alone is insufficient: a five-byte
-/// `array32` header can declare billions of entries and some serde visitors use
-/// that untrusted size hint for preallocation before noticing the body is absent.
-fn max_msgpack_items() -> usize {
-    std::env::var("EPISTEMIC_GRAPH_MAX_MSGPACK_ITEMS")
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(DEFAULT_MAX_MSGPACK_ITEMS)
-        .min(HARD_MAX_MSGPACK_ITEMS)
-}
-
-fn validate_msgpack_frame(input: &[u8], max_items: usize) -> Result<(), ()> {
-    eg_types::msgpack::validate_single_value(
-        input,
-        eg_types::msgpack::MsgpackLimits::new(input.len(), max_items, MAX_MSGPACK_NESTING_DEPTH),
-    )
-    .map_err(|_| ())
-}
-
-/// Minimal correlation-id-only view of a request frame (U-98). A frame that
-/// fails to decode as a full [`Request`] — e.g. a closed wire enum like
-/// `GraphType` rejecting an unsupported string — still carries a well-formed
-/// `id` field in the vast majority of cases (only the field the decoder
-/// choked on is malformed). Recovering just that field lets the error
-/// response route back to the ACTUAL caller waiting on it instead of being
-/// silently dropped under a synthetic id `0`, which otherwise starves the
-/// caller for its full timeout/retry budget (see `_pending`/`_read_loop` in
-/// `epistemic_graph/client.py`, which drops any response whose id has no
-/// matching in-flight future).
-#[derive(Debug, serde::Deserialize)]
-struct MinimalRequestId {
-    id: u64,
-}
-
-/// Best-effort recovery of a malformed request's correlation id. Falls back to
-/// `0` only when even this minimal envelope cannot be parsed — never dispatches
-/// the invalid request, only borrows its `id` for the error reply.
-fn recover_request_id(payload: &[u8]) -> u64 {
-    rmp_serde::from_slice::<MinimalRequestId>(payload)
-        .map(|m| m.id)
-        .unwrap_or(0)
-}
-
-/// Run the same allocation-free structural preflight over MessagePack embedded
-/// inside a request's binary field. The outer frame scanner deliberately treats
-/// `bin` as opaque bytes, so handlers must call this before nested deserialization.
-pub(crate) fn validate_nested_msgpack(
-    input: &[u8],
-    max_bytes: usize,
-    max_items: usize,
-) -> Result<(), &'static str> {
-    eg_types::msgpack::validate_single_value(
-        input,
-        eg_types::msgpack::MsgpackLimits::new(
-            max_bytes,
-            max_items.min(HARD_MAX_MSGPACK_ITEMS),
-            MAX_MSGPACK_NESTING_DEPTH,
-        ),
-    )
-    .map_err(|_| "invalid or over-complex nested MessagePack payload")
-}
-
-/// One environment-configured whole-second timeout: a positive `u64`, clamped into the
-/// range that timeout accepts, else the compiled-in default.
-///
-/// The transport's three timeouts differ only in variable, default and accepted range,
-/// so none of them can drift into accepting a zero, a non-numeric value, or an
-/// unbounded one the others reject.
-fn seconds_from_env(
-    variable: &str,
-    default_seconds: u64,
-    accepted: std::ops::RangeInclusive<u64>,
-) -> std::time::Duration {
-    let seconds = std::env::var(variable)
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .filter(|value| *value > 0)
-        .unwrap_or(default_seconds)
-        .clamp(*accepted.start(), *accepted.end());
-    std::time::Duration::from_secs(seconds)
-}
-
-fn connection_io_timeout() -> std::time::Duration {
-    seconds_from_env(
-        "EPISTEMIC_GRAPH_CONNECTION_IO_TIMEOUT_SECS",
-        DEFAULT_CONNECTION_IO_TIMEOUT_SECS,
-        1..=3_600,
-    )
-}
-
-/// CONCEPT:EG-KG.coordination.backpressure-busy-signal — the hard per-dispatch deadline.
-///
-/// Every admission permit the server issues (the QoS permit, the global pool permit, the
-/// per-graph permit, the reserved-read permit, and the per-connection permit) is held by
-/// the dispatch task and released only when that task returns. That makes an unbounded
-/// dispatch an unbounded RESERVATION: a dispatch that never completes retires none of
-/// them, ever. Bounding the dispatch is therefore what makes "a permanently-held
-/// admission slot" unrepresentable, at the one place every served request passes through.
-///
-/// Default 600 s; override with `EPISTEMIC_GRAPH_DISPATCH_DEADLINE_SECS` (clamped to
-/// `[1, 86_400]`), following the same idiom as the two timeouts above. It is a ceiling,
-/// not a target — the cooperative SQL deadline
-/// (`EPISTEMIC_GRAPH_SQL_REQUEST_TIMEOUT_MS`, `server::request_cancel`) is the tunable
-/// per-query bound and remains opt-in; this one exists so a NON-cooperative stall (a
-/// wedged durable-writer thread, a lost oneshot, a dropped completion) can still not
-/// strand the reservation.
-fn dispatch_deadline() -> std::time::Duration {
-    seconds_from_env(
-        "EPISTEMIC_GRAPH_DISPATCH_DEADLINE_SECS",
-        DEFAULT_DISPATCH_DEADLINE_SECS,
-        1..=86_400,
-    )
 }
 
 /// Run one dispatch under the hard deadline (CONCEPT:EG-KG.coordination.backpressure-busy-signal).
@@ -584,6 +283,189 @@ fn admit_request(
     }
 }
 
+struct AdmissionPools {
+    global: Arc<Semaphore>,
+    read: Arc<Semaphore>,
+    per_graph: Arc<dashmap::DashMap<String, Arc<Semaphore>>>,
+    per_graph_limit: usize,
+}
+
+impl AdmissionPools {
+    async fn snapshot(state: &RwLock<ServerState>) -> Self {
+        let server = state.read().await;
+        Self {
+            global: server.max_in_flight.clone(),
+            read: server.read_admission.clone(),
+            per_graph: server.per_graph_inflight.clone(),
+            per_graph_limit: server.per_graph_inflight_limit,
+        }
+    }
+}
+
+#[derive(Default)]
+struct QosAdmission {
+    context: Option<super::auth::VerifiedRequestContext>,
+    permit: Option<super::qos::QosPermit>,
+}
+
+/// QoS counters are keyed only from the verified envelope. The same verified
+/// context travels into dispatch, so durable replay acceptance happens once.
+async fn admit_qos_request(
+    req: &Request,
+    state: &RwLock<ServerState>,
+    scheduler: Option<&Arc<super::qos::QosScheduler>>,
+) -> Result<QosAdmission, Response> {
+    let Some(scheduler) = scheduler else {
+        return Ok(QosAdmission::default());
+    };
+    let context = {
+        let server = state.read().await;
+        super::auth::verify_request_with_security_dir(
+            &server.auth_secret,
+            req,
+            server.persist_dir.as_deref(),
+        )
+    }
+    .map_err(|error| {
+        crate::metrics::auth_failure();
+        Response::err(req.id, error)
+    })?;
+    let principal_scope = context.principal_persistence_id();
+    let qos_request =
+        super::qos::classify(&principal_scope, context.priority()).map_err(|error| {
+            crate::metrics::auth_failure();
+            Response::err(req.id, error)
+        })?;
+    match scheduler.try_admit(&qos_request) {
+        super::qos::QosDecision::Admit(permit) => {
+            crate::metrics::qos_admitted(qos_request.class.label());
+            Ok(QosAdmission {
+                context: Some(context),
+                permit: Some(permit),
+            })
+        }
+        super::qos::QosDecision::Reject(why) => {
+            crate::metrics::qos_shed(qos_request.class.label(), why.label());
+            crate::metrics::busy_rejected();
+            Err(Response::err(req.id, why.busy_message()))
+        }
+    }
+}
+
+struct DispatchReservation {
+    connection: tokio::sync::OwnedSemaphorePermit,
+    global: Option<tokio::sync::OwnedSemaphorePermit>,
+    per_graph: Option<tokio::sync::OwnedSemaphorePermit>,
+    read: Option<tokio::sync::OwnedSemaphorePermit>,
+    qos: QosAdmission,
+}
+
+enum AdmissionFailure {
+    Rejected,
+    Closed,
+}
+
+async fn queue_admission_rejection(
+    tx: &tokio::sync::mpsc::Sender<Vec<u8>>,
+    response: Response,
+) -> AdmissionFailure {
+    match tx.send(encode_frame(&response)).await {
+        Ok(()) => AdmissionFailure::Rejected,
+        Err(_) => AdmissionFailure::Closed,
+    }
+}
+
+/// Await the connection slot, then apply authenticated QoS before baseline
+/// fairness. A rejected request releases its connection slot before queuing its
+/// error; any granted QoS slot remains owned until that queue operation finishes.
+async fn reserve_request(
+    req: &Request,
+    state: &RwLock<ServerState>,
+    connection: &Arc<Semaphore>,
+    pools: &AdmissionPools,
+    scheduler: Option<&Arc<super::qos::QosScheduler>>,
+    tx: &tokio::sync::mpsc::Sender<Vec<u8>>,
+) -> Result<DispatchReservation, AdmissionFailure> {
+    let connection = match connection.clone().acquire_owned().await {
+        Ok(permit) => permit,
+        Err(_) => return Err(AdmissionFailure::Closed),
+    };
+    let is_write = super::access::requires_write(&req.method);
+    let qos = match admit_qos_request(req, state, scheduler).await {
+        Ok(admission) => admission,
+        Err(response) => {
+            drop(connection);
+            return Err(queue_admission_rejection(tx, response).await);
+        }
+    };
+    match admit_request(
+        &pools.global,
+        &pools.read,
+        &pools.per_graph,
+        pools.per_graph_limit,
+        &req.graph,
+        is_write,
+    ) {
+        Admission::Granted {
+            global,
+            per_graph,
+            read,
+        } => Ok(DispatchReservation {
+            connection,
+            global,
+            per_graph,
+            read,
+            qos,
+        }),
+        Admission::Busy => {
+            crate::metrics::busy_rejected();
+            let response = Response::err(req.id, "BUSY: server at capacity, retry with backoff");
+            drop(connection);
+            let failure = queue_admission_rejection(tx, response).await;
+            drop(qos);
+            Err(failure)
+        }
+    }
+}
+
+/// Every permit rides this task through dispatch, bounded response encoding, and
+/// response queuing. Keep the erased heap future: the full dispatch future needs
+/// both stack protection and a single Send proof at this production boundary.
+async fn dispatch_reserved_request(
+    req: Request,
+    state: Arc<RwLock<ServerState>>,
+    tx: tokio::sync::mpsc::Sender<Vec<u8>>,
+    global_pool: Arc<Semaphore>,
+    reservation: DispatchReservation,
+    limits: ConnectionLimits,
+) {
+    let dispatch_start = std::time::Instant::now();
+    let qos_class = reservation.qos.permit.as_ref().map(|permit| permit.class());
+    let req_id = req.id;
+    type BoxedDispatch<'a> =
+        std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>>;
+    let boxed: BoxedDispatch<'_> = match reservation.qos.context {
+        Some(context) => Box::pin(dispatch_verified_request(&state, req, context)),
+        None => Box::pin(dispatch(&state, req)),
+    };
+    let response = dispatch_within_deadline(boxed, limits.dispatch_deadline, req_id).await;
+    if let Some(class) = qos_class {
+        crate::metrics::qos_dispatch_finished(
+            class.label(),
+            dispatch_start.elapsed().as_secs_f64(),
+        );
+    }
+    let _ = tx
+        .send(encode_bounded_frame(&response, limits.response_bytes))
+        .await;
+    drop(reservation.read);
+    drop(reservation.per_graph);
+    drop(reservation.global);
+    drop(reservation.qos.permit);
+    drop(reservation.connection);
+    crate::metrics::connection_request_finished(global_pool.available_permits());
+}
+
 /// Handle one client connection with single-connection request PIPELINING
 /// (CONCEPT:EG-KG.backend.framed-response): length-prefixed MessagePack frames, per-request backpressure
 /// admission (per-connection + global + per-graph), and CONCURRENT dispatch whose
@@ -614,310 +496,39 @@ pub async fn handle_connection<S>(stream: S, state: Arc<RwLock<ServerState>>)
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-    // Snapshot the shared backpressure handles once per connection.
-    let (sem, read_sem, pg_map, pg_limit) = {
-        let s = state.read().await;
-        (
-            s.max_in_flight.clone(),
-            s.read_admission.clone(),
-            s.per_graph_inflight.clone(),
-            s.per_graph_inflight_limit,
-        )
-    };
-
-    // CONCEPT:EG-KG.coordination.backpressure-busy-signal — the optional QoS/SLO scheduler. `None` unless
-    // `EPISTEMIC_GRAPH_QOS` is configured (built once, process-global), in which case
-    // the default admission path below is byte-for-byte unchanged. When `Some`, each
-    // request is first gated on priority-class / per-tenant fair-share / quota BEFORE the
-    // baseline global+per-graph admission, and the granted permit rides the dispatch task.
-    let qos = crate::server::qos::configured();
-
-    // Split the duplex stream: the read loop drives `read_half`; a single writer
-    // task owns `write_half`.
-    let (mut read_half, mut write_half) = tokio::io::split(stream);
-
+    let pools = AdmissionPools::snapshot(&state).await;
+    let qos = super::qos::configured();
+    let limits = ConnectionLimits::configured();
     let conn_limit = per_connection_inflight_limit();
-    let conn_sem = Arc::new(Semaphore::new(conn_limit));
-    let max_frame_bytes = max_request_frame_bytes();
-    let max_response_bytes = max_response_frame_bytes();
-    let max_items = max_msgpack_items();
-    let io_timeout = connection_io_timeout();
-    // CONCEPT:EG-KG.coordination.backpressure-busy-signal — the hard ceiling on one
-    // dispatch, resolved once per connection (the same once-at-open discipline the other
-    // limits above follow). It is what guarantees every admission permit this connection
-    // hands out is eventually released; see `dispatch_within_deadline`.
-    let dispatch_deadline = dispatch_deadline();
+    let connection = Arc::new(Semaphore::new(conn_limit));
+    let (mut reader, writer) = tokio::io::split(stream);
+    let (tx, rx) = tokio::sync::mpsc::channel::<Vec<u8>>(conn_limit + 64);
+    let writer = tokio::spawn(write_responses(writer, rx, limits.io_timeout));
 
-    // The writer task: drain framed responses in completion order and write them.
-    // It exits when ALL senders (the read loop's `tx` + every spawned task's clone)
-    // are dropped — i.e. the read loop ended AND every in-flight dispatch finished
-    // queueing its response — then flushes. That join barrier is what preserves the
-    // graceful-shutdown / shutdown-response-is-written contract.
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(conn_limit + 64);
-    let writer = tokio::spawn(async move {
-        while let Some(frame) = rx.recv().await {
-            if !matches!(
-                tokio::time::timeout(io_timeout, write_half.write_all(&frame)).await,
-                Ok(Ok(()))
-            ) {
-                break;
-            }
-        }
-        let _ = tokio::time::timeout(io_timeout, write_half.flush()).await;
-    });
-
-    loop {
-        let mut len_buf = [0u8; 4];
-        if !matches!(
-            tokio::time::timeout(io_timeout, read_half.read_exact(&mut len_buf)).await,
-            Ok(Ok(_))
-        ) {
-            break;
-        }
-        let len = u32::from_be_bytes(len_buf) as usize;
-
-        if len == 0 || len > max_frame_bytes {
-            let resp = Response::err(0, "request frame exceeds the configured resource limit");
-            let _ = tx.send(encode_frame(&resp)).await;
-            // The unread oversized body makes this connection impossible to
-            // resynchronize safely; close it without allocating or draining it.
-            break;
-        }
-
-        let mut payload = vec![0u8; len];
-        if !matches!(
-            tokio::time::timeout(io_timeout, read_half.read_exact(&mut payload)).await,
-            Ok(Ok(_))
-        ) {
-            break;
-        }
-
-        if validate_msgpack_frame(&payload, max_items).is_err() {
-            let id = recover_request_id(&payload);
-            let resp = Response::err(
-                id,
-                "INVALID_ARGUMENT: invalid or over-complex request encoding",
-            );
-            if tx.send(encode_frame(&resp)).await.is_err() {
-                break;
-            }
-            continue;
-        }
-
-        let req: Request = match rmp_serde::from_slice(&payload) {
-            Ok(r) => r,
-            Err(_) => {
-                // Never dispatch the undecodable request — only recover its
-                // correlation id so the bounded structured error reaches the
-                // caller actually waiting on it instead of starving out under
-                // id 0 (U-96/U-98: a closed wire enum like `GraphType`
-                // rejecting an unsupported value surfaces here).
-                let id = recover_request_id(&payload);
-                let resp = Response::err(id, "INVALID_ARGUMENT: invalid request encoding");
-                if tx.send(encode_frame(&resp)).await.is_err() {
-                    break;
-                }
-                continue;
-            }
-        };
-
+    while let Some(req) = next_request(&mut reader, &tx, limits).await {
         let is_shutdown = matches!(req.method, Method::Shutdown);
-
-        // Per-connection backpressure: AWAIT a slot. This is the one point that can
-        // park the read loop — only when this connection already has `conn_limit`
-        // requests dispatching — so a single connection can't spawn unbounded tasks.
-        let conn_permit = match conn_sem.clone().acquire_owned().await {
-            Ok(p) => p,
-            Err(_) => break, // semaphore closed (never, while we hold an Arc)
-        };
-
-        // ── Admission: global pool + per-graph fairness (Phase C-D) with a RESERVED
-        // READ LANE (CONCEPT:EG-KG.coordination.reserved-read-lane) ───────────────────────────────────────────────
-        // Classify read vs write so an ingestion WRITE firehose that saturates the
-        // global pool AND a graph's per-graph cap can NEVER shed an interactive
-        // read/query to BUSY: a read that loses the normal path falls back to a small
-        // dedicated lane writes can't touch ("always an open lane for MCP reads").
-        // Writes stay strictly back-pressured — shed BUSY (retry), never dropped.
-        let is_write = crate::server::access::requires_write(&req.method);
-
-        // ── CONCEPT:EG-KG.coordination.backpressure-busy-signal — QoS/SLO admission gate (opt-in) ─────────────────────────
-        // Runs BEFORE the baseline admission. Classifies the request by priority class +
-        // tenant and applies priority preemption / per-tenant fair-share / hard quota. A
-        // shed request returns a typed, retryable `BUSY:` signal; an admitted one yields a
-        // RAII permit the dispatch task holds until it completes. Skipped entirely (and so
-        // zero-overhead / behaviour-preserving) when QoS is not configured.
-        let mut verified_qos_context = None;
-        let qos_permit = if let Some(sched) = qos.as_ref() {
-            // QoS owns durable in-flight counters, so it must not key them from
-            // the unsigned request `agent_id`. Verify the current envelope first,
-            // derive its privacy-safe principal scope, and pass the same context
-            // into dispatch so replay acceptance occurs exactly once.
-            let context = {
-                let server = state.read().await;
-                crate::server::auth::verify_request_with_security_dir(
-                    &server.auth_secret,
-                    &req,
-                    server.persist_dir.as_deref(),
-                )
+        let reservation =
+            match reserve_request(&req, &state, &connection, &pools, qos.as_ref(), &tx).await {
+                Ok(reservation) => reservation,
+                Err(AdmissionFailure::Rejected) => continue,
+                Err(AdmissionFailure::Closed) => break,
             };
-            let context = match context {
-                Ok(context) => context,
-                Err(error) => {
-                    crate::metrics::auth_failure();
-                    let resp = Response::err(req.id, error);
-                    drop(conn_permit);
-                    if tx.send(encode_frame(&resp)).await.is_err() {
-                        break;
-                    }
-                    continue;
-                }
-            };
-            let principal_scope = context.principal_persistence_id();
-            // The admission class comes from the request's MAC-covered priority claim
-            // (W2.4), so a principal cannot forge a higher class than it signed.
-            let qreq = match crate::server::qos::classify(&principal_scope, context.priority()) {
-                Ok(request) => request,
-                Err(error) => {
-                    crate::metrics::auth_failure();
-                    let resp = Response::err(req.id, error);
-                    drop(conn_permit);
-                    if tx.send(encode_frame(&resp)).await.is_err() {
-                        break;
-                    }
-                    continue;
-                }
-            };
-            verified_qos_context = Some(context);
-            match sched.try_admit(&qreq) {
-                crate::server::qos::QosDecision::Admit(p) => {
-                    crate::metrics::qos_admitted(qreq.class.label());
-                    Some(p)
-                }
-                crate::server::qos::QosDecision::Reject(why) => {
-                    // Per-class shed telemetry (W2.4) + the shared BUSY counter.
-                    crate::metrics::qos_shed(qreq.class.label(), why.label());
-                    crate::metrics::busy_rejected();
-                    let resp = Response::err(req.id, why.busy_message());
-                    drop(conn_permit);
-                    if tx.send(encode_frame(&resp)).await.is_err() {
-                        break;
-                    }
-                    continue;
-                }
-            }
-        } else {
-            None
-        };
-
-        let (g_permit, pg_permit, read_permit) =
-            match admit_request(&sem, &read_sem, &pg_map, pg_limit, &req.graph, is_write) {
-                Admission::Granted {
-                    global,
-                    per_graph,
-                    read,
-                } => (global, per_graph, read),
-                Admission::Busy => {
-                    crate::metrics::busy_rejected();
-                    let resp =
-                        Response::err(req.id, "BUSY: server at capacity, retry with backoff");
-                    drop(conn_permit);
-                    if tx.send(encode_frame(&resp)).await.is_err() {
-                        break;
-                    }
-                    continue;
-                }
-            };
-
-        // Spawn the dispatch: runs CONCURRENTLY with the read loop and with the
-        // other in-flight requests on this connection. The `Response` carries
-        // `req.id`, so the client demuxes the (possibly out-of-order) completion.
-        // The task holds whichever admission permits it was granted until its response
-        // is framed and queued, then drops them — closing the per-connection, global,
-        // per-graph and reserved-read backpressure loops.
-        crate::metrics::connection_request_started(sem.available_permits());
-        let task_state = state.clone();
-        let task_tx = tx.clone();
-        let task_sem = sem.clone();
-        // The QoS class this request was admitted under (W2.4), captured for the per-class
-        // dispatch-latency histogram + in-flight gauge; `None` when QoS is not configured.
-        let qos_class = qos_permit.as_ref().map(|p| p.class());
-        tokio::spawn(async move {
-            let dispatch_start = std::time::Instant::now();
-            // CONCEPT:EG-KG.coordination.backpressure-busy-signal — bound the dispatch. Every
-            // permit below is released only when this task returns, so an unbounded
-            // dispatch is an unbounded reservation; the deadline is what stops one stalled
-            // subsystem from permanently retaining admission capacity it will never use.
-            let req_id = req.id;
-            // `dispatch()`/`dispatch_verified_request()` return an ENORMOUS future
-            // under `--features full` (the whole graph-op dispatch state machine
-            // inlined into one poll chain) — awaiting it un-boxed inside this
-            // spawned task's own `async move` overflows the poll-time call stack
-            // exactly like the `dispatch_on_heap` test trap this repo's own tests
-            // route around (see `server::mod.rs::dispatch_on_heap`'s doc comment
-            // and every OTHER production callsite of `dispatch()`, which already
-            // `Box::pin` it — this was the one caller that didn't, latent until a
-            // request finally reached deep enough into the dispatch chain to prove
-            // it, per `per_graph_backpressure_isolates_tenants`).
-            // Plain `Box::pin(...)` heap-allocates the future but keeps its
-            // full CONCRETE type, so passing it straight into the generic
-            // `dispatch_within_deadline<F: Future>` still makes the compiler
-            // structurally prove `F: Send` through the entire dispatch call
-            // graph -- which now includes CX-EG-06's per-arm/per-guard-block
-            // extraction out of `dispatch_inner`/`dispatch_graph_op_inner`
-            // (58 arms + 12 guard blocks, each its own `async fn`), and
-            // overflows rustc's trait-resolution recursion limit (E0275).
-            // An explicit `dyn Future + Send` trait-object annotation forces
-            // the Send check to happen ONCE, here, against the erased type --
-            // the same pattern this file's own test-only `dispatch_on_heap`
-            // helper (and its 3 duplicates in dispatch.rs's test modules)
-            // already uses for exactly this reason.
-            type BoxedDispatch<'a> =
-                std::pin::Pin<Box<dyn std::future::Future<Output = Response> + Send + 'a>>;
-            let resp = match verified_qos_context {
-                Some(context) => {
-                    let boxed: BoxedDispatch<'_> =
-                        Box::pin(dispatch_verified_request(&task_state, req, context));
-                    dispatch_within_deadline(boxed, dispatch_deadline, req_id).await
-                }
-                None => {
-                    let boxed: BoxedDispatch<'_> = Box::pin(dispatch(&task_state, req));
-                    dispatch_within_deadline(boxed, dispatch_deadline, req_id).await
-                }
-            };
-            // Observe per-class dispatch latency + release the per-class gauge (W2.4)
-            // BEFORE the permit drop, so the class is still known.
-            if let Some(class) = qos_class {
-                crate::metrics::qos_dispatch_finished(
-                    class.label(),
-                    dispatch_start.elapsed().as_secs_f64(),
-                );
-            }
-            let _ = task_tx
-                .send(encode_bounded_frame(&resp, max_response_bytes))
-                .await;
-            drop(read_permit);
-            drop(pg_permit);
-            drop(g_permit);
-            // CONCEPT:EG-KG.coordination.backpressure-busy-signal — release the QoS slot (principal/class/global counters)
-            // once the request completes; `None` when QoS is not configured.
-            drop(qos_permit);
-            drop(conn_permit);
-            crate::metrics::connection_request_finished(task_sem.available_permits());
-        });
-
+        crate::metrics::connection_request_started(pools.global.available_permits());
+        tokio::spawn(dispatch_reserved_request(
+            req,
+            state.clone(),
+            tx.clone(),
+            pools.global.clone(),
+            reservation,
+            limits,
+        ));
         if is_shutdown {
-            // Stop reading further frames; the spawned Shutdown dispatch's response
-            // is still drained+written by the writer task below.
             break;
         }
     }
 
-    // Read loop ended (client close, read error, or a Shutdown request). Drop the
-    // read-loop sender; the writer task then finishes once every in-flight dispatch
-    // task has also dropped its `tx` clone (all queued responses written), and the
-    // final flush lands. Awaiting it drains the connection gracefully.
+    // Dropping ingress's sender still leaves every dispatch sender alive. The
+    // writer drains their queued replies (including Shutdown) before flushing.
     drop(tx);
     let _ = writer.await;
 }
@@ -1101,656 +712,4 @@ pub async fn serve_tcp(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn conn_guard_refcounts() {
-        let coord = ShutdownCoordinator::new();
-        assert_eq!(coord.active_connections(), 0);
-        let g1 = ConnGuard::new(coord.clone());
-        let g2 = ConnGuard::new(coord.clone());
-        assert_eq!(coord.active_connections(), 2);
-        drop(g1);
-        assert_eq!(coord.active_connections(), 1);
-        drop(g2);
-        assert_eq!(coord.active_connections(), 0);
-    }
-
-    #[test]
-    fn encode_frame_is_len_prefixed_and_decodes() {
-        // CONCEPT:EG-KG.backend.framed-response — a framed response is `4-byte BE len ++ MessagePack body`,
-        // and the body round-trips back to the same id/result so the client can
-        // demux it out of order.
-        let resp = Response::ok(42, crate::protocol::ResultPayload::String("pong".into()));
-        let frame = encode_frame(&resp);
-        assert!(frame.len() > 4);
-        let declared = u32::from_be_bytes([frame[0], frame[1], frame[2], frame[3]]) as usize;
-        assert_eq!(
-            declared,
-            frame.len() - 4,
-            "len prefix must match body length"
-        );
-        let decoded: Response = rmp_serde::from_slice(&frame[4..]).expect("decode body");
-        assert_eq!(decoded.id, 42, "id preserved so the client demuxes by it");
-    }
-
-    #[test]
-    fn socket_mode_default_matches_prior_hardcoded_value() {
-        // The shipped clap default ("0600") must parse to exactly the value this
-        // code used to hardcode, so upgrading changes no deployment's behavior.
-        assert_eq!(parse_unix_socket_mode("0600").unwrap(), 0o600);
-    }
-
-    #[test]
-    fn socket_mode_accepts_group_readable_variants() {
-        assert_eq!(parse_unix_socket_mode("0660").unwrap(), 0o660);
-        assert_eq!(parse_unix_socket_mode("660").unwrap(), 0o660);
-        assert_eq!(parse_unix_socket_mode("0o660").unwrap(), 0o660);
-        assert_eq!(parse_unix_socket_mode(" 0640 ").unwrap(), 0o640);
-    }
-
-    #[test]
-    fn socket_mode_refuses_world_bits() {
-        // Never a path to "just make it writable" — any nonzero "other" bit is
-        // refused outright, whether read, write, or execute.
-        for world_open in ["0601", "0604", "0606", "0607", "0777"] {
-            let err = parse_unix_socket_mode(world_open)
-                .expect_err(&format!("{world_open} should be refused"));
-            assert!(
-                err.contains("world"),
-                "error for {world_open} should explain the world-bit refusal: {err}"
-            );
-        }
-    }
-
-    #[test]
-    fn socket_mode_refuses_garbage_and_out_of_range() {
-        assert!(parse_unix_socket_mode("").is_err());
-        assert!(parse_unix_socket_mode("not-octal").is_err());
-        assert!(
-            parse_unix_socket_mode("999").is_err(),
-            "9 is not a valid octal digit"
-        );
-        assert!(
-            parse_unix_socket_mode("07777").is_err(),
-            "exceeds a file mode's 0777 range"
-        );
-    }
-
-    #[cfg(any(unix, feature = "server-tls"))]
-    fn unique_socket_path(label: &str) -> std::path::PathBuf {
-        std::env::temp_dir().join(format!(
-            "epistemic-graph-{label}-{}-{}.sock",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system clock")
-                .as_nanos()
-        ))
-    }
-
-    #[cfg(unix)]
-    fn uds_test_state() -> Arc<RwLock<ServerState>> {
-        Arc::new(RwLock::new(ServerState::new_for_test(
-            "transport-test-secret",
-            ServerState::test_isolation("transport-test-agent"),
-        )))
-    }
-
-    #[cfg(unix)]
-    #[tokio::test(flavor = "current_thread")]
-    async fn uds_setup_keeps_current_thread_responsive_and_shutdown_cancels_accept() {
-        use std::os::unix::fs::PermissionsExt;
-
-        let path = unique_socket_path("responsive");
-        std::fs::write(&path, b"stale socket placeholder").expect("write stale path");
-        let socket_path = path.to_string_lossy().into_owned();
-        let coord = ShutdownCoordinator::new();
-        let server_coord = coord.clone();
-        let server_socket_path = socket_path.clone();
-        let server = tokio::spawn(async move {
-            serve_uds(&server_socket_path, 0o640, uds_test_state(), server_coord).await
-        });
-
-        let stream = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            loop {
-                match tokio::net::UnixStream::connect(&socket_path).await {
-                    Ok(stream) => break stream,
-                    Err(error)
-                        if matches!(
-                            error.kind(),
-                            std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
-                        ) =>
-                    {
-                        tokio::task::yield_now().await;
-                    }
-                    Err(error) => panic!("unexpected UDS setup failure: {error}"),
-                }
-            }
-        })
-        .await
-        .expect("UDS setup must not block the current-thread executor");
-        assert_eq!(
-            std::fs::metadata(&path)
-                .expect("socket metadata")
-                .permissions()
-                .mode()
-                & 0o777,
-            0o640
-        );
-
-        drop(stream);
-        coord.trigger();
-        tokio::time::timeout(std::time::Duration::from_secs(5), server)
-            .await
-            .expect("shutdown must cancel the pending accept")
-            .expect("server task")
-            .expect("serve UDS");
-        let _ = std::fs::remove_file(path);
-    }
-
-    #[cfg(unix)]
-    #[tokio::test(flavor = "current_thread")]
-    async fn uds_setup_propagates_bind_errors_without_entering_accept_loop() {
-        let missing_parent = unique_socket_path("missing-parent");
-        let socket_path = missing_parent.join("graph.sock");
-        let socket_path_text = socket_path.to_string_lossy().into_owned();
-        let error = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            serve_uds(
-                &socket_path_text,
-                0o600,
-                uds_test_state(),
-                ShutdownCoordinator::new(),
-            ),
-        )
-        .await
-        .expect("failed setup must return without blocking")
-        .expect_err("binding below a missing parent must fail");
-        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
-        assert!(!socket_path.exists());
-    }
-
-    #[cfg(all(unix, feature = "server-tls"))]
-    #[test]
-    fn tls_prepare_keeps_a_current_thread_runtime_responsive() {
-        use crate::test_rendezvous::{join_bounded, meet};
-
-        let root = unique_socket_path("tls-offload");
-        std::fs::create_dir(&root).expect("create TLS test directory");
-        let cert_path = root.join("certificate.pipe");
-        let key_path = root.join("private-key.pem");
-        let status = std::process::Command::new("mkfifo")
-            .arg(&cert_path)
-            .status()
-            .expect("run mkfifo");
-        assert!(status.success(), "mkfifo must create the blocking fixture");
-
-        let progress = Arc::new(AtomicUsize::new(0));
-        let rendezvous = Arc::new(std::sync::Barrier::new(2));
-        let watchdog_released = Arc::new(AtomicBool::new(false));
-        let runtime_progress = progress.clone();
-        let runtime_rendezvous = rendezvous.clone();
-        let runtime_cert_path = cert_path.clone();
-        let runtime_key_path = key_path.clone();
-        let runtime = std::thread::spawn(move || {
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("build current-thread runtime")
-                .block_on(async move {
-                    let preparation = tokio::spawn(prepare_tcp_tls(TcpTlsConfig {
-                        cert_path: runtime_cert_path.to_string_lossy().into_owned(),
-                        key_path: runtime_key_path.to_string_lossy().into_owned(),
-                        client_ca_path: None,
-                    }));
-                    tokio::task::yield_now().await;
-                    runtime_progress.fetch_add(1, Ordering::SeqCst);
-                    meet(
-                        &runtime_rendezvous,
-                        "TLS-preparation runtime at the rendezvous",
-                    );
-                    preparation.await.expect("TLS preparation task")
-                })
-        });
-
-        // If the FIFO read regresses onto the current-thread runtime, release it
-        // after a bounded interval so this proof fails instead of hanging CI.
-        let watchdog_cert_path = cert_path.clone();
-        let watchdog_progress = progress.clone();
-        let watchdog_flag = watchdog_released.clone();
-        let (watchdog_cancel, watchdog_cancelled) = std::sync::mpsc::sync_channel(1);
-        let watchdog = std::thread::spawn(move || {
-            if watchdog_cancelled
-                .recv_timeout(std::time::Duration::from_secs(2))
-                .is_err()
-                && watchdog_progress.load(Ordering::SeqCst) == 0
-            {
-                watchdog_flag.store(true, Ordering::SeqCst);
-                std::fs::write(watchdog_cert_path, b"invalid certificate")
-                    .expect("release blocked certificate read");
-            }
-        });
-
-        meet(
-            &rendezvous,
-            "the test joining the TLS-preparation rendezvous",
-        );
-        let _ = watchdog_cancel.send(());
-        if !watchdog_released.load(Ordering::SeqCst) {
-            std::fs::write(&cert_path, b"invalid certificate").expect("complete certificate read");
-        }
-        let error = match join_bounded(runtime, "the current-thread TLS runtime") {
-            Ok(_) => panic!("invalid certificate must fail closed"),
-            Err(error) => error,
-        };
-        join_bounded(watchdog, "the TLS-read watchdog thread");
-
-        assert_eq!(progress.load(Ordering::SeqCst), 1);
-        assert!(
-            !watchdog_released.load(Ordering::SeqCst),
-            "TLS material read blocked the current-thread runtime"
-        );
-        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
-        assert_eq!(error.to_string(), "server TLS certificate invalid");
-        assert!(!error.to_string().contains(root.to_string_lossy().as_ref()));
-        std::fs::remove_dir_all(root).expect("remove TLS test directory");
-    }
-
-    #[cfg(feature = "server-tls")]
-    #[tokio::test(flavor = "current_thread")]
-    async fn tls_prepare_keeps_missing_material_errors_private() {
-        let missing = unique_socket_path("private-tls-error");
-        let missing_text = missing.to_string_lossy().into_owned();
-        let error = match prepare_tcp_tls(TcpTlsConfig {
-            cert_path: missing_text.clone(),
-            key_path: missing_text.clone(),
-            client_ca_path: None,
-        })
-        .await
-        {
-            Ok(_) => panic!("missing TLS material must fail closed"),
-            Err(error) => error,
-        };
-        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
-        assert_eq!(error.to_string(), "server TLS certificate unavailable");
-        assert!(!error.to_string().contains(&missing_text));
-    }
-
-    #[test]
-    fn per_connection_limit_is_bounded_and_positive() {
-        // CONCEPT:EG-KG.backend.framed-response — the per-connection in-flight cap auto-sizes from cores
-        // but is always clamped so one connection can neither stall (floor) nor
-        // spawn unbounded work (ceiling).
-        let n = per_connection_inflight_limit();
-        assert!((8..=1024).contains(&n), "per-conn cap {n} out of [8,1024]");
-    }
-
-    #[test]
-    fn dispatch_deadline_is_bounded_and_positive() {
-        // CONCEPT:EG-KG.coordination.backpressure-busy-signal — the hard dispatch ceiling
-        // always resolves to a finite, positive duration, so "no bound at all" is not a
-        // reachable configuration.
-        let d = dispatch_deadline();
-        assert!(d > std::time::Duration::ZERO);
-        assert!(d <= std::time::Duration::from_secs(86_400));
-    }
-
-    #[tokio::test]
-    async fn hung_dispatch_is_abandoned_with_a_typed_error() {
-        // A dispatch that never completes must still produce a reply for its id, so the
-        // caller returns (and its permits drop) instead of parking forever.
-        let resp = dispatch_within_deadline(
-            std::future::pending::<Response>(),
-            std::time::Duration::from_millis(20),
-            77,
-        )
-        .await;
-        assert_eq!(resp.id, 77, "the abandoned request is still answered by id");
-        assert!(
-            resp.error
-                .as_deref()
-                .unwrap_or_default()
-                .starts_with("TIMEOUT:"),
-            "expected a typed timeout error, got {:?}",
-            resp.error
-        );
-    }
-
-    /// D-HYD-2 defect pin. THE livelock, reproduced in miniature.
-    ///
-    /// The live incident: the shard-3 durable writer thread wedged in an unbounded
-    /// userspace loop, so every dispatch that needed it parked forever on its completion
-    /// oneshot. Each of those tasks holds a `QosPermit`, and — because the deployment
-    /// resolves EVERY caller (server, host daemon, scheduler, MCP, external agents) to
-    /// ONE verified principal scope — they all draw on ONE per-principal in-flight quota.
-    /// 96 stranded dispatches pinned that principal at its quota (`capacity/4` of 384)
-    /// permanently, so for 2.5 days the engine shed 100% of requests, INCLUDING reads
-    /// that never touch the wedged shard, with `BUSY: QoS per-principal quota exhausted`.
-    ///
-    /// The invariant this pins: a dispatch that never completes must not permanently
-    /// retain its admission slot. Revert `dispatch_within_deadline`'s use at the dispatch
-    /// site (await the raw future) and this goes RED — the joins time out and the final
-    /// admit is still `Reject(Quota)`.
-    #[tokio::test]
-    async fn a_hung_dispatch_does_not_permanently_exhaust_the_principal_quota() {
-        use crate::server::qos::{
-            QosClass, QosConfig, QosDecision, QosReject, QosRequest, QosScheduler,
-        };
-
-        let mut cfg = QosConfig::auto(8);
-        cfg.per_principal_quota = 2; // the live value was 96; 2 keeps the test fast
-        cfg.bucket_refill_per_sec = 0.0; // isolate the QUOTA rule from the token bucket
-        let sched = QosScheduler::new(cfg);
-        let req = QosRequest {
-            class: QosClass::Orch,
-            principal: "one-shared-principal".to_string(),
-            deadline_micros: None,
-        };
-
-        let deadline = std::time::Duration::from_millis(50);
-        let mut stranded = Vec::new();
-        for _ in 0..2 {
-            let permit = match sched.try_admit(&req) {
-                QosDecision::Admit(permit) => permit,
-                QosDecision::Reject(why) => panic!("expected Admit, got Reject({why:?})"),
-            };
-            // EXACTLY the production shape: the permit rides the dispatch task and is
-            // released only when that task returns.
-            stranded.push(tokio::spawn(async move {
-                let resp =
-                    dispatch_within_deadline(std::future::pending::<Response>(), deadline, 1).await;
-                drop(permit);
-                resp
-            }));
-        }
-
-        // The observed live state: at quota, every further request is shed `Quota`.
-        assert!(
-            matches!(sched.try_admit(&req), QosDecision::Reject(QosReject::Quota)),
-            "a principal at its in-flight quota must be shed while the work is live"
-        );
-
-        // Bounded join: with the fix reverted these never resolve, so this FAILS rather
-        // than hanging the suite.
-        for task in stranded {
-            let resp = tokio::time::timeout(deadline * 20, task)
-                .await
-                .expect("a stranded dispatch must be abandoned at the deadline")
-                .expect("dispatch task must not panic");
-            assert!(
-                resp.error.is_some(),
-                "an abandoned dispatch answers with an error"
-            );
-        }
-
-        // The invariant: the quota recovered on its own, with no restart.
-        assert!(
-            matches!(sched.try_admit(&req), QosDecision::Admit(_)),
-            "a hung dispatch must not permanently retain its admission slot"
-        );
-    }
-
-    #[test]
-    fn request_frame_allocation_has_a_hard_ceiling() {
-        let limit = max_request_frame_bytes();
-        assert!(limit > 0);
-        assert!(limit <= HARD_MAX_REQUEST_FRAME_BYTES);
-    }
-
-    #[test]
-    fn msgpack_preflight_rejects_declared_allocation_bombs() {
-        // array32 declares 2^32-1 values while carrying no body. The preflight
-        // rejects it without allocating from the untrusted hint.
-        assert!(validate_msgpack_frame(&[0xdd, 0xff, 0xff, 0xff, 0xff], 1_000).is_err());
-        assert!(validate_msgpack_frame(&[0xdc, 0x00, 0x02, 0xc0], 1_000).is_err());
-
-        let three_nils = [0x93, 0xc0, 0xc0, 0xc0];
-        assert!(validate_msgpack_frame(&three_nils, 3).is_err());
-        assert!(validate_msgpack_frame(&three_nils, 4).is_ok());
-    }
-
-    #[test]
-    fn msgpack_preflight_bounds_depth_and_requires_exact_frame() {
-        let mut nested = vec![0x91; MAX_MSGPACK_NESTING_DEPTH + 1];
-        nested.push(0xc0);
-        assert!(validate_msgpack_frame(&nested, 1_000).is_err());
-
-        let valid = rmp_serde::to_vec(&serde_json::json!({
-            "method": "Ping",
-            "values": [1, 2, 3]
-        }))
-        .unwrap();
-        assert!(validate_msgpack_frame(&valid, 1_000).is_ok());
-        let mut trailing = valid;
-        trailing.push(0xc0);
-        assert!(validate_msgpack_frame(&trailing, 1_000).is_err());
-    }
-
-    #[test]
-    fn recover_request_id_reads_the_id_of_an_otherwise_undecodable_request() {
-        // U-96/U-98: `graph_type: "Ontology"` is not one of the closed
-        // `GraphType` wire values (`Agent`/`Team`/`Global`/`Commons`), so the
-        // full `Request` fails to decode. Before the fix, that failure always
-        // answered under a synthetic id `0`, which the Python client's
-        // `_pending` map never has a future for — the response is dropped and
-        // the caller starves out its whole timeout/retry budget instead of
-        // seeing the error immediately (see `epistemic_graph/client.py`
-        // `_read_loop`). The id must still be recoverable from the same bytes
-        // that failed to decode as a full `Request`.
-        let payload = rmp_serde::to_vec_named(&serde_json::json!({
-            "id": 555_555_u64,
-            "graph": "tenant__local__ontology",
-            "auth_token": "",
-            "agent_id": "system",
-            "method": "CreateGraph",
-            "params": {
-                "graph_name": "tenant__local__ontology",
-                "graph_type": "Ontology",
-            },
-        }))
-        .unwrap();
-
-        // The full request genuinely fails to decode (proves the test reproduces
-        // the actual defect, not a strawman).
-        assert!(
-            rmp_serde::from_slice::<Request>(&payload).is_err(),
-            "an unsupported GraphType value must fail full Request decode"
-        );
-
-        // But the id is still recoverable from the very same bytes.
-        assert_eq!(recover_request_id(&payload), 555_555);
-    }
-
-    #[test]
-    fn recover_request_id_falls_back_to_zero_only_when_the_id_itself_is_unreadable() {
-        // A frame with no readable `id` field at all (e.g. a bare nil, or a
-        // completely non-map payload) has nothing to recover — id 0 is the
-        // documented last resort, not a silent success case.
-        assert_eq!(recover_request_id(&[0xc0]), 0); // msgpack nil
-        assert_eq!(recover_request_id(b"not msgpack at all"), 0);
-
-        // A well-formed map missing `id` entirely also falls back.
-        let no_id = rmp_serde::to_vec_named(&serde_json::json!({"graph": "g"})).unwrap();
-        assert_eq!(recover_request_id(&no_id), 0);
-    }
-
-    #[test]
-    fn trigger_latches() {
-        let coord = ShutdownCoordinator::new();
-        assert!(!coord.is_requested());
-        coord.trigger();
-        assert!(coord.is_requested());
-        // Idempotent.
-        coord.trigger();
-        assert!(coord.is_requested());
-    }
-
-    // ── CONCEPT:EG-KG.coordination.reserved-read-lane — reserved read-lane admission guarantee ──────────────────
-
-    /// A read MUST stay admittable when the global pool AND the per-graph cap are
-    /// fully saturated by writes — it falls back to the reserved read lane — while a
-    /// write in the same saturated state is correctly shed BUSY. This is the core
-    /// "an interactive read is never starved behind ingestion" guarantee, proven
-    /// deterministically against the pure admission function.
-    #[test]
-    fn read_is_admitted_when_write_pool_is_saturated() {
-        let sem = Arc::new(Semaphore::new(4)); // tiny global pool
-        let read_sem = Arc::new(Semaphore::new(2)); // small reserved read lane
-        let pg_map = dashmap::DashMap::new();
-        let pg_limit = 2;
-        let graph = "__commons__";
-
-        // Saturate the global pool: hold all of its permits (an in-flight ingestion
-        // write firehose). With the pool drained, the NORMAL admission path fails.
-        let _writers: Vec<_> = (0..sem.available_permits())
-            .map(|_| sem.clone().try_acquire_owned().unwrap())
-            .collect();
-        assert_eq!(sem.available_permits(), 0, "global pool saturated");
-
-        // A WRITE now sheds BUSY (back-pressured, not dropped).
-        assert!(
-            matches!(
-                admit_request(&sem, &read_sem, &pg_map, pg_limit, graph, true),
-                Admission::Busy
-            ),
-            "write must be shed BUSY when the global pool is full"
-        );
-
-        // A READ is STILL admitted via the reserved read lane.
-        let r = admit_request(&sem, &read_sem, &pg_map, pg_limit, graph, false);
-        match r {
-            Admission::Granted { global, read, .. } => {
-                assert!(
-                    global.is_none(),
-                    "read used the reserved lane, not the global pool"
-                );
-                assert!(read.is_some(), "read holds a reserved-lane permit");
-            }
-            Admission::Busy => panic!("read must NOT be shed BUSY while the read lane has slots"),
-        }
-    }
-
-    /// The reserved read lane is itself bounded: a genuine read FLOOD that fills it is
-    /// shed BUSY so memory stays bounded — the reservation guarantees availability, not
-    /// unbounded admission.
-    #[test]
-    fn read_lane_is_bounded_under_a_read_flood() {
-        let sem = Arc::new(Semaphore::new(1));
-        let read_sem = Arc::new(Semaphore::new(2));
-        let pg_map = dashmap::DashMap::new();
-        let pg_limit = 1;
-        let graph = "g";
-
-        // Saturate the global pool so reads must use the reserved lane.
-        let _g = sem.clone().try_acquire_owned().unwrap();
-        assert_eq!(sem.available_permits(), 0);
-
-        // Hold both reserved read permits.
-        let mut reads = Vec::new();
-        for _ in 0..2 {
-            match admit_request(&sem, &read_sem, &pg_map, pg_limit, graph, false) {
-                Admission::Granted { read, .. } => reads.push(read.expect("reserved permit")),
-                Admission::Busy => panic!("reserved read lane should admit up to its size"),
-            }
-        }
-        // The third read floods the lane → BUSY.
-        assert!(
-            matches!(
-                admit_request(&sem, &read_sem, &pg_map, pg_limit, graph, false),
-                Admission::Busy
-            ),
-            "a read flood that fills the reserved lane is shed BUSY (bounded memory)"
-        );
-        drop(reads);
-        // Once a reserved slot frees, reads admit again.
-        assert!(
-            matches!(
-                admit_request(&sem, &read_sem, &pg_map, pg_limit, graph, false),
-                Admission::Granted { .. }
-            ),
-            "read admits again after a reserved slot frees"
-        );
-    }
-
-    /// Concurrency stress: while many WRITE permits saturate the global pool, a burst
-    /// of concurrent READS on the SAME hot graph must ALL be admitted (never BUSY),
-    /// proving an interactive read survives under maximum write load on the firehose
-    /// graph. Mirrors the live K=4 ingestion symptom at the admission layer.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn reads_survive_under_max_write_load_on_hot_graph() {
-        let sem = Arc::new(Semaphore::new(8));
-        let read_sem = Arc::new(Semaphore::new(8));
-        let pg_map = Arc::new(dashmap::DashMap::new());
-        let pg_limit = 4; // a quarter, like the live default
-        let graph = "__commons__";
-
-        // Saturate the global pool: hold all 8 write permits for the test duration.
-        let writers: Vec<_> = (0..8)
-            .map(|_| sem.clone().try_acquire_owned().unwrap())
-            .collect();
-        assert_eq!(sem.available_permits(), 0, "writers saturate the pool");
-
-        // Fire a burst of concurrent reads on the SAME hot graph; every one must be
-        // admitted (via the reserved lane), holding its permit briefly then releasing.
-        let mut tasks = Vec::new();
-        for _ in 0..200usize {
-            let sem = sem.clone();
-            let read_sem = read_sem.clone();
-            let pg_map = pg_map.clone();
-            tasks.push(tokio::spawn(async move {
-                // Retry briefly: the reserved lane is small, so concurrent reads share
-                // it — but each holds its slot only momentarily, so all make progress
-                // without ever being permanently starved.
-                for _ in 0..1000 {
-                    match admit_request(&sem, &read_sem, &pg_map, pg_limit, graph, false) {
-                        Admission::Granted { read, .. } => {
-                            assert!(read.is_some(), "served by reserved lane under saturation");
-                            tokio::task::yield_now().await; // hold briefly, then drop
-                            return true;
-                        }
-                        Admission::Busy => tokio::task::yield_now().await,
-                    }
-                }
-                false
-            }));
-        }
-        let mut ok = 0usize;
-        for t in tasks {
-            if t.await.unwrap() {
-                ok += 1;
-            }
-        }
-        assert_eq!(
-            ok, 200,
-            "every interactive read completed under max write load"
-        );
-        drop(writers);
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn idle_watcher_triggers_when_idle() {
-        let coord = ShutdownCoordinator::new();
-        let c = coord.clone();
-        let h = tokio::spawn(async move { run_idle_watcher(c, 1).await });
-        // No connections ⇒ after the grace window the watcher must trigger.
-        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        assert!(coord.is_requested(), "idle watcher did not trigger");
-        h.await.unwrap();
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn idle_watcher_resets_on_active_connection() {
-        let coord = ShutdownCoordinator::new();
-        // Hold a live connection the whole time ⇒ the watcher never fires.
-        let _g = ConnGuard::new(coord.clone());
-        let c = coord.clone();
-        tokio::spawn(async move { run_idle_watcher(c, 1).await });
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        assert!(
-            !coord.is_requested(),
-            "idle watcher fired despite an active connection"
-        );
-    }
-}
+mod tests;

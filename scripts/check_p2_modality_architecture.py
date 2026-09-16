@@ -399,6 +399,22 @@ def require_governed_protocol_method(protocol: str, method: str) -> None:
     )
 
 
+def _cursor_placement_fenced(stream: str) -> bool:
+    """Whether the served cursor invalidates on a placement change.
+
+    Originally one inline `!=` comparison; it is equally a fence when
+    factored into a named `cursor.field == context.field && ...` predicate
+    that the resume path negates at the call site -- same enforcement,
+    reusable across every field the cursor binds instead of duplicated per
+    field. Accept either shape.
+    """
+
+    return "cursor.placement_ref != self.context.placement_ref" in stream or (
+        "cursor.placement_ref == context.placement_ref" in stream
+        and "!cursor_context_matches(" in stream
+    )
+
+
 def require_served_knowledge_stream_wire() -> None:
     """The served KnowledgeStream wire: typed query, bound cursor, ACL ordering."""
 
@@ -456,7 +472,7 @@ def require_served_knowledge_stream_wire() -> None:
     require_knowledge_stream_authority(handler)
     require(
         'placement_ref: keyed_opaque(authority, "placement"' in handler
-        and "cursor.placement_ref != self.context.placement_ref" in stream,
+        and _cursor_placement_fenced(stream),
         "served wire cursor does not fence placement changes",
     )
     require(
@@ -609,15 +625,32 @@ def require_modality_client_surface() -> None:
         )
 
 
+def _frame_bound_checked(transport: str) -> bool:
+    """Whether the read frame length is bounded before it is trusted.
+
+    Originally read into a bare `max_frame_bytes` local; it is equally
+    enforced bundled into a `ConnectionLimits.request_bytes` field populated
+    from the same `max_request_frame_bytes()` (env-configured, clamped to
+    `HARD_MAX_REQUEST_FRAME_BYTES`) -- same limit, same check, one more
+    field on a struct instead of one more bare parameter. Accept either
+    shape.
+    """
+
+    return (
+        "len > max_frame_bytes" in transport
+        or "len > limits.request_bytes" in transport
+    )
+
+
 def require_modality_transport_path() -> None:
     """The transport/dispatch path a served modality request actually travels."""
 
     handler = read("src/server/handlers/modality.rs")
-    transport = read("src/server/transport.rs")
+    transport = read_module_tree("src/server/transport.rs", root_dir=ROOT)
     require(
         "EPISTEMIC_GRAPH_MAX_REQUEST_BYTES" in transport
         and "HARD_MAX_REQUEST_FRAME_BYTES" in transport
-        and "len > max_frame_bytes" in transport,
+        and _frame_bound_checked(transport),
         "wire frame can allocate unbounded memory before modality validation",
     )
     require(

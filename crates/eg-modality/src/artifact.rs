@@ -11,6 +11,8 @@ use std::fmt;
 
 use serde::{de::Error as _, Deserialize, Deserializer, Serialize, Serializer};
 
+mod validation;
+
 /// Current wire/storage version of [`ArtifactBundle`].
 pub const ARTIFACT_PROTOCOL_VERSION: u16 = 1;
 
@@ -396,61 +398,7 @@ pub enum EvidenceAddress {
 
 impl EvidenceAddress {
     pub fn validate(&self) -> Result<(), ProtocolError> {
-        let valid = match self {
-            Self::CharacterRange { start, end }
-            | Self::AudioRange {
-                start_ms: start,
-                end_ms: end,
-            }
-            | Self::VideoTimeRange {
-                start_ms: start,
-                end_ms: end,
-            }
-            | Self::MetricWindow {
-                start_ms: start,
-                end_ms: end,
-            } => end > start,
-            Self::FrameRange {
-                start_frame,
-                end_frame,
-            } => end_frame >= start_frame,
-            Self::TableCellRange {
-                row_start,
-                row_end,
-                col_start,
-                col_end,
-            } => row_end >= row_start && col_end >= col_start,
-            Self::ImageRegion {
-                x,
-                y,
-                width,
-                height,
-            }
-            | Self::PageRegion {
-                x,
-                y,
-                width,
-                height,
-                ..
-            } => {
-                x.is_finite()
-                    && y.is_finite()
-                    && width.is_finite()
-                    && height.is_finite()
-                    && *width > 0.0
-                    && *height > 0.0
-            }
-            Self::Point { x, y } => x.is_finite() && y.is_finite(),
-            Self::RowVersion { .. } | Self::TraceSpan { .. } => true,
-            Self::CodeSymbol {
-                start_line,
-                end_line,
-                ..
-            } => end_line >= start_line,
-        };
-        valid
-            .then_some(())
-            .ok_or(ProtocolError::InvalidEvidenceAddress)
+        validation::validate_evidence_address(self)
     }
 }
 
@@ -516,123 +464,7 @@ pub struct ArtifactBundle {
 
 impl ArtifactBundle {
     pub fn validate(&self) -> Result<(), ProtocolError> {
-        if self.protocol_version != ARTIFACT_PROTOCOL_VERSION {
-            return Err(ProtocolError::UnsupportedVersion);
-        }
-        self.privacy.validate()?;
-        if self.artifacts.is_empty() || self.occurrences.is_empty() {
-            return Err(ProtocolError::IncompleteBundle);
-        }
-
-        let artifacts = unique(self.artifacts.iter().map(|v| v.id.as_ref()))?;
-        let occurrences = unique(self.occurrences.iter().map(|v| v.id.as_ref()))?;
-        let renditions = unique(self.renditions.iter().map(|v| v.id.as_ref()))?;
-        let segments = unique(self.segments.iter().map(|v| v.id.as_ref()))?;
-        let features = unique(self.features.iter().map(|v| v.id.as_ref()))?;
-        let loci = unique(self.evidence_loci.iter().map(|v| v.id.as_ref()))?;
-        let derivation_values: Vec<&Derivation> = self
-            .renditions
-            .iter()
-            .map(|value| &value.derivation)
-            .chain(self.features.iter().map(|value| &value.derivation))
-            .collect();
-        let derivations: BTreeSet<&str> = derivation_values
-            .iter()
-            .map(|value| value.id.as_ref().as_str())
-            .collect();
-        for (index, left) in derivation_values.iter().enumerate() {
-            if derivation_values[index + 1..]
-                .iter()
-                .any(|right| left.id == right.id && left != right)
-            {
-                return Err(ProtocolError::DuplicateIdentity);
-            }
-        }
-        let policy_refs: BTreeSet<&str> = self
-            .occurrences
-            .iter()
-            .map(|value| value.policy.access_policy_ref.as_str())
-            .collect();
-
-        if self
-            .artifacts
-            .iter()
-            .any(|value| value.content_version == 0)
-        {
-            return Err(ProtocolError::IncompleteBundle);
-        }
-
-        for occurrence in &self.occurrences {
-            if !artifacts.contains(occurrence.artifact_id.as_ref().as_str()) {
-                return Err(ProtocolError::DanglingReference);
-            }
-            if occurrence.observation_version == 0 || occurrence.policy.purpose_refs.is_empty() {
-                return Err(ProtocolError::IncompleteBundle);
-            }
-        }
-        for rendition in &self.renditions {
-            if !occurrences.contains(rendition.occurrence_id.as_ref().as_str()) {
-                return Err(ProtocolError::DanglingReference);
-            }
-            self.validate_derivation(
-                &rendition.derivation,
-                &artifacts,
-                &occurrences,
-                &renditions,
-                &segments,
-                &features,
-                &loci,
-            )?;
-        }
-        for segment in &self.segments {
-            if !renditions.contains(segment.rendition_id.as_ref().as_str()) {
-                return Err(ProtocolError::DanglingReference);
-            }
-            if let Some(parent) = &segment.parent_segment_id {
-                if !segments.contains(parent.as_ref().as_str()) || parent == &segment.id {
-                    return Err(ProtocolError::DanglingReference);
-                }
-            }
-        }
-        for feature in &self.features {
-            validate_resource(
-                &feature.subject,
-                &artifacts,
-                &occurrences,
-                &renditions,
-                &segments,
-                &features,
-                &loci,
-            )?;
-            self.validate_derivation(
-                &feature.derivation,
-                &artifacts,
-                &occurrences,
-                &renditions,
-                &segments,
-                &features,
-                &loci,
-            )?;
-        }
-        validate_acyclic_derivations(&self.renditions, &self.features)?;
-        for locus in &self.evidence_loci {
-            validate_resource(
-                &locus.subject,
-                &artifacts,
-                &occurrences,
-                &renditions,
-                &segments,
-                &features,
-                &loci,
-            )?;
-            if !derivations.contains(locus.derivation_ref.as_ref().as_str())
-                || !policy_refs.contains(locus.policy_ref.as_str())
-            {
-                return Err(ProtocolError::DanglingReference);
-            }
-            locus.address.validate()?;
-        }
-        Ok(())
+        validation::validate_bundle(self)
     }
 
     /// Production certification requires all six identity tiers and at least one

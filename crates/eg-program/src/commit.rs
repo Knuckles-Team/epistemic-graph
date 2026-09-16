@@ -5,6 +5,8 @@
 //! existing `ChangeEnvelope`/`MutationBatch` and submit it through the one governed
 //! persistence authority.
 
+mod validation;
+
 use std::future::Future;
 use std::pin::Pin;
 
@@ -14,8 +16,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    AdapterKind, CandidateRole, ModuleKind, OptimizationResult, OptimizerKind, ProgramCandidate,
-    ProgramError, ProgramModality, ProgramRevision, PROGRAM_SCHEMA_VERSION,
+    AdapterKind, CandidateRole, ModuleKind, OptimizationResult, OptimizerKind,
+    PROGRAM_SCHEMA_VERSION, ProgramCandidate, ProgramError, ProgramModality, ProgramRevision,
 };
 
 /// Immutable compiler inputs retained beside a promoted revision.
@@ -154,76 +156,6 @@ impl ProgramCandidateRecord {
         Ok(record)
     }
 
-    pub fn validate(&self) -> Result<(), ProgramError> {
-        if self.result_ref.namespace() != "job_result"
-            || self.result_input_dataset_ref.namespace() != "job_input"
-            || self.result_input_content_digest.len() != 64
-            || !self
-                .result_input_content_digest
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-            || !scoped_ref_matches(
-                &self.result_input_dataset_ref,
-                "job_input",
-                &self.result_input_content_digest,
-            )
-            || self.result_input_snapshot_version == 0
-            || self.program_ref.namespace() != "program"
-            || self.signature_ref.namespace() != "signature"
-            || self.instruction_ref.namespace() != "instruction"
-            || self.tenant_ref.namespace() != "tenant"
-            || self.access_policy_ref.namespace() != "policy"
-            || self.corpus_ref.namespace() != "corpus"
-            || self.candidate_ref.namespace() != "program_candidate"
-            || !scoped_ref_matches(
-                &self.candidate_ref,
-                "program_candidate",
-                &self.content_digest,
-            )
-            || self.demonstration_refs.is_empty()
-            || self.modalities.is_empty()
-            || self.content_digest.is_empty()
-            || self.content_digest.len() != 64
-            || !self
-                .content_digest
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-            || self.authority_digest.len() != 64
-            || !self
-                .authority_digest
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-            || self
-                .candidate_instruction_ref
-                .as_ref()
-                .is_some_and(|reference| reference.namespace() != "instruction")
-            || self
-                .tool_policy_ref
-                .as_ref()
-                .is_some_and(|reference| reference.namespace() != "tool_policy")
-            || self
-                .model_profile_ref
-                .as_ref()
-                .is_some_and(|reference| reference.namespace() != "model_profile")
-            || self.candidate_claim_ref
-                != format!(
-                    "jobclaim:{}:{}",
-                    self.result_ref.as_str(),
-                    self.candidate_ref.as_str()
-                )
-        {
-            return Err(ProgramError::InvalidCommit);
-        }
-        let expected = self.recompute_candidate_digest();
-        if expected != self.content_digest {
-            return Err(ProgramError::InvalidCommit);
-        }
-        if self.recompute_content_digest() != self.authority_digest {
-            return Err(ProgramError::InvalidCommit);
-        }
-        Ok(())
-    }
-
     fn recompute_candidate_digest(&self) -> String {
         let mut digest = Sha256::new();
         digest.update(b"eg-program.candidate.v3\0");
@@ -240,21 +172,7 @@ impl ProgramCandidateRecord {
         digest.update(self.optimizer.as_str().as_bytes());
         digest.update(self.seed.to_le_bytes());
         digest.update(self.role.as_str().as_bytes());
-        digest_ref_list(&mut digest, b"demonstrations", &self.demonstration_refs);
-        digest_ref_list(&mut digest, b"artifacts", &self.artifact_refs);
-        digest_ref_list(&mut digest, b"composition", &self.composition_refs);
-        digest_optional_ref(
-            &mut digest,
-            b"instruction",
-            self.candidate_instruction_ref.as_ref(),
-        );
-        digest_optional_ref(&mut digest, b"tool_policy", self.tool_policy_ref.as_ref());
-        digest_optional_ref(
-            &mut digest,
-            b"model_profile",
-            self.model_profile_ref.as_ref(),
-        );
-        digest_modalities(&mut digest, &self.modalities);
+        self.digest_candidate_payload(&mut digest);
         hex::encode(digest.finalize())
     }
 
@@ -286,24 +204,25 @@ impl ProgramCandidateRecord {
         frame_digest(&mut digest, self.optimizer.as_str());
         frame_digest(&mut digest, self.seed.to_be_bytes());
         frame_digest(&mut digest, self.role.as_str());
-        digest_ref_list(&mut digest, b"demonstrations", &self.demonstration_refs);
-        digest_ref_list(&mut digest, b"artifacts", &self.artifact_refs);
-        digest_ref_list(&mut digest, b"composition", &self.composition_refs);
-        digest_optional_ref(
-            &mut digest,
-            b"instruction",
-            self.candidate_instruction_ref.as_ref(),
-        );
-        digest_optional_ref(&mut digest, b"tool_policy", self.tool_policy_ref.as_ref());
-        digest_optional_ref(
-            &mut digest,
-            b"model_profile",
-            self.model_profile_ref.as_ref(),
-        );
-        digest_modalities(&mut digest, &self.modalities);
+        self.digest_candidate_payload(&mut digest);
         frame_digest(&mut digest, self.candidate_ref.as_str());
         frame_digest(&mut digest, self.content_digest.as_str());
         hex::encode(digest.finalize())
+    }
+
+    /// Shared ordered payload framing for compiler and authority digests.
+    fn digest_candidate_payload(&self, digest: &mut Sha256) {
+        digest_ref_list(digest, b"demonstrations", &self.demonstration_refs);
+        digest_ref_list(digest, b"artifacts", &self.artifact_refs);
+        digest_ref_list(digest, b"composition", &self.composition_refs);
+        digest_optional_ref(
+            digest,
+            b"instruction",
+            self.candidate_instruction_ref.as_ref(),
+        );
+        digest_optional_ref(digest, b"tool_policy", self.tool_policy_ref.as_ref());
+        digest_optional_ref(digest, b"model_profile", self.model_profile_ref.as_ref());
+        digest_modalities(digest, &self.modalities);
     }
 }
 
@@ -477,93 +396,6 @@ impl ProgramRevisionIdentity {
         Ok(identity)
     }
 
-    pub fn validate(&self) -> Result<(), ProgramError> {
-        if self.schema_version != PROGRAM_SCHEMA_VERSION
-            || self.base_revision == 0
-            || self.revision != self.base_revision.checked_add(1).unwrap_or(0)
-            || self.program_ref.namespace() != "program"
-            || self.revision_ref.namespace() != "program_revision"
-            || self.content_digest.is_empty()
-            || self.content_digest.len() > 128
-            || self.policy.tenant_ref.namespace() != "tenant"
-            || self.policy.access_policy_ref.namespace() != "policy"
-            || self.policy.retention_policy_ref.namespace() != "retention"
-            || self.policy.deletion_policy_ref.namespace() != "deletion"
-            || self.policy.purpose_refs.len() > crate::MAX_PURPOSE_REFS
-            || self
-                .policy
-                .purpose_refs
-                .iter()
-                .any(|reference| reference.namespace() != "purpose")
-            || self
-                .tool_policy_ref
-                .as_ref()
-                .is_some_and(|reference| reference.namespace() != "tool_policy")
-            || self
-                .model_profile_ref
-                .as_ref()
-                .is_some_and(|reference| reference.namespace() != "model_profile")
-            || !self
-                .content_digest
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-        {
-            return Err(ProgramError::InvalidCommit);
-        }
-        if self.parent_ref.as_ref() == Some(&self.program_ref)
-            || self
-                .parent_ref
-                .as_ref()
-                .is_some_and(|parent| parent.namespace() != "program_revision")
-            || self.candidate_ref == self.program_ref
-            || self.revision_ref == self.program_ref
-            || self.candidate_ref.namespace() != "program_candidate"
-            || !scoped_ref_matches(
-                &self.candidate_ref,
-                "program_candidate",
-                &self.content_digest,
-            )
-        {
-            return Err(ProgramError::InvalidCommit);
-        }
-        let expected_revision_ref = OpaqueRef::scoped(
-            "program_revision",
-            &revision_token(
-                (
-                    self.program_ref.as_str(),
-                    self.base_revision,
-                    self.parent_ref.as_ref(),
-                ),
-                (self.candidate_ref.as_str(), &self.content_digest),
-                &self.policy,
-                (
-                    self.tool_policy_ref.as_ref(),
-                    self.model_profile_ref.as_ref(),
-                ),
-                self.candidate_record.as_ref(),
-            ),
-        )
-        .map_err(|_| ProgramError::InvalidCommit)?;
-        if self.revision_ref != expected_revision_ref {
-            return Err(ProgramError::InvalidCommit);
-        }
-        if let Some(record) = &self.candidate_record {
-            record.validate()?;
-            if record.program_ref != self.program_ref
-                || record.base_revision != self.base_revision
-                || record.candidate_ref != self.candidate_ref
-                || record.content_digest != self.content_digest
-                || record.tenant_ref != self.policy.tenant_ref
-                || record.access_policy_ref != self.policy.access_policy_ref
-                || record.tool_policy_ref != self.tool_policy_ref
-                || record.model_profile_ref != self.model_profile_ref
-            {
-                return Err(ProgramError::InvalidCommit);
-            }
-        }
-        Ok(())
-    }
-
     /// Decode and validate one durable `ProgramRevision` row. The row may carry
     /// its graph-only `type` discriminator; all identity fields remain required
     /// and the content-addressed revision reference is checked before use.
@@ -594,110 +426,6 @@ impl ProgramRevisionIdentity {
         frame_digest(&mut digest, program_ref.as_str());
         OpaqueRef::scoped("program_active", &hex::encode(digest.finalize()))
             .expect("program active pointer digest is a valid opaque reference")
-    }
-
-    /// Validate the selected candidate claim row linked by the durable record.
-    pub fn validate_candidate_claim(
-        &self,
-        claim_properties: &serde_json::Value,
-    ) -> Result<(), ProgramError> {
-        self.validate()?;
-        let record = self
-            .candidate_record
-            .as_ref()
-            .ok_or(ProgramError::InvalidCommit)?;
-        let object = claim_properties
-            .as_object()
-            .ok_or(ProgramError::InvalidCommit)?;
-        if object.get("type").and_then(serde_json::Value::as_str) != Some("Claim")
-            || object.get("result_ref").and_then(serde_json::Value::as_str)
-                != Some(record.result_ref.as_str())
-            || object.get("about").and_then(serde_json::Value::as_str)
-                != Some(record.candidate_ref.as_str())
-        {
-            return Err(ProgramError::InvalidCommit);
-        }
-        let knowledge = object
-            .get("knowledge")
-            .and_then(serde_json::Value::as_object)
-            .ok_or(ProgramError::InvalidCommit)?;
-        let expected_policy =
-            serde_json::to_value(&self.policy).map_err(|_| ProgramError::InvalidCommit)?;
-        let expected_modalities =
-            serde_json::to_value(&record.modalities).map_err(|_| ProgramError::InvalidCommit)?;
-        let expected_identity =
-            serde_json::to_value(self).map_err(|_| ProgramError::InvalidCommit)?;
-        if knowledge.get("id").and_then(serde_json::Value::as_str)
-            != Some(record.candidate_ref.as_str())
-            || knowledge.get("kind").and_then(serde_json::Value::as_str)
-                != Some("program_candidate")
-            || object.get("family").and_then(serde_json::Value::as_str)
-                != Some("program.optimization")
-            || knowledge
-                .get("program_ref")
-                .and_then(serde_json::Value::as_str)
-                != Some(record.program_ref.as_str())
-            || knowledge
-                .get("optimizer")
-                .and_then(serde_json::Value::as_str)
-                != Some(record.optimizer.as_str())
-            || knowledge
-                .get("execution")
-                .and_then(serde_json::Value::as_str)
-                != Some(record.optimizer.execution().as_str())
-            || knowledge
-                .get("candidate_role")
-                .and_then(serde_json::Value::as_str)
-                != Some(record.role.as_str())
-            || knowledge.get("policy") != Some(&expected_policy)
-            || !json_ref_list_matches(
-                knowledge.get("demonstration_refs"),
-                &record.demonstration_refs,
-            )
-            || !json_ref_list_matches(knowledge.get("artifact_refs"), &record.artifact_refs)
-            || !json_ref_list_matches(knowledge.get("composition_refs"), &record.composition_refs)
-            || !json_optional_ref_matches(
-                knowledge.get("instruction_ref"),
-                record.candidate_instruction_ref.as_ref(),
-            )
-            || !json_optional_ref_matches(
-                knowledge.get("tool_policy_ref"),
-                record.tool_policy_ref.as_ref(),
-            )
-            || !json_optional_ref_matches(
-                knowledge.get("model_profile_ref"),
-                record.model_profile_ref.as_ref(),
-            )
-            || knowledge.get("modalities") != Some(&expected_modalities)
-            || knowledge.get("selected") != Some(&serde_json::Value::Bool(true))
-            || knowledge.get("promotion_identity") != Some(&expected_identity)
-        {
-            return Err(ProgramError::InvalidCommit);
-        }
-        Ok(())
-    }
-}
-
-fn json_ref_list_matches(value: Option<&serde_json::Value>, expected: &[OpaqueRef]) -> bool {
-    value
-        .and_then(serde_json::Value::as_array)
-        .is_some_and(|values| {
-            values.len() == expected.len()
-                && values
-                    .iter()
-                    .zip(expected)
-                    .all(|(value, reference)| value.as_str() == Some(reference.as_str()))
-        })
-}
-
-fn json_optional_ref_matches(
-    value: Option<&serde_json::Value>,
-    expected: Option<&OpaqueRef>,
-) -> bool {
-    match (value, expected) {
-        (Some(value), None) => value.is_null(),
-        (Some(value), Some(reference)) => value.as_str() == Some(reference.as_str()),
-        _ => false,
     }
 }
 
@@ -730,30 +458,7 @@ fn revision_token(
     }
     frame_digest(&mut digest, candidate_ref);
     frame_digest(&mut digest, content_digest);
-    frame_digest(&mut digest, policy.tenant_ref.as_str());
-    frame_digest(&mut digest, policy.access_policy_ref.as_str());
-    frame_digest(&mut digest, classification_token(policy.classification));
-    frame_digest(&mut digest, policy.retention_policy_ref.as_str());
-    frame_digest(&mut digest, policy.deletion_policy_ref.as_str());
-    digest.update([u8::from(policy.legal_hold_ref.is_some())]);
-    if let Some(legal_hold_ref) = &policy.legal_hold_ref {
-        frame_digest(&mut digest, legal_hold_ref.as_str());
-    }
-    frame_digest(
-        &mut digest,
-        (policy.purpose_refs.len() as u64).to_be_bytes(),
-    );
-    for purpose_ref in &policy.purpose_refs {
-        frame_digest(&mut digest, purpose_ref.as_str());
-    }
-    digest.update([u8::from(tool_policy_ref.is_some())]);
-    if let Some(tool_policy_ref) = tool_policy_ref {
-        frame_digest(&mut digest, tool_policy_ref.as_str());
-    }
-    digest.update([u8::from(model_profile_ref.is_some())]);
-    if let Some(model_profile_ref) = model_profile_ref {
-        frame_digest(&mut digest, model_profile_ref.as_str());
-    }
+    digest_revision_policy(&mut digest, policy, (tool_policy_ref, model_profile_ref));
     digest.update([u8::from(candidate_record.is_some())]);
     if let Some(candidate_record) = candidate_record {
         frame_digest(
@@ -774,6 +479,35 @@ fn revision_token(
         frame_digest(&mut digest, candidate_record.authority_digest.as_str());
     }
     hex::encode(digest.finalize())
+}
+
+fn digest_revision_policy(
+    digest: &mut Sha256,
+    policy: &PolicyEnvelope,
+    bindings: (Option<&OpaqueRef>, Option<&OpaqueRef>),
+) {
+    let (tool_policy_ref, model_profile_ref) = bindings;
+    frame_digest(digest, policy.tenant_ref.as_str());
+    frame_digest(digest, policy.access_policy_ref.as_str());
+    frame_digest(digest, classification_token(policy.classification));
+    frame_digest(digest, policy.retention_policy_ref.as_str());
+    frame_digest(digest, policy.deletion_policy_ref.as_str());
+    digest.update([u8::from(policy.legal_hold_ref.is_some())]);
+    if let Some(legal_hold_ref) = &policy.legal_hold_ref {
+        frame_digest(digest, legal_hold_ref.as_str());
+    }
+    frame_digest(digest, (policy.purpose_refs.len() as u64).to_be_bytes());
+    for purpose_ref in &policy.purpose_refs {
+        frame_digest(digest, purpose_ref.as_str());
+    }
+    digest.update([u8::from(tool_policy_ref.is_some())]);
+    if let Some(tool_policy_ref) = tool_policy_ref {
+        frame_digest(digest, tool_policy_ref.as_str());
+    }
+    digest.update([u8::from(model_profile_ref.is_some())]);
+    if let Some(model_profile_ref) = model_profile_ref {
+        frame_digest(digest, model_profile_ref.as_str());
+    }
 }
 
 fn classification_token(classification: Classification) -> &'static [u8] {

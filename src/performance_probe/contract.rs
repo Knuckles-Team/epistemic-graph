@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use super::{
-    Observation, ProbeError, ProbeRequest, RequestedRow, MAX_REPETITIONS, MAX_SCALE, PROTOCOL,
+    MAX_REPETITIONS, MAX_SCALE, Observation, PROTOCOL, ProbeError, ProbeRequest, RequestedRow,
     SCHEMA_VERSION,
 };
 
@@ -70,236 +70,596 @@ fn is_invalid_equivalence_check<'a>(check: &'a String, checks: &mut HashSet<&'a 
         || !checks.insert(check)
 }
 
-pub(super) fn row_equivalence_contract(row_id: &str) -> Option<&'static [&'static str]> {
-    Some(match row_id {
-        "G37-HP-001" => &["stream_matches_sequential", "rollback_restores_snapshot"],
-        "G37-HP-002" => &["cursor_page_matches_reference"],
-        "G37-HP-003" => &["cdc_suffix_matches_reference"],
-        "G37-HP-004" => &["snapshot_roundtrip", "idempotency_outcomes_preserved"],
-        "G37-HP-005" => &["active_count_matches_scan"],
-        "G37-HP-006" => &["restart_next_id_monotonic", "scheduler_index_marker_valid"],
-        "G37-HP-007" => &["repeated_claim_same_fence", "worker_index_matches_job"],
-        "G37-HP-008" => &[
+type RowScaleRunner = fn(&str, usize) -> Result<Observation, ProbeError>;
+type ScaleRunner = fn(usize) -> Result<Observation, ProbeError>;
+type FullContextRunner = fn(&str, usize, u64, usize, &Path) -> Result<Observation, ProbeError>;
+type ScaleSeedRunner = fn(usize, u64) -> Result<Observation, ProbeError>;
+type RowScaleSeedRunner = fn(&str, usize, u64) -> Result<Observation, ProbeError>;
+
+#[derive(Clone, Copy)]
+enum ProbeRunner {
+    RowScale(RowScaleRunner),
+    Scale(ScaleRunner),
+    FullContext(FullContextRunner),
+    ScaleSeed(ScaleSeedRunner),
+    RowScaleSeed(RowScaleSeedRunner),
+}
+
+impl ProbeRunner {
+    fn run(
+        self,
+        row_id: &str,
+        scale: usize,
+        seed: u64,
+        repetition: usize,
+        probe_root: &Path,
+    ) -> Result<Observation, ProbeError> {
+        match self {
+            Self::RowScale(run) => run(row_id, scale),
+            Self::Scale(run) => run(scale),
+            Self::FullContext(run) => run(row_id, scale, seed, repetition, probe_root),
+            Self::ScaleSeed(run) => run(scale, seed),
+            Self::RowScaleSeed(run) => run(row_id, scale, seed),
+        }
+    }
+}
+
+struct RowContract {
+    id: &'static str,
+    equivalence: &'static [&'static str],
+    runner: ProbeRunner,
+}
+
+static ROW_CONTRACTS: &[RowContract] = &[
+    RowContract {
+        id: "G37-HP-001",
+        equivalence: &["stream_matches_sequential", "rollback_restores_snapshot"],
+        runner: ProbeRunner::RowScale(super::modality::probe_modality_kernel),
+    },
+    RowContract {
+        id: "G37-HP-002",
+        equivalence: &["cursor_page_matches_reference"],
+        runner: ProbeRunner::RowScale(super::modality::probe_modality_kernel),
+    },
+    RowContract {
+        id: "G37-HP-003",
+        equivalence: &["cdc_suffix_matches_reference"],
+        runner: ProbeRunner::RowScale(super::modality::probe_modality_kernel),
+    },
+    RowContract {
+        id: "G37-HP-004",
+        equivalence: &["snapshot_roundtrip", "idempotency_outcomes_preserved"],
+        runner: ProbeRunner::RowScale(super::modality::probe_modality_kernel),
+    },
+    RowContract {
+        id: "G37-HP-005",
+        equivalence: &["active_count_matches_scan"],
+        runner: ProbeRunner::RowScale(super::modality::probe_modality_kernel),
+    },
+    RowContract {
+        id: "G37-HP-006",
+        equivalence: &["restart_next_id_monotonic", "scheduler_index_marker_valid"],
+        runner: ProbeRunner::FullContext(super::storage::probe_analytics),
+    },
+    RowContract {
+        id: "G37-HP-007",
+        equivalence: &["repeated_claim_same_fence", "worker_index_matches_job"],
+        runner: ProbeRunner::FullContext(super::storage::probe_analytics),
+    },
+    RowContract {
+        id: "G37-HP-008",
+        equivalence: &[
             "retired_generator_changes_exact_closure",
             "unrelated_materializations_unchanged",
         ],
-        "G37-HP-009" => &[
+        runner: ProbeRunner::Scale(super::storage::probe_tms),
+    },
+    RowContract {
+        id: "G37-HP-009",
+        equivalence: &[
             "canonical_target_order_independent",
             "mixed_provenance_ignored",
         ],
-        "G37-HP-010" => &[
+        runner: ProbeRunner::Scale(super::storage::probe_generated_by),
+    },
+    RowContract {
+        id: "G37-HP-010",
+        equivalence: &[
             "selected_job_matches_full_reference",
             "unsatisfied_anchors_not_decoded",
         ],
-        "G37-HP-011" => &["tenant_counters_match_active_jobs"],
-        "G37-HP-036" => &[
+        runner: ProbeRunner::RowScale(super::storage::probe_scheduler),
+    },
+    RowContract {
+        id: "G37-HP-011",
+        equivalence: &["tenant_counters_match_active_jobs"],
+        runner: ProbeRunner::RowScale(super::storage::probe_scheduler),
+    },
+    RowContract {
+        id: "G37-HP-036",
+        equivalence: &[
             "placement_match_equivalent",
             "candidate_loop_allocation_free",
         ],
-        "G37-HP-012" => &["lru_victim_matches_reference", "capacity_never_exceeded"],
-        "G37-HP-013" => &["hit_payload_exact", "payload_copy_outside_lock"],
-        "G37-HP-014" => &[
+        runner: ProbeRunner::RowScale(super::storage::probe_scheduler),
+    },
+    RowContract {
+        id: "G37-HP-012",
+        equivalence: &["lru_victim_matches_reference", "capacity_never_exceeded"],
+        runner: ProbeRunner::RowScale(super::storage::probe_result_cache),
+    },
+    RowContract {
+        id: "G37-HP-013",
+        equivalence: &["hit_payload_exact", "payload_copy_outside_lock"],
+        runner: ProbeRunner::RowScale(super::storage::probe_result_cache),
+    },
+    RowContract {
+        id: "G37-HP-014",
+        equivalence: &[
             "tail_matches_binary_search_reference",
             "defensive_wide_slice_matches",
         ],
-        "G37-HP-015" => &["edge_count_matches_enumeration", "parallel_edges_counted"],
-        "G37-HP-016" => &[
+        runner: ProbeRunner::Scale(super::query::probe_promql),
+    },
+    RowContract {
+        id: "G37-HP-015",
+        equivalence: &["edge_count_matches_enumeration", "parallel_edges_counted"],
+        runner: ProbeRunner::RowScale(super::storage::probe_graph),
+    },
+    RowContract {
+        id: "G37-HP-016",
+        equivalence: &[
             "logical_delete_matches_reference",
             "unrelated_edges_preserved",
         ],
-        "G37-HP-017" => &["resident_evict_matches_reference", "logical_rows_preserved"],
-        "G37-HP-018" => &["all_parallel_rows_removed_once", "adjacency_consistent"],
-        "G37-HP-019" => &[
+        runner: ProbeRunner::RowScale(super::storage::probe_graph),
+    },
+    RowContract {
+        id: "G37-HP-017",
+        equivalence: &["resident_evict_matches_reference", "logical_rows_preserved"],
+        runner: ProbeRunner::RowScale(super::storage::probe_graph),
+    },
+    RowContract {
+        id: "G37-HP-018",
+        equivalence: &["all_parallel_rows_removed_once", "adjacency_consistent"],
+        runner: ProbeRunner::RowScale(super::storage::probe_graph),
+    },
+    RowContract {
+        id: "G37-HP-019",
+        equivalence: &[
             "induced_nodes_edges_match_reference",
             "parallel_rows_preserved",
         ],
-        "G37-HP-020" => &[
+        runner: ProbeRunner::RowScale(super::storage::probe_graph),
+    },
+    RowContract {
+        id: "G37-HP-020",
+        equivalence: &[
             "posting_intersection_matches_hash_reference",
             "output_sorted_unique",
         ],
-        "G37-HP-021" => &[
+        runner: ProbeRunner::RowScale(super::storage::probe_graph),
+    },
+    RowContract {
+        id: "G37-HP-021",
+        equivalence: &[
             "warm_page_matches_cold_reference",
             "cursor_has_no_duplicates",
         ],
-        "G37-HP-022" => &[
+        runner: ProbeRunner::RowScale(super::storage::probe_graph),
+    },
+    RowContract {
+        id: "G37-HP-022",
+        equivalence: &[
             "edge_write_retains_node_caches",
             "field_write_invalidates_covering_only",
         ],
-        "G37-HP-023" => &[
+        runner: ProbeRunner::RowScale(super::storage::probe_graph),
+    },
+    RowContract {
+        id: "G37-HP-023",
+        equivalence: &[
             "lookup_delete_matches_scan_reference",
             "rerank_matches_full_sort",
         ],
-        "G37-HP-024" => &[
+        runner: ProbeRunner::RowScale(super::query::probe_flat_vector),
+    },
+    RowContract {
+        id: "G37-HP-024",
+        equivalence: &[
             "reverse_append_matches_sorted_reference",
             "equal_timestamp_order_preserved",
         ],
-        "G37-HP-025" => &[
+        runner: ProbeRunner::RowScale(super::query::probe_time),
+    },
+    RowContract {
+        id: "G37-HP-025",
+        equivalence: &[
             "bounded_range_matches_filter_reference",
             "future_chunks_not_examined",
         ],
-        "G37-HP-026" => &["all_aggregates_match_reference", "constant_scratch_bound"],
-        "G37-HP-027" => &[
+        runner: ProbeRunner::RowScale(super::query::probe_time),
+    },
+    RowContract {
+        id: "G37-HP-026",
+        equivalence: &["all_aggregates_match_reference", "constant_scratch_bound"],
+        runner: ProbeRunner::RowScale(super::query::probe_time),
+    },
+    RowContract {
+        id: "G37-HP-027",
+        equivalence: &[
             "fusion_matches_sort_asof_reference",
             "output_clock_sorted_unique",
         ],
-        "G37-HP-028" => &["topk_matches_full_total_order", "nan_last_order_preserved"],
-        "G37-HP-029" => &[
+        runner: ProbeRunner::RowScale(super::query::probe_time),
+    },
+    RowContract {
+        id: "G37-HP-028",
+        equivalence: &["topk_matches_full_total_order", "nan_last_order_preserved"],
+        runner: ProbeRunner::RowScale(super::query::probe_flat_vector),
+    },
+    RowContract {
+        id: "G37-HP-029",
+        equivalence: &[
             "selected_prefix_matches_full_total_order",
             "adc_and_refined_modes_covered",
         ],
-        "G37-HP-030" => &[
+        runner: ProbeRunner::ScaleSeed(super::query::probe_ivfpq),
+    },
+    RowContract {
+        id: "G37-HP-030",
+        equivalence: &[
             "neighbor_prefix_matches_full_order",
             "result_prefix_matches_full_order",
         ],
-        "G37-HP-031" => &[
+        runner: ProbeRunner::RowScaleSeed(super::query::probe_hnsw),
+    },
+    RowContract {
+        id: "G37-HP-031",
+        equivalence: &[
             "small_set_exact_matches_reference",
             "cosine_order_deterministic",
         ],
-        "G37-HP-032" => &["bounded_prefix_matches_full_order", "leaf_budget_respected"],
-        "G37-HP-033" => &[
+        runner: ProbeRunner::RowScaleSeed(super::query::probe_hnsw),
+    },
+    RowContract {
+        id: "G37-HP-032",
+        equivalence: &["bounded_prefix_matches_full_order", "leaf_budget_respected"],
+        runner: ProbeRunner::Scale(super::query::probe_rank_selection),
+    },
+    RowContract {
+        id: "G37-HP-033",
+        equivalence: &[
             "paged_recovery_matches_full_scan",
             "composite_cursor_no_revisit",
         ],
-        "G37-HP-037" => &[
+        runner: ProbeRunner::FullContext(super::storage::probe_recovery_ordinal),
+    },
+    RowContract {
+        id: "G37-HP-037",
+        equivalence: &[
             "cold_seed_returns_next_ordinal",
             "cache_invalidation_scope_exact",
         ],
-        "G37-HP-034" => &[
+        runner: ProbeRunner::FullContext(super::storage::probe_recovery_ordinal),
+    },
+    RowContract {
+        id: "G37-HP-034",
+        equivalence: &[
             "delta_commit_matches_full_reference",
             "replay_idempotent",
             "untouched_rows_byte_stable",
         ],
-        "G37-HP-035" => &[
+        runner: ProbeRunner::Scale(super::storage::probe_mutation_batch),
+    },
+    RowContract {
+        id: "G37-HP-035",
+        equivalence: &[
             "winners_match_full_stable_sort",
             "priority_deadline_fifo_order",
         ],
-        "G37-HP-038" => &[
+        runner: ProbeRunner::Scale(super::storage::probe_qos),
+    },
+    RowContract {
+        id: "G37-HP-038",
+        equivalence: &[
             "newest_results_match_full_reference",
             "equal_time_order_deterministic",
             "assembled_traces_exact",
         ],
-        "G37-HP-039" => &[
+        runner: ProbeRunner::Scale(super::analytics::probe_traces),
+    },
+    RowContract {
+        id: "G37-HP-039",
+        equivalence: &[
             "conflict_outcomes_match_scan_reference",
             "rollback_preserves_table",
         ],
-        "G37-HP-040" => &[
+        runner: ProbeRunner::RowScale(super::query::probe_sql_kernel),
+    },
+    RowContract {
+        id: "G37-HP-040",
+        equivalence: &[
             "warm_lookup_matches_linear_reference",
             "invalid_schema_rejected",
         ],
-        "G37-HP-041" => &[
+        runner: ProbeRunner::RowScale(super::query::probe_sql_kernel),
+    },
+    RowContract {
+        id: "G37-HP-041",
+        equivalence: &[
             "fanout_exactly_once",
             "reentrant_subscribe_no_deadlock",
             "slow_sink_does_not_hold_registry_lock",
         ],
-        "G37-HP-042" => &[
+        runner: ProbeRunner::Scale(super::wire::probe_notifications),
+    },
+    RowContract {
+        id: "G37-HP-042",
+        equivalence: &[
             "projection_matches_name_reference",
             "missing_reordered_duplicate_cases_checked",
         ],
-        "G37-HP-043" => &[
+        runner: ProbeRunner::Scale(super::analytics::probe_knowledge_projection),
+    },
+    RowContract {
+        id: "G37-HP-043",
+        equivalence: &[
             "wildcards_match_dynamic_reference",
             "adversarial_hash_chain_terminates",
         ],
-        "G37-HP-044" => &[
+        runner: ProbeRunner::RowScale(super::wire::probe_broker),
+    },
+    RowContract {
+        id: "G37-HP-044",
+        equivalence: &[
             "queue_set_matches_reference",
             "first_binding_order_preserved",
         ],
-        "G37-HP-045" => &["bounded_page_matches_full_order", "offset_limit_exact"],
-        "G37-HP-046" => &[
+        runner: ProbeRunner::RowScale(super::wire::probe_broker),
+    },
+    RowContract {
+        id: "G37-HP-045",
+        equivalence: &["bounded_page_matches_full_order", "offset_limit_exact"],
+        runner: ProbeRunner::RowScale(super::wire::probe_appendlog),
+    },
+    RowContract {
+        id: "G37-HP-046",
+        equivalence: &[
             "retention_set_matches_reference",
             "deletion_order_deterministic",
         ],
-        "G37-HP-047" => &["hash_set_zset_match_reference", "last_update_wins"],
-        "G37-HP-048" => &["lpush_order_matches_redis", "prior_tail_preserved"],
-        "G37-HP-049" => &["extensions_match_reference", "canonical_forms_stable"],
-        "G37-HP-050" => &[
+        runner: ProbeRunner::RowScale(super::wire::probe_appendlog),
+    },
+    RowContract {
+        id: "G37-HP-047",
+        equivalence: &["hash_set_zset_match_reference", "last_update_wins"],
+        runner: ProbeRunner::RowScale(super::wire::probe_redis_kernel),
+    },
+    RowContract {
+        id: "G37-HP-048",
+        equivalence: &["lpush_order_matches_redis", "prior_tail_preserved"],
+        runner: ProbeRunner::RowScale(super::wire::probe_redis_kernel),
+    },
+    RowContract {
+        id: "G37-HP-049",
+        equivalence: &["extensions_match_reference", "canonical_forms_stable"],
+        runner: ProbeRunner::RowScale(super::analytics::probe_mining_similarity),
+    },
+    RowContract {
+        id: "G37-HP-050",
+        equivalence: &[
             "prepared_neighbors_match_reference",
             "directed_and_undirected_covered",
         ],
-        "G37-HP-051" => &["similarity_prefix_matches_full_order"],
-        "G37-HP-052" => &[
+        runner: ProbeRunner::RowScale(super::analytics::probe_mining_similarity),
+    },
+    RowContract {
+        id: "G37-HP-051",
+        equivalence: &["similarity_prefix_matches_full_order"],
+        runner: ProbeRunner::RowScale(super::analytics::probe_mining_similarity),
+    },
+    RowContract {
+        id: "G37-HP-052",
+        equivalence: &[
             "semantic_prefix_matches_full_order",
             "stale_and_nonfinite_cases_checked",
         ],
-        "G37-HP-053" => &[
+        runner: ProbeRunner::RowScale(super::analytics::probe_mining_similarity),
+    },
+    RowContract {
+        id: "G37-HP-053",
+        equivalence: &[
             "observability_prefix_matches_full_order",
             "equal_timestamp_stability",
         ],
-        "G37-HP-054" => &["callsite_prefix_matches_full_set", "deduplication_exact"],
-        _ => return None,
-    })
+        runner: ProbeRunner::RowScale(super::analytics::probe_observability_symbol),
+    },
+    RowContract {
+        id: "G37-HP-054",
+        equivalence: &["callsite_prefix_matches_full_set", "deduplication_exact"],
+        runner: ProbeRunner::RowScale(super::analytics::probe_observability_symbol),
+    },
+];
+
+fn row_contract(row_id: &str) -> Option<&'static RowContract> {
+    ROW_CONTRACTS.iter().find(|contract| contract.id == row_id)
 }
 
+pub(super) fn row_equivalence_contract(row_id: &str) -> Option<&'static [&'static str]> {
+    row_contract(row_id).map(|contract| contract.equivalence)
+}
+
+struct ScenarioContract {
+    id: &'static str,
+    driver: &'static str,
+    rows: &'static [&'static str],
+}
+
+static SCENARIO_CONTRACTS: &[ScenarioContract] = &[
+    ScenarioContract {
+        id: "g37-s01-modality-streaming",
+        driver: "modality_streaming",
+        rows: &[
+            "G37-HP-001",
+            "G37-HP-002",
+            "G37-HP-003",
+            "G37-HP-004",
+            "G37-HP-005",
+        ],
+    },
+    ScenarioContract {
+        id: "g37-s02-analytics-restart-claim",
+        driver: "analytics_restart_claim",
+        rows: &["G37-HP-006", "G37-HP-007"],
+    },
+    ScenarioContract {
+        id: "g37-s03-tms-retirement",
+        driver: "tms_retirement",
+        rows: &["G37-HP-008"],
+    },
+    ScenarioContract {
+        id: "g37-s04-generated-by-reconciliation",
+        driver: "generated_by_reconciliation",
+        rows: &["G37-HP-009"],
+    },
+    ScenarioContract {
+        id: "g37-s05-scheduler-placement-quota",
+        driver: "scheduler_placement_quota",
+        rows: &["G37-HP-010", "G37-HP-011", "G37-HP-036"],
+    },
+    ScenarioContract {
+        id: "g37-s06-result-cache",
+        driver: "result_cache",
+        rows: &["G37-HP-012", "G37-HP-013"],
+    },
+    ScenarioContract {
+        id: "g37-s07-promql-predecessor",
+        driver: "promql_predecessor",
+        rows: &["G37-HP-014"],
+    },
+    ScenarioContract {
+        id: "g37-s08-edge-cardinality-delete",
+        driver: "edge_cardinality_delete",
+        rows: &["G37-HP-015", "G37-HP-016", "G37-HP-017"],
+    },
+    ScenarioContract {
+        id: "g37-s09-parallel-edge-removal",
+        driver: "parallel_edge_removal",
+        rows: &["G37-HP-018"],
+    },
+    ScenarioContract {
+        id: "g37-s10-subgraph-property-postings",
+        driver: "subgraph_property_postings",
+        rows: &["G37-HP-019", "G37-HP-020"],
+    },
+    ScenarioContract {
+        id: "g37-s11-keyset-cache-invalidation",
+        driver: "keyset_cache_invalidation",
+        rows: &["G37-HP-021", "G37-HP-022"],
+    },
+    ScenarioContract {
+        id: "g37-s12-flat-vector-directory",
+        driver: "flat_vector_directory",
+        rows: &["G37-HP-023"],
+    },
+    ScenarioContract {
+        id: "g37-s13-tsdb-append-range-bucket",
+        driver: "tsdb_append_range_bucket",
+        rows: &["G37-HP-024", "G37-HP-025", "G37-HP-026"],
+    },
+    ScenarioContract {
+        id: "g37-s14-sensor-fusion",
+        driver: "sensor_fusion",
+        rows: &["G37-HP-027"],
+    },
+    ScenarioContract {
+        id: "g37-s15-flat-exact-vector",
+        driver: "flat_exact_vector",
+        rows: &["G37-HP-028"],
+    },
+    ScenarioContract {
+        id: "g37-s16-ivfpq-selection",
+        driver: "ivfpq_selection",
+        rows: &["G37-HP-029"],
+    },
+    ScenarioContract {
+        id: "g37-s17-hnsw-selection",
+        driver: "hnsw_selection",
+        rows: &["G37-HP-030", "G37-HP-031"],
+    },
+    ScenarioContract {
+        id: "g37-s18-leanrag-ranking",
+        driver: "leanrag_ranking",
+        rows: &["G37-HP-032"],
+    },
+    ScenarioContract {
+        id: "g37-s19-redb-recovery-edge-ordinal",
+        driver: "redb_recovery_edge_ordinal",
+        rows: &["G37-HP-033", "G37-HP-037"],
+    },
+    ScenarioContract {
+        id: "g37-s20-mutation-batch",
+        driver: "mutation_batch",
+        rows: &["G37-HP-034"],
+    },
+    ScenarioContract {
+        id: "g37-s21-qos-admission",
+        driver: "qos_admission",
+        rows: &["G37-HP-035"],
+    },
+    ScenarioContract {
+        id: "g37-s22-trace-index-search",
+        driver: "trace_index_search",
+        rows: &["G37-HP-038"],
+    },
+    ScenarioContract {
+        id: "g37-s23-sql-conflict-schema",
+        driver: "sql_conflict_schema",
+        rows: &["G37-HP-039", "G37-HP-040"],
+    },
+    ScenarioContract {
+        id: "g37-s24-change-notification",
+        driver: "change_notification",
+        rows: &["G37-HP-041"],
+    },
+    ScenarioContract {
+        id: "g37-s25-knowledge-batch",
+        driver: "knowledge_batch",
+        rows: &["G37-HP-042"],
+    },
+    ScenarioContract {
+        id: "g37-s26-broker-topic-route",
+        driver: "broker_topic_route",
+        rows: &["G37-HP-043", "G37-HP-044"],
+    },
+    ScenarioContract {
+        id: "g37-s27-appendlog-retention",
+        driver: "appendlog_retention",
+        rows: &["G37-HP-045", "G37-HP-046"],
+    },
+    ScenarioContract {
+        id: "g37-s28-redis-collections",
+        driver: "redis_collections",
+        rows: &["G37-HP-047", "G37-HP-048"],
+    },
+    ScenarioContract {
+        id: "g37-s29-mining-similarity-semantic",
+        driver: "mining_similarity_semantic",
+        rows: &["G37-HP-049", "G37-HP-050", "G37-HP-051", "G37-HP-052"],
+    },
+    ScenarioContract {
+        id: "g37-s30-observability-symbol",
+        driver: "observability_symbol",
+        rows: &["G37-HP-053", "G37-HP-054"],
+    },
+];
+
 pub(super) fn scenario_contract(scenario_id: &str) -> Option<(&'static str, Vec<&'static str>)> {
-    let value = match scenario_id {
-        "g37-s01-modality-streaming" => (
-            "modality_streaming",
-            vec![
-                "G37-HP-001",
-                "G37-HP-002",
-                "G37-HP-003",
-                "G37-HP-004",
-                "G37-HP-005",
-            ],
-        ),
-        "g37-s02-analytics-restart-claim" => {
-            ("analytics_restart_claim", vec!["G37-HP-006", "G37-HP-007"])
-        }
-        "g37-s03-tms-retirement" => ("tms_retirement", vec!["G37-HP-008"]),
-        "g37-s04-generated-by-reconciliation" => {
-            ("generated_by_reconciliation", vec!["G37-HP-009"])
-        }
-        "g37-s05-scheduler-placement-quota" => (
-            "scheduler_placement_quota",
-            vec!["G37-HP-010", "G37-HP-011", "G37-HP-036"],
-        ),
-        "g37-s06-result-cache" => ("result_cache", vec!["G37-HP-012", "G37-HP-013"]),
-        "g37-s07-promql-predecessor" => ("promql_predecessor", vec!["G37-HP-014"]),
-        "g37-s08-edge-cardinality-delete" => (
-            "edge_cardinality_delete",
-            vec!["G37-HP-015", "G37-HP-016", "G37-HP-017"],
-        ),
-        "g37-s09-parallel-edge-removal" => ("parallel_edge_removal", vec!["G37-HP-018"]),
-        "g37-s10-subgraph-property-postings" => (
-            "subgraph_property_postings",
-            vec!["G37-HP-019", "G37-HP-020"],
-        ),
-        "g37-s11-keyset-cache-invalidation" => (
-            "keyset_cache_invalidation",
-            vec!["G37-HP-021", "G37-HP-022"],
-        ),
-        "g37-s12-flat-vector-directory" => ("flat_vector_directory", vec!["G37-HP-023"]),
-        "g37-s13-tsdb-append-range-bucket" => (
-            "tsdb_append_range_bucket",
-            vec!["G37-HP-024", "G37-HP-025", "G37-HP-026"],
-        ),
-        "g37-s14-sensor-fusion" => ("sensor_fusion", vec!["G37-HP-027"]),
-        "g37-s15-flat-exact-vector" => ("flat_exact_vector", vec!["G37-HP-028"]),
-        "g37-s16-ivfpq-selection" => ("ivfpq_selection", vec!["G37-HP-029"]),
-        "g37-s17-hnsw-selection" => ("hnsw_selection", vec!["G37-HP-030", "G37-HP-031"]),
-        "g37-s18-leanrag-ranking" => ("leanrag_ranking", vec!["G37-HP-032"]),
-        "g37-s19-redb-recovery-edge-ordinal" => (
-            "redb_recovery_edge_ordinal",
-            vec!["G37-HP-033", "G37-HP-037"],
-        ),
-        "g37-s20-mutation-batch" => ("mutation_batch", vec!["G37-HP-034"]),
-        "g37-s21-qos-admission" => ("qos_admission", vec!["G37-HP-035"]),
-        "g37-s22-trace-index-search" => ("trace_index_search", vec!["G37-HP-038"]),
-        "g37-s23-sql-conflict-schema" => ("sql_conflict_schema", vec!["G37-HP-039", "G37-HP-040"]),
-        "g37-s24-change-notification" => ("change_notification", vec!["G37-HP-041"]),
-        "g37-s25-knowledge-batch" => ("knowledge_batch", vec!["G37-HP-042"]),
-        "g37-s26-broker-topic-route" => ("broker_topic_route", vec!["G37-HP-043", "G37-HP-044"]),
-        "g37-s27-appendlog-retention" => ("appendlog_retention", vec!["G37-HP-045", "G37-HP-046"]),
-        "g37-s28-redis-collections" => ("redis_collections", vec!["G37-HP-047", "G37-HP-048"]),
-        "g37-s29-mining-similarity-semantic" => (
-            "mining_similarity_semantic",
-            vec!["G37-HP-049", "G37-HP-050", "G37-HP-051", "G37-HP-052"],
-        ),
-        "g37-s30-observability-symbol" => {
-            ("observability_symbol", vec!["G37-HP-053", "G37-HP-054"])
-        }
-        _ => return None,
-    };
-    Some(value)
+    SCENARIO_CONTRACTS
+        .iter()
+        .find(|contract| contract.id == scenario_id)
+        .map(|contract| (contract.driver, contract.rows.to_vec()))
 }
 
 pub(super) fn probe_row(
@@ -309,45 +669,10 @@ pub(super) fn probe_row(
     repetition: usize,
     probe_root: &Path,
 ) -> Result<Observation, ProbeError> {
-    match row_id {
-        "G37-HP-001" | "G37-HP-002" | "G37-HP-003" | "G37-HP-004" | "G37-HP-005" => {
-            super::modality::probe_modality_kernel(row_id, scale)
-        }
-        "G37-HP-006" | "G37-HP-007" => {
-            super::storage::probe_analytics(row_id, scale, seed, repetition, probe_root)
-        }
-        "G37-HP-008" => super::storage::probe_tms(scale),
-        "G37-HP-009" => super::storage::probe_generated_by(scale),
-        "G37-HP-010" | "G37-HP-011" | "G37-HP-036" => {
-            super::storage::probe_scheduler(row_id, scale)
-        }
-        "G37-HP-012" | "G37-HP-013" => super::storage::probe_result_cache(row_id, scale),
-        "G37-HP-014" => super::query::probe_promql(scale),
-        "G37-HP-015" | "G37-HP-016" | "G37-HP-017" | "G37-HP-018" | "G37-HP-019" | "G37-HP-020"
-        | "G37-HP-021" | "G37-HP-022" => super::storage::probe_graph(row_id, scale),
-        "G37-HP-023" | "G37-HP-028" => super::query::probe_flat_vector(row_id, scale),
-        "G37-HP-024" | "G37-HP-025" | "G37-HP-026" | "G37-HP-027" => {
-            super::query::probe_time(row_id, scale)
-        }
-        "G37-HP-029" => super::query::probe_ivfpq(scale, seed),
-        "G37-HP-030" | "G37-HP-031" => super::query::probe_hnsw(row_id, scale, seed),
-        "G37-HP-032" => super::query::probe_rank_selection(scale),
-        "G37-HP-033" | "G37-HP-037" => {
-            super::storage::probe_recovery_ordinal(row_id, scale, seed, repetition, probe_root)
-        }
-        "G37-HP-034" => super::storage::probe_mutation_batch(scale),
-        "G37-HP-035" => super::storage::probe_qos(scale),
-        "G37-HP-038" => super::analytics::probe_traces(scale),
-        "G37-HP-039" | "G37-HP-040" => super::query::probe_sql_kernel(row_id, scale),
-        "G37-HP-041" => super::wire::probe_notifications(scale),
-        "G37-HP-042" => super::analytics::probe_knowledge_projection(scale),
-        "G37-HP-043" | "G37-HP-044" => super::wire::probe_broker(row_id, scale),
-        "G37-HP-045" | "G37-HP-046" => super::wire::probe_appendlog(row_id, scale),
-        "G37-HP-047" | "G37-HP-048" => super::wire::probe_redis_kernel(row_id, scale),
-        "G37-HP-049" | "G37-HP-050" | "G37-HP-051" | "G37-HP-052" => {
-            super::analytics::probe_mining_similarity(row_id, scale)
-        }
-        "G37-HP-053" | "G37-HP-054" => super::analytics::probe_observability_symbol(row_id, scale),
-        _ => Err("unknown exact performance ledger row".into()),
-    }
+    let Some(contract) = row_contract(row_id) else {
+        return Err("unknown exact performance ledger row".into());
+    };
+    contract
+        .runner
+        .run(row_id, scale, seed, repetition, probe_root)
 }

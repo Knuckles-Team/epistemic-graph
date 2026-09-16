@@ -30,7 +30,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from datetime import UTC, datetime
@@ -527,47 +527,66 @@ def _exact_keys(value: Any, keys: set[str], label: str) -> dict[str, Any]:
     return value
 
 
+def _validate_file_metadata(
+    metadata: os.stat_result, label: str, maximum_bytes: int, private: bool
+) -> None:
+    if not stat.S_ISREG(metadata.st_mode) or not 0 < metadata.st_size <= maximum_bytes:
+        raise CertificationError(f"invalid_{label}_file")
+    if private and (
+        metadata.st_uid != os.geteuid() or stat.S_IMODE(metadata.st_mode) & 0o077
+    ):
+        raise CertificationError(f"{label}_file_permissions")
+
+
+@contextlib.contextmanager
+def _open_bounded_file(
+    path: Path, label: str, maximum_bytes: int, private: bool
+) -> Iterator[int]:
+    descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    try:
+        _validate_file_metadata(os.fstat(descriptor), label, maximum_bytes, private)
+        yield descriptor
+    finally:
+        os.close(descriptor)
+
+
+def _read_file_chunks(descriptor: int, label: str, maximum_bytes: int) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := os.read(descriptor, min(64 * 1024, maximum_bytes + 1 - total)):
+        chunks.append(chunk)
+        total += len(chunk)
+        if total > maximum_bytes:
+            raise CertificationError(f"invalid_{label}_file")
+    return b"".join(chunks)
+
+
 def _read_bounded_file(
     path: Path, label: str, maximum_bytes: int, *, private: bool = False
 ) -> bytes:
-    descriptor = None
     try:
-        descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
-        metadata = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or not 0 < metadata.st_size <= maximum_bytes
-        ):
-            raise CertificationError(f"invalid_{label}_file")
-        if private and (
-            metadata.st_uid != os.geteuid() or stat.S_IMODE(metadata.st_mode) & 0o077
-        ):
-            raise CertificationError(f"{label}_file_permissions")
-        chunks: list[bytes] = []
-        total = 0
-        while chunk := os.read(descriptor, min(64 * 1024, maximum_bytes + 1 - total)):
-            chunks.append(chunk)
-            total += len(chunk)
-            if total > maximum_bytes:
-                raise CertificationError(f"invalid_{label}_file")
-        return b"".join(chunks)
+        with _open_bounded_file(path, label, maximum_bytes, private) as descriptor:
+            return _read_file_chunks(descriptor, label, maximum_bytes)
     except CertificationError:
         raise
     except OSError as error:
         raise CertificationError(f"invalid_{label}_file") from error
-    finally:
-        if descriptor is not None:
-            os.close(descriptor)
 
 
-def _read_public_json(path: Path, label: str) -> tuple[dict[str, Any], str]:
+def _read_json_document(
+    path: Path, label: str, maximum_bytes: int, *, private: bool = False
+) -> tuple[Any, bytes]:
     try:
-        raw = _read_bounded_file(path, label, MAX_CONTRACT_BYTES)
-        value = json.loads(raw)
+        raw = _read_bounded_file(path, label, maximum_bytes, private=private)
+        return json.loads(raw), raw
     except CertificationError:
         raise
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise CertificationError(f"invalid_{label}_file") from error
+
+
+def _read_public_json(path: Path, label: str) -> tuple[dict[str, Any], str]:
+    value, raw = _read_json_document(path, label, MAX_CONTRACT_BYTES)
     if not isinstance(value, dict):
         raise CertificationError(f"invalid_{label}_schema")
     return value, hashlib.sha256(raw).hexdigest()
@@ -581,35 +600,24 @@ def _validate_opaque(value: Any, namespace: str, label: str) -> str:
     return value
 
 
-def _load_authority(path: Path) -> AuthorityConfig:
-    try:
-        raw = _read_bounded_file(path, "authority", MAX_AUTHORITY_BYTES, private=True)
-        value = json.loads(raw)
-    except CertificationError:
-        raise
-    except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        raise CertificationError("invalid_authority_file") from error
+def _validate_authority_secret(value: Any, label: str) -> str:
+    if not isinstance(value, str) or not 32 <= len(value) <= 4096:
+        raise CertificationError(f"invalid_{label}")
+    return value
 
-    data = _exact_keys(
-        value,
-        {"schema_version", "auth_secret", "signer_id", "signer_key", "context"},
-        "authority",
-    )
-    if data["schema_version"] != SCHEMA_VERSION:
-        raise CertificationError("invalid_authority_version")
-    auth_secret = data["auth_secret"]
-    signer_key = data["signer_key"]
-    if not isinstance(auth_secret, str) or not 32 <= len(auth_secret) <= 4096:
-        raise CertificationError("invalid_auth_secret")
-    if not isinstance(signer_key, str) or not 32 <= len(signer_key) <= 4096:
-        raise CertificationError("invalid_signer_key")
+
+def _authority_secrets(data: dict[str, Any]) -> tuple[str, str]:
+    auth_secret = _validate_authority_secret(data["auth_secret"], "auth_secret")
+    signer_key = _validate_authority_secret(data["signer_key"], "signer_key")
     if any(
         ord(character) < 32 or ord(character) == 127
         for character in auth_secret + signer_key
     ):
         raise CertificationError("invalid_secret_material")
+    return auth_secret, signer_key
 
-    signer_id = _validate_opaque(data["signer_id"], "certifier", "signer_id")
+
+def _authority_context(data: dict[str, Any], signer_id: str) -> dict[str, Any]:
     context = _exact_keys(
         data["context"],
         {
@@ -637,7 +645,86 @@ def _load_authority(path: Path) -> AuthorityConfig:
         raise CertificationError("invalid_authority_scopes")
     if context["delegation"] != []:
         raise CertificationError("invalid_authority_delegation")
+    return context
+
+
+def _load_authority(path: Path) -> AuthorityConfig:
+    value, _ = _read_json_document(path, "authority", MAX_AUTHORITY_BYTES, private=True)
+    data = _exact_keys(
+        value,
+        {"schema_version", "auth_secret", "signer_id", "signer_key", "context"},
+        "authority",
+    )
+    if data["schema_version"] != SCHEMA_VERSION:
+        raise CertificationError("invalid_authority_version")
+    auth_secret, signer_key = _authority_secrets(data)
+    signer_id = _validate_opaque(data["signer_id"], "certifier", "signer_id")
+    context = _authority_context(data, signer_id)
     return AuthorityConfig(auth_secret, signer_id, signer_key, dict(context))
+
+
+def _dataset_integer_bounds() -> dict[str, tuple[int, int]]:
+    return {
+        "seed": (0, (1 << 63) - 1),
+        "node_count": (128, 100_000),
+        "edge_count": (127, 500_000),
+        "batch_size": (16, 4_096),
+        "probe_repetitions": (5, 10_000),
+        "query_batch_size": (1, 1_000),
+        "analytics_query_repetitions": (1, 100),
+        "job_count": (1, 100),
+        "job_transaction_count": (2, 10_000),
+        "job_items_per_transaction": (2, 30),
+        "job_item_cardinality": (2, 31),
+        "job_poll_timeout_seconds": (1, 300),
+        "modality_capability_repetitions": (1, 100),
+        "modality_records_per_kind": (1, 1_000),
+        "modality_query_repetitions": (1, 1_000),
+    }
+
+
+def _validate_dataset_integer_bounds(data: dict[str, Any]) -> None:
+    for field, (minimum, maximum) in _dataset_integer_bounds().items():
+        item = data[field]
+        if (
+            isinstance(item, bool)
+            or not isinstance(item, int)
+            or not minimum <= item <= maximum
+        ):
+            raise CertificationError(f"invalid_dataset_{field}")
+
+
+def _validate_dataset_scale_points(points: Any, field: str, final: int) -> None:
+    if not isinstance(points, list) or len(points) < 2:
+        raise CertificationError(f"invalid_dataset_{field}")
+    if any(isinstance(item, bool) or not isinstance(item, int) for item in points):
+        raise CertificationError(f"invalid_dataset_{field}")
+    if points != sorted(set(points)) or points[-1] != final or points[0] <= 0:
+        raise CertificationError(f"invalid_dataset_{field}")
+
+
+def _validate_dataset_scales(data: dict[str, Any]) -> None:
+    for field, final in (
+        ("scale_points", data["node_count"]),
+        ("modality_scale_points", data["modality_records_per_kind"]),
+    ):
+        _validate_dataset_scale_points(data[field], field, final)
+    if any(point % data["batch_size"] != 0 for point in data["scale_points"]):
+        raise CertificationError("invalid_dataset_scale_alignment")
+
+
+def _validate_dataset_identity(data: dict[str, Any]) -> None:
+    if data["job_items_per_transaction"] > data["job_item_cardinality"]:
+        raise CertificationError("invalid_dataset_job_cardinality")
+    graph_ref = data["graph_ref"]
+    if graph_ref != "g37:synthetic" or _PATH_OR_ENDPOINT.search(graph_ref):
+        raise CertificationError("invalid_dataset_graph_ref")
+
+
+def _validate_dataset_digest(data: dict[str, Any]) -> None:
+    expected = data["expected_workload_sha256"]
+    if not isinstance(expected, str) or not _HEX_64.fullmatch(expected):
+        raise CertificationError("invalid_dataset_workload_digest")
 
 
 def _load_dataset(path: Path) -> tuple[dict[str, Any], str]:
@@ -670,58 +757,29 @@ def _load_dataset(path: Path) -> tuple[dict[str, Any], str]:
     )
     if data["schema_version"] != SCHEMA_VERSION:
         raise CertificationError("invalid_dataset_version")
-    integer_bounds = {
-        "seed": (0, (1 << 63) - 1),
-        "node_count": (128, 100_000),
-        "edge_count": (127, 500_000),
-        "batch_size": (16, 4_096),
-        "probe_repetitions": (5, 10_000),
-        "query_batch_size": (1, 1_000),
-        "analytics_query_repetitions": (1, 100),
-        "job_count": (1, 100),
-        "job_transaction_count": (2, 10_000),
-        "job_items_per_transaction": (2, 30),
-        "job_item_cardinality": (2, 31),
-        "job_poll_timeout_seconds": (1, 300),
-        "modality_capability_repetitions": (1, 100),
-        "modality_records_per_kind": (1, 1_000),
-        "modality_query_repetitions": (1, 1_000),
-    }
-    for field, (minimum, maximum) in integer_bounds.items():
-        item = data[field]
-        if (
-            isinstance(item, bool)
-            or not isinstance(item, int)
-            or not minimum <= item <= maximum
-        ):
-            raise CertificationError(f"invalid_dataset_{field}")
-    if data["job_items_per_transaction"] > data["job_item_cardinality"]:
-        raise CertificationError("invalid_dataset_job_cardinality")
-    graph_ref = data["graph_ref"]
-    if graph_ref != "g37:synthetic" or _PATH_OR_ENDPOINT.search(graph_ref):
-        raise CertificationError("invalid_dataset_graph_ref")
-    for field, final in (
-        ("scale_points", data["node_count"]),
-        ("modality_scale_points", data["modality_records_per_kind"]),
-    ):
-        points = data[field]
-        if (
-            not isinstance(points, list)
-            or len(points) < 2
-            or any(
-                isinstance(item, bool) or not isinstance(item, int) for item in points
-            )
-            or points != sorted(set(points))
-            or points[-1] != final
-            or points[0] <= 0
-        ):
-            raise CertificationError(f"invalid_dataset_{field}")
-    if any(point % data["batch_size"] != 0 for point in data["scale_points"]):
-        raise CertificationError("invalid_dataset_scale_alignment")
-    expected = data["expected_workload_sha256"]
-    if not isinstance(expected, str) or not _HEX_64.fullmatch(expected):
-        raise CertificationError("invalid_dataset_workload_digest")
+    _validate_dataset_integer_bounds(data)
+    _validate_dataset_identity(data)
+    _validate_dataset_scales(data)
+    _validate_dataset_digest(data)
     return data, digest
+
+
+def _validate_threshold_section(
+    values: Any, section: str, contract: dict[str, tuple[str, str]]
+) -> None:
+    if not isinstance(values, dict) or set(values) != set(contract):
+        raise CertificationError(f"invalid_threshold_{section}_coverage")
+    for name, (unit, direction) in contract.items():
+        threshold = _exact_keys(values[name], {"unit", direction}, "threshold")
+        limit = threshold[direction]
+        if (
+            threshold["unit"] != unit
+            or isinstance(limit, bool)
+            or not isinstance(limit, int | float)
+            or not math.isfinite(float(limit))
+            or float(limit) <= 0
+        ):
+            raise CertificationError(f"invalid_threshold_{name}")
 
 
 def _load_thresholds(path: Path) -> tuple[dict[str, Any], str]:
@@ -737,20 +795,7 @@ def _load_thresholds(path: Path) -> tuple[dict[str, Any], str]:
         ("metrics", METRIC_CONTRACT),
         ("complexity", COMPLEXITY_CONTRACT),
     ):
-        values = data[section]
-        if not isinstance(values, dict) or set(values) != set(contract):
-            raise CertificationError(f"invalid_threshold_{section}_coverage")
-        for name, (unit, direction) in contract.items():
-            threshold = _exact_keys(values[name], {"unit", direction}, "threshold")
-            limit = threshold[direction]
-            if (
-                threshold["unit"] != unit
-                or isinstance(limit, bool)
-                or not isinstance(limit, int | float)
-                or not math.isfinite(float(limit))
-                or float(limit) <= 0
-            ):
-                raise CertificationError(f"invalid_threshold_{name}")
+        _validate_threshold_section(data[section], section, contract)
     return data, digest
 
 
@@ -771,38 +816,65 @@ def _markdown_section(text: str, heading: str) -> list[str]:
 def _load_complexity_ledger(
     path: Path, registry_heading: str, implemented_heading: str, expected_rows: int
 ) -> tuple[dict[str, str], str]:
+    text, raw = _read_complexity_ledger_text(path)
+    registry = _complexity_registry_rows(_markdown_section(text, registry_heading))
+    implemented = _complexity_implemented_names(
+        _markdown_section(text, implemented_heading)
+    )
+    _validate_complexity_registry(registry, implemented, expected_rows)
+    return dict(registry), hashlib.sha256(raw).hexdigest()
+
+
+def _read_complexity_ledger_text(path: Path) -> tuple[str, bytes]:
     try:
         raw = _read_bounded_file(path, "complexity_ledger", MAX_LEDGER_BYTES)
-        text = raw.decode("utf-8")
+        return raw.decode("utf-8"), raw
     except CertificationError:
         raise
     except (OSError, UnicodeError) as error:
         raise CertificationError("invalid_complexity_ledger_file") from error
 
+
+def _complexity_registry_rows(lines: list[str]) -> list[tuple[str, str]]:
     registry: list[tuple[str, str]] = []
-    for line in _markdown_section(text, registry_heading):
+    for line in lines:
         match = re.fullmatch(r"\| `(G37-HP-[0-9]{3})` \| (.+) \|", line)
         if match:
             registry.append((match.group(1), match.group(2)))
-    implemented = [
+    return registry
+
+
+def _complexity_implemented_names(lines: list[str]) -> list[str]:
+    return [
         line.split("|", 2)[1].strip()
-        for line in _markdown_section(text, implemented_heading)
+        for line in lines
         if line.startswith("| ") and not line.startswith("| Path ")
     ]
+
+
+def _complexity_registry_shape(
+    registry: list[tuple[str, str]], expected_rows: int
+) -> tuple[list[str], list[str]]:
     identifiers = [row_id for row_id, _ in registry]
     names = [name for _, name in registry]
-    if (
-        expected_rows != EXPECTED_LEDGER_ROW_COUNT
-        or len(registry) != expected_rows
-        or len(set(identifiers)) != expected_rows
-        or len(set(names)) != expected_rows
-        or any(not _ROW_ID.fullmatch(row_id) for row_id in identifiers)
-        or identifiers
-        != [f"G37-HP-{index:03d}" for index in range(1, expected_rows + 1)]
-        or implemented != names
-    ):
+    if expected_rows != EXPECTED_LEDGER_ROW_COUNT or len(registry) != expected_rows:
         raise CertificationError("invalid_complexity_ledger_coverage")
-    return dict(registry), hashlib.sha256(raw).hexdigest()
+    if len(set(identifiers)) != expected_rows or len(set(names)) != expected_rows:
+        raise CertificationError("invalid_complexity_ledger_coverage")
+    if any(not _ROW_ID.fullmatch(row_id) for row_id in identifiers):
+        raise CertificationError("invalid_complexity_ledger_coverage")
+    return identifiers, names
+
+
+def _validate_complexity_registry(
+    registry: list[tuple[str, str]], implemented: list[str], expected_rows: int
+) -> None:
+    identifiers, names = _complexity_registry_shape(registry, expected_rows)
+    expected_identifiers = [
+        f"G37-HP-{index:03d}" for index in range(1, expected_rows + 1)
+    ]
+    if identifiers != expected_identifiers or implemented != names:
+        raise CertificationError("invalid_complexity_ledger_coverage")
 
 
 def _positive_number(value: Any, *, maximum: float | None = None) -> bool:
@@ -1069,10 +1141,8 @@ def _load_scenario_contracts(
     )
 
 
-def _workload_from_manifest(manifest: dict[str, Any]) -> Workload:
-    rng = random.Random(manifest["seed"])  # nosec B311 -- reproducible synthetic data
-    node_ids = [f"g37-node-{index:08x}" for index in range(manifest["node_count"])]
-    node_operations = [
+def _workload_node_operations(node_ids: list[str]) -> list[dict[str, Any]]:
+    return [
         {
             "op": "add_node",
             "id": node_id,
@@ -1084,13 +1154,24 @@ def _workload_from_manifest(manifest: dict[str, Any]) -> Workload:
         }
         for index, node_id in enumerate(node_ids)
     ]
-    pairs = {(index, index + 1) for index in range(len(node_ids) - 1)}
-    while len(pairs) < manifest["edge_count"]:
-        source = rng.randrange(len(node_ids))
-        target = rng.randrange(len(node_ids))
+
+
+def _workload_edge_pairs(
+    node_count: int, edge_count: int, rng: random.Random
+) -> set[tuple[int, int]]:
+    pairs = {(index, index + 1) for index in range(node_count - 1)}
+    while len(pairs) < edge_count:
+        source = rng.randrange(node_count)
+        target = rng.randrange(node_count)
         if source != target:
             pairs.add((source, target))
-    edge_operations = [
+    return pairs
+
+
+def _workload_edge_operations(
+    node_ids: list[str], pairs: set[tuple[int, int]]
+) -> list[dict[str, Any]]:
+    return [
         {
             "op": "add_edge",
             "source": node_ids[source],
@@ -1099,15 +1180,24 @@ def _workload_from_manifest(manifest: dict[str, Any]) -> Workload:
         }
         for ordinal, (source, target) in enumerate(sorted(pairs))
     ]
+
+
+def _workload_job_transactions(
+    manifest: dict[str, Any], rng: random.Random
+) -> list[list[str]]:
     item_refs = [
         f"g37-item-{index:02x}" for index in range(manifest["job_item_cardinality"])
     ]
-    job_transactions = [
+    return [
         sorted(rng.sample(item_refs, manifest["job_items_per_transaction"]))
         for _ in range(manifest["job_transaction_count"])
     ]
-    count = manifest["modality_records_per_kind"]
-    modality_sources = {
+
+
+def _workload_modality_sources(
+    count: int,
+) -> dict[str, list[bytes]]:
+    return {
         "document": [
             f"alpha beta gamma delta {index:08x}".encode("ascii")
             for index in range(count)
@@ -1116,6 +1206,16 @@ def _workload_from_manifest(manifest: dict[str, Any]) -> Workload:
         "audio": [_wav_fixture() for _ in range(count)],
         "video": [_mp4_fixture() for _ in range(count)],
     }
+
+
+def _workload_from_manifest(manifest: dict[str, Any]) -> Workload:
+    rng = random.Random(manifest["seed"])  # nosec B311 -- reproducible synthetic data
+    node_ids = [f"g37-node-{index:08x}" for index in range(manifest["node_count"])]
+    node_operations = _workload_node_operations(node_ids)
+    pairs = _workload_edge_pairs(len(node_ids), manifest["edge_count"], rng)
+    edge_operations = _workload_edge_operations(node_ids, pairs)
+    job_transactions = _workload_job_transactions(manifest, rng)
+    modality_sources = _workload_modality_sources(manifest["modality_records_per_kind"])
     route_partition_ref = _opaque("partition", manifest["seed"], 0, "routing")
     definition = {
         "node_operations": node_operations,
@@ -1557,6 +1657,100 @@ def _validate_scenario_probe_result(
     return result
 
 
+def _create_scenario_scratch(work_dir: Path, scenario_id: str) -> Path:
+    scratch = work_dir / f"scenario-{scenario_id}"
+    try:
+        scratch.mkdir(mode=0o700)
+    except OSError as error:
+        raise CertificationError("scenario_scratch_creation_failed") from error
+    return scratch
+
+
+def _spawn_scenario_probe(
+    binary: Path, work_dir: Path, scratch: Path
+) -> subprocess.Popen[bytes]:
+    return subprocess.Popen(  # nosec B603 -- the staged executable is digest-pinned
+        [
+            str(binary),
+            "--exact-performance-probe",
+            "--exact-performance-probe-root",
+            str(scratch),
+        ],
+        cwd=work_dir,
+        env={"LC_ALL": "C", "TZ": "UTC", "RUST_BACKTRACE": "0"},
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        close_fds=True,
+        preexec_fn=_disable_core_dumps,
+        start_new_session=True,
+    )
+
+
+def _communicate_scenario_probe(
+    process: subprocess.Popen[bytes], request: bytes, timeout_ms: int
+) -> bytes:
+    try:
+        stdout, _ = process.communicate(input=request, timeout=timeout_ms / 1_000)
+    except subprocess.TimeoutExpired as error:
+        _terminate_process_group(process)
+        raise CertificationError("scenario_probe_timeout") from error
+    return stdout
+
+
+def _validate_scenario_probe_run(
+    process: subprocess.Popen[bytes],
+    sampler: RssSampler,
+    samples: list[int],
+    stdout: bytes,
+    elapsed_ms: float,
+    initial_rss_kib: int,
+    bounds: dict[str, Any],
+) -> int:
+    if sampler.saturated:
+        raise CertificationError("scenario_rss_sample_limit_exceeded")
+    if process.returncode != 0:
+        raise CertificationError("scenario_probe_failed")
+    if (
+        not stdout
+        or len(stdout) > bounds["maximum_output_bytes"]
+        or len(stdout) > MAX_SCENARIO_OUTPUT_BYTES
+    ):
+        raise CertificationError("scenario_probe_output_bound")
+    if elapsed_ms > bounds["maximum_elapsed_ms"]:
+        raise CertificationError("scenario_elapsed_bound")
+    peak_rss_kib = max([initial_rss_kib, *samples])
+    if peak_rss_kib <= 0:
+        raise CertificationError("scenario_rss_unavailable")
+    peak_rss_bytes = peak_rss_kib * 1024
+    if peak_rss_bytes > bounds["maximum_peak_rss_mib"] * 1024 * 1024:
+        raise CertificationError("scenario_rss_bound")
+    return peak_rss_bytes
+
+
+def _decode_scenario_probe(stdout: bytes, scenario: dict[str, Any]) -> dict[str, Any]:
+    try:
+        decoded = json.loads(stdout)
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise CertificationError("invalid_scenario_probe_output") from error
+    return _validate_scenario_probe_result(decoded, scenario)
+
+
+def _cleanup_scenario_probe(
+    process: subprocess.Popen[bytes] | None,
+    sampler: RssSampler | None,
+    scratch: Path,
+) -> None:
+    if sampler is not None and sampler.alive:
+        sampler.stop()
+    if process is not None:
+        _terminate_process_group(process)
+    try:
+        shutil.rmtree(scratch)
+    except OSError as error:
+        raise CertificationError("scenario_scratch_cleanup_failed") from error
+
+
 def _execute_exact_scenario(
     binary: Path,
     work_dir: Path,
@@ -1566,84 +1760,34 @@ def _execute_exact_scenario(
     workload_sha256: str,
 ) -> ScenarioExecution:
     bounds = scenario["resource_bounds"]
-    scratch = work_dir / f"scenario-{scenario['scenario_id']}"
-    try:
-        scratch.mkdir(mode=0o700)
-    except OSError as error:
-        raise CertificationError("scenario_scratch_creation_failed") from error
+    scratch = _create_scenario_scratch(work_dir, scenario["scenario_id"])
     request = _canonical_json(
         _scenario_request(scenario, seed=seed, workload_sha256=workload_sha256)
     )
     process: subprocess.Popen[bytes] | None = None
     sampler: RssSampler | None = None
     started_ns = time.perf_counter_ns()
-    initial_rss = 0
+    initial_rss_kib = 0
     try:
-        process = subprocess.Popen(  # nosec B603 -- the staged executable is digest-pinned
-            [
-                str(binary),
-                "--exact-performance-probe",
-                "--exact-performance-probe-root",
-                str(scratch),
-            ],
-            cwd=work_dir,
-            env={"LC_ALL": "C", "TZ": "UTC", "RUST_BACKTRACE": "0"},
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            close_fds=True,
-            preexec_fn=_disable_core_dumps,
-            start_new_session=True,
-        )
-        initial_rss = _read_rss_kib(process.pid)
+        process = _spawn_scenario_probe(binary, work_dir, scratch)
+        initial_rss_kib = _read_rss_kib(process.pid)
         sampler = RssSampler(process.pid)
         sampler.start()
-        try:
-            stdout, _ = process.communicate(
-                input=request,
-                timeout=bounds["maximum_elapsed_ms"] / 1_000,
-            )
-        except subprocess.TimeoutExpired as error:
-            _terminate_process_group(process)
-            raise CertificationError("scenario_probe_timeout") from error
+        stdout = _communicate_scenario_probe(
+            process, request, bounds["maximum_elapsed_ms"]
+        )
         elapsed_ms = (time.perf_counter_ns() - started_ns) / 1_000_000
         sampler.stop()
         samples = sampler.samples_kib
-        if sampler.saturated:
-            raise CertificationError("scenario_rss_sample_limit_exceeded")
-        if process.returncode != 0:
-            raise CertificationError("scenario_probe_failed")
-        if (
-            not stdout
-            or len(stdout) > bounds["maximum_output_bytes"]
-            or len(stdout) > MAX_SCENARIO_OUTPUT_BYTES
-        ):
-            raise CertificationError("scenario_probe_output_bound")
-        if elapsed_ms > bounds["maximum_elapsed_ms"]:
-            raise CertificationError("scenario_elapsed_bound")
-        peak_rss_kib = max([initial_rss, *samples])
-        if peak_rss_kib <= 0:
-            raise CertificationError("scenario_rss_unavailable")
-        peak_rss_bytes = peak_rss_kib * 1024
-        if peak_rss_bytes > bounds["maximum_peak_rss_mib"] * 1024 * 1024:
-            raise CertificationError("scenario_rss_bound")
-        try:
-            decoded = json.loads(stdout)
-        except (UnicodeError, json.JSONDecodeError) as error:
-            raise CertificationError("invalid_scenario_probe_output") from error
-        result = _validate_scenario_probe_result(decoded, scenario)
+        peak_rss_bytes = _validate_scenario_probe_run(
+            process, sampler, samples, stdout, elapsed_ms, initial_rss_kib, bounds
+        )
+        result = _decode_scenario_probe(stdout, scenario)
         return ScenarioExecution(result, elapsed_ms, peak_rss_bytes, len(samples))
     except OSError as error:
         raise CertificationError("scenario_probe_spawn_failed") from error
     finally:
-        if sampler is not None and sampler.alive:
-            sampler.stop()
-        if process is not None:
-            _terminate_process_group(process)
-        try:
-            shutil.rmtree(scratch)
-        except OSError as error:
-            raise CertificationError("scenario_scratch_cleanup_failed") from error
+        _cleanup_scenario_probe(process, sampler, scratch)
 
 
 def _run_exact_scenarios(
@@ -1780,24 +1924,29 @@ def _validate_properties_batch(
             raise CertificationError("incorrect_point_query_result")
 
 
+def _validate_pagerank_row(row: Any) -> tuple[str, float]:
+    if not isinstance(row, (list, tuple)) or len(row) != 2:
+        raise CertificationError("invalid_analytics_result")
+    node_id, score = row
+    if not isinstance(node_id, str):
+        raise CertificationError("invalid_analytics_result")
+    if isinstance(score, bool) or not isinstance(score, int | float):
+        raise CertificationError("invalid_analytics_result")
+    numeric_score = float(score)
+    if not math.isfinite(numeric_score) or numeric_score < 0:
+        raise CertificationError("invalid_analytics_result")
+    return node_id, numeric_score
+
+
 def _validate_pagerank(value: Any, node_ids: set[str]) -> None:
     if not isinstance(value, list) or len(value) != len(node_ids):
         raise CertificationError("invalid_analytics_result")
     observed: set[str] = set()
     score_sum = 0.0
     for row in value:
-        if (
-            not isinstance(row, (list, tuple))
-            or len(row) != 2
-            or not isinstance(row[0], str)
-            or isinstance(row[1], bool)
-            or not isinstance(row[1], int | float)
-            or not math.isfinite(float(row[1]))
-            or float(row[1]) < 0
-        ):
-            raise CertificationError("invalid_analytics_result")
-        observed.add(row[0])
-        score_sum += float(row[1])
+        node_id, score = _validate_pagerank_row(row)
+        observed.add(node_id)
+        score_sum += score
     if observed != node_ids or not 0.999_999 <= score_sum <= 1.000_001:
         raise CertificationError("incorrect_analytics_result")
 
@@ -2867,37 +3016,46 @@ def _coverage_failures(coverage: dict[str, Any]) -> list[str]:
     ]
 
 
-def _memory_class() -> dict[str, Any]:
-    host_memory_bytes = 0
+def _host_memory_bytes() -> int:
     try:
         for line in Path("/proc/meminfo").read_text(encoding="ascii").splitlines():
             if line.startswith("MemTotal:"):
-                host_memory_bytes = int(line.split()[1]) * 1024
-                break
+                return int(line.split()[1]) * 1024
     except (OSError, UnicodeError, ValueError, IndexError):
-        pass
-    cgroup_limit = None
+        return 0
+    return 0
+
+
+def _cgroup_memory_limit() -> int | None:
     try:
         raw = Path("/sys/fs/cgroup/memory.max").read_text(encoding="ascii").strip()
-        if raw != "max":
-            cgroup_limit = int(raw)
+        return None if raw == "max" else int(raw)
     except (OSError, UnicodeError, ValueError):
-        pass
-    effective_candidates = [
+        return None
+
+
+def _effective_memory_bytes(host_memory_bytes: int, cgroup_limit: int | None) -> int:
+    candidates = [
         value
         for value in (host_memory_bytes, cgroup_limit)
         if value is not None and value > 0
     ]
-    effective = min(effective_candidates) if effective_candidates else 0
-    release = platform.release().lower()
+    return min(candidates) if candidates else 0
+
+
+def _runtime_class(release: str, in_container: bool) -> str:
     if "microsoft" in release:
         runtime = "wsl2" if "wsl2" in release else "wsl1"
     else:
         runtime = "linux_native"
-    if Path("/.dockerenv").exists() or Path("/run/.containerenv").exists():
+    if in_container:
         runtime = "linux_container"
-    available_cpus = len(os.sched_getaffinity(0))
-    architecture = platform.machine().lower()
+    return runtime
+
+
+def _validate_hardware_class(
+    architecture: str, available_cpus: int, host_memory_bytes: int, effective: int
+) -> None:
     if (
         not architecture
         or not _SAFE_CODE.fullmatch(architecture)
@@ -2906,6 +3064,18 @@ def _memory_class() -> dict[str, Any]:
         or effective <= 0
     ):
         raise CertificationError("hardware_class_unavailable")
+
+
+def _memory_class() -> dict[str, Any]:
+    host_memory_bytes = _host_memory_bytes()
+    effective = _effective_memory_bytes(host_memory_bytes, _cgroup_memory_limit())
+    runtime = _runtime_class(
+        platform.release().lower(),
+        Path("/.dockerenv").exists() or Path("/run/.containerenv").exists(),
+    )
+    available_cpus = len(os.sched_getaffinity(0))
+    architecture = platform.machine().lower()
+    _validate_hardware_class(architecture, available_cpus, host_memory_bytes, effective)
     return {
         "architecture": architecture,
         "os_family": "linux",

@@ -225,74 +225,121 @@ impl<'a> Parser<'a> {
     /// to, so a build without that feature gives a clear "not in this build" error
     /// rather than a phantom Op.
     fn parse_stage(&mut self, ops: &mut Vec<Op>) -> Result<(), UqlError> {
+        if let Some(op) = self.parse_core_stage()? {
+            ops.push(op);
+            return Ok(());
+        }
+        if let Some(op) = self.parse_temporal_stage()? {
+            ops.push(op);
+            return Ok(());
+        }
+        if let Some(op) = self.parse_source_stage()? {
+            ops.push(op);
+            return Ok(());
+        }
+        if let Some(op) = self.parse_epistemic_stage()? {
+            ops.push(op);
+            return Ok(());
+        }
+        Err(self.err_here(
+            "expected a pipeline stage (`TRAVERSE`, `RANK`, `TEXT`, `FUSE`, `LIMIT`, \
+             `WHERE`, `AS OF`, `WINDOW`, `FOREIGN`, `REASON`, `EVIDENCE FOR`, \
+             `CONTRADICTS`, `SUPPORTED BY`, `BELIEF AS OF`, `VALID AS OF`, \
+             `SOURCE RELIABILITY`, `CONFIDENCE`, or `EXPLAIN BELIEF`)",
+        ))
+    }
+
+    fn parse_core_stage(&mut self) -> Result<Option<Op>, UqlError> {
         if self.peek_kw("TRAVERSE") {
             self.bump();
-            ops.push(self.parse_traverse()?);
-        } else if self.peek_kw("RANK") {
+            return Ok(Some(self.parse_traverse()?));
+        }
+        if self.peek_kw("RANK") {
             self.bump();
-            ops.push(self.parse_rank()?);
-        } else if self.peek_kw("TEXT") {
+            return Ok(Some(self.parse_rank()?));
+        }
+        if self.peek_kw("TEXT") {
             self.bump();
-            ops.push(self.parse_text()?);
-        } else if self.peek_kw("FUSE") {
+            return Ok(Some(self.parse_text()?));
+        }
+        if self.peek_kw("FUSE") {
             self.bump();
-            ops.push(self.parse_fuse()?);
-        } else if self.peek_kw("LIMIT") {
+            return Ok(Some(self.parse_fuse()?));
+        }
+        if self.peek_kw("LIMIT") {
             self.bump();
-            ops.push(self.parse_limit()?);
-        } else if self.peek_kw("WHERE") {
+            return Ok(Some(self.parse_limit()?));
+        }
+        if self.peek_kw("WHERE") {
             self.bump();
             let preds = self.parse_pred_list()?;
-            ops.push(Op::Filter { preds });
-        } else if self.peek_kw("AS") {
-            // `AS OF @<ts>`
-            self.bump();
-            ops.push(self.parse_asof()?);
-        } else if self.peek_kw("WINDOW") {
-            self.bump();
-            ops.push(self.parse_window()?);
-        } else if self.peek_kw("FOREIGN") {
-            self.bump();
-            ops.push(self.parse_foreign()?);
-        } else if self.peek_kw("RERANK") {
-            self.bump();
-            ops.push(self.parse_rerank()?);
-        } else if self.peek_kw("REASON") {
-            self.bump();
-            ops.push(self.parse_reason()?);
-        } else if self.peek_kw("EVIDENCE") {
-            self.bump();
-            ops.push(self.parse_evidence_for()?);
-        } else if self.peek_kw("CONTRADICTS") {
-            self.bump();
-            ops.push(self.parse_contradicts()?);
-        } else if self.peek_kw("SUPPORTED") {
-            self.bump();
-            ops.push(self.parse_supported_by()?);
-        } else if self.peek_kw("BELIEF") {
-            self.bump();
-            ops.push(self.parse_belief_asof()?);
-        } else if self.peek_kw("VALID") {
-            self.bump();
-            ops.push(self.parse_valid_asof()?);
-        } else if self.peek_kw("SOURCE") {
-            self.bump();
-            ops.push(self.parse_source_reliability()?);
-        } else if self.peek_kw("CONFIDENCE") {
-            self.bump();
-            ops.push(self.parse_confidence()?);
-        } else if self.peek_kw("EXPLAIN") {
-            self.bump();
-            ops.push(self.parse_explain_belief()?);
-        } else {
-            return Err(self.err_here(
-                "expected a pipeline stage (`TRAVERSE`, `RANK`, `TEXT`, `FUSE`, `LIMIT`, \
-                 `WHERE`, `AS OF`, `WINDOW`, `FOREIGN`, `REASON`, `EVIDENCE FOR`, \
-                 `CONTRADICTS`, `SUPPORTED BY`, `BELIEF AS OF`, `VALID AS OF`, \
-                 `SOURCE RELIABILITY`, `CONFIDENCE`, or `EXPLAIN BELIEF`)",
-            ));
+            return Ok(Some(Op::Filter { preds }));
         }
-        Ok(())
+        Ok(None)
+    }
+
+    fn parse_temporal_stage(&mut self) -> Result<Option<Op>, UqlError> {
+        if self.peek_kw("AS") {
+            self.bump();
+            return Ok(Some(self.parse_asof()?));
+        }
+        if self.peek_kw("WINDOW") {
+            self.bump();
+            return Ok(Some(self.parse_window()?));
+        }
+        Ok(None)
+    }
+
+    fn parse_source_stage(&mut self) -> Result<Option<Op>, UqlError> {
+        if self.peek_kw("FOREIGN") {
+            self.bump();
+            return Ok(Some(self.parse_foreign()?));
+        }
+        if self.peek_kw("RERANK") {
+            self.bump();
+            return Ok(Some(self.parse_rerank()?));
+        }
+        if self.peek_kw("REASON") {
+            self.bump();
+            return Ok(Some(self.parse_reason()?));
+        }
+        Ok(None)
+    }
+
+    fn parse_epistemic_stage(&mut self) -> Result<Option<Op>, UqlError> {
+        if self.peek_kw("EVIDENCE") {
+            self.bump();
+            return Ok(Some(self.parse_evidence_for()?));
+        }
+        if self.peek_kw("CONTRADICTS") {
+            self.bump();
+            return Ok(Some(self.parse_contradicts()?));
+        }
+        if self.peek_kw("SUPPORTED") {
+            self.bump();
+            return Ok(Some(self.parse_supported_by()?));
+        }
+        if self.peek_kw("BELIEF") {
+            self.bump();
+            return Ok(Some(self.parse_belief_asof()?));
+        }
+        if self.peek_kw("VALID") {
+            self.bump();
+            return Ok(Some(self.parse_valid_asof()?));
+        }
+        if self.peek_kw("SOURCE") {
+            self.bump();
+            return Ok(Some(self.parse_source_reliability()?));
+        }
+        if self.peek_kw("CONFIDENCE") {
+            self.bump();
+            return Ok(Some(self.parse_confidence()?));
+        }
+        if self.peek_kw("EXPLAIN") {
+            self.bump();
+            return Ok(Some(self.parse_explain_belief()?));
+        }
+        Ok(None)
     }
 
     /// `traverse = "-" "[" ":" rel "]" "->" [hop_range] | rel [hop_range]`.
@@ -355,21 +402,32 @@ impl<'a> Parser<'a> {
     /// may be negative (`~[-0.1, 0.2, -0.3]`, CONCEPT:EG-KG.compute.negative-vector-component-parses) — a leading `-` negates the
     /// following number, matching the Rust builder / wire DTO which accept negatives.
     fn parse_vector_ref(&mut self) -> Result<VectorRef, UqlError> {
-        if self.eat(&Tok::LBracket) {
-            let mut v = Vec::new();
-            if !self.peek(&Tok::RBracket) {
-                loop {
-                    let neg = self.eat(&Tok::Dash);
-                    let n = self.expect_num("a vector component")? as f32;
-                    v.push(if neg { -n } else { n });
-                    if !self.eat(&Tok::Comma) {
-                        break;
-                    }
+        if self.peek(&Tok::LBracket) {
+            self.parse_inline_vector()
+        } else {
+            self.parse_named_vector_ref()
+        }
+    }
+
+    fn parse_inline_vector(&mut self) -> Result<VectorRef, UqlError> {
+        self.bump();
+        let mut v = Vec::new();
+        if !self.peek(&Tok::RBracket) {
+            loop {
+                let neg = self.eat(&Tok::Dash);
+                let n = self.expect_num("a vector component")? as f32;
+                v.push(if neg { -n } else { n });
+                if !self.eat(&Tok::Comma) {
+                    break;
                 }
             }
-            self.expect(&Tok::RBracket, "`]` to close the rank vector")?;
-            Ok(VectorRef::Inline(v))
-        } else if let Some(Tok::Str(s)) = self.peek_kind() {
+        }
+        self.expect(&Tok::RBracket, "`]` to close the rank vector")?;
+        Ok(VectorRef::Inline(v))
+    }
+
+    fn parse_named_vector_ref(&mut self) -> Result<VectorRef, UqlError> {
+        if let Some(Tok::Str(s)) = self.peek_kind() {
             let s = s.clone();
             self.bump();
             Ok(VectorRef::Text(s))

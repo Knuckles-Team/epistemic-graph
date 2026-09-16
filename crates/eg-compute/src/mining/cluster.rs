@@ -129,28 +129,41 @@ pub fn dbscan(points: &[Point], eps: f64, min_pts: usize) -> Vec<i64> {
         }
         // Start a new cluster and flood-fill density-reachable points.
         labels[p] = cid;
-        let mut queue: std::collections::VecDeque<usize> = neighbors.into_iter().collect();
-        while let Some(q) = queue.pop_front() {
-            if labels[q] == NOISE {
-                labels[q] = cid; // border point: reachable but not itself core
-            }
-            if labels[q] != UNVISITED {
-                continue;
-            }
-            labels[q] = cid;
-            let q_neighbors = region_query(points, q, eps2);
-            if q_neighbors.len() >= min_pts {
-                // q is core → its neighbors join the seed set.
-                for r in q_neighbors {
-                    if labels[r] == UNVISITED || labels[r] == NOISE {
-                        queue.push_back(r);
-                    }
-                }
-            }
-        }
+        expand_density_cluster(points, &mut labels, neighbors, eps2, min_pts, cid);
         cid += 1;
     }
     labels
+}
+
+/// Flood the core seed's index-ordered FIFO without reconsidering assigned
+/// points. Provisional noise can become a border point, but cannot expand it.
+fn expand_density_cluster(
+    points: &[Point],
+    labels: &mut [i64],
+    neighbors: Vec<usize>,
+    eps2: f64,
+    min_pts: usize,
+    cid: i64,
+) {
+    let mut queue: std::collections::VecDeque<usize> = neighbors.into_iter().collect();
+    while let Some(q) = queue.pop_front() {
+        if labels[q] == NOISE {
+            labels[q] = cid; // border point: reachable but not itself core
+        }
+        if labels[q] != UNVISITED {
+            continue;
+        }
+        labels[q] = cid;
+        let q_neighbors = region_query(points, q, eps2);
+        if q_neighbors.len() >= min_pts {
+            // q is core → its pending neighbors join the seed set in index order.
+            queue.extend(
+                q_neighbors
+                    .into_iter()
+                    .filter(|&r| labels[r] == UNVISITED || labels[r] == NOISE),
+            );
+        }
+    }
 }
 
 /// All indices (including `p`) within squared radius `eps2` of point `p`.
@@ -174,57 +187,14 @@ pub fn hierarchical(points: &[Point], k: usize, linkage: Linkage) -> Vec<i64> {
 
     // Active clusters as member-index lists; `dist[i][j]` = current linkage distance.
     let mut members: Vec<Option<Vec<usize>>> = (0..n).map(|i| Some(vec![i])).collect();
-    let mut dist = vec![vec![0.0f64; n]; n];
-    for i in 0..n {
-        for j in (i + 1)..n {
-            let d = euclidean(&points[i], &points[j]);
-            dist[i][j] = d;
-            dist[j][i] = d;
-        }
-    }
+    let mut dist = eg_geo::distance_matrix(points, |a, b| euclidean(a, b));
 
     let mut active: usize = n;
     while active > k {
-        // Find the closest active pair (a < b), index tie-broken.
-        let mut best = f64::INFINITY;
-        let (mut ba, mut bb) = (usize::MAX, usize::MAX);
-        for i in 0..n {
-            if members[i].is_none() {
-                continue;
-            }
-            for j in (i + 1)..n {
-                if members[j].is_none() {
-                    continue;
-                }
-                if dist[i][j] < best {
-                    best = dist[i][j];
-                    ba = i;
-                    bb = j;
-                }
-            }
-        }
-        if ba == usize::MAX {
+        let Some(pair) = closest_cluster_pair(&members, &dist) else {
             break;
-        }
-        // Merge bb into ba; Lance-Williams update of ba's distance to every other.
-        let size_a = members[ba].as_ref().unwrap().len() as f64;
-        let size_b = members[bb].as_ref().unwrap().len() as f64;
-        for m in 0..n {
-            if m == ba || m == bb || members[m].is_none() {
-                continue;
-            }
-            let dam = dist[ba][m];
-            let dbm = dist[bb][m];
-            let new = match linkage {
-                Linkage::Single => dam.min(dbm),
-                Linkage::Complete => dam.max(dbm),
-                Linkage::Average => (size_a * dam + size_b * dbm) / (size_a + size_b),
-            };
-            dist[ba][m] = new;
-            dist[m][ba] = new;
-        }
-        let moved = members[bb].take().unwrap();
-        members[ba].as_mut().unwrap().extend(moved);
+        };
+        merge_cluster_pair(&mut members, &mut dist, pair, linkage);
         active -= 1;
     }
 
@@ -241,6 +211,59 @@ pub fn hierarchical(points: &[Point], k: usize, linkage: Linkage) -> Vec<i64> {
         }
     }
     labels
+}
+
+/// Select the first strictly closest active pair in (i, j) index order. Infinite
+/// or unordered distances do not select a pair, preserving the early stop.
+fn closest_cluster_pair(
+    members: &[Option<Vec<usize>>],
+    dist: &[Vec<f64>],
+) -> Option<(usize, usize)> {
+    let mut best = f64::INFINITY;
+    let mut pair = None;
+    for i in 0..members.len() {
+        if members[i].is_none() {
+            continue;
+        }
+        for j in (i + 1)..members.len() {
+            if members[j].is_none() {
+                continue;
+            }
+            if dist[i][j] < best {
+                best = dist[i][j];
+                pair = Some((i, j));
+            }
+        }
+    }
+    pair
+}
+
+/// Update linkage distances with the pre-merge sizes, then append b's members
+/// to a. The lower-index survivor keeps its original first member for labeling.
+fn merge_cluster_pair(
+    members: &mut [Option<Vec<usize>>],
+    dist: &mut [Vec<f64>],
+    (a, b): (usize, usize),
+    linkage: Linkage,
+) {
+    let size_a = members[a].as_ref().unwrap().len() as f64;
+    let size_b = members[b].as_ref().unwrap().len() as f64;
+    for m in 0..members.len() {
+        if m == a || m == b || members[m].is_none() {
+            continue;
+        }
+        let dam = dist[a][m];
+        let dbm = dist[b][m];
+        let new = match linkage {
+            Linkage::Single => dam.min(dbm),
+            Linkage::Complete => dam.max(dbm),
+            Linkage::Average => (size_a * dam + size_b * dbm) / (size_a + size_b),
+        };
+        dist[a][m] = new;
+        dist[m][a] = new;
+    }
+    let moved = members[b].take().unwrap();
+    members[a].as_mut().unwrap().extend(moved);
 }
 
 // ─────────────────────────── GMM (EM) ───────────────────────────
@@ -403,55 +426,19 @@ pub fn kmedoids(points: &[Point], k: usize, max_iter: usize) -> Vec<i64> {
             .unwrap();
         medoids.push(first);
         while medoids.len() < k {
-            let mut best_gain = f64::NEG_INFINITY;
-            let mut best_c = usize::MAX;
-            for cand in 0..n {
-                if medoids.contains(&cand) {
-                    continue;
-                }
-                // Gain = Σ_j max(0, d(j, nearest_medoid) - d(j, cand)).
-                let mut gain = 0.0;
-                for j in 0..n {
-                    let cur = nearest_medoid_dist(j, &medoids, &dm);
-                    if dm[j][cand] < cur {
-                        gain += cur - dm[j][cand];
-                    }
-                }
-                if gain > best_gain || (gain == best_gain && cand < best_c) {
-                    best_gain = gain;
-                    best_c = cand;
-                }
-            }
-            if best_c == usize::MAX {
+            let Some(candidate) = best_build_medoid(&medoids, &dm) else {
                 break;
-            }
-            medoids.push(best_c);
+            };
+            medoids.push(candidate);
         }
     }
 
     // SWAP: best-improving medoid↔non-medoid swap until no improvement.
     for _ in 0..max_iter.max(1) {
-        let base = total_cost(&medoids, &dm);
-        let mut best_delta = -1e-12; // require a strict improvement
-        let mut best_swap: Option<(usize, usize)> = None;
-        for mi in 0..medoids.len() {
-            for cand in 0..n {
-                if medoids.contains(&cand) {
-                    continue;
-                }
-                let mut trial = medoids.clone();
-                trial[mi] = cand;
-                let delta = total_cost(&trial, &dm) - base;
-                if delta < best_delta {
-                    best_delta = delta;
-                    best_swap = Some((mi, cand));
-                }
-            }
-        }
-        match best_swap {
-            Some((mi, cand)) => medoids[mi] = cand,
-            None => break,
-        }
+        let Some((mi, candidate)) = best_medoid_swap(&medoids, &dm) else {
+            break;
+        };
+        medoids[mi] = candidate;
     }
 
     // Assign each point to its nearest medoid; relabel medoids 0..k-1 by index.
@@ -474,6 +461,54 @@ pub fn kmedoids(points: &[Point], k: usize, max_iter: usize) -> Vec<i64> {
             medoid_label[best_m]
         })
         .collect()
+}
+
+/// Score every non-medoid's reduction in assignment cost for greedy BUILD.
+/// Equal gains retain the lowest point index.
+fn best_build_medoid(medoids: &[usize], dm: &[Vec<f64>]) -> Option<usize> {
+    let mut best_gain = f64::NEG_INFINITY;
+    let mut best_c = usize::MAX;
+    for cand in 0..dm.len() {
+        if medoids.contains(&cand) {
+            continue;
+        }
+        // Gain = Σ_j max(0, d(j, nearest_medoid) - d(j, cand)).
+        let mut gain = 0.0;
+        for j in 0..dm.len() {
+            let cur = nearest_medoid_dist(j, medoids, dm);
+            if dm[j][cand] < cur {
+                gain += cur - dm[j][cand];
+            }
+        }
+        if gain > best_gain || (gain == best_gain && cand < best_c) {
+            best_gain = gain;
+            best_c = cand;
+        }
+    }
+    (best_c != usize::MAX).then_some(best_c)
+}
+
+/// Find the strictly best-improving PAM swap in medoid-slot then point order.
+/// Equal deltas retain the first swap; changes must exceed 1e-12 in cost.
+fn best_medoid_swap(medoids: &[usize], dm: &[Vec<f64>]) -> Option<(usize, usize)> {
+    let base = total_cost(medoids, dm);
+    let mut best_delta = -1e-12;
+    let mut best_swap = None;
+    for mi in 0..medoids.len() {
+        for cand in 0..dm.len() {
+            if medoids.contains(&cand) {
+                continue;
+            }
+            let mut trial = medoids.to_vec();
+            trial[mi] = cand;
+            let delta = total_cost(&trial, dm) - base;
+            if delta < best_delta {
+                best_delta = delta;
+                best_swap = Some((mi, cand));
+            }
+        }
+    }
+    best_swap
 }
 
 fn total_to(a: usize, dm: &[Vec<f64>]) -> f64 {
@@ -631,6 +666,24 @@ mod tests {
         assert!(labels.iter().all(|&l| l == NOISE));
     }
 
+    #[test]
+    fn dbscan_promotes_noise_border_to_the_first_reaching_cluster() {
+        let pts = vec![
+            vec![0.0, 0.0], // border of both blobs, but not core
+            vec![-1.0, 0.0],
+            vec![-2.0, 0.0],
+            vec![-2.0, 0.1],
+            vec![-2.0, -0.1],
+            vec![1.0, 0.0],
+            vec![2.0, 0.0],
+            vec![2.0, 0.1],
+            vec![2.0, -0.1],
+        ];
+        assert_eq!(dbscan(&pts, 1.01, 4), vec![0, 0, 0, 0, 0, 1, 1, 1, 1]);
+        assert_eq!(dbscan(&pts, -1.01, 4), dbscan(&pts, 1.01, 4));
+        assert_eq!(dbscan(&[vec![0.0], vec![1.0]], f64::NAN, 0), vec![0, 1]);
+    }
+
     /// The two blobs WITHOUT the far outlier — the natural 2-partition fixture (an
     /// extreme outlier would legitimately claim its own cluster at k=2).
     fn two_blobs_no_noise() -> Vec<Point> {
@@ -662,6 +715,18 @@ mod tests {
         uniq.sort_unstable();
         uniq.dedup();
         assert_eq!(uniq.len(), pts.len());
+    }
+
+    #[test]
+    fn hierarchical_equal_distances_keep_index_order_and_linkage_math() {
+        let pts = vec![vec![0.0], vec![2.0], vec![4.0], vec![6.0]];
+        assert_eq!(hierarchical(&pts, 2, Linkage::Single), vec![0, 0, 0, 1]);
+        assert_eq!(hierarchical(&pts, 2, Linkage::Complete), vec![0, 0, 1, 1]);
+        assert_eq!(hierarchical(&pts, 2, Linkage::Average), vec![0, 0, 1, 1]);
+        let nonfinite = vec![vec![0.0], vec![f64::INFINITY], vec![f64::NAN]];
+        for linkage in [Linkage::Single, Linkage::Complete, Linkage::Average] {
+            assert_eq!(hierarchical(&nonfinite, 1, linkage), vec![0, 1, 2]);
+        }
     }
 
     #[test]
@@ -709,6 +774,54 @@ mod tests {
         assert_eq!(labels[4], labels[5]);
         assert_eq!(labels[4], labels[7]);
         assert_ne!(labels[0], labels[4]);
+    }
+
+    #[test]
+    fn pam_candidate_ties_swaps_and_assignment_keep_original_order() {
+        let pts = vec![vec![0.0], vec![2.0], vec![4.0], vec![6.0], vec![8.0]];
+        let dm = eg_geo::distance_matrix(&pts, |a, b| euclidean(a, b));
+        assert_eq!(best_build_medoid(&[2], &dm), Some(0));
+        assert_eq!(best_medoid_swap(&[2, 0], &dm), Some((0, 3)));
+        assert_eq!(best_medoid_swap(&[3, 0], &dm), None);
+        assert_eq!(kmedoids(&pts, 2, 0), vec![0, 0, 1, 1, 1]);
+        assert_eq!(kmedoids(&pts, 2, 100), vec![0, 0, 1, 1, 1]);
+        let tie = vec![vec![1.0], vec![0.0], vec![0.0], vec![2.0], vec![2.0]];
+        assert_eq!(kmedoids(&tie, 2, 1), vec![1, 0, 0, 1, 1]);
+    }
+
+    #[test]
+    fn partition_bounds_and_empty_input_contracts_are_preserved() {
+        let pts = vec![vec![0.0], vec![2.0], vec![4.0]];
+        assert_eq!(hierarchical(&pts, 0, Linkage::Average), vec![0, 0, 0]);
+        assert_eq!(
+            hierarchical(&pts, usize::MAX, Linkage::Average),
+            vec![0, 1, 2]
+        );
+        assert_eq!(kmedoids(&pts, 0, 0), vec![0, 0, 0]);
+        assert_eq!(kmedoids(&pts, usize::MAX, 0), vec![0, 1, 2]);
+        assert!(dbscan(&[], 1.0, 1).is_empty());
+        assert!(std::panic::catch_unwind(|| hierarchical(&[], 1, Linkage::Single)).is_err());
+        assert!(std::panic::catch_unwind(|| kmedoids(&[], 1, 1)).is_err());
+        for algorithm in [
+            Algorithm::Dbscan {
+                eps: 1.0,
+                min_pts: 1,
+            },
+            Algorithm::Hierarchical {
+                k: 1,
+                linkage: Linkage::Single,
+            },
+            Algorithm::Gmm {
+                k: 1,
+                max_iter: 1,
+                seed: 0,
+            },
+            Algorithm::KMedoids { k: 1, max_iter: 1 },
+        ] {
+            let out = cluster(&[], algorithm);
+            assert!(out.labels.is_empty() && out.clusters.is_empty());
+            assert!(out.responsibilities.is_none());
+        }
     }
 
     #[test]

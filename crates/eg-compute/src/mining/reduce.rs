@@ -28,6 +28,12 @@
 
 use super::math::{sq_dist, SplitMix64};
 
+mod eigen;
+mod lda;
+
+use eigen::jacobi_eigen;
+use lda::lda;
+
 /// A point in feature space (one matrix row).
 pub type Point = Vec<f64>;
 
@@ -143,113 +149,6 @@ fn truncated_svd(rows: &[Point], k: usize) -> Reduction {
     Reduction {
         coords,
         singular_values,
-    }
-}
-
-// ─────────────────────────── LDA ───────────────────────────
-
-/// Fisher Linear Discriminant Analysis (CONCEPT:EG-KG.mining.lda-discriminant),
-/// supervised. Computes the within-class scatter `Sw` and between-class scatter `Sb`,
-/// whitens the space by `Sw` (symmetric eig → W = U·D^-1/2), then takes the leading
-/// eigenvectors of the whitened between-class scatter WᵀSbW; the discriminant
-/// directions are A = W·E. The rows are projected onto ≤ (n_classes−1) discriminants —
-/// the directions that maximize between/within class separation.
-fn lda(rows: &[Point], labels: &[i64], n_components: usize) -> Reduction {
-    let n = rows.len();
-    let dim = rows[0].len();
-    if labels.len() != n {
-        // Missing/mismatched labels ⇒ degrade to an empty (invalid) result rather
-        // than panic; the handler validates and reports the error before this.
-        return Reduction {
-            coords: Vec::new(),
-            singular_values: Vec::new(),
-        };
-    }
-    let classes: Vec<i64> = labels
-        .iter()
-        .copied()
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .collect();
-    let n_comp = n_components.clamp(1, (classes.len().saturating_sub(1)).max(1).min(dim));
-
-    // Global mean + per-class means.
-    let mean = column_mean(rows, dim);
-    let mut class_means: Vec<Vec<f64>> = Vec::with_capacity(classes.len());
-    let mut class_sizes: Vec<usize> = Vec::with_capacity(classes.len());
-    for &cls in &classes {
-        let idx: Vec<usize> = (0..n).filter(|&i| labels[i] == cls).collect();
-        let mut cm = vec![0.0f64; dim];
-        for &i in &idx {
-            for d in 0..dim {
-                cm[d] += rows[i][d];
-            }
-        }
-        let cn = idx.len().max(1) as f64;
-        for m in cm.iter_mut() {
-            *m /= cn;
-        }
-        class_sizes.push(idx.len());
-        class_means.push(cm);
-    }
-
-    // Sw = Σ_c Σ_{i∈c} (x-μ_c)(x-μ_c)ᵀ ; Sb = Σ_c n_c (μ_c-μ)(μ_c-μ)ᵀ.
-    let mut sw = vec![vec![0.0f64; dim]; dim];
-    for (ci, &cls) in classes.iter().enumerate() {
-        for i in 0..n {
-            if labels[i] != cls {
-                continue;
-            }
-            let diff: Vec<f64> = (0..dim).map(|d| rows[i][d] - class_means[ci][d]).collect();
-            outer_add(&mut sw, &diff, &diff, 1.0);
-        }
-    }
-    let mut sb = vec![vec![0.0f64; dim]; dim];
-    for ci in 0..classes.len() {
-        let diff: Vec<f64> = (0..dim).map(|d| class_means[ci][d] - mean[d]).collect();
-        outer_add(&mut sb, &diff, &diff, class_sizes[ci] as f64);
-    }
-    // Regularize Sw for invertibility.
-    for (d, row) in sw.iter_mut().enumerate() {
-        row[d] += 1e-6;
-    }
-
-    // Whiten by Sw: Sw = U D Uᵀ → W = U D^-1/2.
-    let (sw_vals, sw_vecs) = jacobi_eigen(&sw);
-    let mut w = vec![vec![0.0f64; dim]; dim]; // W[:, j] = U[:, j] / sqrt(D_j)
-    for j in 0..dim {
-        let scale = 1.0 / sw_vals[j].max(1e-12).sqrt();
-        for d in 0..dim {
-            w[d][j] = sw_vecs[d][j] * scale;
-        }
-    }
-    // Whitened between-class scatter M = Wᵀ Sb W (symmetric).
-    let sbw = matmul(&sb, &w); // (d×d)
-    let m = matmul_tn(&w, &sbw); // Wᵀ · (Sb W)
-    let (m_vals, m_vecs) = jacobi_eigen(&m);
-    let mut order: Vec<usize> = (0..dim).collect();
-    order.sort_by(|&a, &b| m_vals[b].partial_cmp(&m_vals[a]).unwrap());
-
-    // Discriminant directions A[:, c] = W · E[:, order[c]].
-    let mut a_cols: Vec<Vec<f64>> = Vec::with_capacity(n_comp);
-    for &j in order.iter().take(n_comp) {
-        let e_col: Vec<f64> = (0..dim).map(|d| m_vecs[d][j]).collect();
-        let a_col: Vec<f64> = (0..dim)
-            .map(|d| (0..dim).map(|kk| w[d][kk] * e_col[kk]).sum())
-            .collect();
-        a_cols.push(a_col);
-    }
-    // Project the mean-centered rows onto the discriminants.
-    let mut coords = vec![vec![0.0f64; n_comp]; n];
-    for (i, row) in rows.iter().enumerate() {
-        let centered: Vec<f64> = (0..dim).map(|d| row[d] - mean[d]).collect();
-        for (c, a_col) in a_cols.iter().enumerate() {
-            coords[i][c] = dot(&centered, a_col);
-        }
-    }
-    Reduction {
-        coords,
-        singular_values: Vec::new(),
     }
 }
 
@@ -709,69 +608,6 @@ fn umap_ab(min_dist: f64) -> (f64, f64) {
 }
 
 // ─────────────────────────── linear-algebra helpers ───────────────────────────
-
-/// Jacobi eigenvalue algorithm for a symmetric matrix. Returns `(eigenvalues,
-/// eigenvectors)` where `eigenvectors[d][j]` is component `d` of eigenvector `j`
-/// (columns are eigenvectors). Dependency-free + deterministic; the matrices here are
-/// feature-dimension sized (small), so O(iters·d³) is fine.
-fn jacobi_eigen(matrix: &[Vec<f64>]) -> (Vec<f64>, Vec<Vec<f64>>) {
-    let n = matrix.len();
-    let mut a: Vec<Vec<f64>> = matrix.to_vec();
-    let mut v = vec![vec![0.0f64; n]; n];
-    for (i, row) in v.iter_mut().enumerate() {
-        row[i] = 1.0;
-    }
-    for _ in 0..100 {
-        // Largest off-diagonal magnitude.
-        let (mut p, mut q, mut off) = (0usize, 1usize, 0.0f64);
-        for (i, arow) in a.iter().enumerate() {
-            for (j, &aij) in arow.iter().enumerate().skip(i + 1) {
-                if aij.abs() > off {
-                    off = aij.abs();
-                    p = i;
-                    q = j;
-                }
-            }
-        }
-        if off < 1e-12 || n < 2 {
-            break;
-        }
-        let app = a[p][p];
-        let aqq = a[q][q];
-        let apq = a[p][q];
-        let theta = 0.5 * (aqq - app) / apq;
-        let t = theta.signum() / (theta.abs() + (theta * theta + 1.0).sqrt());
-        let c = 1.0 / (t * t + 1.0).sqrt();
-        let s = t * c;
-        // Rotate columns p, q of A (row-wise) and of the eigenvector accumulator V.
-        for arow in a.iter_mut() {
-            let aip = arow[p];
-            let aiq = arow[q];
-            arow[p] = c * aip - s * aiq;
-            arow[q] = s * aip + c * aiq;
-        }
-        // Rotate rows p, q of A (column-wise) — split the two rows for disjoint borrows.
-        {
-            let (left, right) = a.split_at_mut(q);
-            let rp = &mut left[p];
-            let rq = &mut right[0];
-            for (rpi, rqi) in rp.iter_mut().zip(rq.iter_mut()) {
-                let api = *rpi;
-                let aqi = *rqi;
-                *rpi = c * api - s * aqi;
-                *rqi = s * api + c * aqi;
-            }
-        }
-        for vrow in v.iter_mut() {
-            let vip = vrow[p];
-            let viq = vrow[q];
-            vrow[p] = c * vip - s * viq;
-            vrow[q] = s * vip + c * viq;
-        }
-    }
-    let eigvals: Vec<f64> = (0..n).map(|i| a[i][i]).collect();
-    (eigvals, v)
-}
 
 fn matmul(a: &[Vec<f64>], b: &[Vec<f64>]) -> Vec<Vec<f64>> {
     let n = a.len();

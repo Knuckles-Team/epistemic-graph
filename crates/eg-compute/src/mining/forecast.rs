@@ -83,287 +83,13 @@ pub fn forecast(series: &[f64], algorithm: Algorithm, horizon: usize, confidence
     }
 }
 
-// ─────────────────────────── ARIMA ───────────────────────────
+// ─────────────────────────── forecast engines ───────────────────────────
 
-/// ARIMA(p,d,q) (CONCEPT:EG-KG.mining.arima): difference `d` times to
-/// stationarity, fit AR(p)/MA(q) via Hannan-Rissanen, forecast forward in the
-/// differenced domain (future innovations ⇒ their expectation, 0), then
-/// integrate back `d` times to the original scale.
-pub fn arima(
-    series: &[f64],
-    p: usize,
-    d: usize,
-    q: usize,
-    horizon: usize,
-    confidence: f64,
-) -> Forecast {
-    let y = difference(series, d);
-    if y.len() <= p.max(1) {
-        // Not enough data after differencing — fall back to a flat forecast at
-        // the last observed value (never panic on a short series).
-        let last = *series.last().unwrap();
-        return flat_forecast(last, horizon, 0.0, confidence);
-    }
-    let (c, phis, thetas, resid) = fit_arma(&y, p, q);
+mod arima;
+mod holt_winters;
 
-    // Forecast forward in the differenced domain.
-    let mut y_ext = y.clone();
-    let mut resid_ext = resid.clone();
-    let mut diff_forecast = Vec::with_capacity(horizon);
-    for _ in 0..horizon {
-        let t = y_ext.len();
-        let mut pred = c;
-        for i in 1..=p {
-            if t >= i {
-                pred += phis[i - 1] * y_ext[t - i];
-            }
-        }
-        for j in 1..=q {
-            let val = if t >= j { resid_ext[t - j] } else { 0.0 };
-            pred += thetas[j - 1] * val;
-        }
-        y_ext.push(pred);
-        resid_ext.push(0.0); // E[future innovation] = 0
-        diff_forecast.push(pred);
-    }
-
-    let point = integrate_forecast(&diff_forecast, series, d);
-    let sigma = residual_std(&resid, p.max(q));
-    let z = z_score(confidence);
-    let mut lower = Vec::with_capacity(horizon);
-    let mut upper = Vec::with_capacity(horizon);
-    for (h, &f) in point.iter().enumerate() {
-        let margin = z * sigma * ((h + 1) as f64).sqrt();
-        lower.push(f - margin);
-        upper.push(f + margin);
-    }
-    Forecast {
-        values: point,
-        lower,
-        upper,
-        trend: Vec::new(),
-        seasonal: Vec::new(),
-        residual: Vec::new(),
-    }
-}
-
-/// Fit AR(p)/MA(q) coefficients over the (already-differenced) series `y` via
-/// the Hannan-Rissanen two-stage method (CONCEPT:EG-KG.mining.arima): pure AR(p)
-/// (`q == 0`) is a single OLS regression; otherwise a long auxiliary AR gives a
-/// residual proxy `e`, and `y_t` is regressed on `[y_{t-1..t-p}, e_{t-1..t-q}]`.
-/// Returns `(intercept, ar_coeffs, ma_coeffs, in-sample residuals)`.
-fn fit_arma(y: &[f64], p: usize, q: usize) -> (f64, Vec<f64>, Vec<f64>, Vec<f64>) {
-    let n = y.len();
-    if q == 0 {
-        let (c, phis) = ols_ar(y, p);
-        let mut resid = vec![0.0; n];
-        for t in p..n {
-            let mut pred = c;
-            for i in 1..=p {
-                pred += phis[i - 1] * y[t - i];
-            }
-            resid[t] = y[t] - pred;
-        }
-        return (c, phis, Vec::new(), resid);
-    }
-
-    // Stage 1: a long auxiliary AR gives a residual proxy `e`.
-    let long_order = (p + q + 5).min(n.saturating_sub(1)).max(1);
-    let (long_c, long_phis) = ols_ar(y, long_order);
-    let mut e = vec![0.0; n];
-    for t in long_order..n {
-        let mut pred = long_c;
-        for i in 1..=long_order {
-            pred += long_phis[i - 1] * y[t - i];
-        }
-        e[t] = y[t] - pred;
-    }
-
-    // Stage 2: joint AR+MA regression using the proxy residuals as MA regressors.
-    let start = p.max(long_order + q).max(1);
-    if start >= n {
-        // Fixture too short for stage 2 — fall back to the pure-AR fit.
-        let (c, phis) = ols_ar(y, p);
-        let mut resid = vec![0.0; n];
-        for t in p..n {
-            let mut pred = c;
-            for i in 1..=p {
-                pred += phis[i - 1] * y[t - i];
-            }
-            resid[t] = y[t] - pred;
-        }
-        return (c, phis, vec![0.0; q], resid);
-    }
-    let mut rows: Vec<Vec<f64>> = Vec::with_capacity(n - start);
-    let mut targets: Vec<f64> = Vec::with_capacity(n - start);
-    for t in start..n {
-        let mut row = vec![1.0];
-        for i in 1..=p {
-            row.push(y[t - i]);
-        }
-        for j in 1..=q {
-            row.push(e[t - j]);
-        }
-        rows.push(row);
-        targets.push(y[t]);
-    }
-    let coeffs = ols_fit(&rows, &targets);
-    let c = coeffs[0];
-    let phis = coeffs[1..=p].to_vec();
-    let thetas = coeffs[p + 1..p + 1 + q].to_vec();
-
-    // Final residuals: the standard conditional-sum-of-squares recursion (each
-    // residual uses the model's OWN previously computed residuals for the MA
-    // terms, warm-started at 0).
-    let mut resid = vec![0.0; n];
-    for t in 0..n {
-        let mut pred = c;
-        for i in 1..=p {
-            if t >= i {
-                pred += phis[i - 1] * y[t - i];
-            }
-        }
-        for j in 1..=q {
-            if t >= j {
-                pred += thetas[j - 1] * resid[t - j];
-            }
-        }
-        resid[t] = y[t] - pred;
-    }
-    (c, phis, thetas, resid)
-}
-
-/// Fit AR(p) by OLS: `y_t = c + sum_i phi_i*y_{t-i} + e_t`. Returns
-/// `(intercept, phis)`; `phis` has length `p`.
-fn ols_ar(y: &[f64], p: usize) -> (f64, Vec<f64>) {
-    let n = y.len();
-    if p == 0 || n <= p {
-        return (mean(y), vec![0.0; p]);
-    }
-    let mut rows: Vec<Vec<f64>> = Vec::with_capacity(n - p);
-    let mut targets: Vec<f64> = Vec::with_capacity(n - p);
-    for t in p..n {
-        let mut row = vec![1.0];
-        for i in 1..=p {
-            row.push(y[t - i]);
-        }
-        rows.push(row);
-        targets.push(y[t]);
-    }
-    let coeffs = ols_fit(&rows, &targets);
-    (coeffs[0], coeffs[1..].to_vec())
-}
-
-// ─────────────────────────── Holt-Winters / ETS ───────────────────────────
-
-/// Additive Holt-Winters (CONCEPT:EG-KG.mining.holt-winters): level/trend/seasonal
-/// exponential smoothing. `period == 0` (or too little data for two full
-/// seasonal cycles) degrades to Holt's linear-trend method (ETS(A,A,N) — no
-/// seasonal component).
-pub fn holt_winters(
-    series: &[f64],
-    period: usize,
-    alpha: f64,
-    beta: f64,
-    gamma: f64,
-    horizon: usize,
-    confidence: f64,
-) -> Forecast {
-    let n = series.len();
-    let seasonal_on = period >= 2 && n >= 2 * period;
-
-    // Initialize level/trend from a whole-series OLS regression (NOT a
-    // first-vs-second-season mean difference, which centers the estimate mid-
-    // window and introduces a systematic phase lag once the recursion starts at
-    // `start_t`). The regression line's value AT `start_t - 1` is the level the
-    // recursion below assumes it already has when it begins updating at
-    // `start_t`.
-    let ts: Vec<f64> = (0..n).map(|i| i as f64).collect();
-    let (a, b) = linear_regression(&ts, series);
-    let start_t = if seasonal_on { period } else { 1 };
-    let l0 = a + b * (start_t as f64 - 1.0);
-    let t0 = b;
-
-    let (mut level, mut trend, mut season) = if seasonal_on {
-        // Detrend every point against the SAME regression line, then average by
-        // phase over every full cycle available (not just the first two) —
-        // robust + lag-free.
-        let mut sums = vec![0.0; period];
-        let mut counts = vec![0usize; period];
-        for (t, &y) in series.iter().enumerate() {
-            let fitted = a + b * t as f64;
-            sums[t % period] += y - fitted;
-            counts[t % period] += 1;
-        }
-        let mut s: Vec<f64> = sums
-            .iter()
-            .zip(&counts)
-            .map(|(&sum, &c)| if c > 0 { sum / c as f64 } else { 0.0 })
-            .collect();
-        let s_mean = mean(&s);
-        for v in s.iter_mut() {
-            *v -= s_mean;
-        }
-        (l0, t0, s)
-    } else {
-        (l0, t0, Vec::new())
-    };
-
-    let mut fitted = vec![0.0; n];
-    if start_t <= n {
-        fitted[..start_t].copy_from_slice(&series[..start_t]);
-    }
-    let mut resid = vec![0.0; n];
-
-    for t in start_t..n {
-        // `season` is a length-`period` ring updated in place each step, so the
-        // "previous" value for slot `t % period` is simply its current entry.
-        let seasonal_prev = if seasonal_on { season[t % period] } else { 0.0 };
-        let pred = level + trend + seasonal_prev;
-        fitted[t] = pred;
-        resid[t] = series[t] - pred;
-
-        let new_level = if seasonal_on {
-            alpha * (series[t] - seasonal_prev) + (1.0 - alpha) * (level + trend)
-        } else {
-            alpha * series[t] + (1.0 - alpha) * (level + trend)
-        };
-        let new_trend = beta * (new_level - level) + (1.0 - beta) * trend;
-        if seasonal_on {
-            season[t % period] = gamma * (series[t] - new_level) + (1.0 - gamma) * seasonal_prev;
-        }
-        level = new_level;
-        trend = new_trend;
-    }
-
-    let mut point = Vec::with_capacity(horizon);
-    for h in 1..=horizon {
-        let seasonal_h = if seasonal_on {
-            season[(n + h - 1) % period]
-        } else {
-            0.0
-        };
-        point.push(level + h as f64 * trend + seasonal_h);
-    }
-
-    let sigma = residual_std(&resid, start_t);
-    let z = z_score(confidence);
-    let mut lower = Vec::with_capacity(horizon);
-    let mut upper = Vec::with_capacity(horizon);
-    for (h, &f) in point.iter().enumerate() {
-        let margin = z * sigma * ((h + 1) as f64).sqrt();
-        lower.push(f - margin);
-        upper.push(f + margin);
-    }
-    Forecast {
-        values: point,
-        lower,
-        upper,
-        trend: Vec::new(),
-        seasonal: Vec::new(),
-        residual: Vec::new(),
-    }
-}
+pub use arima::arima;
+pub use holt_winters::holt_winters;
 
 // ─────────────────────────── STL decomposition ───────────────────────────
 
@@ -648,72 +374,6 @@ fn residual_std(resid: &[f64], warmup: usize) -> f64 {
     std_dev(&resid[warmup..])
 }
 
-/// Ordinary least squares: solve `beta` minimizing `||X*beta - y||^2` via the
-/// normal equations `(XᵀX)*beta = Xᵀy`, Gaussian elimination with partial
-/// pivoting (a tiny ridge term keeps a near-singular system solvable). `x` rows
-/// share one width (the intercept column, if wanted, is the caller's `1.0`
-/// entry).
-fn ols_fit(x: &[Vec<f64>], y: &[f64]) -> Vec<f64> {
-    let k = x[0].len();
-    let mut xtx = vec![vec![0.0; k]; k];
-    let mut xty = vec![0.0; k];
-    for (row, &yt) in x.iter().zip(y.iter()) {
-        for i in 0..k {
-            xty[i] += row[i] * yt;
-            for j in 0..k {
-                xtx[i][j] += row[i] * row[j];
-            }
-        }
-    }
-    for i in 0..k {
-        xtx[i][i] += 1e-8;
-    }
-    solve_linear(xtx, xty)
-}
-
-/// Solve `a*x = b` via Gaussian elimination with partial pivoting. A
-/// numerically singular pivot leaves that coefficient at 0 rather than
-/// panicking or producing `NaN`.
-fn solve_linear(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Vec<f64> {
-    let n = b.len();
-    for col in 0..n {
-        let mut piv = col;
-        for r in (col + 1)..n {
-            if a[r][col].abs() > a[piv][col].abs() {
-                piv = r;
-            }
-        }
-        a.swap(col, piv);
-        b.swap(col, piv);
-        let d = a[col][col];
-        if d.abs() < 1e-12 {
-            continue;
-        }
-        for r in 0..n {
-            if r == col {
-                continue;
-            }
-            let f = a[r][col] / d;
-            if f == 0.0 {
-                continue;
-            }
-            for c in col..n {
-                a[r][c] -= f * a[col][c];
-            }
-            b[r] -= f * b[col];
-        }
-    }
-    (0..n)
-        .map(|i| {
-            if a[i][i].abs() > 1e-12 {
-                b[i] / a[i][i]
-            } else {
-                0.0
-            }
-        })
-        .collect()
-}
-
 /// The z-multiplier for a two-sided `confidence` level (e.g. `0.95` → `1.96`),
 /// via Acklam's rational approximation to the inverse standard-normal CDF
 /// (accurate to ~1.15e-9, no dependency). Falls back to the common `1.96`
@@ -883,6 +543,19 @@ mod tests {
                 "arima(1,1,0) forecast[{h}]={} truth={truth} err={err}",
                 out.values[h]
             );
+        }
+    }
+
+    #[test]
+    fn arima_ma_branch_smoke_preserves_forecast_shape() {
+        let series = vec![
+            1.0, 1.8, 1.2, 2.4, 1.6, 2.9, 2.1, 3.2, 2.8, 3.7, 3.1, 4.4, 3.9, 5.0, 4.5, 5.6,
+        ];
+        let out = arima(&series, 1, 0, 1, 3, 0.95);
+        assert_eq!(out.values.len(), 3);
+        assert!(out.values.iter().all(|value| value.is_finite()));
+        for h in 0..3 {
+            assert!(out.lower[h] <= out.values[h] && out.values[h] <= out.upper[h]);
         }
     }
 

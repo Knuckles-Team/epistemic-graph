@@ -626,18 +626,48 @@ jobs:
 
       # CCCC is intentionally invoked over an explicit tracked-file list.  A
       # directory walk would include an untracked build artifact and would not
-      # be a truthful repository census; no max-* option means findings are
-      # advisory while malformed output/parse errors still fail closed.
-      - name: CCCC tracked-tree census (advisory)
+      # be a truthful repository census; exact coverage and zero actionable
+      # backlog are required here, while malformed output/parse errors still
+      # fail closed.
+      - name: CCCC tracked-tree census (exact coverage; zero actionable backlog)
         shell: bash
         run: |
           set -euo pipefail
           report="$RUNNER_TEMP/epistemic-graph-cccc-census.json"
-          mapfile -d "" files < <(python3 scripts/list_scanner_sources.py cccc)
+          manifest="$RUNNER_TEMP/epistemic-graph-cccc-sources.nul"
+          manifest_stderr="$RUNNER_TEMP/epistemic-graph-cccc-source-manifest-stderr.txt"
+          stderr="$RUNNER_TEMP/epistemic-graph-cccc-stderr.txt"
+          terms="$RUNNER_TEMP/epistemic-graph-cccc-terms.txt"
+          if ! python3 scripts/list_scanner_sources.py cccc > "$manifest" 2> "$manifest_stderr"; then
+            cat "$manifest_stderr" >&2
+            echo "CCCC census: source manifest generation failed" >&2
+            exit 2
+          fi
+          mapfile -d "" files < "$manifest" || { echo "CCCC census: malformed source manifest" >&2; exit 2; }
           [ "${#files[@]}" -gt 0 ] || { echo "CCCC census: no tracked source files" >&2; exit 2; }
           languages="$(PYTHONPATH=scripts python3 -c "from scanner_contract import cccc_languages_arg; print(cccc_languages_arg())")" || { echo "CCCC census: invalid language registry" >&2; exit 2; }
-          cccc --no-config --min 0 --lang "$languages" "${files[@]}" > "$report"
-          python3 scripts/validate_cccc_census.py "$report"
+          set +e
+          cccc --no-config --min 0 --lang "$languages" "${files[@]}" > "$report" 2> "$stderr"
+          status=$?
+          set -e
+          if [ "$status" -ne 0 ]; then
+            cat "$stderr" >&2
+            exit "$status"
+          fi
+          python3 scripts/validate_cccc_census.py "$report" --source-manifest "$manifest"
+          python3 scripts/report_complexity_terms.py "$report" --require-zero | tee "$terms"
+      - name: Upload CCCC census evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: epistemic-graph-cccc-census-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/epistemic-graph-cccc-census.json
+            ${{ runner.temp }}/epistemic-graph-cccc-sources.nul
+            ${{ runner.temp }}/epistemic-graph-cccc-source-manifest-stderr.txt
+            ${{ runner.temp }}/epistemic-graph-cccc-stderr.txt
+            ${{ runner.temp }}/epistemic-graph-cccc-terms.txt
 
       # KISS has a known multi-path false-green mode, so the census deliberately
       # invokes one tracked Rust path at a time and treats findings as a count,

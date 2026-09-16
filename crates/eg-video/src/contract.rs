@@ -5,6 +5,7 @@ use eg_modality::{
     ModalityContract, NativeIndexKey, NativePredicate, OpaqueRef, Provenance, RowSetShape,
     StagedWrite,
 };
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::video::{TrackKind, VideoData, VideoFrame, VideoShot, VideoTrack};
 
@@ -15,6 +16,158 @@ const MAX_VIDEO_PIXELS: u64 = 8_388_608;
 
 fn opaque(value: &str) -> bool {
     OpaqueRef::new(value.to_string()).is_ok()
+}
+
+fn validate_video_header(video: &VideoData) -> bool {
+    video.duration_ms > 0
+        && eg_modality::content_address(&video.blob_ref)
+        && video
+            .frame_rate
+            .is_none_or(|rate| rate.is_finite() && rate > 0.0)
+        && video.shots.len() <= MAX_SHOTS
+}
+
+fn validate_shots(video: &VideoData) -> bool {
+    video.shots.iter().all(|shot| {
+        shot.end_ms > shot.start_ms
+            && shot.end_ms <= video.duration_ms
+            && shot.label.as_deref().is_none_or(opaque)
+    })
+}
+
+fn validate_codec(track: &VideoTrack) -> bool {
+    track
+        .codec_fourcc
+        .iter()
+        .all(|byte| byte.is_ascii_graphic() || *byte == b' ')
+        && track.codec_fourcc != *b"    "
+}
+
+fn validate_video_dimensions(track: &VideoTrack) -> bool {
+    track.kind != TrackKind::Video
+        || (track.width > 0
+            && track.height > 0
+            && track.pixel_depth > 0
+            && (track.codec_fourcc != *b"raw " || track.pixel_depth == 24)
+            && u64::from(track.width) * u64::from(track.height) <= MAX_VIDEO_PIXELS)
+}
+
+fn validate_track(track: &VideoTrack, track_ids: &mut BTreeSet<u32>) -> bool {
+    track.track_id > 0
+        && track_ids.insert(track.track_id)
+        && track.timescale > 0
+        && validate_codec(track)
+        && validate_video_dimensions(track)
+        && (track.kind == TrackKind::Video || track.pixel_depth == 0)
+}
+
+fn validate_tracks(video: &VideoData, track_ids: &mut BTreeSet<u32>) -> bool {
+    !video.tracks.is_empty()
+        && video.tracks.len() <= MAX_TRACKS
+        && video
+            .tracks
+            .iter()
+            .all(|track| validate_track(track, track_ids))
+}
+
+fn validate_frame_identity(
+    frame: &VideoFrame,
+    track_ids: &BTreeSet<u32>,
+    frame_ids: &mut BTreeSet<(u32, u64)>,
+) -> bool {
+    track_ids.contains(&frame.track_id)
+        && frame.frame_number > 0
+        && frame_ids.insert((frame.track_id, frame.frame_number))
+}
+
+/// Continuity facts about one frame, computed by its caller: whether it
+/// picks up immediately after the previous frame on its track, and whether
+/// its byte range end is representable without overflow. Grouped into one
+/// type (rather than two bare `bool` parameters) so the call site cannot
+/// transpose them.
+struct FrameContinuity {
+    sequential: bool,
+    has_byte_end: bool,
+}
+
+fn validate_frame_timing(
+    frame: &VideoFrame,
+    duration_ms: u64,
+    continuity: FrameContinuity,
+) -> bool {
+    continuity.sequential
+        && frame.end_ms > frame.start_ms
+        && frame.end_ms <= duration_ms
+        && frame.byte_length > 0
+        && continuity.has_byte_end
+        && temporal_buckets(frame.start_ms, frame.end_ms).is_ok()
+}
+
+fn validate_frame(
+    frame: &VideoFrame,
+    video: &VideoData,
+    track_ids: &BTreeSet<u32>,
+    frame_ids: &mut BTreeSet<(u32, u64)>,
+    last_frame: &mut BTreeMap<u32, (u64, u64)>,
+    byte_ranges: &mut Vec<(u64, u64)>,
+) -> bool {
+    let previous = last_frame.get(&frame.track_id).copied();
+    let sequential = previous.map_or(
+        frame.frame_number == 1 && frame.start_ms == 0,
+        |(number, end_ms)| {
+            number.checked_add(1) == Some(frame.frame_number) && end_ms == frame.start_ms
+        },
+    );
+    let byte_end = frame.byte_offset.checked_add(u64::from(frame.byte_length));
+    let valid = validate_frame_identity(frame, track_ids, frame_ids)
+        && validate_frame_timing(
+            frame,
+            video.duration_ms,
+            FrameContinuity {
+                sequential,
+                has_byte_end: byte_end.is_some(),
+            },
+        );
+    if valid {
+        last_frame.insert(frame.track_id, (frame.frame_number, frame.end_ms));
+        byte_ranges.push((frame.byte_offset, byte_end.unwrap_or_default()));
+    }
+    valid
+}
+
+fn validate_frames(
+    video: &VideoData,
+    track_ids: &BTreeSet<u32>,
+    frame_ids: &mut BTreeSet<(u32, u64)>,
+    last_frame: &mut BTreeMap<u32, (u64, u64)>,
+    byte_ranges: &mut Vec<(u64, u64)>,
+) -> bool {
+    !video.frames.is_empty()
+        && video.frames.len() <= MAX_FRAMES
+        && video.frames.iter().all(|frame| {
+            validate_frame(frame, video, track_ids, frame_ids, last_frame, byte_ranges)
+        })
+}
+
+fn has_video_track(video: &VideoData) -> bool {
+    video
+        .tracks
+        .iter()
+        .any(|track| track.kind == TrackKind::Video)
+}
+
+fn has_video_frame(video: &VideoData) -> bool {
+    video.frames.iter().any(|frame| {
+        video
+            .tracks
+            .iter()
+            .any(|track| track.track_id == frame.track_id && track.kind == TrackKind::Video)
+    })
+}
+
+fn payload_ranges_are_disjoint(byte_ranges: &mut [(u64, u64)]) -> bool {
+    byte_ranges.sort_unstable();
+    byte_ranges.windows(2).all(|pair| pair[0].1 <= pair[1].0)
 }
 
 /// Element count for `modality_contract_runtime_hooks!` — passed as a function
@@ -83,82 +236,23 @@ impl ModalityContract for VideoData {
 
 impl GovernedModality for VideoData {
     fn validate_governed_payload(&self) -> bool {
-        let mut track_ids = std::collections::BTreeSet::new();
-        let mut frame_ids = std::collections::BTreeSet::new();
-        let mut last_frame: std::collections::BTreeMap<u32, (u64, u64)> =
-            std::collections::BTreeMap::new();
+        let mut track_ids = BTreeSet::new();
+        let mut frame_ids = BTreeSet::new();
+        let mut last_frame: BTreeMap<u32, (u64, u64)> = BTreeMap::new();
         let mut byte_ranges = Vec::with_capacity(self.frames.len().min(MAX_FRAMES));
-        self.duration_ms > 0
-            && eg_modality::content_address(&self.blob_ref)
-            && self
-                .frame_rate
-                .is_none_or(|rate| rate.is_finite() && rate > 0.0)
-            && self.shots.len() <= MAX_SHOTS
-            && self.shots.iter().all(|shot| {
-                shot.end_ms > shot.start_ms
-                    && shot.end_ms <= self.duration_ms
-                    && shot.label.as_deref().is_none_or(opaque)
-            })
-            && !self.tracks.is_empty()
-            && self.tracks.len() <= MAX_TRACKS
-            && self.tracks.iter().all(|track| {
-                track.track_id > 0
-                    && track_ids.insert(track.track_id)
-                    && track.timescale > 0
-                    && track
-                        .codec_fourcc
-                        .iter()
-                        .all(|byte| byte.is_ascii_graphic() || *byte == b' ')
-                    && track.codec_fourcc != *b"    "
-                    && (track.kind != TrackKind::Video
-                        || (track.width > 0
-                            && track.height > 0
-                            && track.pixel_depth > 0
-                            && (track.codec_fourcc != *b"raw " || track.pixel_depth == 24)
-                            && u64::from(track.width) * u64::from(track.height)
-                                <= MAX_VIDEO_PIXELS))
-                    && (track.kind == TrackKind::Video || track.pixel_depth == 0)
-            })
-            && self
-                .tracks
-                .iter()
-                .any(|track| track.kind == TrackKind::Video)
-            && !self.frames.is_empty()
-            && self.frames.len() <= MAX_FRAMES
-            && self.frames.iter().all(|frame| {
-                let previous = last_frame.get(&frame.track_id).copied();
-                let sequential = previous.map_or(
-                    frame.frame_number == 1 && frame.start_ms == 0,
-                    |(number, end_ms)| {
-                        number.checked_add(1) == Some(frame.frame_number)
-                            && end_ms == frame.start_ms
-                    },
-                );
-                let byte_end = frame.byte_offset.checked_add(u64::from(frame.byte_length));
-                let valid = track_ids.contains(&frame.track_id)
-                    && frame.frame_number > 0
-                    && frame_ids.insert((frame.track_id, frame.frame_number))
-                    && sequential
-                    && frame.end_ms > frame.start_ms
-                    && frame.end_ms <= self.duration_ms
-                    && frame.byte_length > 0
-                    && byte_end.is_some()
-                    && temporal_buckets(frame.start_ms, frame.end_ms).is_ok();
-                if valid {
-                    last_frame.insert(frame.track_id, (frame.frame_number, frame.end_ms));
-                    byte_ranges.push((frame.byte_offset, byte_end.unwrap_or_default()));
-                }
-                valid
-            })
-            && self.frames.iter().any(|frame| {
-                self.tracks
-                    .iter()
-                    .any(|track| track.track_id == frame.track_id && track.kind == TrackKind::Video)
-            })
-            && {
-                byte_ranges.sort_unstable();
-                byte_ranges.windows(2).all(|pair| pair[0].1 <= pair[1].0)
-            }
+        validate_video_header(self)
+            && validate_shots(self)
+            && validate_tracks(self, &mut track_ids)
+            && has_video_track(self)
+            && validate_frames(
+                self,
+                &track_ids,
+                &mut frame_ids,
+                &mut last_frame,
+                &mut byte_ranges,
+            )
+            && has_video_frame(self)
+            && payload_ranges_are_disjoint(&mut byte_ranges)
     }
 
     fn native_index_keys(&self) -> Vec<NativeIndexKey> {
@@ -287,6 +381,21 @@ mod extra_coverage {
         assert!(GovernedModality::validate_governed_payload(&valid));
         let mut unsafe_value = valid;
         unsafe_value.shots[0].label = Some("raw-display-label".to_string());
+        assert!(!GovernedModality::validate_governed_payload(&unsafe_value));
+    }
+
+    #[test]
+    fn governed_video_rejects_overlapping_frame_payloads() {
+        let mut unsafe_value = VideoData::conformance_sample();
+        unsafe_value.frames.push(VideoFrame {
+            track_id: 1,
+            frame_number: 2,
+            start_ms: 1_000,
+            end_ms: 2_000,
+            byte_offset: 68,
+            byte_length: 6,
+            keyframe: false,
+        });
         assert!(!GovernedModality::validate_governed_payload(&unsafe_value));
     }
 }

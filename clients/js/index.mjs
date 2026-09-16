@@ -153,13 +153,7 @@ function validateExplicitStringList(name, values) {
   });
 }
 
-function normalizeAgentRole(role) {
-  if (typeof role === "string") {
-    if (role !== "System" && role !== "Agent") {
-      throw new Error("role must be System, Agent, or a Manager value");
-    }
-    return role;
-  }
+function assertManagerRole(role) {
   if (
     role === null ||
     typeof role !== "object" ||
@@ -173,6 +167,16 @@ function normalizeAgentRole(role) {
   ) {
     throw new Error("Manager role must contain only subordinates");
   }
+}
+
+function normalizeAgentRole(role) {
+  if (typeof role === "string") {
+    if (role !== "System" && role !== "Agent") {
+      throw new Error("role must be System, Agent, or a Manager value");
+    }
+    return role;
+  }
+  assertManagerRole(role);
   return {
     Manager: {
       subordinates: validateExplicitStringList(
@@ -181,6 +185,63 @@ function normalizeAgentRole(role) {
       ),
     },
   };
+}
+
+function configureClientEndpoint(client, opts) {
+  client.socketPath =
+    opts.socketPath ||
+    (opts.host ? null : process.env.GRAPH_SERVICE_SOCKET || null);
+  client.host = opts.host || null;
+  client.port = opts.port || null;
+}
+
+function configureClientAuthority(client, opts) {
+  client.authSecret = opts.authSecret ?? process.env.GRAPH_SERVICE_AUTH_SECRET ?? "";
+  if (typeof client.authSecret !== "string" || !client.authSecret) {
+    throw new Error("a non-empty authentication secret is required");
+  }
+  client.verifiedContext = validateRequestContext(opts.verifiedContext);
+}
+
+function dispatchResponse(client, body) {
+  let resp;
+  try {
+    resp = decode(body);
+  } catch {
+    client._rejectPending("response was not valid MessagePack");
+    client._sock.destroy();
+    return false;
+  }
+  if (resp === null || typeof resp !== "object" || !Number.isSafeInteger(resp.id)) {
+    client._rejectPending("response is missing its correlation id");
+    client._sock.destroy();
+    return false;
+  }
+  const p = client._pending.get(resp.id);
+  if (!p) return true;
+  client._pending.delete(resp.id);
+  if (resp.error != null) {
+    p.reject(new Error(String(resp.error)));
+  } else {
+    let result = resp.result;
+    // Compact encoding: a top-level msgpack `bin` is a second Raw layer.
+    if (result instanceof Uint8Array) result = decode(result);
+    p.resolve(result);
+  }
+  return true;
+}
+
+function assertMultisigThreshold(signerKeys, threshold) {
+  if (
+    signerKeys === null ||
+    typeof signerKeys !== "object" ||
+    Array.isArray(signerKeys) ||
+    !Number.isInteger(threshold) ||
+    threshold <= 0 ||
+    Object.keys(signerKeys).length < threshold
+  ) {
+    throw new Error("threshold requires at least that many explicit signers");
+  }
 }
 
 export class EpistemicGraphThinClient {
@@ -197,16 +258,8 @@ export class EpistemicGraphThinClient {
     if (opts === null || typeof opts !== "object" || Array.isArray(opts)) {
       throw new TypeError("client options are required");
     }
-    this.socketPath =
-      opts.socketPath ||
-      (opts.host ? null : process.env.GRAPH_SERVICE_SOCKET || null);
-    this.host = opts.host || null;
-    this.port = opts.port || null;
-    this.authSecret = opts.authSecret ?? process.env.GRAPH_SERVICE_AUTH_SECRET ?? "";
-    if (typeof this.authSecret !== "string" || !this.authSecret) {
-      throw new Error("a non-empty authentication secret is required");
-    }
-    this.verifiedContext = validateRequestContext(opts.verifiedContext);
+    configureClientEndpoint(this, opts);
+    configureClientAuthority(this, opts);
     if (!this.socketPath && !this.host) {
       throw new Error("a configured socketPath or TCP host is required");
     }
@@ -250,30 +303,7 @@ export class EpistemicGraphThinClient {
       if (this._buf.length < 4 + len) break;
       const body = this._buf.subarray(4, 4 + len);
       this._buf = this._buf.subarray(4 + len);
-      let resp;
-      try {
-        resp = decode(body);
-      } catch {
-        this._rejectPending("response was not valid MessagePack");
-        this._sock.destroy();
-        return;
-      }
-      if (resp === null || typeof resp !== "object" || !Number.isSafeInteger(resp.id)) {
-        this._rejectPending("response is missing its correlation id");
-        this._sock.destroy();
-        return;
-      }
-      const p = this._pending.get(resp.id);
-      if (!p) continue;
-      this._pending.delete(resp.id);
-      if (resp.error != null) {
-        p.reject(new Error(String(resp.error)));
-      } else {
-        let result = resp.result;
-        // Compact encoding: a top-level msgpack `bin` is a second Raw layer.
-        if (result instanceof Uint8Array) result = decode(result);
-        p.resolve(result);
-      }
+      if (!dispatchResponse(this, body)) return;
     }
   }
 
@@ -455,16 +485,7 @@ export class EpistemicGraphThinClient {
   }
 
   applyMultisigMutation({ signerKeys, threshold, mutationType, query }) {
-    if (
-      signerKeys === null ||
-      typeof signerKeys !== "object" ||
-      Array.isArray(signerKeys) ||
-      !Number.isInteger(threshold) ||
-      threshold <= 0 ||
-      Object.keys(signerKeys).length < threshold
-    ) {
-      throw new Error("threshold requires at least that many explicit signers");
-    }
+    assertMultisigThreshold(signerKeys, threshold);
     if (
       typeof mutationType !== "string" ||
       !mutationType.trim() ||

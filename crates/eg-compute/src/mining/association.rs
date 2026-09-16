@@ -126,24 +126,45 @@ pub fn apriori(transactions: &[Vec<ItemId>], min_count: usize) -> Vec<FrequentIt
     // Normalize each transaction to a sorted, deduped item vec once.
     let txns: Vec<Vec<ItemId>> = transactions.iter().map(|t| sorted_unique(t)).collect();
 
-    let mut all: Vec<FrequentItemset> = Vec::new();
+    let Some((mut current, mut all)) = apriori_singletons(&txns, min_count, n) else {
+        return Vec::new();
+    };
 
-    // L1: singleton counts.
-    let mut counts: HashMap<ItemId, usize> = HashMap::new();
-    for t in &txns {
+    // Lk from L(k-1) until no frequent set remains.
+    while !current.is_empty() {
         if cancelled() {
             return Vec::new();
+        }
+        let Some((next, level)) = apriori_level(&txns, &current, min_count, n) else {
+            return Vec::new();
+        };
+        all.extend(level);
+        current = next;
+    }
+    all
+}
+
+fn apriori_singletons(
+    txns: &[Vec<ItemId>],
+    min_count: usize,
+    n: usize,
+) -> Option<(Vec<Vec<ItemId>>, Vec<FrequentItemset>)> {
+    let mut counts: HashMap<ItemId, usize> = HashMap::new();
+    for t in txns {
+        if cancelled() {
+            return None;
         }
         for &item in t {
             *counts.entry(item).or_insert(0) += 1;
         }
     }
-    let mut current: Vec<Vec<ItemId>> = Vec::new();
     let mut singletons: Vec<(ItemId, usize)> = counts
         .into_iter()
         .filter(|&(_, c)| c >= min_count)
         .collect();
     singletons.sort_unstable();
+    let mut current = Vec::with_capacity(singletons.len());
+    let mut all = Vec::with_capacity(singletons.len());
     for (item, count) in singletons {
         current.push(vec![item]);
         all.push(FrequentItemset {
@@ -152,32 +173,34 @@ pub fn apriori(transactions: &[Vec<ItemId>], min_count: usize) -> Vec<FrequentIt
             support: count as f64 / n as f64,
         });
     }
+    Some((current, all))
+}
 
-    // Lk from L(k-1) until no frequent set remains.
-    while !current.is_empty() {
+fn apriori_level(
+    txns: &[Vec<ItemId>],
+    current: &[Vec<ItemId>],
+    min_count: usize,
+    n: usize,
+) -> Option<(Vec<Vec<ItemId>>, Vec<FrequentItemset>)> {
+    let candidates = apriori_gen(current);
+    let mut next: Vec<Vec<ItemId>> = Vec::new();
+    let mut level: Vec<FrequentItemset> = Vec::new();
+    for cand in candidates {
         if cancelled() {
-            return Vec::new();
+            return None;
         }
-        let candidates = apriori_gen(&current);
-        let mut next: Vec<Vec<ItemId>> = Vec::new();
-        for cand in candidates {
-            if cancelled() {
-                return Vec::new();
-            }
-            let count = txns.iter().filter(|t| contains_sorted(t, &cand)).count();
-            if count >= min_count {
-                next.push(cand.clone());
-                all.push(FrequentItemset {
-                    items: cand,
-                    count,
-                    support: count as f64 / n as f64,
-                });
-            }
+        let count = txns.iter().filter(|t| contains_sorted(t, &cand)).count();
+        if count >= min_count {
+            next.push(cand.clone());
+            level.push(FrequentItemset {
+                items: cand,
+                count,
+                support: count as f64 / n as f64,
+            });
         }
-        next.sort_unstable();
-        current = next;
     }
-    all
+    next.sort_unstable();
+    Some((next, level))
 }
 
 /// Candidate generation: join two frequent (k-1)-itemsets that share their first
@@ -301,187 +324,18 @@ fn eclat_dfs(
 
 // ─────────────────────────── FP-Growth ───────────────────────────
 
-/// A node in the FP-tree.
-struct FpNode {
-    item: ItemId,
-    count: usize,
-    parent: Option<usize>,
-    children: HashMap<ItemId, usize>,
-}
+mod fp_growth;
 
-/// Frequent itemsets via FP-Growth (CONCEPT:EG-KG.mining.fpgrowth-prefix-tree): build a
-/// frequency-ordered prefix tree (FP-tree) of the transactions, then recursively
-/// mine conditional pattern bases — NO candidate generation. Deterministic.
-pub fn fpgrowth(transactions: &[Vec<ItemId>], min_count: usize) -> Vec<FrequentItemset> {
-    let n = transactions.len();
-
-    // Global item frequencies → keep only frequent items, ordered by descending
-    // count (ties broken by item id for determinism).
-    let mut freq: HashMap<ItemId, usize> = HashMap::new();
-    for t in transactions {
-        if cancelled() {
-            return Vec::new();
-        }
-        for &item in sorted_unique(t).iter() {
-            *freq.entry(item).or_insert(0) += 1;
-        }
-    }
-    let mut order: Vec<(ItemId, usize)> = freq
-        .iter()
-        .filter(|&(_, &c)| c >= min_count)
-        .map(|(&i, &c)| (i, c))
-        .collect();
-    order.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-    let rank: HashMap<ItemId, usize> = order
-        .iter()
-        .enumerate()
-        .map(|(r, &(item, _))| (item, r))
-        .collect();
-
-    // Project each transaction onto the frequent items in FP order.
-    let projected: Vec<Vec<ItemId>> = transactions
-        .iter()
-        .map(|t| {
-            let mut items: Vec<ItemId> = sorted_unique(t)
-                .into_iter()
-                .filter(|i| rank.contains_key(i))
-                .collect();
-            items.sort_by_key(|i| rank[i]);
-            items
-        })
-        .filter(|t| !t.is_empty())
-        .collect();
-
-    let mut out: Vec<FrequentItemset> = Vec::new();
-    fp_mine(&projected, &[], min_count, n, &mut out);
-    // Determinism: sort by length then items so the result set is stable across
-    // the (recursion-order-dependent) discovery sequence.
-    out.sort_by(|a, b| {
-        a.items
-            .len()
-            .cmp(&b.items.len())
-            .then(a.items.cmp(&b.items))
-    });
-    out
-}
-
-/// Mine the conditional FP-tree built from `txns` (each a frequency-ordered item
-/// path), emitting every frequent itemset that extends `suffix`.
-fn fp_mine(
-    txns: &[Vec<ItemId>],
-    suffix: &[ItemId],
-    min_count: usize,
-    n: usize,
-    out: &mut Vec<FrequentItemset>,
-) {
-    // Build the FP-tree (arena of nodes) + per-item node lists (header table).
-    let mut arena: Vec<FpNode> = vec![FpNode {
-        item: ItemId::MAX,
-        count: 0,
-        parent: None,
-        children: HashMap::new(),
-    }];
-    let mut header: HashMap<ItemId, Vec<usize>> = HashMap::new();
-    for path in txns {
-        if cancelled() {
-            return;
-        }
-        let mut cur = 0usize; // root
-        for &item in path {
-            let next = match arena[cur].children.get(&item) {
-                Some(&idx) => {
-                    arena[idx].count += 1;
-                    idx
-                }
-                None => {
-                    let idx = arena.len();
-                    arena.push(FpNode {
-                        item,
-                        count: 1,
-                        parent: Some(cur),
-                        children: HashMap::new(),
-                    });
-                    arena[cur].children.insert(item, idx);
-                    header.entry(item).or_default().push(idx);
-                    idx
-                }
-            };
-            cur = next;
-        }
-    }
-
-    // Per-item total counts in this (conditional) tree.
-    let mut item_counts: HashMap<ItemId, usize> = HashMap::new();
-    for (&item, nodes) in &header {
-        let c: usize = nodes.iter().map(|&idx| arena[idx].count).sum();
-        item_counts.insert(item, c);
-    }
-    // Process items in a deterministic order (ascending id).
-    let mut items: Vec<ItemId> = item_counts.keys().copied().collect();
-    items.sort_unstable();
-
-    for item in items {
-        if cancelled() {
-            return;
-        }
-        let count = item_counts[&item];
-        if count < min_count {
-            continue;
-        }
-        // Emit `suffix ∪ {item}` (stored sorted for a canonical key).
-        let mut pattern = suffix.to_vec();
-        pattern.push(item);
-        pattern.sort_unstable();
-        out.push(FrequentItemset {
-            items: pattern.clone(),
-            count,
-            support: count as f64 / n as f64,
-        });
-
-        // Conditional pattern base: for each node of `item`, the prefix path
-        // (root→parent) repeated `node.count` times.
-        let mut cond_txns: Vec<Vec<ItemId>> = Vec::new();
-        for &leaf in &header[&item] {
-            if cancelled() {
-                return;
-            }
-            let mut path: Vec<ItemId> = Vec::new();
-            let mut p = arena[leaf].parent;
-            while let Some(idx) = p {
-                if arena[idx].item != ItemId::MAX {
-                    path.push(arena[idx].item);
-                }
-                p = arena[idx].parent;
-            }
-            path.reverse(); // root→leaf order (FP order preserved)
-            let c = arena[leaf].count;
-            for _ in 0..c {
-                cond_txns.push(path.clone());
-            }
-        }
-        if !cond_txns.is_empty() {
-            // New suffix = current pattern (unsorted-suffix order is irrelevant; we
-            // re-sort on emit above).
-            let mut new_suffix = suffix.to_vec();
-            new_suffix.push(item);
-            fp_mine(&cond_txns, &new_suffix, min_count, n, out);
-        }
-    }
-}
+pub use fp_growth::fpgrowth;
 
 // ─────────────────────────── Rule generation ───────────────────────────
 
-/// Generate association rules from the frequent itemsets. For every frequent
-/// itemset of size ≥ 2 and every non-empty PROPER subset used as the antecedent,
-/// emit the rule if its confidence ≥ `min_confidence`. Support of any subset is
-/// looked up from the (downward-closed) frequent-itemset map.
-pub fn generate_rules(itemsets: &[FrequentItemset], min_confidence: f64) -> Vec<Rule> {
-    // Canonical (sorted) key → count, for support lookups of any subset.
+fn support_index(itemsets: &[FrequentItemset]) -> Option<(HashMap<Vec<ItemId>, usize>, usize)> {
     let mut support: HashMap<Vec<ItemId>, usize> = HashMap::new();
     let mut n_est = 0usize;
     for fi in itemsets {
         if cancelled() {
-            return Vec::new();
+            return None;
         }
         support.insert(fi.items.clone(), fi.count);
         // Recover the transaction count from any singleton (count / support).
@@ -489,57 +343,95 @@ pub fn generate_rules(itemsets: &[FrequentItemset], min_confidence: f64) -> Vec<
             n_est = (fi.count as f64 / fi.support).round() as usize;
         }
     }
-    let n = n_est.max(1);
+    Some((support, n_est.max(1)))
+}
+
+fn rule_parts(items: &[ItemId], mask: u32) -> (Vec<ItemId>, Vec<ItemId>) {
+    let mut antecedent: Vec<ItemId> = Vec::new();
+    let mut consequent: Vec<ItemId> = Vec::new();
+    for (bit, &item) in items.iter().enumerate() {
+        if mask & (1 << bit) != 0 {
+            antecedent.push(item);
+        } else {
+            consequent.push(item);
+        }
+    }
+    (antecedent, consequent)
+}
+
+fn rule_for_mask(
+    itemset: &FrequentItemset,
+    mask: u32,
+    support: &HashMap<Vec<ItemId>, usize>,
+    n: usize,
+    min_confidence: f64,
+) -> Option<Rule> {
+    let (antecedent, consequent) = rule_parts(&itemset.items, mask);
+    let Some(&a_count) = support.get(&antecedent) else {
+        return None;
+    };
+    let Some(&c_count) = support.get(&consequent) else {
+        return None;
+    };
+    let confidence = itemset.count as f64 / a_count as f64;
+    if confidence + 1e-12 < min_confidence {
+        return None;
+    }
+    let consequent_support = c_count as f64 / n as f64;
+    let lift = if consequent_support > 0.0 {
+        confidence / consequent_support
+    } else {
+        0.0
+    };
+    Some(Rule {
+        antecedent,
+        consequent,
+        support: itemset.count as f64 / n as f64,
+        confidence,
+        lift,
+    })
+}
+
+fn rules_for_itemset(
+    itemset: &FrequentItemset,
+    support: &HashMap<Vec<ItemId>, usize>,
+    n: usize,
+    min_confidence: f64,
+) -> Option<Vec<Rule>> {
+    if itemset.items.len() < 2 {
+        return Some(Vec::new());
+    }
+    let k = itemset.items.len();
+    let mut rules = Vec::new();
+    for mask in 1u32..((1u32 << k) - 1) {
+        if cancelled() {
+            return None;
+        }
+        if let Some(rule) = rule_for_mask(itemset, mask, support, n, min_confidence) {
+            rules.push(rule);
+        }
+    }
+    Some(rules)
+}
+
+/// Generate association rules from the frequent itemsets. For every frequent
+/// itemset of size ≥ 2 and every non-empty PROPER subset used as the antecedent,
+/// emit the rule if its confidence ≥ `min_confidence`. Support of any subset is
+/// looked up from the (downward-closed) frequent-itemset map.
+pub fn generate_rules(itemsets: &[FrequentItemset], min_confidence: f64) -> Vec<Rule> {
+    let Some((support, n)) = support_index(itemsets) else {
+        return Vec::new();
+    };
 
     let mut rules: Vec<Rule> = Vec::new();
     for fi in itemsets {
         if cancelled() {
             return Vec::new();
         }
-        if fi.items.len() < 2 {
-            continue;
-        }
-        let full = fi.count;
-        // Enumerate every non-empty proper subset as the antecedent (bitmask over
-        // the itemset's items — itemsets are small, so 2^k is fine).
-        let k = fi.items.len();
-        for mask in 1u32..((1u32 << k) - 1) {
-            if cancelled() {
-                return Vec::new();
-            }
-            let mut antecedent: Vec<ItemId> = Vec::new();
-            let mut consequent: Vec<ItemId> = Vec::new();
-            for (bit, &item) in fi.items.iter().enumerate() {
-                if mask & (1 << bit) != 0 {
-                    antecedent.push(item);
-                } else {
-                    consequent.push(item);
-                }
-            }
-            let Some(&a_count) = support.get(&antecedent) else {
-                continue;
-            };
-            let Some(&c_count) = support.get(&consequent) else {
-                continue;
-            };
-            let confidence = full as f64 / a_count as f64;
-            if confidence + 1e-12 < min_confidence {
-                continue;
-            }
-            let consequent_support = c_count as f64 / n as f64;
-            let lift = if consequent_support > 0.0 {
-                confidence / consequent_support
-            } else {
-                0.0
-            };
-            rules.push(Rule {
-                antecedent,
-                consequent,
-                support: full as f64 / n as f64,
-                confidence,
-                lift,
-            });
-        }
+        let Some(item_rules) = rules_for_itemset(fi, &support, n, min_confidence) else {
+            return Vec::new();
+        };
+        rules.extend(item_rules);
     }
     // Stable, useful ordering: by descending confidence, then lift, then support.
     rules.sort_by(|a, b| {
@@ -822,6 +714,40 @@ mod tests {
             assert_eq!(a, f, "fp-growth diverged at min_count {mc}");
             assert_eq!(a, e, "eclat diverged at min_count {mc}");
         }
+    }
+
+    #[test]
+    fn engines_normalize_duplicates_and_empty_baskets() {
+        let txns = vec![vec![0, 0, 1], vec![0, 2], vec![], vec![1]];
+        let expected = vec![
+            (vec![0], 2),
+            (vec![0, 1], 1),
+            (vec![0, 2], 1),
+            (vec![1], 2),
+            (vec![2], 1),
+        ];
+        let canonical = |mut sets: Vec<FrequentItemset>| {
+            sets.sort_by(|a, b| a.items.cmp(&b.items));
+            sets
+        };
+        let engines = [
+            canonical(mine(&txns, 0.25, 0.0, Algorithm::Apriori).0),
+            canonical(mine(&txns, 0.25, 0.0, Algorithm::FpGrowth).0),
+            canonical(mine(&txns, 0.25, 0.0, Algorithm::Eclat).0),
+        ];
+        for sets in &engines {
+            assert_eq!(
+                sets.iter()
+                    .map(|set| (set.items.clone(), set.count))
+                    .collect::<Vec<_>>(),
+                expected
+            );
+            for set in sets {
+                assert_eq!(set.support, set.count as f64 / txns.len() as f64);
+            }
+        }
+        assert_eq!(engines[0], engines[1]);
+        assert_eq!(engines[0], engines[2]);
     }
 
     #[test]

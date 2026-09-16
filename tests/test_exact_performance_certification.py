@@ -372,17 +372,41 @@ def test_evaluator_emits_digest_bound_evidence_for_all_54_rows() -> None:
     )
 
 
-def test_exact_binary_probe_source_covers_manifest_inventory() -> None:
-    harness = _load_harness()
-    contracts = harness._load_scenario_contracts(harness.DEFAULT_SCENARIOS)
-    main_source = (ROOT / "src" / "main.rs").read_text(encoding="utf-8")
+@pytest.fixture(scope="module")
+def compiled_probe_sources() -> tuple[str, dict[str, str]]:
     probe_source = (ROOT / "src" / "performance_probe.rs").read_text(encoding="utf-8")
+    probe_modules = re.findall(r"^mod ([a-z_]+);$", probe_source, flags=re.MULTILINE)
+    assert "contract" in probe_modules
+    module_sources = {
+        name: (ROOT / "src" / "performance_probe" / f"{name}.rs").read_text(
+            encoding="utf-8"
+        )
+        for name in probe_modules
+    }
+    return probe_source, module_sources
 
+
+def test_exact_binary_probe_entrypoint_uses_declared_contract_owner(
+    compiled_probe_sources: tuple[str, dict[str, str]],
+) -> None:
+    probe_source, _module_sources = compiled_probe_sources
+    main_source = (ROOT / "src" / "main.rs").read_text(encoding="utf-8")
     assert "mod performance_probe;" in main_source
     assert "exact_performance_probe" in main_source
     assert "performance_probe::run_stdio(root)?" in main_source
-    scenario_source = probe_source.split("fn scenario_contract", 1)[1].split(
-        "fn timed", 1
+    assert "contract::scenario_contract(&request.scenario_id)" in probe_source
+    assert "contract::probe_row(" in probe_source
+
+
+def test_exact_binary_probe_source_covers_manifest_inventory(
+    compiled_probe_sources: tuple[str, dict[str, str]],
+) -> None:
+    harness = _load_harness()
+    contracts = harness._load_scenario_contracts(harness.DEFAULT_SCENARIOS)
+    _probe_source, module_sources = compiled_probe_sources
+    contract_source = module_sources["contract"]
+    scenario_source = contract_source.split("fn scenario_contract", 1)[1].split(
+        "fn probe_row", 1
     )[0]
     scenarios = contracts.manifest["scenarios"]
     scenario_offsets = [
@@ -390,8 +414,8 @@ def test_exact_binary_probe_source_covers_manifest_inventory() -> None:
     ]
     assert scenario_offsets == sorted(scenario_offsets)
     for ordinal, scenario in enumerate(scenarios):
-        assert f'"{scenario["scenario_id"]}"' in probe_source
-        assert f'"{scenario["driver"]}"' in probe_source
+        assert f'"{scenario["scenario_id"]}"' in contract_source
+        assert f'"{scenario["driver"]}"' in contract_source
         end = (
             scenario_offsets[ordinal + 1]
             if ordinal + 1 < len(scenario_offsets)
@@ -402,14 +426,19 @@ def test_exact_binary_probe_source_covers_manifest_inventory() -> None:
         assert re.findall(r'"(G37-HP-[0-9]{3})"', scenario_arm) == [
             row["row_id"] for row in scenario["rows"]
         ]
-        for row in scenario["rows"]:
-            assert f'"{row["row_id"]}"' in probe_source
-            for check in row["equivalence_checks"]:
-                assert f'"{check}"' in probe_source
 
-    equivalence_source = probe_source.split("fn row_equivalence_contract", 1)[1].split(
-        "fn scenario_contract", 1
-    )[0]
+
+def test_exact_binary_probe_equivalence_checks_match_manifest(
+    compiled_probe_sources: tuple[str, dict[str, str]],
+) -> None:
+    harness = _load_harness()
+    contracts = harness._load_scenario_contracts(harness.DEFAULT_SCENARIOS)
+    _probe_source, module_sources = compiled_probe_sources
+    equivalence_source = (
+        module_sources["contract"]
+        .split("fn row_equivalence_contract", 1)[1]
+        .split("fn scenario_contract", 1)[0]
+    )
     equivalence_arms = {
         row_id: re.findall(r'"([a-z][a-z0-9_]+)"', body)
         for row_id, body in re.findall(
@@ -419,17 +448,22 @@ def test_exact_binary_probe_source_covers_manifest_inventory() -> None:
         )
     }
     assert set(equivalence_arms) == set(contracts.ledger_rows)
-    for scenario in scenarios:
+    for scenario in contracts.manifest["scenarios"]:
         for row in scenario["rows"]:
             assert equivalence_arms[row["row_id"]] == row["equivalence_checks"]
 
-    dispatch_source = probe_source.split("fn probe_row", 1)[1].split(
-        "struct ProbeDocument", 1
-    )[0]
+
+def test_exact_binary_probe_dispatch_covers_manifest_inventory(
+    compiled_probe_sources: tuple[str, dict[str, str]],
+) -> None:
+    harness = _load_harness()
+    contracts = harness._load_scenario_contracts(harness.DEFAULT_SCENARIOS)
+    probe_source, module_sources = compiled_probe_sources
+    dispatch_source = module_sources["contract"].split("fn probe_row", 1)[1]
     dispatched_rows = re.findall(r'"(G37-HP-[0-9]{3})"', dispatch_source)
     assert len(dispatched_rows) == len(set(dispatched_rows)) == 54
     assert set(dispatched_rows) == set(contracts.ledger_rows)
-
+    compiled_probe_source = "\n".join([probe_source, *module_sources.values()])
     for required_real_surface in (
         "ServedModalityRuntime",
         "JobStore",
@@ -447,4 +481,4 @@ def test_exact_binary_probe_source_covers_manifest_inventory() -> None:
         "ChangeNotifier",
         "exact_performance_probe_edge_ordinal",
     ):
-        assert required_real_surface in probe_source
+        assert required_real_surface in compiled_probe_source

@@ -234,13 +234,14 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-  # Whole-tree scanner profile.  Findings are intentionally advisory census
-  # numbers (there is no checked-in baseline); missing tools, version drift,
-  # parse errors, and scanner/config failures remain hard environment errors.
+  # Whole-tree scanner profile.  Exact coverage and a zero actionable backlog
+  # are required at pre-push/manual publication boundaries; there is no
+  # checked-in baseline.  Missing tools, version drift, parse errors, and
+  # scanner/config failures remain hard environment errors.
   # The explicit git ls-files universe keeps ignored/untracked build output out
   # while ensuring a census does not accidentally scan only a convenient dir.
   - id: cccc-census
-    name: CCCC — tracked source census, split accepted-by-rule vs backlog (advisory; no baseline)
+    name: CCCC — tracked source census, exact coverage and zero actionable backlog (no baseline)
     entry: |-
       bash -c '
       set -euo pipefail
@@ -250,13 +251,18 @@ repos:
       got="$("$cccc_bin" --version 2>/dev/null)" || { echo "cccc census: cccc --version failed" >&2; exit 2; }
       [ "$got" = "cccc $expected" ] || { echo "cccc census: expected cccc $expected, got $got" >&2; exit 2; }
       report="$(mktemp "${TMPDIR:-/tmp}/eg-cccc-census.XXXXXX.json")"
-      trap "rm -f \"$report\"" EXIT
-      mapfile -d "" files < <(python3 scripts/list_scanner_sources.py cccc)
+      manifest="$(mktemp "${TMPDIR:-/tmp}/eg-cccc-sources.XXXXXX.nul")"
+      trap "rm -f \"$report\" \"$manifest\"" EXIT
+      if ! python3 scripts/list_scanner_sources.py cccc > "$manifest"; then
+        echo "cccc census: source manifest generation failed" >&2
+        exit 2
+      fi
+      mapfile -d "" files < "$manifest" || { echo "cccc census: malformed source manifest" >&2; exit 2; }
       [ "${#files[@]}" -gt 0 ] || { echo "cccc census: no tracked CCCC-supported source files" >&2; exit 2; }
       languages="$(PYTHONPATH=scripts python3 -c "from scanner_contract import cccc_languages_arg; print(cccc_languages_arg())")" || { echo "cccc census: invalid language registry" >&2; exit 2; }
       "$cccc_bin" --no-config --min 0 --lang "$languages" "${files[@]}" > "$report"
-      python3 scripts/validate_cccc_census.py "$report"
-      python3 scripts/report_complexity_terms.py "$report"
+      python3 scripts/validate_cccc_census.py "$report" --source-manifest "$manifest"
+      python3 scripts/report_complexity_terms.py "$report" --require-zero
       '
     language: system
     pass_filenames: false

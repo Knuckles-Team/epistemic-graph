@@ -88,6 +88,9 @@ def test_precommit_has_staged_differential_census_and_architecture_profiles():
     assert hooks["cccc-census"]["stages"] == ["pre-push", "manual"]
     assert hooks["kiss-census"]["stages"] == ["pre-push", "manual"]
     assert "validate_cccc_census.py" in hooks["cccc-census"]["entry"]
+    assert "--source-manifest" in hooks["cccc-census"]["entry"]
+    assert "--require-zero" in hooks["cccc-census"]["entry"]
+    assert "list_scanner_sources.py cccc >" in hooks["cccc-census"]["entry"]
     for hook_id in (
         "import-linter-architecture",
         "dependency-cruiser-architecture",
@@ -157,6 +160,8 @@ def test_release_scanner_job_is_full_history_blocking_and_pinned():
         "check_duplication.py enforce --base-ref",
         "check_duplication.py census",
         "validate_cccc_census.py",
+        "--source-manifest",
+        "--require-zero",
         "cccc --no-config --min 0",
         "kiss check --config .kiss/kiss.toml --lang rust",
         "lint-imports --config .importlinter --no-cache",
@@ -165,6 +170,8 @@ def test_release_scanner_job_is_full_history_blocking_and_pinned():
     ):
         assert command in all_runs, f"scanner-quality is missing {command!r}"
     assert "arch-lint check" not in all_runs
+    assert "Upload CCCC census evidence" in workflow_source
+    assert "epistemic-graph-cccc-stderr.txt" in workflow_source
     assert (
         _hooks()["rust-arch-lint"]["entry"] == "python3 scripts/check_rust_arch_lint.py"
     )

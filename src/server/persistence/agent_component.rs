@@ -34,7 +34,7 @@ use eg_types::agent_component::{
     AgentComponentStatusRequest, AGENT_COMPONENT_SCHEMA_VERSION,
 };
 use eg_types::agent_library::{AgentLibraryLifecycle, AgentLibraryMutationContext};
-use eg_types::mutation::MutationResult;
+use eg_types::mutation::{MutationReceipt, MutationResult};
 use eg_types::mutation_batch::{
     BatchContent, CompiledEnvelope, CompiledOperation, CompiledScope, DurabilityDomain,
     MutationBatch, MutationEnvelope, MutationOperation, MutationOutboxIntent, MutationSurface,
@@ -45,8 +45,10 @@ use eg_types::protocol::Method;
 use super::agent_library::{
     admitted_context, agent_library_operation_identity, batch_id,
     effective_agent_library_policy_digest, next_revision, owner_receipt, require_expected_revision,
-    resolve_nonce_first, validate_context, AgentLibraryStore,
+    resolve_nonce_first, validate_context, AgentLibraryStore, OwnerReceiptInput,
 };
+mod pins;
+mod write;
 
 const AGENT_COMPONENT_OUTBOX_TOPIC: &str = "eg.agent-component.revision.v1";
 const AGENT_COMPONENT_RESULT_SCHEMA_ID: &str = "agent-component-result.v1";
@@ -101,226 +103,6 @@ pub struct AgentComponentWriteResult {
 }
 
 impl AgentLibraryStore {
-    /// Publish the next graph revision.
-    pub fn publish_component(
-        &self,
-        request: AgentComponentPublishRequest,
-    ) -> Result<AgentComponentWriteResult, String> {
-        validate_context(self, &request.context)?;
-        request.component.validate()?;
-        if request.context.tenant_id != request.component.tenant_id {
-            return Err(
-                "agent component publish context tenant does not match the graph's tenant"
-                    .to_string(),
-            );
-        }
-        let expected_revision = request.context.expected_revision.ok_or_else(|| {
-            "agent component writes require an explicit expected_revision".to_string()
-        })?;
-        let owner = self.scope_handle(&request.context.tenant_id)?;
-        let txn = self.mutations.open_write(&owner)?;
-
-        // Every early return past this point must abort the transaction: an
-        // open write that is neither committed nor aborted holds the owner's
-        // write lock for the life of the process.
-        let nonce = match resolve_nonce_first(&self.mutations, &txn, &request.context) {
-            Ok(nonce) => nonce,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let next = match next_revision(expected_revision) {
-            Ok(next) => next,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let replay_context = match admitted_context(&request.context, "agent-component:publish") {
-            Ok(context) => context,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let operation = match agent_library_operation_identity(
-            &owner,
-            &replay_context,
-            "component-publish",
-            &request.component.component_id,
-            expected_revision,
-            Some(&request.component.content_digest),
-        ) {
-            Ok(operation) => operation,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let replay = match self.mutations.resolve_replay(&txn, &operation, &nonce) {
-            Ok(replay) => replay,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        if let Some(result) = match replayed_component(replay, &request.component.component_id) {
-            Ok(replayed) => replayed,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        } {
-            self.mutations.commit_replay_receipt(txn)?;
-            return Ok(result);
-        }
-
-        // L1 -> L1: a component's own `requires` are pinned references too, and
-        // the same argument applies -- resolution is by (id, kind, digest)
-        // alone, so an unresolved pin is a claim nothing checks. The MCP server
-        // an ingested tool/prompt/resource is provenanced to is the SAME kind
-        // of pin and is resolved in the same pass: `pinned_components()` is the
-        // one list, so a second pin set cannot be forgotten here.
-        //
-        // The reference graph stays acyclic for the reason the module header
-        // gives: a dependency can only pin a digest that already exists.
-        // Resolution does not need a cycle check, it needs to prove the pin is
-        // real.
-        if let Err(error) = self.resolve_component_pins_in_write(
-            &txn,
-            &request.context.tenant_id,
-            "agent component",
-            &request.component.pinned_components(),
-        ) {
-            txn.abort()?;
-            return Err(error);
-        }
-
-        let entry = match AgentComponentEntry::create(
-            request.component,
-            next,
-            AgentLibraryLifecycle::Published,
-            replay_context.created_at_ms,
-            replay_context.created_at_ms,
-        ) {
-            Ok(entry) => entry,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        self.commit_component_in_write(
-            txn,
-            &owner,
-            &replay_context,
-            expected_revision,
-            AgentComponentMutationKind::Publish,
-            entry,
-            &operation,
-            &nonce,
-        )
-    }
-
-    /// Retain the current graph revision as a durable tombstone.
-    pub fn retire_component(
-        &self,
-        request: AgentComponentRetireRequest,
-    ) -> Result<AgentComponentWriteResult, String> {
-        validate_context(self, &request.context)?;
-        let expected_revision = request.context.expected_revision.ok_or_else(|| {
-            "agent component writes require an explicit expected_revision".to_string()
-        })?;
-        let owner = self.scope_handle(&request.context.tenant_id)?;
-        let txn = self.mutations.open_write(&owner)?;
-        let nonce = match resolve_nonce_first(&self.mutations, &txn, &request.context) {
-            Ok(nonce) => nonce,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let next = match next_revision(expected_revision) {
-            Ok(next) => next,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let replay_context = match admitted_context(&request.context, "agent-component:retire") {
-            Ok(context) => context,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let operation = match agent_library_operation_identity(
-            &owner,
-            &replay_context,
-            "component-retire",
-            &request.component_id,
-            expected_revision,
-            None,
-        ) {
-            Ok(operation) => operation,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let replay = match self.mutations.resolve_replay(&txn, &operation, &nonce) {
-            Ok(replay) => replay,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        if let Some(result) = match replayed_component(replay, &request.component_id) {
-            Ok(replayed) => replayed,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        } {
-            self.mutations.commit_replay_receipt(txn)?;
-            return Ok(result);
-        }
-
-        let current = match self.component_at_revision_in_write(
-            &txn,
-            &request.context.tenant_id,
-            &request.component_id,
-            expected_revision,
-        ) {
-            Ok(Some(current)) => current,
-            Ok(None) => {
-                txn.abort()?;
-                return Err("agent component has no revision to retire".to_string());
-            }
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let tombstone = match current.retire(next, replay_context.created_at_ms) {
-            Ok(tombstone) => tombstone,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        self.commit_component_in_write(
-            txn,
-            &owner,
-            &replay_context,
-            expected_revision,
-            AgentComponentMutationKind::Retire,
-            tombstone,
-            &operation,
-            &nonce,
-        )
-    }
-
     /// The head revision of one graph, or `None` if it was never published.
     pub fn current_component(
         &self,
@@ -407,420 +189,85 @@ impl AgentLibraryStore {
         request: &eg_types::agent_component::AgentComponentSearchRequest,
     ) -> Result<eg_types::agent_component::AgentComponentSearchPage, String> {
         request.validate()?;
-        let resume_after = match &request.cursor {
-            Some(cursor) => Some(eg_types::agent_component::decode_search_cursor(
-                &request.tenant_id,
-                cursor,
-            )?),
-            None => None,
-        };
-        let limit = request.page_limit();
-        let read = self.read()?;
-        let heads = read.open_owner_table(eg_storage::AGENT_COMPONENT_HEADS)?;
-        let revisions = read.open_owner_table(eg_storage::AGENT_COMPONENT_REVISIONS)?;
-        let mut matched = Vec::new();
-        let mut scanned = 0usize;
-        let mut bytes = 0usize;
-        // The last row this page CONSUMED, so the cursor always resumes
-        // strictly after a row the caller has already been shown. Every bound
-        // is therefore checked BEFORE a row is consumed, never after.
-        let mut last_consumed: Option<String> = None;
-        let mut truncated = false;
-        // A cursor only supplies the component half of the key; the tenant half
-        // is always the request's, so paging cannot walk out of the tenant
-        // prefix no matter what a caller hands back.
-        let start = resume_after.as_deref().unwrap_or("");
-        for row in heads
-            .range((request.tenant_id.as_str(), start)..)
-            .map_err(|error| error.to_string())?
-        {
-            let (key, head_revision) = row.map_err(|error| error.to_string())?;
-            let (row_tenant, component_id) = key.value();
-            // `range_from` is open-ended: without this the scan walks into the
-            // NEXT tenant's components and would return them.
-            if row_tenant != request.tenant_id {
-                break;
-            }
-            // The cursor is EXCLUSIVE; the range start is inclusive.
-            if resume_after.as_deref() == Some(component_id) {
-                continue;
-            }
-            if matched.len() >= limit
-                || scanned >= MAX_AGENT_COMPONENT_SEARCH_SCAN
-                || (scanned > 0 && bytes >= MAX_AGENT_COMPONENT_SEARCH_BYTES)
-            {
-                truncated = true;
-                break;
-            }
-            scanned += 1;
-            let Some(value) = revisions
-                .get((row_tenant, component_id, head_revision.value()))
-                .map_err(|error| error.to_string())?
-            else {
-                return Err("agent component head points to a missing revision".to_string());
-            };
-            bytes = bytes.saturating_add(value.value().len());
-            let entry = decode_component(value.value())?;
-            if request.matches(&entry) {
-                matched.push(entry);
-            }
-            last_consumed = Some(component_id.to_string());
-        }
-        let next_cursor = if truncated {
-            last_consumed.map(|component_id| {
-                eg_types::agent_component::encode_search_cursor(&request.tenant_id, &component_id)
+        let resume_after = request
+            .cursor
+            .as_deref()
+            .map(|cursor| {
+                eg_types::agent_component::decode_search_cursor(&request.tenant_id, cursor)
             })
-        } else {
-            None
-        };
-        Ok(eg_types::agent_component::AgentComponentSearchPage {
-            entries: matched,
-            next_cursor,
-        })
+            .transpose()?;
+        let read = self.read()?;
+        scan_component_search_page(&read, request, resume_after.as_deref())
     }
+}
 
-    /// Resolve every pinned L1 component reference, inside the write
-    /// transaction that is admitting the record which pins them.
-    ///
-    /// # Why this exists
-    ///
-    /// A pinned reference is resolved by `(component_id, kind,
-    /// definition_digest)` alone. Without this, a caller who merely KNOWS a
-    /// digest -- or invents 64 hex characters -- publishes a record claiming a
-    /// component it was never granted, and every downstream reader is told the
-    /// claim is legitimate. RF-ADR-008 gives exactly that justification for the
-    /// one edge it originally built (graph composition); it applies verbatim
-    /// here, and without it L1 has no production reader at all: the layer whose
-    /// purpose is to make "which agents use this tool?" a traversal is
-    /// write-only.
-    ///
-    /// # Why INSIDE the transaction
-    ///
-    /// Same reason `validate_composition` resolves inside the graph publish
-    /// txn: resolving from a separate read could admit a record whose
-    /// dependency was retired between the two reads.
-    ///
-    /// # What is checked, per pin
-    ///
-    /// It must exist in THIS tenant; its kind must be the kind the pin names
-    /// (and local validation has already checked that kind against the slot);
-    /// a retained revision must carry the exact pinned `definition_digest`; and
-    /// the component's HEAD must not be retired -- a retired component stays
-    /// RESOLVABLE, so records that already pin it keep working, but nothing new
-    /// may be built on something withdrawn. That is the same
-    /// retained-but-not-buildable rule composition already applies to graphs.
-    pub(super) fn resolve_component_pins_in_write(
-        &self,
-        write: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
-        tenant_id: &str,
-        subject: &str,
-        pins: &[&eg_types::agent_component::ComponentDependency],
-    ) -> Result<(), String> {
-        // Deduplicated: an agent that pins the same prompt component from two
-        // slots should cost one lookup, not two, and the fan-out bound should
-        // count what is actually resolved.
-        let mut distinct: std::collections::BTreeSet<(&str, &str, &str)> =
-            std::collections::BTreeSet::new();
-        for pin in pins {
-            distinct.insert((
-                pin.component_id.as_str(),
-                pin.kind.as_str(),
-                pin.definition_digest.as_str(),
-            ));
+fn scan_component_search_page(
+    read: &ScopedRead<'_, eg_storage::AgentLibraryOwner>,
+    request: &eg_types::agent_component::AgentComponentSearchRequest,
+    resume_after: Option<&str>,
+) -> Result<eg_types::agent_component::AgentComponentSearchPage, String> {
+    let limit = request.page_limit();
+    let heads = read.open_owner_table(eg_storage::AGENT_COMPONENT_HEADS)?;
+    let revisions = read.open_owner_table(eg_storage::AGENT_COMPONENT_REVISIONS)?;
+    let mut matched = Vec::new();
+    let mut scanned = 0usize;
+    let mut bytes = 0usize;
+    // The last row this page CONSUMED, so the cursor always resumes strictly
+    // after a row the caller has already been shown. Every bound is therefore
+    // checked BEFORE a row is consumed, never after.
+    let mut last_consumed: Option<String> = None;
+    let mut truncated = false;
+    // A cursor only supplies the component half of the key; the tenant half is
+    // always the request's, so paging cannot walk out of the tenant prefix no
+    // matter what a caller hands back.
+    let start = resume_after.unwrap_or("");
+    for row in heads
+        .range((request.tenant_id.as_str(), start)..)
+        .map_err(|error| error.to_string())?
+    {
+        let (key, head_revision) = row.map_err(|error| error.to_string())?;
+        let (row_tenant, component_id) = key.value();
+        // `range_from` is open-ended: without this the scan walks into the
+        // NEXT tenant's components and would return them.
+        if row_tenant != request.tenant_id {
+            break;
         }
-        if distinct.len() > MAX_RESOLVED_COMPONENT_PINS {
-            return Err(format!(
-                "{subject} pins more than {MAX_RESOLVED_COMPONENT_PINS} distinct components"
-            ));
+        // The cursor is EXCLUSIVE; the range start is inclusive.
+        if resume_after == Some(component_id) {
+            continue;
         }
-        let heads = write.open_read_table(eg_storage::AGENT_COMPONENT_HEADS)?;
-        let revisions = write.open_read_table(eg_storage::AGENT_COMPONENT_REVISIONS)?;
-        let mut rows = 0usize;
-        for (component_id, kind, definition_digest) in distinct {
-            let Some(head_revision) = heads.get((tenant_id, component_id))?.map(|v| v.value())
-            else {
-                return Err(format!(
-                    "{subject} pins component '{component_id}', which does not exist in this tenant"
-                ));
-            };
-            rows += 1;
-            let head = revisions
-                .get((tenant_id, component_id, head_revision))?
-                .ok_or_else(|| "agent component head points to a missing revision".to_string())?;
-            let head = decode_component(head.value())?;
-            if head.lifecycle == AgentLibraryLifecycle::Retired {
-                return Err(format!(
-                    "{subject} pins component '{component_id}', which is retired"
-                ));
-            }
-            // The HEAD first: the overwhelmingly common pin is the current
-            // revision, and hitting it turns the whole resolution into one read.
-            //
-            // The fallback scan reuses the table handle opened above rather than
-            // opening its own: redb refuses a second open of the same table
-            // while the first handle is alive, so a helper that opened it again
-            // turned every non-HEAD pin into a transaction error.
-            let resolved = if head.definition_digest == definition_digest {
-                Some(head)
-            } else {
-                let mut found = None;
-                let mut scanned = 0usize;
-                for row in revisions.range_from((tenant_id, component_id, 0))? {
-                    let (key, value) = row.map_err(|error| error.to_string())?;
-                    let (row_tenant, row_component, _) = key.value();
-                    // `range_from` is open-ended, so the prefix has to be
-                    // re-checked per row: without the break this walks into the
-                    // NEXT component's revisions and could resolve a digest
-                    // belonging to a different one.
-                    if row_tenant != tenant_id || row_component != component_id {
-                        break;
-                    }
-                    scanned += 1;
-                    rows += 1;
-                    if scanned > MAX_AGENT_COMPONENT_REVISIONS {
-                        return Err(
-                            "agent component history exceeds its retained revision bound"
-                                .to_string(),
-                        );
-                    }
-                    if rows > MAX_COMPONENT_PIN_RESOLUTION_ROWS {
-                        return Err(format!(
-                            "{subject} reference resolution exceeds its \
-                             {MAX_COMPONENT_PIN_RESOLUTION_ROWS}-row bound"
-                        ));
-                    }
-                    let entry = decode_component(value.value())?;
-                    if entry.definition_digest == definition_digest {
-                        found = Some(entry);
-                        break;
-                    }
-                }
-                found
-            };
-            let Some(resolved) = resolved else {
-                return Err(format!(
-                    "{subject} pins a revision of component '{component_id}' that was never \
-                     published: no retained revision matches the pinned definition digest"
-                ));
-            };
-            // Belt and braces against a row that does not match its physical
-            // key: the scan is already tenant-prefixed.
-            if resolved.tenant_id != tenant_id {
-                return Err(format!(
-                    "{subject} pins component '{component_id}', which belongs to another tenant"
-                ));
-            }
-            if resolved.kind.as_str() != kind {
-                return Err(format!(
-                    "{subject} pins component '{component_id}' as a {kind}, but it is a {}",
-                    resolved.kind.as_str()
-                ));
-            }
-            if rows > MAX_COMPONENT_PIN_RESOLUTION_ROWS {
-                return Err(format!(
-                    "{subject} reference resolution exceeds its {MAX_COMPONENT_PIN_RESOLUTION_ROWS}\
-                     -row bound"
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    fn component_at_revision_in_write(
-        &self,
-        write: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
-        tenant_id: &str,
-        component_id: &str,
-        revision: u64,
-    ) -> Result<Option<AgentComponentEntry>, String> {
-        if revision == 0 {
-            return Ok(None);
-        }
-        let revisions = write.open_read_table(eg_storage::AGENT_COMPONENT_REVISIONS)?;
-        let Some(value) = revisions.get((tenant_id, component_id, revision))? else {
-            return Ok(None);
-        };
-        let entry = decode_component(value.value())?;
-        if entry.tenant_id != tenant_id
-            || entry.component_id != component_id
-            || entry.entry_revision != revision
+        if matched.len() >= limit
+            || scanned >= MAX_AGENT_COMPONENT_SEARCH_SCAN
+            || (scanned > 0 && bytes >= MAX_AGENT_COMPONENT_SEARCH_BYTES)
         {
-            return Err(
-                "CORRUPT_MUTATION_LEDGER: agent component row does not match its physical key"
-                    .to_string(),
-            );
+            truncated = true;
+            break;
         }
-        Ok(Some(entry))
+        scanned += 1;
+        let Some(value) = revisions
+            .get((row_tenant, component_id, head_revision.value()))
+            .map_err(|error| error.to_string())?
+        else {
+            return Err("agent component head points to a missing revision".to_string());
+        };
+        bytes = bytes.saturating_add(value.value().len());
+        let entry = decode_component(value.value())?;
+        if request.matches(&entry) {
+            matched.push(entry);
+        }
+        last_consumed = Some(component_id.to_string());
     }
-
-    #[allow(clippy::too_many_arguments)]
-    fn commit_component_in_write(
-        &self,
-        txn: eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
-        owner: &OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
-        context: &AgentLibraryMutationContext,
-        expected_revision: u64,
-        kind: AgentComponentMutationKind,
-        entry: AgentComponentEntry,
-        operation: &eg_types::authority::OperationReplayIdentity,
-        nonce: &eg_types::authority::NonceReplayKey,
-    ) -> Result<AgentComponentWriteResult, String> {
-        let operations = component_operations(kind, &entry);
-        let policy_digest = effective_agent_library_policy_digest(&operations)?;
-        let mut admitted = context.clone();
-        admitted.policy_digest = format!("sha256:{}", policy_digest.to_hex());
-
-        let event = AgentComponentOutboxEvent {
-            schema_version: AGENT_COMPONENT_SCHEMA_VERSION,
-            kind,
-            component: entry.clone(),
-            performing_actor: admitted.caller_principal.clone(),
-            action_actor_scope: admitted.actor_scope.clone(),
-        };
-        event.validate()?;
-        let event_bytes = eg_storage::encode_bounded(&event, "agent component outbox event")?;
-        let entry_bytes = eg_storage::encode_bounded(&entry, "agent component revision")?;
-        let batch_id = batch_id(&admitted.idempotency_key)?;
-
-        let authoritative_version = match self.mutations.current_version(&txn, owner) {
-            Ok(version) => version,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let batch = match build_component_batch(
-            owner,
-            &admitted,
-            kind,
-            &entry,
-            authoritative_version,
-            &batch_id,
-            event_bytes.clone(),
-        ) {
-            Ok(batch) => batch,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let begun = match txn.begin_with_replay_identity(&batch, operation, nonce) {
-            Ok(begun) => begun,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let source_version = match begun {
-            Begin::Apply {
-                source_version: Some(source_version),
-            } => source_version,
-            Begin::Apply {
-                source_version: None,
-            } => {
-                txn.abort()?;
-                return Err("agent component admission has no native source version".to_string());
-            }
-            Begin::Replay(_) => {
-                txn.abort()?;
-                return Err("CORRUPT_MUTATION_LEDGER: replay became visible after a fresh admission decision".to_string());
-            }
-        };
-        if source_version != authoritative_version {
-            txn.abort()?;
-            return Err("agent component source version changed while admitting write".to_string());
-        }
-        let committed_version = match source_version.checked_add(1) {
-            Some(version) => version,
-            None => {
-                txn.abort()?;
-                return Err("agent component committed version overflow".to_string());
-            }
-        };
-        let stable_result = AgentComponentCommittedResult {
-            schema_version: AGENT_COMPONENT_SCHEMA_VERSION,
-            component: entry.clone(),
-            batch_id: batch_id.clone(),
-            committed_version,
-        };
-        let result_bytes = match encode_component_domain_result(&stable_result) {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-
-        let owner_write_result: Result<(), String> = (|| {
-            let owner_write = txn.owner_rows(owner, &batch)?;
-            apply_component_rows(
-                &owner_write,
-                &admitted,
-                expected_revision,
-                &entry,
-                entry_bytes.as_slice(),
-            )?;
-            owner_write.finish_owner()
-        })();
-        if let Err(error) = owner_write_result {
-            txn.abort()?;
-            return Err(error);
-        }
-
-        let key = format!(
-            "{}:{}:{}",
-            entry.tenant_id, entry.component_id, entry.entry_revision
-        );
-        let headers = component_outbox_headers(&entry);
-        let receipt = match owner_receipt(
-            operation,
-            nonce,
-            &batch,
-            "agent-component",
-            AGENT_COMPONENT_OUTBOX_TOPIC,
-            &key,
-            &event_bytes,
-            &headers,
-            component_domain_result(&stable_result)?,
-            committed_version,
-            admitted.created_at_ms,
-        ) {
-            Ok(receipt) => receipt,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let record = match self.mutations.finish_with_replay(
-            &txn,
-            &batch,
-            Some(result_bytes),
-            admitted.created_at_ms,
-            Some(source_version),
-            (operation, nonce, &receipt),
-        ) {
-            Ok(record) => record,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let recorded_version = record
-            .committed_version
-            .target()
-            .ok_or_else(|| "agent component commit has no target version".to_string())?;
-        if recorded_version != committed_version {
-            txn.abort()?;
-            return Err(
-                "agent component result version differs from the committed version".to_string(),
-            );
-        }
-        self.mutations.commit(txn, &batch)?;
-        Ok(AgentComponentWriteResult {
-            result: stable_result,
-            replayed: false,
-        })
-    }
+    let next_cursor = match (truncated, last_consumed) {
+        (true, Some(component_id)) => Some(eg_types::agent_component::encode_search_cursor(
+            &request.tenant_id,
+            &component_id,
+        )),
+        _ => None,
+    };
+    Ok(eg_types::agent_component::AgentComponentSearchPage {
+        entries: matched,
+        next_cursor,
+    })
 }
 
 /// Head CAS plus the append-only revision row, in the graph tables.
@@ -1080,7 +527,7 @@ fn encode_component_domain_result(
 fn replayed_component(
     replay: ReplayResolution,
     component_id: &str,
-) -> Result<Option<AgentComponentWriteResult>, String> {
+) -> Result<Option<(AgentComponentWriteResult, MutationReceipt)>, String> {
     let recorded = match replay {
         ReplayResolution::Fresh => return Ok(None),
         ReplayResolution::NonceRejected { idempotency_key } => {
@@ -1117,10 +564,13 @@ fn replayed_component(
                 .to_string(),
         );
     }
-    Ok(Some(AgentComponentWriteResult {
-        result: committed,
-        replayed: true,
-    }))
+    Ok(Some((
+        AgentComponentWriteResult {
+            result: committed,
+            replayed: true,
+        },
+        receipt,
+    )))
 }
 
 /// The shared `Arc` type the server state holds. Re-exported so the handler does
@@ -1492,6 +942,45 @@ mod tests {
             .unwrap();
         assert!(replayed.replayed);
         assert_eq!(replayed.result, first.result);
+        assert_eq!(
+            store
+                .component_revisions("tenant-a", "tool:a")
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn a_replayed_fresh_nonce_is_consumed_before_returning() {
+        let (_dir, store) = open_store();
+        let component = tool(
+            "tool:a",
+            "eg:capability/retrieval/web-search",
+            ToolEffect::Read,
+        );
+        store
+            .publish_component(AgentComponentPublishRequest {
+                context: context(&store, "key-1", 1, 0, "agent-component:publish"),
+                component: component.clone(),
+            })
+            .unwrap();
+
+        let replayed = store
+            .publish_component(AgentComponentPublishRequest {
+                context: context(&store, "key-1", 2, 0, "agent-component:publish"),
+                component: component.clone(),
+            })
+            .unwrap();
+        assert!(replayed.replayed);
+
+        let error = store
+            .publish_component(AgentComponentPublishRequest {
+                context: context(&store, "key-1", 2, 0, "agent-component:publish"),
+                component,
+            })
+            .expect_err("a replay nonce must be consumed before the replay returns");
+        assert!(error.contains("REPLAY_NONCE_CONSUMED"), "got: {error}");
         assert_eq!(
             store
                 .component_revisions("tenant-a", "tool:a")

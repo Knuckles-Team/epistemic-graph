@@ -83,10 +83,10 @@ def _normalise_package(value: str) -> str:
     return value.strip().lower().replace("_", "-")
 
 
-def _validate_uv_artifacts(item: dict[str, Any]) -> None:
+def _registry_artifacts(item: dict[str, Any]) -> list[Any] | None:
     source = item.get("source")
     if not isinstance(source, dict) or "registry" not in source:
-        return
+        return None
     registry = source.get("registry")
     if not isinstance(registry, str) or not registry.startswith("https://"):
         raise AuditError("dependency lock contains an insecure registry source")
@@ -99,54 +99,139 @@ def _validate_uv_artifacts(item: dict[str, Any]) -> None:
     artifacts.extend(wheels)
     if not artifacts:
         raise AuditError("dependency lock registry package has no hashed artifact")
+    return artifacts
+
+
+def _validate_uv_artifact(artifact: Any) -> None:
+    if not isinstance(artifact, dict):
+        raise AuditError("dependency lock artifact inventory is invalid")
+    url, digest = artifact.get("url"), artifact.get("hash")
+    if (
+        not isinstance(url, str)
+        or not url.startswith("https://")
+        or not isinstance(digest, str)
+        or SHA256_RE.fullmatch(digest) is None
+    ):
+        raise AuditError("dependency lock contains an unverified artifact")
+
+
+def _validate_uv_artifacts(item: dict[str, Any]) -> None:
+    artifacts = _registry_artifacts(item)
+    if artifacts is None:
+        return
     for artifact in artifacts:
-        if not isinstance(artifact, dict):
-            raise AuditError("dependency lock artifact inventory is invalid")
-        url, digest = artifact.get("url"), artifact.get("hash")
-        if (
-            not isinstance(url, str)
-            or not url.startswith("https://")
-            or not isinstance(digest, str)
-            or SHA256_RE.fullmatch(digest) is None
-        ):
-            raise AuditError("dependency lock contains an unverified artifact")
+        _validate_uv_artifact(artifact)
+
+
+def _read_lock_document(path: pathlib.Path) -> dict[str, Any]:
+    try:
+        size = path.stat().st_size
+        if size <= 0 or size > MAX_LOCK_BYTES or path.is_symlink():
+            raise AuditError("dependency lock is unavailable or exceeds its safe bound")
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except AuditError:
+        raise
+    except (OSError, UnicodeError, tomllib.TOMLDecodeError):
+        raise AuditError("dependency lock is unreadable") from None
+
+
+def _lock_packages(document: dict[str, Any]) -> list[Any]:
+    packages = document.get("package")
+    if not isinstance(packages, list) or len(packages) > MAX_PACKAGES:
+        raise AuditError("dependency lock package inventory is invalid")
+    return packages
+
+
+def _resolved_lock_package(item: Any) -> tuple[str, str] | None:
+    if not isinstance(item, dict):
+        raise AuditError("dependency lock package inventory is invalid")
+    _validate_uv_artifacts(item)
+    source = item.get("source")
+    if not isinstance(source, dict) or "registry" not in source:
+        return None
+    raw_name, raw_version = item.get("name"), item.get("version")
+    if not isinstance(raw_name, str) or not isinstance(raw_version, str):
+        return None
+    name = _normalise_package(raw_name)
+    if not PACKAGE_RE.fullmatch(name) or not raw_version or len(raw_version) > 128:
+        raise AuditError("dependency lock contains an invalid package identity")
+    return name, raw_version
 
 
 def parse_lock(path: pathlib.Path) -> tuple[tuple[str, str], ...]:
     """Return every exact PyPI package/version pair pinned in a bounded uv lock."""
 
-    try:
-        size = path.stat().st_size
-        if size <= 0 or size > MAX_LOCK_BYTES or path.is_symlink():
-            raise AuditError("dependency lock is unavailable or exceeds its safe bound")
-        document = tomllib.loads(path.read_text(encoding="utf-8"))
-    except AuditError:
-        raise
-    except (OSError, UnicodeError, tomllib.TOMLDecodeError):
-        raise AuditError("dependency lock is unreadable") from None
-    packages = document.get("package")
-    if not isinstance(packages, list) or len(packages) > MAX_PACKAGES:
-        raise AuditError("dependency lock package inventory is invalid")
+    packages = _lock_packages(_read_lock_document(path))
     resolved: set[tuple[str, str]] = set()
     for item in packages:
-        if not isinstance(item, dict):
-            raise AuditError("dependency lock package inventory is invalid")
-        _validate_uv_artifacts(item)
-        source = item.get("source")
-        if not isinstance(source, dict) or "registry" not in source:
-            continue
-        raw_name, raw_version = item.get("name"), item.get("version")
-        if not isinstance(raw_name, str) or not isinstance(raw_version, str):
-            continue
-        name = _normalise_package(raw_name)
-        if not PACKAGE_RE.fullmatch(name) or not raw_version or len(raw_version) > 128:
-            raise AuditError("dependency lock contains an invalid package identity")
-        # uv may legitimately select different versions for disjoint platform
-        # markers. Audit every selected pair instead of silently keeping one.
-        resolved.add((name, raw_version))
+        package = _resolved_lock_package(item)
+        if package is not None:
+            # uv may legitimately select different versions for disjoint platform
+            # markers. Audit every selected pair instead of silently keeping one.
+            resolved.add(package)
     if not resolved:
         raise AuditError("dependency lock contains no auditable packages")
     return tuple(sorted(resolved))
+
+
+def _acceptance_lines(path: pathlib.Path) -> list[str]:
+    if not path.exists():
+        return []
+    if path.is_symlink() or path.stat().st_size > 1024 * 1024:
+        raise AuditError("security acceptance ledger is unavailable or too large")
+    return path.read_text(encoding="utf-8").splitlines()
+
+
+def _acceptance_declaration(
+    number: int, raw_line: str
+) -> tuple[str, str, str, str] | None:
+    stripped = raw_line.strip()
+    if not stripped or stripped.startswith("#"):
+        return None
+    declaration, separator, justification = stripped.partition("#")
+    fields = declaration.split()
+    if not separator or len(fields) != 3 or len(justification.strip()) < 12:
+        raise AuditError(f"security acceptance line {number} is not justified")
+    advisory_id, package, expiry_field = fields
+    package = _normalise_package(package)
+    expiry_match = EXPIRY_RE.fullmatch(expiry_field)
+    if (
+        not ADVISORY_RE.fullmatch(advisory_id)
+        or not PACKAGE_RE.fullmatch(package)
+        or expiry_match is None
+    ):
+        raise AuditError(f"security acceptance line {number} is invalid")
+    return advisory_id, package, expiry_match.group(1), justification.strip()
+
+
+def _acceptance_expiry(number: int, expiry_field: str, today: dt.date) -> dt.date:
+    try:
+        expires = dt.date.fromisoformat(expiry_field)
+    except ValueError:
+        raise AuditError(f"security acceptance line {number} is invalid") from None
+    if expires < today:
+        raise AuditError(f"security acceptance line {number} has expired")
+    if expires > today + dt.timedelta(days=MAX_ACCEPTANCE_DAYS):
+        raise AuditError(
+            f"security acceptance line {number} exceeds the review horizon"
+        )
+    return expires
+
+
+def _parse_acceptance_line(
+    number: int, raw_line: str, today: dt.date
+) -> RiskAcceptance | None:
+    declaration = _acceptance_declaration(number, raw_line)
+    if declaration is None:
+        return None
+    advisory_id, package, expiry_field, justification = declaration
+    expires = _acceptance_expiry(number, expiry_field, today)
+    return RiskAcceptance(
+        advisory_id=advisory_id,
+        package=package,
+        expires=expires,
+        justification=justification,
+    )
 
 
 def load_acceptances(root: pathlib.Path) -> dict[tuple[str, str], RiskAcceptance]:
@@ -157,48 +242,16 @@ def load_acceptances(root: pathlib.Path) -> dict[tuple[str, str], RiskAcceptance
     """
 
     path = root / ".security-audit-allow.txt"
-    if not path.exists():
-        return {}
-    if path.is_symlink() or path.stat().st_size > 1024 * 1024:
-        raise AuditError("security acceptance ledger is unavailable or too large")
     today = dt.date.today()
     accepted: dict[tuple[str, str], RiskAcceptance] = {}
-    for number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        stripped = raw_line.strip()
-        if not stripped or stripped.startswith("#"):
+    for number, raw_line in enumerate(_acceptance_lines(path), 1):
+        acceptance = _parse_acceptance_line(number, raw_line, today)
+        if acceptance is None:
             continue
-        declaration, separator, justification = stripped.partition("#")
-        fields = declaration.split()
-        if not separator or len(fields) != 3 or len(justification.strip()) < 12:
-            raise AuditError(f"security acceptance line {number} is not justified")
-        advisory_id, package, expiry_field = fields
-        package = _normalise_package(package)
-        expiry_match = EXPIRY_RE.fullmatch(expiry_field)
-        if (
-            not ADVISORY_RE.fullmatch(advisory_id)
-            or not PACKAGE_RE.fullmatch(package)
-            or expiry_match is None
-        ):
-            raise AuditError(f"security acceptance line {number} is invalid")
-        try:
-            expires = dt.date.fromisoformat(expiry_match.group(1))
-        except ValueError:
-            raise AuditError(f"security acceptance line {number} is invalid") from None
-        if expires < today:
-            raise AuditError(f"security acceptance line {number} has expired")
-        if expires > today + dt.timedelta(days=MAX_ACCEPTANCE_DAYS):
-            raise AuditError(
-                f"security acceptance line {number} exceeds the review horizon"
-            )
-        key = (advisory_id.casefold(), package)
+        key = (acceptance.advisory_id.casefold(), acceptance.package)
         if key in accepted:
             raise AuditError(f"security acceptance line {number} is duplicated")
-        accepted[key] = RiskAcceptance(
-            advisory_id=advisory_id,
-            package=package,
-            expires=expires,
-            justification=justification.strip(),
-        )
+        accepted[key] = acceptance
     return accepted
 
 
@@ -264,25 +317,81 @@ def _request(url: str, *, payload: dict[str, Any] | None = None) -> dict[str, An
         raise AuditError("OSV service is unavailable") from None
 
 
+def _affected_package_matches(affected: Any, package: str) -> bool:
+    if not isinstance(affected, dict):
+        return False
+    identity = affected.get("package") or {}
+    if not isinstance(identity, dict):
+        return False
+    return _normalise_package(str(identity.get("name") or "")) == package
+
+
+def _fixed_versions(affected: dict[str, Any]) -> set[str]:
+    fixed: set[str] = set()
+    for version_range in affected.get("ranges") or []:
+        if not isinstance(version_range, dict):
+            continue
+        for event in version_range.get("events") or []:
+            if isinstance(event, dict) and isinstance(event.get("fixed"), str):
+                fixed.add(event["fixed"])
+    return fixed
+
+
 def _advisory_detail(advisory_id: str, package: str) -> tuple[str, ...]:
     detail = _request(OSV_VULN_PREFIX + advisory_id)
     fixed: set[str] = set()
     for affected in detail.get("affected") or []:
-        if not isinstance(affected, dict):
-            continue
-        identity = affected.get("package") or {}
-        if (
-            not isinstance(identity, dict)
-            or _normalise_package(str(identity.get("name") or "")) != package
-        ):
-            continue
-        for version_range in affected.get("ranges") or []:
-            if not isinstance(version_range, dict):
-                continue
-            for event in version_range.get("events") or []:
-                if isinstance(event, dict) and isinstance(event.get("fixed"), str):
-                    fixed.add(event["fixed"])
+        if _affected_package_matches(affected, package):
+            fixed.update(_fixed_versions(affected))
     return tuple(sorted(fixed))
+
+
+def _batch_payload(chunk: list[tuple[str, str]]) -> dict[str, Any]:
+    return {
+        "queries": [
+            {
+                "package": {"name": name, "ecosystem": "PyPI"},
+                "version": version,
+            }
+            for name, version in chunk
+        ]
+    }
+
+
+def _advisory_findings(
+    name: str, version: str, result: Any
+) -> list[tuple[str, str, str, tuple[str, ...]]]:
+    if not isinstance(result, dict):
+        raise AuditError("OSV batch response is invalid")
+    findings: list[tuple[str, str, str, tuple[str, ...]]] = []
+    for vulnerability in result.get("vulns") or []:
+        advisory_id = (
+            vulnerability.get("id") if isinstance(vulnerability, dict) else None
+        )
+        if not isinstance(advisory_id, str) or not ADVISORY_RE.fullmatch(advisory_id):
+            raise AuditError("OSV advisory identity is invalid")
+        findings.append(
+            (
+                name,
+                version,
+                advisory_id,
+                _advisory_detail(advisory_id, name),
+            )
+        )
+    return findings
+
+
+def _audit_batch(
+    chunk: list[tuple[str, str]],
+) -> list[tuple[str, str, str, tuple[str, ...]]]:
+    response = _request(OSV_BATCH, payload=_batch_payload(chunk))
+    results = response.get("results")
+    if not isinstance(results, list) or len(results) != len(chunk):
+        raise AuditError("OSV batch response does not match the request")
+    findings: list[tuple[str, str, str, tuple[str, ...]]] = []
+    for (name, version), result in zip(chunk, results, strict=True):
+        findings.extend(_advisory_findings(name, version, result))
+    return findings
 
 
 def audit(
@@ -292,40 +401,7 @@ def audit(
     findings: list[tuple[str, str, str, tuple[str, ...]]] = []
     for offset in range(0, len(selections), 100):
         chunk = selections[offset : offset + 100]
-        response = _request(
-            OSV_BATCH,
-            payload={
-                "queries": [
-                    {
-                        "package": {"name": name, "ecosystem": "PyPI"},
-                        "version": version,
-                    }
-                    for name, version in chunk
-                ]
-            },
-        )
-        results = response.get("results")
-        if not isinstance(results, list) or len(results) != len(chunk):
-            raise AuditError("OSV batch response does not match the request")
-        for (name, version), result in zip(chunk, results, strict=True):
-            if not isinstance(result, dict):
-                raise AuditError("OSV batch response is invalid")
-            for vulnerability in result.get("vulns") or []:
-                advisory_id = (
-                    vulnerability.get("id") if isinstance(vulnerability, dict) else None
-                )
-                if not isinstance(advisory_id, str) or not ADVISORY_RE.fullmatch(
-                    advisory_id
-                ):
-                    raise AuditError("OSV advisory identity is invalid")
-                findings.append(
-                    (
-                        name,
-                        version,
-                        advisory_id,
-                        _advisory_detail(advisory_id, name),
-                    )
-                )
+        findings.extend(_audit_batch(chunk))
     return findings
 
 
@@ -335,25 +411,23 @@ def _offline_warn_allowed() -> bool:
     )
 
 
-def main(argv: list[str] | None = None) -> int:
-    arguments = list(sys.argv[1:] if argv is None else argv)
-    if len(arguments) > 1:
-        print("audit: expected at most one dependency-lock argument", file=sys.stderr)
-        return 2
-    lock = pathlib.Path(arguments[0] if arguments else "uv.lock")
-    try:
-        packages = parse_lock(lock)
-        acceptances = load_acceptances(lock.resolve().parent)
-        findings = audit(packages)
-    except AuditError as error:
-        if _offline_warn_allowed() and str(error) == "OSV service is unavailable":
-            print(
-                "audit: WARNING - OSV unavailable under explicit local offline policy"
-            )
-            return 0
-        print(f"audit: FAILED - {error}", file=sys.stderr)
-        return 2
+def _run_audit(
+    lock: pathlib.Path,
+) -> tuple[
+    tuple[tuple[str, str], ...],
+    dict[tuple[str, str], RiskAcceptance],
+    list[tuple[str, str, str, tuple[str, ...]]],
+]:
+    packages = parse_lock(lock)
+    acceptances = load_acceptances(lock.resolve().parent)
+    findings = audit(packages)
+    return packages, acceptances, findings
 
+
+def _report_findings(
+    findings: list[tuple[str, str, str, tuple[str, ...]]],
+    acceptances: dict[tuple[str, str], RiskAcceptance],
+) -> tuple[list[tuple[str, str, str, tuple[str, ...]]], list[tuple[str, str]]]:
     failures: list[tuple[str, str, str, tuple[str, ...]]] = []
     used_acceptances: set[tuple[str, str]] = set()
     for name, version, advisory_id, fixed in sorted(findings):
@@ -372,6 +446,28 @@ def main(argv: list[str] | None = None) -> int:
     unused = sorted(set(acceptances) - used_acceptances)
     for advisory_id, package in unused:
         print(f"  FAIL stale acceptance {package} {advisory_id}")
+    return failures, unused
+
+
+def _audit_error_exit(error: AuditError) -> int:
+    if _offline_warn_allowed() and str(error) == "OSV service is unavailable":
+        print("audit: WARNING - OSV unavailable under explicit local offline policy")
+        return 0
+    print(f"audit: FAILED - {error}", file=sys.stderr)
+    return 2
+
+
+def main(argv: list[str] | None = None) -> int:
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if len(arguments) > 1:
+        print("audit: expected at most one dependency-lock argument", file=sys.stderr)
+        return 2
+    lock = pathlib.Path(arguments[0] if arguments else "uv.lock")
+    try:
+        packages, acceptances, findings = _run_audit(lock)
+    except AuditError as error:
+        return _audit_error_exit(error)
+    failures, unused = _report_findings(findings, acceptances)
     if failures or unused:
         print(
             "audit: dependency vulnerabilities or stale risk acceptances require "
