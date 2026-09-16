@@ -71,33 +71,84 @@ pub fn find_root_cause(
         };
     }
 
+    let (best_path_weight, best_hops) = backward_levelized_search(n, edges, symptom, max_hops);
+    let candidates = rank_candidates(
+        n,
+        symptom,
+        anomaly_scores,
+        decay,
+        &best_path_weight,
+        &best_hops,
+    );
+
+    RootCauseResult {
+        symptom,
+        candidates,
+    }
+}
+
+/// Levelized backward BFS from `symptom`: for every reachable ancestor, the
+/// best (highest) cumulative path weight and the hop distance it was reached at.
+fn backward_levelized_search(
+    n: usize,
+    edges: &[(usize, usize, f64)],
+    symptom: usize,
+    max_hops: usize,
+) -> (Vec<f64>, Vec<usize>) {
     let mut best_path_weight = vec![0.0f64; n];
     let mut best_hops = vec![usize::MAX; n];
     best_path_weight[symptom] = 1.0;
     best_hops[symptom] = 0;
 
     for hop in 1..=max_hops.max(1).min(n.max(1)) {
-        let mut updated = false;
-        for &(cause, effect, w) in edges {
-            if cause >= n || effect >= n {
-                continue;
-            }
-            if best_hops[effect] != hop - 1 {
-                continue; // only extend the exact previous frontier (levelized BFS)
-            }
-            let w = w.clamp(0.0, 1.0);
-            let cand = best_path_weight[effect] * w;
-            if best_hops[cause] == usize::MAX || cand > best_path_weight[cause] {
-                best_path_weight[cause] = cand;
-                best_hops[cause] = hop;
-                updated = true;
-            }
-        }
+        let updated = extend_frontier(edges, n, hop, &mut best_path_weight, &mut best_hops);
         if !updated {
             break;
         }
     }
 
+    (best_path_weight, best_hops)
+}
+
+/// Extend the levelized frontier by one hop (only nodes reached at exactly
+/// `hop - 1` propagate further back); returns whether any node was newly reached
+/// or improved.
+fn extend_frontier(
+    edges: &[(usize, usize, f64)],
+    n: usize,
+    hop: usize,
+    best_path_weight: &mut [f64],
+    best_hops: &mut [usize],
+) -> bool {
+    let mut updated = false;
+    for &(cause, effect, w) in edges {
+        if cause >= n || effect >= n {
+            continue;
+        }
+        if best_hops[effect] != hop - 1 {
+            continue; // only extend the exact previous frontier (levelized BFS)
+        }
+        let w = w.clamp(0.0, 1.0);
+        let cand = best_path_weight[effect] * w;
+        if best_hops[cause] == usize::MAX || cand > best_path_weight[cause] {
+            best_path_weight[cause] = cand;
+            best_hops[cause] = hop;
+            updated = true;
+        }
+    }
+    updated
+}
+
+/// Build the responsibility-scored candidate list, sorted by descending score
+/// (ties broken by ascending node index).
+fn rank_candidates(
+    n: usize,
+    symptom: usize,
+    anomaly_scores: &[f64],
+    decay: f64,
+    best_path_weight: &[f64],
+    best_hops: &[usize],
+) -> Vec<RootCauseCandidate> {
     let mut candidates: Vec<RootCauseCandidate> = (0..n)
         .filter(|&i| i != symptom && best_hops[i] != usize::MAX)
         .map(|i| {
@@ -118,10 +169,7 @@ pub fn find_root_cause(
             .unwrap_or(std::cmp::Ordering::Equal)
             .then(a.node.cmp(&b.node))
     });
-    RootCauseResult {
-        symptom,
-        candidates,
-    }
+    candidates
 }
 
 #[cfg(test)]

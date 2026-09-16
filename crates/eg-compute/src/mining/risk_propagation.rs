@@ -70,23 +70,52 @@ pub fn propagate(
             converged: true,
         };
     }
-    let seed_total: f64 = seed.iter().take(n).map(|s| s.max(0.0)).sum();
-    let seed_dist: Vec<f64> = if seed_total > 0.0 {
-        (0..n)
-            .map(|i| seed.get(i).copied().unwrap_or(0.0).max(0.0) / seed_total)
-            .collect()
-    } else {
-        vec![0.0; n]
-    };
-    if seed_total <= 0.0 {
+    let Some(seed_dist) = normalize_seed(seed, n) else {
         return RiskScores {
             scores: vec![0.0; n],
             iterations: 0,
             converged: true,
         };
-    }
+    };
 
-    // Out-adjacency + weighted out-degree, built once.
+    let (out, out_weight) = build_out_adjacency(edges, n);
+    let d = config.damping.clamp(0.0, 1.0);
+    let (rank, iterations, converged) = power_iterate(
+        &seed_dist,
+        &out,
+        &out_weight,
+        d,
+        config.max_iterations,
+        config.tolerance,
+    );
+
+    RiskScores {
+        scores: rank,
+        iterations,
+        converged,
+    }
+}
+
+/// Normalize `seed` (clamped to `>= 0`) to a probability distribution over `n`
+/// nodes; `None` when the total seed mass is zero (nothing to propagate).
+fn normalize_seed(seed: &[f64], n: usize) -> Option<Vec<f64>> {
+    let seed_total: f64 = seed.iter().take(n).map(|s| s.max(0.0)).sum();
+    if seed_total <= 0.0 {
+        return None;
+    }
+    Some(
+        (0..n)
+            .map(|i| seed.get(i).copied().unwrap_or(0.0).max(0.0) / seed_total)
+            .collect(),
+    )
+}
+
+/// Out-adjacency + weighted out-degree, built once (out-of-range edges are
+/// ignored; negative weights clamp to zero).
+fn build_out_adjacency(
+    edges: &[(usize, usize, f64)],
+    n: usize,
+) -> (Vec<Vec<(usize, f64)>>, Vec<f64>) {
     let mut out: Vec<Vec<(usize, f64)>> = vec![Vec::new(); n];
     let mut out_weight = vec![0.0f64; n];
     for &(u, v, w) in edges {
@@ -97,14 +126,26 @@ pub fn propagate(
         out[u].push((v, w));
         out_weight[u] += w;
     }
+    (out, out_weight)
+}
 
-    let d = config.damping.clamp(0.0, 1.0);
-    let mut rank = seed_dist.clone();
+/// Personalized-PageRank power iteration to convergence or `max_iterations`.
+/// Returns `(scores, iterations_run, converged)`.
+fn power_iterate(
+    seed_dist: &[f64],
+    out: &[Vec<(usize, f64)>],
+    out_weight: &[f64],
+    d: f64,
+    max_iterations: usize,
+    tolerance: f64,
+) -> (Vec<f64>, usize, bool) {
+    let n = seed_dist.len();
+    let mut rank = seed_dist.to_vec();
     let mut next = vec![0.0f64; n];
     let mut iterations = 0;
     let mut converged = false;
 
-    while iterations < config.max_iterations {
+    while iterations < max_iterations {
         iterations += 1;
         let dangling: f64 = (0..n)
             .filter(|&i| out_weight[i] <= 0.0)
@@ -124,17 +165,13 @@ pub fn propagate(
         }
         let delta: f64 = rank.iter().zip(&next).map(|(a, b)| (a - b).abs()).sum();
         std::mem::swap(&mut rank, &mut next);
-        if delta <= config.tolerance {
+        if delta <= tolerance {
             converged = true;
             break;
         }
     }
 
-    RiskScores {
-        scores: rank,
-        iterations,
-        converged,
-    }
+    (rank, iterations, converged)
 }
 
 #[cfg(test)]

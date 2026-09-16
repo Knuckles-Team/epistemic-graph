@@ -373,72 +373,15 @@ pub fn one_class_svm(points: &[Point], kernel: Kernel, nu: f64) -> Vec<f64> {
     let kern = resolve_kernel(kernel, dim);
 
     // Precompute the kernel (Gram) matrix.
-    let mut km = vec![vec![0.0f64; n]; n];
-    for i in 0..n {
-        for j in i..n {
-            let v = kern(&points[i], &points[j]);
-            km[i][j] = v;
-            km[j][i] = v;
-        }
-    }
+    let km = gram_matrix(points, &kern, n);
 
     // Feasible init: spread the unit mass, respecting the box bound.
     let mut alpha = vec![(1.0 / n as f64).min(upper); n];
     normalize_to_unit_sum(&mut alpha, upper);
 
-    // Gradient Gᵢ = Σⱼ αⱼ K(i,j).
-    let grad =
-        |alpha: &[f64], i: usize| -> f64 { (0..n).map(|j| alpha[j] * km[i][j]).sum::<f64>() };
+    smo_fit(&mut alpha, &km, upper, n);
 
-    // SMO-lite: pair sweeps. For a pair (i,j) with s = αᵢ+αⱼ held fixed, the
-    // unconstrained optimum is αᵢ* = αᵢ + (Gⱼ − Gᵢ)/(Kᵢᵢ + Kⱼⱼ − 2Kᵢⱼ); clip to
-    // the box AND to [max(0, s−C), min(C, s)] so αⱼ = s − αᵢ also stays feasible.
-    let passes = 50;
-    for _ in 0..passes {
-        let mut changed = false;
-        for i in 0..n {
-            for j in (i + 1)..n {
-                let eta = km[i][i] + km[j][j] - 2.0 * km[i][j];
-                if eta <= 1e-12 {
-                    continue;
-                }
-                let gi = grad(&alpha, i);
-                let gj = grad(&alpha, j);
-                let s = alpha[i] + alpha[j];
-                let lo = (s - upper).max(0.0);
-                let hi = s.min(upper);
-                if hi - lo < 1e-15 {
-                    continue;
-                }
-                let mut ai = alpha[i] + (gj - gi) / eta;
-                ai = ai.clamp(lo, hi);
-                if (ai - alpha[i]).abs() > 1e-12 {
-                    alpha[i] = ai;
-                    alpha[j] = s - ai;
-                    changed = true;
-                }
-            }
-        }
-        if !changed {
-            break;
-        }
-    }
-
-    // ρ = average decision sum over the un-bounded SVs (0 < αᵢ < C).
-    let mut rho_acc = 0.0;
-    let mut rho_cnt = 0usize;
-    for i in 0..n {
-        if alpha[i] > 1e-8 && alpha[i] < upper - 1e-8 {
-            rho_acc += grad(&alpha, i);
-            rho_cnt += 1;
-        }
-    }
-    let rho = if rho_cnt > 0 {
-        rho_acc / rho_cnt as f64
-    } else {
-        // Fall back to the mean decision sum when no free SV exists.
-        (0..n).map(|i| grad(&alpha, i)).sum::<f64>() / n as f64
-    };
+    let rho = compute_rho(&alpha, &km, n, upper);
 
     // score = −f(x) = ρ − Σ αᵢ K(xᵢ, x); higher ⇒ more anomalous.
     points
@@ -448,6 +391,92 @@ pub fn one_class_svm(points: &[Point], kernel: Kernel, nu: f64) -> Vec<f64> {
             -f
         })
         .collect()
+}
+
+/// Symmetric kernel (Gram) matrix `K(i, j)` over `points`.
+fn gram_matrix(points: &[Point], kern: &KernelFn, n: usize) -> Vec<Vec<f64>> {
+    let mut km = vec![vec![0.0f64; n]; n];
+    for i in 0..n {
+        for j in i..n {
+            let v = kern(&points[i], &points[j]);
+            km[i][j] = v;
+            km[j][i] = v;
+        }
+    }
+    km
+}
+
+/// Gradient `Gᵢ = Σⱼ αⱼ K(i,j)`.
+fn grad_at(alpha: &[f64], km: &[Vec<f64>], i: usize) -> f64 {
+    (0..alpha.len()).map(|j| alpha[j] * km[i][j]).sum::<f64>()
+}
+
+/// SMO-lite: pair sweeps until a full sweep makes no change or `passes` is
+/// exhausted. For a pair (i,j) with `s = αᵢ+αⱼ` held fixed, the unconstrained
+/// optimum is `αᵢ* = αᵢ + (Gⱼ − Gᵢ)/(Kᵢᵢ + Kⱼⱼ − 2Kᵢⱼ)`; clip to the box AND to
+/// `[max(0, s−C), min(C, s)]` so `αⱼ = s − αᵢ` also stays feasible.
+fn smo_fit(alpha: &mut [f64], km: &[Vec<f64>], upper: f64, n: usize) {
+    let passes = 50;
+    for _ in 0..passes {
+        if !smo_sweep(alpha, km, upper, n) {
+            break;
+        }
+    }
+}
+
+/// One sweep over every pair `(i, j)`; returns whether any pair changed.
+fn smo_sweep(alpha: &mut [f64], km: &[Vec<f64>], upper: f64, n: usize) -> bool {
+    let mut changed = false;
+    for i in 0..n {
+        for j in (i + 1)..n {
+            if smo_update_pair(alpha, km, upper, i, j) {
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
+/// Attempt one coordinate-pair update; returns whether `alpha` changed.
+fn smo_update_pair(alpha: &mut [f64], km: &[Vec<f64>], upper: f64, i: usize, j: usize) -> bool {
+    let eta = km[i][i] + km[j][j] - 2.0 * km[i][j];
+    if eta <= 1e-12 {
+        return false;
+    }
+    let gi = grad_at(alpha, km, i);
+    let gj = grad_at(alpha, km, j);
+    let s = alpha[i] + alpha[j];
+    let lo = (s - upper).max(0.0);
+    let hi = s.min(upper);
+    if hi - lo < 1e-15 {
+        return false;
+    }
+    let ai = (alpha[i] + (gj - gi) / eta).clamp(lo, hi);
+    if (ai - alpha[i]).abs() > 1e-12 {
+        alpha[i] = ai;
+        alpha[j] = s - ai;
+        true
+    } else {
+        false
+    }
+}
+
+/// `ρ` = average decision sum over the un-bounded support vectors (`0 < αᵢ < C`),
+/// falling back to the mean decision sum over all points when no free SV exists.
+fn compute_rho(alpha: &[f64], km: &[Vec<f64>], n: usize, upper: f64) -> f64 {
+    let mut rho_acc = 0.0;
+    let mut rho_cnt = 0usize;
+    for i in 0..n {
+        if alpha[i] > 1e-8 && alpha[i] < upper - 1e-8 {
+            rho_acc += grad_at(alpha, km, i);
+            rho_cnt += 1;
+        }
+    }
+    if rho_cnt > 0 {
+        rho_acc / rho_cnt as f64
+    } else {
+        (0..n).map(|i| grad_at(alpha, km, i)).sum::<f64>() / n as f64
+    }
 }
 
 /// A boxed kernel function `K(x, y)` (linear dot or RBF).

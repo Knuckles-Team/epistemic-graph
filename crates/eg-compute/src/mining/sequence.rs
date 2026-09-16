@@ -159,69 +159,15 @@ pub fn gsp(sequences: &[Vec<ItemId>], min_count: usize) -> Vec<SequentialPattern
     let n = sequences.len();
     let mut all: Vec<SequentialPattern> = Vec::new();
 
-    // L1: singleton counts (once per sequence, like PrefixSpan's projection).
-    let mut counts: HashMap<ItemId, usize> = HashMap::new();
-    for seq in sequences {
-        let mut seen = seq.clone();
-        seen.sort_unstable();
-        seen.dedup();
-        for it in seen {
-            *counts.entry(it).or_insert(0) += 1;
-        }
-    }
-    let mut current: Vec<Vec<ItemId>> = Vec::new();
-    let mut singles: Vec<(ItemId, usize)> = counts
-        .into_iter()
-        .filter(|&(_, c)| c >= min_count)
-        .collect();
-    singles.sort_unstable();
-    for (item, count) in singles {
-        current.push(vec![item]);
-        all.push(SequentialPattern {
-            items: vec![item],
-            count,
-            support: count as f64 / n as f64,
-        });
-    }
+    let (mut current, singletons) = gsp_singletons(sequences, min_count, n);
+    all.extend(singletons);
 
     while !current.is_empty() {
         let freq_set: HashSet<Vec<ItemId>> = current.iter().cloned().collect();
-        let mut seen_candidates: HashSet<Vec<ItemId>> = HashSet::new();
-        let mut candidates: Vec<Vec<ItemId>> = Vec::new();
-        for a in &current {
-            for b in &current {
-                let k = a.len();
-                // Join: a's tail (dropping its first item) must equal b's head
-                // (dropping its last item) — the standard GSP join.
-                if a[1..] == b[..k - 1] {
-                    let mut cand = a.clone();
-                    cand.push(*b.last().unwrap());
-                    if seen_candidates.insert(cand.clone()) {
-                        candidates.push(cand);
-                    }
-                }
-            }
-        }
-        candidates.sort();
-
-        let mut next: Vec<Vec<ItemId>> = Vec::new();
-        for cand in candidates {
-            if !all_contiguous_subseqs_frequent(&cand, &freq_set) {
-                continue;
-            }
-            let count = sequences
-                .iter()
-                .filter(|s| is_subsequence(s, &cand))
-                .count();
-            if count >= min_count {
-                next.push(cand.clone());
-                all.push(SequentialPattern {
-                    items: cand,
-                    count,
-                    support: count as f64 / n as f64,
-                });
-            }
-        }
+        let candidates = gsp_join_candidates(&current);
+        let (next, patterns) =
+            gsp_frequent_extensions(sequences, candidates, &freq_set, min_count, n);
+        all.extend(patterns);
         current = next;
     }
     all.sort_by(|a, b| {
@@ -231,6 +177,96 @@ pub fn gsp(sequences: &[Vec<ItemId>], min_count: usize) -> Vec<SequentialPattern
             .then(a.items.cmp(&b.items))
     });
     all
+}
+
+/// L1: singleton item counts (once per sequence, like PrefixSpan's projection),
+/// filtered to `min_count`. Returns the frequent singletons as both candidate
+/// seeds and their `SequentialPattern` records.
+fn gsp_singletons(
+    sequences: &[Vec<ItemId>],
+    min_count: usize,
+    n: usize,
+) -> (Vec<Vec<ItemId>>, Vec<SequentialPattern>) {
+    let mut counts: HashMap<ItemId, usize> = HashMap::new();
+    for seq in sequences {
+        let mut seen = seq.clone();
+        seen.sort_unstable();
+        seen.dedup();
+        for it in seen {
+            *counts.entry(it).or_insert(0) += 1;
+        }
+    }
+    let mut singles: Vec<(ItemId, usize)> = counts
+        .into_iter()
+        .filter(|&(_, c)| c >= min_count)
+        .collect();
+    singles.sort_unstable();
+
+    let mut current = Vec::new();
+    let mut patterns = Vec::new();
+    for (item, count) in singles {
+        current.push(vec![item]);
+        patterns.push(SequentialPattern {
+            items: vec![item],
+            count,
+            support: count as f64 / n as f64,
+        });
+    }
+    (current, patterns)
+}
+
+/// Level-wise join: form length-`(k+1)` candidates from every pair of length-`k`
+/// patterns in `current` whose tail/head overlap matches — the standard GSP join.
+fn gsp_join_candidates(current: &[Vec<ItemId>]) -> Vec<Vec<ItemId>> {
+    let mut seen_candidates: HashSet<Vec<ItemId>> = HashSet::new();
+    let mut candidates: Vec<Vec<ItemId>> = Vec::new();
+    for a in current {
+        for b in current {
+            let k = a.len();
+            // Join: a's tail (dropping its first item) must equal b's head
+            // (dropping its last item) — the standard GSP join.
+            if a[1..] == b[..k - 1] {
+                let mut cand = a.clone();
+                cand.push(*b.last().unwrap());
+                if seen_candidates.insert(cand.clone()) {
+                    candidates.push(cand);
+                }
+            }
+        }
+    }
+    candidates.sort();
+    candidates
+}
+
+/// Prune candidates failing downward closure, then count support and keep only
+/// those meeting `min_count`. Returns `(next_level_patterns, sequential_patterns)`.
+fn gsp_frequent_extensions(
+    sequences: &[Vec<ItemId>],
+    candidates: Vec<Vec<ItemId>>,
+    freq_set: &HashSet<Vec<ItemId>>,
+    min_count: usize,
+    n: usize,
+) -> (Vec<Vec<ItemId>>, Vec<SequentialPattern>) {
+    let mut next: Vec<Vec<ItemId>> = Vec::new();
+    let mut patterns = Vec::new();
+    for cand in candidates {
+        if !all_contiguous_subseqs_frequent(&cand, freq_set) {
+            continue;
+        }
+        let count = sequences
+            .iter()
+            .filter(|s| is_subsequence(s, &cand))
+            .count();
+        if count >= min_count {
+            next.push(cand.clone());
+            patterns.push(SequentialPattern {
+                items: cand,
+                count,
+                support: count as f64 / n as f64,
+            });
+        }
+    }
+    (next, patterns)
 }
 
 /// Downward-closure prune: every (k-1)-length pattern obtained by dropping ONE

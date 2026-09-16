@@ -29,32 +29,76 @@ use walk::hash_fields;
 /// (the label is stamped on every extracted symbol so the graph can answer
 /// "show me all Java code" and compute per-language metrics). Returns ``None``
 /// for paths we don't have a grammar for.
+/// A grammar constructor, deferred so [`CORE_LANGUAGES`] can be a plain data
+/// table (rather than one `match` arm per extension) with no runtime cost —
+/// the closures are non-capturing and coerce to bare `fn` pointers.
+type LangCtor = fn() -> Language;
+
+/// `(extensions, grammar constructor, stable language label)` for every
+/// core-tier grammar. Kept as data (not a `match`) so adding a language is a
+/// table row, and so the extension lookup is a linear scan rather than a
+/// cyclomatic-heavy dispatch — this is string matching with an explicit
+/// non-exhaustive fallback ([`lang_for_path_extended`]), not an enum, so there
+/// is no compile-time exhaustiveness guarantee here to trade away.
+const CORE_LANGUAGES: &[(&[&str], LangCtor, &str)] = &[
+    (
+        &["py", "pyi"],
+        || tree_sitter_python::LANGUAGE.into(),
+        "python",
+    ),
+    (
+        &["js", "jsx", "mjs", "cjs"],
+        || tree_sitter_javascript::LANGUAGE.into(),
+        "javascript",
+    ),
+    (
+        &["ts", "mts", "cts"],
+        || tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+        "typescript",
+    ),
+    (
+        &["tsx"],
+        || tree_sitter_typescript::LANGUAGE_TSX.into(),
+        "typescript",
+    ),
+    (&["go"], || tree_sitter_go::LANGUAGE.into(), "go"),
+    (&["rs"], || tree_sitter_rust::LANGUAGE.into(), "rust"),
+    (&["java"], || tree_sitter_java::LANGUAGE.into(), "java"),
+    (&["c", "h"], || tree_sitter_c::LANGUAGE.into(), "c"),
+    (
+        &["cpp", "cc", "cxx", "hpp", "hxx", "hh", "c++"],
+        || tree_sitter_cpp::LANGUAGE.into(),
+        "cpp",
+    ),
+    (&["cs"], || tree_sitter_c_sharp::LANGUAGE.into(), "csharp"),
+    (
+        &["sql", "ddl"],
+        || tree_sitter_sequel::LANGUAGE.into(),
+        "sql",
+    ),
+];
+
 fn lang_for_path(file_path: &str) -> Option<(Language, &'static str)> {
     let ext = file_path
         .rsplit('.')
         .next()
         .unwrap_or("")
         .to_ascii_lowercase();
-    let pair: (Language, &'static str) = match ext.as_str() {
-        "py" | "pyi" => (tree_sitter_python::LANGUAGE.into(), "python"),
-        "js" | "jsx" | "mjs" | "cjs" => (tree_sitter_javascript::LANGUAGE.into(), "javascript"),
-        "ts" | "mts" | "cts" => (
-            tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
-            "typescript",
-        ),
-        "tsx" => (tree_sitter_typescript::LANGUAGE_TSX.into(), "typescript"),
-        "go" => (tree_sitter_go::LANGUAGE.into(), "go"),
-        "rs" => (tree_sitter_rust::LANGUAGE.into(), "rust"),
-        "java" => (tree_sitter_java::LANGUAGE.into(), "java"),
-        "c" | "h" => (tree_sitter_c::LANGUAGE.into(), "c"),
-        "cpp" | "cc" | "cxx" | "hpp" | "hxx" | "hh" | "c++" => {
-            (tree_sitter_cpp::LANGUAGE.into(), "cpp")
+    if let Some((ctor, label)) = core_language_entry(&ext) {
+        return Some((ctor(), label));
+    }
+    lang_for_path_extended(&ext)
+}
+
+/// Look up `ext` in [`CORE_LANGUAGES`], returning the matching grammar
+/// constructor and label.
+fn core_language_entry(ext: &str) -> Option<(LangCtor, &'static str)> {
+    for &(exts, ctor, label) in CORE_LANGUAGES {
+        if exts.contains(&ext) {
+            return Some((ctor, label));
         }
-        "cs" => (tree_sitter_c_sharp::LANGUAGE.into(), "csharp"),
-        "sql" | "ddl" => (tree_sitter_sequel::LANGUAGE.into(), "sql"),
-        _ => return lang_for_path_extended(&ext),
-    };
-    Some(pair)
+    }
+    None
 }
 
 /// Extended-language tier (CONCEPT:AU-KG.compute.built-ast-extended), compiled only with `ast-extended`.
