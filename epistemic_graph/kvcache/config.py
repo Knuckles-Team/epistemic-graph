@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import os
 import ssl
+from collections.abc import Callable
 from dataclasses import dataclass
 from ipaddress import ip_address
+from typing import TypeVar
 from urllib.parse import urlsplit
 
 #: Engine default bind for the KV-cache HTTP listener (EG-187). A driver on the
@@ -25,6 +27,8 @@ from urllib.parse import urlsplit
 DEFAULT_KVCACHE_ADDR = "127.0.0.1:9130"
 
 _TRUE_TOKENS = {"1", "true", "yes", "on", "enable", "enabled"}
+
+_Number = TypeVar("_Number", int, float)
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -83,6 +87,42 @@ def _addr_to_base_url(addr: str) -> str:
         )
     scheme = "http" if _is_loopback_host(parsed.hostname) else "https"
     return _validate_base_url(f"{scheme}://{value}")
+
+
+def _resolve_base_url(base_url: str | None, addr: str | None) -> str:
+    """Pick the client base URL: explicit URL, explicit addr, URL env, addr env."""
+    if base_url is not None:
+        return base_url.strip().rstrip("/")
+    if addr is not None:
+        return _addr_to_base_url(addr)
+    explicit_url = os.environ.get("EPISTEMIC_GRAPH_KVCACHE_URL", "").strip()
+    if explicit_url:
+        return explicit_url.rstrip("/")
+    return _addr_to_base_url(
+        os.environ.get("EPISTEMIC_GRAPH_KVCACHE_ADDR", DEFAULT_KVCACHE_ADDR)
+    )
+
+
+def _override_or_env(
+    override: _Number | None,
+    variable: str,
+    cast: Callable[[str | _Number], _Number],
+    default: _Number,
+) -> _Number:
+    """An explicit override, else a non-empty environment value, else ``default``."""
+    if override is not None:
+        return cast(override)
+    raw = os.environ.get(variable)
+    return cast(raw) if raw else default
+
+
+def _first_env(*variables: str) -> str | None:
+    """The first non-empty value among ``variables``, else ``None``."""
+    for variable in variables:
+        value = os.environ.get(variable)
+        if value:
+            return value
+    return None
 
 
 @dataclass(slots=True, kw_only=True)
@@ -182,64 +222,24 @@ class KvCacheConfig:
         * ``EPISTEMIC_GRAPH_KVCACHE_CLIENT_CERT`` / ``..._CLIENT_KEY`` — mTLS
           identity; optional ``..._CLIENT_KEY_PASSWORD`` supplies its password.
         """
-        if base_url is not None:
-            resolved_base_url = base_url.strip().rstrip("/")
-        elif addr is not None:
-            resolved_base_url = _addr_to_base_url(addr)
-        else:
-            explicit_url = os.environ.get("EPISTEMIC_GRAPH_KVCACHE_URL", "").strip()
-            resolved_base_url = (
-                explicit_url.rstrip("/")
-                if explicit_url
-                else _addr_to_base_url(
-                    os.environ.get("EPISTEMIC_GRAPH_KVCACHE_ADDR", DEFAULT_KVCACHE_ADDR)
-                )
-            )
-
-        resolved_token = (
-            token
-            if token is not None
-            else os.environ.get("EPISTEMIC_GRAPH_KVCACHE_TOKEN", "")
-        )
-
-        timeout_raw = os.environ.get("EPISTEMIC_GRAPH_KVCACHE_TIMEOUT_S")
-        resolved_timeout_s = (
-            float(timeout_s)
-            if timeout_s is not None
-            else float(timeout_raw)
-            if timeout_raw
-            else 2.0
-        )
-
-        conns_raw = os.environ.get("EPISTEMIC_GRAPH_KVCACHE_MAX_CONNECTIONS")
-        resolved_max_connections = (
-            int(max_connections)
-            if max_connections is not None
-            else int(conns_raw)
-            if conns_raw
-            else 32
-        )
-
-        ca_bundle = (
-            os.environ.get("SSL_CERT_FILE")
-            or os.environ.get("REQUESTS_CA_BUNDLE")
-            or None
-        )
-        ca_directory = os.environ.get("SSL_CERT_DIR") or None
-        client_cert = os.environ.get("EPISTEMIC_GRAPH_KVCACHE_CLIENT_CERT") or None
-        client_key = os.environ.get("EPISTEMIC_GRAPH_KVCACHE_CLIENT_KEY") or None
-        client_key_password = (
-            os.environ.get("EPISTEMIC_GRAPH_KVCACHE_CLIENT_KEY_PASSWORD") or None
-        )
-
         return cls(
-            base_url=resolved_base_url,
-            token=resolved_token,
-            timeout_s=resolved_timeout_s,
-            max_connections=resolved_max_connections,
-            ca_bundle=ca_bundle,
-            ca_directory=ca_directory,
-            client_cert=client_cert,
-            client_key=client_key,
-            client_key_password=client_key_password,
+            base_url=_resolve_base_url(base_url, addr),
+            token=(
+                token
+                if token is not None
+                else os.environ.get("EPISTEMIC_GRAPH_KVCACHE_TOKEN", "")
+            ),
+            timeout_s=_override_or_env(
+                timeout_s, "EPISTEMIC_GRAPH_KVCACHE_TIMEOUT_S", float, 2.0
+            ),
+            max_connections=_override_or_env(
+                max_connections, "EPISTEMIC_GRAPH_KVCACHE_MAX_CONNECTIONS", int, 32
+            ),
+            ca_bundle=_first_env("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"),
+            ca_directory=_first_env("SSL_CERT_DIR"),
+            client_cert=_first_env("EPISTEMIC_GRAPH_KVCACHE_CLIENT_CERT"),
+            client_key=_first_env("EPISTEMIC_GRAPH_KVCACHE_CLIENT_KEY"),
+            client_key_password=_first_env(
+                "EPISTEMIC_GRAPH_KVCACHE_CLIENT_KEY_PASSWORD"
+            ),
         )

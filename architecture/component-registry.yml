@@ -3912,6 +3912,7 @@ components:
       - "tests/test_reasoning_client.py"
       - "tests/test_release_full_wheel_contract.py"
       - "tests/test_release_image_contract.py"
+      - "tests/test_repository_fuzz.py"
       - "tests/test_resource_reservation_client.py"
       - "tests/test_resource_stats.py"
       - "tests/test_response_guard.py"

@@ -6,12 +6,15 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Iterator
+from itertools import count, islice
 from pathlib import Path
 
 import tomllib
 
 MAX_FILES = 16
 MAX_SOURCE_BYTES = 1024 * 1024
+MAX_CASES = 64
 
 
 def _corpus(root: Path) -> list[tuple[str, bytes]]:
@@ -58,31 +61,31 @@ def _exercise(suffix: str, payload: bytes) -> None:
         tomllib.loads(text)
 
 
-def main() -> int:
-    if len(sys.argv) != 2:
-        return 2
-    corpus = _corpus(Path.cwd()) or [(".json", b'{"seed": true}')]
-    cases = 0
-    crashes = 0
-    while cases < 64:
-        for suffix, payload in corpus:
-            for mutation in _mutations(payload):
-                try:
-                    _exercise(suffix, mutation)
-                except (
-                    UnicodeDecodeError,
-                    json.JSONDecodeError,
-                    tomllib.TOMLDecodeError,
-                ):
-                    pass
-                except Exception:
-                    crashes += 1
-                cases += 1
-                if cases >= 64:
-                    break
-            if cases >= 64:
-                break
-    output = Path(sys.argv[1])
+def _cases(corpus: list[tuple[str, bytes]]) -> Iterator[tuple[str, bytes]]:
+    """Cycle every mutation of every corpus entry, bounded to ``MAX_CASES``."""
+    return islice(
+        (
+            (suffix, mutation)
+            for _ in count()
+            for suffix, payload in corpus
+            for mutation in _mutations(payload)
+        ),
+        MAX_CASES,
+    )
+
+
+def _crashed(suffix: str, payload: bytes) -> bool:
+    """Exercise one case; only a non-decode exception counts as a crash."""
+    try:
+        _exercise(suffix, payload)
+    except (UnicodeDecodeError, json.JSONDecodeError, tomllib.TOMLDecodeError):
+        return False
+    except Exception:
+        return True
+    return False
+
+
+def _write_report(output: Path, cases: int, crashes: int) -> None:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(
         json.dumps(
@@ -98,6 +101,18 @@ def main() -> int:
         ),
         encoding="utf-8",
     )
+
+
+def main() -> int:
+    if len(sys.argv) != 2:
+        return 2
+    corpus = _corpus(Path.cwd()) or [(".json", b'{"seed": true}')]
+    cases = 0
+    crashes = 0
+    for suffix, mutation in _cases(corpus):
+        crashes += _crashed(suffix, mutation)
+        cases += 1
+    _write_report(Path(sys.argv[1]), cases, crashes)
     return 0 if crashes == 0 else 1
 
 
