@@ -189,10 +189,18 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
+// EG-081/CCCC burn-down (L-raft-a): the phase-1 prepare/vote-tally and the
+// read-only-participant abort loop of `commit_cross_shard_inner`, plus the
+// AddEdge-endpoint check `validate_slices` delegates to, live in this
+// submodule rather than as further items in this already-oversized file --
+// see `commit.rs`'s module doc for why.
+mod commit;
+
 use super::multi::MultiRaft;
 #[cfg(any(feature = "calvin", test, feature = "harness"))]
 use super::NodeId;
 use super::{GroupId, RaftRequest};
+use crate::graph::GraphCore;
 use crate::protocol::{GraphType, Method};
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
@@ -504,14 +512,11 @@ impl CrossShardCoordinator {
         // confirm its reads → the txn ABORTS. Because NOTHING durable has been written
         // yet (no read-only log, no writer prepared), this is a pure rollback with
         // zero 2PC state to clear and nothing for recovery to find.
-        for (gid, slices) in &read_only {
-            if !self.validate_read_only_participant(*gid, slices).await? {
-                if retain_decision {
-                    redb.xshard_recoverable_decision_put(&txn.txn_id, false)
-                        .await?;
-                }
-                return Ok(TxnOutcome::Aborted);
-            }
+        if let Some(outcome) = self
+            .abort_on_invalid_read_only(redb, &txn.txn_id, &read_only, retain_decision)
+            .await?
+        {
+            return Ok(outcome);
         }
 
         // A fully read-only cross-shard txn (no group mutates) commits WITHOUT any
@@ -526,48 +531,7 @@ impl CrossShardCoordinator {
         }
 
         // ── PHASE 1: PREPARE every WRITING participant CONCURRENTLY (EG-081) ─────
-        // Deadlock-freedom under parallel prepare: a prepare holds NO lock ACROSS
-        // groups. Each `prepare_participant` takes its group's shared app_state READ
-        // guard only for the span of its own OCC validation (released before its
-        // durable write), and the redb writer serializes the prepare-log commits
-        // internally. No prepare ever waits on a lock another prepare holds, so there
-        // is no cross-group lock cycle regardless of the order prepares arrive in —
-        // the former strict GroupId sequencing was a defensive lock-order that the
-        // actual (across-groups lock-free) prepare does not require. The per-group
-        // local lock order inside each group is unchanged. We therefore issue the
-        // independent prepare RPCs/durable-writes as joined futures instead of one at
-        // a time; the joined set preserves input (GroupId) order so the collected
-        // votes are deterministic.
-        let prepare_futs = writing.iter().map(|(gid, slices)| {
-            let gid = *gid;
-            async move {
-                (
-                    gid,
-                    self.prepare_participant(redb, &txn.txn_id, gid, slices)
-                        .await,
-                )
-            }
-        });
-        let votes = futures::future::join_all(prepare_futs).await;
-
-        let mut prepared_groups: Vec<GroupId> = Vec::new();
-        let mut all_yes = true;
-        for (gid, vote) in votes {
-            match vote {
-                // Ok(true) ⟺ a durable prepare record was committed (commit-before-vote):
-                // the group is exactly the set that must be cleared on abort/commit.
-                Ok(true) => prepared_groups.push(gid),
-                Ok(false) => all_yes = false,
-                Err(e) => {
-                    tracing::warn!(
-                        "xshard {}: prepare of group {} errored ({e}) → abort",
-                        txn.txn_id,
-                        gid
-                    );
-                    all_yes = false;
-                }
-            }
-        }
+        let (all_yes, prepared_groups) = self.run_prepare_phase(redb, &txn.txn_id, &writing).await;
 
         // ── THE ATOMIC COMMIT POINT: durably record the decision ────────────────
         let commit = all_yes && prepared_groups.len() == writing.len();
@@ -710,32 +674,13 @@ impl CrossShardCoordinator {
         let state = self.multi.app_state();
         let s = state.read().await;
         for slice in slices {
-            let core = match s.registry.get(&slice.graph_name) {
-                Some(e) => e.core.clone(),
-                // A graph that does not exist yet is fine for pure-insert slices
-                // (the apply creates it). Treat as preparable.
-                None => continue,
+            // A graph that does not exist yet is fine for pure-insert slices (the
+            // apply creates it). Treat as preparable.
+            let Some(core) = s.registry.get(&slice.graph_name).map(|e| e.core.clone()) else {
+                continue;
             };
-            for m in &slice.methods {
-                if let Method::AddEdge {
-                    source_id,
-                    target_id,
-                    ..
-                } = m
-                {
-                    // An edge needs both endpoints present at commit; if a concurrent
-                    // writer removed one, prepare must fail (vote NO).
-                    if core.get_node_properties(source_id).is_none()
-                        && !slice_inserts_node(slices, source_id)
-                    {
-                        return false;
-                    }
-                    if core.get_node_properties(target_id).is_none()
-                        && !slice_inserts_node(slices, target_id)
-                    {
-                        return false;
-                    }
-                }
+            if !commit::slice_edge_endpoints_are_live(&core, slice, slices) {
+                return false;
             }
         }
         true
@@ -1766,17 +1711,6 @@ pub fn deterministic_order(txns: &[CrossShardTxn]) -> Vec<usize> {
     let mut idx: Vec<usize> = (0..txns.len()).collect();
     idx.sort_by(|&a, &b| txns[a].txn_id.cmp(&txns[b].txn_id));
     idx
-}
-
-/// Does ANY slice in the txn insert `node_id`? An AddEdge whose endpoint is added by
-/// a sibling slice in the SAME cross-shard txn is valid (the endpoint will exist
-/// after the txn applies), so it must not fail prepare.
-fn slice_inserts_node(slices: &[GraphSlice], node_id: &str) -> bool {
-    slices.iter().any(|s| {
-        s.methods
-            .iter()
-            .any(|m| matches!(m, Method::AddNode { node_id: nid, .. } if nid == node_id))
-    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
