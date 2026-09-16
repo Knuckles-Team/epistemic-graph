@@ -180,43 +180,10 @@ impl MembershipShrinkJournal {
     }
 
     pub fn validate(&self) -> bool {
-        let expected_remaining: Vec<NodeId> = self
-            .expected_voters
-            .iter()
-            .copied()
-            .filter(|voter| *voter != self.target)
-            .collect();
-        let abort_reason_valid = self.abort_reason.as_ref().is_none_or(|reason| {
-            !reason.is_empty()
-                && reason.len() <= MAX_EVIDENCE_REF
-                && !reason.bytes().any(|byte| byte.is_ascii_control())
-        });
-        if self.schema_version != MEMBERSHIP_SHRINK_SCHEMA_VERSION
-            || self.operation_id
-                != operation_id(
-                    self.group_id,
-                    self.target,
-                    self.learner,
-                    self.expected_term,
-                    &self.expected_voters,
-                )
-            || validate_voters(&self.expected_voters).is_err()
-            || validate_voters(&self.remaining_voters).is_err()
-            || self.remaining_voters != expected_remaining
-            || !self.expected_voters.contains(&self.target)
-            || self.learner == self.target
-            || !abort_reason_valid
-            || (self.phase != MembershipShrinkPhase::Aborted && self.abort_reason.is_some())
-            || self
-                .remaining_voters
-                .iter()
-                .any(|voter| *voter == self.target || !self.expected_voters.contains(voter))
-        {
-            return false;
-        }
-        self.evidence
-            .as_ref()
-            .is_none_or(|evidence| evidence.validate().is_ok())
+        journal_identity_is_consistent(self)
+            && journal_voter_sets_are_valid(self)
+            && journal_abort_state_is_valid(self)
+            && journal_evidence_is_valid(self)
     }
 
     fn evidence_matches(
@@ -251,45 +218,13 @@ impl MembershipShrinkJournal {
         if !self.evidence_matches(next, &evidence) {
             return Err("membership shrink evidence is stale or targets another set".to_string());
         }
-        let valid = match (self.phase, next) {
-            (MembershipShrinkPhase::Proposed, MembershipShrinkPhase::DrainRequested) => true,
-            (MembershipShrinkPhase::DrainRequested, MembershipShrinkPhase::Drained) => {
-                evidence.drained
-            }
-            (MembershipShrinkPhase::Drained, MembershipShrinkPhase::LearnerCaughtUp) => {
-                evidence.drained && evidence.learner_caught_up
-            }
-            (
-                MembershipShrinkPhase::LearnerCaughtUp,
-                MembershipShrinkPhase::LeadershipTransferred,
-            ) => {
-                evidence.learner_caught_up
-                    && evidence.leadership_transferred
-                    && matches!(evidence.observed_leader, Some(leader) if leader != self.target)
-            }
-            (
-                MembershipShrinkPhase::LeadershipTransferred,
-                MembershipShrinkPhase::SafetyChecked,
-            ) => {
-                evidence.leadership_transferred
-                    && evidence.quorum_preserved
-                    && evidence.failure_domain_preserved
-                    && evidence.headroom_preserved
-                    && evidence.pdb_preserved
-            }
-            (MembershipShrinkPhase::SafetyChecked, MembershipShrinkPhase::RemovalCommitted) => {
-                evidence.membership_change_committed
-                    && evidence.target_absent
-                    && evidence.observed_voters == self.remaining_voters
-            }
-            (MembershipShrinkPhase::RemovalCommitted, MembershipShrinkPhase::Completed) => {
-                evidence.membership_change_committed
-                    && evidence.target_absent
-                    && evidence.observed_voters == self.remaining_voters
-            }
-            _ => false,
-        };
-        if !valid {
+        if !transition_is_valid(
+            self.phase,
+            next,
+            &evidence,
+            self.target,
+            &self.remaining_voters,
+        ) {
             return Err(format!(
                 "membership shrink phase {:?} cannot advance to {:?} with supplied evidence",
                 self.phase, next
@@ -349,16 +284,7 @@ impl MembershipShrinkJournal {
     }
 
     pub fn permits_successor(&self, next: &Self) -> bool {
-        if !self.validate()
-            || !next.validate()
-            || self.operation_id != next.operation_id
-            || self.group_id != next.group_id
-            || self.target != next.target
-            || self.learner != next.learner
-            || self.expected_term != next.expected_term
-            || self.expected_voters != next.expected_voters
-            || self.remaining_voters != next.remaining_voters
-        {
+        if !journal_identities_match(self, next) {
             return false;
         }
         if self.phase == next.phase {
@@ -367,31 +293,7 @@ impl MembershipShrinkJournal {
         if self.phase.terminal() {
             return false;
         }
-        matches!(
-            (self.phase, next.phase),
-            (
-                MembershipShrinkPhase::Proposed,
-                MembershipShrinkPhase::DrainRequested
-            ) | (
-                MembershipShrinkPhase::DrainRequested,
-                MembershipShrinkPhase::Drained
-            ) | (
-                MembershipShrinkPhase::Drained,
-                MembershipShrinkPhase::LearnerCaughtUp
-            ) | (
-                MembershipShrinkPhase::LearnerCaughtUp,
-                MembershipShrinkPhase::LeadershipTransferred
-            ) | (
-                MembershipShrinkPhase::LeadershipTransferred,
-                MembershipShrinkPhase::SafetyChecked
-            ) | (
-                MembershipShrinkPhase::SafetyChecked,
-                MembershipShrinkPhase::RemovalCommitted
-            ) | (
-                MembershipShrinkPhase::RemovalCommitted,
-                MembershipShrinkPhase::Completed
-            ) | (_, MembershipShrinkPhase::Aborted)
-        )
+        is_valid_phase_step(self.phase, next.phase)
     }
 
     pub fn expected_voter_set(&self) -> BTreeSet<NodeId> {
@@ -401,6 +303,145 @@ impl MembershipShrinkJournal {
     pub fn remaining_voter_set(&self) -> BTreeSet<NodeId> {
         self.remaining_voters.iter().copied().collect()
     }
+}
+
+fn journal_identity_is_consistent(journal: &MembershipShrinkJournal) -> bool {
+    journal.schema_version == MEMBERSHIP_SHRINK_SCHEMA_VERSION
+        && journal.operation_id
+            == operation_id(
+                journal.group_id,
+                journal.target,
+                journal.learner,
+                journal.expected_term,
+                &journal.expected_voters,
+            )
+        && journal.expected_voters.contains(&journal.target)
+        && journal.learner != journal.target
+}
+
+fn journal_voter_sets_are_valid(journal: &MembershipShrinkJournal) -> bool {
+    let expected_remaining: Vec<NodeId> = journal
+        .expected_voters
+        .iter()
+        .copied()
+        .filter(|voter| *voter != journal.target)
+        .collect();
+    validate_voters(&journal.expected_voters).is_ok()
+        && validate_voters(&journal.remaining_voters).is_ok()
+        && journal.remaining_voters == expected_remaining
+        && journal
+            .remaining_voters
+            .iter()
+            .all(|voter| *voter != journal.target && journal.expected_voters.contains(voter))
+}
+
+fn journal_abort_state_is_valid(journal: &MembershipShrinkJournal) -> bool {
+    let abort_reason_valid = journal.abort_reason.as_ref().is_none_or(|reason| {
+        !reason.is_empty()
+            && reason.len() <= MAX_EVIDENCE_REF
+            && !reason.bytes().any(|byte| byte.is_ascii_control())
+    });
+    abort_reason_valid
+        && (journal.phase == MembershipShrinkPhase::Aborted || journal.abort_reason.is_none())
+}
+
+fn journal_evidence_is_valid(journal: &MembershipShrinkJournal) -> bool {
+    journal
+        .evidence
+        .as_ref()
+        .is_none_or(|evidence| evidence.validate().is_ok())
+}
+
+/// Whether `evidence` proves the single-step transition `phase -> next` is
+/// safe. Each phase pair names its own gate; anything else is not a valid
+/// single step -- `advance` never skips a gate. The match over the phase
+/// pair deliberately ends in a catch-all: most of the 9x9 phase-pair space is
+/// not a defined transition at all, so there is no exhaustiveness guarantee
+/// to preserve here.
+fn transition_is_valid(
+    phase: MembershipShrinkPhase,
+    next: MembershipShrinkPhase,
+    evidence: &MembershipShrinkEvidence,
+    target: NodeId,
+    remaining_voters: &[NodeId],
+) -> bool {
+    use MembershipShrinkPhase::*;
+    match (phase, next) {
+        (Proposed, DrainRequested) => true,
+        (DrainRequested, Drained) => gate_drained(evidence),
+        (Drained, LearnerCaughtUp) => gate_learner_caught_up(evidence),
+        (LearnerCaughtUp, LeadershipTransferred) => gate_leadership_transferred(evidence, target),
+        (LeadershipTransferred, SafetyChecked) => gate_safety_checked(evidence),
+        (SafetyChecked, RemovalCommitted) | (RemovalCommitted, Completed) => {
+            gate_removal_committed(evidence, remaining_voters)
+        }
+        _ => false,
+    }
+}
+
+fn gate_drained(evidence: &MembershipShrinkEvidence) -> bool {
+    evidence.drained
+}
+
+fn gate_learner_caught_up(evidence: &MembershipShrinkEvidence) -> bool {
+    evidence.drained && evidence.learner_caught_up
+}
+
+fn gate_leadership_transferred(evidence: &MembershipShrinkEvidence, target: NodeId) -> bool {
+    evidence.learner_caught_up
+        && evidence.leadership_transferred
+        && matches!(evidence.observed_leader, Some(leader) if leader != target)
+}
+
+fn gate_safety_checked(evidence: &MembershipShrinkEvidence) -> bool {
+    evidence.leadership_transferred
+        && evidence.quorum_preserved
+        && evidence.failure_domain_preserved
+        && evidence.headroom_preserved
+        && evidence.pdb_preserved
+}
+
+fn gate_removal_committed(
+    evidence: &MembershipShrinkEvidence,
+    remaining_voters: &[NodeId],
+) -> bool {
+    evidence.membership_change_committed
+        && evidence.target_absent
+        && evidence.observed_voters.as_slice() == remaining_voters
+}
+
+fn journal_identities_match(
+    current: &MembershipShrinkJournal,
+    next: &MembershipShrinkJournal,
+) -> bool {
+    current.validate()
+        && next.validate()
+        && current.operation_id == next.operation_id
+        && current.group_id == next.group_id
+        && current.target == next.target
+        && current.learner == next.learner
+        && current.expected_term == next.expected_term
+        && current.expected_voters == next.expected_voters
+        && current.remaining_voters == next.remaining_voters
+}
+
+/// Whether `next` is the single defined successor phase of `phase` (or an
+/// abort from anywhere non-terminal). Mirrors the transition table
+/// [`transition_is_valid`] gates -- this checks the shape only, not the
+/// evidence.
+fn is_valid_phase_step(phase: MembershipShrinkPhase, next: MembershipShrinkPhase) -> bool {
+    use MembershipShrinkPhase::*;
+    matches!(
+        (phase, next),
+        (Proposed, DrainRequested)
+            | (DrainRequested, Drained)
+            | (Drained, LearnerCaughtUp)
+            | (LearnerCaughtUp, LeadershipTransferred)
+            | (LeadershipTransferred, SafetyChecked)
+            | (SafetyChecked, RemovalCommitted)
+            | (RemovalCommitted, Completed)
+            | (_, Aborted)
+    )
 }
 
 #[cfg(test)]
@@ -484,5 +525,59 @@ mod tests {
             journal.recovery_action(&[1, 3]),
             ShrinkRecoveryAction::Abort
         );
+    }
+
+    #[test]
+    fn advance_rejects_a_skipped_phase() {
+        let journal = MembershipShrinkJournal::new(0, 3, 4, 7, vec![1, 2, 3]).unwrap();
+        // Proposed -> LearnerCaughtUp skips DrainRequested/Drained: the transition
+        // table's catch-all must reject it even though the evidence looks ready.
+        let mut skip_evidence = evidence(vec![1, 2, 3]);
+        skip_evidence.drained = true;
+        skip_evidence.learner_caught_up = true;
+        assert!(journal
+            .advance(MembershipShrinkPhase::LearnerCaughtUp, skip_evidence)
+            .is_err());
+    }
+
+    #[test]
+    fn validate_rejects_inconsistent_identity_and_voter_sets() {
+        let journal = MembershipShrinkJournal::new(0, 3, 4, 7, vec![1, 2, 3]).unwrap();
+        assert!(journal.validate());
+
+        let mut bad_schema = journal.clone();
+        bad_schema.schema_version += 1;
+        assert!(!bad_schema.validate());
+
+        let mut bad_remaining = journal.clone();
+        bad_remaining.remaining_voters = vec![1, 2, 3];
+        assert!(!bad_remaining.validate());
+
+        let mut target_is_learner = journal.clone();
+        target_is_learner.learner = target_is_learner.target;
+        assert!(!target_is_learner.validate());
+    }
+
+    #[test]
+    fn permits_successor_accepts_the_one_defined_step_and_rejects_others() {
+        let journal = MembershipShrinkJournal::new(0, 3, 4, 7, vec![1, 2, 3]).unwrap();
+        let mut next = evidence(vec![1, 2, 3]);
+        let advanced = journal
+            .advance(MembershipShrinkPhase::DrainRequested, next.clone())
+            .unwrap();
+        assert!(journal.permits_successor(&advanced));
+
+        // A different operation entirely must never be a permitted successor.
+        let other = MembershipShrinkJournal::new(0, 3, 4, 7, vec![1, 2, 3, 5]).unwrap();
+        assert!(other.validate());
+        assert!(!journal.permits_successor(&other));
+
+        // Skipping straight to LearnerCaughtUp is not a single valid step.
+        next.drained = true;
+        next.learner_caught_up = true;
+        let mut skipped = journal.clone();
+        skipped.phase = MembershipShrinkPhase::LearnerCaughtUp;
+        skipped.evidence = Some(next);
+        assert!(!journal.permits_successor(&skipped));
     }
 }
