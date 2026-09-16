@@ -396,24 +396,24 @@ fn apply_claimed_work_item(
         crypto,
     )?;
     changed_work_item_ids.push(node_id.clone());
-    Ok(crate::protocol::ResultPayload::of::<
-        eg_types::result_contract::coordination::ClaimWorkItem,
-    >(ClaimWorkItemResult {
-        schema_version: ClaimWorkItemResultSchemaVersion::V1,
-        claimed: true,
-        reason: ClaimWorkItemResultReason::Claimed,
-        work_item_id: Some(node_id),
-        kind: (!kind.is_empty()).then_some(kind),
-        payload_ref: (!payload_ref.is_empty()).then_some(payload_ref),
-        lease_holder_ref: Some(worker_id.clone()),
-        lease_epoch: Some(epoch),
-        fencing_token: Some(epoch),
-        lease_expires_at_ms: Some(now_ms.saturating_add(lease_ms)),
-        attempt: Some(attempt),
-        max_attempts: Some(max_attempts),
-        tenant_in_flight: Some(u64::from(inflight.saturating_add(1))),
-        changed_work_item_ids,
-    })?)
+    crate::protocol::ResultPayload::of::<eg_types::result_contract::coordination::ClaimWorkItem>(
+        ClaimWorkItemResult {
+            schema_version: ClaimWorkItemResultSchemaVersion::V1,
+            claimed: true,
+            reason: ClaimWorkItemResultReason::Claimed,
+            work_item_id: Some(node_id),
+            kind: (!kind.is_empty()).then_some(kind),
+            payload_ref: (!payload_ref.is_empty()).then_some(payload_ref),
+            lease_holder_ref: Some(worker_id.clone()),
+            lease_epoch: Some(epoch),
+            fencing_token: Some(epoch),
+            lease_expires_at_ms: Some(now_ms.saturating_add(lease_ms)),
+            attempt: Some(attempt),
+            max_attempts: Some(max_attempts),
+            tenant_in_flight: Some(u64::from(inflight.saturating_add(1))),
+            changed_work_item_ids,
+        },
+    )
 }
 
 pub(crate) fn apply_claim_work_item_row<'txn, 'crypto>(

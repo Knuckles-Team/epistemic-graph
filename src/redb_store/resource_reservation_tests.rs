@@ -3096,14 +3096,14 @@ fn graph_clear_streams_terminal_history_past_bound_and_preserves_active_holds() 
             let mut tenant_index = graph
                 .open_scoped_table(RESOURCE_RESERVATION_TENANT_INDEX)
                 .unwrap();
-            let mut attempts = graph
+            let attempts = graph
                 .open_scoped_table(RESOURCE_RESERVATION_ATTEMPTS)
                 .unwrap();
             let mut hosts = graph.open_scoped_table(RESOURCE_HOSTS).unwrap();
-            let mut exclusivity = graph.open_scoped_table(RESOURCE_EXCLUSIVITY).unwrap();
-            let mut fairness = graph.open_scoped_table(RESOURCE_FAIRNESS).unwrap();
-            let mut concurrency = graph.open_scoped_table(RESOURCE_CONCURRENCY).unwrap();
-            let mut anti_affinity = graph.open_scoped_table(RESOURCE_ANTI_AFFINITY).unwrap();
+            let exclusivity = graph.open_scoped_table(RESOURCE_EXCLUSIVITY).unwrap();
+            let fairness = graph.open_scoped_table(RESOURCE_FAIRNESS).unwrap();
+            let concurrency = graph.open_scoped_table(RESOURCE_CONCURRENCY).unwrap();
+            let anti_affinity = graph.open_scoped_table(RESOURCE_ANTI_AFFINITY).unwrap();
             let mut disk_policies = graph.open_scoped_table(RESOURCE_DISK_POLICIES).unwrap();
             let crypto = DurableCrypto::none();
             let base_request = request();
@@ -3191,60 +3191,44 @@ fn graph_clear_streams_terminal_history_past_bound_and_preserves_active_holds() 
             tenant_index
                 .insert(("graph-a", "tenant-a", active_id), active_id)
                 .unwrap();
+            let mut tables = ResourceRowTables {
+                reservations,
+                tenant_index,
+                attempts,
+                hosts,
+                exclusivity,
+                fairness,
+                concurrency,
+                anti_affinity,
+                disk_policies,
+            };
 
-            assert!(clear_resource_rows(
-                "graph-a",
-                &mut reservations,
-                &mut tenant_index,
-                &mut attempts,
-                &mut hosts,
-                &mut exclusivity,
-                &mut fairness,
-                &mut concurrency,
-                &mut anti_affinity,
-                &mut disk_policies,
-                crypto,
-            )
-            .is_err());
-            assert!(reservations.get(("graph-a", active_id)).unwrap().is_some());
-            assert!(tenant_index
+            assert!(clear_resource_rows_with_tables("graph-a", &mut tables, crypto).is_err());
+            assert!(tables
+                .reservations
+                .get(("graph-a", active_id))
+                .unwrap()
+                .is_some());
+            assert!(tables
+                .tenant_index
                 .get(("graph-a", "tenant-a", active_id))
                 .unwrap()
                 .is_some());
 
-            reservations.remove(("graph-a", active_id)).unwrap();
-            tenant_index
+            tables.reservations.remove(("graph-a", active_id)).unwrap();
+            tables
+                .tenant_index
                 .remove(("graph-a", "tenant-a", active_id))
                 .unwrap();
-            clear_resource_rows(
-                "graph-a",
-                &mut reservations,
-                &mut tenant_index,
-                &mut attempts,
-                &mut hosts,
-                &mut exclusivity,
-                &mut fairness,
-                &mut concurrency,
-                &mut anti_affinity,
-                &mut disk_policies,
-                crypto,
-            )
-            .expect("terminal history is cleared in bounded chunks");
+            clear_resource_rows_with_tables("graph-a", &mut tables, crypto)
+                .expect("terminal history is cleared in bounded chunks");
             // A per-graph prefix scan is `scope_rows()`: it starts at the least
             // key this scope can own and stops on the first key that leaves it, so
             // the open-ended `range(("graph-a", "")..)` + `take_while` shape the
             // raw table needed is now the capability's own bound.
-            assert!(reservations.scope_rows().unwrap().next().is_none());
-            assert!(tenant_index.scope_rows().unwrap().next().is_none());
-            drop(reservations);
-            drop(tenant_index);
-            drop(attempts);
-            drop(hosts);
-            drop(exclusivity);
-            drop(fairness);
-            drop(concurrency);
-            drop(anti_affinity);
-            drop(disk_policies);
+            assert!(tables.reservations.scope_rows().unwrap().next().is_none());
+            assert!(tables.tenant_index.scope_rows().unwrap().next().is_none());
+            drop(tables);
         });
         drop(shard);
     }

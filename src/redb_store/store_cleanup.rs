@@ -466,9 +466,9 @@ pub(crate) fn clear_resource_reservation_side_tables(
     graph: &str,
     tables: &mut ResourceRowTablesRef<'_, '_>,
 ) -> Result<(), String> {
-    clear_resource_two_part_table(&mut tables.reservations, graph)?;
-    clear_resource_tenant_index_table(&mut tables.tenant_index, graph)?;
-    clear_resource_attempts_table(&mut tables.attempts, graph)?;
+    clear_resource_two_part_table(tables.reservations, graph)?;
+    clear_resource_tenant_index_table(tables.tenant_index, graph)?;
+    clear_resource_attempts_table(tables.attempts, graph)?;
     Ok(())
 }
 
@@ -476,12 +476,12 @@ pub(crate) fn clear_resource_host_side_tables(
     graph: &str,
     tables: &mut ResourceRowTablesRef<'_, '_>,
 ) -> Result<(), String> {
-    clear_resource_two_part_table(&mut tables.hosts, graph)?;
-    clear_resource_two_part_table(&mut tables.exclusivity, graph)?;
-    clear_resource_two_part_table(&mut tables.fairness, graph)?;
-    clear_resource_two_part_table(&mut tables.concurrency, graph)?;
-    clear_resource_anti_affinity_table(&mut tables.anti_affinity, graph)?;
-    clear_resource_two_part_table(&mut tables.disk_policies, graph)?;
+    clear_resource_two_part_table(tables.hosts, graph)?;
+    clear_resource_two_part_table(tables.exclusivity, graph)?;
+    clear_resource_two_part_table(tables.fairness, graph)?;
+    clear_resource_two_part_table(tables.concurrency, graph)?;
+    clear_resource_anti_affinity_table(tables.anti_affinity, graph)?;
+    clear_resource_two_part_table(tables.disk_policies, graph)?;
     Ok(())
 }
 
@@ -506,14 +506,14 @@ fn clear_resource_rows_impl(
 ) -> Result<(), String> {
     let has_active_rows = check_resource_reservations_active(
         graph,
-        &mut tables.reservations,
-        &mut tables.tenant_index,
+        tables.reservations,
+        tables.tenant_index,
         crypto,
     )?;
     check_resource_tenant_index_consistency(
         graph,
-        &mut tables.tenant_index,
-        &mut tables.reservations,
+        tables.tenant_index,
+        tables.reservations,
         crypto,
     )?;
     if has_active_rows {
@@ -533,46 +533,9 @@ pub(crate) fn clear_resource_rows_with_tables(
     clear_resource_rows_impl(graph, &mut tables_ref, crypto)
 }
 
-#[cfg(not(test))]
-pub(crate) fn clear_resource_rows(
-    graph: &str,
-    tables: &mut ResourceRowTables<'_>,
-    crypto: DurableCrypto<'_>,
-) -> Result<(), String> {
-    clear_resource_rows_with_tables(graph, tables, crypto)
-}
-
-#[cfg(test)]
-pub(crate) fn clear_resource_rows<'txn>(
-    graph: &str,
-    reservations: &mut ScopedOwnerTableMut<'txn, (&str, &str), &[u8]>,
-    tenant_index: &mut ScopedOwnerTableMut<'txn, (&str, &str, &str), &str>,
-    attempts: &mut ScopedOwnerTableMut<'txn, (&str, &str, u64), &str>,
-    hosts: &mut ScopedOwnerTableMut<'txn, (&str, &str), &[u8]>,
-    exclusivity: &mut ScopedOwnerTableMut<'txn, (&str, &str), &str>,
-    fairness: &mut ScopedOwnerTableMut<'txn, (&str, &str), &[u8]>,
-    concurrency: &mut ScopedOwnerTableMut<'txn, (&str, &str), u64>,
-    anti_affinity: &mut ScopedOwnerTableMut<'txn, (&str, &str, &str), u64>,
-    disk_policies: &mut ScopedOwnerTableMut<'txn, (&str, &str), &[u8]>,
-    crypto: DurableCrypto<'_>,
-) -> Result<(), String> {
-    let mut tables = ResourceRowTablesRef {
-        reservations,
-        tenant_index,
-        attempts,
-        hosts,
-        exclusivity,
-        fairness,
-        concurrency,
-        anti_affinity,
-        disk_policies,
-    };
-    clear_resource_rows_impl(graph, &mut tables, crypto)
-}
-
 /// Open the complete resource table family for a graph-member clear. The
 /// compact and cross-modal paths already hold these tables and call
-/// [`clear_resource_rows`] directly; the ordinary graph-method path only has
+/// [`clear_resource_rows_with_tables`] directly; the ordinary graph-method path only has
 /// its core row bundle open, so this adapter opens the resource rows once and
 /// releases them before the member is finished.
 pub(crate) fn clear_resource_rows_in_wtx(

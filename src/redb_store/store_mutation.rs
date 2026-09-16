@@ -194,7 +194,7 @@ pub(crate) fn commit_change_envelopes(
     )?;
     let session = match start {
         ChangeEnvelopeStart::AllReplayed(commits) => return Ok(commits),
-        ChangeEnvelopeStart::Active(session) => session,
+        ChangeEnvelopeStart::Active(session) => *session,
     };
     #[cfg(feature = "security")]
     let mut staged_audit_tail = audit_tail.clone();
@@ -328,7 +328,7 @@ struct ChangeEnvelopeRowInput<'a> {
 
 enum ChangeEnvelopeStart<'a> {
     AllReplayed(Vec<ChangeEnvelopeCommit>),
-    Active(ChangeEnvelopeSession<'a>),
+    Active(Box<ChangeEnvelopeSession<'a>>),
 }
 
 fn start_change_envelope_group<'a>(
@@ -392,17 +392,19 @@ fn start_change_envelope_group<'a>(
                     }
                     Begin::Replay(_) => unreachable!("fresh graph member requires fresh control"),
                 };
-                return Ok(ChangeEnvelopeStart::Active(ChangeEnvelopeSession {
-                    group,
-                    first_batches: batches.clone(),
-                    first_control_begin: control_begin,
-                    first_graph_begin: graph_begin,
-                    first_fresh,
-                    commits,
-                    control_version,
-                    final_control_batch: batches[0].clone(),
-                    final_graph_batch: batches[1].clone(),
-                }));
+                return Ok(ChangeEnvelopeStart::Active(Box::new(
+                    ChangeEnvelopeSession {
+                        group,
+                        first_batches: batches.clone(),
+                        first_control_begin: control_begin,
+                        first_graph_begin: graph_begin,
+                        first_fresh,
+                        commits,
+                        control_version,
+                        final_control_batch: batches[0].clone(),
+                        final_graph_batch: batches[1].clone(),
+                    },
+                )));
             }
         }
     }

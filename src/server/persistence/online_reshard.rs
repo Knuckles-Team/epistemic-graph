@@ -1041,7 +1041,7 @@ fn export_resource_rows(read: &GraphRead<'_>) -> Result<RawResourceRows, String>
 
 /// Scope-bounded remove of every `resource_*` row for ONE graph (no crypto — these
 /// are opaque bytes to this module, the same "verbatim, never decode" contract as the
-/// rest of the module). NOT `redb_store::clear_resource_rows`: that shared helper
+/// rest of the module). NOT `redb_store::clear_resource_rows_with_tables`: that shared helper
 /// decrypts rows to enforce the "no active reservation" invariant for a graph DELETE,
 /// which is the wrong contract for a MOVE (a graph with a live reservation must still
 /// reshard — the reservation moves with it).

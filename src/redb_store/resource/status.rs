@@ -1,21 +1,29 @@
 use super::*;
 
+/// The read-only resource tables a reservation status query scans.
+pub(crate) struct ResourceReservationStatusTables {
+    pub(crate) reservations:
+        eg_storage::ScopedOwnerTable<(&'static str, &'static str), &'static [u8]>,
+    pub(crate) tenant_index:
+        eg_storage::ScopedOwnerTable<(&'static str, &'static str, &'static str), &'static str>,
+    pub(crate) hosts: eg_storage::ScopedOwnerTable<(&'static str, &'static str), &'static [u8]>,
+    pub(crate) disk_policies:
+        eg_storage::ScopedOwnerTable<(&'static str, &'static str), &'static [u8]>,
+}
+
 pub(crate) fn open_resource_reservation_status_tables(
     read: &ScopedRead<'_, GraphShardOwner>,
-) -> Result<
-    (
-        eg_storage::ScopedOwnerTable<(&'static str, &'static str), &'static [u8]>,
-        eg_storage::ScopedOwnerTable<(&'static str, &'static str, &'static str), &'static str>,
-        eg_storage::ScopedOwnerTable<(&'static str, &'static str), &'static [u8]>,
-        eg_storage::ScopedOwnerTable<(&'static str, &'static str), &'static [u8]>,
-    ),
-    String,
-> {
+) -> Result<ResourceReservationStatusTables, String> {
     let reservations = read.scoped_owner_table(RESOURCE_RESERVATIONS)?;
     let tenant_index = read.scoped_owner_table(RESOURCE_RESERVATION_TENANT_INDEX)?;
     let hosts = read.scoped_owner_table(RESOURCE_HOSTS)?;
     let disk_policies = read.scoped_owner_table(RESOURCE_DISK_POLICIES)?;
-    Ok((reservations, tenant_index, hosts, disk_policies))
+    Ok(ResourceReservationStatusTables {
+        reservations,
+        tenant_index,
+        hosts,
+        disk_policies,
+    })
 }
 
 pub(crate) enum ResourceReservationStatusRowOutcome {
@@ -381,8 +389,12 @@ pub(crate) fn read_resource_reservation_status(
     let cursor = request.cursor.as_deref().unwrap_or("");
     let handle = shard.graph(graph)?;
     let read = shard.read(&handle)?;
-    let (reservations, tenant_index, hosts, disk_policies) =
-        open_resource_reservation_status_tables(&read)?;
+    let ResourceReservationStatusTables {
+        reservations,
+        tenant_index,
+        hosts,
+        disk_policies,
+    } = open_resource_reservation_status_tables(&read)?;
 
     let scan = scan_resource_reservation_status_rows(
         &tenant_index,

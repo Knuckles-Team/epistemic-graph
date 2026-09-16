@@ -43,10 +43,17 @@ pub(crate) fn resource_extension_validate_and_extract_branch(
     resolve_resource_extension_branch(extension, request)
 }
 
-/// The four sorted label sets `resource_extension_resolve_labels` returns, in
-/// order: the host's advertised labels, the request's required labels, the host's
-/// anti-affinity keys, and the request's anti-affinity keys.
-pub(crate) type ResourceLabelSets = (Vec<String>, Vec<String>, Vec<String>, Vec<String>);
+/// The four sorted label sets `resource_extension_resolve_labels` returns.
+pub(crate) struct ResourceLabelSets {
+    /// The host's advertised labels.
+    pub(crate) labels: Vec<String>,
+    /// The request's required labels.
+    pub(crate) request_labels: Vec<String>,
+    /// The host's anti-affinity keys.
+    pub(crate) anti_affinity: Vec<String>,
+    /// The request's anti-affinity keys.
+    pub(crate) request_anti_affinity: Vec<String>,
+}
 
 pub(crate) fn resource_extension_resolve_labels(
     extension: &serde_json::Map<String, serde_json::Value>,
@@ -62,7 +69,12 @@ pub(crate) fn resource_extension_resolve_labels(
     anti_affinity.sort();
     let mut request_anti_affinity = request.anti_affinity.clone();
     request_anti_affinity.sort();
-    Ok((labels, request_labels, anti_affinity, request_anti_affinity))
+    Ok(ResourceLabelSets {
+        labels,
+        request_labels,
+        anti_affinity,
+        request_anti_affinity,
+    })
 }
 
 // This is the immutable outer WorkItem digest, not an opaque user field.
@@ -109,9 +121,28 @@ pub(crate) fn resource_extension_resolve_alias_if_digest_matches(
     Ok(Some(alias))
 }
 
+/// The resolved-profile fields carried by a WorkItem's nested resource extension.
+pub(crate) struct ResourceExtensionProfileFields {
+    pub(crate) profile_version: String,
+    pub(crate) profile_name: String,
+    pub(crate) repository_id: String,
+    pub(crate) concurrency_key: String,
+    pub(crate) fairness_group: String,
+    pub(crate) disk_policy_key: String,
+}
+
+/// The outer WorkItem repository projection the nested extension must agree with.
+pub(crate) struct ResourceExtensionRepositoryFields {
+    pub(crate) repository_id_outer: String,
+    pub(crate) owner_id_outer: String,
+    pub(crate) outer_target_kind: String,
+    pub(crate) outer_target_alias: Option<String>,
+    pub(crate) tenant_id: String,
+}
+
 pub(crate) fn resolve_resource_extension_profile_fields(
     extension: &serde_json::Map<String, serde_json::Value>,
-) -> Result<(String, String, String, String, String, String), String> {
+) -> Result<ResourceExtensionProfileFields, String> {
     let profile_version =
         resource_metadata_string(extension, "profile_version", "resource profile_version")?;
     let profile_version_number = profile_version
@@ -130,19 +161,19 @@ pub(crate) fn resolve_resource_extension_profile_fields(
         resource_metadata_string(extension, "fairness_group", "resource fairness_group")?;
     let disk_policy_key =
         resource_metadata_string(extension, "disk_policy_key", "resource disk_policy_key")?;
-    Ok((
+    Ok(ResourceExtensionProfileFields {
         profile_version,
         profile_name,
         repository_id,
         concurrency_key,
         fairness_group,
         disk_policy_key,
-    ))
+    })
 }
 
 pub(crate) fn resolve_resource_extension_repository_fields(
     repository: &serde_json::Map<String, serde_json::Value>,
-) -> Result<(String, String, String, Option<String>, String), String> {
+) -> Result<ResourceExtensionRepositoryFields, String> {
     let repository_id_outer =
         resource_metadata_string(repository, "repository_id", "repository repository_id")?;
     let owner_id_outer = resource_metadata_string(repository, "owner_id", "repository owner_id")?;
@@ -158,13 +189,13 @@ pub(crate) fn resolve_resource_extension_repository_fields(
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| "repository tenant_id is missing".to_string())?;
     let tenant_id = resource_b64_value(tenant_id, "repository tenant_id")?;
-    Ok((
+    Ok(ResourceExtensionRepositoryFields {
         repository_id_outer,
         owner_id_outer,
         outer_target_kind,
         outer_target_alias,
         tenant_id,
-    ))
+    })
 }
 
 pub(crate) fn resource_extension_resolve_extracted_fields(
@@ -172,8 +203,8 @@ pub(crate) fn resource_extension_resolve_extracted_fields(
     extension: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<
     (
-        (String, String, String, String, String, String),
-        (String, String, String, Option<String>, String),
+        ResourceExtensionProfileFields,
+        ResourceExtensionRepositoryFields,
     ),
     String,
 > {
@@ -264,14 +295,11 @@ pub(crate) fn resource_extension_requirements_match(
 pub(crate) fn resource_extension_affinity_and_exclusivity_matches(
     extension: &serde_json::Map<String, serde_json::Value>,
     request: &ResourceReservationRequest,
-    labels: &[String],
-    request_labels: &[String],
-    anti_affinity: &[String],
-    request_anti_affinity: &[String],
+    label_sets: &ResourceLabelSets,
     fairness_group: &str,
 ) -> Result<bool, String> {
-    Ok(labels == request_labels
-        && anti_affinity == request_anti_affinity
+    Ok(label_sets.labels == label_sets.request_labels
+        && label_sets.anti_affinity == label_sets.request_anti_affinity
         && fairness_group == request.fairness_group
         && resource_optional_u64_matches(
             extension,
@@ -320,20 +348,14 @@ pub(crate) fn resource_extension_disk_policy_matches(
 pub(crate) fn resource_extension_policy_matches(
     extension: &serde_json::Map<String, serde_json::Value>,
     request: &ResourceReservationRequest,
-    labels: &[String],
-    request_labels: &[String],
-    anti_affinity: &[String],
-    request_anti_affinity: &[String],
+    label_sets: &ResourceLabelSets,
     fairness_group: &str,
     disk_policy_key: &str,
 ) -> Result<bool, String> {
     Ok(resource_extension_affinity_and_exclusivity_matches(
         extension,
         request,
-        labels,
-        request_labels,
-        anti_affinity,
-        request_anti_affinity,
+        label_sets,
         fairness_group,
     )? && resource_extension_disk_policy_matches(extension, request, disk_policy_key)?)
 }
@@ -342,55 +364,41 @@ pub(crate) struct ResourceExtensionFinalMatch<'a> {
     pub(crate) extension: &'a serde_json::Map<String, serde_json::Value>,
     pub(crate) request: &'a ResourceReservationRequest,
     pub(crate) extension_branch: &'a str,
-    pub(crate) labels: &'a [String],
-    pub(crate) request_labels: &'a [String],
-    pub(crate) anti_affinity: &'a [String],
-    pub(crate) request_anti_affinity: &'a [String],
+    pub(crate) label_sets: &'a ResourceLabelSets,
     pub(crate) alias: &'a Option<String>,
-    pub(crate) profile_fields: &'a (String, String, String, String, String, String),
-    pub(crate) repository_fields: &'a (String, String, String, Option<String>, String),
+    pub(crate) profile_fields: &'a ResourceExtensionProfileFields,
+    pub(crate) repository_fields: &'a ResourceExtensionRepositoryFields,
     pub(crate) extension_target_kind: &'a str,
 }
 
 pub(crate) fn resource_extension_final_match(
     context: ResourceExtensionFinalMatch<'_>,
 ) -> Result<bool, String> {
-    let (
-        profile_version,
-        profile_name,
-        repository_id,
-        concurrency_key,
-        fairness_group,
-        disk_policy_key,
-    ) = context.profile_fields;
-    let (repository_id_outer, owner_id_outer, outer_target_kind, outer_target_alias, tenant_id) =
-        context.repository_fields;
+    let profile = context.profile_fields;
+    let repository = context.repository_fields;
     let identity_ok = resource_extension_identity_matches(ResourceExtensionIdentity {
         request: context.request,
-        profile_name,
-        profile_version,
-        repository_id,
-        repository_id_outer,
-        owner_id_outer,
-        tenant_id,
+        profile_name: &profile.profile_name,
+        profile_version: &profile.profile_version,
+        repository_id: &profile.repository_id,
+        repository_id_outer: &repository.repository_id_outer,
+        owner_id_outer: &repository.owner_id_outer,
+        tenant_id: &repository.tenant_id,
         extension_branch: context.extension_branch,
         extension_target_kind: context.extension_target_kind,
-        outer_target_kind,
+        outer_target_kind: &repository.outer_target_kind,
         alias: context.alias,
-        outer_target_alias,
-        concurrency_key,
+        outer_target_alias: &repository.outer_target_alias,
+        concurrency_key: &profile.concurrency_key,
     });
     let requirements_ok =
         resource_extension_requirements_match(context.extension, context.request)?;
     let policy_ok = resource_extension_policy_matches(
         context.extension,
         context.request,
-        context.labels,
-        context.request_labels,
-        context.anti_affinity,
-        context.request_anti_affinity,
-        fairness_group,
-        disk_policy_key,
+        context.label_sets,
+        &profile.fairness_group,
+        &profile.disk_policy_key,
     )?;
     Ok(identity_ok && requirements_ok && policy_ok)
 }
@@ -401,8 +409,7 @@ pub(crate) fn resource_extension_matches(
     request: &ResourceReservationRequest,
 ) -> Result<bool, String> {
     let extension_branch = resource_extension_validate_and_extract_branch(extension, request)?;
-    let (labels, request_labels, anti_affinity, request_anti_affinity) =
-        resource_extension_resolve_labels(extension, request)?;
+    let label_sets = resource_extension_resolve_labels(extension, request)?;
     let alias = match resource_extension_resolve_alias_if_digest_matches(repository, extension)? {
         Some(alias) => alias,
         None => return Ok(false),
@@ -414,10 +421,7 @@ pub(crate) fn resource_extension_matches(
         extension,
         request,
         extension_branch: &extension_branch,
-        labels: &labels,
-        request_labels: &request_labels,
-        anti_affinity: &anti_affinity,
-        request_anti_affinity: &request_anti_affinity,
+        label_sets: &label_sets,
         alias: &alias,
         profile_fields: &profile_fields,
         repository_fields: &repository_fields,
