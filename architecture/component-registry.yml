@@ -3895,6 +3895,7 @@ components:
       - "tests/test_p2_analytics_gate_contract.py"
       - "tests/test_pb_clients.py"
       - "tests/test_persisted_mutation_contract.py"
+      - "tests/test_pinned_reference_resolution.py"
       - "tests/test_pipelining.py"
       - "tests/test_protocol.py"
       - "tests/test_push_gate_evidence.py"

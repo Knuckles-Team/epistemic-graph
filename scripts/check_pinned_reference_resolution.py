@@ -529,35 +529,44 @@ def _store_readers(bodies: dict[str, str], layers: set[str]) -> dict[str, set[st
 def _admission_anchors_for_layer(
     bodies: dict[str, str], opens_write: set[str], layer: str
 ) -> set[str]:
-    """Admission anchors for one layer: see `_admitted_writes` for why a
-    function qualifies either by carrying the marker itself, or by opening
-    the write and reaching a marker-carrying function within the gate's
-    existing bounded reach."""
+    """Admission anchors for ONE layer: its own admission step, nothing wider.
 
-    marker = f"Agent{layer.capitalize()}Entry"
-    marker_funcs = {name for name, body in bodies.items() if marker in body}
-    return {
-        name
-        for name in opens_write
-        if marker in bodies[name] or _called_directly(bodies, {name}, marker_funcs)
-    }
+    A function is an anchor when it carries the layer's entry type and either
+    opens the admitted write itself, or is called DIRECTLY by a function that
+    does.  See `_admitted_writes` for why the second form exists.
+
+    The entry type is matched on word boundaries.  A substring match let
+    `AgentLibraryEntryDraft` -- which the TEMPLATE layer's admission also
+    handles, because a template's base is one -- count as the LIBRARY marker,
+    so another layer's public write became this layer's anchor and resolved
+    this layer's edges on its behalf.
+    """
+
+    marker = re.compile(rf"\bAgent{layer.capitalize()}Entry\b")
+    carries = {name for name, body in bodies.items() if marker.search(body)}
+    anchors = opens_write & carries
+    for name in opens_write:
+        anchors |= set(_CALL.findall(bodies[name])) & carries
+    return anchors
 
 
 def _admitted_writes(bodies: dict[str, str], layers: set[str]) -> dict[str, set[str]]:
     """Each layer's admitted write: where a record carrying pins is committed.
 
     The two markers -- the entry type and the `open_write` call that commits
-    it -- used to live in one function's own text. A `prepare_*` step (typed
-    on the entry) followed by a `commit_*` step (typed on a request/commit
-    wrapper struct, `open_write` called there instead) is an ordinary split
-    of that one function; it does not remove the entry type from the
-    admission path, it moves it one bounded call away. So a function still
-    counts as an admission anchor for a layer when the marker is in its own
-    text, OR when it directly opens the write AND reaches -- within the same
-    bounded `_RESOLVER_CALL_DEPTH` this gate already uses for the resolver
-    side of every edge -- a function whose own text carries the marker. This
-    still requires a proven lexical call path, same as everywhere else in
-    this gate; it only stops requiring both markers to fall in one function.
+    it -- used to live in one function's own text. A write-opening function
+    that hands the entry-typed work to a `prepare_*` / `commit_*` step is an
+    ordinary split of that one function: the entry type moves exactly ONE call
+    away, into a function the write-opener calls by name.  So a function counts
+    as an admission anchor for a layer when it carries the layer's entry type
+    AND either opens the write or is a direct callee of a function that does.
+
+    Deliberately not "reachable within `_RESOLVER_CALL_DEPTH`".  That bound is
+    for the resolver side of an edge.  Applied to the anchor side it let any
+    write-opener that reached ANY marker-carrying function within three calls
+    anchor the layer, which made every layer's public write an anchor of every
+    other layer's: a removed library resolver was then still "reachable" from
+    the template publish, and the gate reported green over it.
     """
 
     opens_write = {name for name, body in bodies.items() if ADMITTED_WRITE in body}
