@@ -39,7 +39,7 @@ def load_json(path: Path):
         return json.load(fh)
 
 
-def main() -> int:
+def _build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__)
     repo = Path(__file__).resolve().parent.parent
     ap.add_argument(
@@ -51,52 +51,67 @@ def main() -> int:
     ap.add_argument(
         "--recall-json", type=Path, default=repo / "target" / "eg_plan_recall.json"
     )
-    args = ap.parse_args()
+    return ap
 
-    thresholds = load_json(args.thresholds)
-    recall_floor = float(thresholds["recall_floor"])
-    ceilings: dict[str, float] = thresholds["latency_p50_ns_max"]
 
-    failures: list[str] = []
-    reported: list[str] = []
-
-    # ── recall gate ──────────────────────────────────────────────────────────────
-    if args.recall_json.exists():
-        rec = load_json(args.recall_json)
-        measured = float(rec["recall_at_k"])
-        k = rec.get("k", "?")
-        ok = measured >= recall_floor
-        reported.append(
-            f"  recall@{k}: {measured:.4f}  (floor {recall_floor:.4f})  "
-            f"{'OK' if ok else 'FAIL'}"
-        )
-        if not ok:
-            failures.append(f"recall@{k} {measured:.4f} < floor {recall_floor:.4f}")
-    else:
-        failures.append(
-            f"recall artifact missing: {args.recall_json} "
+def _check_recall(
+    recall_json: Path, recall_floor: float
+) -> tuple[list[str], list[str]]:
+    """Recall gate: report + failures for the measured recall@k, if present."""
+    if not recall_json.exists():
+        return [], [
+            f"recall artifact missing: {recall_json} "
             "(did the bench run with --features query?)"
-        )
+        ]
+    rec = load_json(recall_json)
+    measured = float(rec["recall_at_k"])
+    k = rec.get("k", "?")
+    ok = measured >= recall_floor
+    reported = [
+        f"  recall@{k}: {measured:.4f}  (floor {recall_floor:.4f})  "
+        f"{'OK' if ok else 'FAIL'}"
+    ]
+    failures = [] if ok else [f"recall@{k} {measured:.4f} < floor {recall_floor:.4f}"]
+    return reported, failures
 
-    # ── latency gate ─────────────────────────────────────────────────────────────
+
+def _check_one_latency(
+    criterion_dir: Path, name: str, ceiling: float
+) -> tuple[str, str | None]:
+    """Latency gate for a single bench: one report line, plus a failure if over."""
+    est = criterion_dir / name / "new" / "estimates.json"
+    if not est.exists():
+        return f"  {name}: (skipped — no estimates; feature not built)", None
+    data = load_json(est)
+    p50 = float(data["median"]["point_estimate"])  # nanoseconds
+    ok = p50 <= float(ceiling)
+    line = (
+        f"  {name}: p50 {p50 / 1e6:.3f} ms  (ceiling {float(ceiling) / 1e6:.1f} ms)  "
+        f"{'OK' if ok else 'FAIL'}"
+    )
+    if ok:
+        return line, None
+    return (
+        line,
+        f"{name} p50 {p50 / 1e6:.3f} ms > ceiling {float(ceiling) / 1e6:.1f} ms",
+    )
+
+
+def _check_latency(
+    criterion_dir: Path, ceilings: dict[str, float]
+) -> tuple[list[str], list[str]]:
+    """Latency gate: report + failures across every bench with a committed ceiling."""
+    reported: list[str] = []
+    failures: list[str] = []
     for name, ceiling in ceilings.items():
-        est = args.criterion_dir / name / "new" / "estimates.json"
-        if not est.exists():
-            reported.append(f"  {name}: (skipped — no estimates; feature not built)")
-            continue
-        data = load_json(est)
-        p50 = float(data["median"]["point_estimate"])  # nanoseconds
-        ok = p50 <= float(ceiling)
-        reported.append(
-            f"  {name}: p50 {p50 / 1e6:.3f} ms  (ceiling {float(ceiling) / 1e6:.1f} "
-            f"ms)  "
-            f"{'OK' if ok else 'FAIL'}"
-        )
-        if not ok:
-            failures.append(
-                f"{name} p50 {p50 / 1e6:.3f} ms > ceiling {float(ceiling) / 1e6:.1f} ms"
-            )
+        line, failure = _check_one_latency(criterion_dir, name, ceiling)
+        reported.append(line)
+        if failure is not None:
+            failures.append(failure)
+    return reported, failures
 
+
+def _emit_result(reported: list[str], failures: list[str]) -> int:
     print("eg-plan perf/recall gate (CONCEPT:EG-KG.query.perf-recall-ci-gate):")
     print("\n".join(reported))
 
@@ -107,6 +122,21 @@ def main() -> int:
         return 1
     print("\nall perf/recall thresholds held.")
     return 0
+
+
+def main() -> int:
+    args = _build_arg_parser().parse_args()
+
+    thresholds = load_json(args.thresholds)
+    recall_floor = float(thresholds["recall_floor"])
+    ceilings: dict[str, float] = thresholds["latency_p50_ns_max"]
+
+    recall_reported, recall_failures = _check_recall(args.recall_json, recall_floor)
+    latency_reported, latency_failures = _check_latency(args.criterion_dir, ceilings)
+
+    return _emit_result(
+        recall_reported + latency_reported, recall_failures + latency_failures
+    )
 
 
 if __name__ == "__main__":

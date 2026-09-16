@@ -164,30 +164,54 @@ def _driver_proc(sock, lo, hi, nodes, concurrency, out_q):
     out_q.put((ops, wall))
 
 
+def _total_rss_kb(spawned: list[ShardProc]) -> int:
+    return sum(_rss_kb(sp.proc.pid) for sp in spawned)
+
+
+def _run_drivers(
+    spawned: list[ShardProc], shards: int, per_shard: int, nodes: int, concurrency: int
+) -> tuple[int, float]:
+    """Start one driver process per shard, wait for all of them, and return
+    (total_ops, max_wall_seconds) across the whole run."""
+    out_q: mp.Queue = mp.Queue()
+    drivers = []
+    for s in range(shards):
+        lo, hi = s * per_shard, (s + 1) * per_shard
+        d = mp.Process(
+            target=_driver_proc,
+            args=(spawned[s].sock, lo, hi, nodes, concurrency, out_q),
+        )
+        d.start()
+        drivers.append(d)
+    results = [out_q.get() for _ in drivers]
+    for d in drivers:
+        d.join()
+    total_ops = sum(o for o, _ in results)
+    max_wall = max(w for _, w in results)
+    return total_ops, max_wall
+
+
+def _shutdown_shards(spawned: list[ShardProc]) -> None:
+    for sp in spawned:
+        sp.proc.terminate()
+    for sp in spawned:
+        try:
+            sp.proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            sp.proc.kill()
+
+
 def _bench(binary, shards, per_shard, nodes, concurrency) -> dict:
     agents = per_shard * shards
     with tempfile.TemporaryDirectory() as tmp:
         spawned = _spawn_shards(binary, shards, tmp)
         try:
             time.sleep(0.3)
-            baseline_rss = sum(_rss_kb(sp.proc.pid) for sp in spawned)
-            out_q: mp.Queue = mp.Queue()
-            drivers = []
-            for s in range(shards):
-                lo, hi = s * per_shard, (s + 1) * per_shard
-                d = mp.Process(
-                    target=_driver_proc,
-                    args=(spawned[s].sock, lo, hi, nodes, concurrency, out_q),
-                )
-                d.start()
-                drivers.append(d)
-            results = [out_q.get() for _ in drivers]
-            for d in drivers:
-                d.join()
-            total_ops = sum(o for o, _ in results)
-            max_wall = max(w for _, w in results)
-            rss_after = sum(_rss_kb(sp.proc.pid) for sp in spawned)
-            data_rss = max(0, rss_after - baseline_rss)
+            baseline_rss = _total_rss_kb(spawned)
+            total_ops, max_wall = _run_drivers(
+                spawned, shards, per_shard, nodes, concurrency
+            )
+            data_rss = max(0, _total_rss_kb(spawned) - baseline_rss)
             return {
                 "shards": shards,
                 "agents": agents,
@@ -199,13 +223,7 @@ def _bench(binary, shards, per_shard, nodes, concurrency) -> dict:
                 "per_agent_rss_kb": round(data_rss / agents, 1) if agents else 0.0,
             }
         finally:
-            for sp in spawned:
-                sp.proc.terminate()
-            for sp in spawned:
-                try:
-                    sp.proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    sp.proc.kill()
+            _shutdown_shards(spawned)
 
 
 def _extrapolate(per_agent_rss_kb: float, ram_budget_gb: float, target: int) -> dict:
@@ -222,7 +240,7 @@ def _extrapolate(per_agent_rss_kb: float, ram_budget_gb: float, target: int) -> 
     }
 
 
-def main() -> None:
+def _build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser()
     ap.add_argument("--shards", default="1,2,4", help="comma-separated shard counts")
     ap.add_argument("--agents-per-shard", type=int, default=60)
@@ -231,14 +249,17 @@ def main() -> None:
     ap.add_argument("--ram-budget-gb", type=float, default=64.0)
     ap.add_argument("--target-agents", type=int, default=100_000_000)
     ap.add_argument("--json", default=None)
-    args = ap.parse_args()
+    return ap
 
-    binary, build = _server_bin()
-    shard_counts = [int(s) for s in args.shards.split(",") if s.strip()]
-    rows = [
+
+def _run_bench_matrix(binary, shard_counts, args) -> list[dict]:
+    return [
         _bench(binary, s, args.agents_per_shard, args.nodes_per_agent, args.concurrency)
         for s in shard_counts
     ]
+
+
+def _summarize_scaling(rows: list[dict]) -> dict:
     base = next((r for r in rows if r["shards"] == 1), rows[0])
     top = rows[-1]
     speedup = (
@@ -246,24 +267,23 @@ def main() -> None:
         if base["ops_per_sec"]
         else None
     )
-    # per-agent RSS: median across runs (stable, ignores per-run noise).
-    rss_vals = sorted(r["per_agent_rss_kb"] for r in rows if r["per_agent_rss_kb"] > 0)
-    per_agent = rss_vals[len(rss_vals) // 2] if rss_vals else 0.0
-    extrap = _extrapolate(per_agent, args.ram_budget_gb, args.target_agents)
-    res = {
-        "build": build,
-        "agents_per_shard": args.agents_per_shard,
-        "nodes_per_agent": args.nodes_per_agent,
-        "rows": rows,
-        "scaling": {
-            "from_shards": base["shards"],
-            "to_shards": top["shards"],
-            "throughput_speedup": speedup,
-            "linear_ideal": round(top["shards"] / base["shards"], 2),
-        },
-        "extrapolation": extrap,
+    return {
+        "from_shards": base["shards"],
+        "to_shards": top["shards"],
+        "throughput_speedup": speedup,
+        "linear_ideal": round(top["shards"] / base["shards"], 2),
     }
 
+
+def _median_per_agent_rss(rows: list[dict]) -> float:
+    # per-agent RSS: median across runs (stable, ignores per-run noise).
+    rss_vals = sorted(r["per_agent_rss_kb"] for r in rows if r["per_agent_rss_kb"] > 0)
+    return rss_vals[len(rss_vals) // 2] if rss_vals else 0.0
+
+
+def _print_scale_report(
+    build: str, args, rows: list[dict], res: dict, per_agent: float
+) -> None:
     print(
         f"epistemic-graph scale harness ({build} build, fixed {args.agents_per_shard} "
         f"agents/shard)"
@@ -282,12 +302,34 @@ def main() -> None:
         f"  scaling {sc['from_shards']}→{sc['to_shards']} shards: "
         f"{sc['throughput_speedup']}× throughput (linear ideal {sc['linear_ideal']}×)"
     )
+    extrap = res["extrapolation"]
     if extrap:
         print(
             f"  extrapolation: {per_agent} kB/agent → ~{extrap['agents_per_host']:,} "
             f"agents/host @ {extrap['ram_budget_gb']}GB → {extrap['hosts_required']:,} "
             f"hosts for {extrap['target_agents']:,} agents"
         )
+
+
+def main() -> None:
+    args = _build_arg_parser().parse_args()
+
+    binary, build = _server_bin()
+    shard_counts = [int(s) for s in args.shards.split(",") if s.strip()]
+    rows = _run_bench_matrix(binary, shard_counts, args)
+    per_agent = _median_per_agent_rss(rows)
+    res = {
+        "build": build,
+        "agents_per_shard": args.agents_per_shard,
+        "nodes_per_agent": args.nodes_per_agent,
+        "rows": rows,
+        "scaling": _summarize_scaling(rows),
+        "extrapolation": _extrapolate(
+            per_agent, args.ram_budget_gb, args.target_agents
+        ),
+    }
+
+    _print_scale_report(build, args, rows, res, per_agent)
     if args.json:
         Path(args.json).write_text(json.dumps(res, indent=2))
         print(f"  wrote {args.json}")
