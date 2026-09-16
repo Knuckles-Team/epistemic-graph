@@ -179,6 +179,155 @@ def _print_zipinfo_diff(
         print(f"    {field}: primary={p_value!r} reproduction={r_value!r}{flag}")
 
 
+def _print_member_lists(
+    primary_members: dict[str, tuple[zipfile.ZipInfo, bytes]],
+    reproduction_members: dict[str, tuple[zipfile.ZipInfo, bytes]],
+) -> None:
+    print(
+        f"\nmember count: primary={len(primary_members)} "
+        f"reproduction={len(reproduction_members)}"
+    )
+    print("\nprimary member list:")
+    for name in sorted(primary_members):
+        print(f"  {name}")
+    print("\nreproduction member list:")
+    for name in sorted(reproduction_members):
+        print(f"  {name}")
+
+
+def _print_exclusive_members(
+    only_primary: list[str], only_reproduction: list[str]
+) -> None:
+    if only_primary:
+        print(f"\nmembers ONLY in primary ({len(only_primary)}):")
+        for name in only_primary:
+            print(f"  - {name}")
+    if only_reproduction:
+        print(f"\nmembers ONLY in reproduction ({len(only_reproduction)}):")
+        for name in only_reproduction:
+            print(f"  - {name}")
+
+
+def _print_order_and_comment_notes(
+    primary_members: dict[str, tuple[zipfile.ZipInfo, bytes]],
+    reproduction_members: dict[str, tuple[zipfile.ZipInfo, bytes]],
+    primary_comment: bytes,
+    reproduction_comment: bytes,
+) -> None:
+    primary_order = list(primary_members.keys())
+    reproduction_order = list(reproduction_members.keys())
+    if primary_order != reproduction_order and set(primary_order) == set(
+        reproduction_order
+    ):
+        print(
+            "\nNOTE: member order differs between wheels (identical member set, "
+            "different archive order) -- this alone changes the whole-file digest."
+        )
+
+    if primary_comment != reproduction_comment:
+        print(
+            "\nNOTE: archive comment differs between wheels "
+            f"(primary length={len(primary_comment)} bytes, "
+            f"reproduction length={len(reproduction_comment)} bytes)."
+        )
+
+
+def _print_container_only_member(
+    name: str, p_hash: str, p_fields: dict[str, object], r_fields: dict[str, object]
+) -> None:
+    print(f"\n--- CONTAINER-ONLY (decompressed bytes IDENTICAL): {name} ---")
+    print(f"  sha256 (both): {p_hash}")
+    _print_zipinfo_diff("ZipInfo", p_fields, r_fields)
+
+
+def _print_content_diff_location(p_data: bytes, r_data: bytes) -> None:
+    offset = _first_diff_offset(p_data, r_data)
+    if offset is None:
+        print(
+            "  decompressed bytes are identical up to the shorter length "
+            "(cannot happen alongside a sha256 mismatch; reported for completeness)"
+        )
+    elif offset >= min(len(p_data), len(r_data)):
+        print(
+            "  content differs only in LENGTH beyond the common prefix "
+            f"(primary={len(p_data)} bytes, reproduction={len(r_data)} bytes); "
+            "the shared prefix is byte-identical"
+        )
+    else:
+        print(f"  first differing byte offset: {offset}")
+        print("  primary hexdump window (path-shaped substrings redacted):")
+        print(_format_hexdump(p_data, offset))
+        print("  reproduction hexdump window (path-shaped substrings redacted):")
+        print(_format_hexdump(r_data, offset))
+
+
+def _print_content_differing_member(
+    name: str,
+    p_data: bytes,
+    r_data: bytes,
+    p_hash: str,
+    r_hash: str,
+    p_fields: dict[str, object],
+    r_fields: dict[str, object],
+) -> None:
+    print(f"\n--- CONTENT DIFFERS: {name} ---")
+    print(f"  primary      sha256={p_hash} size={len(p_data)}")
+    print(f"  reproduction sha256={r_hash} size={len(r_data)}")
+    _print_content_diff_location(p_data, r_data)
+    _print_zipinfo_diff("ZipInfo", p_fields, r_fields)
+
+
+def _diff_common_members(
+    common: list[str],
+    primary_members: dict[str, tuple[zipfile.ZipInfo, bytes]],
+    reproduction_members: dict[str, tuple[zipfile.ZipInfo, bytes]],
+) -> tuple[list[str], list[str]]:
+    """Compare every member both wheels share, printing per-member diagnosis.
+
+    Returns ``(content_differing, container_only)`` member-name lists.
+    """
+    content_differing: list[str] = []
+    container_only: list[str] = []
+
+    for name in common:
+        p_info, p_data = primary_members[name]
+        r_info, r_data = reproduction_members[name]
+        p_hash = sha256(p_data).hexdigest()
+        r_hash = sha256(r_data).hexdigest()
+        p_fields = _zipinfo_fields(p_info)
+        r_fields = _zipinfo_fields(r_info)
+
+        if p_hash == r_hash:
+            if p_fields != r_fields:
+                container_only.append(name)
+                _print_container_only_member(name, p_hash, p_fields, r_fields)
+            continue
+
+        content_differing.append(name)
+        _print_content_differing_member(
+            name, p_data, r_data, p_hash, r_hash, p_fields, r_fields
+        )
+
+    return content_differing, container_only
+
+
+def _print_summary(
+    content_differing: list[str],
+    container_only: list[str],
+    only_primary: list[str],
+    only_reproduction: list[str],
+) -> None:
+    print("\n" + "=" * 72)
+    print(
+        "SUMMARY: "
+        f"content_differing_members={len(content_differing)} "
+        f"container_only_members={len(container_only)} "
+        f"only_in_primary={len(only_primary)} "
+        f"only_in_reproduction={len(only_reproduction)}"
+    )
+    print("=" * 72)
+
+
 def _print_mismatch_report(primary_path: Path, reproduction_path: Path) -> None:
     """Print a full CONTENT-vs-CONTAINER-ONLY diagnostic report to stdout."""
 
@@ -204,97 +353,17 @@ def _print_mismatch_report(primary_path: Path, reproduction_path: Path) -> None:
     only_reproduction = sorted(reproduction_names - primary_names)
     common = sorted(primary_names & reproduction_names)
 
-    print(
-        f"\nmember count: primary={len(primary_members)} "
-        f"reproduction={len(reproduction_members)}"
+    _print_member_lists(primary_members, reproduction_members)
+    _print_exclusive_members(only_primary, only_reproduction)
+    _print_order_and_comment_notes(
+        primary_members, reproduction_members, primary_comment, reproduction_comment
     )
-    print("\nprimary member list:")
-    for name in sorted(primary_names):
-        print(f"  {name}")
-    print("\nreproduction member list:")
-    for name in sorted(reproduction_names):
-        print(f"  {name}")
 
-    if only_primary:
-        print(f"\nmembers ONLY in primary ({len(only_primary)}):")
-        for name in only_primary:
-            print(f"  - {name}")
-    if only_reproduction:
-        print(f"\nmembers ONLY in reproduction ({len(only_reproduction)}):")
-        for name in only_reproduction:
-            print(f"  - {name}")
-
-    primary_order = list(primary_members.keys())
-    reproduction_order = list(reproduction_members.keys())
-    if primary_order != reproduction_order and set(primary_order) == set(
-        reproduction_order
-    ):
-        print(
-            "\nNOTE: member order differs between wheels (identical member set, "
-            "different archive order) -- this alone changes the whole-file digest."
-        )
-
-    if primary_comment != reproduction_comment:
-        print(
-            "\nNOTE: archive comment differs between wheels "
-            f"(primary length={len(primary_comment)} bytes, "
-            f"reproduction length={len(reproduction_comment)} bytes)."
-        )
-
-    content_differing: list[str] = []
-    container_only: list[str] = []
-
-    for name in common:
-        p_info, p_data = primary_members[name]
-        r_info, r_data = reproduction_members[name]
-        p_hash = sha256(p_data).hexdigest()
-        r_hash = sha256(r_data).hexdigest()
-        p_fields = _zipinfo_fields(p_info)
-        r_fields = _zipinfo_fields(r_info)
-
-        if p_hash == r_hash:
-            if p_fields != r_fields:
-                container_only.append(name)
-                print(
-                    f"\n--- CONTAINER-ONLY (decompressed bytes IDENTICAL): {name} ---"
-                )
-                print(f"  sha256 (both): {p_hash}")
-                _print_zipinfo_diff("ZipInfo", p_fields, r_fields)
-            continue
-
-        content_differing.append(name)
-        print(f"\n--- CONTENT DIFFERS: {name} ---")
-        print(f"  primary      sha256={p_hash} size={len(p_data)}")
-        print(f"  reproduction sha256={r_hash} size={len(r_data)}")
-        offset = _first_diff_offset(p_data, r_data)
-        if offset is None:
-            print(
-                "  decompressed bytes are identical up to the shorter length "
-                "(cannot happen alongside a sha256 mismatch; reported for completeness)"
-            )
-        elif offset >= min(len(p_data), len(r_data)):
-            print(
-                "  content differs only in LENGTH beyond the common prefix "
-                f"(primary={len(p_data)} bytes, reproduction={len(r_data)} bytes); "
-                "the shared prefix is byte-identical"
-            )
-        else:
-            print(f"  first differing byte offset: {offset}")
-            print("  primary hexdump window (path-shaped substrings redacted):")
-            print(_format_hexdump(p_data, offset))
-            print("  reproduction hexdump window (path-shaped substrings redacted):")
-            print(_format_hexdump(r_data, offset))
-        _print_zipinfo_diff("ZipInfo", p_fields, r_fields)
-
-    print("\n" + "=" * 72)
-    print(
-        "SUMMARY: "
-        f"content_differing_members={len(content_differing)} "
-        f"container_only_members={len(container_only)} "
-        f"only_in_primary={len(only_primary)} "
-        f"only_in_reproduction={len(only_reproduction)}"
+    content_differing, container_only = _diff_common_members(
+        common, primary_members, reproduction_members
     )
-    print("=" * 72)
+
+    _print_summary(content_differing, container_only, only_primary, only_reproduction)
 
 
 def compare(primary_arg: Path, reproduction_arg: Path) -> None:
