@@ -8,11 +8,13 @@
   * ``EvidenceStore.begin_or_resume`` -- the existing suite's own docstring
     says it "intentionally does not invoke ... the private on-disk cache";
     now decomposed into ``_ensure_cache_directory``,
-    ``_marker_matches_invocation``, ``EvidenceStore._resume_from_marker``, and
-    ``EvidenceStore._start_new_invocation``. These tests isolate it from the
-    real (shared, multi-worktree) repository cache by monkeypatching
-    ``_git_directory`` to a private ``tmp_path``, so they never touch the
-    shared ``.git`` common directory other concurrent lanes use.
+    ``_marker_matches_invocation``, ``EvidenceStore._store_from_verified_marker``,
+    and ``EvidenceStore._start_new_invocation``. ``EvidenceStore.current`` is
+    covered too -- it was never covered by any prior test, and now shares
+    ``_store_from_verified_marker`` with ``begin_or_resume`` (see below).
+    These tests isolate the private cache to a per-test ``tmp_path`` by
+    monkeypatching ``_git_directory``, so they never touch the real (shared,
+    multi-worktree) repository's own cache other concurrent lanes use.
 
 These tests also caught and drove the fix for a real defect: ``_write_evidence``
 signed a core that excluded ``contentDigest`` while ``_verify_document``
@@ -22,6 +24,13 @@ resumed. ``_write_evidence``/``_verify_document`` now agree (the signature
 covers the content digest; the content digest itself does not cover
 itself), proven below by an actual resume, a tampered-digest rejection, and
 a tampered-content-with-matching-forged-digest rejection.
+
+Fixing that also surfaced a real jscpd (clone-gate) finding: ``current``'s
+signature-check-and-build-store tail duplicated ``_resume_from_marker``'s
+body almost verbatim. Both now share one extracted classmethod,
+``_store_from_verified_marker``; ``current``'s own tests below cover the
+same resume/tamper scenarios to prove that extraction changed nothing
+observable.
 """
 
 from __future__ import annotations
@@ -231,3 +240,50 @@ def test_begin_or_resume_starts_a_new_invocation_when_marker_is_corrupt(
     second = EvidenceStore.begin_or_resume()
 
     assert second.invocation_id != first.invocation_id
+
+
+# ── EvidenceStore.current ───────────────────────────────────────────────────
+# Not covered by any prior test; now shares _store_from_verified_marker with
+# begin_or_resume (see the module docstring for why).
+
+
+def test_current_returns_none_before_any_invocation_started(
+    isolated_git_directory: Path,
+):
+    assert EvidenceStore.current() is None
+
+
+def test_current_returns_the_active_invocation(isolated_git_directory: Path):
+    started = EvidenceStore.begin_or_resume()
+
+    found = EvidenceStore.current()
+
+    assert found is not None
+    assert found.invocation_id == started.invocation_id
+    assert found.evidence_path == started.evidence_path
+    assert found._load_evidence()["status"] == "running"
+
+
+def test_current_returns_none_when_marker_signature_is_tampered(
+    isolated_git_directory: Path,
+):
+    EvidenceStore.begin_or_resume()
+    marker_path = (
+        isolated_git_directory / push_gate_evidence.CACHE_DIRECTORY / "current.json"
+    )
+    marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    marker["signature"] = "0" * len(marker["signature"])
+    marker_path.write_text(json.dumps(marker), encoding="utf-8")
+
+    assert EvidenceStore.current() is None
+
+
+def test_current_returns_none_when_evidence_content_digest_is_tampered(
+    isolated_git_directory: Path,
+):
+    started = EvidenceStore.begin_or_resume()
+    raw = json.loads(started.evidence_path.read_text(encoding="utf-8"))
+    raw["contentDigest"] = "sha256:" + "0" * 64
+    started.evidence_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    assert EvidenceStore.current() is None

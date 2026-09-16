@@ -789,7 +789,7 @@ class EvidenceStore:
         self.parent_identity = parent_identity
 
     @classmethod
-    def _resume_from_marker(
+    def _store_from_verified_marker(
         cls,
         directory: Path,
         current_path: Path,
@@ -800,6 +800,16 @@ class EvidenceStore:
         parent_pid: int,
         parent_identity: str,
     ) -> EvidenceStore:
+        """Verify a marker's signature and build the EvidenceStore it names.
+
+        Shared by ``begin_or_resume`` and ``current`` -- both already know
+        the marker's IDENTITY matches (schema/parentIdentity/age/source/
+        context; see ``_marker_matches_invocation``) before calling this,
+        so only the cryptographic signature and the evidence content remain
+        unverified. Raises ``EvidenceError`` on a signature mismatch or
+        unreadable/unsafe evidence; every caller already wraps this in a
+        ``try`` that treats that as "not admissible", not a hard failure.
+        """
         invocation_id = str(marker["invocationId"])
         key_path = _cache_child(directory, marker["keyFile"])
         evidence_path = _cache_child(directory, marker["evidenceFile"])
@@ -873,7 +883,7 @@ class EvidenceStore:
                 source=source,
                 context=context,
             ):
-                return cls._resume_from_marker(
+                return cls._store_from_verified_marker(
                     directory,
                     current_path,
                     marker,
@@ -916,29 +926,15 @@ class EvidenceStore:
             source = source_fingerprint()
             if marker.get("source") != source:
                 return None
-            invocation_id = str(marker["invocationId"])
-            key_path = _cache_child(directory, marker["keyFile"])
-            evidence_path = _cache_child(directory, marker["evidenceFile"])
-            key = _key_bytes(key_path)
-            if not _signature_matches(
-                _sign(_signed_core(marker, signature_field="signature"), key),
-                marker.get("signature"),
-            ):
-                return None
-            store = cls(
-                directory=directory,
-                invocation_id=invocation_id,
-                key_path=key_path,
-                evidence_path=evidence_path,
-                marker_path=current_path,
-                key=key,
+            return cls._store_from_verified_marker(
+                directory,
+                current_path,
+                marker,
                 source=source,
                 context=context,
                 parent_pid=parent_pid,
                 parent_identity=parent_identity,
             )
-            store._load_evidence()
-            return store
         except (EvidenceError, KeyError, TypeError, ValueError, OSError):
             return None
 
