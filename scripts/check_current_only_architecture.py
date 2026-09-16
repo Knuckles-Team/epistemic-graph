@@ -393,9 +393,7 @@ def _check_client_basic_contract(client: str, generated_query: str) -> None:
     )
 
 
-def _check_client_batch_contract(
-    client: str, generated_graph: str, generated_messaging: str
-) -> None:
+def _check_client_create_if_absent_contract(client: str, generated_graph: str) -> None:
     require(
         "send_create_node_if_absent(" in client
         and '"node_id": node_id' in client
@@ -416,6 +414,9 @@ def _check_client_batch_contract(
         ),
         "the generated graph transport lost the binary create-if-absent contract",
     )
+
+
+def _check_client_tag_ack_nack_contract(client: str) -> None:
     require(
         "async def ack_tag(self, delivery_tag: int, *, consumer: str) -> bool:"
         in client
@@ -428,6 +429,9 @@ def _check_client_batch_contract(
         and '"now_ms": int(now_ms)' in client,
         "the Python tag nack omits its owner or explicit clock",
     )
+
+
+def _check_client_renew_tag_contract(client: str) -> None:
     renew_client = delimited_body(
         client,
         "    async def renew_tag(",
@@ -448,6 +452,9 @@ def _check_client_batch_contract(
         ),
         "the Python lease renewal is not owner-fenced and explicitly clocked",
     )
+
+
+def _check_generated_broker_transport_contract(generated_messaging: str) -> None:
     require(
         all(
             marker in generated_messaging
@@ -464,6 +471,15 @@ def _check_client_batch_contract(
         ),
         "the generated broker transport lost owner and clock fields",
     )
+
+
+def _check_client_batch_contract(
+    client: str, generated_graph: str, generated_messaging: str
+) -> None:
+    _check_client_create_if_absent_contract(client, generated_graph)
+    _check_client_tag_ack_nack_contract(client)
+    _check_client_renew_tag_contract(client)
+    _check_generated_broker_transport_contract(generated_messaging)
 
 
 def _check_graph_fencing(graph: str) -> None:

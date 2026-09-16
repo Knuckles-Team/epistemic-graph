@@ -561,23 +561,26 @@ def _assert_outcome(
         _fail(failure)
 
 
-def _assert_page(
-    page: Any,
-    *,
-    occurrence: str,
-    version: int,
-    lifecycle: str,
-    bundle: dict[str, Any],
-    modality: str,
-    source: bytes,
-    failure: str,
-) -> None:
+def _sole_page_record(page: Any, *, occurrence: str, failure: str) -> Any:
+    """Validate a one-record page shape and return that record."""
     if not isinstance(page, dict) or set(page) != {"records", "next"}:
         _fail(failure)
     records = page["records"]
     if not isinstance(records, list) or len(records) != 1 or page["next"] != occurrence:
         _fail(failure)
-    record = records[0]
+    return records[0]
+
+
+def _assert_record_identity(
+    record: Any,
+    *,
+    occurrence: str,
+    version: int,
+    lifecycle: str,
+    bundle: dict[str, Any],
+    failure: str,
+) -> dict[str, Any]:
+    """Validate a record's identity/lifecycle fields and return its value."""
     if (
         not isinstance(record, dict)
         or record.get("occurrence_id") != occurrence
@@ -587,7 +590,14 @@ def _assert_page(
         or not isinstance(record.get("value"), dict)
     ):
         _fail(failure)
-    value = record["value"]
+    return record["value"]
+
+
+def _assert_value_normalized(
+    value: dict[str, Any], *, modality: str, source: bytes, failure: str
+) -> None:
+    """Validate the record value is content-hashed, normalized (raw source not
+    retained), and carries every field the modality requires."""
     if value.get("blob_ref") != hashlib.sha256(source).hexdigest():
         _fail(failure)
     encoded_value = msgpack.packb(value, use_bin_type=True)
@@ -601,6 +611,29 @@ def _assert_page(
     }[modality]
     if any(field not in value for field in required):
         _fail(failure)
+
+
+def _assert_page(
+    page: Any,
+    *,
+    occurrence: str,
+    version: int,
+    lifecycle: str,
+    bundle: dict[str, Any],
+    modality: str,
+    source: bytes,
+    failure: str,
+) -> None:
+    record = _sole_page_record(page, occurrence=occurrence, failure=failure)
+    value = _assert_record_identity(
+        record,
+        occurrence=occurrence,
+        version=version,
+        lifecycle=lifecycle,
+        bundle=bundle,
+        failure=failure,
+    )
+    _assert_value_normalized(value, modality=modality, source=source, failure=failure)
 
 
 def _assert_empty(page: Any, failure: str) -> None:

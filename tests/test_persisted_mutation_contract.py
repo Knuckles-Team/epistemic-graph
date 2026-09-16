@@ -793,6 +793,59 @@ def test_row_delta_retired_identities_cannot_hide_in_production(stale: str) -> N
         )
 
 
+def _blob_sources(module):
+    blob_store = module.read_compiler_family("src/server/blob/store.rs")
+    blob_shared = module.read_compiler_family(
+        "crates/eg-storage/src/owner/blob_shared.rs"
+    )
+    return blob_store.production, blob_shared.production, blob_store.with_tests
+
+
+def test_blob_result_contract_matches_shipped_atomic_kernel() -> None:
+    module = _gate_module()
+    blob_store, blob_shared, blob_store_tests = _blob_sources(module)
+
+    # Must not raise: the shipped kernel binds the MutationBatch, the shared
+    # CAS/refcount tables, and the restart/replay/GC proof.
+    module._check_blob_result_contract(blob_store, blob_shared, blob_store_tests)
+
+
+@pytest.mark.parametrize(
+    ("target", "needle", "failure"),
+    (
+        ("blob_store", "self.commit_native_batch", "atomically bind CAS"),
+        ("blob_store", "insert_chunk_if_absent", "atomically bind CAS"),
+        ("blob_shared", "CAS_REFCOUNT", "atomically bind CAS"),
+        ("blob_shared", "checked_sub", "atomically bind CAS"),
+        (
+            "blob_store_tests",
+            "direct_ref_acquire_compensation_and_gc_are_restart_replay_safe",
+            "restart/replay/GC proof is missing",
+        ),
+    ),
+)
+def test_blob_result_contract_rejects_missing_marker(
+    target: str, needle: str, failure: str
+) -> None:
+    module = _gate_module()
+    blob_store, blob_shared, blob_store_tests = _blob_sources(module)
+    sources = {
+        "blob_store": blob_store,
+        "blob_shared": blob_shared,
+        "blob_store_tests": blob_store_tests,
+    }
+    assert needle in sources[target]
+    # Replace EVERY occurrence: some markers (e.g. a table-name constant) also
+    # appear at unrelated call sites in the same file, and a single-occurrence
+    # replace would leave the check's own `in` membership test still true.
+    sources[target] = sources[target].replace(needle, "REMOVED_MARKER")
+
+    with pytest.raises(SystemExit, match=failure):
+        module._check_blob_result_contract(
+            sources["blob_store"], sources["blob_shared"], sources["blob_store_tests"]
+        )
+
+
 def test_m1_production_markers_cannot_be_supplied_by_test_only_source() -> None:
     module = _gate_module()
     contract, native_store, contract_tests, native_store_tests, row_delta = _m1_sources(

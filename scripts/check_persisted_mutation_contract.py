@@ -1016,19 +1016,9 @@ def _check_coordinator_limits(sources: Mapping[str, str]) -> None:
     )
 
 
-def _check_blob_result_contract(
-    blob_store: str, blob_shared: str, blob_store_tests: str
-) -> None:
-    # This used to look for `CAS_CHUNKS`/`CAS_REFCOUNT`/`checked_add(1)` inside
-    # the blob carrier's OWN local call graph, because the carrier once owned
-    # those two table writes through local `insert_chunk_row`/`update_refcount`
-    # helpers. They are no longer local, and that is the CORRECT direction under
-    # RF-RULING-004: the CAS tables and the refcount arithmetic moved into the
-    # storage kernel's shared blob handle (`eg-storage`'s `owner/blob_shared.rs`),
-    # so there is one physical authority instead of a second one in the server.
-    # The gate therefore asserts the same property across the seam it now spans:
-    # the carrier binds the MutationBatch and does BOTH writes inside that one
-    # transaction, and the kernel owns the tables and the overflow guard.
+def _check_blob_carrier_atomic_write(blob_store: str) -> None:
+    """The carrier's `put_chunk_ref_batch` binds the MutationBatch and both
+    CAS/refcount writes in one transaction."""
     implementation_at = blob_store.rfind("fn put_chunk_ref_batch(")
     require(implementation_at >= 0, "atomic blob chunk/reference kernel is missing")
     implementation = _function_with_callees(
@@ -1042,6 +1032,11 @@ def _check_blob_result_contract(
         "blob result kernel must atomically bind CAS, refcount, overflow, and "
         "MutationBatch",
     )
+
+
+def _check_blob_shared_cas_refcount(blob_shared: str) -> None:
+    """The storage kernel's shared blob handle owns the CAS tables and the
+    refcount overflow/underflow guards."""
     require(
         "CAS_CHUNKS" in blob_shared
         and "CAS_REFCOUNT" in blob_shared
@@ -1052,6 +1047,9 @@ def _check_blob_result_contract(
         "blob result kernel must atomically bind CAS, refcount, overflow, and "
         "MutationBatch",
     )
+
+
+def _check_blob_restart_replay_proof(blob_store: str, blob_store_tests: str) -> None:
     require(
         "direct_ref_acquire_compensation_and_gc_are_restart_replay_safe"
         in blob_store_tests
@@ -1059,6 +1057,24 @@ def _check_blob_result_contract(
         and "fn adjust_ref_batch(" in blob_store,
         "direct CAS compensation restart/replay/GC proof is missing",
     )
+
+
+def _check_blob_result_contract(
+    blob_store: str, blob_shared: str, blob_store_tests: str
+) -> None:
+    # This used to look for `CAS_CHUNKS`/`CAS_REFCOUNT`/`checked_add(1)` inside
+    # the blob carrier's OWN local call graph, because the carrier once owned
+    # those two table writes through local `insert_chunk_row`/`update_refcount`
+    # helpers. They are no longer local, and that is the CORRECT direction under
+    # RF-RULING-004: the CAS tables and the refcount arithmetic moved into the
+    # storage kernel's shared blob handle (`eg-storage`'s `owner/blob_shared.rs`),
+    # so there is one physical authority instead of a second one in the server.
+    # The gate therefore asserts the same property across the seam it now spans:
+    # the carrier binds the MutationBatch and does BOTH writes inside that one
+    # transaction, and the kernel owns the tables and the overflow guard.
+    _check_blob_carrier_atomic_write(blob_store)
+    _check_blob_shared_cas_refcount(blob_shared)
+    _check_blob_restart_replay_proof(blob_store, blob_store_tests)
 
 
 def _check_dispatch_carrier(sources: Mapping[str, str]) -> None:
@@ -1259,9 +1275,8 @@ def _check_version_fallbacks(
         )
 
 
-def _check_m1_identity_contract(contract: str, row_delta_producer: str) -> None:
-    """Check the typed product-v1 mutation identity and batch shape."""
-
+def _check_m1_identity_struct(contract: str) -> None:
+    """The typed MutationScopeIdentity struct and its version marker."""
     require(
         "pub const MUTATION_BATCH_VERSION: u16 = 1;" in contract,
         "MutationBatch must use the first product typed-identity schema",
@@ -1277,6 +1292,10 @@ def _check_m1_identity_contract(contract: str, row_delta_producer: str) -> None:
         "identity_digest: MutationScopeDigest" in identity,
         "typed mutation identity must persist its recomputable digest",
     )
+
+
+def _check_m1_digest_contract(contract: str) -> None:
+    """The versioned LP32 SHA-256 identity digest and its accepted algorithms."""
     require(
         all(
             marker in contract
@@ -1296,6 +1315,10 @@ def _check_m1_identity_contract(contract: str, row_delta_producer: str) -> None:
         "authoritative state validator must accept exactly sha256 and "
         "sha256-row-delta-v2",
     )
+
+
+def _check_m1_row_delta_versions(contract: str, row_delta_producer: str) -> None:
+    """The shipped row-delta producer version and absence of retired ones."""
     require(
         'const ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-v2";' in row_delta_producer
         and "const ROW_DELTA_VERSION: u16 = 2;" in row_delta_producer,
@@ -1310,6 +1333,10 @@ def _check_m1_identity_contract(contract: str, row_delta_producer: str) -> None:
             stale not in contract and stale not in row_delta_producer,
             f"retired row-delta identity remains in production source: {stale}",
         )
+
+
+def _check_m1_scope_and_version_semantics(contract: str) -> None:
+    """The MutationScope enum shape and typed version-expectation semantics."""
     scope = _enum(contract, "MutationScope")
     require(
         all(
@@ -1337,6 +1364,11 @@ def _check_m1_identity_contract(contract: str, row_delta_producer: str) -> None:
         ),
         "version semantics must be typed and Unversioned capability-gated",
     )
+
+
+def _check_m1_batch_shape(contract: str) -> None:
+    """MutationBatch carries the typed identity/version fields, not the
+    retired flat ones."""
     batch = _balanced_block(contract, "pub struct MutationBatch", "{", "}")
     require("pub identity: MutationScopeIdentity" in batch, "batch identity is missing")
     require(
@@ -1353,6 +1385,14 @@ def _check_m1_identity_contract(contract: str, row_delta_producer: str) -> None:
             retired not in batch,
             f"product batch retains duplicate flat field {retired}",
         )
+
+
+def _check_m1_serde_and_sentinel_hygiene(contract: str) -> None:
+    """Identity/batch must not quarantine incompatible shapes via serde
+    defaults/aliases, and the contract must not retain implicit sentinel
+    version semantics."""
+    identity = _balanced_block(contract, "pub struct MutationScopeIdentity", "{", "}")
+    batch = _balanced_block(contract, "pub struct MutationBatch", "{", "}")
     require(
         all(
             check
@@ -1372,6 +1412,16 @@ def _check_m1_identity_contract(contract: str, row_delta_producer: str) -> None:
         ),
         "product contract retains implicit graph/non-graph sentinel semantics",
     )
+
+
+def _check_m1_identity_contract(contract: str, row_delta_producer: str) -> None:
+    """Check the typed product-v1 mutation identity and batch shape."""
+    _check_m1_identity_struct(contract)
+    _check_m1_digest_contract(contract)
+    _check_m1_row_delta_versions(contract, row_delta_producer)
+    _check_m1_scope_and_version_semantics(contract)
+    _check_m1_batch_shape(contract)
+    _check_m1_serde_and_sentinel_hygiene(contract)
 
 
 # `crates/eg-mutation-store` is deleted. Its physical-authority half became

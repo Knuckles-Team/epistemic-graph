@@ -238,3 +238,86 @@ def test_identity_order_follows_consensus_child_and_fails_closed() -> None:
     )
     with pytest.raises(SystemExit, match="not totally ordered"):
         module._check_identity_order(broken)
+
+
+def _client_batch_sources(module):
+    return (
+        module.read("epistemic_graph/client.py"),
+        module.read("epistemic_graph/generated/graph.py"),
+        module.read("epistemic_graph/generated/messaging.py"),
+    )
+
+
+def test_client_batch_contract_passes_on_current_sources() -> None:
+    module = _gate_module()
+    client, generated_graph, generated_messaging = _client_batch_sources(module)
+    module._check_client_batch_contract(client, generated_graph, generated_messaging)
+
+
+def test_client_create_if_absent_contract_rejects_missing_binary_pack() -> None:
+    module = _gate_module()
+    client, generated_graph, _ = _client_batch_sources(module)
+    module._check_client_create_if_absent_contract(client, generated_graph)
+    broken = _replace_once(
+        client,
+        "def _pack_binary_msgpack(value: Any) -> bytes:",
+        "def _pack_binary_msgpack_renamed(value: Any) -> bytes:",
+    )
+    with pytest.raises(SystemExit, match="native binary MessagePack"):
+        module._check_client_create_if_absent_contract(broken, generated_graph)
+
+
+def test_client_create_if_absent_contract_rejects_lost_generated_transport() -> None:
+    module = _gate_module()
+    client, generated_graph, _ = _client_batch_sources(module)
+    broken_graph = generated_graph.replace(
+        "CreateNodeIfAbsentRequest", "RenamedRequest"
+    )
+    with pytest.raises(SystemExit, match="binary create-if-absent contract"):
+        module._check_client_create_if_absent_contract(client, broken_graph)
+
+
+def test_client_tag_ack_nack_contract_rejects_unfenced_ack() -> None:
+    module = _gate_module()
+    client, _, _ = _client_batch_sources(module)
+    module._check_client_tag_ack_nack_contract(client)
+    broken = _replace_once(
+        client,
+        '"delivery_tag": int(delivery_tag), "consumer": consumer',
+        '"delivery_tag": int(delivery_tag)',
+    )
+    with pytest.raises(SystemExit, match="tag acknowledgement is not owner-fenced"):
+        module._check_client_tag_ack_nack_contract(broken)
+
+
+def test_client_tag_ack_nack_contract_rejects_nack_missing_clock() -> None:
+    module = _gate_module()
+    client, _, _ = _client_batch_sources(module)
+    # The check is a whole-file substring test (not scoped to nack_tag's own
+    # body), and `"now_ms": int(now_ms)` recurs across several client methods
+    # (nack, renew, ...) -- so every occurrence must be removed to make the
+    # marker actually absent from `client`, matching what the check tests.
+    assert '"now_ms": int(now_ms)' in client
+    broken = client.replace('"now_ms": int(now_ms)', '"now_ms": now_ms_value')
+    with pytest.raises(SystemExit, match="tag nack omits its owner or explicit clock"):
+        module._check_client_tag_ack_nack_contract(broken)
+
+
+def test_client_renew_tag_contract_rejects_missing_lease_field() -> None:
+    module = _gate_module()
+    client, _, _ = _client_batch_sources(module)
+    module._check_client_renew_tag_contract(client)
+    broken = _replace_once(
+        client, "send_broker_renew_tag(", "send_broker_renew_tag_renamed("
+    )
+    with pytest.raises(SystemExit, match="lease renewal is not owner-fenced"):
+        module._check_client_renew_tag_contract(broken)
+
+
+def test_generated_broker_transport_contract_rejects_missing_owner_field() -> None:
+    module = _gate_module()
+    _, _, generated_messaging = _client_batch_sources(module)
+    module._check_generated_broker_transport_contract(generated_messaging)
+    broken = generated_messaging.replace("BrokerRenewTagRequest", "RenamedRequest")
+    with pytest.raises(SystemExit, match="broker transport lost owner and clock"):
+        module._check_generated_broker_transport_contract(broken)
