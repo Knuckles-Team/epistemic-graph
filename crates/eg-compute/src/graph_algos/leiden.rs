@@ -37,7 +37,8 @@
 
 use super::graph::AdjacencyGraph;
 use super::louvain::{
-    aggregate, local_moving, modularity_of, run_community, DEADLINE_CHECK_STRIDE,
+    aggregate, local_moving, modularity_of, multilevel_partition, multilevel_start, run_community,
+    LevelStep, MultilevelStart, DEADLINE_CHECK_STRIDE,
 };
 use std::cell::Cell;
 use std::collections::HashMap;
@@ -150,52 +151,23 @@ fn leiden_partition(
     config: &LeidenConfig,
     deadline: Instant,
 ) -> (Vec<usize>, bool) {
-    let n = base_adj.len();
-    let m2: f64 = base_adj
-        .iter()
-        .flat_map(|row| row.iter().map(|(_, w)| *w))
-        .sum();
-    if m2 <= 0.0 {
-        return ((0..n).collect(), false); // no edges ⇒ every node isolated
-    }
-
-    let mut node_to_super: Vec<usize> = (0..n).collect();
-    let mut current: Vec<Vec<(usize, f64)>> = base_adj.to_vec();
-    let mut deadline_hit = false;
-
-    for _level in 0..config.max_levels {
-        let (step, hit) = run_leiden_level(
-            &current,
-            &mut node_to_super,
+    multilevel_partition(base_adj, config.max_levels, |current, node_to_super, m2| {
+        run_leiden_level(
+            current,
+            node_to_super,
             resolution,
             seed,
             config,
             m2,
             deadline,
-        );
-        deadline_hit |= hit;
-        match step {
-            LevelStep::Stop => break,
-            LevelStep::Continue { next_current } => current = next_current,
-        }
-    }
-
-    (densify_membership(&node_to_super), deadline_hit)
-}
-
-/// What one local-moving + refinement level decided: stop (out of time, no
-/// improvement, or the refined partition is already stable) or continue with
-/// the aggregated next-level adjacency.
-enum LevelStep {
-    Stop,
-    Continue {
-        next_current: Vec<Vec<(usize, f64)>>,
-    },
+        )
+    })
 }
 
 /// Run one Leiden level (local-moving, then refinement, then — unless the level
 /// decides to stop — aggregation) and fold its refined membership into
-/// `node_to_super`. Mirrors the per-level body of [`leiden_partition`]'s loop.
+/// `node_to_super`. The per-level step [`leiden_partition`] hands to
+/// [`multilevel_partition`].
 fn run_leiden_level(
     current: &[Vec<(usize, f64)>],
     node_to_super: &mut [usize],
@@ -215,11 +187,7 @@ fn run_leiden_level(
     }
     let (refined, refine_expired) = refine(current, &p, resolution, m2, deadline);
     let deadline_hit = moving_expired || refine_expired;
-    let n_refined = refined.iter().copied().max().map(|x| x + 1).unwrap_or(0);
-
-    for slot in node_to_super.iter_mut() {
-        *slot = refined[*slot];
-    }
+    let n_refined = fold_refinement(node_to_super, &refined);
     if moving_expired || refine_expired || n_refined == current.len() {
         return (LevelStep::Stop, deadline_hit); // out of time, or refinement found no merges at all ⇒ stable
     }
@@ -230,16 +198,14 @@ fn run_leiden_level(
     (LevelStep::Continue { next_current }, deadline_hit)
 }
 
-/// Densify community ids into `0..k` in first-appearance order.
-fn densify_membership(node_to_super: &[usize]) -> Vec<usize> {
-    let mut relabel: HashMap<usize, usize> = HashMap::new();
-    let mut membership = vec![0usize; node_to_super.len()];
-    for (o, &c) in node_to_super.iter().enumerate() {
-        let next = relabel.len();
-        let dense = *relabel.entry(c).or_insert(next);
-        membership[o] = dense;
+/// Fold one level's `refined` partition into the cumulative original-node
+/// mapping (`node_to_super[o] = refined[node_to_super[o]]`) and return the
+/// number of refined communities (`max + 1`, or `0` when empty).
+fn fold_refinement(node_to_super: &mut [usize], refined: &[usize]) -> usize {
+    for slot in node_to_super.iter_mut() {
+        *slot = refined[*slot];
     }
-    membership
+    refined.iter().copied().max().map(|x| x + 1).unwrap_or(0)
 }
 
 /// The refinement phase (CONCEPT:EG-KG.compute.leiden-community-detection). Starting from
@@ -580,18 +546,15 @@ fn leiden_hierarchy_raw(
     config: &LeidenConfig,
     deadline: Instant,
 ) -> (Vec<(Vec<usize>, Vec<usize>)>, bool) {
-    let n = base_adj.len();
-    let m2: f64 = base_adj
-        .iter()
-        .flat_map(|row| row.iter().map(|(_, w)| *w))
-        .sum();
-    if m2 <= 0.0 {
+    let Some(MultilevelStart {
+        m2,
+        mut node_to_super,
+        mut current,
+    }) = multilevel_start(base_adj)
+    else {
         // no edges ⇒ no coarsening ⇒ no levels above the leaves
         return (Vec::new(), false);
-    }
-
-    let mut node_to_super: Vec<usize> = (0..n).collect();
-    let mut current: Vec<Vec<(usize, f64)>> = base_adj.to_vec();
+    };
     let mut out: Vec<(Vec<usize>, Vec<usize>)> = Vec::new();
     let mut deadline_hit = false;
 
@@ -608,11 +571,7 @@ fn leiden_hierarchy_raw(
         }
         let (refined, refine_expired) = refine(&current, &p, resolution, m2, deadline);
         deadline_hit |= refine_expired;
-        let n_refined = refined.iter().copied().max().map(|x| x + 1).unwrap_or(0);
-
-        for slot in node_to_super.iter_mut() {
-            *slot = refined[*slot];
-        }
+        let n_refined = fold_refinement(&mut node_to_super, &refined);
         out.push((node_to_super.clone(), refined.clone()));
 
         if moving_expired || refine_expired || n_refined == current.len() {

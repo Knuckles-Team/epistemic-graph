@@ -125,22 +125,13 @@ pub fn mean_variance_optimization(
         weights = project_simplex_with_bounds(&weights, min_w, max_w);
     }
 
-    let port_ret = portfolio_return(&weights, expected_returns);
-    let port_var = portfolio_variance(&weights, cov_matrix);
-    let port_vol = port_var.sqrt();
-    let sharpe = if port_vol > 0.0 {
-        (port_ret - risk_free_rate) / port_vol
-    } else {
-        0.0
-    };
-
-    OptimizationResult {
+    portfolio_result(
         weights,
-        expected_return: port_ret,
-        expected_volatility: port_vol,
-        sharpe_ratio: sharpe,
-        method: "mvo_gradient_descent".to_string(),
-    }
+        expected_returns,
+        cov_matrix,
+        risk_free_rate,
+        "mvo_gradient_descent".to_string(),
+    )
 }
 
 /// Minimum variance portfolio — ignores expected returns entirely.
@@ -266,12 +257,12 @@ pub fn efficient_frontier(
     for k in 0..n_points {
         let target_return = min_ret + step * k as f64;
         let weights = minimize_variance_for_target(n, expected_returns, cov_matrix, target_return);
-        frontier.push(frontier_point(
+        frontier.push(portfolio_result(
             weights,
             expected_returns,
             cov_matrix,
             risk_free_rate,
-            k,
+            format!("efficient_frontier_point_{}", k),
         ));
     }
 
@@ -344,13 +335,14 @@ fn target_return_gradient(
     grad
 }
 
-/// Build the frontier point's `OptimizationResult` from its converged weights.
-fn frontier_point(
+/// Build an `OptimizationResult` from converged weights: portfolio return,
+/// volatility and Sharpe ratio (zero when volatility is zero), tagged `method`.
+fn portfolio_result(
     weights: Vec<f64>,
     expected_returns: &[f64],
     cov_matrix: &[Vec<f64>],
     risk_free_rate: f64,
-    k: usize,
+    method: String,
 ) -> OptimizationResult {
     let port_ret = portfolio_return(&weights, expected_returns);
     let port_var = portfolio_variance(&weights, cov_matrix);
@@ -366,7 +358,7 @@ fn frontier_point(
         expected_return: port_ret,
         expected_volatility: port_vol,
         sharpe_ratio: sharpe,
-        method: format!("efficient_frontier_point_{}", k),
+        method,
     }
 }
 

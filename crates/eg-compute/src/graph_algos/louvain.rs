@@ -162,59 +162,139 @@ fn louvain_partition(
     config: &LouvainConfig,
     deadline: Instant,
 ) -> (Vec<usize>, bool) {
-    let n = base_adj.len();
+    multilevel_partition(base_adj, config.max_levels, |current, node_to_super, m2| {
+        run_louvain_level(
+            current,
+            node_to_super,
+            resolution,
+            seed,
+            config,
+            m2,
+            deadline,
+        )
+    })
+}
+
+/// Run one Louvain level (local-moving, then — unless the level decides to
+/// stop — aggregation) and fold its communities into `node_to_super`.
+fn run_louvain_level(
+    current: &[Vec<(usize, f64)>],
+    node_to_super: &mut [usize],
+    resolution: f64,
+    seed: Option<u64>,
+    config: &LouvainConfig,
+    m2: f64,
+    deadline: Instant,
+) -> (LevelStep, bool) {
+    // Checked here AND inside the sweep loop: one level on a large graph can
+    // exceed the budget by itself, so a per-level check alone is not a bound.
+    if Instant::now() >= deadline {
+        return (LevelStep::Stop, true);
+    }
+    let (comm, improved, n_comms, level_expired) =
+        local_moving(current, resolution, m2, seed, config.max_sweeps, deadline);
+    if !improved {
+        return (LevelStep::Stop, level_expired);
+    }
+    // Fold this level's communities into the original mapping. A truncated
+    // level's `comm` is still a complete, densified partition of `current`,
+    // so folding it keeps the BEST PARTITION SO FAR rather than discarding
+    // the work already done.
+    for slot in node_to_super.iter_mut() {
+        *slot = comm[*slot];
+    }
+    if level_expired || n_comms == current.len() {
+        return (LevelStep::Stop, level_expired); // out of time, or no coarsening possible
+    }
+    let next_current = aggregate(current, &comm, n_comms);
+    if n_comms == 1 {
+        return (LevelStep::Stop, level_expired);
+    }
+    (LevelStep::Continue { next_current }, level_expired)
+}
+
+/// What one multilevel (Louvain / Leiden) level decided: stop (out of time, no
+/// improvement, or the partition is already stable) or continue with the
+/// aggregated next-level adjacency.
+pub(crate) enum LevelStep {
+    Stop,
+    Continue {
+        next_current: Vec<Vec<(usize, f64)>>,
+    },
+}
+
+/// The multilevel driver shared by [`louvain_partition`] and
+/// [`super::leiden`]'s partition: run up to `max_levels` levels of `run_level`
+/// (given the current adjacency, the cumulative original-node mapping to fold
+/// into, and `2m`), then densify the final mapping. A graph with no edge
+/// weight is returned as all-singletons. Returns `(membership, deadline_hit)`,
+/// where `deadline_hit` is the OR of every level's reported expiry.
+pub(crate) fn multilevel_partition(
+    base_adj: &[Vec<(usize, f64)>],
+    max_levels: usize,
+    mut run_level: impl FnMut(&[Vec<(usize, f64)>], &mut [usize], f64) -> (LevelStep, bool),
+) -> (Vec<usize>, bool) {
+    let Some(MultilevelStart {
+        m2,
+        mut node_to_super,
+        mut current,
+    }) = multilevel_start(base_adj)
+    else {
+        return ((0..base_adj.len()).collect(), false); // no edges ⇒ every node isolated
+    };
+    let mut deadline_hit = false;
+    for _level in 0..max_levels {
+        let (step, hit) = run_level(&current, &mut node_to_super, m2);
+        deadline_hit |= hit;
+        match step {
+            LevelStep::Stop => break,
+            LevelStep::Continue { next_current } => current = next_current,
+        }
+    }
+    (densify_first_appearance(&node_to_super), deadline_hit)
+}
+
+/// Starting state of a multilevel (Louvain / Leiden) run over a raw symmetric
+/// weighted adjacency.
+pub(crate) struct MultilevelStart {
+    /// Total adjacency weight, `= 2m`.
+    pub(crate) m2: f64,
+    /// `node_to_super[o]` tracks which current-level super-node each ORIGINAL
+    /// node maps to; updated after each level. Starts as the identity.
+    pub(crate) node_to_super: Vec<usize>,
+    /// The current level's (super-node) adjacency. Starts as `base_adj`.
+    pub(crate) current: Vec<Vec<(usize, f64)>>,
+}
+
+/// The shared starting state of [`louvain_partition`] and [`super::leiden`]'s
+/// multilevel loops, or `None` when the graph has no edge weight at all
+/// (every node isolated, so there is nothing to coarsen).
+pub(crate) fn multilevel_start(base_adj: &[Vec<(usize, f64)>]) -> Option<MultilevelStart> {
     let m2: f64 = base_adj
         .iter()
         .flat_map(|row| row.iter().map(|(_, w)| *w))
         .sum(); // = 2m
     if m2 <= 0.0 {
-        return ((0..n).collect(), false); // no edges ⇒ every node isolated
+        return None;
     }
+    Some(MultilevelStart {
+        m2,
+        node_to_super: (0..base_adj.len()).collect(),
+        current: base_adj.to_vec(),
+    })
+}
 
-    // node_to_super[o] tracks which current-level super-node each ORIGINAL node
-    // maps to; updated after each level.
-    let mut node_to_super: Vec<usize> = (0..n).collect();
-    let mut current: Vec<Vec<(usize, f64)>> = base_adj.to_vec();
-    let mut deadline_hit = false;
-
-    for _level in 0..config.max_levels {
-        // Checked here AND inside the sweep loop: one level on a large graph can
-        // exceed the budget by itself, so a per-level check alone is not a bound.
-        if Instant::now() >= deadline {
-            deadline_hit = true;
-            break;
-        }
-        let (comm, improved, n_comms, level_expired) =
-            local_moving(&current, resolution, m2, seed, config.max_sweeps, deadline);
-        deadline_hit |= level_expired;
-        if !improved {
-            break;
-        }
-        // Fold this level's communities into the original mapping. A truncated
-        // level's `comm` is still a complete, densified partition of `current`,
-        // so folding it keeps the BEST PARTITION SO FAR rather than discarding
-        // the work already done.
-        for slot in node_to_super.iter_mut() {
-            *slot = comm[*slot];
-        }
-        if level_expired || n_comms == current.len() {
-            break; // out of time, or no coarsening possible
-        }
-        current = aggregate(&current, &comm, n_comms);
-        if n_comms == 1 {
-            break;
-        }
-    }
-
-    // Densify community ids into 0..k in first-appearance order.
+/// Densify community ids into `0..k` in first-appearance order. `pub(crate)` —
+/// shared with [`super::leiden`], which densifies its final membership the same way.
+pub(crate) fn densify_first_appearance(labels: &[usize]) -> Vec<usize> {
     let mut relabel: HashMap<usize, usize> = HashMap::new();
-    let mut membership = vec![0usize; n];
-    for (o, &c) in node_to_super.iter().enumerate() {
+    let mut membership = vec![0usize; labels.len()];
+    for (o, &c) in labels.iter().enumerate() {
         let next = relabel.len();
         let dense = *relabel.entry(c).or_insert(next);
         membership[o] = dense;
     }
-    (membership, deadline_hit)
+    membership
 }
 
 /// One level of local moving. Returns

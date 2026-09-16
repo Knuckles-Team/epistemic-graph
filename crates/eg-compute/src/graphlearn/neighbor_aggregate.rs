@@ -28,32 +28,55 @@ pub fn aggregate_1hop<N>(graph: &AdjacencyGraph<N>, feats: &[Vec<f64>], alpha: f
 where
     N: Clone + Eq + Hash + Ord,
 {
-    let n = feats.len();
-    if n == 0 {
+    map_node_rows(feats, |v, dim| {
+        mean_aggregate_row(graph, feats, v, alpha, dim)
+    })
+}
+
+/// Build one output row per node index `0..feats.len()` with `row_for(v, dim)`,
+/// where `dim` is the width of the first feature row. Empty input ⇒ empty output.
+fn map_node_rows(
+    feats: &[Vec<f64>],
+    mut row_for: impl FnMut(usize, usize) -> Vec<f64>,
+) -> Vec<Vec<f64>> {
+    let Some(first) = feats.first() else {
         return Vec::new();
+    };
+    let dim = first.len();
+    (0..feats.len()).map(|v| row_for(v, dim)).collect()
+}
+
+/// The uniform-mean aggregation for one node, falling back to its own vector
+/// when it has no neighbour.
+fn mean_aggregate_row<N>(
+    graph: &AdjacencyGraph<N>,
+    feats: &[Vec<f64>],
+    v: usize,
+    alpha: f64,
+    dim: usize,
+) -> Vec<f64>
+where
+    N: Clone + Eq + Hash + Ord,
+{
+    let neighbors = graph.undirected_neighbors(v);
+    if neighbors.is_empty() {
+        return feats[v].clone();
     }
-    let dim = feats[0].len();
-    let mut out = Vec::with_capacity(n);
-    for v in 0..n {
-        let neighbors = graph.undirected_neighbors(v);
-        if neighbors.is_empty() {
-            out.push(feats[v].clone());
-            continue;
+    let mut mean = vec![0.0; dim];
+    for &u in &neighbors {
+        for (m, f) in mean.iter_mut().zip(feats[u].iter()) {
+            *m += *f;
         }
-        let mut mean = vec![0.0; dim];
-        for &u in &neighbors {
-            for (m, f) in mean.iter_mut().zip(feats[u].iter()) {
-                *m += *f;
-            }
-        }
-        let inv = 1.0 / neighbors.len() as f64;
-        let mut row = vec![0.0; dim];
-        for k in 0..dim {
-            row[k] = alpha * feats[v][k] + (1.0 - alpha) * (mean[k] * inv);
-        }
-        out.push(row);
     }
-    out
+    let inv = 1.0 / neighbors.len() as f64;
+    mix_with_self(&feats[v], &mean, inv, alpha, dim)
+}
+
+/// `alpha · own[k] + (1 − alpha) · (agg[k] · inv)` for `k in 0..dim`.
+fn mix_with_self(own: &[f64], agg: &[f64], inv: f64, alpha: f64, dim: usize) -> Vec<f64> {
+    (0..dim)
+        .map(|k| alpha * own[k] + (1.0 - alpha) * (agg[k] * inv))
+        .collect()
 }
 
 /// Refine per-node feature rows where each neighbour's contribution is weighted by
@@ -71,19 +94,10 @@ pub fn aggregate_1hop_weighted<N>(
 where
     N: Clone + Eq + Hash + Ord,
 {
-    let n = feats.len();
-    if n == 0 {
-        return Vec::new();
-    }
-    let dim = feats[0].len();
-    let mut out = Vec::with_capacity(n);
-    for v in 0..n {
+    map_node_rows(feats, |v, dim| {
         let weighted = undirected_neighbor_weights(graph, v);
-        out.push(gated_aggregate_row(
-            feats, v, &weighted, edge_fn, alpha, dim,
-        ));
-    }
-    out
+        gated_aggregate_row(feats, v, &weighted, edge_fn, alpha, dim)
+    })
 }
 
 /// Undirected neighbour `(index, weight)` pairs of `v` — sums both edge directions.
@@ -134,11 +148,7 @@ fn gated_aggregate_row(
         return feats[v].clone();
     }
     let inv = 1.0 / total;
-    let mut row = vec![0.0; dim];
-    for k in 0..dim {
-        row[k] = alpha * feats[v][k] + (1.0 - alpha) * (agg[k] * inv);
-    }
-    row
+    mix_with_self(&feats[v], &agg, inv, alpha, dim)
 }
 
 #[cfg(test)]
