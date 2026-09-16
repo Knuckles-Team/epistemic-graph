@@ -120,11 +120,23 @@ def test_extract_cargo_unrelated_tokens_are_ignored():
 @pytest.fixture
 def isolated_git_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point the private evidence cache at a throwaway directory instead of
-    this (shared, multi-worktree) repository's real `.git` common dir."""
+    this (shared, multi-worktree) repository's real `.git` common dir, and pin
+    the source fingerprint and owner identity so the result never depends on
+    the checkout's untracked files or the pytest process tree."""
 
     fake_git_dir = tmp_path / "fake-gitdir"
     fake_git_dir.mkdir()
     monkeypatch.setattr(push_gate_evidence, "_git_directory", lambda: fake_git_dir)
+    monkeypatch.setattr(
+        push_gate_evidence,
+        "source_fingerprint",
+        lambda: {"revision": "fixture-revision", "untracked": "sha256:fixture"},
+    )
+    monkeypatch.setattr(
+        push_gate_evidence,
+        "_invocation_owner_identity",
+        lambda: "pre-commit:fixture-owner",
+    )
     return fake_git_dir
 
 

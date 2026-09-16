@@ -39,9 +39,12 @@ def _write(tmp_path, name: str, content: str):
 
 
 def test_normalized_function_text_finds_declaration_near_hint(tmp_path):
-    path = _write(tmp_path, "a.rs", "// header\n" + FOO_BODY)
-    text = normalized_function_text(path, 2, "foo")
-    assert text == "fn foo(x: i32) -> i32 { x + 1 }"
+    # Two `fn foo` declarations: the whole-file fallback would return the
+    # first, so only the +/-3 window around the hint can return the second.
+    second_foo = "fn foo(x: i32) -> i32 {\n    x + 2\n}\n"
+    path = _write(tmp_path, "a.rs", FOO_BODY + "// between\n" + second_foo)
+    text = normalized_function_text(path, 5, "foo")
+    assert text == "fn foo(x: i32) -> i32 { x + 2 }"
 
 
 def test_normalized_function_text_falls_back_to_whole_file_search(tmp_path):
