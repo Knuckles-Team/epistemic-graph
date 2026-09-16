@@ -51,19 +51,18 @@ pub(super) fn run(
     // commit-before-ack completion sender (CONCEPT:EG-KG.backend.authoritative-dispatch). After a commit, EVERY
     // sender in the batch is fired with the batch's result — one fsync, N notified.
     let mut pending: Pending = Pending::default();
+    let writer = WriterLoop {
+        rx: &rx,
+        shard,
+        group_commit: &group_commit,
+        flush_threshold,
+        crypto,
+        stats: &stats,
+    };
     loop {
         match rx.recv_timeout(GROUP_COMMIT_TICK) {
             Ok(cmd) => {
-                if process_command_batch(
-                    cmd,
-                    &rx,
-                    shard,
-                    &mut pending,
-                    &group_commit,
-                    flush_threshold,
-                    crypto,
-                    &stats,
-                ) {
+                if process_command_batch(cmd, &writer, &mut pending) {
                     break;
                 }
             }
@@ -78,16 +77,27 @@ pub(super) fn run(
     }
 }
 
-fn process_command_batch(
-    cmd: Cmd,
-    rx: &Receiver<Cmd>,
-    shard: &Shard,
-    pending: &mut Pending,
-    group_commit: &RedbGroupCommitConfig,
+/// The loop-invariant state of one shard's writer thread: its command channel, the
+/// shard it commits to, the group-commit policy, and the per-thread crypto and
+/// commit statistics. Borrowed for the thread's lifetime by `run`.
+struct WriterLoop<'a> {
+    rx: &'a Receiver<Cmd>,
+    shard: &'a Shard,
+    group_commit: &'a RedbGroupCommitConfig,
     flush_threshold: usize,
-    crypto: crate::redb_store::DurableCrypto<'_>,
-    stats: &RedbCommitStats,
-) -> bool {
+    crypto: crate::redb_store::DurableCrypto<'a>,
+    stats: &'a RedbCommitStats,
+}
+
+fn process_command_batch(cmd: Cmd, writer: &WriterLoop<'_>, pending: &mut Pending) -> bool {
+    let WriterLoop {
+        rx,
+        shard,
+        flush_threshold,
+        crypto,
+        stats,
+        ..
+    } = *writer;
     if handle_cmd(cmd, shard, pending, flush_threshold, crypto, stats) {
         commit_pending(shard, pending, crypto, stats, false);
         return true;
@@ -97,15 +107,7 @@ fn process_command_batch(
         return true;
     }
     if pending.has_barrier() {
-        match maybe_linger(
-            rx,
-            shard,
-            pending,
-            group_commit,
-            flush_threshold,
-            crypto,
-            stats,
-        ) {
+        match maybe_linger(writer, pending) {
             LingerOutcome::Stop => return true,
             LingerOutcome::Commit(lingered) => {
                 commit_pending(shard, pending, crypto, stats, lingered);
@@ -149,15 +151,15 @@ enum LingerOutcome {
     Stop,
 }
 
-fn maybe_linger(
-    rx: &Receiver<Cmd>,
-    shard: &Shard,
-    pending: &mut Pending,
-    group_commit: &RedbGroupCommitConfig,
-    flush_threshold: usize,
-    crypto: crate::redb_store::DurableCrypto<'_>,
-    stats: &RedbCommitStats,
-) -> LingerOutcome {
+fn maybe_linger(writer: &WriterLoop<'_>, pending: &mut Pending) -> LingerOutcome {
+    let WriterLoop {
+        rx,
+        shard,
+        group_commit,
+        flush_threshold,
+        crypto,
+        stats,
+    } = *writer;
     if !can_linger(group_commit, pending) {
         return LingerOutcome::Commit(false);
     }
@@ -427,33 +429,33 @@ fn read_raft_log_range(
 
 /// Delete entries with index >= `from` for one group (conflict truncation).
 fn delete_raft_log_from(shard: &Shard, gid: u64, from: u64) -> Result<(), String> {
-    in_control_write(shard, "raft_log_delete_from", |write| {
-        let mut t = write.control().open_table(RAFT_LOG)?;
-        let mut keys = Vec::new();
-        for kv in t
-            .range((gid, from)..=(gid, u64::MAX))
-            .map_err(|e| e.to_string())?
-        {
-            if let Ok((key, _)) = kv {
-                keys.push(key.value().1);
-            }
-        }
-        for idx in keys {
-            t.remove((gid, idx)).map_err(|e| e.to_string())?;
-        }
-        Ok(())
-    })
+    remove_raft_log_range(shard, "raft_log_delete_from", gid, from..=u64::MAX)
 }
 
 /// Delete entries with index <= `upto` for one group (purge/compaction).
 fn purge_raft_log_upto(shard: &Shard, gid: u64, upto: u64) -> Result<(), String> {
-    in_control_write(shard, "raft_log_purge_upto", |write| {
+    remove_raft_log_range(shard, "raft_log_purge_upto", gid, 0..=upto)
+}
+
+/// Remove one group's log entries whose index lies in `indexes`, in a single
+/// control write. A row that fails to read fails the whole removal rather than
+/// being skipped, so a truncation or purge never reports success over a
+/// surviving entry.
+fn remove_raft_log_range(
+    shard: &Shard,
+    label: &str,
+    gid: u64,
+    indexes: std::ops::RangeInclusive<u64>,
+) -> Result<(), String> {
+    in_control_write(shard, label, |write| {
         let mut t = write.control().open_table(RAFT_LOG)?;
         let mut keys = Vec::new();
-        for kv in t.range((gid, 0)..=(gid, upto)).map_err(|e| e.to_string())? {
-            if let Ok((key, _)) = kv {
-                keys.push(key.value().1);
-            }
+        for kv in t
+            .range((gid, *indexes.start())..=(gid, *indexes.end()))
+            .map_err(|e| e.to_string())?
+        {
+            let (key, _) = kv.map_err(|e| e.to_string())?;
+            keys.push(key.value().1);
         }
         for idx in keys {
             t.remove((gid, idx)).map_err(|e| e.to_string())?;

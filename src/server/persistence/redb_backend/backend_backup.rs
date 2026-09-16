@@ -3,7 +3,15 @@ use crate::redb_layout::shard_filename;
 
 type BackupReport = super::super::backup::BackupReport;
 
-fn backup_boundaries(backend: &RedbBackend) -> Result<([u8; 32], Arc<Shard>, [u8; 32]), String> {
+/// The recovery-coordinator fingerprints taken before a backup starts, plus the
+/// shard-0 handle the cross-shard fingerprint is re-read from afterwards.
+struct BackupBoundaries {
+    admin: [u8; 32],
+    shard0: Arc<Shard>,
+    xshard: [u8; 32],
+}
+
+fn backup_boundaries(backend: &RedbBackend) -> Result<BackupBoundaries, String> {
     let admin = eg_storage::recovery_store_fingerprint(backend.admin_mutations.kernel())?;
     let shard = backend
         .shard0()
@@ -11,7 +19,11 @@ fn backup_boundaries(backend: &RedbBackend) -> Result<([u8; 32], Arc<Shard>, [u8
         .upgrade()
         .ok_or_else(|| "redb writer thread is gone".to_string())?;
     let xshard = super::super::backup::xshard_recovery_fingerprint(&shard)?;
-    Ok((admin, shard, xshard))
+    Ok(BackupBoundaries {
+        admin,
+        shard0: shard,
+        xshard,
+    })
 }
 
 #[cfg(feature = "security")]
@@ -107,15 +119,10 @@ fn copy_store(
     Ok(())
 }
 
-fn ensure_backup_stable(
-    backend: &RedbBackend,
-    shard0: &Shard,
-    admin_before: [u8; 32],
-    xshard_before: [u8; 32],
-) -> Result<(), String> {
+fn ensure_backup_stable(backend: &RedbBackend, before: &BackupBoundaries) -> Result<(), String> {
     let admin_after = eg_storage::recovery_store_fingerprint(backend.admin_mutations.kernel())?;
-    let xshard_after = super::super::backup::xshard_recovery_fingerprint(shard0)?;
-    if admin_before != admin_after || xshard_before != xshard_after {
+    let xshard_after = super::super::backup::xshard_recovery_fingerprint(&before.shard0)?;
+    if before.admin != admin_after || before.xshard != xshard_after {
         return Err(
             "recovery coordinator changed during backup; bundle remains unpublished".to_string(),
         );
@@ -153,7 +160,7 @@ impl RedbBackend {
         extra_stores: &[&dyn super::super::durable_stores::BundledStoreSource],
     ) -> Result<super::super::backup::BackupReport, String> {
         std::fs::create_dir_all(dst_dir).map_err(|e| e.to_string())?;
-        let (admin_boundary_before, shard0, xshard_boundary_before) = backup_boundaries(self)?;
+        let boundaries_before = backup_boundaries(self)?;
         let mut report = BackupReport {
             shards: self.shards.len(),
             ..Default::default()
@@ -162,7 +169,7 @@ impl RedbBackend {
         record_encryption_key(self, &mut report)?;
         copy_shards(self, dst_dir, &mut report)?;
         copy_owned_stores(self, dst_dir, extra_stores, &mut report)?;
-        ensure_backup_stable(self, &shard0, admin_boundary_before, xshard_boundary_before)?;
+        ensure_backup_stable(self, &boundaries_before)?;
         super::super::backup::write_manifest(
             dst_dir,
             &report,

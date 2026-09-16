@@ -197,7 +197,7 @@ fn build_ready_migration(
             )
         })?;
     }
-    std::fs::create_dir_all(&tmp).map_err(|error| error.to_string())?;
+    std::fs::create_dir_all(tmp).map_err(|error| error.to_string())?;
     let report = match migrate_shards_inner(&build_source, tmp, new_k, fault) {
         Ok(report) => report,
         Err(error) => {

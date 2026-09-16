@@ -48,6 +48,15 @@ impl CursorPosition {
     }
 }
 
+/// One graph's measured size: the node, edge, and estimated-memory counts every
+/// accumulator stage adds to its totals.
+#[derive(Clone, Copy)]
+struct GraphFootprint {
+    nodes: u64,
+    edges: u64,
+    memory_bytes: u64,
+}
+
 #[derive(Clone, Copy)]
 struct RecordMode {
     residence: GraphResidence,
@@ -101,25 +110,21 @@ impl ScanAccumulator {
         request: &ResourceStatsRequest,
         tenant_budget_bytes: u64,
         cursor: CursorPosition,
-        nodes: u64,
-        edges: u64,
-        memory_bytes: u64,
+        footprint: GraphFootprint,
     ) {
         let tenant = tenant_of(&graph).to_string();
         let mode = RecordMode::for_graph(&graph, incarnation_id, cursor);
-        self.record_totals(mode, nodes, edges, memory_bytes);
-        self.record_tenant(
-            &tenant,
-            tenant_budget_bytes,
-            mode,
+        self.record_totals(mode, footprint);
+        self.record_tenant(&tenant, tenant_budget_bytes, mode, footprint);
+        self.record_candidate(request, graph, tenant, mode, footprint);
+    }
+
+    fn record_totals(&mut self, mode: RecordMode, footprint: GraphFootprint) {
+        let GraphFootprint {
             nodes,
             edges,
             memory_bytes,
-        );
-        self.record_candidate(request, graph, tenant, mode, nodes, edges, memory_bytes);
-    }
-
-    fn record_totals(&mut self, mode: RecordMode, nodes: u64, edges: u64, memory_bytes: u64) {
+        } = footprint;
         self.total_memory_bytes = self.total_memory_bytes.saturating_add(memory_bytes);
         self.total_nodes = self.total_nodes.saturating_add(nodes);
         self.total_edges = self.total_edges.saturating_add(edges);
@@ -138,10 +143,13 @@ impl ScanAccumulator {
         tenant: &str,
         budget_bytes: u64,
         mode: RecordMode,
-        nodes: u64,
-        edges: u64,
-        memory_bytes: u64,
+        footprint: GraphFootprint,
     ) {
+        let GraphFootprint {
+            nodes,
+            edges,
+            memory_bytes,
+        } = footprint;
         if let Some(rollup) = self.tenant_rollup.get_mut(tenant) {
             rollup.graphs = rollup.graphs.saturating_add(1);
             rollup.resident_graphs = rollup
@@ -179,9 +187,7 @@ impl ScanAccumulator {
         graph: String,
         tenant: String,
         mode: RecordMode,
-        nodes: u64,
-        edges: u64,
-        memory_bytes: u64,
+        footprint: GraphFootprint,
     ) {
         if request.summary || !mode.cursor.is_after() {
             return;
@@ -189,9 +195,9 @@ impl ScanAccumulator {
         let candidate = ResourceStatsCandidate {
             graph,
             tenant,
-            nodes,
-            edges,
-            memory_bytes,
+            nodes: footprint.nodes,
+            edges: footprint.edges,
+            memory_bytes: footprint.memory_bytes,
             hibernated: mode.residence.is_hibernated(),
         };
         if self.page_candidates.len() < request.limit {
@@ -277,9 +283,11 @@ pub(super) async fn scan_registry(
                 request,
                 config.per_tenant_budget_bytes,
                 cursor,
-                entry.core.node_count() as u64,
-                entry.core.edge_count() as u64,
-                entry.core.memory_estimate(),
+                GraphFootprint {
+                    nodes: entry.core.node_count() as u64,
+                    edges: entry.core.edge_count() as u64,
+                    memory_bytes: entry.core.memory_estimate(),
+                },
             );
         });
     }
