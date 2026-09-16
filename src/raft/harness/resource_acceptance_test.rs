@@ -1893,43 +1893,8 @@ async fn wait_for_backend_active_reservation(
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     let mut last_error = String::new();
     while tokio::time::Instant::now() < deadline {
-        let state = state_for(cluster, node_id);
-        let backend = state
-            .read()
-            .await
-            .persistence
-            .clone()
-            .expect("cluster member has persistence");
-        let request = match status_method(unix_ms()) {
-            Method::ResourceReservationStatus { request } => request,
-            _ => unreachable!(),
-        };
-        match backend
-            .read_resource_reservation_status(&crate::persist::sanitize(GRAPH), &request)
-            .await
-        {
-            Ok(result)
-                if result
-                    .host_snapshot
-                    .as_ref()
-                    .is_some_and(|snapshot| snapshot.revision >= expected_host_revision)
-                    && result.held_cpu_weight == 2
-                    && result.held_memory_mib == 1024
-                    && result.held_disk_mib == 200
-                    && result.held_process_slots == 1
-                    && result.fairness_debt == 1
-                    && result.reservations.iter().any(|summary| {
-                        summary.reservation_id == RESERVATION
-                            && summary.state == ResourceReservationSummaryState::Reserved
-                            && !summary.tombstone
-                            && summary.held_cpu_weight == 2
-                            && summary.held_memory_mib == 1024
-                            && summary.held_disk_mib == 200
-                            && summary.held_process_slots == 1
-                    }) =>
-            {
-                return;
-            }
+        match poll_reservation_status(cluster, node_id).await {
+            Ok(result) if reservation_is_active(&result, expected_host_revision) => return,
             Ok(result) => last_error = format!("observed active status {result:?}"),
             Err(error) => last_error = error,
         }
@@ -1951,36 +1916,13 @@ async fn wait_for_backend_reservation_state(
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     let mut last_error = String::new();
     while tokio::time::Instant::now() < deadline {
-        let state = state_for(cluster, node_id);
-        let backend = state
-            .read()
-            .await
-            .persistence
-            .clone()
-            .expect("cluster member has persistence");
-        let request = match status_method(unix_ms()) {
-            Method::ResourceReservationStatus { request } => request,
-            _ => unreachable!(),
-        };
-        match backend
-            .read_resource_reservation_status(&crate::persist::sanitize(GRAPH), &request)
-            .await
-        {
+        match poll_reservation_status(cluster, node_id).await {
             Ok(result)
-                if result
-                    .host_snapshot
-                    .as_ref()
-                    .is_some_and(|snapshot| snapshot.revision >= expected_host_revision)
-                    && result.held_cpu_weight == 0
-                    && result.held_memory_mib == 0
-                    && result.held_disk_mib == 0
-                    && result.held_process_slots == 0
-                    && result.fairness_debt == 1
-                    && result.reservations.iter().any(|summary| {
-                        summary.reservation_id == RESERVATION
-                            && summary.state == expected_state
-                            && summary.tombstone
-                    }) =>
+                if reservation_matches_terminal(
+                    &result,
+                    expected_host_revision,
+                    expected_state,
+                ) =>
             {
                 return;
             }
@@ -1992,6 +1934,78 @@ async fn wait_for_backend_reservation_state(
     panic!(
         "node {node_id} did not catch up terminal reservation state {expected_state:?}: {last_error}"
     );
+}
+
+/// Shared backend poll used by both `wait_for_backend_*` helpers above -- both
+/// are direct harness observations, never the served authority (see each fn's
+/// doc).
+async fn poll_reservation_status(
+    cluster: &Cluster,
+    node_id: NodeId,
+) -> Result<ResourceReservationStatusResult, String> {
+    let state = state_for(cluster, node_id);
+    let backend = state
+        .read()
+        .await
+        .persistence
+        .clone()
+        .expect("cluster member has persistence");
+    let Method::ResourceReservationStatus { request } = status_method(unix_ms()) else {
+        unreachable!()
+    };
+    backend
+        .read_resource_reservation_status(&crate::persist::sanitize(GRAPH), &request)
+        .await
+}
+
+/// Whether `result` shows the well-known test reservation actively held with
+/// the exact weights [`wait_for_backend_active_reservation`] waits for.
+fn reservation_is_active(
+    result: &ResourceReservationStatusResult,
+    expected_host_revision: u64,
+) -> bool {
+    result
+        .host_snapshot
+        .as_ref()
+        .is_some_and(|snapshot| snapshot.revision >= expected_host_revision)
+        && result.held_cpu_weight == 2
+        && result.held_memory_mib == 1024
+        && result.held_disk_mib == 200
+        && result.held_process_slots == 1
+        && result.fairness_debt == 1
+        && result.reservations.iter().any(|summary| {
+            summary.reservation_id == RESERVATION
+                && summary.state == ResourceReservationSummaryState::Reserved
+                && !summary.tombstone
+                && summary.held_cpu_weight == 2
+                && summary.held_memory_mib == 1024
+                && summary.held_disk_mib == 200
+                && summary.held_process_slots == 1
+        })
+}
+
+/// Whether `result` shows the well-known test reservation fully released (host
+/// charges back to zero) and tombstoned in `expected_state`, as
+/// [`wait_for_backend_reservation_state`] waits for.
+fn reservation_matches_terminal(
+    result: &ResourceReservationStatusResult,
+    expected_host_revision: u64,
+    expected_state: ResourceReservationSummaryState,
+) -> bool {
+    result
+        .host_snapshot
+        .as_ref()
+        .is_some_and(|snapshot| snapshot.revision >= expected_host_revision)
+        && result.held_cpu_weight == 0
+        && result.held_memory_mib == 0
+        && result.held_disk_mib == 0
+        && result.held_process_slots == 0
+        && result.fairness_debt == 1
+        && result.reservations.iter().any(|summary| {
+            summary.reservation_id == RESERVATION
+                && summary.state == expected_state
+                && summary.tombstone
+        })
 }
 
 /// Two independent public callers race the same claimed WorkItem attempt through
