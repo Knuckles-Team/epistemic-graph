@@ -1,5 +1,7 @@
 //! Agent Library publish/retire transaction phases.
 
+use super::batch::build_batch;
+use super::replay::{expected_headers_from_event, replayed_receipt, ExpectedAgentLibraryMutation};
 use super::*;
 
 /// The pair the mutation kernel treats as one replay identity: an attempt is

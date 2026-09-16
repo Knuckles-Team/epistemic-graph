@@ -23,7 +23,7 @@ pub(crate) struct OwnerReceiptInput<'a> {
     pub(crate) committed_at_ms: u64,
 }
 
-pub(super) fn owner_receipt(
+pub(in crate::server::persistence) fn owner_receipt(
     operation: &eg_types::authority::OperationReplayIdentity,
     nonce: &eg_types::authority::NonceReplayKey,
     batch: &MutationBatch,

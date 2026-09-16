@@ -21,12 +21,11 @@ use eg_transaction::{AdmittedOwnerWrite, Begin, MutationKernel, ReplayResolution
 use eg_types::mutation::{MutationReceipt, MutationResult};
 use eg_types::mutation_batch::{
     BatchContent, CompiledEnvelope, CompiledOperation, CompiledScope, DurabilityDomain,
-    MutationBatchStatus, MutationEnvelope, MutationOperation, MutationOutboxIntent,
-    MutationSurface, VersionExpectation,
+    MutationEnvelope, MutationOperation, MutationOutboxIntent, MutationSurface, VersionExpectation,
 };
 use eg_types::protocol::Method;
 use eg_types::{
-    AgentLibraryCommittedResult, AgentLibraryEntry, AgentLibraryEntryDraft, AgentLibraryLifecycle,
+    AgentLibraryCommittedResult, AgentLibraryEntry, AgentLibraryEntryDraft,
     AgentLibraryMutationContext, AgentLibraryMutationKind, AgentLibraryOutboxEvent,
     AgentLibraryPublishRequest, AgentLibraryRetireRequest, AgentLibraryStatusRequest,
     AgentLibraryWriteResult, MutationBatch, AGENT_LIBRARY_OUTBOX_SCHEMA_VERSION,
@@ -41,13 +40,9 @@ mod receipt;
 mod replay;
 mod write;
 
-pub(super) use batch::build_batch;
-pub(super) use history::read_history;
-pub(super) use receipt::{agent_library_effect_digest, owner_receipt, OwnerReceiptInput};
-pub(super) use replay::{
-    expected_headers_from_event, receipt_result, record_event, record_result, replay_record,
-    replayed_receipt, ExpectedAgentLibraryMutation,
-};
+use history::read_history;
+pub(super) use receipt::{owner_receipt, OwnerReceiptInput};
+use replay::{receipt_result, record_result, replay_record};
 
 /// Persist-dir file for the EG-owned Agent Library.
 pub const AGENT_LIBRARY_FILE: &str = "agent_library.redb";
@@ -780,6 +775,7 @@ pub(crate) fn seed_agent_draft_for_test(
 
 #[cfg(test)]
 mod tests {
+    use super::replay::record_event;
     use super::*;
     use crate::server::persistence::durable_stores::BundledStoreSource;
     use eg_types::contract::Nonce;

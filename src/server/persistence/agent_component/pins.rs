@@ -2,8 +2,6 @@
 
 use std::collections::BTreeSet;
 
-use redb::ReadableTable;
-
 use super::super::agent_pin_resolution::{HeadTable, RevisionTable};
 use super::{
     decode_component, AgentLibraryLifecycle, MAX_AGENT_COMPONENT_REVISIONS,

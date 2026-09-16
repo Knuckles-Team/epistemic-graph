@@ -5,15 +5,15 @@ use eg_transaction::{MutationKernel, ReplayResolution};
 use eg_types::mutation::{MutationReceipt, MutationResult};
 use eg_types::mutation_batch::{MutationBatchStatus, MutationOutboxIntent};
 use eg_types::{
-    AgentLibraryCommittedResult, AgentLibraryEntry, AgentLibraryEntryDraft, AgentLibraryLifecycle,
+    AgentLibraryCommittedResult, AgentLibraryEntryDraft, AgentLibraryLifecycle,
     AgentLibraryMutationContext, AgentLibraryMutationKind, AgentLibraryOutboxEvent,
     AgentLibraryWriteResult,
 };
 
+use super::receipt::agent_library_effect_digest;
 use super::{
-    agent_library_effect_digest, agent_library_operations, batch_id,
-    AGENT_LIBRARY_OUTBOX_SCHEMA_VERSION, AGENT_LIBRARY_OUTBOX_TOPIC,
-    AGENT_LIBRARY_RESULT_SCHEMA_ID,
+    agent_library_operations, batch_id, AGENT_LIBRARY_OUTBOX_SCHEMA_VERSION,
+    AGENT_LIBRARY_OUTBOX_TOPIC, AGENT_LIBRARY_RESULT_SCHEMA_ID,
 };
 
 /// What the caller believes its idempotency key committed.  A replayed receipt
