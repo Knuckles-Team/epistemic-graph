@@ -804,17 +804,7 @@ impl Cluster {
     #[cfg(test)]
     pub fn abort_sync(&mut self) {
         let runtime = tokio::runtime::Handle::try_current().ok();
-        let mut started_nodes = Vec::new();
-        let mut states = Vec::new();
-        for member in self.members.values_mut() {
-            if let Some(started) = member.started.take() {
-                started.multi.stop_listener();
-                started_nodes.push(started);
-            }
-            if let Some(state) = member.state.take() {
-                states.push(state);
-            }
-        }
+        let (started_nodes, states) = take_live_members(&mut self.members);
         super::super::network::partition::heal();
         let root = self.root.clone();
         let ports = self.ports.clone();
@@ -828,45 +818,7 @@ impl Cluster {
             );
             return;
         };
-        runtime.spawn(async move {
-            let mut errors = Vec::new();
-            for mut started in started_nodes {
-                started.stop_background_tasks().await;
-                if let Err(error) =
-                    tokio::time::timeout(CLEANUP_TIMEOUT, started.multi.shutdown()).await
-                {
-                    errors.push(format!("MultiRaft shutdown timed out: {error}"));
-                }
-                drop(started);
-            }
-            for state in states {
-                if let Err(error) = clear_state_backend(state, "aborted cluster").await {
-                    errors.push(error);
-                }
-            }
-            if errors.is_empty() && ports.iter().copied().all(port_is_free) {
-                let remove_root = root.clone();
-                let remove_result =
-                    ::tokio::task::spawn_blocking(move || std::fs::remove_dir_all(remove_root))
-                        .await;
-                let remove_result = blocking_fs_result(remove_result);
-                if let Err(error) = remove_result {
-                    errors.push(format!(
-                        "remove aborted harness root {}: {error}",
-                        root.display()
-                    ));
-                }
-            } else if errors.is_empty() {
-                errors.push("aborted cluster listener port remains bound".to_string());
-            }
-            if !errors.is_empty() {
-                tracing::error!(
-                    root = %root.display(),
-                    errors = ?errors,
-                    "cluster abort cleanup failed; temporary root retained"
-                );
-            }
-        });
+        runtime.spawn(abort_sync_cleanup(started_nodes, states, root, ports));
     }
 
     pub fn size(&self) -> usize {
@@ -925,6 +877,76 @@ impl Cluster {
         if let Err(error) = self.shutdown_in_place().await {
             panic!("{error}");
         }
+    }
+}
+
+/// Take every still-live member's started/state handles out of `members`
+/// (leaving the members present but empty), stopping each started node's
+/// listener as it is taken. A free function (not a `Cluster` method) so
+/// [`Cluster::abort_sync`]'s decomposition does not grow `Cluster`'s own
+/// KISS `methods_per_class` count.
+#[cfg(test)]
+fn take_live_members(
+    members: &mut BTreeMap<NodeId, Member>,
+) -> (Vec<StartedNode>, Vec<Arc<RwLock<ServerState>>>) {
+    let mut started_nodes = Vec::new();
+    let mut states = Vec::new();
+    for member in members.values_mut() {
+        if let Some(started) = member.started.take() {
+            started.multi.stop_listener();
+            started_nodes.push(started);
+        }
+        if let Some(state) = member.state.take() {
+            states.push(state);
+        }
+    }
+    (started_nodes, states)
+}
+
+/// Best-effort detached cleanup body for [`Cluster::abort_sync`]: shut down
+/// every started node, clear every backend, and remove the temporary root
+/// only if nothing failed and every listener port is free again. A free
+/// function for the same reason as [`take_live_members`] above.
+#[cfg(test)]
+async fn abort_sync_cleanup(
+    started_nodes: Vec<StartedNode>,
+    states: Vec<Arc<RwLock<ServerState>>>,
+    root: std::path::PathBuf,
+    ports: Vec<u16>,
+) {
+    let mut errors = Vec::new();
+    for mut started in started_nodes {
+        started.stop_background_tasks().await;
+        if let Err(error) = tokio::time::timeout(CLEANUP_TIMEOUT, started.multi.shutdown()).await {
+            errors.push(format!("MultiRaft shutdown timed out: {error}"));
+        }
+        drop(started);
+    }
+    for state in states {
+        if let Err(error) = clear_state_backend(state, "aborted cluster").await {
+            errors.push(error);
+        }
+    }
+    if errors.is_empty() && ports.iter().copied().all(port_is_free) {
+        let remove_root = root.clone();
+        let remove_result =
+            ::tokio::task::spawn_blocking(move || std::fs::remove_dir_all(remove_root)).await;
+        let remove_result = blocking_fs_result(remove_result);
+        if let Err(error) = remove_result {
+            errors.push(format!(
+                "remove aborted harness root {}: {error}",
+                root.display()
+            ));
+        }
+    } else if errors.is_empty() {
+        errors.push("aborted cluster listener port remains bound".to_string());
+    }
+    if !errors.is_empty() {
+        tracing::error!(
+            root = %root.display(),
+            errors = ?errors,
+            "cluster abort cleanup failed; temporary root retained"
+        );
     }
 }
 
