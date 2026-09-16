@@ -172,22 +172,22 @@ def _external_locations(
     }
 
 
-def _normalize_string(
-    value: str,
+def _normalize_path_file_uri(
+    match: re.Match[str],
     roots: Sequence[tuple[str, str]],
     external: Mapping[str, str],
 ) -> str:
-    match = _PATH_FILE_URI.match(value)
-    if match:
-        location = _normalize_slashes(match.group("location"))
-        suffix = match.group("suffix") or ""
-        for root, alias in roots:
-            relative = _relative_to(location, root)
-            if relative is not None:
-                child = "/" + quote(relative, safe="/._-") if relative else ""
-                return f"{alias}{child}{suffix}"
-        return f"{external[location]}{suffix}"
+    location = _normalize_slashes(match.group("location"))
+    suffix = match.group("suffix") or ""
+    for root, alias in roots:
+        relative = _relative_to(location, root)
+        if relative is not None:
+            child = "/" + quote(relative, safe="/._-") if relative else ""
+            return f"{alias}{child}{suffix}"
+    return f"{external[location]}{suffix}"
 
+
+def _normalize_embedded_roots(value: str, roots: Sequence[tuple[str, str]]) -> str:
     normalized = value
     for root, alias in roots:
         variants = {root, root.replace("/", "\\")}
@@ -195,6 +195,17 @@ def _normalize_string(
             flags = re.IGNORECASE if re.match(r"^[A-Za-z]:[/\\]", variant) else 0
             normalized = re.sub(re.escape(variant), alias, normalized, flags=flags)
     return normalized
+
+
+def _normalize_string(
+    value: str,
+    roots: Sequence[tuple[str, str]],
+    external: Mapping[str, str],
+) -> str:
+    match = _PATH_FILE_URI.match(value)
+    if match:
+        return _normalize_path_file_uri(match, roots, external)
+    return _normalize_embedded_roots(value, roots)
 
 
 def _normalize_document(
@@ -312,12 +323,12 @@ def _record_bytes(
     return buffer.getvalue().encode()
 
 
-def normalize_wheel(
+def _read_wheel_entries(
     path: Path,
-    *,
-    environ: Mapping[str, str] | None = None,
-    checkout: str | PurePath | None = None,
-) -> int:
+) -> tuple[list[tuple[zipfile.ZipInfo, bytes]], bytes, zipfile.ZipInfo]:
+    """Read every member of the wheel, plus its comment and its single RECORD
+    member (raises ValueError if the wheel is unreadable or malformed)."""
+
     try:
         with zipfile.ZipFile(path) as archive:
             infos = archive.infolist()
@@ -330,7 +341,15 @@ def normalize_wheel(
             comment = archive.comment
     except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
         raise ValueError("wheel cannot be read") from exc
+    return entries, comment, record_infos[0]
 
+
+def _normalize_sbom_entries(
+    entries: Sequence[tuple[zipfile.ZipInfo, bytes]],
+    *,
+    environ: Mapping[str, str] | None,
+    checkout: str | PurePath | None,
+) -> tuple[list[tuple[zipfile.ZipInfo, bytes]], int]:
     changed = 0
     normalized_entries: list[tuple[zipfile.ZipInfo, bytes]] = []
     for info, data in entries:
@@ -344,18 +363,15 @@ def normalize_wheel(
                 changed += 1
             data = normalized
         normalized_entries.append((info, data))
+    return normalized_entries, changed
 
-    if not changed:
-        return 0
 
-    record_info = record_infos[0]
-    record = _record_bytes(normalized_entries, record_info.filename)
-    normalized_entries = [
-        (info, record if info.filename == record_info.filename else data)
-        for info, data in normalized_entries
-    ]
-
-    original_mode = path.stat().st_mode
+def _write_normalized_wheel(
+    path: Path,
+    comment: bytes,
+    normalized_entries: Sequence[tuple[zipfile.ZipInfo, bytes]],
+    original_mode: int,
+) -> None:
     temporary = path.with_suffix(path.suffix + ".privacy-tmp")
     try:
         with zipfile.ZipFile(temporary, "w") as archive:
@@ -366,6 +382,29 @@ def normalize_wheel(
         temporary.replace(path)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def normalize_wheel(
+    path: Path,
+    *,
+    environ: Mapping[str, str] | None = None,
+    checkout: str | PurePath | None = None,
+) -> int:
+    entries, comment, record_info = _read_wheel_entries(path)
+    normalized_entries, changed = _normalize_sbom_entries(
+        entries, environ=environ, checkout=checkout
+    )
+
+    if not changed:
+        return 0
+
+    record = _record_bytes(normalized_entries, record_info.filename)
+    normalized_entries = [
+        (info, record if info.filename == record_info.filename else data)
+        for info, data in normalized_entries
+    ]
+
+    _write_normalized_wheel(path, comment, normalized_entries, path.stat().st_mode)
     return changed
 
 
