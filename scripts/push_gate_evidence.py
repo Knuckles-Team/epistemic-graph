@@ -962,6 +962,19 @@ class EvidenceStore:
         return document
 
     def _verify_document(self, document: dict[str, Any]) -> None:
+        """Verify an evidence document's identity, content digest and signature.
+
+        The signature covers the content digest too, not just the raw
+        content: `signed_core` is the document minus only `signature`
+        (so it still carries `contentDigest`), and that is exactly what
+        `_write_evidence` signs. `content_core` additionally strips
+        `contentDigest` itself -- a digest can never legitimately cover its
+        own value -- so `contentDigest` is checked against a hash of the
+        content alone, while `signature` is checked against a hash that
+        also attests to `contentDigest` being the right one for that
+        content (an attacker cannot swap in a different but internally
+        "consistent" digest without invalidating the signature).
+        """
         if document.get("schema") != SCHEMA:
             raise EvidenceError("evidence schema is unsupported")
         if (
@@ -970,10 +983,11 @@ class EvidenceStore:
             or document.get("context") != self.context
         ):
             raise EvidenceError("evidence identity drifted")
-        core = _signed_core(document, signature_field="signature")
+        signed_core = _signed_core(document, signature_field="signature")
+        content_core = _signed_core(signed_core, signature_field="contentDigest")
         content_digest = document.get("contentDigest")
-        if content_digest != _digest(core) or not _signature_matches(
-            _sign(core, self.key), document.get("signature")
+        if content_digest != _digest(content_core) or not _signature_matches(
+            _sign(signed_core, self.key), document.get("signature")
         ):
             raise EvidenceError("evidence integrity verification failed")
         if not isinstance(document.get("plan"), dict) or not isinstance(
@@ -982,7 +996,9 @@ class EvidenceStore:
             raise EvidenceError("evidence plan is incomplete")
 
     def _write_evidence(self, state: dict[str, Any]) -> None:
-        document = {
+        """Write evidence whose content digest is itself covered by the
+        signature -- see `_verify_document` for why."""
+        document: dict[str, Any] = {
             "schema": SCHEMA,
             "invocationId": self.invocation_id,
             "source": self.source,
@@ -991,9 +1007,8 @@ class EvidenceStore:
             "plan": state.get("plan", {}),
             "results": state.get("results", {}),
         }
-        core = dict(document)
-        document["contentDigest"] = _digest(core)
-        document["signature"] = _sign(core, self.key)
+        document["contentDigest"] = _digest(document)
+        document["signature"] = _sign(document, self.key)
         _atomic_json(self.evidence_path, document)
 
     def _mutate(self, callback: Any) -> None:

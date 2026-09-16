@@ -13,6 +13,15 @@
     real (shared, multi-worktree) repository cache by monkeypatching
     ``_git_directory`` to a private ``tmp_path``, so they never touch the
     shared ``.git`` common directory other concurrent lanes use.
+
+These tests also caught and drove the fix for a real defect: ``_write_evidence``
+signed a core that excluded ``contentDigest`` while ``_verify_document``
+verified against a core that included it, so a store's own fresh evidence
+never passed its own self-check and ``begin_or_resume`` never actually
+resumed. ``_write_evidence``/``_verify_document`` now agree (the signature
+covers the content digest; the content digest itself does not cover
+itself), proven below by an actual resume, a tampered-digest rejection, and
+a tampered-content-with-matching-forged-digest rejection.
 """
 
 from __future__ import annotations
@@ -122,25 +131,19 @@ def test_begin_or_resume_starts_a_fresh_invocation(isolated_git_directory: Path)
     assert evidence["status"] == "running"
 
 
-def test_begin_or_resume_marker_matches_but_resume_falls_through_on_bad_evidence(
+def test_begin_or_resume_actually_resumes_the_same_invocation(
     isolated_git_directory: Path,
 ):
-    """Pins EXISTING behavior, not desired behavior.
+    """A same-process second call must resume, not silently start fresh.
 
-    ``_write_evidence``'s digest is computed over the document BEFORE
-    ``contentDigest`` is added, but ``_verify_document`` recomputes it over
-    the document AFTER, via ``_signed_core`` (which strips only
-    ``signature``, not ``contentDigest``) -- so ``_load_evidence`` fails
-    self-verification on every store, even one that just wrote its own
-    evidence and never resumed at all. That pre-existing mismatch (in
-    ``_write_evidence``/``_verify_document``/``_signed_core`` -- none of
-    which this lane's decomposition touches) is confirmed present in the
-    unrefactored code at HEAD too, so ``begin_or_resume`` always falls
-    through to ``_start_new_invocation`` in practice. This test exists so a
-    change that accidentally starts making resume succeed -- or fail for a
-    NEW reason -- shows up here rather than only in the marker-matching
-    logic this lane's decomposition (``_marker_matches_invocation``) exists
-    to prove.
+    Fixes a real defect this lane's tests found: ``_write_evidence`` used to
+    compute its digest/signature over the document BEFORE ``contentDigest``
+    was added, while ``_verify_document`` recomputed over the document
+    AFTER -- so a store's own freshly-written evidence never passed its own
+    ``_load_evidence`` self-check, and ``begin_or_resume`` silently fell
+    through to a new invocation on every call. ``_write_evidence`` now signs
+    a core that includes ``contentDigest`` (matching what
+    ``_verify_document`` has always expected), so resume works.
     """
 
     first = EvidenceStore.begin_or_resume()
@@ -153,6 +156,49 @@ def test_begin_or_resume_marker_matches_but_resume_falls_through_on_bad_evidence
         source=first.source,
         context=first.context,
     ), "marker should still match this same-process invocation"
+
+    second = EvidenceStore.begin_or_resume()
+
+    assert second.invocation_id == first.invocation_id
+    assert second.evidence_path == first.evidence_path
+    # The resumed store's own evidence must still self-verify.
+    assert second._load_evidence()["status"] == "running"
+
+
+def test_begin_or_resume_rejects_a_tampered_content_digest(
+    isolated_git_directory: Path,
+):
+    first = EvidenceStore.begin_or_resume()
+    raw = json.loads(first.evidence_path.read_text(encoding="utf-8"))
+    raw["contentDigest"] = "sha256:" + "0" * 64
+    first.evidence_path.write_text(json.dumps(raw), encoding="utf-8")
+
+    second = EvidenceStore.begin_or_resume()
+
+    # Tampered evidence must not verify -- begin_or_resume falls through to
+    # a fresh invocation rather than trusting it.
+    assert second.invocation_id != first.invocation_id
+
+
+def test_begin_or_resume_rejects_tampered_content_with_an_unchanged_digest(
+    isolated_git_directory: Path,
+):
+    """The signature must cover the content digest, not just raw content.
+
+    Swapping in forged ``results`` alongside a forged (but internally
+    self-consistent) ``contentDigest`` for that forged content must still
+    fail, because the signature attests to the digest field's value too --
+    an attacker who can edit the evidence file cannot simply recompute a
+    matching digest without the HMAC key.
+    """
+
+    first = EvidenceStore.begin_or_resume()
+    raw = json.loads(first.evidence_path.read_text(encoding="utf-8"))
+    raw["results"] = {"forged": "data"}
+    raw["contentDigest"] = push_gate_evidence._digest(
+        {k: v for k, v in raw.items() if k not in ("contentDigest", "signature")}
+    )
+    first.evidence_path.write_text(json.dumps(raw), encoding="utf-8")
 
     second = EvidenceStore.begin_or_resume()
 
