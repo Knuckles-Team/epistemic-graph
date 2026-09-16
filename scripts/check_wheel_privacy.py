@@ -190,6 +190,25 @@ def _categories(
     return categories
 
 
+def _address_is_neutral(display_name: str, address: str) -> bool:
+    if display_name and display_name.casefold() not in _NEUTRAL_NAMES:
+        return False
+    return address.casefold().endswith("@example.invalid")
+
+
+def _email_header_is_neutral(value: str) -> bool:
+    addresses = getaddresses([value])
+    if not addresses:
+        return False
+    return all(_address_is_neutral(name, addr) for name, addr in addresses)
+
+
+def _header_value_is_neutral(header: str, value: str) -> bool:
+    if header in {"author", "maintainer"}:
+        return value.casefold() in _NEUTRAL_NAMES
+    return _email_header_is_neutral(value)
+
+
 def _neutral_metadata(data: bytes) -> bool:
     if len(data) > MAX_METADATA_SIZE:
         return False
@@ -197,20 +216,8 @@ def _neutral_metadata(data: bytes) -> bool:
     for header in _IDENTITY_HEADERS:
         for raw_value in message.get_all(header, []):
             value = str(raw_value).strip()
-            if not value:
-                continue
-            if header in {"author", "maintainer"}:
-                if value.casefold() not in _NEUTRAL_NAMES:
-                    return False
-                continue
-            addresses = getaddresses([value])
-            if not addresses:
+            if value and not _header_value_is_neutral(header, value):
                 return False
-            for display_name, address in addresses:
-                if display_name and display_name.casefold() not in _NEUTRAL_NAMES:
-                    return False
-                if not address.casefold().endswith("@example.invalid"):
-                    return False
     return True
 
 
@@ -255,6 +262,77 @@ def _scan_member(
     return categories, metadata
 
 
+def _comment_findings(
+    comment: bytes, exact_patterns: Sequence[re.Pattern[bytes]], artifact: int
+) -> set[Finding]:
+    if not comment:
+        return set()
+    return {
+        Finding(artifact, "archive-comment", category)
+        for category in _categories(comment, exact_patterns)
+    }
+
+
+def _duplicate_member_findings(
+    infos: Sequence[zipfile.ZipInfo], artifact: int
+) -> set[Finding]:
+    names = [info.filename for info in infos]
+    if len(names) == len(set(names)):
+        return set()
+    return {Finding(artifact, "archive-index", "duplicate-member")}
+
+
+def _member_name_findings(
+    member_id: str,
+    info: zipfile.ZipInfo,
+    exact_patterns: Sequence[re.Pattern[bytes]],
+    artifact: int,
+) -> set[Finding]:
+    findings: set[Finding] = set()
+    if _unsafe_member_name(info.filename):
+        findings.add(Finding(artifact, member_id, "unsafe-member-name"))
+    member_path = PurePosixPath(info.filename)
+    if "__pycache__" in member_path.parts or member_path.suffix in {".pyc", ".pyo"}:
+        findings.add(Finding(artifact, member_id, "python-bytecode-member"))
+    findings.update(
+        Finding(artifact, member_id, category)
+        for category in _categories(
+            info.filename.encode("utf-8", errors="surrogatepass"), exact_patterns
+        )
+    )
+    return findings
+
+
+def _audit_member(
+    archive: zipfile.ZipFile,
+    info: zipfile.ZipInfo,
+    exact_patterns: Sequence[re.Pattern[bytes]],
+    artifact: int,
+) -> set[Finding]:
+    member_id = _member_id(info.filename)
+    findings = _member_name_findings(member_id, info, exact_patterns, artifact)
+    if info.is_dir():
+        return findings
+    categories, metadata = _scan_member(archive, info, exact_patterns)
+    findings.update(Finding(artifact, member_id, category) for category in categories)
+    if metadata is not None and not _neutral_metadata(metadata):
+        findings.add(Finding(artifact, member_id, "first-party-metadata-identity"))
+    return findings
+
+
+def _audit_archive(
+    archive: zipfile.ZipFile,
+    exact_patterns: Sequence[re.Pattern[bytes]],
+    artifact: int,
+) -> tuple[set[Finding], int]:
+    findings = _comment_findings(archive.comment, exact_patterns, artifact)
+    infos = sorted(archive.infolist(), key=lambda item: item.filename)
+    findings.update(_duplicate_member_findings(infos, artifact))
+    for info in infos:
+        findings.update(_audit_member(archive, info, exact_patterns, artifact))
+    return findings, len(infos)
+
+
 def audit_wheel(
     path: Path,
     *,
@@ -271,41 +349,7 @@ def audit_wheel(
 
     try:
         with zipfile.ZipFile(path) as archive:
-            if archive.comment:
-                for category in _categories(archive.comment, exact_patterns):
-                    findings.add(Finding(artifact, "archive-comment", category))
-
-            infos = sorted(archive.infolist(), key=lambda item: item.filename)
-            names = [info.filename for info in infos]
-            if len(names) != len(set(names)):
-                findings.add(Finding(artifact, "archive-index", "duplicate-member"))
-
-            for info in infos:
-                member_count += 1
-                member_id = _member_id(info.filename)
-                if _unsafe_member_name(info.filename):
-                    findings.add(Finding(artifact, member_id, "unsafe-member-name"))
-                member_path = PurePosixPath(info.filename)
-                if "__pycache__" in member_path.parts or member_path.suffix in {
-                    ".pyc",
-                    ".pyo",
-                }:
-                    findings.add(Finding(artifact, member_id, "python-bytecode-member"))
-                for category in _categories(
-                    info.filename.encode("utf-8", errors="surrogatepass"),
-                    exact_patterns,
-                ):
-                    findings.add(Finding(artifact, member_id, category))
-                if info.is_dir():
-                    continue
-                categories, metadata = _scan_member(archive, info, exact_patterns)
-                findings.update(
-                    Finding(artifact, member_id, category) for category in categories
-                )
-                if metadata is not None and not _neutral_metadata(metadata):
-                    findings.add(
-                        Finding(artifact, member_id, "first-party-metadata-identity")
-                    )
+            findings, member_count = _audit_archive(archive, exact_patterns, artifact)
     except (OSError, ValueError, zipfile.BadZipFile, RuntimeError):
         findings.add(Finding(artifact, "archive-index", "invalid-wheel"))
 
