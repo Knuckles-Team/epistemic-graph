@@ -10,6 +10,17 @@ from scripts import check_integration_baseline as gate
 
 pytestmark = pytest.mark.no_engine
 
+_KNOWN = "tests/test_example.py::test_known_failure"
+_SUMMARY = "================ short test summary info ================\n"
+_KNOWN_FAILED = f"FAILED {_KNOWN} - expected debt\n"
+_ONE_KNOWN_FAILURE = (
+    _SUMMARY + _KNOWN_FAILED + "=================== 1 failed ===================\n"
+)
+
+
+def _entry(review_by: str) -> str:
+    return f"{_KNOWN}  # owner=@proof review-by={review_by}\n"
+
 
 def _pytest_result(
     monkeypatch: pytest.MonkeyPatch,
@@ -28,210 +39,201 @@ def _pytest_result(
     monkeypatch.setattr(gate.subprocess, "run", run)
 
 
-def test_valid_baseline_is_loaded_and_successful_run_passes(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    baseline = tmp_path / "integration_failure_baseline.txt"
-    baseline.write_text(
-        "tests/test_example.py::test_known_failure  # owner=@proof "
-        "review-by=2099-01-01\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(gate, "BASELINE_PATH", baseline)
-    _pytest_result(
-        monkeypatch,
-        returncode=1,
-        stdout=(
-            "================ short test summary info ================\n"
-            "FAILED tests/test_example.py::test_known_failure - expected debt\n"
-            "=================== 1 failed ===================\n"
-        ),
-    )
-
-    assert gate.main([]) == 0
+def _missing(tmp_path):
+    return tmp_path / "does-not-exist.txt"
 
 
-def test_missing_baseline_refuses_to_run_pytest(
-    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    baseline = tmp_path / "does-not-exist.txt"
-    monkeypatch.setattr(gate, "BASELINE_PATH", baseline)
-
-    def unexpected_run(*args: object, **kwargs: object) -> None:
-        del args, kwargs
-        raise AssertionError("pytest must not run without its required baseline")
-
-    monkeypatch.setattr(gate.subprocess, "run", unexpected_run)
-
-    assert gate.command([]) == 1
-    assert (
-        "REFUSED: cannot read required integration baseline" in capsys.readouterr().err
-    )
-
-
-def test_unreadable_baseline_refuses_to_run_pytest(
-    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def _directory(tmp_path):
     baseline = tmp_path / "baseline-directory"
     baseline.mkdir()
-    monkeypatch.setattr(gate, "BASELINE_PATH", baseline)
-
-    def unexpected_run(*args: object, **kwargs: object) -> None:
-        del args, kwargs
-        raise AssertionError("pytest must not run with an unreadable baseline")
-
-    monkeypatch.setattr(gate.subprocess, "run", unexpected_run)
-
-    assert gate.command([]) == 1
-    assert (
-        "REFUSED: cannot read required integration baseline" in capsys.readouterr().err
-    )
+    return baseline
 
 
-def test_malformed_baseline_refuses_to_run_pytest(
-    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    baseline = tmp_path / "integration_failure_baseline.txt"
-    baseline.write_text("not a baseline entry\n", encoding="utf-8")
-    monkeypatch.setattr(gate, "BASELINE_PATH", baseline)
+def _written(text: str):
+    def write(tmp_path):
+        baseline = tmp_path / "integration_failure_baseline.txt"
+        baseline.write_text(text, encoding="utf-8")
+        return baseline
 
-    def unexpected_run(*args: object, **kwargs: object) -> None:
-        del args, kwargs
-        raise AssertionError("pytest must not run with malformed baseline data")
-
-    monkeypatch.setattr(gate.subprocess, "run", unexpected_run)
-
-    assert gate.command([]) == 1
-    assert "REFUSED: malformed required integration baseline" in capsys.readouterr().err
+    return write
 
 
-def test_invalid_review_date_refuses_to_run_pytest(
-    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    baseline = tmp_path / "integration_failure_baseline.txt"
-    baseline.write_text(
-        "tests/test_example.py::test_known_failure  "
-        "# owner=@proof review-by=2026-02-30\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(gate, "BASELINE_PATH", baseline)
-
-    def unexpected_run(*args: object, **kwargs: object) -> None:
-        del args, kwargs
-        raise AssertionError("pytest must not run with an invalid baseline date")
-
-    monkeypatch.setattr(gate.subprocess, "run", unexpected_run)
-
-    assert gate.command([]) == 1
-    assert "REFUSED: malformed required integration baseline" in capsys.readouterr().err
-
-
-def test_new_unbaselined_failure_is_a_regression(
-    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    baseline = tmp_path / "integration_failure_baseline.txt"
-    baseline.write_text(
-        "tests/test_example.py::test_known_failure  # owner=@proof "
-        "review-by=2099-01-01\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(gate, "BASELINE_PATH", baseline)
-    _pytest_result(
-        monkeypatch,
-        returncode=1,
-        stdout=(
-            "================ short test summary info ================\n"
-            "FAILED tests/test_example.py::test_known_failure - expected debt\n"
-            "FAILED tests/test_other.py::test_new_break - surprise\n"
-            "=================== 2 failed ===================\n"
+@pytest.mark.parametrize(
+    ("make_baseline", "refusal"),
+    [
+        pytest.param(
+            _missing,
+            "REFUSED: cannot read required integration baseline",
+            id="missing",
         ),
-    )
-
-    assert gate.main([]) == 1
-    err = capsys.readouterr().err
-    assert "REGRESSION" in err
-    assert "tests/test_other.py::test_new_break" in err
-    # The already-known failure must not also be reported as a regression.
-    assert "tests/test_example.py::test_known_failure" not in err
-
-
-def test_baselined_test_now_passing_is_reported_as_repaired(
-    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    baseline = tmp_path / "integration_failure_baseline.txt"
-    baseline.write_text(
-        "tests/test_example.py::test_known_failure  # owner=@proof "
-        "review-by=2099-01-01\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(gate, "BASELINE_PATH", baseline)
-    _pytest_result(
-        monkeypatch,
-        returncode=0,
-        stdout="================ 1 passed ================\n",
-    )
-
-    assert gate.main([]) == 1
-    err = capsys.readouterr().err
-    assert "FIXED" in err
-    assert "tests/test_example.py::test_known_failure" in err
-
-
-def test_baseline_entry_past_review_date_is_overdue(
-    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    baseline = tmp_path / "integration_failure_baseline.txt"
-    baseline.write_text(
-        "tests/test_example.py::test_known_failure  # owner=@proof "
-        "review-by=2020-01-01\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(gate, "BASELINE_PATH", baseline)
-    _pytest_result(
-        monkeypatch,
-        returncode=1,
-        stdout=(
-            "================ short test summary info ================\n"
-            "FAILED tests/test_example.py::test_known_failure - expected debt\n"
-            "=================== 1 failed ===================\n"
+        pytest.param(
+            _directory,
+            "REFUSED: cannot read required integration baseline",
+            id="unreadable",
         ),
-    )
-
-    assert gate.main(["--today", "2026-01-01"]) == 1
-    err = capsys.readouterr().err
-    assert "OVERDUE" in err
-    assert "tests/test_example.py::test_known_failure" in err
-
-
-def test_untrustworthy_pytest_exit_code_refuses_to_compare(
-    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+        pytest.param(
+            _written("not a baseline entry\n"),
+            "REFUSED: malformed required integration baseline",
+            id="malformed",
+        ),
+        pytest.param(
+            _written(_entry("2026-02-30")),
+            "REFUSED: malformed required integration baseline",
+            id="invalid-review-date",
+        ),
+    ],
+)
+def test_untrustworthy_baseline_refuses_to_run_pytest(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    make_baseline,
+    refusal: str,
 ) -> None:
-    baseline = tmp_path / "integration_failure_baseline.txt"
-    baseline.write_text(
-        "tests/test_example.py::test_known_failure  # owner=@proof "
-        "review-by=2099-01-01\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(gate, "BASELINE_PATH", baseline)
-    _pytest_result(monkeypatch, returncode=2, stdout="internal error\n")
+    monkeypatch.setattr(gate, "BASELINE_PATH", make_baseline(tmp_path))
 
-    assert gate.main([]) == 1
-    err = capsys.readouterr().err
-    assert "REFUSED: pytest exited 2" in err
-    assert "Nothing was compared to the baseline" in err
+    def unexpected_run(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise AssertionError("pytest must not run without a trustworthy baseline")
+
+    monkeypatch.setattr(gate.subprocess, "run", unexpected_run)
+
+    assert gate.command([]) == 1
+    assert refusal in capsys.readouterr().err
 
 
-def test_nothing_failing_at_all_passes_cleanly(
-    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(
+    ("baseline", "argv", "returncode", "stdout", "code", "present", "absent"),
+    [
+        pytest.param(
+            _entry("2099-01-01"),
+            [],
+            1,
+            _ONE_KNOWN_FAILURE,
+            0,
+            [("out", "1 known failure(s), no regressions")],
+            [],
+            id="baselined-failure-passes",
+        ),
+        pytest.param(
+            _entry("2099-01-01"),
+            [],
+            1,
+            _SUMMARY
+            + _KNOWN_FAILED
+            + "FAILED tests/test_other.py::test_new_break - surprise\n"
+            + "=================== 2 failed ===================\n",
+            1,
+            [("err", "REGRESSION"), ("err", "tests/test_other.py::test_new_break")],
+            # The already-known failure must not also be reported as a regression.
+            [("err", _KNOWN)],
+            id="new-unbaselined-failure-is-a-regression",
+        ),
+        pytest.param(
+            _entry("2099-01-01"),
+            [],
+            0,
+            "================ 1 passed ================\n",
+            1,
+            [("err", "FIXED"), ("err", _KNOWN)],
+            [],
+            id="baselined-test-now-passing-is-repaired",
+        ),
+        pytest.param(
+            _entry("2020-01-01"),
+            ["--today", "2026-01-01"],
+            1,
+            _ONE_KNOWN_FAILURE,
+            1,
+            [("err", "OVERDUE"), ("err", _KNOWN)],
+            [],
+            id="entry-past-review-date-is-overdue",
+        ),
+        pytest.param(
+            _entry("2026-01-01"),
+            ["--today", "2026-01-01"],
+            1,
+            _ONE_KNOWN_FAILURE,
+            0,
+            [("out", "1 known failure(s), no regressions")],
+            [("err", "OVERDUE")],
+            id="entry-due-today-is-not-yet-overdue",
+        ),
+        pytest.param(
+            _entry("2099-01-01"),
+            [],
+            1,
+            _SUMMARY
+            + f"FAILED {_KNOWN}[case-a] - expected debt\n"
+            + "=================== 1 failed ===================\n",
+            0,
+            [("out", "1 known failure(s), no regressions")],
+            [("err", "REGRESSION")],
+            id="unbracketed-entry-covers-every-parametrisation",
+        ),
+        pytest.param(
+            _entry("2099-01-01"),
+            [],
+            2,
+            "internal error\n",
+            1,
+            [
+                ("err", "REFUSED: pytest exited 2"),
+                ("err", "Nothing was compared to the baseline"),
+            ],
+            [],
+            id="untrustworthy-pytest-exit-code-refuses-to-compare",
+        ),
+        pytest.param(
+            "",
+            [],
+            0,
+            "================ 3 passed ================\n",
+            0,
+            [("out", "nothing failing at all")],
+            [],
+            id="nothing-failing-at-all",
+        ),
+        pytest.param(
+            "",
+            ["--today", "not-a-date"],
+            0,
+            "================ 3 passed ================\n",
+            0,
+            [("out", "nothing failing at all")],
+            [],
+            id="unparsed-today-without-dated-entries-still-passes",
+        ),
+        pytest.param(
+            "",
+            ["--today", "not-a-date"],
+            1,
+            _ONE_KNOWN_FAILURE,
+            1,
+            [("err", "REGRESSION"), ("err", _KNOWN)],
+            [],
+            id="unparsed-today-without-dated-entries-still-regresses",
+        ),
+    ],
+)
+def test_gate_verdicts(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    baseline: str,
+    argv: list[str],
+    returncode: int,
+    stdout: str,
+    code: int,
+    present: list[tuple[str, str]],
+    absent: list[tuple[str, str]],
 ) -> None:
-    baseline = tmp_path / "integration_failure_baseline.txt"
-    baseline.write_text("", encoding="utf-8")
-    monkeypatch.setattr(gate, "BASELINE_PATH", baseline)
-    _pytest_result(
-        monkeypatch,
-        returncode=0,
-        stdout="================ 3 passed ================\n",
-    )
+    monkeypatch.setattr(gate, "BASELINE_PATH", _written(baseline)(tmp_path))
+    _pytest_result(monkeypatch, returncode=returncode, stdout=stdout)
 
-    assert gate.main([]) == 0
-    assert "nothing failing at all" in capsys.readouterr().out
+    assert gate.main(argv) == code
+    captured = capsys.readouterr()
+    for stream, fragment in present:
+        assert fragment in getattr(captured, stream)
+    for stream, fragment in absent:
+        assert fragment not in getattr(captured, stream)

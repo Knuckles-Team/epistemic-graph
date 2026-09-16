@@ -201,11 +201,15 @@ def _run_pytest(pytest_args: list[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _today(override: str | None) -> datetime.date:
+    return datetime.date.fromisoformat(override) if override else datetime.date.today()
+
+
 def _diff_against_baseline(
     failing: set[str],
     baseline: set[str],
     dated: list[tuple[str, datetime.date]],
-    today: datetime.date,
+    today_override: str | None,
 ) -> tuple[list[str], list[str], list[str]]:
     """(regressions, repaired, stale) of `failing` against the required baseline.
 
@@ -225,7 +229,9 @@ def _diff_against_baseline(
         if node == entry or _base(node) == entry
     }
     repaired = sorted(baseline - satisfied)
-    stale = sorted(node for node, review in dated if review < today)
+    # `--today` is parsed per dated entry, never up front: with no dated entry
+    # an unparseable override is not read and the verdict still stands.
+    stale = sorted(node for node, review in dated if review < _today(today_override))
     return regressions, repaired, stale
 
 
@@ -300,13 +306,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    today = (
-        datetime.date.fromisoformat(namespace.today)
-        if namespace.today
-        else datetime.date.today()
-    )
     regressions, repaired, stale = _diff_against_baseline(
-        failing, baseline, dated, today
+        failing, baseline, dated, namespace.today
     )
 
     if _report_baseline_problems(regressions, repaired, stale):
