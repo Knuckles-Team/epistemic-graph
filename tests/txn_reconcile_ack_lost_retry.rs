@@ -522,7 +522,7 @@ async fn signed_dispatch_commit_fault_child() {
     // The request id is bound into the signed carrier and into the batch. The
     // exact certification phase therefore selects this Commit child boundary,
     // while the parent lifecycle prepare remains durable.
-    let _ = dispatch(
+    let _ = Box::pin(dispatch(
         &state,
         signed_fixed_request(
             405,
@@ -534,7 +534,7 @@ async fn signed_dispatch_commit_fault_child() {
             FAULT_COMMIT_NONCE,
             FAULT_COMMIT_KEY,
         ),
-    )
+    ))
     .await;
     panic!("certification fault {phase} did not abort the signed Commit child");
 }
@@ -819,7 +819,7 @@ async fn signed_dispatch_lifecycle_fault_child() {
             "armed:begin:501\n",
         )
         .expect("write signed lifecycle Begin fault armed marker");
-        let _ = dispatch(
+        let _ = Box::pin(dispatch(
             &state,
             signed_fixed_request(
                 501,
@@ -831,7 +831,7 @@ async fn signed_dispatch_lifecycle_fault_child() {
                 LIFECYCLE_BEGIN_NONCE,
                 LIFECYCLE_BEGIN_KEY,
             ),
-        )
+        ))
         .await;
     } else {
         let begun: Response = Box::pin(dispatch(
@@ -866,7 +866,7 @@ async fn signed_dispatch_lifecycle_fault_child() {
             "armed:stage:503\n",
         )
         .expect("write signed lifecycle Stage fault armed marker");
-        let _ = dispatch(
+        let _ = Box::pin(dispatch(
             &state,
             signed_fixed_request(
                 503,
@@ -880,7 +880,7 @@ async fn signed_dispatch_lifecycle_fault_child() {
                 LIFECYCLE_STAGE_NONCE,
                 LIFECYCLE_STAGE_KEY,
             ),
-        )
+        ))
         .await;
     }
     panic!("lifecycle effect fault did not abort the signed {mode} dispatch");

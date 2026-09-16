@@ -418,7 +418,7 @@ mod tests {
             );
 
             let mut logical_key_request = request.clone();
-            logical_key_request.graph_fname = logical_graph;
+            logical_key_request.graph_fname = logical_graph.clone();
             let mismatch = EgStore::idempotent_replay_record_mismatches(ReplayRecordCheck {
                 record: &record,
                 req: &logical_key_request,
