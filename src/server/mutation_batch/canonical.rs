@@ -43,7 +43,13 @@ use crate::protocol::{CypherMode, Method};
 /// the index built from it are two writes with two authorities; only the second
 /// one is store-authoritative.
 pub(crate) fn domain_for(method: &Method, surface: MutationSurface) -> DurabilityDomain {
-    match method {
+    owner_domain(method).unwrap_or_else(|| remaining_default_domain(method, surface))
+}
+
+/// Methods whose durable effect belongs to a lifecycle, coordinator or native
+/// store owner rather than to the target graph's rows or snapshot.
+fn owner_domain(method: &Method) -> Option<DurabilityDomain> {
+    Some(match method {
         Method::CreateGraph { .. } | Method::DeleteGraph { .. } => DurabilityDomain::Lifecycle,
         Method::MultiGraphBatchUpdate { .. } => DurabilityDomain::MultiGraph,
         Method::Commit { .. } => DurabilityDomain::CrossModal,
@@ -68,6 +74,13 @@ pub(crate) fn domain_for(method: &Method, surface: MutationSurface) -> Durabilit
         }
         #[cfg(feature = "jobs")]
         Method::AnalyticsJob { .. } => DurabilityDomain::AnalyticsJob,
+        _ => return service_owner_domain(method),
+    })
+}
+
+/// Control-plane, SQL, RDF and broker owners.
+fn service_owner_domain(method: &Method) -> Option<DurabilityDomain> {
+    Some(match method {
         Method::KgDelegate { .. }
         | Method::SubmitWorkItem { .. }
         | Method::SubmitWorkItems { .. }
@@ -120,6 +133,18 @@ pub(crate) fn domain_for(method: &Method, surface: MutationSurface) -> Durabilit
         | Method::BrokerAckTag { .. }
         | Method::BrokerNackTag { .. }
         | Method::BrokerRenewTag { .. } => DurabilityDomain::Broker,
+        _ => return None,
+    })
+}
+
+/// Every remaining `Method` variant `owner_domain` didn't claim
+/// (query/analytics/mining/finance/... surfaces, and the plain graph-row CRUD
+/// family): none of them is routed to a store-specific domain, so all of them
+/// fall through to the surface-keyed default. Naming them here (instead of
+/// `_`) keeps that default AND makes the dispatch exhaustive -- a future
+/// `Method` variant is a compile error at this match, not a silent default.
+fn remaining_default_domain(method: &Method, surface: MutationSurface) -> DurabilityDomain {
+    match method {
         // Every other `Method` variant (query/analytics/mining/finance/... surfaces,
         // and the plain graph-row CRUD family) was never routed to a store-specific
         // domain: it always fell through to the surface-keyed default below. Naming
