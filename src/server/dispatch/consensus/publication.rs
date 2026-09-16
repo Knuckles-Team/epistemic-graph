@@ -51,29 +51,22 @@ async fn submit_consensus_job_publication_response(
         coordinator_id,
         operation,
     );
-    let committed_at_ms = authoritative_now_ms();
-    let mutation = crate::raft::RaftMutationContext::from_verified_request(
-        batch_id,
-        request_id,
-        attempt_nonce,
-        authority.tenant_scope(),
-        authority.actor_scope().to_string(),
-        false,
-        placement_epoch,
-        crate::raft::RaftMutationTiming {
+    let response = super::transaction::commit_carrier_native_command(
+        super::transaction::CarrierNativeCommand {
+            multi,
+            authority,
+            request_id,
+            attempt_nonce,
+            batch_id,
+            graph_name: graph_name.to_string(),
+            graph_type,
+            group_id,
+            placement_epoch,
             fencing_token,
-            created_at_ms: committed_at_ms,
+            command,
         },
-    )?;
-    let request = crate::raft::RaftRequest {
-        graph_fname: crate::persist::sanitize(graph_name),
-        graph_name: graph_name.to_string(),
-        graph_type,
-        command: crate::raft::ReplicatedMutation::Native { command },
-        committed_at_ms,
-        mutation,
-    };
-    let response = multi.client_write_group(group_id, request).await?;
+    )
+    .await?;
     response.validate()?;
     if let Some(error) = response.native_error {
         return Err(error);

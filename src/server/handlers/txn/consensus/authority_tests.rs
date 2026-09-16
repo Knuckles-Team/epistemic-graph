@@ -21,8 +21,8 @@ fn phase_authority(carrier: &CarrierAuthority) -> crate::raft::RaftMutationConte
         carrier.tenant_scope(),
         carrier.actor_scope().to_string(),
         false,
-        0,
         crate::raft::RaftMutationTiming {
+            placement_epoch: 0,
             fencing_token: None,
             created_at_ms: 1,
         },

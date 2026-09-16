@@ -344,8 +344,8 @@ fn build_native_raft_request(
         proposal.authority.tenant_scope(),
         proposal.authority.actor_scope().to_string(),
         identity_bootstrap,
-        routed.epoch,
         crate::raft::RaftMutationTiming {
+            placement_epoch: routed.epoch,
             fencing_token: routed.placed.then_some(routed.group_id),
             created_at_ms: committed_at_ms,
         },

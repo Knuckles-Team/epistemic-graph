@@ -118,7 +118,9 @@ impl ReplicatedMutation {
     #[cfg(feature = "modality-serving")]
     pub(crate) fn served_modality(command: SanitizedModalityRaftCommand) -> Self {
         Self::Native {
-            command: NativeMutationCommand::ServedModality { command },
+            command: NativeMutationCommand::ServedModality {
+                command: Box::new(command),
+            },
         }
     }
 

@@ -37,7 +37,7 @@ pub enum NativeMutationCommand {
     },
     #[cfg(feature = "modality-serving")]
     ServedModality {
-        command: SanitizedModalityRaftCommand,
+        command: Box<SanitizedModalityRaftCommand>,
     },
     /// One graph participant in the engine-owned prepare/decision/commit protocol.
     /// Prepare/commit carry the same sealed canonical plan; abort carries no plan.

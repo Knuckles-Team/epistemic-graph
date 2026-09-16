@@ -249,6 +249,7 @@ pub struct RaftMutationContext {
 /// Grouping these adjacent fields keeps the request-boundary constructor small
 /// without changing the serialized authority shape.
 pub(crate) struct RaftMutationTiming {
+    pub(crate) placement_epoch: u64,
     pub(crate) fencing_token: Option<u64>,
     pub(crate) created_at_ms: u64,
 }
@@ -263,7 +264,6 @@ impl RaftMutationContext {
         tenant_scope: &str,
         principal_fingerprint: String,
         identity_bootstrap: bool,
-        placement_epoch: u64,
         timing: RaftMutationTiming,
     ) -> Result<Self, String> {
         let context = Self {
@@ -273,7 +273,7 @@ impl RaftMutationContext {
             tenant_scope: tenant_scope.to_string(),
             principal_fingerprint,
             identity_bootstrap,
-            placement_epoch,
+            placement_epoch: timing.placement_epoch,
             fencing_token: timing.fencing_token,
             created_at_ms: timing.created_at_ms,
         };

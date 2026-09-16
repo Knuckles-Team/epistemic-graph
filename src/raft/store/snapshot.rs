@@ -101,9 +101,9 @@ impl EgStore {
         Ok(())
     }
 
-    async fn stale_snapshot_graph_names<'a>(
+    async fn stale_snapshot_graph_names(
         &self,
-        names: &std::collections::BTreeSet<&'a str>,
+        names: &std::collections::BTreeSet<&str>,
     ) -> Result<Vec<String>, String> {
         // Identify stale graph authority before the first durable import. Installing
         // a Raft snapshot is replacement, not a merge: graphs in this group but

@@ -388,8 +388,7 @@ pub(super) async fn build_modality_raft_command(
     crate::raft::SanitizedModalityRaftCommand::new(
         &server_secret,
         (ctx.tenant_scope, ctx.graph_name, graph_fname),
-        inputs.modality,
-        inputs.operation,
+        (inputs.modality, inputs.operation),
         node_id,
         sealed_runtime_state,
         inputs.receipt_query.clone(),
@@ -416,8 +415,8 @@ pub(super) async fn submit_modality_replication(
         ctx.tenant_scope,
         ctx.principal_fingerprint.to_string(),
         false,
-        ctx.placement_epoch,
         crate::raft::RaftMutationTiming {
+            placement_epoch: ctx.placement_epoch,
             fencing_token: ctx.fencing_token,
             created_at_ms,
         },

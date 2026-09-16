@@ -271,7 +271,7 @@ impl EgStore {
                     &req.graph_name,
                     &req.graph_fname,
                 )?;
-                Ok(Some(command))
+                Ok(Some(command.as_ref()))
             }
             _ => Ok(None),
         }

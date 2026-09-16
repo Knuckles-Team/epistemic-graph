@@ -1,16 +1,13 @@
 use super::*;
 
-fn load_open_metadata(
-    redb: &RedbBackend,
-    group_id: GroupId,
-) -> Result<
-    (
-        Option<VoteOf<TypeConfig>>,
-        AppliedState,
-        Option<LogIdOf<TypeConfig>>,
-    ),
-    String,
-> {
+/// The durable vote, applied state, and purged log id a group store reopens from.
+type OpenMetadata = (
+    Option<VoteOf<TypeConfig>>,
+    AppliedState,
+    Option<LogIdOf<TypeConfig>>,
+);
+
+fn load_open_metadata(redb: &RedbBackend, group_id: GroupId) -> Result<OpenMetadata, String> {
     let vote = match redb.raft_meta_get(group_id, KEY_VOTE)? {
         Some(bytes) => decode_raft_value(&bytes, MAX_RAFT_META_BYTES, 100_000)?,
         None => None,

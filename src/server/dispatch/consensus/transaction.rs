@@ -14,6 +14,60 @@ struct TransactionSubmission<'a> {
     command: crate::raft::NativeMutationCommand,
 }
 
+/// One engine-native consensus command proposed under a verified carrier's
+/// authority: its opaque batch identity, the graph route it is keyed on, and
+/// the placement fence of the group that must commit it.
+#[cfg(feature = "raft")]
+pub(super) struct CarrierNativeCommand<'a> {
+    pub(super) multi: &'a Arc<crate::raft::multi::MultiRaft>,
+    pub(super) authority: &'a CarrierAuthority,
+    pub(super) request_id: u64,
+    pub(super) attempt_nonce: Option<eg_types::contract::Nonce>,
+    pub(super) batch_id: String,
+    pub(super) graph_name: String,
+    pub(super) graph_type: crate::protocol::GraphType,
+    pub(super) group_id: crate::raft::GroupId,
+    pub(super) placement_epoch: u64,
+    pub(super) fencing_token: Option<u64>,
+    pub(super) command: crate::raft::NativeMutationCommand,
+}
+
+/// Commit `proposal` through its group, stamped now, under the carrier's
+/// verified authority, and return the state machine's response.
+#[cfg(feature = "raft")]
+pub(super) async fn commit_carrier_native_command(
+    proposal: CarrierNativeCommand<'_>,
+) -> Result<crate::raft::RaftResponse, String> {
+    let committed_at_ms = authoritative_now_ms();
+    let mutation = crate::raft::RaftMutationContext::from_verified_request(
+        proposal.batch_id,
+        proposal.request_id,
+        proposal.attempt_nonce,
+        proposal.authority.tenant_scope(),
+        proposal.authority.actor_scope().to_string(),
+        false,
+        crate::raft::RaftMutationTiming {
+            placement_epoch: proposal.placement_epoch,
+            fencing_token: proposal.fencing_token,
+            created_at_ms: committed_at_ms,
+        },
+    )?;
+    let request = crate::raft::RaftRequest {
+        graph_fname: crate::persist::sanitize(&proposal.graph_name),
+        graph_name: proposal.graph_name,
+        graph_type: proposal.graph_type,
+        command: crate::raft::ReplicatedMutation::Native {
+            command: proposal.command,
+        },
+        committed_at_ms,
+        mutation,
+    };
+    proposal
+        .multi
+        .client_write_group(proposal.group_id, request)
+        .await
+}
+
 #[cfg(feature = "raft")]
 async fn submit_consensus_transaction_command(
     submission: TransactionSubmission<'_>,
@@ -40,29 +94,20 @@ async fn submit_consensus_transaction_command(
         coordinator_id,
         operation,
     );
-    let committed_at_ms = authoritative_now_ms();
-    let mutation = crate::raft::RaftMutationContext::from_verified_request(
-        batch_id,
+    let response = commit_carrier_native_command(CarrierNativeCommand {
+        multi,
+        authority,
         request_id,
-        None,
-        authority.tenant_scope(),
-        authority.actor_scope().to_string(),
-        false,
-        placement_epoch,
-        crate::raft::RaftMutationTiming {
-            fencing_token,
-            created_at_ms: committed_at_ms,
-        },
-    )?;
-    let request = crate::raft::RaftRequest {
-        graph_fname: crate::persist::sanitize(&route_key),
+        attempt_nonce: None,
+        batch_id,
         graph_name: route_key,
         graph_type,
-        command: crate::raft::ReplicatedMutation::Native { command },
-        committed_at_ms,
-        mutation,
-    };
-    let response = multi.client_write_group(group_id, request).await?;
+        group_id,
+        placement_epoch,
+        fencing_token,
+        command,
+    })
+    .await?;
     if let Some(error) = response.native_error {
         return Err(error);
     }

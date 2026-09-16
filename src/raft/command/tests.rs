@@ -235,8 +235,8 @@ fn internal_graph_command_requires_the_typed_internal_authority() {
         &request.mutation.tenant_scope,
         request.mutation.principal_fingerprint.clone(),
         false,
-        0,
         crate::raft::RaftMutationTiming {
+            placement_epoch: 0,
             fencing_token: None,
             created_at_ms: 1,
         },

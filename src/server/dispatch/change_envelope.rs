@@ -378,8 +378,8 @@ async fn try_replicate_change_envelope(
             .unwrap_or_default()
             .to_string(),
         false,
-        envelope.mutation.placement_epoch,
         crate::raft::RaftMutationTiming {
+            placement_epoch: envelope.mutation.placement_epoch,
             fencing_token: envelope.mutation.fencing_token,
             created_at_ms: envelope.mutation.created_at_ms,
         },

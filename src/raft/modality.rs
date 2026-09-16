@@ -330,14 +330,14 @@ impl SanitizedModalityRaftCommand {
     pub(crate) fn new(
         server_secret: &str,
         authority: (&str, &str, &str),
-        modality: eg_types::ServedModalityKind,
-        operation: SanitizedModalityMutation,
+        kind: (eg_types::ServedModalityKind, SanitizedModalityMutation),
         node_id: String,
         sealed_runtime_state: Vec<u8>,
         receipt_query: String,
         result_msgpack: Vec<u8>,
     ) -> Result<Self, String> {
         use sha2::{Digest, Sha256};
+        let (modality, operation) = kind;
         let authority =
             SanitizedModalityAuthorityBinding::new(authority.0, authority.1, authority.2);
         let state_sha256 = hex::encode(Sha256::digest(&sealed_runtime_state));

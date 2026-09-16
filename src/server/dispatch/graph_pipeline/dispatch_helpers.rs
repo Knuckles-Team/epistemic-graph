@@ -438,8 +438,8 @@ pub(super) async fn dispatch_op_raft_write_routing_barrier(
         tenant_scope,
         principal_fingerprint,
         false,
-        routed.epoch,
         crate::raft::RaftMutationTiming {
+            placement_epoch: routed.epoch,
             fencing_token: Some(routed.group_id),
             created_at_ms,
         },

@@ -46,16 +46,50 @@ fn worst_case_stream_result(items: usize) -> Vec<u8> {
     rmp_serde::to_vec_named(&encode_sanitized_modality_payload(&outcomes).unwrap()).unwrap()
 }
 
-fn valid_command() -> SanitizedModalityRaftCommand {
-    let cipher = crate::crypto::ValueCipher::from_key_material(b"replica-state-key");
+const DOCUMENT_INGEST: (eg_types::ServedModalityKind, SanitizedModalityMutation) = (
+    eg_types::ServedModalityKind::Document,
+    SanitizedModalityMutation::Ingest,
+);
+const DOCUMENT_INGEST_STREAM: (eg_types::ServedModalityKind, SanitizedModalityMutation) = (
+    eg_types::ServedModalityKind::Document,
+    SanitizedModalityMutation::IngestStream,
+);
+const AUDIO_DELETE: (eg_types::ServedModalityKind, SanitizedModalityMutation) = (
+    eg_types::ServedModalityKind::Audio,
+    SanitizedModalityMutation::Delete,
+);
+
+/// Runtime state sealed under the fixture replica-state key.
+fn sealed_state(state: &[u8]) -> Vec<u8> {
+    crate::crypto::ValueCipher::from_key_material(b"replica-state-key").seal(state)
+}
+
+/// A sanitized command for `kind` under the fixture secret and authority, the
+/// canonical partition node for its modality, and a fixture receipt.
+fn fixture_command(
+    kind: (eg_types::ServedModalityKind, SanitizedModalityMutation),
+    sealed_runtime_state: Vec<u8>,
+    result_msgpack: Vec<u8>,
+) -> Result<SanitizedModalityRaftCommand, String> {
     SanitizedModalityRaftCommand::new(
         "cluster-auth-secret",
         authority_binding(),
-        eg_types::ServedModalityKind::Document,
-        SanitizedModalityMutation::Ingest,
-        format!("__eg_internal_served_document_{}", "a".repeat(64)),
-        cipher.seal(b"opaque runtime state"),
+        kind,
+        format!(
+            "__eg_internal_served_{}_{}",
+            sanitized_modality_name(kind.0),
+            "a".repeat(64)
+        ),
+        sealed_runtime_state,
         format!("sha256:{}", "b".repeat(64)),
+        result_msgpack,
+    )
+}
+
+fn valid_command() -> SanitizedModalityRaftCommand {
+    fixture_command(
+        DOCUMENT_INGEST,
+        sealed_state(b"opaque runtime state"),
         result(),
     )
     .unwrap()
@@ -64,19 +98,7 @@ fn valid_command() -> SanitizedModalityRaftCommand {
 #[test]
 fn encrypted_command_round_trips_without_raw_source() {
     let source = b"ephemeral non-identifying source fixture";
-    let cipher = crate::crypto::ValueCipher::from_key_material(b"replica-state-key");
-    let sealed = cipher.seal(source);
-    let command = SanitizedModalityRaftCommand::new(
-        "cluster-auth-secret",
-        authority_binding(),
-        eg_types::ServedModalityKind::Document,
-        SanitizedModalityMutation::Ingest,
-        format!("__eg_internal_served_document_{}", "a".repeat(64)),
-        sealed,
-        format!("sha256:{}", "b".repeat(64)),
-        result(),
-    )
-    .unwrap();
+    let command = fixture_command(DOCUMENT_INGEST, sealed_state(source), result()).unwrap();
     let replicated = ReplicatedMutation::served_modality(command.clone());
     let encoded = rmp_serde::to_vec_named(&replicated).unwrap();
     assert!(!encoded.windows(source.len()).any(|window| window == source));
@@ -98,15 +120,9 @@ fn encrypted_command_round_trips_without_raw_source() {
 
 #[test]
 fn stream_result_uses_the_typed_bounded_result_schema() {
-    let cipher = crate::crypto::ValueCipher::from_key_material(b"replica-state-key");
-    let command = SanitizedModalityRaftCommand::new(
-        "cluster-auth-secret",
-        authority_binding(),
-        eg_types::ServedModalityKind::Document,
-        SanitizedModalityMutation::IngestStream,
-        format!("__eg_internal_served_document_{}", "a".repeat(64)),
-        cipher.seal(b"opaque runtime state"),
-        format!("sha256:{}", "b".repeat(64)),
+    let command = fixture_command(
+        DOCUMENT_INGEST_STREAM,
+        sealed_state(b"opaque runtime state"),
         stream_result(),
     )
     .unwrap();
@@ -117,139 +133,65 @@ fn stream_result_uses_the_typed_bounded_result_schema() {
 
 #[test]
 fn worst_case_stream_max_fits_and_one_more_is_rejected() {
+    let (modality, operation) = DOCUMENT_INGEST_STREAM;
     let accepted = worst_case_stream_result(MAX_INGEST_STREAM_ITEMS);
     assert!(accepted.len() <= MAX_REPLICATED_MODALITY_RESULT_BYTES);
-    let decoded = SanitizedModalityResult::from_wire(
-        eg_types::ServedModalityKind::Document,
-        SanitizedModalityMutation::IngestStream,
-        &accepted,
-    )
-    .unwrap();
+    let decoded = SanitizedModalityResult::from_wire(modality, operation, &accepted).unwrap();
     assert_eq!(decoded.outcomes.len(), MAX_INGEST_STREAM_ITEMS);
 
     let rejected = worst_case_stream_result(MAX_INGEST_STREAM_ITEMS + 1);
     assert!(rejected.len() > MAX_REPLICATED_MODALITY_RESULT_BYTES);
-    assert!(SanitizedModalityResult::from_wire(
-        eg_types::ServedModalityKind::Document,
-        SanitizedModalityMutation::IngestStream,
-        &rejected,
+    assert!(SanitizedModalityResult::from_wire(modality, operation, &rejected).is_err());
+}
+
+/// A command whose wire result is `result_msgpack` is refused at construction.
+fn assert_result_rejected(result_msgpack: Vec<u8>) {
+    assert!(fixture_command(
+        AUDIO_DELETE,
+        sealed_state(b"opaque runtime state"),
+        result_msgpack
     )
     .is_err());
+}
+
+/// An otherwise valid command altered by `tamper` fails replica validation.
+fn assert_tamper_rejected(tamper: fn(&mut SanitizedModalityRaftCommand)) {
+    let mut command = fixture_command(
+        AUDIO_DELETE,
+        sealed_state(b"opaque runtime state"),
+        result(),
+    )
+    .unwrap();
+    tamper(&mut command);
+    assert!(command.validate("cluster-auth-secret").is_err());
 }
 
 #[test]
 fn malformed_result_type_length_version_and_digest_fail_closed() {
-    let cipher = crate::crypto::ValueCipher::from_key_material(b"replica-state-key");
-    let node_id = format!("__eg_internal_served_audio_{}", "a".repeat(64));
-    let receipt = format!("sha256:{}", "b".repeat(64));
     let wrong_type = rmp_serde::to_vec_named(&crate::protocol::ResultPayload::Bool(true)).unwrap();
-    assert!(SanitizedModalityRaftCommand::new(
-        "cluster-auth-secret",
-        authority_binding(),
-        eg_types::ServedModalityKind::Audio,
-        SanitizedModalityMutation::Delete,
-        node_id.clone(),
-        cipher.seal(b"opaque runtime state"),
-        receipt.clone(),
-        wrong_type,
-    )
-    .is_err());
+    let oversized = vec![0u8; MAX_REPLICATED_MODALITY_RESULT_BYTES + 1];
+    [wrong_type, oversized]
+        .into_iter()
+        .for_each(assert_result_rejected);
 
-    assert!(SanitizedModalityRaftCommand::new(
-        "cluster-auth-secret",
-        authority_binding(),
-        eg_types::ServedModalityKind::Audio,
-        SanitizedModalityMutation::Delete,
-        node_id.clone(),
-        cipher.seal(b"opaque runtime state"),
-        receipt.clone(),
-        vec![0u8; MAX_REPLICATED_MODALITY_RESULT_BYTES + 1],
-    )
-    .is_err());
-
-    let mut command = SanitizedModalityRaftCommand::new(
-        "cluster-auth-secret",
-        authority_binding(),
-        eg_types::ServedModalityKind::Audio,
-        SanitizedModalityMutation::Delete,
-        node_id,
-        cipher.seal(b"opaque runtime state"),
-        receipt,
-        result(),
-    )
-    .unwrap();
-    command.schema_version = SANITIZED_MODALITY_CODEC_VERSION + 1;
-    assert!(command.validate("cluster-auth-secret").is_err());
-
-    let mut command = SanitizedModalityRaftCommand::new(
-        "cluster-auth-secret",
-        authority_binding(),
-        eg_types::ServedModalityKind::Audio,
-        SanitizedModalityMutation::Delete,
-        format!("__eg_internal_served_audio_{}", "a".repeat(64)),
-        cipher.seal(b"opaque runtime state"),
-        format!("sha256:{}", "b".repeat(64)),
-        result(),
-    )
-    .unwrap();
-    command.result.operation = SanitizedModalityMutation::IngestStream;
-    assert!(command.validate("cluster-auth-secret").is_err());
-
-    let mut command = SanitizedModalityRaftCommand::new(
-        "cluster-auth-secret",
-        authority_binding(),
-        eg_types::ServedModalityKind::Audio,
-        SanitizedModalityMutation::Delete,
-        format!("__eg_internal_served_audio_{}", "a".repeat(64)),
-        cipher.seal(b"opaque runtime state"),
-        format!("sha256:{}", "b".repeat(64)),
-        result(),
-    )
-    .unwrap();
-    command.result_sha256 = "0".repeat(64);
-    assert!(command.validate("cluster-auth-secret").is_err());
-
-    let mut command = SanitizedModalityRaftCommand::new(
-        "cluster-auth-secret",
-        authority_binding(),
-        eg_types::ServedModalityKind::Audio,
-        SanitizedModalityMutation::Delete,
-        format!("__eg_internal_served_audio_{}", "a".repeat(64)),
-        cipher.seal(b"opaque runtime state"),
-        format!("sha256:{}", "b".repeat(64)),
-        result(),
-    )
-    .unwrap();
-    command.result.outcomes[0].event_sequence = 99;
-    assert!(command.validate("cluster-auth-secret").is_err());
+    let tampers: [fn(&mut SanitizedModalityRaftCommand); 4] = [
+        |command| command.schema_version = SANITIZED_MODALITY_CODEC_VERSION + 1,
+        |command| command.result.operation = SanitizedModalityMutation::IngestStream,
+        |command| command.result_sha256 = "0".repeat(64),
+        |command| command.result.outcomes[0].event_sequence = 99,
+    ];
+    tampers.into_iter().for_each(assert_tamper_rejected);
 }
 
 #[test]
 fn unsealed_or_forged_replica_state_fails_closed() {
-    assert!(SanitizedModalityRaftCommand::new(
-        "cluster-auth-secret",
-        authority_binding(),
-        eg_types::ServedModalityKind::Audio,
-        SanitizedModalityMutation::Delete,
-        format!("__eg_internal_served_audio_{}", "a".repeat(64)),
-        b"plaintext".to_vec(),
-        format!("sha256:{}", "b".repeat(64)),
-        result(),
-    )
-    .is_err());
+    assert!(fixture_command(AUDIO_DELETE, b"plaintext".to_vec(), result()).is_err());
 
-    let cipher = crate::crypto::ValueCipher::from_key_material(b"replica-state-key");
-    let command = SanitizedModalityRaftCommand::new(
-        "cluster-auth-secret",
-        authority_binding(),
+    let video_restore = (
         eg_types::ServedModalityKind::Video,
         SanitizedModalityMutation::Restore,
-        format!("__eg_internal_served_video_{}", "a".repeat(64)),
-        cipher.seal(b"opaque state"),
-        format!("sha256:{}", "b".repeat(64)),
-        result(),
-    )
-    .unwrap();
+    );
+    let command = fixture_command(video_restore, sealed_state(b"opaque state"), result()).unwrap();
     assert!(command.validate("wrong-secret").is_err());
 }
 
@@ -312,19 +254,12 @@ fn authority_fields_are_inside_the_command_hmac() {
 #[test]
 fn mutation_batch_audit_and_outbox_retain_only_the_safe_receipt() {
     let source = b"ephemeral source excluded from durable coordination";
-    let cipher = crate::crypto::ValueCipher::from_key_material(b"replica-state-key");
-    let sealed = cipher.seal(source);
-    let command = SanitizedModalityRaftCommand::new(
-        "cluster-auth-secret",
-        authority_binding(),
+    let sealed = sealed_state(source);
+    let image_move = (
         eg_types::ServedModalityKind::Image,
         SanitizedModalityMutation::MoveToCold,
-        format!("__eg_internal_served_image_{}", "a".repeat(64)),
-        sealed.clone(),
-        format!("sha256:{}", "b".repeat(64)),
-        result(),
-    )
-    .unwrap();
+    );
+    let command = fixture_command(image_move, sealed.clone(), result()).unwrap();
     let safe_receipt = command.receipt_method();
     let batch = crate::server::mutation_batch::compile_methods(
         crate::server::mutation_batch::CompileBatch {
