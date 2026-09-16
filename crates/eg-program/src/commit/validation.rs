@@ -71,18 +71,17 @@ impl ProgramCandidateRecord {
     }
 
     fn has_valid_optional_bindings(&self) -> bool {
-        !self
-            .candidate_instruction_ref
+        self.candidate_instruction_ref
             .as_ref()
-            .is_some_and(|r| r.namespace() != "instruction")
-            && !self
+            .is_none_or(|r| r.namespace() == "instruction")
+            && self
                 .tool_policy_ref
                 .as_ref()
-                .is_some_and(|r| r.namespace() != "tool_policy")
-            && !self
+                .is_none_or(|r| r.namespace() == "tool_policy")
+            && self
                 .model_profile_ref
                 .as_ref()
-                .is_some_and(|r| r.namespace() != "model_profile")
+                .is_none_or(|r| r.namespace() == "model_profile")
     }
 }
 
@@ -159,14 +158,14 @@ fn has_valid_revision_policy(identity: &ProgramRevisionIdentity) -> bool {
 }
 
 fn has_valid_revision_model_bindings(identity: &ProgramRevisionIdentity) -> bool {
-    !identity
+    identity
         .tool_policy_ref
         .as_ref()
-        .is_some_and(|r| r.namespace() != "tool_policy")
-        && !identity
+        .is_none_or(|r| r.namespace() == "tool_policy")
+        && identity
             .model_profile_ref
             .as_ref()
-            .is_some_and(|r| r.namespace() != "model_profile")
+            .is_none_or(|r| r.namespace() == "model_profile")
 }
 
 fn validate_revision_lineage(identity: &ProgramRevisionIdentity) -> Result<(), ProgramError> {

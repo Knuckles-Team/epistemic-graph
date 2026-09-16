@@ -103,10 +103,7 @@ fn accepts_code_symbol(address: &EvidenceAddress) -> bool {
 }
 
 fn accepts_trace_span(address: &EvidenceAddress) -> bool {
-    match address {
-        EvidenceAddress::TraceSpan { .. } => true,
-        _ => false,
-    }
+    matches!(address, EvidenceAddress::TraceSpan { .. })
 }
 
 #[cfg(test)]

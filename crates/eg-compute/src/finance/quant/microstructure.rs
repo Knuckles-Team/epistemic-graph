@@ -132,6 +132,7 @@ fn nelder_mead_initial_simplex(x0: [f64; 3], zero_step: f64) -> [[f64; 3]; 4] {
     simplex
 }
 
+#[derive(Clone, Copy)]
 struct NelderMeadCoefficients {
     alpha: f64,
     gamma: f64,
@@ -215,10 +216,7 @@ fn nelder_mead_iteration(
     f: &dyn Fn([f64; 3]) -> f64,
     simplex: &mut [[f64; 3]; 4],
     fvals: &mut [f64; 4],
-    a: f64,
-    g: f64,
-    r: f64,
-    s: f64,
+    coefficients: NelderMeadCoefficients,
     tol: f64,
 ) -> bool {
     // order
@@ -237,19 +235,7 @@ fn nelder_mead_iteration(
             cen[d] += simplex[i][d] / 3.0;
         }
     }
-    nelder_mead_update_simplex(
-        f,
-        simplex,
-        fvals,
-        &order,
-        cen,
-        NelderMeadCoefficients {
-            alpha: a,
-            gamma: g,
-            rho: r,
-            sigma: s,
-        },
-    );
+    nelder_mead_update_simplex(f, simplex, fvals, &order, cen, coefficients);
     false
 }
 
@@ -261,7 +247,12 @@ pub(in crate::finance) fn nelder_mead_3(
     tol: f64,
     zero_step: f64,
 ) -> ([f64; 3], f64, bool) {
-    let (a, g, r, s) = (1.0, 2.0, 0.5, 0.5); // reflect, expand, contract, shrink
+    let coefficients = NelderMeadCoefficients {
+        alpha: 1.0, // reflect
+        gamma: 2.0, // expand
+        rho: 0.5,   // contract
+        sigma: 0.5, // shrink
+    };
     let mut simplex = nelder_mead_initial_simplex(x0, zero_step);
     let mut fvals = [0.0; 4];
     for i in 0..4 {
@@ -269,7 +260,7 @@ pub(in crate::finance) fn nelder_mead_3(
     }
     let mut converged = false;
     for _ in 0..max_iter {
-        if nelder_mead_iteration(f, &mut simplex, &mut fvals, a, g, r, s, tol) {
+        if nelder_mead_iteration(f, &mut simplex, &mut fvals, coefficients, tol) {
             converged = true;
             break;
         }

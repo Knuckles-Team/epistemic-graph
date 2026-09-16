@@ -447,7 +447,7 @@ mod validation {
         Ok(())
     }
 
-    fn validate_policies<'a>(envelope: &'a ChangeEnvelope) -> Result<BTreeSet<&'a str>, String> {
+    fn validate_policies(envelope: &ChangeEnvelope) -> Result<BTreeSet<&str>, String> {
         let mut governed = BTreeSet::new();
         for policy in &envelope.policies {
             validate_one_policy(envelope, policy)?;

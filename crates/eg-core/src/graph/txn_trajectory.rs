@@ -1,5 +1,16 @@
 use super::*;
 
+/// The caller-supplied content of one `:Step` node written by
+/// `GraphTxn::append_step`.
+struct StepNode<'s> {
+    action: serde_json::Value,
+    reward: f64,
+    state_ref: Option<&'s str>,
+    next_state_ref: Option<&'s str>,
+    t: u64,
+    step_index: u64,
+}
+
 impl<'a> GraphTxn<'a> {
     // ── Action / policy / trajectory memory (CONCEPT:EG-KG.compute.discounted-return) ──────────────────
     //
@@ -115,38 +126,31 @@ impl<'a> GraphTxn<'a> {
 
         self.write_step_node(
             &step_id,
-            action,
-            reward,
-            state_ref,
-            next_state_ref,
-            t,
-            step_index,
+            StepNode {
+                action,
+                reward,
+                state_ref,
+                next_state_ref,
+                t,
+                step_index,
+            },
         );
         self.link_step(&step_id, traj_id, tail.as_deref());
         self.advance_trajectory(traj_id, &step_id, step_index, tail.as_deref());
         Some(step_id)
     }
 
-    fn write_step_node(
-        &mut self,
-        step_id: &str,
-        action: serde_json::Value,
-        reward: f64,
-        state_ref: Option<&str>,
-        next_state_ref: Option<&str>,
-        t: u64,
-        step_index: u64,
-    ) {
+    fn write_step_node(&mut self, step_id: &str, node: StepNode<'_>) {
         let mut step = serde_json::Map::new();
         step.insert("type".to_string(), serde_json::json!("Step"));
-        step.insert("action".to_string(), action);
-        step.insert("reward".to_string(), serde_json::json!(reward));
-        step.insert("t".to_string(), serde_json::json!(t));
-        step.insert("step_index".to_string(), serde_json::json!(step_index));
-        if let Some(s) = state_ref {
+        step.insert("action".to_string(), node.action);
+        step.insert("reward".to_string(), serde_json::json!(node.reward));
+        step.insert("t".to_string(), serde_json::json!(node.t));
+        step.insert("step_index".to_string(), serde_json::json!(node.step_index));
+        if let Some(s) = node.state_ref {
             step.insert("state_ref".to_string(), serde_json::json!(s));
         }
-        if let Some(s) = next_state_ref {
+        if let Some(s) = node.next_state_ref {
             step.insert("next_state_ref".to_string(), serde_json::json!(s));
         }
         if let Ok(blob) = rmp_serde::to_vec_named(&serde_json::Value::Object(step)) {

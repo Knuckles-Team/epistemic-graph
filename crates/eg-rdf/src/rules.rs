@@ -125,7 +125,6 @@ impl RuleReasonResult {
 ///
 /// `facts` are `(predicate, args, confidence)` ground atoms; `asserted_same_as` and
 /// `asserted_different_from` seed the equality/inequality relations.
-
 pub fn reason_facts(
     ont: &Ontology,
     facts: &[(String, Vec<String>, f64)],

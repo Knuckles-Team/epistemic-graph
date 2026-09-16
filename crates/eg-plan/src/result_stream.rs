@@ -336,7 +336,7 @@ fn valid_row_identity_and_scores(row: &KnowledgeBatchRow, score_names: &[String]
             .iter()
             .zip(score_names)
             .all(|((name, score), expected)| {
-                name == expected && score.map_or(true, |value| value.is_finite())
+                name == expected && score.is_none_or(|value| value.is_finite())
             })
 }
 
@@ -356,7 +356,7 @@ fn valid_row_references(row: &KnowledgeBatchRow) -> bool {
         && row
             .blob_handle
             .as_ref()
-            .map_or(true, |value| safe_reference(value))
+            .is_none_or(|value| safe_reference(value))
         && row.has_payload == row.blob_handle.is_some()
         && row.evidence_refs.iter().all(safe_evidence)
 }

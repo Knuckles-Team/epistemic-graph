@@ -322,7 +322,7 @@ pub fn build_iceberg(
 ) -> IcebergTable {
     let lsn = snapshot.current_lsn();
     let commit = projected_commit(snapshot, lsn, current_schema_id, timestamp_ms);
-    let history = commit.as_ref().map(std::slice::from_ref).unwrap_or(&[]);
+    let history = commit.as_slice();
     build_iceberg_as_of_with_history(IcebergBuildContext {
         schema_versions,
         current_schema_id,
@@ -355,7 +355,7 @@ pub fn build_iceberg_as_of(
     timestamp_ms: i64,
 ) -> IcebergTable {
     let commit = projected_commit(snapshot, lsn, current_schema_id, timestamp_ms);
-    let history = commit.as_ref().map(std::slice::from_ref).unwrap_or(&[]);
+    let history = commit.as_slice();
     build_iceberg_as_of_with_history(IcebergBuildContext {
         schema_versions,
         current_schema_id,

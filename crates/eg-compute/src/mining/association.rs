@@ -367,12 +367,8 @@ fn rule_for_mask(
     min_confidence: f64,
 ) -> Option<Rule> {
     let (antecedent, consequent) = rule_parts(&itemset.items, mask);
-    let Some(&a_count) = support.get(&antecedent) else {
-        return None;
-    };
-    let Some(&c_count) = support.get(&consequent) else {
-        return None;
-    };
+    let &a_count = support.get(&antecedent)?;
+    let &c_count = support.get(&consequent)?;
     let confidence = itemset.count as f64 / a_count as f64;
     if confidence + 1e-12 < min_confidence {
         return None;

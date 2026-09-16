@@ -6,6 +6,9 @@ use super::{cancelled, sorted_unique, FrequentItemset, ItemId};
 
 // ─────────────────────────── FP-Growth ───────────────────────────
 
+/// Item -> arena indices of every FP-tree node carrying that item.
+type FpHeaderTable = HashMap<ItemId, Vec<usize>>;
+
 /// A node in the FP-tree.
 struct FpNode {
     item: ItemId,
@@ -70,14 +73,14 @@ pub fn fpgrowth(transactions: &[Vec<ItemId>], min_count: usize) -> Vec<FrequentI
     out
 }
 
-fn build_fp_tree(txns: &[Vec<ItemId>]) -> Option<(Vec<FpNode>, HashMap<ItemId, Vec<usize>>)> {
+fn build_fp_tree(txns: &[Vec<ItemId>]) -> Option<(Vec<FpNode>, FpHeaderTable)> {
     let mut arena: Vec<FpNode> = vec![FpNode {
         item: ItemId::MAX,
         count: 0,
         parent: None,
         children: HashMap::new(),
     }];
-    let mut header: HashMap<ItemId, Vec<usize>> = HashMap::new();
+    let mut header: FpHeaderTable = HashMap::new();
     for path in txns {
         if cancelled() {
             return None;
@@ -108,10 +111,7 @@ fn build_fp_tree(txns: &[Vec<ItemId>]) -> Option<(Vec<FpNode>, HashMap<ItemId, V
     Some((arena, header))
 }
 
-fn fp_item_counts(
-    arena: &[FpNode],
-    header: &HashMap<ItemId, Vec<usize>>,
-) -> HashMap<ItemId, usize> {
+fn fp_item_counts(arena: &[FpNode], header: &FpHeaderTable) -> HashMap<ItemId, usize> {
     header
         .iter()
         .map(|(&item, nodes)| {
@@ -124,7 +124,7 @@ fn fp_item_counts(
 fn fp_conditional_transactions(
     item: ItemId,
     arena: &[FpNode],
-    header: &HashMap<ItemId, Vec<usize>>,
+    header: &FpHeaderTable,
 ) -> Option<Vec<Vec<ItemId>>> {
     let mut conditional = Vec::new();
     for &leaf in &header[&item] {

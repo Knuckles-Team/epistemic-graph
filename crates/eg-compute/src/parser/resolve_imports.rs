@@ -112,7 +112,7 @@ fn relative_import_anchor(importer: &str, module: &str) -> Option<(String, Strin
     Some((base, rest.to_string()))
 }
 
-fn advance_rust_anchor<'a>(base: &mut String, rest: &mut &'a str) -> bool {
+fn advance_rust_anchor(base: &mut String, rest: &mut &str) -> bool {
     if let Some(next) = rest.strip_prefix("self::") {
         *rest = next;
         return true;

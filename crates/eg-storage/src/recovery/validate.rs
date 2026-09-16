@@ -204,6 +204,10 @@ fn validate_batches(
     let operations = rtx
         .open_table(REPLAY_OPERATIONS)
         .map_err(|error| error.to_string())?;
+    let key_tables = BatchKeyTables {
+        maintenance: &maintenance,
+        operations: &operations,
+    };
     for row in table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
         let (identity_key, batch_id) = key.value();
@@ -211,8 +215,7 @@ fn validate_batches(
         validate_batch_row(
             tables,
             root,
-            &maintenance,
-            &operations,
+            &key_tables,
             identity_key,
             batch_id,
             record,
@@ -222,11 +225,17 @@ fn validate_batches(
     Ok(())
 }
 
+/// The two tables a mutation batch's key row can live in (see
+/// `linked_batch_id`).
+struct BatchKeyTables<'t> {
+    maintenance: &'t redb::ReadOnlyTable<(&'static str, &'static str), &'static str>,
+    operations: &'t redb::ReadOnlyTable<(&'static str, &'static str), &'static [u8]>,
+}
+
 fn validate_batch_row(
     tables: &ValidationTables,
     root: &StoreIncarnation,
-    maintenance: &redb::ReadOnlyTable<(&'static str, &'static str), &'static str>,
-    operations: &redb::ReadOnlyTable<(&'static str, &'static str), &'static [u8]>,
+    key_tables: &BatchKeyTables<'_>,
     identity_key: &str,
     batch_id: &str,
     record: MutationBatchRecord,
@@ -236,7 +245,7 @@ fn validate_batch_row(
     if record.identity != binding.identity || record.batch.batch_id != batch_id {
         return Err("mutation batch key does not bind its receipt identity".to_string());
     }
-    let linked_batch_id = linked_batch_id(&record, identity_key, maintenance, operations)?;
+    let linked_batch_id = linked_batch_id(&record, identity_key, key_tables)?;
     if linked_batch_id != batch_id {
         return Err("mutation receipt key row points elsewhere".to_string());
     }
@@ -255,17 +264,21 @@ fn validate_batch_row(
 fn linked_batch_id(
     record: &MutationBatchRecord,
     identity_key: &str,
-    maintenance: &redb::ReadOnlyTable<(&'static str, &'static str), &'static str>,
-    operations: &redb::ReadOnlyTable<(&'static str, &'static str), &'static [u8]>,
+    key_tables: &BatchKeyTables<'_>,
 ) -> Result<String, String> {
     if record.batch.is_maintenance() {
-        return maintenance
+        return key_tables
+            .maintenance
             .get((identity_key, record.batch.idempotency_key()))
             .map_err(|error| error.to_string())?
             .map(|value| value.value().to_string())
             .ok_or_else(|| "maintenance receipt is missing its claim row".to_string());
     }
-    linked_operation_batch_id(operations, identity_key, record.batch.idempotency_key())
+    linked_operation_batch_id(
+        key_tables.operations,
+        identity_key,
+        record.batch.idempotency_key(),
+    )
 }
 
 fn linked_operation_batch_id(

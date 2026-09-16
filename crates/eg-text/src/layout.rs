@@ -131,7 +131,7 @@ fn is_separator_row(cells: &[String]) -> bool {
         })
 }
 
-fn indexed_source_lines<'a>(text: &'a str) -> (Vec<usize>, Vec<&'a str>) {
+fn indexed_source_lines(text: &str) -> (Vec<usize>, Vec<&str>) {
     let mut line_starts = Vec::new();
     let mut plain_lines = Vec::new();
     let mut offset = 0usize;
