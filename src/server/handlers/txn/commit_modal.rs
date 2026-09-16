@@ -36,10 +36,15 @@ pub(super) async fn commit_cross_modal(
 #[cfg(feature = "graphql")]
 enum GraphQlCrossModalPreparation {
     Replayed(bool),
-    Execute {
-        receipt: TxnReceipt,
-        txn: GraphTxnState,
-    },
+    /// Boxed: the receipt plus staged transaction dwarf a replayed bool, and this
+    /// value is built once per GraphQL cross-modal commit, not per row.
+    Execute(Box<GraphQlCrossModalExecution>),
+}
+
+#[cfg(feature = "graphql")]
+struct GraphQlCrossModalExecution {
+    receipt: TxnReceipt,
+    txn: GraphTxnState,
 }
 
 #[cfg(feature = "graphql")]
@@ -100,7 +105,9 @@ async fn prepare_graphql_cross_modal(
             (receipt, txn)
         }
     };
-    Ok(GraphQlCrossModalPreparation::Execute { receipt, txn })
+    Ok(GraphQlCrossModalPreparation::Execute(Box::new(
+        GraphQlCrossModalExecution { receipt, txn },
+    )))
 }
 
 #[cfg(feature = "graphql")]
@@ -119,7 +126,7 @@ pub(crate) async fn commit_graphql_cross_modal(
     .await?;
     let (receipt, txn) = match preparation {
         GraphQlCrossModalPreparation::Replayed(value) => return Ok(value),
-        GraphQlCrossModalPreparation::Execute { receipt, txn } => (receipt, txn),
+        GraphQlCrossModalPreparation::Execute(execution) => (execution.receipt, execution.txn),
     };
     let coordinator_id = receipt_coordinator_id(&receipt);
     let committed = commit_cross_modal_txn_with_nonce(

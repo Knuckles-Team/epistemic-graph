@@ -240,10 +240,12 @@ async fn delayed_phases(
             0,
             0,
             None,
-            parent,
-            participant_id,
             authority,
-            &bytes,
+            ConsensusParticipantRef {
+                coordinator_id: parent,
+                participant_id,
+                plan_bytes: &bytes,
+            },
         )
         .await,
         apply_consensus_participant_commit(
@@ -251,7 +253,7 @@ async fn delayed_phases(
             1,
             0,
             authority,
-            ConsensusParticipantCommitRef {
+            ConsensusParticipantRef {
                 coordinator_id: parent,
                 participant_id,
                 plan_bytes: &bytes,
@@ -290,8 +292,10 @@ async fn store_committed_child(
         crate::server::mutation_batch::InternalGraphCommitRequest::new(
             Some(&persistence),
             &core,
-            3,
-            Some(actor),
+            crate::server::mutation_batch::CommitOrigin {
+                request_id: 3,
+                principal: Some(actor),
+            },
             &txn.graph,
             &child_id,
             txn.write_set.clone(),
@@ -306,8 +310,10 @@ async fn store_committed_child(
         crate::server::mutation_batch::InternalGraphCommitRequest::new(
             Some(&persistence),
             &core,
-            4,
-            Some(actor),
+            crate::server::mutation_batch::CommitOrigin {
+                request_id: 4,
+                principal: Some(actor),
+            },
             &txn.graph,
             &child_id,
             txn.write_set.clone(),

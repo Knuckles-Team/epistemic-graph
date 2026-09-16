@@ -25,8 +25,7 @@ impl<'a> LifecycleCommitRequest<'a> {
     pub(crate) fn new(
         persistence: &'a Arc<dyn PersistenceBackend>,
         action: &'a str,
-        request_id: u64,
-        principal: Option<&'a str>,
+        origin: super::CommitOrigin<'a>,
         idempotency_key: &'a str,
         graph: &'a str,
         method: Method,
@@ -35,9 +34,9 @@ impl<'a> LifecycleCommitRequest<'a> {
         Self {
             persistence,
             action,
-            request_id,
+            request_id: origin.request_id,
             attempt_nonce: None,
-            principal,
+            principal: origin.principal,
             idempotency_key,
             graph,
             method,
@@ -147,8 +146,10 @@ pub(crate) async fn lifecycle_was_committed(
         LifecycleCommitRequest::new(
             persistence,
             action,
-            request_id,
-            principal,
+            crate::server::mutation_batch::CommitOrigin {
+                request_id,
+                principal,
+            },
             idempotency_key,
             graph,
             method,

@@ -144,8 +144,10 @@ async fn create_declared_graph(
         crate::server::mutation_batch::LifecycleCommitRequest::new(
             &backend,
             "create",
-            req_id,
-            req_agent_id.as_deref(),
+            crate::server::mutation_batch::CommitOrigin {
+                request_id: req_id,
+                principal: req_agent_id.as_deref(),
+            },
             &idempotency_key,
             &graph_name,
             Method::CreateGraph {
@@ -353,8 +355,10 @@ async fn delete_declared_graph(
         crate::server::mutation_batch::LifecycleCommitRequest::new(
             &backend,
             "delete",
-            req_id,
-            req_agent_id.as_deref(),
+            crate::server::mutation_batch::CommitOrigin {
+                request_id: req_id,
+                principal: req_agent_id.as_deref(),
+            },
             &idempotency_key,
             graph_name,
             Method::DeleteGraph {

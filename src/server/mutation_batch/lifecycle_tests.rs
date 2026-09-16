@@ -32,8 +32,10 @@ async fn assert_stable_lifecycle_replay(
             LifecycleCommitRequest::new(
                 &persistence,
                 action,
-                101,
-                principal,
+                crate::server::mutation_batch::CommitOrigin {
+                    request_id: 101,
+                    principal,
+                },
                 idempotency_key,
                 graph,
                 method.clone(),
@@ -66,8 +68,10 @@ async fn assert_stable_lifecycle_replay(
         LifecycleCommitRequest::new(
             &persistence,
             action,
-            202,
-            principal,
+            crate::server::mutation_batch::CommitOrigin {
+                request_id: 202,
+                principal,
+            },
             idempotency_key,
             graph,
             method.clone(),
@@ -91,8 +95,10 @@ async fn assert_stable_lifecycle_replay(
         LifecycleCommitRequest::new(
             &persistence,
             action,
-            303,
-            principal,
+            crate::server::mutation_batch::CommitOrigin {
+                request_id: 303,
+                principal,
+            },
             idempotency_key,
             graph,
             method,
@@ -109,8 +115,10 @@ async fn assert_stable_lifecycle_replay(
         LifecycleCommitRequest::new(
             &persistence,
             action,
-            304,
-            principal,
+            crate::server::mutation_batch::CommitOrigin {
+                request_id: 304,
+                principal,
+            },
             idempotency_key,
             graph,
             changed_method,
@@ -179,8 +187,10 @@ async fn delete_lifecycle_replay_keeps_one_stable_receipt() {
             LifecycleCommitRequest::new(
                 &persistence,
                 "create",
-                1,
-                Some("principal:lifecycle-test"),
+                crate::server::mutation_batch::CommitOrigin {
+                    request_id: 1,
+                    principal: Some("principal:lifecycle-test"),
+                },
                 "setup-create",
                 graph,
                 Method::CreateGraph {

@@ -59,13 +59,32 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
     #[cfg(not(feature = "raft"))]
     let (placement_epoch, placement_fence) = (0, None);
 
-    let response = match crate::server::mutation_batch::commit_work_item(
+    let response =
+        match commit_verified_work_item(&ctx, placement_epoch, placement_fence, method).await {
+            Ok(result) => Response::ok(ctx.req_id, result),
+            Err(error) => Response::err(ctx.req_id, format!("WorkItem mutation failed: {error}")),
+        };
+    Ok(response)
+}
+
+/// Commit one native WorkItem method through the durable MutationBatch path under
+/// the request's verified idempotency key, attempt nonce and placement fence.
+/// Shared by the lifecycle transitions here and by kg-delegate admission.
+pub(crate) async fn commit_verified_work_item(
+    ctx: &HandleContext<'_>,
+    placement_epoch: u64,
+    placement_fence: Option<u64>,
+    method: Method,
+) -> Result<crate::protocol::ResultPayload, String> {
+    crate::server::mutation_batch::commit_work_item(
         crate::server::mutation_batch::WorkItemCommitRequest::new(
             ctx.persistence.as_ref(),
             ctx.core,
-            ctx.req_id,
+            crate::server::mutation_batch::CommitOrigin {
+                request_id: ctx.req_id,
+                principal: ctx.caller,
+            },
             Some(ctx.verified_context.idempotency_key()),
-            ctx.caller,
             ctx.graph_name,
             placement_epoch,
             method,
@@ -74,9 +93,4 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
         .with_placement_fencing_token(placement_fence),
     )
     .await
-    {
-        Ok(result) => Response::ok(ctx.req_id, result),
-        Err(error) => Response::err(ctx.req_id, format!("WorkItem mutation failed: {error}")),
-    };
-    Ok(response)
 }

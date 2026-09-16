@@ -114,13 +114,17 @@ pub(crate) async fn prepare_consensus_commit(
         None => {
             match prepare_consensus_resume_txn(
                 state,
-                req_id,
-                caller,
-                txn_id,
-                idempotency_key,
-                expected_tenant,
-                persistence,
-                attempt_nonce,
+                ResumeTxnRequest {
+                    req_id,
+                    caller,
+                    receipt_key: CommitReceiptKey {
+                        txn_id,
+                        idempotency_key,
+                        expected_tenant,
+                    },
+                    persistence,
+                    attempt_nonce,
+                },
             )
             .await
             {
@@ -160,78 +164,27 @@ pub(super) async fn prepare_consensus_open_txn(
 /// parent. `Err(_)` carries the final `Response` for an early return.
 pub(super) async fn prepare_consensus_resume_txn(
     state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    caller: Option<&str>,
-    txn_id: &str,
-    idempotency_key: Option<&str>,
-    expected_tenant: Option<&str>,
-    persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-    attempt_nonce: Option<Nonce>,
+    request: ResumeTxnRequest<'_>,
 ) -> Result<(GraphTxnState, TxnReceipt), Response> {
-    match reconcile_committed_txn(
-        state,
-        req_id,
-        caller,
-        txn_id,
-        idempotency_key,
-        expected_tenant,
-        attempt_nonce,
-    )
-    .await
-    {
-        Ok(Some(response)) => {
-            return Err(tag_commit_response(
-                response,
-                CommitResponseOptions {
-                    replayed: true,
-                    keyed: idempotency_key.is_some(),
-                },
-            ))
-        }
-        Ok(None) => {}
-        Err(error) => {
-            return Err(Response::err(
-                req_id,
-                format!("transaction receipt reconciliation failed: {error}"),
-            ));
-        }
-    }
-    let resumed = match resume_txn_receipt(
-        persistence,
-        req_id,
-        caller,
-        txn_id,
-        idempotency_key,
-        expected_tenant,
-        attempt_nonce,
-    ) {
-        Ok(value) => value,
-        Err(error) => return Err(Response::err(req_id, error)),
-    };
-    let Some((receipt, replayed, recovered)) = resumed else {
-        return Err(Response::err(
-            req_id,
-            format!("unknown transaction '{}'", txn_id),
-        ));
-    };
-    if let Some(result) = replayed {
-        return Err(tag_commit_response(
-            Response::ok(req_id, result),
+    let req_id = request.req_id;
+    let caller = request.caller;
+    let expected_tenant = request.receipt_key.expected_tenant;
+    let keyed = request.receipt_key.idempotency_key.is_some();
+    match reconcile_or_resume_txn(state, request).await? {
+        ResumedCommit::Replayed(response) => Err(tag_commit_response(
+            response,
             CommitResponseOptions {
                 replayed: true,
-                keyed: idempotency_key.is_some(),
+                keyed,
             },
-        ));
+        )),
+        ResumedCommit::Prepared(prepared) => {
+            let (txn, receipt) = *prepared;
+            validate_txn_owner(&txn, expected_tenant, caller.unwrap_or_default())
+                .map_err(|error| Response::err(req_id, error))?;
+            Ok((txn, receipt))
+        }
     }
-    let Some(txn) = recovered else {
-        return Err(Response::err(
-            req_id,
-            "prepared transaction has no recovery plan",
-        ));
-    };
-    validate_txn_owner(&txn, expected_tenant, caller.unwrap_or_default())
-        .map_err(|error| Response::err(req_id, error))?;
-    Ok((txn, receipt))
 }
 
 #[cfg(feature = "raft")]
@@ -460,6 +413,16 @@ pub(super) fn consensus_participant_receipt_id(
     }
 }
 
+/// The identifying fields of one consensus transaction participant -- its parent
+/// coordinator, its participant id, and the encoded plan it carries -- threaded as
+/// one value through both the PREPARE and the decided COMMIT apply.
+#[cfg(feature = "raft")]
+pub(crate) struct ConsensusParticipantRef<'a> {
+    pub(crate) coordinator_id: &'a str,
+    pub(crate) participant_id: u64,
+    pub(crate) plan_bytes: &'a [u8],
+}
+
 /// Apply a participant PREPARE after its command is committed in the participant's
 /// own Raft group. The encrypted durable intent is idempotent and byte-bound to the
 /// parent plan; a conflicting retry fails closed.
@@ -469,11 +432,14 @@ pub(crate) async fn apply_consensus_participant_prepare(
     applying_group: crate::raft::GroupId,
     applying_epoch: u64,
     applying_fence: Option<u64>,
-    coordinator_id: &str,
-    participant_id: u64,
     authority: &crate::raft::RaftMutationContext,
-    plan_bytes: &[u8],
+    participant: ConsensusParticipantRef<'_>,
 ) -> Result<bool, String> {
+    let ConsensusParticipantRef {
+        coordinator_id,
+        participant_id,
+        plan_bytes,
+    } = participant;
     let _placement_guard = crate::server::txn::consensus_placement_fence_guard().await;
     let (plan, txn) = decode_consensus_participant(plan_bytes, coordinator_id, participant_id)?;
     let backend = state
@@ -592,25 +558,15 @@ pub(super) fn isolate_participant_transaction(
 /// Apply a decided participant atomically in its owning graph/group. The child
 /// batch id binds graph + participant + parent, making command and snapshot replay
 /// idempotent. A missing/mismatched prepared intent never authorizes a first apply.
-/// The identifying fields of a decided consensus transaction participant,
-/// bundled so [`apply_consensus_participant_commit`] stays under the clippy
-/// argument-count ceiling.
-#[cfg(feature = "raft")]
-pub(crate) struct ConsensusParticipantCommitRef<'a> {
-    pub(crate) coordinator_id: &'a str,
-    pub(crate) participant_id: u64,
-    pub(crate) plan_bytes: &'a [u8],
-}
-
 #[cfg(feature = "raft")]
 pub(crate) async fn apply_consensus_participant_commit(
     state: &Arc<RwLock<ServerState>>,
     request_id: u64,
     applying_group: crate::raft::GroupId,
     authority: &crate::raft::RaftMutationContext,
-    participant: ConsensusParticipantCommitRef<'_>,
+    participant: ConsensusParticipantRef<'_>,
 ) -> Result<bool, String> {
-    let ConsensusParticipantCommitRef {
+    let ConsensusParticipantRef {
         coordinator_id,
         participant_id,
         plan_bytes,
@@ -673,8 +629,10 @@ pub(crate) async fn apply_consensus_participant_commit(
             crate::server::mutation_batch::InternalGraphCommitRequest::new(
                 Some(&backend),
                 &core,
-                request_id,
-                Some(&principal),
+                crate::server::mutation_batch::CommitOrigin {
+                    request_id,
+                    principal: Some(&principal),
+                },
                 &plan.graph_name,
                 &child_id,
                 participant.write_set,

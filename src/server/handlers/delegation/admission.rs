@@ -250,19 +250,21 @@ pub(crate) async fn submit_native(
             )
         });
     }
-    crate::server::mutation_batch::commit_work_item(
-        crate::server::mutation_batch::WorkItemCommitRequest::new(
-            ctx.persistence.as_ref(),
-            ctx.core,
-            ctx.req_id,
-            Some(ctx.verified_context.idempotency_key()),
-            ctx.caller,
-            ctx.graph_name,
-            placement_epoch,
-            method,
-        )
-        .with_attempt_nonce(ctx.verified_context.attempt_nonce())
-        .with_placement_fencing_token(placement_fence),
+    let work_item_ctx = crate::server::handlers::work_item::HandleContext {
+        req_id: ctx.req_id,
+        graph_name: ctx.graph_name,
+        caller: ctx.caller,
+        verified_context: ctx.verified_context,
+        core: ctx.core,
+        persistence: ctx.persistence,
+        #[cfg(feature = "raft")]
+        routed_raft: ctx.routed_raft,
+    };
+    crate::server::handlers::work_item::commit_verified_work_item(
+        &work_item_ctx,
+        placement_epoch,
+        placement_fence,
+        method,
     )
     .await
     .map_err(|error| AdmissionError::Message(format!("kg-delegate admission failed: {error}")))

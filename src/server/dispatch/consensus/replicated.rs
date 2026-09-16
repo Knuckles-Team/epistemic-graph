@@ -145,10 +145,14 @@ pub(crate) async fn apply_replicated_transaction_participant(
                         applying_group,
                         authority.placement_epoch,
                         authority.fencing_token,
-                        coordinator_id,
-                        participant_id,
                         authority,
-                        plan.ok_or_else(|| "participant prepare is missing its plan".to_string())?,
+                        handlers::txn::ConsensusParticipantRef {
+                            coordinator_id,
+                            participant_id,
+                            plan_bytes: plan.ok_or_else(|| {
+                                "participant prepare is missing its plan".to_string()
+                            })?,
+                        },
                     )
                     .await
                 }
@@ -158,7 +162,7 @@ pub(crate) async fn apply_replicated_transaction_participant(
                         request_id,
                         applying_group,
                         authority,
-                        handlers::txn::ConsensusParticipantCommitRef {
+                        handlers::txn::ConsensusParticipantRef {
                             coordinator_id,
                             participant_id,
                             plan_bytes: plan.ok_or_else(|| {

@@ -33,27 +33,45 @@ pub(super) async fn commit(
 ) -> Response {
     commit_with_owner(
         state,
+        CommitRequest {
+            req_id,
+            caller,
+            txn_id,
+            idempotency_key,
+            attempt_nonce,
+            tenant_scope,
+            owner_scope: None,
+        },
+    )
+    .await
+}
+
+/// One `Commit` request as the transaction handler received it: the wire request
+/// id, the authenticated caller, the transaction and its optional idempotency key,
+/// the retry nonce, and the verified tenant/owner scopes it must stay inside.
+pub(super) struct CommitRequest<'a> {
+    pub(super) req_id: u64,
+    pub(super) caller: Option<&'a str>,
+    pub(super) txn_id: &'a str,
+    pub(super) idempotency_key: Option<&'a str>,
+    pub(super) attempt_nonce: Option<Nonce>,
+    pub(super) tenant_scope: Option<&'a str>,
+    pub(super) owner_scope: Option<&'a str>,
+}
+
+pub(super) async fn commit_with_owner(
+    state: &Arc<RwLock<ServerState>>,
+    request: CommitRequest<'_>,
+) -> Response {
+    let CommitRequest {
         req_id,
         caller,
         txn_id,
         idempotency_key,
         attempt_nonce,
         tenant_scope,
-        None,
-    )
-    .await
-}
-
-pub(super) async fn commit_with_owner(
-    state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    caller: Option<&str>,
-    txn_id: &str,
-    idempotency_key: Option<&str>,
-    attempt_nonce: Option<Nonce>,
-    tenant_scope: Option<&str>,
-    owner_scope: Option<&str>,
-) -> Response {
+        owner_scope,
+    } = request;
     if consensus_apply_is_authorized() {
         return Response::err(
             req_id,
@@ -101,16 +119,18 @@ pub(super) async fn commit_with_owner(
         }
         None => match commit_resume_txn(
             state,
-            req_id,
-            caller,
-            CommitReceiptKey {
-                txn_id,
-                idempotency_key,
-                expected_tenant: tenant_scope,
+            ResumeTxnRequest {
+                req_id,
+                caller,
+                receipt_key: CommitReceiptKey {
+                    txn_id,
+                    idempotency_key,
+                    expected_tenant: tenant_scope,
+                },
+                persistence,
+                attempt_nonce,
             },
             keyed,
-            persistence,
-            attempt_nonce,
         )
         .await
         {
@@ -222,18 +242,71 @@ pub(super) async fn commit_open_txn(
 /// early return.
 pub(super) async fn commit_resume_txn(
     state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    caller: Option<&str>,
-    receipt_key: CommitReceiptKey<'_>,
+    request: ResumeTxnRequest<'_>,
     keyed: bool,
-    persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
-    attempt_nonce: Option<Nonce>,
 ) -> Result<(GraphTxnState, TxnReceipt), Response> {
-    let CommitReceiptKey {
-        txn_id,
-        idempotency_key,
-        expected_tenant,
-    } = receipt_key;
+    let req_id = request.req_id;
+    let key = &request.receipt_key;
+    let parent_id = commit_receipt_id(key.txn_id, key.idempotency_key, key.expected_tenant);
+    match reconcile_or_resume_txn(state, request).await? {
+        ResumedCommit::Replayed(response) => {
+            if let Err(error) = cleanup_cross_shard_decision(state, &parent_id).await {
+                return Err(Response::err(
+                    req_id,
+                    format!("transaction cleanup failed: {error}"),
+                ));
+            }
+            Err(tag_commit_response(
+                response,
+                CommitResponseOptions {
+                    replayed: true,
+                    keyed,
+                },
+            ))
+        }
+        ResumedCommit::Prepared(prepared) => Ok(*prepared),
+    }
+}
+
+/// A `Commit` (or consensus prepare) that found no matching txn open in RAM,
+/// addressed by its durable receipt key.
+pub(super) struct ResumeTxnRequest<'a> {
+    pub(super) req_id: u64,
+    pub(super) caller: Option<&'a str>,
+    pub(super) receipt_key: CommitReceiptKey<'a>,
+    pub(super) persistence: Option<Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    pub(super) attempt_nonce: Option<Nonce>,
+}
+
+/// What the durable receipt says about a transaction that is not open in RAM.
+pub(super) enum ResumedCommit {
+    /// The commit already reached its terminal answer; the caller tags (and, on
+    /// the ordinary path, cleans up after) this untagged response.
+    Replayed(Response),
+    /// A durably Prepared parent and its recovered plan, still to be finished.
+    /// Boxed: the transaction state dwarfs a replayed response.
+    Prepared(Box<(GraphTxnState, TxnReceipt)>),
+}
+
+/// Reconcile a crash-recovered commit, or resume a durably Prepared parent.
+/// Shared by the ordinary `Commit` path and the consensus prepare path, which
+/// differ only in what they do with the outcome. `Err(_)` is a final response.
+pub(super) async fn reconcile_or_resume_txn(
+    state: &Arc<RwLock<ServerState>>,
+    request: ResumeTxnRequest<'_>,
+) -> Result<ResumedCommit, Response> {
+    let ResumeTxnRequest {
+        req_id,
+        caller,
+        receipt_key:
+            CommitReceiptKey {
+                txn_id,
+                idempotency_key,
+                expected_tenant,
+            },
+        persistence,
+        attempt_nonce,
+    } = request;
     match reconcile_committed_txn(
         state,
         req_id,
@@ -245,22 +318,7 @@ pub(super) async fn commit_resume_txn(
     )
     .await
     {
-        Ok(Some(response)) => {
-            let parent_id = commit_receipt_id(txn_id, idempotency_key, expected_tenant);
-            if let Err(error) = cleanup_cross_shard_decision(state, &parent_id).await {
-                return Err(Response::err(
-                    req_id,
-                    format!("transaction cleanup failed: {error}"),
-                ));
-            }
-            return Err(tag_commit_response(
-                response,
-                CommitResponseOptions {
-                    replayed: true,
-                    keyed,
-                },
-            ));
-        }
+        Ok(Some(response)) => return Ok(ResumedCommit::Replayed(response)),
         Ok(None) => {}
         Err(error) => {
             return Err(Response::err(
@@ -269,7 +327,7 @@ pub(super) async fn commit_resume_txn(
             ));
         }
     }
-    let resumed = match resume_txn_receipt(
+    let resumed = resume_txn_receipt(
         persistence,
         req_id,
         caller,
@@ -277,10 +335,8 @@ pub(super) async fn commit_resume_txn(
         idempotency_key,
         expected_tenant,
         attempt_nonce,
-    ) {
-        Ok(value) => value,
-        Err(error) => return Err(Response::err(req_id, error)),
-    };
+    )
+    .map_err(|error| Response::err(req_id, error))?;
     let Some((receipt, replayed, recovered)) = resumed else {
         return Err(Response::err(
             req_id,
@@ -288,20 +344,7 @@ pub(super) async fn commit_resume_txn(
         ));
     };
     if let Some(result) = replayed {
-        let parent_id = commit_receipt_id(txn_id, idempotency_key, expected_tenant);
-        if let Err(error) = cleanup_cross_shard_decision(state, &parent_id).await {
-            return Err(Response::err(
-                req_id,
-                format!("transaction cleanup failed: {error}"),
-            ));
-        }
-        return Err(tag_commit_response(
-            Response::ok(req_id, result),
-            CommitResponseOptions {
-                replayed: true,
-                keyed,
-            },
-        ));
+        return Ok(ResumedCommit::Replayed(Response::ok(req_id, result)));
     }
     let Some(txn) = recovered else {
         return Err(Response::err(
@@ -309,5 +352,5 @@ pub(super) async fn commit_resume_txn(
             "prepared transaction has no recovery plan",
         ));
     };
-    Ok((txn, receipt))
+    Ok(ResumedCommit::Prepared(Box::new((txn, receipt))))
 }

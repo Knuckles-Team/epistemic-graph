@@ -105,9 +105,8 @@ impl<'a> WorkItemCommitRequest<'a> {
     pub(crate) fn new(
         persistence: Option<&'a Arc<dyn PersistenceBackend>>,
         core: &'a Arc<GraphCore>,
-        request_id: u64,
+        origin: super::CommitOrigin<'a>,
         stable_idempotency_key: Option<&'a str>,
-        principal: Option<&'a str>,
         graph: &'a str,
         placement_epoch: u64,
         method: Method,
@@ -115,10 +114,10 @@ impl<'a> WorkItemCommitRequest<'a> {
         Self {
             persistence,
             core,
-            request_id,
+            request_id: origin.request_id,
             attempt_nonce: None,
             stable_idempotency_key,
-            principal,
+            principal: origin.principal,
             graph,
             placement_epoch,
             placement_fencing_token: None,

@@ -319,8 +319,10 @@ async fn apply_authorized_slices(
             crate::server::mutation_batch::InternalGraphCommitRequest::new(
                 Some(&backend),
                 &core,
-                req_id,
-                Some(principal),
+                crate::server::mutation_batch::CommitOrigin {
+                    request_id: req_id,
+                    principal: Some(principal),
+                },
                 &slice.graph_name,
                 &child_id,
                 slice.methods.clone(),

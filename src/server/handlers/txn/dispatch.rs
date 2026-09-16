@@ -203,13 +203,15 @@ async fn dispatch_txn_core(args: &TxnDispatchArgs<'_>, method: Method) -> Result
             idempotency_key,
         } => Ok(commit_with_owner(
             state,
-            *req_id,
-            Some(caller),
-            &txn_id,
-            idempotency_key.as_deref(),
-            *attempt_nonce,
-            Some(carrier_authority.tenant_scope()),
-            Some(carrier_authority.owner_scope()),
+            CommitRequest {
+                req_id: *req_id,
+                caller: Some(caller),
+                txn_id: &txn_id,
+                idempotency_key: idempotency_key.as_deref(),
+                attempt_nonce: *attempt_nonce,
+                tenant_scope: Some(carrier_authority.tenant_scope()),
+                owner_scope: Some(carrier_authority.owner_scope()),
+            },
         )
         .await),
         Method::Rollback { txn_id } => Ok(rollback(state, *req_id, &txn_id).await),
@@ -331,9 +333,26 @@ async fn dispatch_txn_extended(
     args: &TxnDispatchArgs<'_>,
     method: Method,
 ) -> Result<Response, Method> {
+    // Each binding is compiled with exactly the extended stage arms that read it,
+    // so a slim build with none of those arms binds nothing.
     let TxnDispatchArgs {
+        #[cfg(any(
+            feature = "tsdb",
+            feature = "owl",
+            feature = "sparql",
+            feature = "query",
+            feature = "epistemic"
+        ))]
         state,
+        #[cfg(any(
+            feature = "tsdb",
+            feature = "owl",
+            feature = "sparql",
+            feature = "query",
+            feature = "epistemic"
+        ))]
         req_id,
+        #[cfg(any(feature = "sparql", feature = "query", feature = "epistemic"))]
         derived_read_authority,
         #[cfg(feature = "tsdb")]
         measurement_authority,

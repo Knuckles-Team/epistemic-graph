@@ -68,9 +68,11 @@ async fn work_item_commit_waits_for_shared_graph_mutation_lane() {
         commit_work_item(WorkItemCommitRequest::new(
             Some(&persistence),
             &core,
-            7,
+            crate::server::mutation_batch::CommitOrigin {
+                request_id: 7,
+                principal: Some("principal:synthetic"),
+            },
             None,
-            Some("principal:synthetic"),
             graph,
             0,
             Method::RenewWorkItemLease {
@@ -129,12 +131,14 @@ async fn authenticated_work_item_commit_carries_nonce_and_stable_key() {
             WorkItemCommitRequest::new(
                 Some(&persistence),
                 &core,
-                17,
+                crate::server::mutation_batch::CommitOrigin {
+                    request_id: 17,
+                    principal: Some("principal:authenticated")
+                },
                 Some(stable_key),
-                Some("principal:authenticated"),
                 graph,
                 0,
-                method(),
+                method()
             )
             .with_attempt_nonce(Some(nonce)),
         )
@@ -153,12 +157,14 @@ async fn authenticated_work_item_commit_carries_nonce_and_stable_key() {
             WorkItemCommitRequest::new(
                 Some(&persistence),
                 &core,
-                18,
+                crate::server::mutation_batch::CommitOrigin {
+                    request_id: 18,
+                    principal: Some("principal:authenticated")
+                },
                 Some(stable_key),
-                Some("principal:authenticated"),
                 graph,
                 0,
-                method(),
+                method()
             )
             .with_attempt_nonce(Some(retry_nonce)),
         )

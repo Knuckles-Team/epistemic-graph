@@ -457,53 +457,21 @@ pub(crate) async fn apply_consensus_job_publication_commit(
         #[cfg(not(feature = "program-optimization"))]
         None,
     );
-    #[cfg(feature = "program-optimization")]
-    let committed = if let Some(identity) = promotion_identity {
-        crate::server::mutation_batch::commit_program_promotion(
-            crate::server::mutation_batch::ProgramPromotionRequest::new(
-                persistence.as_ref(),
-                &core,
-                request_id,
-                Some(&plan.prepared.principal_ref),
-                &plan.prepared.target_graph,
-                &plan.prepared.batch_id,
-                plan.prepared.methods,
-                &result,
-            )
-            .with_identity(identity)
-            .with_attempt_nonce(authority.attempt_nonce),
-        )
-        .await?
-    } else {
-        crate::server::mutation_batch::commit_internal_graph_methods_with_nonce(
-            crate::server::mutation_batch::InternalGraphCommitRequest::new(
-                persistence.as_ref(),
-                &core,
-                request_id,
-                Some(&plan.prepared.principal_ref),
-                &plan.prepared.target_graph,
-                &plan.prepared.batch_id,
-                plan.prepared.methods,
-                &result,
-            )
-            .with_attempt_nonce(authority.attempt_nonce),
-        )
-        .await?
-    };
-    #[cfg(not(feature = "program-optimization"))]
-    let committed = crate::server::mutation_batch::commit_internal_graph_methods_with_nonce(
-        crate::server::mutation_batch::InternalGraphCommitRequest::new(
-            persistence.as_ref(),
-            &core,
+    let committed = commit_publication_write(PublicationWrite {
+        persistence: persistence.as_ref(),
+        core: &core,
+        origin: crate::server::mutation_batch::CommitOrigin {
             request_id,
-            Some(&plan.prepared.principal_ref),
-            &plan.prepared.target_graph,
-            &plan.prepared.batch_id,
-            plan.prepared.methods,
-            &result,
-        )
-        .with_attempt_nonce(authority.attempt_nonce.clone()),
-    )
+            principal: Some(&plan.prepared.principal_ref),
+        },
+        target_graph: &plan.prepared.target_graph,
+        batch_id: &plan.prepared.batch_id,
+        methods: plan.prepared.methods,
+        result: &result,
+        attempt_nonce: authority.attempt_nonce,
+        #[cfg(feature = "program-optimization")]
+        promotion: promotion_identity,
+    })
     .await?;
     Ok(committed)
 }
@@ -533,6 +501,59 @@ pub(crate) async fn apply_consensus_job_publication_finalize(
         )
         .map_err(|error| error.to_string())?;
     job_result_payload::<eg_types::result_contract::coordination::JobWorkerPublish>(&job)
+}
+
+/// One analytics publication's durable graph write: where it commits, who it
+/// is attributed to, the claimed methods and the result they record.
+struct PublicationWrite<'a> {
+    persistence: Option<&'a Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    core: &'a Arc<crate::graph::GraphCore>,
+    origin: crate::server::mutation_batch::CommitOrigin<'a>,
+    target_graph: &'a str,
+    batch_id: &'a str,
+    methods: Vec<Method>,
+    result: &'a ResultPayload,
+    attempt_nonce: Option<eg_types::contract::Nonce>,
+    #[cfg(feature = "program-optimization")]
+    promotion: Option<&'a ProgramRevisionIdentity>,
+}
+
+/// Commit a publication as a program promotion when it carries a revision
+/// identity, otherwise as an ordinary internal graph write. Both the routed
+/// consensus apply and the local staged publication commit through here.
+async fn commit_publication_write(
+    write: PublicationWrite<'_>,
+) -> Result<crate::mutation_batch::MutationBatchCommit, String> {
+    #[cfg(feature = "program-optimization")]
+    if let Some(identity) = write.promotion {
+        return crate::server::mutation_batch::commit_program_promotion(
+            crate::server::mutation_batch::ProgramPromotionRequest::new(
+                write.persistence,
+                write.core,
+                write.origin,
+                write.target_graph,
+                write.batch_id,
+                write.methods,
+                write.result,
+            )
+            .with_identity(identity)
+            .with_attempt_nonce(write.attempt_nonce),
+        )
+        .await;
+    }
+    crate::server::mutation_batch::commit_internal_graph_methods(
+        crate::server::mutation_batch::InternalGraphCommitRequest::new(
+            write.persistence,
+            write.core,
+            write.origin,
+            write.target_graph,
+            write.batch_id,
+            write.methods,
+            write.result,
+        )
+        .with_attempt_nonce(write.attempt_nonce),
+    )
+    .await
 }
 
 pub(super) async fn publish_staged_result(
@@ -576,51 +597,21 @@ pub(super) async fn publish_staged_result(
         #[cfg(not(feature = "program-optimization"))]
         None,
     );
-    #[cfg(feature = "program-optimization")]
-    if let Some(identity) = promotion_identity.as_ref() {
-        crate::server::mutation_batch::commit_program_promotion(
-            crate::server::mutation_batch::ProgramPromotionRequest::new(
-                persistence.as_ref(),
-                &core,
-                0,
-                Some(&job.policy.actor),
-                &target_graph,
-                &batch_id,
-                plan.methods,
-                &result,
-            )
-            .with_identity(identity)
-            .with_attempt_nonce(None),
-        )
-        .await?;
-    } else {
-        crate::server::mutation_batch::commit_internal_graph_methods(
-            crate::server::mutation_batch::InternalGraphCommitRequest::new(
-                persistence.as_ref(),
-                &core,
-                0,
-                Some(&job.policy.actor),
-                &target_graph,
-                &batch_id,
-                plan.methods,
-                &result,
-            ),
-        )
-        .await?;
-    }
-    #[cfg(not(feature = "program-optimization"))]
-    crate::server::mutation_batch::commit_internal_graph_methods(
-        crate::server::mutation_batch::InternalGraphCommitRequest::new(
-            persistence.as_ref(),
-            &core,
-            0,
-            Some(&job.policy.actor),
-            &target_graph,
-            &batch_id,
-            plan.methods,
-            &result,
-        ),
-    )
+    commit_publication_write(PublicationWrite {
+        persistence: persistence.as_ref(),
+        core: &core,
+        origin: crate::server::mutation_batch::CommitOrigin {
+            request_id: 0,
+            principal: Some(&job.policy.actor),
+        },
+        target_graph: &target_graph,
+        batch_id: &batch_id,
+        methods: plan.methods,
+        result: &result,
+        attempt_nonce: None,
+        #[cfg(feature = "program-optimization")]
+        promotion: promotion_identity.as_ref(),
+    })
     .await?;
     let completed = store
         .complete_publication_fenced(&job.job_id, worker_ref, epoch, unix_ms())

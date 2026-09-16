@@ -23,8 +23,7 @@ impl<'a> ProgramPromotionRequest<'a> {
     pub(crate) fn new(
         persistence: Option<&'a std::sync::Arc<dyn PersistenceBackend>>,
         core: &'a std::sync::Arc<GraphCore>,
-        request_id: u64,
-        principal: Option<&'a str>,
+        origin: super::CommitOrigin<'a>,
         graph: &'a str,
         batch_id: &'a str,
         claim_methods: Vec<Method>,
@@ -33,8 +32,8 @@ impl<'a> ProgramPromotionRequest<'a> {
         Self {
             persistence,
             core,
-            request_id,
-            principal,
+            request_id: origin.request_id,
+            principal: origin.principal,
             graph,
             batch_id,
             claim_methods,
@@ -129,8 +128,10 @@ pub(crate) async fn commit_program_promotion(
         super::internal::InternalGraphCommitRequest::new(
             persistence,
             core,
-            request_id,
-            principal,
+            crate::server::mutation_batch::CommitOrigin {
+                request_id,
+                principal,
+            },
             graph,
             batch_id,
             methods,

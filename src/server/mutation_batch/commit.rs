@@ -9,8 +9,17 @@ mod work_item;
 mod program;
 
 pub(crate) use envelope::publish_change_envelope_projection;
+
+/// Which wire request a durable commit answers and the verified principal it is
+/// attributed to: the attribution pair every commit-request constructor takes.
+#[derive(Clone, Copy)]
+pub(crate) struct CommitOrigin<'a> {
+    pub(crate) request_id: u64,
+    pub(crate) principal: Option<&'a str>,
+}
+
 #[cfg(any(
-    test,
+    all(test, feature = "redb", feature = "program-optimization"),
     feature = "jobs",
     all(feature = "raft", feature = "epistemic-tms")
 ))]
@@ -31,7 +40,7 @@ pub(crate) use program::{
     commit_program_promotion, resolve_program_promotion_identity, ProgramPromotionRequest,
 };
 
-#[cfg(test)]
+#[cfg(all(test, feature = "redb"))]
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -39,10 +48,12 @@ use crate::graph::GraphCore;
 #[cfg(test)]
 use crate::mutation_batch::{MutationStateDescriptor, MutationSurface};
 #[cfg(test)]
-use crate::protocol::{Method, ResultPayload};
+use crate::protocol::Method;
+#[cfg(all(test, feature = "redb"))]
+use crate::protocol::ResultPayload;
 #[cfg(test)]
 use crate::server::mutation_batch::compile::{compile_methods, CompileBatch};
-#[cfg(test)]
+#[cfg(all(test, feature = "redb"))]
 use crate::server::persistence::PersistenceBackend;
 #[cfg(test)]
 use eg_types::contract::Nonce;
@@ -113,8 +124,10 @@ mod internal_replay_tests {
             InternalGraphCommitRequest::new(
                 Some(&persistence),
                 &core,
-                1,
-                Some("internal-caller"),
+                crate::server::mutation_batch::CommitOrigin {
+                    request_id: 1,
+                    principal: Some("internal-caller"),
+                },
                 "internal-result-graph",
                 "internal-result-key",
                 vec![method.clone()],
@@ -130,8 +143,10 @@ mod internal_replay_tests {
             InternalGraphCommitRequest::new(
                 Some(&persistence),
                 &core,
-                2,
-                Some("internal-caller"),
+                crate::server::mutation_batch::CommitOrigin {
+                    request_id: 2,
+                    principal: Some("internal-caller"),
+                },
                 "internal-result-graph",
                 "internal-result-key",
                 vec![method],
@@ -620,8 +635,10 @@ mod internal_replay_tests {
         commit_internal_graph_methods(InternalGraphCommitRequest::new(
             Some(&persistence),
             &core,
-            900,
-            Some("promotion-binding-seeder"),
+            crate::server::mutation_batch::CommitOrigin {
+                request_id: 900,
+                principal: Some("promotion-binding-seeder"),
+            },
             "program-graph",
             "program-binding-seed",
             vec![
@@ -732,8 +749,10 @@ mod internal_replay_tests {
             ProgramPromotionRequest::new(
                 Some(&persistence),
                 &core,
-                1,
-                Some("program-worker"),
+                crate::server::mutation_batch::CommitOrigin {
+                    request_id: 1,
+                    principal: Some("program-worker"),
+                },
                 "program-graph",
                 "program-promotion-one",
                 actual_claim_methods.clone(),
@@ -750,8 +769,10 @@ mod internal_replay_tests {
             ProgramPromotionRequest::new(
                 Some(&persistence),
                 &core,
-                2,
-                Some("program-worker"),
+                crate::server::mutation_batch::CommitOrigin {
+                    request_id: 2,
+                    principal: Some("program-worker"),
+                },
                 "program-graph",
                 "program-promotion-one",
                 actual_claim_methods.clone(),
@@ -854,8 +875,10 @@ mod internal_replay_tests {
             ProgramPromotionRequest::new(
                 Some(&persistence),
                 &core,
-                3,
-                Some("program-worker"),
+                crate::server::mutation_batch::CommitOrigin {
+                    request_id: 3,
+                    principal: Some("program-worker"),
+                },
                 "program-graph",
                 "program-promotion-two",
                 second_claim_plan.methods,
@@ -914,8 +937,10 @@ mod internal_replay_tests {
             ProgramPromotionRequest::new(
                 Some(&persistence),
                 &core,
-                31,
-                Some("program-worker"),
+                crate::server::mutation_batch::CommitOrigin {
+                    request_id: 31,
+                    principal: Some("program-worker"),
+                },
                 "program-graph",
                 "program-promotion-missing-binding",
                 claim_methods(&missing_binding_identity),
@@ -955,8 +980,10 @@ mod internal_replay_tests {
         commit_internal_graph_methods(InternalGraphCommitRequest::new(
             Some(&persistence),
             &core,
-            901,
-            Some("promotion-binding-seeder"),
+            crate::server::mutation_batch::CommitOrigin {
+                request_id: 901,
+                principal: Some("promotion-binding-seeder"),
+            },
             "program-graph",
             "program-binding-wrong-type",
             vec![Method::AddNode {
@@ -1005,8 +1032,10 @@ mod internal_replay_tests {
             ProgramPromotionRequest::new(
                 Some(&persistence),
                 &core,
-                32,
-                Some("program-worker"),
+                crate::server::mutation_batch::CommitOrigin {
+                    request_id: 32,
+                    principal: Some("program-worker"),
+                },
                 "program-graph",
                 "program-promotion-wrong-binding",
                 claim_methods(&wrong_binding_identity),
@@ -1042,11 +1071,12 @@ mod internal_replay_tests {
             ProgramPromotionRequest::new(
                 Some(&persistence),
                 &core,
-                4,
-                Some("program-worker"),
+                crate::server::mutation_batch::CommitOrigin {
+                    request_id: 4,
+                    principal: Some("program-worker"),
+                },
                 "program-graph",
-                "program-promotion-one",
-                // The SAME operation the key was committed with above -- the real
+                "program-promotion-one", // The SAME operation the key was committed with above -- the real
                 // `eg_jobs::plan_result_claim` output, not the hand-built
                 // `claim_methods` pair. A replay is identified by its operation, so
                 // presenting different methods under the same idempotency key is an
@@ -1090,8 +1120,10 @@ mod internal_replay_tests {
             ProgramPromotionRequest::new(
                 Some(&persistence),
                 &core,
-                5,
-                Some("program-worker"),
+                crate::server::mutation_batch::CommitOrigin {
+                    request_id: 5,
+                    principal: Some("program-worker"),
+                },
                 "program-graph",
                 "program-promotion-three",
                 claim_methods(&failed_identity),

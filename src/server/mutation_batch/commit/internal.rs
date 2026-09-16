@@ -50,8 +50,7 @@ impl<'a> InternalGraphCommitRequest<'a> {
     pub(crate) fn new(
         persistence: Option<&'a Arc<dyn PersistenceBackend>>,
         core: &'a Arc<GraphCore>,
-        request_id: u64,
-        principal: Option<&'a str>,
+        origin: super::CommitOrigin<'a>,
         graph: &'a str,
         batch_id: &'a str,
         methods: Vec<Method>,
@@ -60,8 +59,8 @@ impl<'a> InternalGraphCommitRequest<'a> {
         Self {
             persistence,
             core,
-            request_id,
-            principal,
+            request_id: origin.request_id,
+            principal: origin.principal,
             graph,
             batch_id,
             methods,

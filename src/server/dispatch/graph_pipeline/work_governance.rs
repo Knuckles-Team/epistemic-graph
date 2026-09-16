@@ -422,10 +422,12 @@ pub(super) async fn dispatch_op_workitem_submission_or_resources(
     return match crate::server::mutation_batch::commit_work_item(
         crate::server::mutation_batch::WorkItemCommitRequest::new(
             persistence.as_ref(),
-            &core,
-            req_id,
+            core,
+            crate::server::mutation_batch::CommitOrigin {
+                request_id: req_id,
+                principal: caller,
+            },
             Some(verified_context.idempotency_key()),
-            caller,
             graph_name,
             placement_epoch,
             method,

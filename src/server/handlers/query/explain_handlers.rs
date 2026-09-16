@@ -335,8 +335,10 @@ pub(crate) async fn handle_recompute_materialization(
             crate::server::mutation_batch::InternalGraphCommitRequest::new(
                 Some(&persistence),
                 &core,
-                req_id,
-                Some(caller),
+                crate::server::mutation_batch::CommitOrigin {
+                    request_id: req_id,
+                    principal: Some(caller),
+                },
                 graph_name,
                 &batch_id,
                 vec![method],
