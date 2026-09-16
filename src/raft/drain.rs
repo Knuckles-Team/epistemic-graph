@@ -110,26 +110,46 @@ impl ShardDrainPlan {
     }
 
     fn validate(&self) -> Result<(), DrainError> {
-        if self.original_voters.is_empty()
-            || self.voters_after.is_empty()
-            || self.quorum_required == 0
-            || self.minimum_healthy_voters == 0
-            || self.quorum_required > self.original_voters.len()
-            || self.voters_after.len() < self.quorum_required
-            || self.voters_after.len() < self.minimum_healthy_voters
-            || !self.original_voters.contains(&self.authoritative_writer)
-            || !self.original_voters.contains(&self.target_node)
-            || self.target_node == self.authoritative_writer
-            || self.voters_after.contains(&self.target_node)
-            || !self
-                .voters_after
-                .iter()
-                .all(|node| self.original_voters.contains(node))
-            || !self.voters_after.contains(&self.authoritative_writer)
+        if !self.voter_sets_are_nonempty()
+            || !self.quorum_and_health_floor_valid()
+            || !self.authoritative_writer_preserved()
+            || !self.target_removed_cleanly()
+            || !self.voters_after_is_subset_of_original()
         {
             return Err(DrainError::InvalidPlan);
         }
         Ok(())
+    }
+
+    fn voter_sets_are_nonempty(&self) -> bool {
+        !self.original_voters.is_empty() && !self.voters_after.is_empty()
+    }
+
+    fn quorum_and_health_floor_valid(&self) -> bool {
+        self.quorum_required != 0
+            && self.minimum_healthy_voters != 0
+            && self.quorum_required <= self.original_voters.len()
+            && self.voters_after.len() >= self.quorum_required
+            && self.voters_after.len() >= self.minimum_healthy_voters
+    }
+
+    fn authoritative_writer_preserved(&self) -> bool {
+        self.original_voters.contains(&self.authoritative_writer)
+            && self.voters_after.contains(&self.authoritative_writer)
+    }
+
+    /// The target must be a current voter being removed by this plan, never the
+    /// writer, and absent from the post-drain voter set.
+    fn target_removed_cleanly(&self) -> bool {
+        self.original_voters.contains(&self.target_node)
+            && self.target_node != self.authoritative_writer
+            && !self.voters_after.contains(&self.target_node)
+    }
+
+    fn voters_after_is_subset_of_original(&self) -> bool {
+        self.voters_after
+            .iter()
+            .all(|node| self.original_voters.contains(node))
     }
 
     fn validates_voter_observation(
@@ -309,16 +329,9 @@ impl ShardDrain {
         }
 
         match event {
-            DrainEvent::AdmissionStopRequested { .. } => {
-                self.require_phase(DrainPhase::Proposed)?;
-                self.phase = DrainPhase::AdmissionStopRequested;
-            }
+            DrainEvent::AdmissionStopRequested { .. } => apply_admission_stop_requested(self),
             DrainEvent::AdmissionStopped { accepting, .. } => {
-                self.require_phase(DrainPhase::AdmissionStopRequested)?;
-                if accepting {
-                    return Err(DrainError::AdmissionMustBeStopped);
-                }
-                self.phase = DrainPhase::AdmissionStopped;
+                apply_admission_stopped(self, accepting)
             }
             DrainEvent::DrainObserved {
                 admission_stopped,
@@ -326,76 +339,34 @@ impl ShardDrain {
                 authoritative_writer,
                 healthy_voters,
                 ..
-            } => {
-                self.require_phase(DrainPhase::AdmissionStopped)?;
-                if !admission_stopped {
-                    return Err(DrainError::AdmissionMustBeStopped);
-                }
-                if outstanding_work != 0 {
-                    return Err(DrainError::WorkStillInFlight);
-                }
-                if authoritative_writer != self.plan.authoritative_writer {
-                    return Err(DrainError::AuthoritativeWriterNotPreserved);
-                }
-                if healthy_voters < self.plan.minimum_healthy_voters {
-                    return Err(DrainError::HealthyVoterFloor);
-                }
-                self.phase = DrainPhase::DrainObserved;
-            }
-            DrainEvent::ShrinkRequested { .. } => {
-                self.require_phase(DrainPhase::DrainObserved)?;
-                self.phase = DrainPhase::ShrinkRequested;
-            }
+            } => apply_drain_observed(
+                self,
+                admission_stopped,
+                outstanding_work,
+                authoritative_writer,
+                healthy_voters,
+            ),
+            DrainEvent::ShrinkRequested { .. } => apply_shrink_requested(self),
             DrainEvent::ShrinkCommitted {
                 voters_after,
                 authoritative_writer,
                 healthy_voters,
                 ..
-            } => {
-                self.require_phase(DrainPhase::ShrinkRequested)?;
-                self.plan.validates_voter_observation(
-                    &voters_after,
-                    authoritative_writer,
-                    healthy_voters,
-                )?;
-                self.phase = DrainPhase::ShrinkCommitted;
-            }
-            DrainEvent::Completed { .. } => {
-                self.require_phase(DrainPhase::ShrinkCommitted)?;
-                self.phase = DrainPhase::Completed;
-            }
-            DrainEvent::PostShrinkFailure { reason, .. } => {
-                if self.phase != DrainPhase::ShrinkCommitted {
-                    return Err(DrainError::UnexpectedPhase);
-                }
-                self.failure = Some(reason);
-                self.phase = DrainPhase::RollbackRequired;
-            }
+            } => apply_shrink_committed(self, voters_after, authoritative_writer, healthy_voters),
+            DrainEvent::Completed { .. } => apply_completed(self),
+            DrainEvent::PostShrinkFailure { reason, .. } => apply_post_shrink_failure(self, reason),
             DrainEvent::RollbackCommitted {
                 restored_voters,
                 authoritative_writer,
                 healthy_voters,
                 ..
-            } => {
-                self.require_phase(DrainPhase::RollbackRequired)?;
-                if restored_voters != self.plan.original_voters {
-                    return Err(DrainError::VoterSetMismatch);
-                }
-                if authoritative_writer != self.plan.authoritative_writer
-                    || !restored_voters.contains(&self.plan.authoritative_writer)
-                {
-                    return Err(DrainError::AuthoritativeWriterNotPreserved);
-                }
-                if restored_voters.len() < self.plan.quorum_required {
-                    return Err(DrainError::QuorumSafety);
-                }
-                if healthy_voters < self.plan.minimum_healthy_voters {
-                    return Err(DrainError::HealthyVoterFloor);
-                }
-                self.phase = DrainPhase::RolledBack;
-            }
+            } => apply_rollback_committed(
+                self,
+                restored_voters,
+                authoritative_writer,
+                healthy_voters,
+            ),
         }
-        Ok(())
     }
 
     /// Reconcile a deserialized state after process restart.  Any in-flight
@@ -432,6 +403,115 @@ impl ShardDrain {
             Err(DrainError::UnexpectedPhase)
         }
     }
+}
+
+// One free function per `DrainEvent` variant, called from `ShardDrain::apply`'s
+// dispatch match. Kept OUTSIDE `impl ShardDrain` (rather than as further
+// inherent methods) so decomposing `apply`'s cognitive complexity does not
+// itself push `ShardDrain`'s inherent method count over the KISS
+// `methods_per_class` cap; a free function in this module has the same access
+// to `ShardDrain`'s private fields/methods as a method would.
+
+fn apply_admission_stop_requested(drain: &mut ShardDrain) -> Result<(), DrainError> {
+    drain.require_phase(DrainPhase::Proposed)?;
+    drain.phase = DrainPhase::AdmissionStopRequested;
+    Ok(())
+}
+
+fn apply_admission_stopped(drain: &mut ShardDrain, accepting: bool) -> Result<(), DrainError> {
+    drain.require_phase(DrainPhase::AdmissionStopRequested)?;
+    if accepting {
+        return Err(DrainError::AdmissionMustBeStopped);
+    }
+    drain.phase = DrainPhase::AdmissionStopped;
+    Ok(())
+}
+
+fn apply_drain_observed(
+    drain: &mut ShardDrain,
+    admission_stopped: bool,
+    outstanding_work: u64,
+    authoritative_writer: NodeId,
+    healthy_voters: usize,
+) -> Result<(), DrainError> {
+    drain.require_phase(DrainPhase::AdmissionStopped)?;
+    if !admission_stopped {
+        return Err(DrainError::AdmissionMustBeStopped);
+    }
+    if outstanding_work != 0 {
+        return Err(DrainError::WorkStillInFlight);
+    }
+    if authoritative_writer != drain.plan.authoritative_writer {
+        return Err(DrainError::AuthoritativeWriterNotPreserved);
+    }
+    if healthy_voters < drain.plan.minimum_healthy_voters {
+        return Err(DrainError::HealthyVoterFloor);
+    }
+    drain.phase = DrainPhase::DrainObserved;
+    Ok(())
+}
+
+fn apply_shrink_requested(drain: &mut ShardDrain) -> Result<(), DrainError> {
+    drain.require_phase(DrainPhase::DrainObserved)?;
+    drain.phase = DrainPhase::ShrinkRequested;
+    Ok(())
+}
+
+fn apply_shrink_committed(
+    drain: &mut ShardDrain,
+    voters_after: BTreeSet<NodeId>,
+    authoritative_writer: NodeId,
+    healthy_voters: usize,
+) -> Result<(), DrainError> {
+    drain.require_phase(DrainPhase::ShrinkRequested)?;
+    drain
+        .plan
+        .validates_voter_observation(&voters_after, authoritative_writer, healthy_voters)?;
+    drain.phase = DrainPhase::ShrinkCommitted;
+    Ok(())
+}
+
+fn apply_completed(drain: &mut ShardDrain) -> Result<(), DrainError> {
+    drain.require_phase(DrainPhase::ShrinkCommitted)?;
+    drain.phase = DrainPhase::Completed;
+    Ok(())
+}
+
+fn apply_post_shrink_failure(
+    drain: &mut ShardDrain,
+    reason: DrainFailure,
+) -> Result<(), DrainError> {
+    if drain.phase != DrainPhase::ShrinkCommitted {
+        return Err(DrainError::UnexpectedPhase);
+    }
+    drain.failure = Some(reason);
+    drain.phase = DrainPhase::RollbackRequired;
+    Ok(())
+}
+
+fn apply_rollback_committed(
+    drain: &mut ShardDrain,
+    restored_voters: BTreeSet<NodeId>,
+    authoritative_writer: NodeId,
+    healthy_voters: usize,
+) -> Result<(), DrainError> {
+    drain.require_phase(DrainPhase::RollbackRequired)?;
+    if restored_voters != drain.plan.original_voters {
+        return Err(DrainError::VoterSetMismatch);
+    }
+    if authoritative_writer != drain.plan.authoritative_writer
+        || !restored_voters.contains(&drain.plan.authoritative_writer)
+    {
+        return Err(DrainError::AuthoritativeWriterNotPreserved);
+    }
+    if restored_voters.len() < drain.plan.quorum_required {
+        return Err(DrainError::QuorumSafety);
+    }
+    if healthy_voters < drain.plan.minimum_healthy_voters {
+        return Err(DrainError::HealthyVoterFloor);
+    }
+    drain.phase = DrainPhase::RolledBack;
+    Ok(())
 }
 
 /// Errors are intentionally small and stable: callers can make a policy
@@ -723,5 +803,37 @@ mod tests {
         )
         .expect_err("quorum floor");
         assert_eq!(quorum_break, DrainError::InvalidPlan);
+    }
+
+    #[test]
+    fn invalid_plan_rejects_empty_voter_sets_and_non_subset_after_set() {
+        let empty_after = ShardDrainPlan::new(
+            identity(),
+            4,
+            4,
+            3,
+            voters(&[1, 2, 3]),
+            BTreeSet::new(),
+            1,
+            2,
+            0,
+        )
+        .expect_err("voters_after must be non-empty");
+        assert_eq!(empty_after, DrainError::InvalidPlan);
+
+        // voters_after contains a node that was never in original_voters.
+        let not_subset = ShardDrainPlan::new(
+            identity(),
+            4,
+            4,
+            3,
+            voters(&[1, 2, 3]),
+            voters(&[1, 9]),
+            1,
+            2,
+            2,
+        )
+        .expect_err("voters_after must be a subset of original_voters");
+        assert_eq!(not_subset, DrainError::InvalidPlan);
     }
 }
