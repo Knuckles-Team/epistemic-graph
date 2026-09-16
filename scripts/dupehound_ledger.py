@@ -66,6 +66,47 @@ class DistinctPair:
         return (self.left_file, self.left_name, self.right_file, self.right_name)
 
 
+def _find_declaration_start(lines: list[str], name: str, hint_line: int) -> int | None:
+    """Locate the line index of `fn name`, nearest `hint_line` first.
+
+    Anchor on the DECLARATION, not the reported line. Dupehound reports the
+    `original_*` position against the HEAD blob, so on a branch that has since
+    edited the file those numbers no longer address the worktree -- the line is
+    a hint, never the identity. Prefer a hit near the hint, then fall back to
+    the whole file, so the pin follows the function rather than the offset.
+    """
+
+    declaration = re.compile(rf"\bfn\s+{re.escape(name)}\b")
+    for candidate in range(max(0, hint_line - 3), min(len(lines), hint_line + 3)):
+        if declaration.search(lines[candidate]):
+            return candidate
+    for candidate, text in enumerate(lines):
+        if declaration.search(text):
+            return candidate
+    return None
+
+
+def _collect_brace_balanced_block(lines: list[str], start: int) -> str:
+    """Join and whitespace-normalize the brace-balanced block starting at
+    line `start` (inclusive)."""
+
+    depth = 0
+    seen_brace = False
+    collected: list[str] = []
+    for current in range(start, len(lines)):
+        text = lines[current]
+        collected.append(text)
+        for char in text:
+            if char == "{":
+                depth += 1
+                seen_brace = True
+            elif char == "}":
+                depth -= 1
+        if seen_brace and depth <= 0:
+            break
+    return re.sub(r"\s+", " ", "\n".join(collected)).strip()
+
+
 def normalized_function_text(path: Path, line: int, name: str) -> str | None:
     """Return the brace-balanced source of `name` at (or just after) `line`.
 
@@ -85,39 +126,10 @@ def normalized_function_text(path: Path, line: int, name: str) -> str | None:
         # A HEAD-relative line can point past the end of the worktree file.
         # That makes the hint useless, not the lookup impossible.
         line = 1
-    # Anchor on the DECLARATION, not the reported line. Dupehound reports the
-    # `original_*` position against the HEAD blob, so on a branch that has since
-    # edited the file those numbers no longer address the worktree -- the line is
-    # a hint, never the identity. Prefer a hit near the hint, then fall back to
-    # the whole file, so the pin follows the function rather than the offset.
-    declaration = re.compile(rf"\bfn\s+{re.escape(name)}\b")
-    start = None
-    for candidate in range(max(0, line - 3), min(len(lines), line + 3)):
-        if declaration.search(lines[candidate]):
-            start = candidate
-            break
-    if start is None:
-        for candidate, text in enumerate(lines):
-            if declaration.search(text):
-                start = candidate
-                break
+    start = _find_declaration_start(lines, name, line)
     if start is None:
         return None
-    depth = 0
-    seen_brace = False
-    collected: list[str] = []
-    for current in range(start, len(lines)):
-        text = lines[current]
-        collected.append(text)
-        for char in text:
-            if char == "{":
-                depth += 1
-                seen_brace = True
-            elif char == "}":
-                depth -= 1
-        if seen_brace and depth <= 0:
-            break
-    return re.sub(r"\s+", " ", "\n".join(collected)).strip()
+    return _collect_brace_balanced_block(lines, start)
 
 
 def digest_of(text: str) -> str:
@@ -225,6 +237,54 @@ def resolved_reason(finding: dict[str, Any], root: Path = ROOT) -> str | None:
     return None
 
 
+def _pair_key(finding: dict[str, Any]) -> tuple[str, str, str, str]:
+    return (
+        str(finding["file"]),
+        str(finding["name"]),
+        str(finding["original_file"]),
+        str(finding["original_name"]),
+    )
+
+
+def _pair_note(pair: DistinctPair, reason: str) -> str:
+    return (
+        f"{pair.left_file}::{pair.left_name} / {pair.right_file}::"
+        f"{pair.right_name}: {reason}"
+    )
+
+
+def _pair_rot_reason(pair: DistinctPair, root: Path, missing_reason: str) -> str | None:
+    """Why `pair` no longer matches the tree, or None when it still does.
+
+    Resolve exactly the way every caller of this needs to -- first declaration
+    of that name in the file. A file may declare the same name more than once
+    (`as_str` on several enums), so using a finding's line hint in one place
+    and a plain search in another would pin two different functions and
+    report a change that never happened.
+    """
+    left = normalized_function_text(root / pair.left_file, 1, pair.left_name)
+    right = normalized_function_text(root / pair.right_file, 1, pair.right_name)
+    if left is None or right is None:
+        return missing_reason
+    if digest_of(left) != pair.left_digest or digest_of(right) != pair.right_digest:
+        return (
+            f"reviewed {pair.reviewed_on}, but the source has changed since -- "
+            "re-review and re-pin, or consolidate"
+        )
+    return None
+
+
+def _classify_registered_finding(pair: DistinctPair, root: Path) -> str | None:
+    """Whether a REGISTERED finding's pair still matches the tree.
+
+    Returns the note describing why it changed, or None when it did not.
+    """
+    reason = _pair_rot_reason(pair, root, "a registered function could not be located")
+    if reason is None:
+        return None
+    return _pair_note(pair, reason)
+
+
 def partition(
     findings: Iterable[dict[str, Any]],
     pairs: list[DistinctPair],
@@ -260,61 +320,28 @@ def partition(
                 f" -- {resolved}"
             )
             continue
-        key = (
-            str(finding["file"]),
-            str(finding["name"]),
-            str(finding["original_file"]),
-            str(finding["original_name"]),
-        )
+        key = _pair_key(finding)
         reverse = (key[2], key[3], key[0], key[1])
         pair = by_key.get(key) or by_key.get(reverse)
         if pair is None:
             unregistered.append(finding)
             continue
-        # Resolve exactly as the rot check below does -- first declaration of
-        # that name in the file. A file may declare the same name more than once
-        # (`as_str` on several enums), so using the finding's line hint here and
-        # a plain search there would pin two different functions and report a
-        # change that never happened.
-        left = normalized_function_text(root / pair.left_file, 1, pair.left_name)
-        right = normalized_function_text(root / pair.right_file, 1, pair.right_name)
-        if left is None or right is None:
+        note = _classify_registered_finding(pair, root)
+        if note is not None:
             changed.append(finding)
-            notes.append(
-                f"{pair.left_file}::{pair.left_name} / {pair.right_file}::"
-                f"{pair.right_name}: a registered function could not be located"
-            )
-            continue
-        if digest_of(left) != pair.left_digest or digest_of(right) != pair.right_digest:
-            changed.append(finding)
-            notes.append(
-                f"{pair.left_file}::{pair.left_name} / {pair.right_file}::"
-                f"{pair.right_name}: reviewed {pair.reviewed_on}, but the source"
-                " has changed since -- re-review and re-pin, or consolidate"
-            )
+            notes.append(note)
             continue
         matched.add(pair.key())
     # Independently of what was reported this run, every entry must still
     # describe the code it was reviewed against.
     rotted: list[DistinctPair] = []
     for pair in pairs:
-        left = normalized_function_text(root / pair.left_file, 1, pair.left_name)
-        right = normalized_function_text(root / pair.right_file, 1, pair.right_name)
-        if left is None or right is None:
+        reason = _pair_rot_reason(
+            pair, root, "a reviewed function no longer exists -- delete this entry"
+        )
+        if reason is not None:
             rotted.append(pair)
-            notes.append(
-                f"{pair.left_file}::{pair.left_name} / {pair.right_file}::"
-                f"{pair.right_name}: a reviewed function no longer exists --"
-                " delete this entry"
-            )
-            continue
-        if digest_of(left) != pair.left_digest or digest_of(right) != pair.right_digest:
-            rotted.append(pair)
-            notes.append(
-                f"{pair.left_file}::{pair.left_name} / {pair.right_file}::"
-                f"{pair.right_name}: reviewed {pair.reviewed_on}, but the source has"
-                " changed since -- re-review and re-pin, or consolidate"
-            )
+            notes.append(_pair_note(pair, reason))
     return unregistered, changed, notes, rotted
 
 
