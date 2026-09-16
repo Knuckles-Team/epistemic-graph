@@ -230,6 +230,71 @@ _COMPILER_ENV_VARS: dict[str, str] = {"CFLAGS": "CC", "CXXFLAGS": "CXX"}
 _PREFIX_MAP_FLAG_NAMES: tuple[str, ...] = ("file-prefix-map", "debug-prefix-map")
 
 
+def _compiler_env_var_for(variable: str) -> str | None:
+    """The compiler-env-var family ``variable`` belongs to, or ``None``.
+
+    ``variable`` may be the bare "CFLAGS"/"CXXFLAGS" or a target-scoped
+    "CFLAGS_<target>" (see `_scoped_flags_variable`) -- match by prefix so
+    both resolve to the same compiler-env-var family.
+    """
+    return next(
+        (cc for flags, cc in _COMPILER_ENV_VARS.items() if variable.startswith(flags)),
+        None,
+    )
+
+
+def _probe_candidate_names(compiler_var: str, target: str | None) -> list[str]:
+    """Env var names to check, most target-specific first."""
+    candidates: list[str] = []
+    if target:
+        candidates.append(f"{compiler_var}_{target}")
+        candidates.append(f"{compiler_var}_{target.replace('-', '_')}")
+        candidates.append("TARGET_" + compiler_var)
+    candidates.append(compiler_var)
+    return candidates
+
+
+def _compiler_from_env_override(
+    candidates: list[str], environ: Mapping[str, str]
+) -> str | None:
+    for name in candidates:
+        value = environ.get(name)
+        if not value:
+            continue
+        parts = shlex.split(value, posix=os.name != "nt")
+        if parts and shutil.which(parts[0]):
+            return parts[0]
+    return None
+
+
+def _cross_compiler_fallback(compiler_var: str, target: str) -> str | None:
+    """The `cc` crate's own default cross-compiler naming convention.
+
+    Deliberately NOT falling back further to a bare "cc"/"gcc" here when a
+    target was requested: that generic binary is the HOST's own compiler,
+    unrelated to the cross toolchain that will actually build this target,
+    and trusting it is exactly the class of bug this function exists to
+    prevent (a probe result from the wrong compiler leaking into a
+    different toolchain's build). Falling through to ``None`` instead
+    correctly marks the target compiler as unverifiable.
+    """
+    if compiler_var == "CC" and shutil.which(f"{target}-gcc"):
+        return f"{target}-gcc"
+    if compiler_var == "CXX" and shutil.which(f"{target}-g++"):
+        return f"{target}-g++"
+    return None
+
+
+def _host_native_compiler_fallback(compiler_var: str) -> str | None:
+    """No target given at all -- this is a host-native (non-cross) build, so
+    the platform-generic compiler on PATH genuinely IS the one that will run.
+    """
+    for generic in ("cc", "gcc") if compiler_var == "CC" else ("c++", "g++"):
+        if shutil.which(generic):
+            return generic
+    return None
+
+
 def _resolve_probe_compiler(
     variable: str, target: str | None, environ: Mapping[str, str]
 ) -> str | None:
@@ -245,54 +310,20 @@ def _resolve_probe_compiler(
     at probe time -- see `native_prefix_flags`'s handling of that case.
     """
 
-    # `variable` may be the bare "CFLAGS"/"CXXFLAGS" or a target-scoped
-    # "CFLAGS_<target>" (see `_scoped_flags_variable`) -- match by prefix so
-    # both resolve to the same compiler-env-var family.
-    compiler_var = next(
-        (cc for flags, cc in _COMPILER_ENV_VARS.items() if variable.startswith(flags)),
-        None,
-    )
+    compiler_var = _compiler_env_var_for(variable)
     if compiler_var is None:
         return None
 
-    candidates: list[str] = []
+    override = _compiler_from_env_override(
+        _probe_candidate_names(compiler_var, target), environ
+    )
+    if override is not None:
+        return override
+
     if target:
-        candidates.append(f"{compiler_var}_{target}")
-        candidates.append(f"{compiler_var}_{target.replace('-', '_')}")
-        candidates.append("TARGET_" + compiler_var)
-    candidates.append(compiler_var)
+        return _cross_compiler_fallback(compiler_var, target)
 
-    for name in candidates:
-        value = environ.get(name)
-        if not value:
-            continue
-        parts = shlex.split(value, posix=os.name != "nt")
-        if parts and shutil.which(parts[0]):
-            return parts[0]
-
-    # No override configured -- fall back to the `cc` crate's own default
-    # cross-compiler naming convention (a target-triple-prefixed binary).
-    # Deliberately NOT falling back further to a bare "cc"/"gcc" here when a
-    # target was requested: that generic binary is the HOST's own compiler,
-    # unrelated to the cross toolchain that will actually build this target,
-    # and trusting it is exactly the class of bug this function exists to
-    # prevent (a probe result from the wrong compiler leaking into a
-    # different toolchain's build). Falling through to `return None` instead
-    # correctly marks the target compiler as unverifiable.
-    if target:
-        if compiler_var == "CC" and shutil.which(f"{target}-gcc"):
-            return f"{target}-gcc"
-        if compiler_var == "CXX" and shutil.which(f"{target}-g++"):
-            return f"{target}-g++"
-        return None
-
-    # No target given at all -- this is a host-native (non-cross) build, so
-    # the platform-generic compiler on PATH genuinely IS the one that will
-    # run.
-    for generic in ("cc", "gcc") if compiler_var == "CC" else ("c++", "g++"):
-        if shutil.which(generic):
-            return generic
-    return None
+    return _host_native_compiler_fallback(compiler_var)
 
 
 def _probe_prefix_map_flag(compiler: str, flag_name: str) -> bool:
