@@ -200,7 +200,6 @@ use super::multi::MultiRaft;
 #[cfg(any(feature = "calvin", test, feature = "harness"))]
 use super::NodeId;
 use super::{GroupId, RaftRequest};
-use crate::graph::GraphCore;
 use crate::protocol::{GraphType, Method};
 use crate::server::persistence::redb_backend::RedbBackend;
 use crate::server::persistence::PersistenceBackend;
