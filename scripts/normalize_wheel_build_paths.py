@@ -80,24 +80,75 @@ def _variants(source: str) -> tuple[str, ...]:
     )
 
 
+def _forbidden_patterns(
+    sources: tuple[str, ...],
+) -> tuple[list[re.Pattern[bytes]], list[re.Pattern[bytes]]]:
+    """Every encoding of every build-root source, as patterns a candidate
+    alias must not itself match (a replacement must never accidentally
+    contain another real build root)."""
+
+    byte_patterns: list[re.Pattern[bytes]] = []
+    wide_patterns: list[re.Pattern[bytes]] = []
+    for source in sources:
+        for variant in _variants(source):
+            encoded = variant.encode("utf-8", errors="surrogatepass")
+            wide = variant.encode("utf-16le", errors="surrogatepass")
+            byte_patterns.append(
+                re.compile(re.escape(encoded) + _BYTE_BOUNDARY, re.IGNORECASE)
+            )
+            wide_patterns.append(
+                re.compile(re.escape(wide) + _WIDE_BOUNDARY, re.IGNORECASE)
+            )
+    return byte_patterns, wide_patterns
+
+
+def _collision_free_alias(
+    variant: str,
+    encoded: bytes,
+    forbidden_byte_patterns: Sequence[re.Pattern[bytes]],
+    forbidden_wide_patterns: Sequence[re.Pattern[bytes]],
+) -> tuple[bytes, bytes]:
+    """The first filler-character alias, (byte form, wide form), that matches
+    none of the forbidden patterns even with a trailing child path appended."""
+
+    for filler in _FILLERS:
+        candidate_bytes = _neutral_bytes(encoded, ord(filler))
+        candidate_wide = _neutral_text(variant, filler).encode("utf-16le")
+        byte_probe = candidate_bytes + b"/child"
+        wide_probe = candidate_wide + "/child".encode("utf-16le")
+        if any(pattern.search(byte_probe) for pattern in forbidden_byte_patterns):
+            continue
+        if any(pattern.search(wide_probe) for pattern in forbidden_wide_patterns):
+            continue
+        return candidate_bytes, candidate_wide
+    raise ValueError("could not derive a collision-free neutral build alias")
+
+
+def _add_rule_if_new(
+    rules: list[_Replacement],
+    seen: set[tuple[bytes, bool]],
+    needle: bytes,
+    boundary: bytes,
+    alias: bytes,
+    *,
+    wide: bool,
+) -> None:
+    key = (needle.lower(), wide)
+    if key in seen:
+        return
+    rules.append(
+        _Replacement(re.compile(re.escape(needle) + boundary, re.IGNORECASE), alias)
+    )
+    seen.add(key)
+
+
 def _replacement_rules(
     environ: Mapping[str, str],
     *,
     checkout: str | Path | None,
 ) -> tuple[_Replacement, ...]:
     sources = tuple(source for source, _ in path_remaps(environ, checkout=checkout))
-    forbidden_byte_patterns: list[re.Pattern[bytes]] = []
-    forbidden_wide_patterns: list[re.Pattern[bytes]] = []
-    for source in sources:
-        for variant in _variants(source):
-            encoded = variant.encode("utf-8", errors="surrogatepass")
-            wide = variant.encode("utf-16le", errors="surrogatepass")
-            forbidden_byte_patterns.append(
-                re.compile(re.escape(encoded) + _BYTE_BOUNDARY, re.IGNORECASE)
-            )
-            forbidden_wide_patterns.append(
-                re.compile(re.escape(wide) + _WIDE_BOUNDARY, re.IGNORECASE)
-            )
+    forbidden_byte_patterns, forbidden_wide_patterns = _forbidden_patterns(sources)
 
     rules: list[_Replacement] = []
     seen: set[tuple[bytes, bool]] = set()
@@ -105,49 +156,13 @@ def _replacement_rules(
         for variant in _variants(source):
             encoded = variant.encode("utf-8", errors="surrogatepass")
             wide = variant.encode("utf-16le", errors="surrogatepass")
-
-            byte_alias: bytes | None = None
-            wide_alias: bytes | None = None
-            for filler in _FILLERS:
-                candidate_bytes = _neutral_bytes(encoded, ord(filler))
-                candidate_wide = _neutral_text(variant, filler).encode("utf-16le")
-                byte_probe = candidate_bytes + b"/child"
-                wide_probe = candidate_wide + "/child".encode("utf-16le")
-                if any(
-                    pattern.search(byte_probe) for pattern in forbidden_byte_patterns
-                ):
-                    continue
-                if any(
-                    pattern.search(wide_probe) for pattern in forbidden_wide_patterns
-                ):
-                    continue
-                byte_alias = candidate_bytes
-                wide_alias = candidate_wide
-                break
-            if byte_alias is None or wide_alias is None:
-                raise ValueError(
-                    "could not derive a collision-free neutral build alias"
-                )
-
-            byte_key = (encoded.lower(), False)
-            if byte_key not in seen:
-                rules.append(
-                    _Replacement(
-                        re.compile(re.escape(encoded) + _BYTE_BOUNDARY, re.IGNORECASE),
-                        byte_alias,
-                    )
-                )
-                seen.add(byte_key)
-
-            wide_key = (wide.lower(), True)
-            if wide_key not in seen:
-                rules.append(
-                    _Replacement(
-                        re.compile(re.escape(wide) + _WIDE_BOUNDARY, re.IGNORECASE),
-                        wide_alias,
-                    )
-                )
-                seen.add(wide_key)
+            byte_alias, wide_alias = _collision_free_alias(
+                variant, encoded, forbidden_byte_patterns, forbidden_wide_patterns
+            )
+            _add_rule_if_new(
+                rules, seen, encoded, _BYTE_BOUNDARY, byte_alias, wide=False
+            )
+            _add_rule_if_new(rules, seen, wide, _WIDE_BOUNDARY, wide_alias, wide=True)
 
     return tuple(rules)
 
@@ -170,6 +185,79 @@ def _record_bytes(rows: Sequence[tuple[str, bytes]], record_name: str) -> bytes:
     return buffer.getvalue().encode()
 
 
+def _validate_membership(infos: Sequence[zipfile.ZipInfo]) -> zipfile.ZipInfo:
+    """Return the wheel's single RECORD member; raise ValueError otherwise."""
+
+    names = [info.filename for info in infos]
+    if len(names) != len(set(names)):
+        raise ValueError("wheel contains duplicate members")
+    record_infos = [
+        info for info in infos if info.filename.endswith(".dist-info/RECORD")
+    ]
+    if len(record_infos) != 1:
+        raise ValueError("wheel must contain exactly one RECORD")
+    return record_infos[0]
+
+
+def _reject_build_root_in_member_names(
+    infos: Sequence[zipfile.ZipInfo], rules: Sequence[_Replacement]
+) -> None:
+    for info in infos:
+        encoded_name = info.filename.encode("utf-8", errors="surrogatepass")
+        if _normalize(encoded_name, rules)[1]:
+            raise ValueError("wheel member name contains a concrete build root")
+
+
+def _write_normalized_wheel(
+    source: zipfile.ZipFile,
+    infos: Sequence[zipfile.ZipInfo],
+    record_info: zipfile.ZipInfo,
+    rules: Sequence[_Replacement],
+    comment: bytes,
+    temporary: Path,
+) -> int:
+    """Write the normalized wheel to `temporary`; return the member-content
+    rewrite count (the caller adds the comment's own rewrite count)."""
+
+    changes = 0
+    rows: list[tuple[str, bytes]] = []
+    wrote_temporary = False
+    try:
+        with zipfile.ZipFile(temporary, "w") as destination:
+            destination.comment = comment
+            for info in infos:
+                if info.filename == record_info.filename:
+                    continue
+                data = source.read(info.filename)
+                normalized, member_changes = _normalize(data, rules)
+                changes += member_changes
+                destination.writestr(info, normalized)
+                if not info.is_dir():
+                    rows.append((info.filename, normalized))
+
+            record = _record_bytes(rows, record_info.filename)
+            destination.writestr(record_info, record)
+        wrote_temporary = True
+    finally:
+        if not wrote_temporary:
+            temporary.unlink(missing_ok=True)
+    return changes
+
+
+def _replace_if_changed(
+    path: Path, temporary: Path, original_mode: int, changes: int
+) -> int:
+    if not changes:
+        temporary.unlink(missing_ok=True)
+        return 0
+    try:
+        temporary.chmod(original_mode)
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return changes
+
+
 def normalize_wheel_build_paths(
     path: Path,
     *,
@@ -186,45 +274,15 @@ def normalize_wheel_build_paths(
     try:
         with zipfile.ZipFile(path) as source:
             infos = source.infolist()
-            names = [info.filename for info in infos]
-            if len(names) != len(set(names)):
-                raise ValueError("wheel contains duplicate members")
-            record_infos = [
-                info for info in infos if info.filename.endswith(".dist-info/RECORD")
-            ]
-            if len(record_infos) != 1:
-                raise ValueError("wheel must contain exactly one RECORD")
-            for name in names:
-                encoded_name = name.encode("utf-8", errors="surrogatepass")
-                if _normalize(encoded_name, rules)[1]:
-                    raise ValueError("wheel member name contains a concrete build root")
+            record_info = _validate_membership(infos)
+            _reject_build_root_in_member_names(infos, rules)
             comment, comment_changes = _normalize(source.comment, rules)
 
             original_mode = path.stat().st_mode
             temporary = path.with_suffix(path.suffix + ".build-paths-tmp")
-            rows: list[tuple[str, bytes]] = []
-            changes = comment_changes
-            record_info = record_infos[0]
-            wrote_temporary = False
-            try:
-                with zipfile.ZipFile(temporary, "w") as destination:
-                    destination.comment = comment
-                    for info in infos:
-                        if info.filename == record_info.filename:
-                            continue
-                        data = source.read(info.filename)
-                        normalized, member_changes = _normalize(data, rules)
-                        changes += member_changes
-                        destination.writestr(info, normalized)
-                        if not info.is_dir():
-                            rows.append((info.filename, normalized))
-
-                    record = _record_bytes(rows, record_info.filename)
-                    destination.writestr(record_info, record)
-                wrote_temporary = True
-            finally:
-                if not wrote_temporary:
-                    temporary.unlink(missing_ok=True)
+            changes = comment_changes + _write_normalized_wheel(
+                source, infos, record_info, rules, comment, temporary
+            )
 
             # `source` (opened above to read `path`) is still open at this
             # point -- the write phase above needed `source.read()`. It closes
@@ -237,19 +295,11 @@ def normalize_wheel_build_paths(
             # `path` on disk therefore MUST run after `source` is closed, not
             # merely after its reads are done.
 
-        if not changes:
-            temporary.unlink(missing_ok=True)
-            return 0
-        try:
-            temporary.chmod(original_mode)
-            temporary.replace(path)
-        finally:
-            temporary.unlink(missing_ok=True)
+        return _replace_if_changed(path, temporary, original_mode, changes)
     except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
         raise ValueError(
             f"wheel {path} cannot be normalized: {type(exc).__name__}: {exc}"
         ) from exc
-    return changes
 
 
 def _report_failure(path: Path, exc: BaseException) -> None:
