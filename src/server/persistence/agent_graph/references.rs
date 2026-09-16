@@ -2,6 +2,7 @@
 
 use super::tests::{agent_node, component, context, digest, draft, open_store, shape};
 use super::*;
+use eg_types::agent_graph::{AgentGraphEdge, AgentGraphNode, AgentGraphNodeKind, AgentGraphShape};
 
 #[test]
 fn a_graph_instantiating_a_template_resolves_it_and_refuses_a_ghost() {
