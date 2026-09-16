@@ -249,42 +249,43 @@ __all__ = (
 )
 
 
-def _run_step(
-    run_text: str,
-    job_env: dict,
-    cargo_build_jobs: int | None = None,
-) -> tuple[object, float]:
-    cmd_text, stripped = _strip_gha_expressions(run_text)
-    if stripped:
-        print(f"    [gha-expr stripped to empty locally: {stripped}]")
+def _resolved_cargo_build_jobs(cargo_build_jobs: int | None) -> int:
+    """Clamp an explicit ``cargo_build_jobs`` or derive the default.
 
-    env_fd, env_path = tempfile.mkstemp(prefix="gh_env_")
-    out_fd, out_path = tempfile.mkstemp(prefix="gh_out_")
-    path_fd, path_path = tempfile.mkstemp(prefix="gh_path_")
-    for fd in (env_fd, out_fd, path_fd):
-        os.close(fd)
-
-    env = dict(job_env)
-    # Inject this on every individual child process, rather than only once in
-    # the job base environment: a prior step may write CARGO_BUILD_JOBS via
-    # GITHUB_ENV, and an inherited/workflow value must never bypass the local
-    # resource ceiling. The shell text itself remains byte-for-byte unchanged.
+    Inject the result on every individual child process, rather than only
+    once in the job base environment: a prior step may write
+    ``CARGO_BUILD_JOBS`` via ``GITHUB_ENV``, and an inherited/workflow value
+    must never bypass the local resource ceiling. The shell text itself
+    remains byte-for-byte unchanged.
+    """
     if cargo_build_jobs is None:
-        cargo_build_jobs = resolve_cargo_build_jobs()
-    elif (
+        return resolve_cargo_build_jobs()
+    if (
         not isinstance(cargo_build_jobs, int)
         or isinstance(cargo_build_jobs, bool)
         or cargo_build_jobs < 1
     ):
         raise ValueError("cargo_build_jobs must be a positive integer")
-    else:
-        cargo_build_jobs = min(cargo_build_jobs, MAX_LOCAL_CARGO_BUILD_JOBS)
-    env["CARGO_BUILD_JOBS"] = str(cargo_build_jobs)
+    return min(cargo_build_jobs, MAX_LOCAL_CARGO_BUILD_JOBS)
+
+
+def _build_step_env(
+    job_env: dict,
+    cargo_build_jobs: int | None,
+    env_path: str,
+    out_path: str,
+    path_path: str,
+) -> dict:
+    env = dict(job_env)
+    env["CARGO_BUILD_JOBS"] = str(_resolved_cargo_build_jobs(cargo_build_jobs))
     env["GITHUB_ENV"] = env_path
     env["GITHUB_OUTPUT"] = out_path
     env["GITHUB_PATH"] = path_path
     env.setdefault("RUNNER_TEMP", LOCAL_ENV_OVERRIDES["TMPDIR"])
+    return env
 
+
+def _execute_step(cmd_text: str, env: dict) -> tuple[object, float]:
     t0 = time.monotonic()
     status: object
     try:
@@ -306,10 +307,10 @@ def _run_step(
         status = proc.returncode
     except subprocess.TimeoutExpired:
         status = "TIMEOUT"
-    elapsed = time.monotonic() - t0
+    return status, time.monotonic() - t0
 
-    # Thread $GITHUB_ENV / $GITHUB_PATH additions forward to later steps in
-    # this job, the same way GitHub Actions does.
+
+def _absorb_github_env(job_env: dict, env_path: str) -> None:
     try:
         for line in Path(env_path).read_text(encoding="utf-8").splitlines():
             if "=" in line and not line.strip().startswith("#"):
@@ -317,17 +318,48 @@ def _run_step(
                 job_env[k.strip()] = v
     except OSError:
         pass
+
+
+def _absorb_github_path(job_env: dict, path_path: str) -> None:
     try:
         for p in Path(path_path).read_text(encoding="utf-8").splitlines():
             if p.strip():
                 job_env["PATH"] = p.strip() + os.pathsep + job_env.get("PATH", "")
     except OSError:
         pass
-    for p in (env_path, out_path, path_path):
+
+
+def _cleanup_step_files(paths: tuple[str, ...]) -> None:
+    for p in paths:
         try:
             os.unlink(p)
         except OSError:
             pass
+
+
+def _run_step(
+    run_text: str,
+    job_env: dict,
+    cargo_build_jobs: int | None = None,
+) -> tuple[object, float]:
+    cmd_text, stripped = _strip_gha_expressions(run_text)
+    if stripped:
+        print(f"    [gha-expr stripped to empty locally: {stripped}]")
+
+    env_fd, env_path = tempfile.mkstemp(prefix="gh_env_")
+    out_fd, out_path = tempfile.mkstemp(prefix="gh_out_")
+    path_fd, path_path = tempfile.mkstemp(prefix="gh_path_")
+    for fd in (env_fd, out_fd, path_fd):
+        os.close(fd)
+
+    env = _build_step_env(job_env, cargo_build_jobs, env_path, out_path, path_path)
+    status, elapsed = _execute_step(cmd_text, env)
+
+    # Thread $GITHUB_ENV / $GITHUB_PATH additions forward to later steps in
+    # this job, the same way GitHub Actions does.
+    _absorb_github_env(job_env, env_path)
+    _absorb_github_path(job_env, path_path)
+    _cleanup_step_files((env_path, out_path, path_path))
 
     return status, elapsed
 
@@ -336,6 +368,66 @@ def _run_step(
 #: provisioned, an empty ``Path`` once provisioning has been tried and failed
 #: (so a broken host is reported once, not once per job).
 _LOCAL_SETUP_PYTHON: Path | None = None
+
+
+def _venv_creation_attempts(target: Path) -> list[list[str]]:
+    """Ordered commands to try to create the local setup-python venv.
+
+    `uv venv --seed` first, `python3 -m venv` second. On a Debian
+    interpreter -- which is exactly the PEP 668 case this exists for -- the
+    stdlib route fails with "ensurepip is not available", so the obvious
+    ordering is the one that does not work on the only host that needs it.
+    uv is already a hard dependency of this repo's own gates, so it is not a
+    new requirement.
+    """
+    attempts: list[list[str]] = []
+    if shutil.which("uv") is not None:
+        attempts.append(
+            [
+                "uv",
+                "venv",
+                "--seed",
+                "--system-site-packages",
+                "--python",
+                sys.executable,
+                str(target),
+            ]
+        )
+    attempts.append(
+        [sys.executable, "-m", "venv", "--system-site-packages", str(target)]
+    )
+    return attempts
+
+
+def _provision_setup_python_venv(target: Path) -> bool:
+    """Create the local setup-python replacement venv at ``target``.
+
+    Returns True once ``target/bin/pip`` exists; prints the collected
+    per-attempt failure reasons and returns False if every attempt failed.
+    """
+    target.parent.mkdir(parents=True, exist_ok=True)
+    failures: list[str] = []
+    for command in _venv_creation_attempts(target):
+        created = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            timeout=300,
+        )
+        if created.returncode == 0 and (target / "bin" / "pip").exists():
+            return True
+        # `python3 -m venv` reports the ensurepip failure on STDOUT, so a
+        # stderr-only report prints an empty reason and reads as a mystery.
+        # Take whichever stream actually said something.
+        failures.append(
+            f"{command[0]}: {(created.stderr.strip() or created.stdout.strip())[:300]}"
+        )
+    print(
+        "    [local setup-python replacement UNAVAILABLE -- pip steps "
+        f"will fail as they do today: {' | '.join(failures)}]"
+    )
+    return False
 
 
 def _local_setup_python_bin() -> str | None:
@@ -367,55 +459,10 @@ def _local_setup_python_bin() -> str | None:
     global _LOCAL_SETUP_PYTHON
     if _LOCAL_SETUP_PYTHON is None:
         target = Path(LOCAL_ENV_OVERRIDES["TMPDIR"]) / "setup-python-venv"
-        if not (target / "bin" / "pip").exists():
-            target.parent.mkdir(parents=True, exist_ok=True)
-            # `uv venv --seed` first, `python3 -m venv` second. On a Debian
-            # interpreter -- which is exactly the PEP 668 case this exists for --
-            # the stdlib route fails with "ensurepip is not available", so the
-            # obvious ordering is the one that does not work on the only host
-            # that needs it. uv is already a hard dependency of this repo's own
-            # gates, so it is not a new requirement.
-            attempts = []
-            if shutil.which("uv") is not None:
-                attempts.append(
-                    [
-                        "uv",
-                        "venv",
-                        "--seed",
-                        "--system-site-packages",
-                        "--python",
-                        sys.executable,
-                        str(target),
-                    ]
-                )
-            attempts.append(
-                [sys.executable, "-m", "venv", "--system-site-packages", str(target)]
-            )
-            failures = []
-            for command in attempts:
-                created = subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    stdin=subprocess.DEVNULL,
-                    timeout=300,
-                )
-                if created.returncode == 0 and (target / "bin" / "pip").exists():
-                    break
-                # `python3 -m venv` reports the ensurepip failure on STDOUT, so
-                # a stderr-only report prints an empty reason and reads as a
-                # mystery. Take whichever stream actually said something.
-                failures.append(
-                    f"{command[0]}: "
-                    f"{(created.stderr.strip() or created.stdout.strip())[:300]}"
-                )
-            else:
-                print(
-                    "    [local setup-python replacement UNAVAILABLE -- pip steps "
-                    f"will fail as they do today: {' | '.join(failures)}]"
-                )
-                _LOCAL_SETUP_PYTHON = Path("")
-                return None
+        already_provisioned = (target / "bin" / "pip").exists()
+        if not already_provisioned and not _provision_setup_python_venv(target):
+            _LOCAL_SETUP_PYTHON = Path("")
+            return None
         print(f"    [local setup-python replacement: {target}]")
         _LOCAL_SETUP_PYTHON = target
     if not str(_LOCAL_SETUP_PYTHON):
