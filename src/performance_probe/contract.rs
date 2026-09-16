@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use super::{
-    MAX_REPETITIONS, MAX_SCALE, Observation, PROTOCOL, ProbeError, ProbeRequest, RequestedRow,
+    Observation, ProbeError, ProbeRequest, RequestedRow, MAX_REPETITIONS, MAX_SCALE, PROTOCOL,
     SCHEMA_VERSION,
 };
 

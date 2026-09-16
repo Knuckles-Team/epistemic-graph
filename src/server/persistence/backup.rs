@@ -587,10 +587,7 @@ fn validate_bundled_store_declarations(manifest: &BackupManifest) -> Result<(), 
     Ok(())
 }
 
-fn validate_manifest_shards(
-    dir: &Path,
-    manifest: &BackupManifest,
-) -> Result<Vec<PathBuf>, String> {
+fn validate_manifest_shards(dir: &Path, manifest: &BackupManifest) -> Result<Vec<PathBuf>, String> {
     let shard_files = crate::redb_layout::discover_current_shards(dir)?;
     if shard_files.len() != manifest.shard_count
         || manifest.shard_counts.len() != manifest.shard_count
@@ -603,10 +600,7 @@ fn validate_manifest_shards(
     Ok(shard_files)
 }
 
-fn validate_manifest_admin_store(
-    dir: &Path,
-    manifest: &BackupManifest,
-) -> Result<(), String> {
+fn validate_manifest_admin_store(dir: &Path, manifest: &BackupManifest) -> Result<(), String> {
     let admin_path = dir.join(ADMIN_MUTATIONS_FILE);
     let admin_metadata = std::fs::symlink_metadata(&admin_path)
         .map_err(|_| "backup bundle omits the admin mutation coordinator store".to_string())?;

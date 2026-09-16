@@ -3,8 +3,8 @@
 //! Each domain is checked in the same order as the durable contract. Hash
 //! recomputation remains in the parent commit seam, before any mutation authority.
 
-use super::{ProgramCandidateRecord, ProgramRevisionIdentity, revision_token, scoped_ref_matches};
-use crate::{PROGRAM_SCHEMA_VERSION, ProgramError};
+use super::{revision_token, scoped_ref_matches, ProgramCandidateRecord, ProgramRevisionIdentity};
+use crate::{ProgramError, PROGRAM_SCHEMA_VERSION};
 use eg_modality::OpaqueRef;
 use serde_json::{Map, Value};
 

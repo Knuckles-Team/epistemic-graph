@@ -16,8 +16,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    AdapterKind, CandidateRole, ModuleKind, OptimizationResult, OptimizerKind,
-    PROGRAM_SCHEMA_VERSION, ProgramCandidate, ProgramError, ProgramModality, ProgramRevision,
+    AdapterKind, CandidateRole, ModuleKind, OptimizationResult, OptimizerKind, ProgramCandidate,
+    ProgramError, ProgramModality, ProgramRevision, PROGRAM_SCHEMA_VERSION,
 };
 
 /// Immutable compiler inputs retained beside a promoted revision.

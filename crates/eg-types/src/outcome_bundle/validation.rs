@@ -185,7 +185,10 @@ fn event_result_provenance_matches_bundle(event: &RunEvent, bundle: &CommitOutco
         && event.missing_refs == bundle.missing_refs
 }
 
-pub(super) fn event_identity_matches_bundle(event: &RunEvent, bundle: &CommitOutcomeBundle) -> bool {
+pub(super) fn event_identity_matches_bundle(
+    event: &RunEvent,
+    bundle: &CommitOutcomeBundle,
+) -> bool {
     event_execution_identity_matches_bundle(event, bundle)
         && event_result_provenance_matches_bundle(event, bundle)
 }
