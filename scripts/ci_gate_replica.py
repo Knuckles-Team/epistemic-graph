@@ -110,8 +110,8 @@ SAME-INVOCATION EXECUTION EVIDENCE: when running as a hook, this process is
 the single producer for a private, HMAC-protected evidence ledger. Exact
 selection duplicates in one derived plan execute once. Later hooks can reuse
 only a successful, source/dirty-diff/lockfile/toolchain/effective-environment
-identical record, or a versioned subset proof declared by
-``scripts/push_gate_evidence.py``. Missing, partial, failed, stale, or
+identical record of the identical selection (``scripts/push_gate_evidence.py``
+never infers that one command covers another). Missing, partial, failed, stale, or
 unverifiable evidence never changes the command plan and falls through to
 normal execution.
 """

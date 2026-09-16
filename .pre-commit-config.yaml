@@ -630,13 +630,14 @@ repos:
   # (openraft/`raft`/`harness`) and `full-extras` (real CUDA `cudarc` + ROS2 `rustdds`
   # + CycloneDDS's C cmake build) — so recompiling them on EVERY commit is the single
   # biggest local cost while catching lints only in code the main artifact never links.
-  # `full` is a strict subset of `--all-features`, so this everyday leg can only be a
-  # subset of the lints CI/pre-push still enforce (rust-ci.yml gate 1 is unchanged).
+  # `full` enables a subset of the features `--all-features` enables, but that does NOT
+  # make its lints a subset: code under `cfg(not(feature = ...))` for a feature outside
+  # `full` (e.g. `not(feature = "raft")`) compiles only here. Neither leg covers the other.
   - id: cargo-clippy
     name: cargo clippy -D warnings (shipped `full` build — the slimmest profile, incl. Raspberry Pi)
-    # The preceding ci-gate-replica produces the broader advisory all-features
-    # selection. The consumer accepts it only through the versioned, explicit
-    # subset proof; absent or failed evidence runs this command normally.
+    # Evidence reuse is exact-only: this command is skipped only when this same
+    # invocation already recorded a successful run of this identical selection.
+    # An all-features record never covers it; otherwise the command runs normally.
     entry: bash -c 'if [ -f "Cargo.toml" ]; then python3 scripts/push_gate_evidence.py consume --selection cargo-clippy-full --kind cargo -- cargo clippy --no-default-features --features full --all-targets -- -D warnings; fi'
     language: system
     pass_filenames: false

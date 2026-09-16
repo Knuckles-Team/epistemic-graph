@@ -20,10 +20,10 @@ These tests also caught and drove the fix for a real defect: ``_write_evidence``
 signed a core that excluded ``contentDigest`` while ``_verify_document``
 verified against a core that included it, so a store's own fresh evidence
 never passed its own self-check and ``begin_or_resume`` never actually
-resumed. ``_write_evidence``/``_verify_document`` now agree (the signature
-covers the content digest; the content digest itself does not cover
-itself), proven below by an actual resume, a tampered-digest rejection, and
-a tampered-content-with-matching-forged-digest rejection.
+resumed. ``_write_evidence``/``_verify_document`` now agree (both sign the
+document minus ``signature``), proven below by an actual resume, a
+tampered-digest rejection, and a forged-content rejection that holds even
+when the forger recomputes the unkeyed content digest.
 
 Fixing that also surfaced a real jscpd (clone-gate) finding: ``current``'s
 signature-check-and-build-store tail duplicated ``_resume_from_marker``'s
@@ -189,17 +189,12 @@ def test_begin_or_resume_rejects_a_tampered_content_digest(
     assert second.invocation_id != first.invocation_id
 
 
-def test_begin_or_resume_rejects_tampered_content_with_an_unchanged_digest(
+def test_begin_or_resume_rejects_forged_content_with_a_recomputed_digest(
     isolated_git_directory: Path,
 ):
-    """The signature must cover the content digest, not just raw content.
-
-    Swapping in forged ``results`` alongside a forged (but internally
-    self-consistent) ``contentDigest`` for that forged content must still
-    fail, because the signature attests to the digest field's value too --
-    an attacker who can edit the evidence file cannot simply recompute a
-    matching digest without the HMAC key.
-    """
+    """Forged ``results`` with a correctly recomputed ``contentDigest`` must
+    still be rejected. The digest is unkeyed, so anyone can recompute it; the
+    rejection comes from the HMAC signature authenticating the content."""
 
     first = EvidenceStore.begin_or_resume()
     raw = json.loads(first.evidence_path.read_text(encoding="utf-8"))

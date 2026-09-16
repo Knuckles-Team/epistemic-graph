@@ -15,7 +15,6 @@ from typing import Any
 import push_gate_evidence
 import pytest
 from push_gate_evidence import (
-    SUBSET_PROOFS,
     EvidenceStore,
     Selection,
     _digest,
@@ -91,49 +90,68 @@ def test_exact_reuse_requires_complete_success_and_identical_selection() -> None
     assert not EvidenceStore._admissible(document, different_environment)
 
 
-def test_subset_reuse_is_only_the_declared_clippy_proof() -> None:
-    proof = SUBSET_PROOFS["cargo-clippy-full"]
-    environment = {"CARGO_TARGET_DIR": "/var/tmp/eg", "CARGO_BUILD_JOBS": "2"}
-    requested = Selection.from_argv(
-        "cargo-clippy-full",
-        proof["requested_argv"],
+#: The shipped pre-push ``cargo-clippy`` hook command.
+FULL_CLIPPY_ARGV = (
+    "cargo",
+    "clippy",
+    "--no-default-features",
+    "--features",
+    "full",
+    "--all-targets",
+    "--",
+    "-D",
+    "warnings",
+)
+#: The release workflow's every-crate, all-features clippy step.
+ALL_FEATURES_CLIPPY_ARGV = (
+    "cargo",
+    "clippy",
+    "--workspace",
+    "--all-features",
+    "--all-targets",
+    "--",
+    "-D",
+    "warnings",
+)
+
+
+def _clippy_selection(label: str, argv: tuple[str, ...]) -> Selection:
+    return Selection.from_argv(
+        label,
+        argv,
         kind="cargo",
-        environment=environment,
+        environment={"CARGO_TARGET_DIR": "target", "CARGO_BUILD_JOBS": "2"},
     )
-    provider = Selection.from_argv(
-        "advisory-provider",
-        proof["provider_argv"],
-        kind="cargo",
-        environment=environment,
+
+
+def test_all_features_clippy_record_never_covers_the_shipped_full_clippy() -> None:
+    """``--all-features`` is not a superset of ``--features full`` here: code
+    under ``cfg(not(feature = "raft"))`` and similar compiles only in the
+    ``full`` build, so a successful all-features record must not skip it."""
+
+    provider = _clippy_selection(
+        "release-all-features-clippy", ALL_FEATURES_CLIPPY_ARGV
     )
+    requested = _clippy_selection("cargo-clippy-full", FULL_CLIPPY_ARGV)
     document = _document(provider)
 
-    assert requested.selection_digest not in document["plan"]
-    assert requested.selection_digest not in document["results"]
-    assert EvidenceStore._admissible(document, requested)
-
-    unrelated = Selection.from_argv(
-        "unapproved-subset",
-        proof["requested_argv"],
-        kind="cargo",
-        environment=environment,
-    )
-    assert not EvidenceStore._admissible(document, unrelated)
+    assert EvidenceStore._admissible(document, provider)
+    assert not EvidenceStore._admissible(document, requested)
 
 
-def test_subset_proof_does_not_make_an_unplanned_exact_result_admissible() -> None:
-    proof = SUBSET_PROOFS["cargo-clippy-full"]
-    environment = {"CARGO_TARGET_DIR": "/var/tmp/eg", "CARGO_BUILD_JOBS": "2"}
-    requested = Selection.from_argv(
-        "cargo-clippy-full",
-        proof["requested_argv"],
-        kind="cargo",
-        environment=environment,
-    )
+def test_identical_full_clippy_record_is_reused_whatever_its_label() -> None:
+    recorded = _clippy_selection("replica-full-clippy", FULL_CLIPPY_ARGV)
+    requested = _clippy_selection("cargo-clippy-full", FULL_CLIPPY_ARGV)
+
+    assert EvidenceStore._admissible(_document(recorded), requested)
+
+
+def test_unplanned_exact_result_is_not_admissible() -> None:
+    requested = _clippy_selection("cargo-clippy-full", FULL_CLIPPY_ARGV)
     document = _document(requested)
     del document["plan"][requested.selection_digest]
 
-    assert requested.selection_digest not in document["plan"]
+    assert requested.selection_digest in document["results"]
     assert not EvidenceStore._admissible(document, requested)
 
 

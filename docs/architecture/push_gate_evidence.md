@@ -46,12 +46,14 @@ A record can be consumed only when all of the following hold:
 4. the result is `success`, has exit code `0`, and has the expected result
    digest.
 
-The sole non-exact relation is the versioned `cargo-clippy-full` proof. The
-advisory `cargo clippy --workspace --all-features --all-targets -- -D
-warnings` result may cover the shipped `full`/all-targets command only when
-the requested command, provider payload, and effective environment match the
-declared proof. No other selection is inferred to be a subset, and mandatory
-coverage remains mandatory.
+There is no non-exact relation: no selection is inferred to cover another.
+In particular the advisory `cargo clippy --workspace --all-features
+--all-targets -- -D warnings` result does not cover the shipped
+`cargo clippy --no-default-features --features full --all-targets -- -D
+warnings` command. `--all-features` is not a superset of `full` for this
+crate: code under `cfg(not(feature = ...))` for a feature outside `full` (for
+example `not(feature = "raft")`) compiles and is linted only in the `full`
+build. Mandatory coverage remains mandatory.
 
 ## Failure and restart behavior
 

@@ -10,10 +10,13 @@ per-invocation key kept in the worktree's private Git directory; malformed,
 unsigned, stale, partial, failed, or differently configured records simply
 miss the cache and the caller runs normally.
 
-This is an optimization boundary, never a coverage waiver.  The only
-non-exact reuse relation is explicitly versioned in ``SUBSET_PROOFS`` and is
-limited to a shipped-full clippy invocation being covered by the advisory
-workspace all-features invocation.
+This is an optimization boundary, never a coverage waiver.  Reuse is exact
+only: a record is consumed solely for the identical selection (argv, kind,
+packages, features, targets and effective environment).  No command is ever
+inferred to cover a different one.  In particular a ``--workspace
+--all-features`` clippy run does not cover the shipped ``--features full``
+run: code under ``cfg(not(feature = ...))`` for a feature outside ``full``
+compiles only in the latter.
 """
 
 from __future__ import annotations
@@ -33,7 +36,7 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from _git_subprocess_env import sanitized_git_env
@@ -481,54 +484,6 @@ class Selection:
         return _digest(self.payload())
 
 
-class SubsetProof(TypedDict):
-    """One declared non-exact reuse relation: ``requested_argv`` is admissible
-    as reuse of a prior ``provider_argv`` run, with ``rationale`` recorded for
-    audit."""
-
-    version: str
-    provider_argv: list[str]
-    requested_argv: list[str]
-    rationale: str
-
-
-# The only intentionally non-exact reuse relation.  The provider command is
-# the exact advisory workflow command; the requested command is the shipped
-# full-only hook.  Workspace/all-features/all-targets is a declared superset
-# of the root full/all-targets invocation, with identical warning flags.
-SUBSET_PROOFS: dict[str, SubsetProof] = {
-    "cargo-clippy-full": {
-        "version": "eg-push-gate-subset/v1",
-        "provider_argv": [
-            "cargo",
-            "clippy",
-            "--workspace",
-            "--all-features",
-            "--all-targets",
-            "--",
-            "-D",
-            "warnings",
-        ],
-        "requested_argv": [
-            "cargo",
-            "clippy",
-            "--no-default-features",
-            "--features",
-            "full",
-            "--all-targets",
-            "--",
-            "-D",
-            "warnings",
-        ],
-        "rationale": "workspace all-features/all-targets strictly covers shipped "
-        "full/all-targets",
-    }
-}
-
-
-_MISSING_SELECTION = object()
-
-
 def _successful_result(result: object, payload: dict[str, object]) -> bool:
     if not isinstance(result, dict):
         return False
@@ -538,35 +493,6 @@ def _successful_result(result: object, payload: dict[str, object]) -> bool:
         and result.get("resultDigest")
         == _digest({"selection": payload, "exitCode": 0, "status": "success"})
     )
-
-
-def _proof_provider(selection: Selection) -> Selection | None:
-    proof = SUBSET_PROOFS.get(selection.label)
-    if proof is None or list(selection.argv) != proof["requested_argv"]:
-        return None
-    provider_argv = tuple(str(item) for item in proof["provider_argv"])
-    packages, features, targets = _extract_cargo(provider_argv)
-    return Selection(
-        label=f"proof-provider:{selection.label}",
-        argv=provider_argv,
-        kind=selection.kind,
-        environment=selection.environment,
-        packages=packages,
-        features=features,
-        targets=targets,
-    )
-
-
-def _subset_admissible(
-    plan: dict[str, Any], results: dict[str, Any], selection: Selection
-) -> bool:
-    provider = _proof_provider(selection)
-    if provider is None:
-        return False
-    provider_payload = provider.payload()
-    return _successful_result(
-        results.get(provider.selection_digest), provider_payload
-    ) and (plan.get(provider.selection_digest) == provider_payload)
 
 
 def _git_directory() -> Path:
@@ -960,16 +886,13 @@ class EvidenceStore:
     def _verify_document(self, document: dict[str, Any]) -> None:
         """Verify an evidence document's identity, content digest and signature.
 
-        The signature covers the content digest too, not just the raw
-        content: `signed_core` is the document minus only `signature`
-        (so it still carries `contentDigest`), and that is exactly what
-        `_write_evidence` signs. `content_core` additionally strips
-        `contentDigest` itself -- a digest can never legitimately cover its
-        own value -- so `contentDigest` is checked against a hash of the
-        content alone, while `signature` is checked against a hash that
-        also attests to `contentDigest` being the right one for that
-        content (an attacker cannot swap in a different but internally
-        "consistent" digest without invalidating the signature).
+        The HMAC ``signature`` is what authenticates the content: it is
+        computed over the document minus ``signature`` (``signed_core``), the
+        same core ``_write_evidence`` signs. ``contentDigest`` is an unkeyed
+        hash of the content without either field (``content_core``), checked
+        for equality. It is an integrity/format check only: anyone who can
+        edit the file can recompute it, so a forged document is rejected by
+        the signature, not by the digest.
         """
         if document.get("schema") != SCHEMA:
             raise EvidenceError("evidence schema is unsupported")
@@ -992,8 +915,8 @@ class EvidenceStore:
             raise EvidenceError("evidence plan is incomplete")
 
     def _write_evidence(self, state: dict[str, Any]) -> None:
-        """Write evidence whose content digest is itself covered by the
-        signature -- see `_verify_document` for why."""
+        """Write evidence with an unkeyed ``contentDigest`` and an HMAC
+        ``signature`` over everything else, as ``_verify_document`` checks."""
         document: dict[str, Any] = {
             "schema": SCHEMA,
             "invocationId": self.invocation_id,
@@ -1081,17 +1004,12 @@ class EvidenceStore:
             return False
         payload = selection.payload()
         selection_key = selection.selection_digest
-        planned = plan.get(selection_key, _MISSING_SELECTION)
-        if planned is not _MISSING_SELECTION and planned != payload:
-            return False
-        if planned is not _MISSING_SELECTION and _successful_result(
+        return plan.get(selection_key) == payload and _successful_result(
             results.get(selection_key), payload
-        ):
-            return True
-        return _subset_admissible(plan, results, selection)
+        )
 
     def consume(self, selection: Selection) -> bool:
-        """Return true only for an admissible successful exact/subset result."""
+        """Return true only for an admissible successful exact result."""
 
         return self._admissible(self._load_evidence(), selection)
 
