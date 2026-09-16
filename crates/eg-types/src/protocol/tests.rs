@@ -179,7 +179,7 @@ fn development_lane_protocol_matches_cross_language_golden_vector() {
     };
 
     let vector: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../protocols/epistemic-operations/v1/development-lane.golden.json"
+        "../../../../protocols/epistemic-operations/v1/development-lane.golden.json"
     ))
     .expect("golden vector must be valid JSON");
     assert_eq!(
