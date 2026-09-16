@@ -66,34 +66,46 @@ def run(cargo: str, target_dir: str | None, jobs: int | None) -> list[dict]:
     return messages
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--cargo", default="cargo")
-    parser.add_argument("--target-dir")
-    parser.add_argument("--jobs", type=int)
-    parser.add_argument("--json-out")
-    arguments = parser.parse_args()
+def _finding_row(record: dict) -> dict | None:
+    """The census row for one compiler message, or None if it isn't a finding.
 
-    messages = run(arguments.cargo, arguments.target_dir, arguments.jobs)
+    rustc's own errors are not clippy findings; keeping them out here (rather
+    than filtering post hoc) means a compile failure can never be mistaken
+    for a lint count.
+    """
+    message = record.get("message", {})
+    if message.get("level") not in {"warning", "error"}:
+        return None
+    code = (message.get("code") or {}).get("code") or "(uncoded)"
+    crate = record.get("target", {}).get("name", "?")
+    spans = message.get("spans") or []
+    primary = next((s for s in spans if s.get("is_primary")), None)
+    file = primary.get("file_name") if primary else "?"
+    line = primary.get("line_start") if primary else 0
+    return {"lint": code, "crate": crate, "file": file, "line": line}
+
+
+def _tally(
+    messages: list[dict],
+) -> tuple[collections.Counter[str], collections.Counter[str], list[dict]]:
     by_lint: collections.Counter[str] = collections.Counter()
     by_crate: collections.Counter[str] = collections.Counter()
-    rows = []
+    rows: list[dict] = []
     for record in messages:
-        message = record.get("message", {})
-        if message.get("level") not in {"warning", "error"}:
+        row = _finding_row(record)
+        if row is None:
             continue
-        code = (message.get("code") or {}).get("code") or "(uncoded)"
-        # rustc's own errors are not clippy findings; keep them separate so a
-        # compile failure can never be mistaken for a lint count.
-        crate = record.get("target", {}).get("name", "?")
-        spans = message.get("spans") or []
-        primary = next((s for s in spans if s.get("is_primary")), None)
-        file = primary.get("file_name") if primary else "?"
-        line = primary.get("line_start") if primary else 0
-        by_lint[code] += 1
-        by_crate[crate] += 1
-        rows.append({"lint": code, "crate": crate, "file": file, "line": line})
+        by_lint[row["lint"]] += 1
+        by_crate[row["crate"]] += 1
+        rows.append(row)
+    return by_lint, by_crate, rows
 
+
+def _print_report(
+    rows: list[dict],
+    by_lint: collections.Counter[str],
+    by_crate: collections.Counter[str],
+) -> None:
     print(
         f"clippy census: {len(rows)} finding(s) across {len(by_crate)} crate target(s)"
     )
@@ -103,11 +115,26 @@ def main() -> int:
     print("\nby crate target (top 20):")
     for crate, count in by_crate.most_common(20):
         print(f"  {count:5d}  {crate}")
+
+
+def _write_json_out(path: str, rows: list[dict]) -> None:
+    Path(path).write_text(json.dumps(rows, indent=2), encoding="utf-8")
+    print(f"\nper-finding rows written to {path}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--cargo", default="cargo")
+    parser.add_argument("--target-dir")
+    parser.add_argument("--jobs", type=int)
+    parser.add_argument("--json-out")
+    arguments = parser.parse_args()
+
+    messages = run(arguments.cargo, arguments.target_dir, arguments.jobs)
+    by_lint, by_crate, rows = _tally(messages)
+    _print_report(rows, by_lint, by_crate)
     if arguments.json_out:
-        Path(arguments.json_out).write_text(
-            json.dumps(rows, indent=2), encoding="utf-8"
-        )
-        print(f"\nper-finding rows written to {arguments.json_out}")
+        _write_json_out(arguments.json_out, rows)
     return 0
 
 
