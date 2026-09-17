@@ -47,7 +47,9 @@
 use std::sync::Arc;
 
 use super::multi::MultiRaft;
-use super::placement::{MoveStage, PartitionMoveJournal, PartitionState, PlacementEntry};
+use super::placement::{
+    MoveStage, PartitionMoveJournal, PartitionState, PlacementEntry, PlacementFence,
+};
 use super::GroupId;
 use crate::server::persistence::redb_backend::rehydrate_core_from_dump;
 use crate::server::persistence::PersistenceBackend;
@@ -290,52 +292,26 @@ impl TenantManager {
             journal.stage = MoveStage::Aborting;
             self.multi.persist_move_journal(&journal).await?;
         }
-        let entry = self
-            .partition_entry(
-                &journal.key.tenant,
-                (journal.key.range_start, journal.key.range_end),
-            )
-            .await?;
-        match entry.state {
-            PartitionState::Moving { target }
-                if entry.group == journal.source
-                    && target == journal.target
-                    && entry.epoch == journal.original_epoch =>
-            {
-                self.multi
-                    .placement_abort_move(
-                        &journal.key.tenant,
-                        (journal.key.range_start, journal.key.range_end),
-                        journal.source,
-                        journal.target,
-                        journal.original_epoch,
-                    )
-                    .await?;
-            }
-            PartitionState::Active
-                if entry.group == journal.source && entry.epoch == journal.original_epoch => {}
-            _ if entry.group == journal.target
-                && entry.epoch > journal.original_epoch
-                && entry.state == PartitionState::Active =>
-            {
-                // The cutover won a race with the abort intent. The epoch is the
-                // irreversible fence, so make the journal truthful and finish
-                // forward; never strand `Aborting` behind the target route.
-                journal.stage = MoveStage::CutoverCommitted;
-                self.multi.persist_move_journal(&journal).await?;
-                self.drive_move(journal).await?;
-                return Err(
-                    "partition move passed its rollback fence and was reconciled forward"
-                        .to_string(),
-                );
-            }
-            _ => return Err("partition move placement no longer matches its journal".to_string()),
+        let range = (journal.key.range_start, journal.key.range_end);
+        let entry = self.partition_entry(&journal.key.tenant, range).await?;
+        let fence = PlacementFence::observe(&entry, &journal);
+        if fence.active_target {
+            return reconcile_abort_forward(self, journal).await;
         }
-        for graph in &journal.graphs {
-            self.multi.router().assign(graph, journal.source);
+        if fence.moving_source {
+            self.multi
+                .placement_abort_move(
+                    &journal.key.tenant,
+                    range,
+                    journal.source,
+                    journal.target,
+                    journal.original_epoch,
+                )
+                .await?;
+        } else if !fence.active_source {
+            return Err("partition move placement no longer matches its journal".to_string());
         }
-        journal.stage = MoveStage::Aborted;
-        self.multi.persist_move_journal(&journal).await
+        restore_source_route(self, journal).await
     }
 
     async fn drive_move(
@@ -346,108 +322,18 @@ impl TenantManager {
             return Err("partition move target group is unavailable".to_string());
         }
         let range = (journal.key.range_start, journal.key.range_end);
-        let mut entry = self.partition_entry(&journal.key.tenant, range).await?;
+        let entry = self.partition_entry(&journal.key.tenant, range).await?;
 
         // A crash after the cutover commit but before its journal update is resolved
         // strictly forward; the epoch itself is the irreversible fence.
-        if matches!(entry.state, PartitionState::Active)
-            && entry.group == journal.target
-            && entry.epoch > journal.original_epoch
-        {
+        let epoch = if PlacementFence::observe(&entry, &journal).active_target {
             journal.stage = MoveStage::CutoverCommitted;
             self.multi.persist_move_journal(&journal).await?;
+            entry.epoch
         } else {
-            if journal.stage == MoveStage::Aborting {
-                return Err("aborting partition move cannot be driven forward".to_string());
-            }
-            if matches!(entry.state, PartitionState::Active)
-                && entry.group == journal.source
-                && entry.epoch == journal.original_epoch
-            {
-                self.multi
-                    .placement_start_move(&journal.key.tenant, range, journal.target)
-                    .await?;
-                journal.stage = MoveStage::Moving;
-                self.multi.persist_move_journal(&journal).await?;
-                entry = self.partition_entry(&journal.key.tenant, range).await?;
-            }
-            if entry.group != journal.source
-                || entry.epoch != journal.original_epoch
-                || entry.state
-                    != (PartitionState::Moving {
-                        target: journal.target,
-                    })
-            {
-                return Err("partition move placement no longer matches its journal".to_string());
-            }
-
-            journal.stage = MoveStage::Transferring;
-            self.multi.persist_move_journal(&journal).await?;
-            for graph in journal.graphs.clone() {
-                if journal.completed_graphs.binary_search(&graph).is_err() {
-                    self.reshard_graph(&graph, journal.target).await?;
-                    journal.completed_graphs.push(graph);
-                    journal.completed_graphs.sort();
-                    journal.completed_graphs.dedup();
-                    self.multi.persist_move_journal(&journal).await?;
-                }
-            }
-            journal.stage = MoveStage::ReadyForCutover;
-            self.multi.persist_move_journal(&journal).await?;
-
-            // Re-verify from authoritative storage even when every graph was marked
-            // complete before a prior crash.  Journal progress alone never authorizes
-            // cutover.
-            for graph in &journal.graphs {
-                self.verify_graph_durable(graph).await?;
-            }
-            // Re-read the durable intent immediately before the irreversible epoch
-            // fence. An abort that won the journal race stops this driver here.
-            journal = self
-                .multi
-                .placement()
-                .move_journal(&journal.move_id)
-                .await?
-                .ok_or_else(|| "partition move journal disappeared before cutover".to_string())?;
-            if journal.stage != MoveStage::ReadyForCutover {
-                return Err("partition move intent changed before cutover".to_string());
-            }
-            self.multi
-                .require_local_group_leader(super::DEFAULT_GROUP)
-                .await?;
-            let epoch = self
-                .multi
-                .placement_fence_cutover(&journal.key.tenant, range, journal.target)
-                .await?;
-            entry = PlacementEntry {
-                key: journal.key.clone(),
-                group: journal.target,
-                epoch,
-                state: PartitionState::Active,
-            };
-            journal.stage = MoveStage::CutoverCommitted;
-            self.multi.persist_move_journal(&journal).await?;
-        }
-
-        let mut reports = Vec::with_capacity(journal.graphs.len());
-        for graph in &journal.graphs {
-            self.multi.router().assign(graph, journal.target);
-            reports.push(ReshardReport {
-                graph: graph.clone(),
-                from_group: journal.source,
-                to_group: journal.target,
-                nodes_transferred: self.verify_graph_durable(graph).await?,
-            });
-        }
-        journal.stage = MoveStage::Completed;
-        self.multi.persist_move_journal(&journal).await?;
-        Ok(PlacementMoveReport {
-            tenant: journal.key.tenant,
-            range,
-            target: journal.target,
-            epoch: entry.epoch,
-            graphs: reports,
-        })
+            cut_over_move(self, &mut journal, entry).await?
+        };
+        complete_move(self, journal, range, epoch).await
     }
 
     async fn move_is_post_cutover(&self, journal: &PartitionMoveJournal) -> Result<bool, String> {
@@ -634,4 +520,155 @@ impl TenantManager {
         })?;
         redb.read_graph_dump_blocking(graph_fname)
     }
+}
+
+/// The cutover won a race with the abort intent. The epoch is the irreversible
+/// fence, so make the journal truthful and finish forward; never strand
+/// `Aborting` behind the target route.
+async fn reconcile_abort_forward(
+    manager: &TenantManager,
+    mut journal: PartitionMoveJournal,
+) -> Result<(), String> {
+    journal.stage = MoveStage::CutoverCommitted;
+    manager.multi.persist_move_journal(&journal).await?;
+    manager.drive_move(journal).await?;
+    Err("partition move passed its rollback fence and was reconciled forward".to_string())
+}
+
+/// Point every graph of an aborted move back at its source and retain the
+/// terminal abort.
+async fn restore_source_route(
+    manager: &TenantManager,
+    mut journal: PartitionMoveJournal,
+) -> Result<(), String> {
+    for graph in &journal.graphs {
+        manager.multi.router().assign(graph, journal.source);
+    }
+    journal.stage = MoveStage::Aborted;
+    manager.multi.persist_move_journal(&journal).await
+}
+
+/// Drive a not-yet-fenced move through start, transfer, and the fenced cutover,
+/// returning the routing epoch the cutover committed.
+async fn cut_over_move(
+    manager: &TenantManager,
+    journal: &mut PartitionMoveJournal,
+    entry: PlacementEntry,
+) -> Result<u64, String> {
+    if journal.stage == MoveStage::Aborting {
+        return Err("aborting partition move cannot be driven forward".to_string());
+    }
+    let entry = start_move_if_active(manager, journal, entry).await?;
+    if !PlacementFence::observe(&entry, journal).moving_source {
+        return Err("partition move placement no longer matches its journal".to_string());
+    }
+    transfer_move_graphs(manager, journal).await?;
+    *journal = reload_ready_for_cutover(manager, &journal.move_id).await?;
+    manager
+        .multi
+        .require_local_group_leader(super::DEFAULT_GROUP)
+        .await?;
+    let range = (journal.key.range_start, journal.key.range_end);
+    let epoch = manager
+        .multi
+        .placement_fence_cutover(&journal.key.tenant, range, journal.target)
+        .await?;
+    journal.stage = MoveStage::CutoverCommitted;
+    manager.multi.persist_move_journal(journal).await?;
+    Ok(epoch)
+}
+
+/// Mark a still-active source partition as moving, returning the re-read row.
+async fn start_move_if_active(
+    manager: &TenantManager,
+    journal: &mut PartitionMoveJournal,
+    entry: PlacementEntry,
+) -> Result<PlacementEntry, String> {
+    if !PlacementFence::observe(&entry, journal).active_source {
+        return Ok(entry);
+    }
+    let range = (journal.key.range_start, journal.key.range_end);
+    manager
+        .multi
+        .placement_start_move(&journal.key.tenant, range, journal.target)
+        .await?;
+    journal.stage = MoveStage::Moving;
+    manager.multi.persist_move_journal(journal).await?;
+    manager.partition_entry(&journal.key.tenant, range).await
+}
+
+/// Reshard every graph not yet completed, retaining progress after each one,
+/// then re-verify durable presence of the whole inventory.
+async fn transfer_move_graphs(
+    manager: &TenantManager,
+    journal: &mut PartitionMoveJournal,
+) -> Result<(), String> {
+    journal.stage = MoveStage::Transferring;
+    manager.multi.persist_move_journal(journal).await?;
+    for graph in journal.graphs.clone() {
+        if journal.completed_graphs.binary_search(&graph).is_err() {
+            manager.reshard_graph(&graph, journal.target).await?;
+            journal.completed_graphs.push(graph);
+            journal.completed_graphs.sort();
+            journal.completed_graphs.dedup();
+            manager.multi.persist_move_journal(journal).await?;
+        }
+    }
+    journal.stage = MoveStage::ReadyForCutover;
+    manager.multi.persist_move_journal(journal).await?;
+
+    // Re-verify from authoritative storage even when every graph was marked
+    // complete before a prior crash.  Journal progress alone never authorizes
+    // cutover.
+    for graph in &journal.graphs {
+        manager.verify_graph_durable(graph).await?;
+    }
+    Ok(())
+}
+
+/// Re-read the durable intent immediately before the irreversible epoch fence.
+/// An abort that won the journal race stops the driver here.
+async fn reload_ready_for_cutover(
+    manager: &TenantManager,
+    move_id: &str,
+) -> Result<PartitionMoveJournal, String> {
+    let journal = manager
+        .multi
+        .placement()
+        .move_journal(move_id)
+        .await?
+        .ok_or_else(|| "partition move journal disappeared before cutover".to_string())?;
+    if journal.stage != MoveStage::ReadyForCutover {
+        return Err("partition move intent changed before cutover".to_string());
+    }
+    Ok(journal)
+}
+
+/// Route every graph to the target, report its durable presence, and retain the
+/// completed journal.
+async fn complete_move(
+    manager: &TenantManager,
+    mut journal: PartitionMoveJournal,
+    range: (u64, u64),
+    epoch: u64,
+) -> Result<PlacementMoveReport, String> {
+    let mut reports = Vec::with_capacity(journal.graphs.len());
+    for graph in &journal.graphs {
+        manager.multi.router().assign(graph, journal.target);
+        reports.push(ReshardReport {
+            graph: graph.clone(),
+            from_group: journal.source,
+            to_group: journal.target,
+            nodes_transferred: manager.verify_graph_durable(graph).await?,
+        });
+    }
+    journal.stage = MoveStage::Completed;
+    manager.multi.persist_move_journal(&journal).await?;
+    Ok(PlacementMoveReport {
+        tenant: journal.key.tenant,
+        range,
+        target: journal.target,
+        epoch,
+        graphs: reports,
+    })
 }
