@@ -507,7 +507,13 @@ ex:ThingShape a sh:NodeShape ;
     sh:property [ sh:path ex:color ; sh:in ( "red" "blue" ) ] ;
     sh:property [ sh:path ex:label ; sh:languageIn ( "en" ) ] ;
     sh:property [ sh:path ex:child ; sh:node ex:ChildShape ] ;
-    sh:property [ sh:path ex:neg ; sh:not [ sh:datatype xsd:string ] ] .
+    sh:property [ sh:path ex:neg ; sh:not [ sh:datatype xsd:string ] ] ;
+    sh:property [ sh:path ex:mid ; sh:minExclusive 10 ] ;
+    sh:property [ sh:path ex:cap ; sh:maxInclusive 5 ] ;
+    sh:property [ sh:path ex:lang ; sh:languageIn () ] ;
+    sh:property [ sh:path ex:alt ; sh:or ( [ sh:datatype xsd:integer ] [ sh:datatype xsd:boolean ] ) ] ;
+    sh:property [ sh:path ex:both ; sh:and ( [ sh:datatype xsd:string ] [ sh:minLength 5 ] ) ] ;
+    sh:property [ sh:path ex:either ; sh:xone ( [ sh:datatype xsd:string ] [ sh:minLength 1 ] ) ] .
 
 ex:ChildShape a sh:NodeShape ;
     sh:property [ sh:path ex:id ; sh:minCount 1 ] .
@@ -541,14 +547,21 @@ ex:t a ex:Thing ;
     ex:label "hi"@fr ;
     ex:child ex:c ;
     ex:neg "s" ;
+    ex:mid 10 ;
+    ex:cap 6 ;
+    ex:lang "hi"@en ;
+    ex:alt "s" ;
+    ex:both "ab" ;
+    ex:either "x" ;
     ex:extra 1 .
 ex:c ex:name "x" .
 "#;
 
 /// Exact witness text for every constraint kind ICV builds a witness for (the core
-/// components, `sh:closed`, `sh:sparql`, node-shape `sh:hasValue`/`sh:nodeKind`, and
-/// the shape-based fallback). Blank-node shape labels are parser-assigned, so each
-/// witness's own `source_shape` is replaced by `SHAPE`.
+/// components incl. all four range bounds and an empty `sh:languageIn`, `sh:closed`,
+/// `sh:sparql`, node-shape `sh:hasValue`/`sh:nodeKind`, and the shape-based fallback
+/// for `sh:node`/`sh:not`/`sh:and`/`sh:or`/`sh:xone`). Blank-node shape labels are
+/// parser-assigned, so each witness's own `source_shape` is replaced by `SHAPE`.
 #[test]
 fn icv_witness_text_is_pinned_for_every_constraint_kind() {
     let report = run(WITNESS_SHAPES, WITNESS_DATA);
@@ -577,7 +590,16 @@ fn icv_witness_text_is_pinned_for_every_constraint_kind() {
     assert_eq!(actual, WITNESS_GOLDEN);
 }
 
-const WITNESS_GOLDEN: &str = r##"[ClassConstraintComponent]
+const WITNESS_GOLDEN: &str = r##"[AndConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — value fails the referenced constraint/shape
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  <http://example.org/t> <http://example.org/both> ?value .
+}
+# offending value node: "ab"
+# (does not satisfy component http://www.w3.org/ns/shacl#AndConstraintComponent)
+=====
+[ClassConstraintComponent]
 # CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:class <http://example.org/Target> — value is not a (closed-world) instance
 # focus: <http://example.org/t>  shape: SHAPE
 SELECT ?value WHERE {
@@ -629,6 +651,14 @@ SELECT ?value WHERE {
   FILTER (!(LANGMATCHES(LANG(?value), "en")))
 }
 =====
+[LanguageInConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:languageIn — language tag not allowed
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  <http://example.org/t> <http://example.org/lang> ?value .
+  FILTER (true)
+}
+=====
 [MaxCountConstraintComponent]
 # CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:maxCount 1 — more than 1 values
 # focus: <http://example.org/t>  shape: SHAPE
@@ -643,6 +673,14 @@ SELECT ?value WHERE {
 SELECT ?value WHERE {
   <http://example.org/t> <http://example.org/high> ?value .
   FILTER (?value >= "5"^^<http://www.w3.org/2001/XMLSchema#integer>)
+}
+=====
+[MaxInclusiveConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:MaxInclusive "5"^^<http://www.w3.org/2001/XMLSchema#integer> — value out of range
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  <http://example.org/t> <http://example.org/cap> ?value .
+  FILTER (?value > "5"^^<http://www.w3.org/2001/XMLSchema#integer>)
 }
 =====
 [MaxLengthConstraintComponent]
@@ -660,6 +698,14 @@ SELECT (COUNT(?value) AS ?count) WHERE {
   <http://example.org/t> <http://example.org/req> ?value .
 }
 # violation iff ?count < 1
+=====
+[MinExclusiveConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:MinExclusive "10"^^<http://www.w3.org/2001/XMLSchema#integer> — value out of range
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  <http://example.org/t> <http://example.org/mid> ?value .
+  FILTER (?value <= "10"^^<http://www.w3.org/2001/XMLSchema#integer>)
+}
 =====
 [MinInclusiveConstraintComponent]
 # CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:MinInclusive "10"^^<http://www.w3.org/2001/XMLSchema#integer> — value out of range
@@ -711,6 +757,15 @@ SELECT ?value WHERE {
 # offending value node: "s"
 # (does not satisfy component http://www.w3.org/ns/shacl#NotConstraintComponent)
 =====
+[OrConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — value fails the referenced constraint/shape
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  <http://example.org/t> <http://example.org/alt> ?value .
+}
+# offending value node: "s"
+# (does not satisfy component http://www.w3.org/ns/shacl#OrConstraintComponent)
+=====
 [PatternConstraintComponent]
 # CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:pattern ^A — value does not match
 # focus: <http://example.org/t>  shape: SHAPE
@@ -731,4 +786,13 @@ SELECT ?value WHERE {
 # CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:sparql — the constraint's own SELECT produced this result
 # focus: <http://example.org/t>  shape: SHAPE
 # sh:select, with $this = <http://example.org/t>:
-SELECT $this ?value WHERE { $this <http://example.org/low> ?value . FILTER (?value < 10) }"##;
+SELECT $this ?value WHERE { $this <http://example.org/low> ?value . FILTER (?value < 10) }
+=====
+[XoneConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — value fails the referenced constraint/shape
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  <http://example.org/t> <http://example.org/either> ?value .
+}
+# offending value node: "x"
+# (does not satisfy component http://www.w3.org/ns/shacl#XoneConstraintComponent)"##;
