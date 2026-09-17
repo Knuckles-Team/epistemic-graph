@@ -15,6 +15,12 @@
 //! The pure kernel (`reductions`, `elementwise`, `linalg`, `random`) is
 //! parity-tested against the isolated developer reference implementation in
 //! `agent_utilities` and in-crate tests.
+//!
+//! The statistics modules (`detkernel`, `calibration`, `risk`, `conformal`,
+//! `ope`) are bit-reproducible across release targets: every transcendental goes
+//! through the pinned software `libm` (the crate `clippy.toml` bans the std
+//! float transcendentals crate-wide), reductions are serial and ordered, and
+//! digests are taken over quantised integers.
 
 pub mod cluster;
 pub mod elementwise;
@@ -22,6 +28,15 @@ pub mod error;
 pub mod linalg;
 pub mod random;
 pub mod reductions;
+// Deterministic statistics for replayable decisions (Decide layer, §4.4 and §6
+// of the design): pinned soft-float transcendentals and quantised digests
+// (`detkernel`), calibration, risk control, conformal prediction and off-policy
+// evaluation. Always built: they add only the pinned pure-Rust `libm`.
+pub mod calibration;
+pub mod conformal;
+pub mod detkernel;
+pub mod ope;
+pub mod risk;
 // ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
 // cluster::KMeansResult` + the `modality_conformance_tests!` battery. Behind the
 // crate's own opt-in `contract` feature (default OFF). See `src/contract.rs`.

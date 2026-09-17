@@ -14,6 +14,7 @@
 //! numerics). This module is gated behind the `analytics` feature (pulled by
 //! `python`) so an engine `pi`/`default` build never links `statrs`.
 
+use crate::detkernel::math;
 use crate::error::{NumericError, Result};
 use ndarray::ArrayView1;
 use statrs::distribution::{Continuous, ContinuousCDF, Normal, StudentsT};
@@ -104,7 +105,7 @@ pub fn kolmogorov_sf(x: f64) -> f64 {
     let mut sign = 1.0f64;
     for k in 1..=100 {
         let kf = k as f64;
-        let term = sign * (-2.0 * kf * kf * x * x).exp();
+        let term = sign * math::exp(-2.0 * kf * kf * x * x);
         sum += term;
         sign = -sign;
         if term.abs() < 1e-15 {

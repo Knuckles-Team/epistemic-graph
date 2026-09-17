@@ -2,6 +2,7 @@
 //! `nalgebra`'s pure-Rust decompositions; no system BLAS/LAPACK or native toolchain
 //! is required.
 
+use crate::detkernel::math;
 use crate::error::{NumericError, Result};
 use nalgebra::{DMatrix, DVector, SymmetricEigen};
 use ndarray::{Array1, Array2, ArrayView1, ArrayView2};
@@ -46,10 +47,8 @@ pub fn norm_ord(v: ArrayView1<'_, f64>, ord: f64) -> f64 {
     } else if ord == 2.0 {
         norm(v)
     } else {
-        v.iter()
-            .map(|value| value.abs().powf(ord))
-            .sum::<f64>()
-            .powf(1.0 / ord)
+        let powered = v.iter().map(|value| math::pow(value.abs(), ord)).sum::<f64>();
+        math::pow(powered, 1.0 / ord)
     }
 }
 

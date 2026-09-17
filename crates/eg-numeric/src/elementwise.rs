@@ -2,6 +2,7 @@
 //! `sqrt/log/exp/abs/tanh/clip/where/maximum/minimum/nan_to_num/isnan` surface.
 //! Pure Rust, ndarray-backed; parity-tested vs numpy.
 
+use crate::detkernel::math;
 use crate::error::{NumericError, Result};
 use ndarray::{Array1, ArrayD, ArrayView1, ArrayViewD};
 
@@ -10,11 +11,11 @@ pub fn sqrt(a: ArrayView1<f64>) -> Array1<f64> {
 }
 
 pub fn log(a: ArrayView1<f64>) -> Array1<f64> {
-    a.mapv(f64::ln)
+    a.mapv(math::ln)
 }
 
 pub fn exp(a: ArrayView1<f64>) -> Array1<f64> {
-    a.mapv(f64::exp)
+    a.mapv(math::exp)
 }
 
 pub fn abs(a: ArrayView1<f64>) -> Array1<f64> {
@@ -22,7 +23,7 @@ pub fn abs(a: ArrayView1<f64>) -> Array1<f64> {
 }
 
 pub fn tanh(a: ArrayView1<f64>) -> Array1<f64> {
-    a.mapv(f64::tanh)
+    a.mapv(math::tanh)
 }
 
 /// numpy `clip(a, a_min, a_max)`; either bound may be `None` (`f64::NEG/INFINITY`).

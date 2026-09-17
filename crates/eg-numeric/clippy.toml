@@ -1,0 +1,97 @@
+# Clippy policy for the eg-numeric crate.
+#
+# Clippy reads the NEAREST `clippy.toml` (the crate directory first, then its
+# parents) and does not merge files, so this file REPLACES the workspace
+# `clippy.toml` for this crate. It therefore repeats every workspace entry
+# verbatim, and `tests/stat_kernels/clippy_policy.rs` fails if any key or
+# disallowed path from the workspace file is missing here.
+#
+# Crate-specific addition: the `f64`/`f32` std transcendentals (and `powi` and
+# `mul_add`) are banned. Their results come from the platform math library or
+# from compiler intrinsics, so the last bit can differ between release targets
+# (glibc, macOS libm, the MSVC CRT, fused versus unfused multiply-add). Decision
+# records must replay byte-identically on every target, so every such call goes
+# through `crate::detkernel::math`, which wraps the pinned pure-Rust `libm`.
+# Correctly rounded IEEE operations (`sqrt`, `abs`, `floor`, `ceil`, `round`,
+# `trunc`, `+ - * /`) are deterministic and stay allowed. The same test proves
+# with `clippy-driver` that each entry below is enforced.
+#
+# The workspace header explains the waits/queues entries. Do not escape an
+# entry with `#[allow]`; call the pinned kernel instead.
+
+disallowed-methods = [
+  # ── Unbounded waits ────────────────────────────────────────────────────────
+  { path = "std::sync::Barrier::wait", reason = "no deadline: if the other party never arrives the thread blocks for the life of the process. Use crate::test_rendezvous::meet, which fails naming the missed rendezvous" },
+  { path = "std::thread::JoinHandle::join", reason = "no deadline: a worker that deadlocked upstream takes its joiner with it. Use crate::test_rendezvous::join_bounded" },
+  { path = "std::sync::mpsc::Receiver::recv", reason = "no deadline. Use recv_timeout so a producer that never sends is a failure, not a hang" },
+
+  # ── Lock poisoning is a decision, not a reflex ─────────────────────────────
+  # `.lock().unwrap()` propagates a panic from some other thread into this one,
+  # and poisoning is sticky: one panic makes every later caller panic too.
+  # `crate::lock_recovery` makes the choice explicit -- `lock_recovering` for
+  # rebuildable state, `lock_or_panic` for authority state that must not be
+  # served on broken invariants.
+  { path = "std::sync::PoisonError::into_inner", reason = "recovering silently hides that an invariant may be broken. Use crate::lock_recovery, which recovers AND reports, or panics with a reason" },
+
+  # ── Unbounded queues ───────────────────────────────────────────────────────
+  { path = "std::sync::mpsc::channel", reason = "unbounded: a slow consumer becomes unbounded memory. Use sync_channel(n), or sync_channel(0) for a rendezvous" },
+  { path = "tokio::sync::mpsc::unbounded_channel", reason = "no backpressure. Use tokio::sync::mpsc::channel(n)" },
+  { path = "futures::channel::mpsc::unbounded", reason = "no backpressure. Use futures::channel::mpsc::channel(n)" },
+  { path = "crossbeam_channel::unbounded", reason = "no backpressure. Use crossbeam_channel::bounded(n), or bounded(0) for a rendezvous" },
+
+  # ── Platform-dependent float transcendentals (determinism) ────────────────
+  { path = "f64::acos", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::acosh", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::asin", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::asinh", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::atan", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::atan2", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::atanh", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::cbrt", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::cos", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::cosh", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::exp", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::exp2", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::exp_m1", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::hypot", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::ln", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::ln_1p", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::log", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::log10", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::log2", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::mul_add", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::powf", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::powi", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::sin", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::sin_cos", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::sinh", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::tan", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f64::tanh", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::acos", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::acosh", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::asin", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::asinh", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::atan", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::atan2", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::atanh", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::cbrt", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::cos", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::cosh", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::exp", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::exp2", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::exp_m1", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::hypot", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::ln", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::ln_1p", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::log", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::log10", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::log2", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::mul_add", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::powf", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::powi", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::sin", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::sin_cos", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::sinh", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::tan", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+  { path = "f32::tanh", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },
+]

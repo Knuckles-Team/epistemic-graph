@@ -72,6 +72,16 @@ rand_chacha = "0.3"
 # serde unconditionally and only the ndarray-backed `centroids` field needs the
 # `contract`-gated `ndarray/serde` feature above.
 serde = { version = "1.0", features = ["derive"] }
+# Pinned pure-software transcendentals for the deterministic statistics modules
+# (`detkernel`, `calibration`, `risk`, `conformal`, `ope`). An exact pin: a libm
+# release may change the last bit of `exp`/`log`/`pow`, and decision records must
+# replay byte-identically on every release target. `force-soft-floats` turns off
+# the architecture-specific implementations. The transcendentals used here are
+# software on every target that has SSE2 either way; the arch paths only cover
+# correctly rounded operations (sqrt, floor, fma) whose results do not change.
+# The crate-local `clippy.toml` bans the `f64`/`f32` std transcendentals so every
+# call goes through `detkernel::math`. Same version the lockfile already resolves.
+libm = { version = "=0.2.16", default-features = false, features = ["force-soft-floats"] }
 
 # Surface-A only (feature `python`): built-in Python sequence conversion + GIL release.
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py39"], optional = true }
