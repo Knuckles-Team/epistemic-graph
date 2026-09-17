@@ -40,7 +40,7 @@
 
 use std::collections::HashMap;
 
-use eg_rdf::oxrdf::{Graph, Term, Triple};
+use eg_rdf::oxrdf::{Graph, NamedNode, Term, Triple};
 use serde::{Deserialize, Serialize};
 
 use crate::report::{Severity, ValidationResult};
@@ -345,195 +345,260 @@ fn build_witness(
     registry: &HashMap<String, Shape>,
     shapes_graph: &Graph,
 ) -> String {
-    let focus = &res.focus_node;
     let shape = registry.get(&res.source_shape);
-    let pred = shape.and_then(path_predicate);
-    let constraint = shape.and_then(|s| constraint_for(s, &res.constraint_component));
-
-    let header = |what: &str| {
-        format!(
-            "# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — {what}\n# focus: {focus}  shape: {}\n",
-            res.source_shape
-        )
+    let site = WitnessSite {
+        res,
+        pred: shape.and_then(path_predicate),
     };
+    let constraint = shape.and_then(|s| constraint_for(s, &res.constraint_component));
 
     // sh:closed (CONCEPT:EG-KG.ontology.concept-6) has no `Constraint` entry of its own (it is a
     // shape-level flag, not a listed constraint) — dispatch on the reported
-    // component directly, using the OFFENDING predicate the checker already
-    // captured in `res.path` for a precise witness.
+    // component directly.
     if res.constraint_component == vocab::CC_CLOSED {
-        return match res.path.as_deref().map(|p| p.trim_matches(['<', '>'])) {
-            Some(iri) => format!(
-                "{}SELECT ?value WHERE {{\n  {focus} <{iri}> ?value .\n}}\n# <{iri}> is not among this closed shape's sh:property paths / sh:ignoredProperties",
-                header("sh:closed — predicate not permitted by this closed shape"),
-            ),
-            None => format!(
-                "{}SELECT ?value WHERE {{\n{}}}\n# (does not satisfy component {})",
-                header("sh:closed — predicate not permitted by this closed shape"),
-                value_binding(focus, &pred),
-                res.constraint_component,
-            ),
-        };
+        return closed_witness(&site);
     }
-    // sh:sparql (CONCEPT:EG-KG.ontology.concept-6, W3C SHACL-SPARQL §3.5): the constraint's OWN sh:select IS
-    // the witness — it is literally the query whose result row produced this
-    // violation. Shown with $this named explicitly since a witness is read by a
-    // human, not re-evaluated by this engine's pre-binding evaluator.
     if res.constraint_component == vocab::CC_SPARQL {
-        if let Some(Constraint::Sparql(constraint_ref)) = &constraint {
-            let shapes = ShapesGraph::new(shapes_graph);
-            if let Some(sc) = shapes.parse_sparql_constraint(constraint_ref) {
-                return format!(
-                    "{}# sh:select, with $this = {focus}:\n{}",
-                    header("sh:sparql — the constraint's own SELECT produced this result"),
-                    sc.select.trim(),
-                );
-            }
-        }
-        return format!(
-            "{}SELECT ?value WHERE {{\n{}}}\n# (does not satisfy component {})",
-            header("sh:sparql — the constraint's own SELECT produced this result"),
-            value_binding(focus, &pred),
-            res.constraint_component,
-        );
+        return sparql_witness(&site, constraint.as_ref(), shapes_graph);
+    }
+    match &constraint {
+        Some(constraint) => constraint_witness(&site, constraint),
+        None => referenced_shape_witness(&site),
+    }
+}
+
+/// What every witness for one violation shares: the result it explains and the
+/// source shape's simple `sh:path` predicate, if it has one.
+struct WitnessSite<'a> {
+    res: &'a ValidationResult,
+    pred: Option<String>,
+}
+
+impl WitnessSite<'_> {
+    fn focus(&self) -> &str {
+        &self.res.focus_node
     }
 
-    match &constraint {
-        Some(Constraint::MinCount(n)) => {
-            // Closed-world: too FEW asserted values. The count query shows the shortfall.
-            format!(
-                "{}SELECT (COUNT(?value) AS ?count) WHERE {{\n{}}}\n# violation iff ?count < {n}",
-                header(&format!("sh:minCount {n} — fewer than {n} value(s)")),
-                value_binding(focus, &pred),
-            )
-        }
-        Some(Constraint::MaxCount(n)) => format!(
-            "{}SELECT ?value WHERE {{\n{}}}\n# violation iff more than {n} rows",
-            header(&format!("sh:maxCount {n} — more than {n} values")),
-            value_binding(focus, &pred),
+    /// The comment header naming the witness kind (`what`), the focus, and the shape.
+    fn header(&self, what: &str) -> String {
+        format!(
+            "# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — {what}\n# focus: {}  shape: {}\n",
+            self.res.focus_node, self.res.source_shape
+        )
+    }
+
+    /// The `?value` binding pattern for this shape (see [`value_binding`]).
+    fn value_binding(&self) -> String {
+        value_binding(self.focus(), &self.pred)
+    }
+
+    /// A [`filter_witness`] under a `what` header.
+    fn filter(&self, what: &str, offender_cond: &str) -> String {
+        filter_witness(&self.header(what), self.focus(), &self.pred, offender_cond)
+    }
+
+    /// `SELECT ?value` over the value binding, noting the unsatisfied component.
+    fn unsatisfied_component(&self, what: &str) -> String {
+        format!(
+            "{}SELECT ?value WHERE {{\n{}}}\n# (does not satisfy component {})",
+            self.header(what),
+            self.value_binding(),
+            self.res.constraint_component,
+        )
+    }
+}
+
+/// sh:closed: the OFFENDING predicate the checker captured in `res.path` gives a precise
+/// witness; without it, the shape's value nodes are returned.
+fn closed_witness(site: &WitnessSite) -> String {
+    let what = "sh:closed — predicate not permitted by this closed shape";
+    match site.res.path.as_deref().map(|p| p.trim_matches(['<', '>'])) {
+        Some(iri) => format!(
+            "{}SELECT ?value WHERE {{\n  {} <{iri}> ?value .\n}}\n# <{iri}> is not among this closed shape's sh:property paths / sh:ignoredProperties",
+            site.header(what),
+            site.focus(),
         ),
-        Some(Constraint::HasValue(v)) => {
-            // Set-level: the required value must be asserted (closed-world).
-            let vv = v.to_string();
-            match &pred {
-                Some(p) => format!(
-                    "{}ASK {{ {focus} <{p}> {vv} }}\n# violation iff this ASK is false",
-                    header(&format!("sh:hasValue {vv} — required value missing")),
-                ),
-                None => format!(
-                    "{}ASK {{ FILTER(sameTerm({focus}, {vv})) }}\n# violation iff false",
-                    header(&format!("sh:hasValue {vv} — required value missing")),
-                ),
-            }
-        }
-        Some(Constraint::Datatype(dt)) => filter_witness(
-            &header(&format!(
-                "sh:datatype <{}> — wrong literal datatype",
-                dt.as_str()
-            )),
-            focus,
-            &pred,
-            &format!(
-                "!isLiteral(?value) || datatype(?value) != <{}>",
-                dt.as_str()
-            ),
-        ),
-        Some(Constraint::Class(cls)) => format!(
-            "{}SELECT ?value WHERE {{\n{}  FILTER NOT EXISTS {{ ?value a <{}> }}\n}}",
-            header(&format!(
-                "sh:class <{}> — value is not a (closed-world) instance",
-                cls.as_str()
-            )),
-            value_binding(focus, &pred),
-            cls.as_str(),
-        ),
-        Some(Constraint::NodeKind(k)) => filter_witness(
-            &header("sh:nodeKind — wrong node kind"),
-            focus,
-            &pred,
-            nodekind_offender_filter(*k),
-        ),
-        Some(Constraint::Range(kind, bound)) => {
-            let op = match kind {
-                RangeKind::MinInclusive => "<",
-                RangeKind::MaxInclusive => ">",
-                RangeKind::MinExclusive => "<=",
-                RangeKind::MaxExclusive => ">=",
-            };
-            filter_witness(
-                &header(&format!("sh:{kind:?} {bound} — value out of range")),
-                focus,
-                &pred,
-                &format!("?value {op} {bound}"),
-            )
-        }
-        Some(Constraint::MinLength(n)) => filter_witness(
-            &header(&format!("sh:minLength {n} — value too short")),
-            focus,
-            &pred,
-            &format!("STRLEN(STR(?value)) < {n}"),
-        ),
-        Some(Constraint::MaxLength(n)) => filter_witness(
-            &header(&format!("sh:maxLength {n} — value too long")),
-            focus,
-            &pred,
-            &format!("STRLEN(STR(?value)) > {n}"),
-        ),
-        Some(Constraint::Pattern { pattern, flags }) => {
-            let flag_arg = match flags {
-                Some(f) => format!(", \"{f}\""),
-                None => String::new(),
-            };
-            filter_witness(
-                &header(&format!("sh:pattern {pattern} — value does not match")),
-                focus,
-                &pred,
-                &format!("!REGEX(STR(?value), \"{}\"{flag_arg})", escape(pattern)),
-            )
-        }
-        Some(Constraint::In(list)) => {
-            let items = list
-                .iter()
-                .map(|t| t.to_string())
-                .collect::<Vec<_>>()
-                .join(", ");
-            filter_witness(
-                &header("sh:in — value not in the allowed set"),
-                focus,
-                &pred,
-                &format!("?value NOT IN ({items})"),
-            )
-        }
-        Some(Constraint::LanguageIn(langs)) => {
-            let ors = langs
-                .iter()
-                .map(|l| format!("LANGMATCHES(LANG(?value), \"{}\")", escape(l)))
-                .collect::<Vec<_>>()
-                .join(" || ");
-            let cond = if ors.is_empty() {
-                "true".to_string()
-            } else {
-                format!("!({ors})")
-            };
-            filter_witness(
-                &header("sh:languageIn — language tag not allowed"),
-                focus,
-                &pred,
-                &cond,
-            )
-        }
-        // Shape-based / logical / deferred: a best-effort witness that returns the
-        // offending value node(s); the referenced shape names the sub-constraint.
-        _ => {
-            let val = res.value.clone().unwrap_or_else(|| focus.clone());
-            format!(
-                "{}SELECT ?value WHERE {{\n{}}}\n# offending value node: {val}\n# (does not satisfy component {})",
-                header("value fails the referenced constraint/shape"),
-                value_binding(focus, &pred),
-                res.constraint_component,
-            )
+        None => site.unsatisfied_component(what),
+    }
+}
+
+/// sh:sparql (CONCEPT:EG-KG.ontology.concept-6, W3C SHACL-SPARQL §3.5): the constraint's OWN sh:select IS
+/// the witness — it is literally the query whose result row produced this
+/// violation. Shown with $this named explicitly since a witness is read by a
+/// human, not re-evaluated by this engine's pre-binding evaluator.
+fn sparql_witness(
+    site: &WitnessSite,
+    constraint: Option<&Constraint>,
+    shapes_graph: &Graph,
+) -> String {
+    let what = "sh:sparql — the constraint's own SELECT produced this result";
+    if let Some(Constraint::Sparql(constraint_ref)) = constraint {
+        let shapes = ShapesGraph::new(shapes_graph);
+        if let Some(sc) = shapes.parse_sparql_constraint(constraint_ref) {
+            return format!(
+                "{}# sh:select, with $this = {}:\n{}",
+                site.header(what),
+                site.focus(),
+                sc.select.trim(),
+            );
         }
     }
+    site.unsatisfied_component(what)
+}
+
+/// The witness for a listed constraint. Exhaustive over [`Constraint`]: a new
+/// constraint kind must decide its witness here at compile time.
+fn constraint_witness(site: &WitnessSite, constraint: &Constraint) -> String {
+    match constraint {
+        Constraint::MinCount(n) => min_count_witness(site, *n),
+        Constraint::MaxCount(n) => max_count_witness(site, *n),
+        Constraint::HasValue(v) => has_value_witness(site, v),
+        Constraint::Datatype(dt) => datatype_witness(site, dt),
+        Constraint::Class(cls) => class_witness(site, cls),
+        Constraint::NodeKind(k) => site.filter(
+            "sh:nodeKind — wrong node kind",
+            nodekind_offender_filter(*k),
+        ),
+        Constraint::Range(kind, bound) => range_witness(site, kind, bound),
+        Constraint::MinLength(n) => site.filter(
+            &format!("sh:minLength {n} — value too short"),
+            &format!("STRLEN(STR(?value)) < {n}"),
+        ),
+        Constraint::MaxLength(n) => site.filter(
+            &format!("sh:maxLength {n} — value too long"),
+            &format!("STRLEN(STR(?value)) > {n}"),
+        ),
+        Constraint::Pattern { pattern, flags } => pattern_witness(site, pattern, flags.as_deref()),
+        Constraint::In(list) => in_witness(site, list),
+        Constraint::LanguageIn(langs) => language_in_witness(site, langs),
+        // Shape-based / logical / deferred: a best-effort witness that returns the
+        // offending value node(s); the referenced shape names the sub-constraint.
+        Constraint::And(_)
+        | Constraint::Or(_)
+        | Constraint::Not(_)
+        | Constraint::Xone(_)
+        | Constraint::Node(_)
+        | Constraint::Property(_)
+        | Constraint::Sparql(_) => referenced_shape_witness(site),
+    }
+}
+
+/// Closed-world: too FEW asserted values. The count query shows the shortfall.
+fn min_count_witness(site: &WitnessSite, n: usize) -> String {
+    format!(
+        "{}SELECT (COUNT(?value) AS ?count) WHERE {{\n{}}}\n# violation iff ?count < {n}",
+        site.header(&format!("sh:minCount {n} — fewer than {n} value(s)")),
+        site.value_binding(),
+    )
+}
+
+fn max_count_witness(site: &WitnessSite, n: usize) -> String {
+    format!(
+        "{}SELECT ?value WHERE {{\n{}}}\n# violation iff more than {n} rows",
+        site.header(&format!("sh:maxCount {n} — more than {n} values")),
+        site.value_binding(),
+    )
+}
+
+/// Set-level: the required value must be asserted (closed-world).
+fn has_value_witness(site: &WitnessSite, v: &Term) -> String {
+    let vv = v.to_string();
+    let header = site.header(&format!("sh:hasValue {vv} — required value missing"));
+    let focus = site.focus();
+    match &site.pred {
+        Some(p) => {
+            format!("{header}ASK {{ {focus} <{p}> {vv} }}\n# violation iff this ASK is false")
+        }
+        None => format!("{header}ASK {{ FILTER(sameTerm({focus}, {vv})) }}\n# violation iff false"),
+    }
+}
+
+fn datatype_witness(site: &WitnessSite, dt: &NamedNode) -> String {
+    site.filter(
+        &format!("sh:datatype <{}> — wrong literal datatype", dt.as_str()),
+        &format!(
+            "!isLiteral(?value) || datatype(?value) != <{}>",
+            dt.as_str()
+        ),
+    )
+}
+
+fn class_witness(site: &WitnessSite, cls: &NamedNode) -> String {
+    format!(
+        "{}SELECT ?value WHERE {{\n{}  FILTER NOT EXISTS {{ ?value a <{}> }}\n}}",
+        site.header(&format!(
+            "sh:class <{}> — value is not a (closed-world) instance",
+            cls.as_str()
+        )),
+        site.value_binding(),
+        cls.as_str(),
+    )
+}
+
+fn range_witness(site: &WitnessSite, kind: &RangeKind, bound: &Term) -> String {
+    let op = match kind {
+        RangeKind::MinInclusive => "<",
+        RangeKind::MaxInclusive => ">",
+        RangeKind::MinExclusive => "<=",
+        RangeKind::MaxExclusive => ">=",
+    };
+    site.filter(
+        &format!("sh:{kind:?} {bound} — value out of range"),
+        &format!("?value {op} {bound}"),
+    )
+}
+
+fn pattern_witness(site: &WitnessSite, pattern: &str, flags: Option<&str>) -> String {
+    let flag_arg = match flags {
+        Some(f) => format!(", \"{f}\""),
+        None => String::new(),
+    };
+    site.filter(
+        &format!("sh:pattern {pattern} — value does not match"),
+        &format!("!REGEX(STR(?value), \"{}\"{flag_arg})", escape(pattern)),
+    )
+}
+
+fn in_witness(site: &WitnessSite, list: &[Term]) -> String {
+    let items = list
+        .iter()
+        .map(|t| t.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    site.filter(
+        "sh:in — value not in the allowed set",
+        &format!("?value NOT IN ({items})"),
+    )
+}
+
+fn language_in_witness(site: &WitnessSite, langs: &[String]) -> String {
+    let ors = langs
+        .iter()
+        .map(|l| format!("LANGMATCHES(LANG(?value), \"{}\")", escape(l)))
+        .collect::<Vec<_>>()
+        .join(" || ");
+    let cond = if ors.is_empty() {
+        "true".to_string()
+    } else {
+        format!("!({ors})")
+    };
+    site.filter("sh:languageIn — language tag not allowed", &cond)
+}
+
+/// Best-effort witness for a shape-based / logical / unrecovered constraint: the
+/// offending value node (or the focus when none was reported).
+fn referenced_shape_witness(site: &WitnessSite) -> String {
+    let val = site
+        .res
+        .value
+        .clone()
+        .unwrap_or_else(|| site.res.focus_node.clone());
+    format!(
+        "{}SELECT ?value WHERE {{\n{}}}\n# offending value node: {val}\n# (does not satisfy component {})",
+        site.header("value fails the referenced constraint/shape"),
+        site.value_binding(),
+        site.res.constraint_component,
+    )
 }
 
 /// A `SELECT ?value … FILTER(<offender_cond>)` witness returning the value nodes for

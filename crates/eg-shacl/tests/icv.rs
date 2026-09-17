@@ -484,3 +484,251 @@ ex:PersonShape a sh:NodeShape ;
         .constraint_component
         .contains("SPARQLConstraintComponent")));
 }
+
+// ── Witness text, pinned per constraint kind ────────────────────────────────
+
+const WITNESS_SHAPES: &str = r#"
+ex:ThingShape a sh:NodeShape ;
+    sh:targetClass ex:Thing ;
+    sh:closed true ;
+    sh:ignoredProperties ( rdf:type ) ;
+    sh:property [ sh:path ex:req ; sh:minCount 1 ] ;
+    sh:property [ sh:path ex:one ; sh:maxCount 1 ] ;
+    sh:property [ sh:path ex:tag ; sh:hasValue "gold" ] ;
+    sh:property [ sh:path ex:num ; sh:datatype xsd:integer ] ;
+    sh:property [ sh:path ex:ref ; sh:class ex:Target ] ;
+    sh:property [ sh:path ex:kind ; sh:nodeKind sh:Literal ] ;
+    sh:property [ sh:path ex:low ; sh:minInclusive 10 ] ;
+    sh:property [ sh:path ex:high ; sh:maxExclusive 5 ] ;
+    sh:property [ sh:path ex:short ; sh:minLength 3 ] ;
+    sh:property [ sh:path ex:long ; sh:maxLength 2 ] ;
+    sh:property [ sh:path ex:code ; sh:pattern "^A" ; sh:flags "i" ] ;
+    sh:property [ sh:path ex:plain ; sh:pattern "^B" ] ;
+    sh:property [ sh:path ex:color ; sh:in ( "red" "blue" ) ] ;
+    sh:property [ sh:path ex:label ; sh:languageIn ( "en" ) ] ;
+    sh:property [ sh:path ex:child ; sh:node ex:ChildShape ] ;
+    sh:property [ sh:path ex:neg ; sh:not [ sh:datatype xsd:string ] ] .
+
+ex:ChildShape a sh:NodeShape ;
+    sh:property [ sh:path ex:id ; sh:minCount 1 ] .
+
+ex:TagShape a sh:NodeShape ;
+    sh:targetNode ex:t ;
+    sh:hasValue ex:other ;
+    sh:nodeKind sh:Literal .
+
+ex:SparqlShape a sh:NodeShape ;
+    sh:targetClass ex:Thing ;
+    sh:sparql [
+        sh:select """SELECT $this ?value WHERE { $this <http://example.org/low> ?value . FILTER (?value < 10) }""" ;
+    ] .
+"#;
+
+const WITNESS_DATA: &str = r#"
+ex:t a ex:Thing ;
+    ex:one 1, 2 ;
+    ex:tag "silver" ;
+    ex:num "x" ;
+    ex:ref ex:notTarget ;
+    ex:kind ex:iri ;
+    ex:low 3 ;
+    ex:high 9 ;
+    ex:short "ab" ;
+    ex:long "abcd" ;
+    ex:code "zzz" ;
+    ex:plain "zzz" ;
+    ex:color "green" ;
+    ex:label "hi"@fr ;
+    ex:child ex:c ;
+    ex:neg "s" ;
+    ex:extra 1 .
+ex:c ex:name "x" .
+"#;
+
+/// Exact witness text for every constraint kind ICV builds a witness for (the core
+/// components, `sh:closed`, `sh:sparql`, node-shape `sh:hasValue`/`sh:nodeKind`, and
+/// the shape-based fallback). Blank-node shape labels are parser-assigned, so each
+/// witness's own `source_shape` is replaced by `SHAPE`.
+#[test]
+fn icv_witness_text_is_pinned_for_every_constraint_kind() {
+    let report = run(WITNESS_SHAPES, WITNESS_DATA);
+    let mut actual: Vec<String> = report
+        .violations
+        .iter()
+        .map(|v| {
+            let component = v
+                .result
+                .constraint_component
+                .rsplit('#')
+                .next()
+                .unwrap_or_default()
+                .trim_end_matches('>');
+            format!(
+                "[{component}]\n{}",
+                v.witness.replace(&v.result.source_shape, "SHAPE")
+            )
+        })
+        .collect();
+    actual.sort();
+    let actual = actual.join("\n=====\n");
+    if actual != WITNESS_GOLDEN {
+        println!("ACTUAL-WITNESS-BEGIN\n{actual}\nACTUAL-WITNESS-END");
+    }
+    assert_eq!(actual, WITNESS_GOLDEN);
+}
+
+const WITNESS_GOLDEN: &str = r##"[ClassConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:class <http://example.org/Target> — value is not a (closed-world) instance
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  <http://example.org/t> <http://example.org/ref> ?value .
+  FILTER NOT EXISTS { ?value a <http://example.org/Target> }
+}
+=====
+[ClosedConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:closed — predicate not permitted by this closed shape
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  <http://example.org/t> <http://example.org/extra> ?value .
+}
+# <http://example.org/extra> is not among this closed shape's sh:property paths / sh:ignoredProperties
+=====
+[DatatypeConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:datatype <http://www.w3.org/2001/XMLSchema#integer> — wrong literal datatype
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  <http://example.org/t> <http://example.org/num> ?value .
+  FILTER (!isLiteral(?value) || datatype(?value) != <http://www.w3.org/2001/XMLSchema#integer>)
+}
+=====
+[HasValueConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:hasValue "gold" — required value missing
+# focus: <http://example.org/t>  shape: SHAPE
+ASK { <http://example.org/t> <http://example.org/tag> "gold" }
+# violation iff this ASK is false
+=====
+[HasValueConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:hasValue <http://example.org/other> — required value missing
+# focus: <http://example.org/t>  shape: SHAPE
+ASK { FILTER(sameTerm(<http://example.org/t>, <http://example.org/other>)) }
+# violation iff false
+=====
+[InConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:in — value not in the allowed set
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  <http://example.org/t> <http://example.org/color> ?value .
+  FILTER (?value NOT IN ("red", "blue"))
+}
+=====
+[LanguageInConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:languageIn — language tag not allowed
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  <http://example.org/t> <http://example.org/label> ?value .
+  FILTER (!(LANGMATCHES(LANG(?value), "en")))
+}
+=====
+[MaxCountConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:maxCount 1 — more than 1 values
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  <http://example.org/t> <http://example.org/one> ?value .
+}
+# violation iff more than 1 rows
+=====
+[MaxExclusiveConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:MaxExclusive "5"^^<http://www.w3.org/2001/XMLSchema#integer> — value out of range
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  <http://example.org/t> <http://example.org/high> ?value .
+  FILTER (?value >= "5"^^<http://www.w3.org/2001/XMLSchema#integer>)
+}
+=====
+[MaxLengthConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:maxLength 2 — value too long
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  <http://example.org/t> <http://example.org/long> ?value .
+  FILTER (STRLEN(STR(?value)) > 2)
+}
+=====
+[MinCountConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:minCount 1 — fewer than 1 value(s)
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT (COUNT(?value) AS ?count) WHERE {
+  <http://example.org/t> <http://example.org/req> ?value .
+}
+# violation iff ?count < 1
+=====
+[MinInclusiveConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:MinInclusive "10"^^<http://www.w3.org/2001/XMLSchema#integer> — value out of range
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  <http://example.org/t> <http://example.org/low> ?value .
+  FILTER (?value < "10"^^<http://www.w3.org/2001/XMLSchema#integer>)
+}
+=====
+[MinLengthConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:minLength 3 — value too short
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  <http://example.org/t> <http://example.org/short> ?value .
+  FILTER (STRLEN(STR(?value)) < 3)
+}
+=====
+[NodeConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — value fails the referenced constraint/shape
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  <http://example.org/t> <http://example.org/child> ?value .
+}
+# offending value node: <http://example.org/c>
+# (does not satisfy component http://www.w3.org/ns/shacl#NodeConstraintComponent)
+=====
+[NodeKindConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:nodeKind — wrong node kind
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  <http://example.org/t> <http://example.org/kind> ?value .
+  FILTER (!isLiteral(?value))
+}
+=====
+[NodeKindConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:nodeKind — wrong node kind
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  VALUES ?value { <http://example.org/t> }
+  FILTER (!isLiteral(?value))
+}
+=====
+[NotConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — value fails the referenced constraint/shape
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  <http://example.org/t> <http://example.org/neg> ?value .
+}
+# offending value node: "s"
+# (does not satisfy component http://www.w3.org/ns/shacl#NotConstraintComponent)
+=====
+[PatternConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:pattern ^A — value does not match
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  <http://example.org/t> <http://example.org/code> ?value .
+  FILTER (!REGEX(STR(?value), "^A", "i"))
+}
+=====
+[PatternConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:pattern ^B — value does not match
+# focus: <http://example.org/t>  shape: SHAPE
+SELECT ?value WHERE {
+  <http://example.org/t> <http://example.org/plain> ?value .
+  FILTER (!REGEX(STR(?value), "^B"))
+}
+=====
+[SPARQLConstraintComponent]
+# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:sparql — the constraint's own SELECT produced this result
+# focus: <http://example.org/t>  shape: SHAPE
+# sh:select, with $this = <http://example.org/t>:
+SELECT $this ?value WHERE { $this <http://example.org/low> ?value . FILTER (?value < 10) }"##;
