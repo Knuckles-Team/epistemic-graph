@@ -24,6 +24,7 @@ use eg_quantum_core::ir::{
     ClassicalBitRef, ClassicalRegister, ControlQubit, ControlState, GateInstruction, GateKind,
     Instruction, ProgramMetadata, QuantumProgram, IR_VERSION,
 };
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 /// Name of the single classical register every program this module builds declares,
 /// one bit per qubit, MSB-first (qubit 0 -> leftmost character of the outcome key) —
@@ -39,24 +40,42 @@ pub const OUTCOME_REGISTER: &str = "c";
 /// caller's edges to already be acyclic.
 pub fn spanning_forest(n: u32, edges: &[(u32, u32)]) -> Vec<(u32, u32)> {
     let mut parent: Vec<u32> = (0..n).collect();
-    fn find(parent: &mut [u32], x: u32) -> u32 {
-        if parent[x as usize] != x {
-            parent[x as usize] = find(parent, parent[x as usize]);
-        }
-        parent[x as usize]
-    }
     let mut kept = Vec::new();
     for &(a, b) in edges {
         if a >= n || b >= n || a == b {
             continue; // out-of-range / self-loop edges are never entangling
         }
-        let (ra, rb) = (find(&mut parent, a), find(&mut parent, b));
-        if ra != rb {
-            parent[ra as usize] = rb;
+        if union_sets(&mut parent, a, b) {
             kept.push((a, b));
         }
     }
     kept
+}
+
+/// Union-find `find` with path compression over a qubit `parent` array.
+fn find_set(parent: &mut [u32], x: u32) -> u32 {
+    if parent[x as usize] != x {
+        parent[x as usize] = find_set(parent, parent[x as usize]);
+    }
+    parent[x as usize]
+}
+
+/// Merge `a`'s set into `b`'s; returns whether they were previously disjoint.
+fn union_sets(parent: &mut [u32], a: u32, b: u32) -> bool {
+    let (ra, rb) = (find_set(parent, a), find_set(parent, b));
+    if ra != rb {
+        parent[ra as usize] = rb;
+    }
+    ra != rb
+}
+
+/// The union-find `parent` array after merging every `forest` edge over `n` qubits.
+fn forest_parents(n: u32, forest: &[(u32, u32)]) -> Vec<u32> {
+    let mut parent: Vec<u32> = (0..n).collect();
+    for &(a, b) in forest {
+        union_sets(&mut parent, a, b);
+    }
+    parent
 }
 
 /// Every connected component's chosen "root" qubit (the one that gets the initial
@@ -64,23 +83,8 @@ pub fn spanning_forest(n: u32, edges: &[(u32, u32)]) -> Vec<(u32, u32)> {
 /// qubit that has no edges at all (a singleton component, entangled with nothing).
 /// Deterministic (sorted) so the same `(n, edges)` always yields the same program.
 fn component_roots(n: u32, forest: &[(u32, u32)]) -> Vec<u32> {
-    let mut parent: Vec<u32> = (0..n).collect();
-    fn find(parent: &mut [u32], x: u32) -> u32 {
-        if parent[x as usize] != x {
-            parent[x as usize] = find(parent, parent[x as usize]);
-        }
-        parent[x as usize]
-    }
-    for &(a, b) in forest {
-        let (ra, rb) = (find(&mut parent, a), find(&mut parent, b));
-        if ra != rb {
-            parent[ra as usize] = rb;
-        }
-    }
-    let mut roots: std::collections::BTreeSet<u32> = std::collections::BTreeSet::new();
-    for q in 0..n {
-        roots.insert(find(&mut parent, q));
-    }
+    let mut parent = forest_parents(n, forest);
+    let roots: BTreeSet<u32> = (0..n).map(|q| find_set(&mut parent, q)).collect();
     roots.into_iter().collect()
 }
 
@@ -91,22 +95,10 @@ fn component_roots(n: u32, forest: &[(u32, u32)]) -> Vec<u32> {
 /// components sorted by their lowest member, members sorted ascending within a
 /// component.
 pub fn components(n: u32, forest: &[(u32, u32)]) -> Vec<Vec<u32>> {
-    let mut parent: Vec<u32> = (0..n).collect();
-    fn find(parent: &mut [u32], x: u32) -> u32 {
-        if parent[x as usize] != x {
-            parent[x as usize] = find(parent, parent[x as usize]);
-        }
-        parent[x as usize]
-    }
-    for &(a, b) in forest {
-        let (ra, rb) = (find(&mut parent, a), find(&mut parent, b));
-        if ra != rb {
-            parent[ra as usize] = rb;
-        }
-    }
-    let mut grouped: std::collections::BTreeMap<u32, Vec<u32>> = std::collections::BTreeMap::new();
+    let mut parent = forest_parents(n, forest);
+    let mut grouped: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
     for q in 0..n {
-        grouped.entry(find(&mut parent, q)).or_default().push(q);
+        grouped.entry(find_set(&mut parent, q)).or_default().push(q);
     }
     grouped.into_values().collect()
 }
@@ -120,61 +112,19 @@ pub fn components(n: u32, forest: &[(u32, u32)]) -> Vec<Vec<u32>> {
 /// anyway").
 pub fn induced_subgraph_ghz_program(n_qubits: u32, edges: &[(u32, u32)]) -> QuantumProgram {
     let forest = spanning_forest(n_qubits, edges);
-    let mut instructions = Vec::new();
-    for root in component_roots(n_qubits, &forest) {
-        instructions.push(Instruction::Gate(GateInstruction {
-            gate: GateKind::H,
-            qubits: vec![root],
-            controls: vec![],
-            params: vec![],
-        }));
-    }
+    let roots = component_roots(n_qubits, &forest);
+    let mut instructions: Vec<Instruction> = roots.iter().map(|&root| hadamard(root)).collect();
     // A breadth-first walk of the forest from each root so every CX's control qubit
     // has already been touched by the H (or a prior CX) before it fires -- otherwise
     // the entangling chain would not actually connect back to a superposed qubit.
-    let mut adjacency: std::collections::BTreeMap<u32, Vec<u32>> =
-        std::collections::BTreeMap::new();
-    for &(a, b) in &forest {
-        adjacency.entry(a).or_default().push(b);
-        adjacency.entry(b).or_default().push(a);
-    }
+    let adjacency = forest_adjacency(&forest);
     let mut visited = vec![false; n_qubits as usize];
-    for root in component_roots(n_qubits, &forest) {
-        if visited[root as usize] {
-            continue;
-        }
-        let mut queue = std::collections::VecDeque::new();
-        queue.push_back(root);
-        visited[root as usize] = true;
-        while let Some(q) = queue.pop_front() {
-            if let Some(neighbors) = adjacency.get(&q) {
-                for &nbr in neighbors {
-                    if !visited[nbr as usize] {
-                        visited[nbr as usize] = true;
-                        instructions.push(Instruction::Gate(GateInstruction {
-                            gate: GateKind::X,
-                            qubits: vec![nbr],
-                            controls: vec![ControlQubit {
-                                qubit: q,
-                                state: ControlState::One,
-                            }],
-                            params: vec![],
-                        }));
-                        queue.push_back(nbr);
-                    }
-                }
-            }
+    for &root in &roots {
+        if !visited[root as usize] {
+            push_breadth_first_cx_chain(root, &adjacency, &mut visited, &mut instructions);
         }
     }
-    for q in 0..n_qubits {
-        instructions.push(Instruction::Measure {
-            qubit: q,
-            classical_bit: ClassicalBitRef {
-                register: OUTCOME_REGISTER.to_string(),
-                index: q,
-            },
-        });
-    }
+    instructions.extend((0..n_qubits).map(measure_into_outcome_register));
     QuantumProgram {
         ir_version: IR_VERSION,
         n_qubits,
@@ -188,6 +138,66 @@ pub fn induced_subgraph_ghz_program(n_qubits: u32, edges: &[(u32, u32)]) -> Quan
             name: Some("eg-quantum-jobs.induced_subgraph_ghz".to_string()),
             source: Some("eg-quantum-jobs".to_string()),
         },
+    }
+}
+
+fn hadamard(qubit: u32) -> Instruction {
+    Instruction::Gate(GateInstruction {
+        gate: GateKind::H,
+        qubits: vec![qubit],
+        controls: vec![],
+        params: vec![],
+    })
+}
+
+fn measure_into_outcome_register(qubit: u32) -> Instruction {
+    Instruction::Measure {
+        qubit,
+        classical_bit: ClassicalBitRef {
+            register: OUTCOME_REGISTER.to_string(),
+            index: qubit,
+        },
+    }
+}
+
+/// Undirected adjacency lists of `forest`, neighbors in edge order.
+fn forest_adjacency(forest: &[(u32, u32)]) -> BTreeMap<u32, Vec<u32>> {
+    let mut adjacency: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+    for &(a, b) in forest {
+        adjacency.entry(a).or_default().push(b);
+        adjacency.entry(b).or_default().push(a);
+    }
+    adjacency
+}
+
+/// Visit `root`'s component breadth-first, emitting one `CX(parent, child)` per newly
+/// reached qubit.
+fn push_breadth_first_cx_chain(
+    root: u32,
+    adjacency: &BTreeMap<u32, Vec<u32>>,
+    visited: &mut [bool],
+    instructions: &mut Vec<Instruction>,
+) {
+    let mut queue = VecDeque::new();
+    queue.push_back(root);
+    visited[root as usize] = true;
+    while let Some(q) = queue.pop_front() {
+        let neighbors = adjacency.get(&q).map(Vec::as_slice).unwrap_or_default();
+        for &nbr in neighbors {
+            if !visited[nbr as usize] {
+                visited[nbr as usize] = true;
+                instructions.push(Instruction::Gate(GateInstruction {
+                    gate: GateKind::X,
+                    qubits: vec![nbr],
+                    controls: vec![ControlQubit {
+                        qubit: q,
+                        state: ControlState::One,
+                    }],
+                    params: vec![],
+                }));
+                queue.push_back(nbr);
+            }
+        }
     }
 }
 

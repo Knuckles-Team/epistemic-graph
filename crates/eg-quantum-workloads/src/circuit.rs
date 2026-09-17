@@ -216,77 +216,153 @@ pub fn optimize_qaoa_params(
         bindings.insert(cost_angle_name(layer), 0.0);
         bindings.insert(mixer_angle_name(layer), 0.0);
     }
-    let mut evaluations = 0usize;
-    let mut best_expected = expected_cut_value(&program, &bindings, edges);
-    evaluations += 1;
-
-    let two_pi = std::f64::consts::TAU;
-    let pi = std::f64::consts::PI;
+    let best_expected = expected_cut_value(&program, &bindings, edges);
+    let mut search = QaoaSearch {
+        program: &program,
+        edges,
+        grid_resolution,
+        bindings,
+        best_expected,
+        evaluations: 1,
+    };
 
     for layer in 0..p {
-        let cost_name = cost_angle_name(layer);
-        let mixer_name = mixer_angle_name(layer);
-
-        // Coarse joint grid over this layer's (cost_angle in [0, 2pi), mixer_angle
-        // in [0, pi)) — the mixer angle's natural period under Rx is pi for a
-        // Max-Cut diagonal cost (X-basis symmetry), same convention standard QAOA
-        // implementations use to halve the mixer search range.
-        let mut best_cost = *bindings.get(&cost_name).unwrap_or(&0.0);
-        let mut best_mixer = *bindings.get(&mixer_name).unwrap_or(&0.0);
-        for gi in 0..grid_resolution {
-            let cost_angle = two_pi * (gi as f64) / (grid_resolution as f64);
-            for gj in 0..grid_resolution {
-                let mixer_angle = pi * (gj as f64) / (grid_resolution as f64);
-                bindings.insert(cost_name.clone(), cost_angle);
-                bindings.insert(mixer_name.clone(), mixer_angle);
-                let value = expected_cut_value(&program, &bindings, edges);
-                evaluations += 1;
-                if value > best_expected {
-                    best_expected = value;
-                    best_cost = cost_angle;
-                    best_mixer = mixer_angle;
-                }
-            }
-        }
-
-        // One coordinate-ascent refinement pass around the coarse best, at
-        // `grid_resolution`x finer resolution within +/- one coarse grid step.
-        let cost_step = two_pi / grid_resolution as f64;
-        let mixer_step = pi / grid_resolution as f64;
-        for gi in 0..grid_resolution {
-            let cost_angle =
-                best_cost - cost_step + 2.0 * cost_step * (gi as f64) / (grid_resolution as f64);
-            bindings.insert(cost_name.clone(), cost_angle);
-            bindings.insert(mixer_name.clone(), best_mixer);
-            let value = expected_cut_value(&program, &bindings, edges);
-            evaluations += 1;
-            if value > best_expected {
-                best_expected = value;
-                best_cost = cost_angle;
-            }
-        }
-        for gj in 0..grid_resolution {
-            let mixer_angle =
-                best_mixer - mixer_step + 2.0 * mixer_step * (gj as f64) / (grid_resolution as f64);
-            bindings.insert(cost_name.clone(), best_cost);
-            bindings.insert(mixer_name.clone(), mixer_angle);
-            let value = expected_cut_value(&program, &bindings, edges);
-            evaluations += 1;
-            if value > best_expected {
-                best_expected = value;
-                best_mixer = mixer_angle;
-            }
-        }
-
-        bindings.insert(cost_name, best_cost);
-        bindings.insert(mixer_name, best_mixer);
+        optimize_layer(&mut search, layer);
     }
 
     OptimizedParams {
-        bindings,
-        expected_cut: best_expected,
-        evaluations,
+        bindings: search.bindings,
+        expected_cut: search.best_expected,
+        evaluations: search.evaluations,
     }
+}
+
+/// The mutable state of one [`optimize_qaoa_params`] run: the working bindings, the
+/// best exact expected cut found so far, and the evaluation count.
+struct QaoaSearch<'a> {
+    program: &'a QuantumProgram,
+    edges: &'a [(u32, u32, f64)],
+    grid_resolution: usize,
+    bindings: BTreeMap<String, f64>,
+    best_expected: f64,
+    evaluations: usize,
+}
+
+/// One layer's `(cost_angle, mixer_angle)` binding names.
+struct LayerAngleNames {
+    cost: String,
+    mixer: String,
+}
+
+/// One layer's `(cost_angle, mixer_angle)` values.
+#[derive(Clone, Copy)]
+struct LayerAngles {
+    cost: f64,
+    mixer: f64,
+}
+
+impl QaoaSearch<'_> {
+    /// Bind this layer to `angles`, evaluate the exact expected cut, and record it as
+    /// the new best when it strictly improves. Returns whether it improved.
+    fn try_angles(&mut self, names: &LayerAngleNames, angles: LayerAngles) -> bool {
+        self.bindings.insert(names.cost.clone(), angles.cost);
+        self.bindings.insert(names.mixer.clone(), angles.mixer);
+        let value = expected_cut_value(self.program, &self.bindings, self.edges);
+        self.evaluations += 1;
+        let improved = value > self.best_expected;
+        if improved {
+            self.best_expected = value;
+        }
+        improved
+    }
+
+    /// `span * index / grid_resolution`: grid point `index` of `grid_resolution` over `span`.
+    fn grid_fraction(&self, span: f64, index: usize) -> f64 {
+        span * (index as f64) / (self.grid_resolution as f64)
+    }
+}
+
+/// Grid-search then refine one layer, holding every other layer's angles fixed, and
+/// leave the layer bound to its best angles.
+fn optimize_layer(search: &mut QaoaSearch<'_>, layer: usize) {
+    let names = LayerAngleNames {
+        cost: cost_angle_name(layer),
+        mixer: mixer_angle_name(layer),
+    };
+    let start = LayerAngles {
+        cost: *search.bindings.get(&names.cost).unwrap_or(&0.0),
+        mixer: *search.bindings.get(&names.mixer).unwrap_or(&0.0),
+    };
+    let coarse = coarse_layer_grid(search, &names, start);
+    let cost_refined = refine_cost_angle(search, &names, coarse);
+    let refined = refine_mixer_angle(search, &names, cost_refined);
+    search.bindings.insert(names.cost, refined.cost);
+    search.bindings.insert(names.mixer, refined.mixer);
+}
+
+/// Coarse joint grid over this layer's (cost_angle in [0, 2pi), mixer_angle in
+/// [0, pi)) — the mixer angle's natural period under Rx is pi for a Max-Cut diagonal
+/// cost (X-basis symmetry), same convention standard QAOA implementations use to
+/// halve the mixer search range.
+fn coarse_layer_grid(
+    search: &mut QaoaSearch<'_>,
+    names: &LayerAngleNames,
+    start: LayerAngles,
+) -> LayerAngles {
+    let mut best = start;
+    for gi in 0..search.grid_resolution {
+        let cost = search.grid_fraction(std::f64::consts::TAU, gi);
+        for gj in 0..search.grid_resolution {
+            let candidate = LayerAngles {
+                cost,
+                mixer: search.grid_fraction(std::f64::consts::PI, gj),
+            };
+            if search.try_angles(names, candidate) {
+                best = candidate;
+            }
+        }
+    }
+    best
+}
+
+/// One coordinate-ascent refinement pass of the cost angle around the current best,
+/// at `grid_resolution`x finer resolution within +/- one coarse grid step (the centre
+/// follows each improvement).
+fn refine_cost_angle(
+    search: &mut QaoaSearch<'_>,
+    names: &LayerAngleNames,
+    mut best: LayerAngles,
+) -> LayerAngles {
+    let step = std::f64::consts::TAU / search.grid_resolution as f64;
+    for gi in 0..search.grid_resolution {
+        let candidate = LayerAngles {
+            cost: best.cost - step + search.grid_fraction(2.0 * step, gi),
+            mixer: best.mixer,
+        };
+        if search.try_angles(names, candidate) {
+            best = candidate;
+        }
+    }
+    best
+}
+
+/// The same refinement pass for the mixer angle, holding the refined cost angle.
+fn refine_mixer_angle(
+    search: &mut QaoaSearch<'_>,
+    names: &LayerAngleNames,
+    mut best: LayerAngles,
+) -> LayerAngles {
+    let step = std::f64::consts::PI / search.grid_resolution as f64;
+    for gj in 0..search.grid_resolution {
+        let candidate = LayerAngles {
+            cost: best.cost,
+            mixer: best.mixer - step + search.grid_fraction(2.0 * step, gj),
+        };
+        if search.try_angles(names, candidate) {
+            best = candidate;
+        }
+    }
+    best
 }
 
 /// Brute-force EXACT Max-Cut optimum by enumerating all `2^n` partitions — used only

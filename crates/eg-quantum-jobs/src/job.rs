@@ -410,27 +410,40 @@ pub fn consistency_scores(
     let comps = circuit::components(n_qubits, forest);
     let mut agree = vec![0u64; n_qubits as usize];
     for (bitstring, &count) in counts {
-        let bits: Vec<u8> = bitstring
-            .chars()
-            .map(|c| if c == '1' { 1u8 } else { 0u8 })
-            .collect();
-        if bits.len() != n_qubits as usize {
-            return Err(NumericError::Shape(format!(
-                "consistency_scores: outcome bitstring '{bitstring}' has {} bits, expected {n_qubits}",
-                bits.len()
-            )));
-        }
+        let bits = outcome_bits(bitstring, n_qubits)?;
         for comp in &comps {
-            let ones = comp.iter().filter(|&&q| bits[q as usize] == 1).count();
-            let majority: u8 = if ones * 2 >= comp.len() { 1 } else { 0 };
-            for &q in comp {
-                if bits[q as usize] == majority {
-                    agree[q as usize] += count;
-                }
-            }
+            credit_component_agreement(comp, &bits, count, &mut agree);
         }
     }
     Ok(agree.into_iter().map(|a| a as f64 / total as f64).collect())
+}
+
+/// One bit per character of an outcome key (`'1'` -> 1, anything else -> 0), which
+/// must carry exactly `n_qubits` characters.
+fn outcome_bits(bitstring: &str, n_qubits: u32) -> Result<Vec<u8>, NumericError> {
+    let bits: Vec<u8> = bitstring
+        .chars()
+        .map(|c| if c == '1' { 1u8 } else { 0u8 })
+        .collect();
+    if bits.len() != n_qubits as usize {
+        return Err(NumericError::Shape(format!(
+            "consistency_scores: outcome bitstring '{bitstring}' has {} bits, expected {n_qubits}",
+            bits.len()
+        )));
+    }
+    Ok(bits)
+}
+
+/// Add `count` shots to every member of `comp` whose bit equals the component's
+/// majority bit for this outcome (a tie counts as majority `1`).
+fn credit_component_agreement(comp: &[u32], bits: &[u8], count: u64, agree: &mut [u64]) {
+    let ones = comp.iter().filter(|&&q| bits[q as usize] == 1).count();
+    let majority: u8 = if ones * 2 >= comp.len() { 1 } else { 0 };
+    for &q in comp {
+        if bits[q as usize] == majority {
+            agree[q as usize] += count;
+        }
+    }
 }
 
 fn reproducibility_for(job: &AnalyticsJob) -> ReproducibilityManifest {
