@@ -553,8 +553,18 @@ mod tests {
         bad_remaining.remaining_voters = vec![1, 2, 3];
         assert!(!bad_remaining.validate());
 
+        // Re-derive the operation id for the tampered identity, so ONLY the
+        // learner-differs-from-target rule can reject it (a stale id would be
+        // caught by the id check instead).
         let mut target_is_learner = journal.clone();
         target_is_learner.learner = target_is_learner.target;
+        target_is_learner.operation_id = operation_id(
+            target_is_learner.group_id,
+            target_is_learner.target,
+            target_is_learner.learner,
+            target_is_learner.expected_term,
+            &target_is_learner.expected_voters,
+        );
         assert!(!target_is_learner.validate());
     }
 
@@ -579,5 +589,227 @@ mod tests {
         skipped.phase = MembershipShrinkPhase::LearnerCaughtUp;
         skipped.evidence = Some(next);
         assert!(!journal.permits_successor(&skipped));
+    }
+
+    /// Evidence that satisfies every gate up to and including `phase` for the
+    /// voter set `voters`.
+    fn evidence_through(
+        phase: MembershipShrinkPhase,
+        voters: Vec<NodeId>,
+    ) -> MembershipShrinkEvidence {
+        use MembershipShrinkPhase::*;
+        let mut ready = evidence(voters);
+        let reached = |gate: MembershipShrinkPhase| phase_rank(phase) >= phase_rank(gate);
+        ready.drained = reached(Drained);
+        ready.learner_caught_up = reached(LearnerCaughtUp);
+        ready.leadership_transferred = reached(LeadershipTransferred);
+        let safe = reached(SafetyChecked);
+        ready.quorum_preserved = safe;
+        ready.failure_domain_preserved = safe;
+        ready.headroom_preserved = safe;
+        ready.pdb_preserved = safe;
+        ready.membership_change_committed = reached(RemovalCommitted);
+        ready.target_absent = reached(RemovalCommitted);
+        ready
+    }
+
+    fn phase_rank(phase: MembershipShrinkPhase) -> usize {
+        use MembershipShrinkPhase::*;
+        [
+            Proposed,
+            DrainRequested,
+            Drained,
+            LearnerCaughtUp,
+            LeadershipTransferred,
+            SafetyChecked,
+            RemovalCommitted,
+            Completed,
+        ]
+        .iter()
+        .position(|candidate| *candidate == phase)
+        .expect("a non-abort phase")
+    }
+
+    /// The voter set the evidence for a transition into `next` must name: the
+    /// remaining voters once the removal is committed, otherwise the expected set.
+    fn evidence_voters_for(next: MembershipShrinkPhase) -> Vec<NodeId> {
+        if phase_rank(next) >= phase_rank(MembershipShrinkPhase::RemovalCommitted) {
+            vec![1, 2]
+        } else {
+            vec![1, 2, 3]
+        }
+    }
+
+    /// Advance a fresh journal through every phase up to `phase`, each with
+    /// exactly-ready evidence.
+    fn journal_at(phase: MembershipShrinkPhase) -> MembershipShrinkJournal {
+        use MembershipShrinkPhase::*;
+        let mut journal = MembershipShrinkJournal::new(0, 3, 4, 7, vec![1, 2, 3]).unwrap();
+        for next in [
+            DrainRequested,
+            Drained,
+            LearnerCaughtUp,
+            LeadershipTransferred,
+            SafetyChecked,
+            RemovalCommitted,
+            Completed,
+        ] {
+            if phase_rank(journal.phase) >= phase_rank(phase) {
+                break;
+            }
+            journal = journal
+                .advance(next, evidence_through(next, evidence_voters_for(next)))
+                .unwrap();
+        }
+        journal
+    }
+
+    #[test]
+    fn advance_rejects_skips_from_every_intermediate_phase() {
+        use MembershipShrinkPhase::*;
+        // From each non-terminal phase, jumping two or more steps ahead is refused
+        // by `advance` (transition table) and by `permits_successor` (step shape),
+        // even with evidence that satisfies the skipped-to phase's own gate.
+        let phases = [
+            Proposed,
+            DrainRequested,
+            Drained,
+            LearnerCaughtUp,
+            LeadershipTransferred,
+            SafetyChecked,
+        ];
+        for (index, phase) in phases.iter().copied().enumerate() {
+            let journal = journal_at(phase);
+            assert_eq!(journal.phase, phase);
+            for skipped_to in [
+                Drained,
+                LearnerCaughtUp,
+                LeadershipTransferred,
+                SafetyChecked,
+                RemovalCommitted,
+                Completed,
+            ]
+            .into_iter()
+            .filter(|next| phase_rank(*next) >= index + 2)
+            {
+                let ready = evidence_through(skipped_to, evidence_voters_for(skipped_to));
+                assert!(
+                    journal.advance(skipped_to, ready.clone()).is_err(),
+                    "{phase:?} -> {skipped_to:?} must not skip a gate"
+                );
+                let mut forged = journal.clone();
+                forged.phase = skipped_to;
+                forged.evidence = Some(ready);
+                assert!(
+                    !journal.permits_successor(&forged),
+                    "{phase:?} -> {skipped_to:?} is not a single step"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn removal_commit_and_completion_require_committed_target_absent_evidence() {
+        use MembershipShrinkPhase::*;
+        let safety_checked = journal_at(SafetyChecked);
+        assert!(safety_checked.ready_for_removal());
+
+        let mut target_present = evidence_through(RemovalCommitted, vec![1, 2]);
+        target_present.target_absent = false;
+        assert!(safety_checked
+            .advance(RemovalCommitted, target_present)
+            .is_err());
+
+        let removal_committed = safety_checked
+            .advance(
+                RemovalCommitted,
+                evidence_through(RemovalCommitted, vec![1, 2]),
+            )
+            .unwrap();
+        assert!(safety_checked.permits_successor(&removal_committed));
+        assert_eq!(
+            removal_committed.recovery_action(&[1, 2]),
+            ShrinkRecoveryAction::Complete
+        );
+
+        let mut completion_target_present = evidence_through(Completed, vec![1, 2]);
+        completion_target_present.target_absent = false;
+        assert!(removal_committed
+            .advance(Completed, completion_target_present)
+            .is_err());
+
+        let completed = removal_committed
+            .advance(Completed, evidence_through(Completed, vec![1, 2]))
+            .unwrap();
+        assert!(completed.phase.terminal());
+        assert!(removal_committed.permits_successor(&completed));
+        assert!(completed
+            .advance(Completed, evidence_through(Completed, vec![1, 2]))
+            .is_err());
+    }
+
+    #[test]
+    fn abort_is_a_permitted_successor_from_every_non_terminal_phase() {
+        use MembershipShrinkPhase::*;
+        for phase in [
+            Proposed,
+            DrainRequested,
+            Drained,
+            LearnerCaughtUp,
+            LeadershipTransferred,
+            SafetyChecked,
+            RemovalCommitted,
+        ] {
+            let journal = journal_at(phase);
+            let aborted = journal.abort("operator cancelled").unwrap();
+            assert!(aborted.validate());
+            assert!(
+                journal.permits_successor(&aborted),
+                "{phase:?} -> Aborted must be permitted"
+            );
+            assert!(!aborted.permits_successor(&journal), "an abort is terminal");
+        }
+    }
+
+    #[test]
+    fn validate_rejects_an_invalid_abort_state() {
+        let journal = MembershipShrinkJournal::new(0, 3, 4, 7, vec![1, 2, 3]).unwrap();
+        let aborted = journal.abort("operator cancelled").unwrap();
+        assert!(aborted.validate());
+
+        let mut reason_without_abort = journal.clone();
+        reason_without_abort.abort_reason = Some("operator cancelled".to_string());
+        assert!(!reason_without_abort.validate());
+
+        for invalid_reason in [
+            String::new(),
+            "x".repeat(MAX_EVIDENCE_REF + 1),
+            "bad\u{7}reason".to_string(),
+        ] {
+            let mut tampered = aborted.clone();
+            tampered.abort_reason = Some(invalid_reason.clone());
+            assert!(!tampered.validate(), "abort reason {invalid_reason:?}");
+            assert!(journal.abort(&invalid_reason).is_err());
+        }
+    }
+
+    #[test]
+    fn validate_rejects_invalid_retained_evidence() {
+        let journal = MembershipShrinkJournal::new(0, 3, 4, 7, vec![1, 2, 3]).unwrap();
+        let mut with_evidence = journal.clone();
+        with_evidence.evidence = Some(evidence(vec![1, 2, 3]));
+        assert!(with_evidence.validate());
+
+        let tampers: [fn(&mut MembershipShrinkEvidence); 4] = [
+            |evidence| evidence.evidence_ref.clear(),
+            |evidence| evidence.evidence_ref = "x".repeat(MAX_EVIDENCE_REF + 1),
+            |evidence| evidence.evidence_ref = "bad\nref".to_string(),
+            |evidence| evidence.observed_voters = vec![2, 1, 3],
+        ];
+        for tamper in tampers {
+            let mut tampered = with_evidence.clone();
+            tamper(tampered.evidence.as_mut().unwrap());
+            assert!(!tampered.validate());
+        }
     }
 }
