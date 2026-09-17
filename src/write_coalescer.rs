@@ -44,6 +44,9 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::graph::GraphCore;
 
+mod fan_in;
+pub use fan_in::fan_in_add_nodes;
+
 /// Process-local coalescer counters for one graph: lock acquisitions (batches) vs
 /// the single-op writes those acquisitions applied. `ops / batches` is the average
 /// batch size = the lock-acquisitions-saved ratio. Only admitted queue work is
@@ -1195,6 +1198,24 @@ mod tests {
         assert!(Arc::ptr_eq(&wa, &wa2));
     }
 
+    /// The pre-coalescer baseline: every op opens its own one-shot txn (= one
+    /// `topo.write()` acquisition per op), exactly like `GraphCore::add_node`.
+    async fn fan_in_inline_add_nodes(core: &Arc<GraphCore>, n: usize, producers: usize) {
+        let handles: Vec<_> = (0..producers)
+            .map(|producer| {
+                let core = core.clone();
+                tokio::spawn(async move {
+                    for i in (producer..n).step_by(producers) {
+                        core.add_node(format!("n{i}"), node_props(i as i64));
+                    }
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.await.unwrap();
+        }
+    }
+
     /// Micro-benchmark (run with `--ignored --nocapture`): concurrent producers
     /// writing to ONE graph via the STRICTLY-INLINE path (one `core.txn()` per op =
     /// the pre-coalescer behavior) vs the COALESCED path (batched under one txn).
@@ -1210,20 +1231,7 @@ mod tests {
         // topo.write() acquisition per op), exactly like GraphCore::add_node. ──
         let inline_core = Arc::new(GraphCore::new());
         let t0 = std::time::Instant::now();
-        {
-            let mut handles = Vec::with_capacity(PRODUCERS);
-            for p in 0..PRODUCERS {
-                let c = inline_core.clone();
-                handles.push(tokio::spawn(async move {
-                    for i in (p..N).step_by(PRODUCERS) {
-                        c.add_node(format!("n{i}"), node_props(i as i64)); // one txn each
-                    }
-                }));
-            }
-            for h in handles {
-                h.await.unwrap();
-            }
-        }
+        fan_in_inline_add_nodes(&inline_core, N, PRODUCERS).await;
         let inline_elapsed = t0.elapsed();
         assert_eq!(inline_core.node_count(), N);
         // Inline = exactly one lock acquisition per op.
@@ -1240,49 +1248,7 @@ mod tests {
         };
         let writer = GraphWriter::spawn("bench".into(), co_core.clone(), cfg);
         let t1 = std::time::Instant::now();
-        {
-            let mut handles = Vec::with_capacity(PRODUCERS);
-            for p in 0..PRODUCERS {
-                let w = writer.clone();
-                handles.push(tokio::spawn(async move {
-                    let mut pending = Vec::new();
-                    for i in (p..N).step_by(PRODUCERS) {
-                        let (reply, rx) = oneshot::channel();
-                        let op = WriteOp::AddNode {
-                            node_id: format!("n{i}"),
-                            properties_msgpack: node_props(i as i64),
-                            reply,
-                        };
-                        // Backpressure: if the bounded queue is full, drain a
-                        // reply before retrying the SAME op. It is never applied
-                        // inline, because that could overtake an accepted ticket.
-                        let mut op = op;
-                        loop {
-                            match w.try_enqueue(op) {
-                                Ok(()) => {
-                                    pending.push(rx);
-                                    break;
-                                }
-                                Err(returned) => {
-                                    op = returned;
-                                    if let Some(front) = pending.pop() {
-                                        let _ = front.await;
-                                    } else {
-                                        tokio::task::yield_now().await;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    for rx in pending {
-                        rx.await.unwrap();
-                    }
-                }));
-            }
-            for h in handles {
-                h.await.unwrap();
-            }
-        }
+        assert_eq!(fan_in_add_nodes(&writer, N, PRODUCERS, node_props).await, 0);
         let co_elapsed = t1.elapsed();
         assert_eq!(co_core.node_count(), N);
         let co_locks = writer.stats().batches();

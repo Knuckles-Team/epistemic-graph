@@ -19,9 +19,8 @@ use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use epistemic_graph::graph::GraphCore;
-use epistemic_graph::write_coalescer::{CoalescerConfig, GraphWriter, WriteOp};
+use epistemic_graph::write_coalescer::{fan_in_add_nodes, CoalescerConfig, GraphWriter};
 use tokio::runtime::Builder;
-use tokio::sync::oneshot;
 
 const GRAPH: &str = "__commons__";
 
@@ -30,10 +29,9 @@ fn node_props(k: i64) -> Vec<u8> {
 }
 
 /// Fan `n` AddNode writes from `producers` concurrent tasks into ONE graph through
-/// the coalescer at `max_batch`. Producers PIPELINE (fire without blocking on each
-/// reply, as a real ingestion firehose does) so the worker sees a deep queue and
-/// batches it; replies are drained after the burst. A full bounded queue is
-/// retried after draining a reply; no unordered inline path is used.
+/// the coalescer at `max_batch`, using the coalescer's own pipelined fan-in driver
+/// (producers fire without blocking on each reply; a full bounded queue is retried
+/// after draining a reply; no unordered inline path is used).
 async fn fan_in(n: usize, producers: usize, max_batch: usize) {
     let core = Arc::new(GraphCore::new());
     let cfg = CoalescerConfig {
@@ -47,46 +45,8 @@ async fn fan_in(n: usize, producers: usize, max_batch: usize) {
             Duration::from_micros(100)
         },
     };
-    let writer = GraphWriter::spawn(GRAPH.into(), core.clone(), cfg);
-
-    let mut tasks = Vec::with_capacity(producers);
-    for p in 0..producers {
-        let w = writer.clone();
-        tasks.push(tokio::spawn(async move {
-            let mut pending = Vec::new();
-            for i in (p..n).step_by(producers) {
-                let (reply, rx) = oneshot::channel();
-                let op = WriteOp::AddNode {
-                    node_id: format!("n{i}"),
-                    properties_msgpack: node_props(i as i64),
-                    reply,
-                };
-                let mut op = op;
-                loop {
-                    match w.try_enqueue(op) {
-                        Ok(()) => {
-                            pending.push(rx);
-                            break;
-                        }
-                        Err(returned) => {
-                            op = returned;
-                            if let Some(front) = pending.pop() {
-                                let _ = front.await;
-                            } else {
-                                tokio::task::yield_now().await;
-                            }
-                        }
-                    }
-                }
-            }
-            for rx in pending {
-                let _ = rx.await;
-            }
-        }));
-    }
-    for t in tasks {
-        t.await.unwrap();
-    }
+    let writer = GraphWriter::spawn(GRAPH.into(), core, cfg);
+    fan_in_add_nodes(&writer, n, producers, node_props).await;
 }
 
 fn bench_contention(c: &mut Criterion) {

@@ -2420,6 +2420,7 @@ components:
       - "src/mutation_apply.rs"
       - "src/sidecar_store.rs"
       - "src/write_coalescer.rs"
+      - "src/write_coalescer"
       - "src/graph_delta.rs"
       - "src/crypto.rs"
       - "src/server/persistence"
