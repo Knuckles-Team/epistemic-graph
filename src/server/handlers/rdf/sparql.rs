@@ -66,7 +66,7 @@ fn sparql_cache_hash(cache_key: &str, #[cfg(feature = "security")] caller: &str)
     #[cfg(feature = "security")]
     {
         let kind = format!("rls:{caller}:sparql");
-        return eg_core::result_cache::ResultCache::hash_query(&kind, cache_key.as_bytes());
+        eg_core::result_cache::ResultCache::hash_query(&kind, cache_key.as_bytes())
     }
     #[cfg(not(feature = "security"))]
     eg_core::result_cache::ResultCache::hash_query("sparql", cache_key.as_bytes())
@@ -93,7 +93,7 @@ fn sparql_snapshot(
     #[cfg(feature = "security")]
     {
         let probe_version = core.version();
-        return match core.cached_filtered_view(caller, probe_version) {
+        match core.cached_filtered_view(caller, probe_version) {
             Some(cached) => (cached, probe_version),
             None => {
                 let generation = core.filtered_view_cache_generation();
@@ -108,7 +108,7 @@ fn sparql_snapshot(
                 );
                 (snap, built_version)
             }
-        };
+        }
     }
     #[cfg(not(feature = "security"))]
     core.analysis_snapshot_versioned()

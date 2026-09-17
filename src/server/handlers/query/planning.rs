@@ -475,6 +475,12 @@ pub(crate) fn run_unified_bind_tensor(ctx: eg_plan::PlanCtx<'_>) -> eg_plan::Pla
     ctx.with_tensor_store(store)
 }
 
+/// What a unified plan run hands back: the outer `Err` is a ready response
+/// (off-lock execution failed), the inner result is the plan's scored rows or
+/// its error message.
+#[cfg(feature = "query")]
+pub(crate) type UnifiedRunOutcome = Result<Result<Vec<(String, Option<f32>)>, String>, Response>;
+
 /// Resolve the tsdb/text/geo/federation legs and run `plan` off-lock via
 /// `run_unified`, exactly as `UnifiedQuery`/`UnifiedQueryText`/`NlQuery` already
 /// did inline — pure extract-method out of those three arms' bodies (identical
@@ -490,7 +496,7 @@ pub(crate) async fn run_unified_off_lock(
     snap: Arc<crate::graph::GraphView>,
     plan: eg_plan::Plan,
     #[cfg(feature = "tsdb")] tsdb_scope: Option<(String, String)>,
-) -> Result<Result<Vec<(String, Option<f32>)>, String>, Response> {
+) -> UnifiedRunOutcome {
     let core_for_ctx = core.clone();
     #[cfg(feature = "tsdb")]
     let tsdb = if tsdb_scope.is_some() {

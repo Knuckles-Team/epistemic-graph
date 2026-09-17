@@ -42,15 +42,14 @@ async fn parse_file(ctx: DispatchCtx<'_>, file_path: String, source: Vec<u8>) ->
                 Ok(())
             }
         });
-        return match input_check
-            .and_then(|()| crate::parser::tree_sitter::parse_file(&file_path, &source))
+        match input_check.and_then(|()| crate::parser::tree_sitter::parse_file(&file_path, &source))
         {
             Ok(result) => Response::ok(
                 req_id,
                 ResultPayload::of::<ingestion_results::ParseFile>(result),
             ),
             Err(error) => Response::err(req_id, error),
-        };
+        }
     }
     #[cfg(not(feature = "ast"))]
     {
@@ -79,10 +78,10 @@ async fn parse_files(ctx: DispatchCtx<'_>, files_msgpack: Vec<u8>) -> Response {
             Ok(results) => results,
             Err(response) => return response,
         };
-        return Response::ok(
+        Response::ok(
             req_id,
             ResultPayload::of::<ingestion_results::ParseFiles>(results),
-        );
+        )
     }
     #[cfg(not(feature = "ast"))]
     {
@@ -111,10 +110,10 @@ async fn index_repository(ctx: DispatchCtx<'_>, files_msgpack: Vec<u8>) -> Respo
             Ok(result) => result,
             Err(response) => return response,
         };
-        return Response::ok(
+        Response::ok(
             req_id,
             ResultPayload::of::<ingestion_results::IndexRepository>(result),
-        );
+        )
     }
     #[cfg(not(feature = "ast"))]
     {

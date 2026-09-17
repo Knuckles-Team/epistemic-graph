@@ -123,7 +123,7 @@ pub(crate) async fn handle_graphql_staging_mutation(
         };
     let receipt = match admission {
         GraphQlStagingAdmission::Replayed(result) => return Ok(Response::ok(req_id, result)),
-        GraphQlStagingAdmission::Execute(receipt) => receipt,
+        GraphQlStagingAdmission::Execute(receipt) => *receipt,
     };
     let core_w = read_authority
         .expect("GraphQL mutation authority checked above")
@@ -157,7 +157,7 @@ fn finish_graphql_staging(
 #[cfg(feature = "graphql")]
 enum GraphQlStagingAdmission {
     Replayed(ResultPayload),
-    Execute(txn::TxnLifecycleReceipt),
+    Execute(Box<txn::TxnLifecycleReceipt>),
 }
 
 #[cfg(feature = "graphql")]
@@ -188,7 +188,7 @@ async fn begin_graphql_staging_admission(
             Ok(GraphQlStagingAdmission::Replayed(result))
         }
         txn::GraphQlLifecycleAdmission::Execute(receipt) => {
-            Ok(GraphQlStagingAdmission::Execute(*receipt))
+            Ok(GraphQlStagingAdmission::Execute(receipt))
         }
     }
 }

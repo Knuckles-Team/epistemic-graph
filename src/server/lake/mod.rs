@@ -975,7 +975,7 @@ mod tests {
                     .send(())
                     .map_err(|error| format!("signal paused lake write: {error}"))?;
                 release
-                    .recv()
+                    .recv_timeout(crate::test_rendezvous::RENDEZVOUS_TIMEOUT)
                     .map_err(|error| format!("resume paused lake write: {error}"))?;
             }
             let should_fail = {
@@ -1328,10 +1328,9 @@ mod tests {
             .unwrap();
         let path_count_after_append = manager.paths.lock().len();
         release_delete.send(()).expect("release stale delete");
-        let conflict = stale_delete
-            .join()
-            .expect("delete thread did not panic")
-            .expect_err("stale delete must fail its expected-LSN fence");
+        let conflict =
+            crate::test_rendezvous::join_bounded(stale_delete, "the stale delete thread")
+                .expect_err("stale delete must fail its expected-LSN fence");
         assert!(conflict.contains("lake write conflict"));
 
         let after_conflict = manager.load_table(DEFAULT_NAMESPACE, &table).unwrap();
@@ -1416,10 +1415,9 @@ mod tests {
             )
             .unwrap());
         release_write.send(()).expect("release stale compaction");
-        let conflict = stale_compaction
-            .join()
-            .expect("compaction thread did not panic")
-            .expect_err("pre-evolution candidate must fail its revision fence");
+        let conflict =
+            crate::test_rendezvous::join_bounded(stale_compaction, "the stale compaction thread")
+                .expect_err("pre-evolution candidate must fail its revision fence");
         assert!(conflict.contains("lake write conflict"));
         assert_eq!(manager.paths.lock().len(), initial_path_count);
         assert_eq!(

@@ -4,12 +4,14 @@ use crate::server::auth::VerifiedRequestContext;
 use sha2::Digest;
 
 fn authority(actor: &str, tenant: &str, key: &str) -> CarrierAuthority {
-    let mut claims = crate::acl::RequestContextClaims::default();
-    claims.principal = actor.to_string();
-    claims.agent_id = actor.to_string();
-    claims.tenant = tenant.to_string();
-    claims.audience = "epistemic-graph".into();
-    claims.policy_version = "test".into();
+    let claims = crate::acl::RequestContextClaims {
+        principal: actor.to_string(),
+        agent_id: actor.to_string(),
+        tenant: tenant.to_string(),
+        audience: "epistemic-graph".into(),
+        policy_version: "test".into(),
+        ..Default::default()
+    };
     CarrierAuthority::from_verified(&VerifiedRequestContext::from_verified_claims(
         claims,
         key.into(),

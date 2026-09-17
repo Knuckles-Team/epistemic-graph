@@ -52,7 +52,6 @@ pub(super) async fn dispatch_identity_and_access_methods(
 
 /// `ApplyMultisigMutation` answers with the SPARQL UPDATE report of the
 /// `ApplyMutation` it was translated into, declared under its own marker.
-
 async fn dispatch_identity_and_access_methods_arm_0(
     ctx: DispatchCtx<'_>,
     method: Method,

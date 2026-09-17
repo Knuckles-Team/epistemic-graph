@@ -14,13 +14,13 @@ struct SqlReadScope<'a> {
 }
 
 #[cfg(feature = "query")]
-fn required_sql_authority<'a>(
+fn required_sql_authority(
     req_id: u64,
-    read_authority: Option<&'a GraphReadAuthority>,
+    read_authority: Option<&GraphReadAuthority>,
 ) -> Result<
     (
-        &'a GraphReadAuthority,
-        &'a crate::server::access::CarrierAuthority,
+        &GraphReadAuthority,
+        &crate::server::access::CarrierAuthority,
     ),
     Response,
 > {
@@ -106,7 +106,7 @@ async fn handle_sql_read(scope: SqlReadScope<'_>, query: String) -> Response {
         rls,
     } = scope;
     let (snap, _graph_version) = sql_read_snapshot(
-        &core,
+        core,
         #[cfg(feature = "security")]
         caller,
         #[cfg(feature = "security")]
@@ -215,7 +215,7 @@ pub(crate) async fn handle_sql(
 #[cfg(feature = "query")]
 fn unified_response<M>(
     req_id: u64,
-    result: Result<Result<Vec<(String, Option<f32>)>, String>, Response>,
+    result: UnifiedRunOutcome,
     #[cfg(feature = "result-cache")] core: &Arc<GraphCore>,
     #[cfg(feature = "result-cache")] dep: &Option<eg_core::dep_scope::DepSet>,
     #[cfg(feature = "result-cache")] version: u64,

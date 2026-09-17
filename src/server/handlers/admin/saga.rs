@@ -711,9 +711,7 @@ fn catalog_saga_replay_response(
             "catalog saga is Prepared; refusing to re-execute its mutation",
         ));
     }
-    let Some(result) = saga.replayed.clone() else {
-        return None;
-    };
+    let result = saga.replayed.clone()?;
     if let Err(error) = saga
         .batch
         .result_contract

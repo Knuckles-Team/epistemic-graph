@@ -5,7 +5,10 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::mutation_batch::DurabilityDomain;
-use crate::protocol::{Method, Response};
+use crate::protocol::{Method, Response, ResultPayload};
+use crate::server::persistence::rebalance::{
+    plan_rebalance, shard_loads_from_catalog, shard_loads_from_graph_loads,
+};
 use crate::server::state::ServerState;
 use eg_types::contract::Nonce;
 
@@ -38,19 +41,15 @@ pub(crate) async fn try_handle(
         ));
     };
     let original_method = method.clone();
+    let call = AdminSagaCall {
+        req_id,
+        caller,
+        backend,
+        original_method: &original_method,
+        attempt_nonce,
+    };
     match method {
-        Method::Reshard { graph, to_shard } => {
-            handle_reshard(
-                backend,
-                req_id,
-                caller,
-                &original_method,
-                attempt_nonce,
-                graph,
-                to_shard,
-            )
-            .await
-        }
+        Method::Reshard { graph, to_shard } => Ok(handle_reshard(call, graph, to_shard).await),
         Method::CatalogAssign { graph, shard, node } => Ok(catalog_saga::<
             eg_types::result_contract::cluster::CatalogAssign,
         >(
@@ -81,7 +80,7 @@ pub(crate) async fn try_handle(
             attempt_nonce,
             |catalog| catalog.remove(&crate::persist::sanitize(&graph)),
         )),
-        Method::CatalogList => handle_catalog_list(req_id, backend),
+        Method::CatalogList => Ok(handle_catalog_list(req_id, backend)),
         Method::RebalancePlan {
             tolerance,
             max_moves,
@@ -89,79 +88,34 @@ pub(crate) async fn try_handle(
         Method::RebalanceExecute {
             tolerance,
             max_moves,
-        } => {
-            handle_rebalance_execute(
-                state,
-                req_id,
-                caller,
-                backend,
-                &original_method,
-                attempt_nonce,
-                tolerance,
-                max_moves,
-            )
-            .await
-        }
+        } => handle_rebalance_execute(state, call, tolerance, max_moves).await,
         Method::Backup { destination, label } => {
             handle_backup(state, req_id, backend, destination, label).await
         }
         Method::Restore {
             source,
             target_shards,
-        } => {
-            handle_restore(
-                req_id,
-                caller,
-                backend,
-                &original_method,
-                attempt_nonce,
-                source,
-                target_shards,
-            )
-            .await
-        }
+        } => handle_restore(call, source, target_shards).await,
         other => Err(other),
     }
 }
 
 #[cfg(feature = "redb")]
-async fn handle_reshard(
-    backend: &crate::server::persistence::redb_backend::RedbBackend,
-    req_id: u64,
-    caller: Option<&str>,
-    original_method: &Method,
-    attempt_nonce: Option<Nonce>,
-    graph: String,
-    to_shard: u32,
-) -> Result<Response, Method> {
-    use crate::protocol::ResultPayload;
-    let saga = match begin_admin_saga_with_nonce(
-        backend,
-        req_id,
-        caller,
-        original_method,
-        DurabilityDomain::MultiGraph,
-        attempt_nonce,
-    ) {
+async fn handle_reshard(call: AdminSagaCall<'_>, graph: String, to_shard: u32) -> Response {
+    let saga = match call.begin_saga(DurabilityDomain::MultiGraph) {
         Ok(saga) => saga,
-        Err(error) => return Ok(Response::err(req_id, error)),
+        Err(response) => return response,
     };
-    if let Some(result) = saga.replayed {
-        return Ok(Response::ok(req_id, result));
-    }
     let fname = crate::persist::sanitize(&graph);
-    match backend.reshard_graph(&fname, to_shard).await {
-        Ok(report) => {
-            match ResultPayload::of::<eg_types::result_contract::cluster::Reshard>(reshard_report(
-                &report,
-            ))
-            .and_then(|result| finish_admin_saga(backend, saga.batch, saga.created_at_ms, result))
-            {
-                Ok(result) => Ok(Response::ok(req_id, result)),
-                Err(error) => Ok(Response::err(req_id, error)),
-            }
-        }
-        Err(e) => Ok(Response::err(req_id, format!("Reshard failed: {e}"))),
+    let report = match call.backend.reshard_graph(&fname, to_shard).await {
+        Ok(report) => report,
+        Err(e) => return Response::err(call.req_id, format!("Reshard failed: {e}")),
+    };
+    match ResultPayload::of::<eg_types::result_contract::cluster::Reshard>(reshard_report(&report))
+        .and_then(|result| finish_admin_saga(call.backend, saga.batch, saga.created_at_ms, result))
+    {
+        Ok(result) => Response::ok(call.req_id, result),
+        Err(error) => Response::err(call.req_id, error),
     }
 }
 
@@ -169,10 +123,9 @@ async fn handle_reshard(
 fn handle_catalog_list(
     req_id: u64,
     backend: &crate::server::persistence::redb_backend::RedbBackend,
-) -> Result<Response, Method> {
-    use crate::protocol::ResultPayload;
+) -> Response {
     let Some(cat) = backend.catalog() else {
-        return Ok(no_catalog(req_id));
+        return no_catalog(req_id);
     };
     let placements = cat
         .entries()
@@ -185,12 +138,12 @@ fn handle_catalog_list(
             },
         )
         .collect();
-    Ok(Response::ok(
+    Response::ok(
         req_id,
         ResultPayload::of::<eg_types::result_contract::cluster::CatalogList>(
             eg_types::result_contract::cluster::CatalogListing { placements },
         ),
-    ))
+    )
 }
 
 #[cfg(feature = "redb")]
@@ -201,10 +154,6 @@ async fn handle_rebalance_plan(
     tolerance: Option<f64>,
     max_moves: Option<usize>,
 ) -> Result<Response, Method> {
-    use crate::protocol::ResultPayload;
-    use crate::server::persistence::rebalance::{
-        plan_rebalance, shard_loads_from_catalog, shard_loads_from_graph_loads,
-    };
     let (loads, k) = live_graph_loads(state).await;
     let shards = match backend.catalog() {
         Some(cat) => shard_loads_from_catalog(&cat, &loads, k),
@@ -232,33 +181,54 @@ async fn handle_rebalance_plan(
     ))
 }
 
+/// The request identity every saga-backed admin operation carries: who asked,
+/// for which method, against which durable backend, under which retry nonce.
+#[cfg(feature = "redb")]
+#[derive(Clone, Copy)]
+struct AdminSagaCall<'a> {
+    req_id: u64,
+    caller: Option<&'a str>,
+    backend: &'a crate::server::persistence::redb_backend::RedbBackend,
+    original_method: &'a Method,
+    attempt_nonce: Option<Nonce>,
+}
+
+#[cfg(feature = "redb")]
+impl AdminSagaCall<'_> {
+    /// Begin this call's admin saga in `domain`. `Err` is already the finished
+    /// response: the begin failure, or the durable answer of an earlier attempt
+    /// that this one replays.
+    fn begin_saga(&self, domain: DurabilityDomain) -> Result<super::saga::AdminSaga, Response> {
+        let mut saga = begin_admin_saga_with_nonce(
+            self.backend,
+            self.req_id,
+            self.caller,
+            self.original_method,
+            domain,
+            self.attempt_nonce,
+        )
+        .map_err(|error| Response::err(self.req_id, error))?;
+        match saga.replayed.take() {
+            Some(result) => Err(Response::ok(self.req_id, result)),
+            None => Ok(saga),
+        }
+    }
+}
+
 #[cfg(feature = "redb")]
 async fn handle_rebalance_execute(
     state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    caller: Option<&str>,
-    backend: &crate::server::persistence::redb_backend::RedbBackend,
-    original_method: &Method,
-    attempt_nonce: Option<Nonce>,
+    call: AdminSagaCall<'_>,
     tolerance: Option<f64>,
     max_moves: Option<usize>,
 ) -> Result<Response, Method> {
-    use crate::protocol::ResultPayload;
-    use crate::server::persistence::rebalance::{plan_rebalance, shard_loads_from_catalog};
-    let saga = match begin_admin_saga_with_nonce(
-        backend,
-        req_id,
-        caller,
-        original_method,
-        DurabilityDomain::MultiGraph,
-        attempt_nonce,
-    ) {
+    let AdminSagaCall {
+        req_id, backend, ..
+    } = call;
+    let saga = match call.begin_saga(DurabilityDomain::MultiGraph) {
         Ok(saga) => saga,
-        Err(error) => return Ok(Response::err(req_id, error)),
+        Err(response) => return Ok(response),
     };
-    if let Some(result) = saga.replayed {
-        return Ok(Response::ok(req_id, result));
-    }
     let Some(cat) = backend.catalog() else {
         return Ok(no_catalog(req_id));
     };
@@ -292,7 +262,6 @@ async fn handle_backup(
     destination: String,
     label: Option<String>,
 ) -> Result<Response, Method> {
-    use crate::protocol::ResultPayload;
     // ONLINE, no quiesce: per-shard begin_read() MVCC snapshot streamed verbatim.
     // The engine version + wall-clock timestamp are supplied HERE (application
     // code) — the library `backup` fn never reads the clock.
@@ -419,35 +388,23 @@ async fn publish_backup_stage(
 
 #[cfg(feature = "redb")]
 async fn handle_restore(
-    req_id: u64,
-    caller: Option<&str>,
-    backend: &crate::server::persistence::redb_backend::RedbBackend,
-    original_method: &Method,
-    attempt_nonce: Option<Nonce>,
+    call: AdminSagaCall<'_>,
     source: String,
     target_shards: usize,
 ) -> Result<Response, Method> {
-    use crate::protocol::ResultPayload;
+    let AdminSagaCall {
+        req_id, backend, ..
+    } = call;
     if !(1..=64).contains(&target_shards) {
         return Ok(Response::err(
             req_id,
             "restore target shard count is outside bounds",
         ));
     }
-    let saga = match begin_admin_saga_with_nonce(
-        backend,
-        req_id,
-        caller,
-        original_method,
-        DurabilityDomain::ControlPlane,
-        attempt_nonce,
-    ) {
+    let saga = match call.begin_saga(DurabilityDomain::ControlPlane) {
         Ok(saga) => saga,
-        Err(error) => return Ok(Response::err(req_id, error)),
+        Err(response) => return Ok(response),
     };
-    if let Some(result) = saga.replayed {
-        return Ok(Response::ok(req_id, result));
-    }
     let source = match resolve_backup_source(&source) {
         Ok(value) => value,
         Err(error) => return Ok(Response::err(req_id, error)),

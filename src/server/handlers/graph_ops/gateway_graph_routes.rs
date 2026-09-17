@@ -118,7 +118,10 @@ fn is_analytics(method: &Method) -> bool {
     )
 }
 
-const ROUTE_MATCHERS: &[(fn(&Method) -> bool, Route)] = &[
+/// A predicate selecting the methods one gateway route owns.
+type RouteMatcher = fn(&Method) -> bool;
+
+const ROUTE_MATCHERS: &[(RouteMatcher, Route)] = &[
     (
         crate::server::mutation::is_coalescable_structural_write,
         Route::Coalescable,

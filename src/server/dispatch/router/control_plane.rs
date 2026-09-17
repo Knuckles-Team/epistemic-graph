@@ -86,7 +86,6 @@ pub(super) async fn dispatch_cluster_admin_methods(
 /// of the cluster-admin backend. Keep its owner opening and typed operations
 /// on the authenticated request context before the M3 admin handler resolves a
 /// graph backend.
-
 async fn dispatch_cluster_admin_methods_arm_0(ctx: DispatchCtx<'_>, method: Method) -> Response {
     #[allow(unused_variables)]
     let DispatchCtx {

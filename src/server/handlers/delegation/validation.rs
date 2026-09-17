@@ -90,7 +90,7 @@ pub(crate) async fn placement_authority(
                 "kg-delegate admission requires the current placement leader",
             ));
         }
-        return Ok((routed.epoch, Some(routed.group_id), true));
+        Ok((routed.epoch, Some(routed.group_id), true))
     }
     #[cfg(not(feature = "raft"))]
     {

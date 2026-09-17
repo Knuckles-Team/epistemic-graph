@@ -56,6 +56,21 @@ pub(crate) fn bind_agent_library_context(
     Ok(context)
 }
 
+/// Bind the context of a read-only Agent Library status query. Status never
+/// reaches the mutation kernel, so no attempt nonce is required; a binding
+/// failure is answered as this request's error response.
+#[cfg(feature = "redb")]
+fn bind_status_context(
+    store: &crate::server::persistence::agent_library::AgentLibraryStore,
+    req_id: u64,
+    verified: &crate::server::auth::VerifiedRequestContext,
+    context: eg_types::AgentLibraryMutationContext,
+    purpose_id: &str,
+) -> Result<eg_types::AgentLibraryMutationContext, Response> {
+    bind_agent_library_context(store, req_id, verified, context, purpose_id, false)
+        .map_err(|error| Response::err(req_id, error))
+}
+
 #[cfg(feature = "redb")]
 pub(crate) fn bind_agent_library_draft(
     draft: eg_types::AgentLibraryEntryDraft,
@@ -167,7 +182,7 @@ fn component_publish(
     mut request: Box<eg_types::agent_component::AgentComponentPublishRequest>,
 ) -> Response {
     let context = match bind_agent_library_context(
-        &store,
+        store,
         req_id,
         verified,
         request.context,
@@ -201,7 +216,7 @@ fn component_retire(
     mut request: eg_types::agent_component::AgentComponentRetireRequest,
 ) -> Response {
     let context = match bind_agent_library_context(
-        &store,
+        store,
         req_id,
         verified,
         request.context,
@@ -270,13 +285,10 @@ fn component_status(
         eg_types::agent_component::AgentComponentMutationKind::Publish => "agent-component:publish",
         eg_types::agent_component::AgentComponentMutationKind::Retire => "agent-component:retire",
     };
-    let context =
-        match bind_agent_library_context(&store, req_id, verified, request.context, purpose, false)
-        {
-            Ok(context) => context,
-            Err(error) => return Response::err(req_id, error),
-        };
-    request.context = context;
+    request.context = match bind_status_context(store, req_id, verified, request.context, purpose) {
+        Ok(context) => context,
+        Err(response) => return response,
+    };
     match store.component_status(request) {
         Ok(result) => Response::ok(
             req_id,
@@ -353,7 +365,7 @@ fn template_publish(
     mut request: Box<eg_types::agent_template::AgentTemplatePublishRequest>,
 ) -> Response {
     let context = match bind_agent_library_context(
-        &store,
+        store,
         req_id,
         verified,
         request.context,
@@ -392,7 +404,7 @@ fn template_retire(
     mut request: eg_types::agent_template::AgentTemplateRetireRequest,
 ) -> Response {
     let context = match bind_agent_library_context(
-        &store,
+        store,
         req_id,
         verified,
         request.context,
@@ -461,13 +473,10 @@ fn template_status(
         eg_types::agent_template::AgentTemplateMutationKind::Publish => "agent-template:publish",
         eg_types::agent_template::AgentTemplateMutationKind::Retire => "agent-template:retire",
     };
-    let context =
-        match bind_agent_library_context(&store, req_id, verified, request.context, purpose, false)
-        {
-            Ok(context) => context,
-            Err(error) => return Response::err(req_id, error),
-        };
-    request.context = context;
+    request.context = match bind_status_context(store, req_id, verified, request.context, purpose) {
+        Ok(context) => context,
+        Err(response) => return response,
+    };
     match store.template_status(request) {
         Ok(result) => Response::ok(
             req_id,
@@ -539,7 +548,7 @@ fn graph_publish(
     mut request: Box<eg_types::agent_graph::AgentGraphPublishRequest>,
 ) -> Response {
     let context = match bind_agent_library_context(
-        &store,
+        store,
         req_id,
         verified,
         request.context,
@@ -576,7 +585,7 @@ fn graph_retire(
     mut request: eg_types::agent_graph::AgentGraphRetireRequest,
 ) -> Response {
     let context = match bind_agent_library_context(
-        &store,
+        store,
         req_id,
         verified,
         request.context,
@@ -657,13 +666,10 @@ fn graph_status(
         eg_types::agent_graph::AgentGraphMutationKind::Publish => "agent-graph:publish",
         eg_types::agent_graph::AgentGraphMutationKind::Retire => "agent-graph:retire",
     };
-    let context =
-        match bind_agent_library_context(&store, req_id, verified, request.context, purpose, false)
-        {
-            Ok(context) => context,
-            Err(error) => return Response::err(req_id, error),
-        };
-    request.context = context;
+    request.context = match bind_status_context(store, req_id, verified, request.context, purpose) {
+        Ok(context) => context,
+        Err(response) => return response,
+    };
     match store.graph_status(request) {
         Ok(result) => Response::ok(
             req_id,
@@ -714,7 +720,7 @@ fn library_publish(
     mut request: Box<eg_types::AgentLibraryPublishRequest>,
 ) -> Response {
     let context = match bind_agent_library_context(
-        &store,
+        store,
         req_id,
         verified,
         request.context,
@@ -748,7 +754,7 @@ fn library_retire(
     mut request: eg_types::AgentLibraryRetireRequest,
 ) -> Response {
     let context = match bind_agent_library_context(
-        &store,
+        store,
         req_id,
         verified,
         request.context,
@@ -832,13 +838,10 @@ fn library_status(
         eg_types::AgentLibraryMutationKind::Publish => "agent-library:publish",
         eg_types::AgentLibraryMutationKind::Retire => "agent-library:retire",
     };
-    let context =
-        match bind_agent_library_context(&store, req_id, verified, request.context, purpose, false)
-        {
-            Ok(context) => context,
-            Err(error) => return Response::err(req_id, error),
-        };
-    request.context = context;
+    request.context = match bind_status_context(store, req_id, verified, request.context, purpose) {
+        Ok(context) => context,
+        Err(response) => return response,
+    };
     match store.status(request) {
         Ok(result) => Response::ok(
             req_id,

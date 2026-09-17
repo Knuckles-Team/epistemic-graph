@@ -137,17 +137,6 @@ fn handle_mutation(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ingest_stream_request_accepts_safe_max_and_rejects_one_more() {
-        assert!(validate_ingest_stream_request_cardinality(MAX_INGEST_STREAM_ITEMS).is_ok());
-        assert!(validate_ingest_stream_request_cardinality(MAX_INGEST_STREAM_ITEMS + 1).is_err());
-    }
-}
-
 fn handle_read(
     core: &GraphCore,
     authority: &ModalityAuthority,
@@ -217,5 +206,16 @@ fn capabilities_operation(modality: ServedModalityKind) -> Result<ResultPayload,
         ServedModalityKind::Image => capabilities::<ImageData>(),
         ServedModalityKind::Audio => capabilities::<AudioData>(),
         ServedModalityKind::Video => capabilities::<VideoData>(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ingest_stream_request_accepts_safe_max_and_rejects_one_more() {
+        assert!(validate_ingest_stream_request_cardinality(MAX_INGEST_STREAM_ITEMS).is_ok());
+        assert!(validate_ingest_stream_request_cardinality(MAX_INGEST_STREAM_ITEMS + 1).is_err());
     }
 }
