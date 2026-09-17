@@ -223,6 +223,26 @@ fn unique_socket_path(label: &str) -> std::path::PathBuf {
     ))
 }
 
+/// A short, test-owned base directory for a UDS path that itself needs a
+/// missing parent underneath it. `sockaddr_un` caps `sun_path` at 108 bytes
+/// on Linux; build hosts set a long, deeply nested `TMPDIR` for lane
+/// isolation, and `unique_socket_path` under that `TMPDIR` plus this test's
+/// extra `<dir>/graph.sock` component can exceed the limit, so `bind` fails
+/// with `EINVAL` before the missing-parent `ENOENT` this test asserts.
+/// Anchoring at `/tmp` directly (not `std::env::temp_dir()`) keeps the whole
+/// path well under the limit regardless of `TMPDIR`.
+#[cfg(unix)]
+fn short_socket_dir(label: &str) -> std::path::PathBuf {
+    std::path::PathBuf::from("/tmp").join(format!(
+        "eg-uds-{label}-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos()
+    ))
+}
+
 #[cfg(unix)]
 fn uds_test_state() -> Arc<RwLock<ServerState>> {
     Arc::new(RwLock::new(ServerState::new_for_test(
@@ -286,7 +306,7 @@ async fn uds_setup_keeps_current_thread_responsive_and_shutdown_cancels_accept()
 #[cfg(unix)]
 #[tokio::test(flavor = "current_thread")]
 async fn uds_setup_propagates_bind_errors_without_entering_accept_loop() {
-    let missing_parent = unique_socket_path("missing-parent");
+    let missing_parent = short_socket_dir("missing-parent");
     let socket_path = missing_parent.join("graph.sock");
     let socket_path_text = socket_path.to_string_lossy().into_owned();
     let error = tokio::time::timeout(
