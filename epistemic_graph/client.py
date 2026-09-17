@@ -13837,10 +13837,10 @@ class ServedModalityClient:
         modality: str,
         items: list[dict[str, Any]],
     ) -> list[ModalityApplyOutcome]:
-        """Atomically decode and apply a bounded stream of two to 64 records."""
+        """Atomically decode and apply a bounded stream of two to 49 records."""
 
-        if not isinstance(items, list) or not 2 <= len(items) <= 64:
-            raise ValueError("items must contain between two and 64 ingest records")
+        if not isinstance(items, list) or not 2 <= len(items) <= 49:
+            raise ValueError("items must contain between two and 49 ingest records")
         encoded: list[dict[str, Any]] = []
         fields = {
             "idempotency_ref",

@@ -64,7 +64,7 @@ or source-specific server configuration.
 |---|---|---|
 | `authority` | verified request context | Returns HMAC-derived tenant, access-policy, and purpose references for bundle construction |
 | `ingest` | graph write + exact occurrence policy | Runs the concrete native decoder and atomically creates/updates the served occurrence |
-| `ingest_stream` | graph write + exact occurrence policy | Validates and atomically applies two to 64 records with all-or-nothing rollback |
+| `ingest_stream` | graph write + exact occurrence policy | Validates and atomically applies two to 49 records with all-or-nothing rollback |
 | `query` | graph read + exact row/classification policy | Returns bounded, stably paged typed records |
 | `native_query` | graph read + exact row/classification policy | Executes a closed document-lexeme, image-region/pHash, audio-window, or video-window predicate through bounded native postings and exact filtering |
 | `delete` | graph write + exact occurrence policy | Applies OCC, legal-hold, tombstone, and payload-erasure rules |

@@ -499,3 +499,46 @@ def test_modality_guard_rejects_lost_child_target_closure() -> None:
     broken = handler.replace("ResourceClosure::resolve", "ResourceClosure::removed", 1)
     with pytest.raises(SystemExit, match="target-bound and certified"):
         module.require_target_bound_ingest(broken)
+
+
+def test_ingest_stream_client_bound_matches_the_server_constant() -> None:
+    """`epistemic_graph/client.py`'s ingest_stream item ceiling must equal the
+    server's `MAX_INGEST_STREAM_ITEMS`. Regression coverage for the item limit
+    moving 61 -> 49 (the wire-derived worst case the Raft result envelope
+    admits, see `src/raft/modality.rs`) while the client's validation,
+    docstring, and error message stayed at the stale 64.
+    """
+
+    module = _load_gate(
+        "check_p2_modality_architecture.py", "e1_p2_ingest_stream_bound"
+    )
+    python_client = module.read("epistemic_graph/client.py")
+    module.require_ingest_stream_item_bound(python_client)
+
+
+def test_ingest_stream_client_bound_rejects_drift_from_the_server() -> None:
+    module = _load_gate(
+        "check_p2_modality_architecture.py", "e1_p2_ingest_stream_bound_drift"
+    )
+    python_client = module.read("epistemic_graph/client.py")
+
+    # Only the client's validation literal drifts from its own docstring/error
+    # message: caught as an internal inconsistency before it is ever compared
+    # to the server.
+    internally_inconsistent = _replace_once(
+        python_client, "not 2 <= len(items) <= 49", "not 2 <= len(items) <= 61"
+    )
+    with pytest.raises(SystemExit, match="inconsistent between its"):
+        module.require_ingest_stream_item_bound(internally_inconsistent)
+
+    # All three client literals drift together, away from the server's
+    # MAX_INGEST_STREAM_ITEMS: caught as cross-language drift.
+    drifted = python_client
+    for old, new in (
+        ("not 2 <= len(items) <= 49", "not 2 <= len(items) <= 61"),
+        ("stream of two to 49 records", "stream of two to 61 records"),
+        ("between two and 49 ingest records", "between two and 61 ingest records"),
+    ):
+        drifted = _replace_once(drifted, old, new)
+    with pytest.raises(SystemExit, match="has drifted from the server's"):
+        module.require_ingest_stream_item_bound(drifted)

@@ -278,6 +278,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   gated against using it as an unclassified construction bypass.
 
 ### Fixed
+- **Python client `ingest_stream` item bound was stale against the server** — the server's
+  `MAX_INGEST_STREAM_ITEMS` (the worst-case item count the 4096-byte Raft result envelope
+  admits, `6 + 83n <= 4096`) had already moved from 61 to 49, but
+  `epistemic_graph/client.py`'s `ingest_stream` validation, docstring, and `ValueError` message
+  — and `docs/architecture/modality_serving.md`'s operation table — still said 64, so the client
+  would accept a batch of up to 64 records that the server was guaranteed to reject. Both now
+  read 49. Added `require_ingest_stream_item_bound` (`scripts/check_p2_modality_architecture.py`,
+  wired into the `P2 modality architecture gate` pre-commit hook via
+  `require_modality_client_surface`) so the client's three literals must agree with each other
+  and with the server's `MAX_INGEST_STREAM_ITEMS`, with drift-detection tests in
+  `tests/test_e1_guard_wiring.py` proving the check fails closed on both an internally
+  inconsistent client and a client that has drifted from the server.
 - **MQTT delivery latency was scheduling-dependent, not event-driven (EG-281, GOC-70)** — `server::mqtt_wire::tests::eg281_listener_connect_subscribe_publish_deliver_roundtrip`
   was the last failure in the facade-full suite (1023 passed / 1 failed
   unconstrained), racing a 5s delivery timeout against the subscriber

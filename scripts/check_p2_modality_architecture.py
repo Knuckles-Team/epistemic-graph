@@ -609,6 +609,48 @@ def require_modality_resource_bounds() -> None:
     )
 
 
+_INGEST_STREAM_VALIDATION_BOUND = re.compile(r"not 2 <= len\(items\) <= (\d+)")
+_INGEST_STREAM_DOCSTRING_BOUND = re.compile(r"stream of two to (\d+) records")
+_INGEST_STREAM_ERROR_BOUND = re.compile(r"between two and (\d+) ingest records")
+_SERVER_INGEST_STREAM_BOUND = re.compile(r"MAX_INGEST_STREAM_ITEMS: usize = (\d+);")
+
+
+def require_ingest_stream_item_bound(python_client: str) -> None:
+    """The Python client's `ingest_stream` item-count ceiling must equal the
+    server's `MAX_INGEST_STREAM_ITEMS` -- the wire-derived worst case the Raft
+    result envelope actually admits -- everywhere the client states it, so the
+    two cannot drift the way they did when the server bound moved 61 -> 49 and
+    the client's validation, docstring, and error message stayed at 64.
+    """
+
+    validation = _INGEST_STREAM_VALIDATION_BOUND.search(python_client)
+    docstring = _INGEST_STREAM_DOCSTRING_BOUND.search(python_client)
+    error = _INGEST_STREAM_ERROR_BOUND.search(python_client)
+    require(
+        bool(validation and docstring and error),
+        "Python client ingest_stream lost its item-count bound literal(s)",
+    )
+    assert validation is not None and docstring is not None and error is not None
+    require(
+        validation.group(1) == docstring.group(1) == error.group(1),
+        "Python client ingest_stream bound is inconsistent between its "
+        "validation, docstring, and error message",
+    )
+    server = read("src/server/handlers/modality.rs")
+    server_bound = _SERVER_INGEST_STREAM_BOUND.search(server)
+    require(
+        server_bound is not None,
+        "server MAX_INGEST_STREAM_ITEMS constant not found",
+    )
+    assert server_bound is not None
+    require(
+        validation.group(1) == server_bound.group(1),
+        "Python client ingest_stream bound "
+        f"({validation.group(1)}) has drifted from the server's "
+        f"MAX_INGEST_STREAM_ITEMS ({server_bound.group(1)})",
+    )
+
+
 def require_modality_client_surface() -> None:
     """The Python client's served-modality surface."""
 
@@ -623,6 +665,7 @@ def require_modality_client_surface() -> None:
         require(
             f"async def {method}(" in python_client, f"Python client omits {method}"
         )
+    require_ingest_stream_item_bound(python_client)
 
 
 def _frame_bound_checked(transport: str) -> bool:
