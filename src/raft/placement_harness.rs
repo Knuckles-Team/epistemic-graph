@@ -112,14 +112,21 @@ fn epoch_cas_request(
         0,
     );
     mutation.attempt_nonce = Some(eg_types::contract::Nonce::from_bytes([nonce; 32]));
-    Ok(RaftRequest {
+    let mut request = RaftRequest {
         graph_fname: crate::persist::sanitize(super::placement::PLACEMENT_GRAPH),
         graph_name: super::placement::PLACEMENT_GRAPH.to_string(),
         graph_type: GraphType::Commons,
         committed_at_ms: 0,
         mutation,
-        command: super::ReplicatedMutation::graph(method, SECRET)?,
-    })
+        command: super::ReplicatedMutation::caller_graph(method, SECRET)?,
+    };
+    // A caller nonce makes this caller authority, not engine-internal authority:
+    // the state machine accepts its graph command only when it is sealed and bound
+    // to this exact authority and destination group, as the dispatch boundary
+    // binds every caller write. The internal `ReplicatedMutation::graph` form is
+    // valid only without a nonce.
+    request.bind_graph_command(SECRET, super::DEFAULT_GROUP)?;
+    Ok(request)
 }
 
 fn bool_response(response: Result<super::RaftResponse, String>) -> bool {
@@ -155,7 +162,7 @@ async fn placement_state_machine_binds_plan_identity_and_replay_nonce() {
 
     let method = super::placement::PlacementCatalog::epoch_cas_method(1, 2);
     let request_a = epoch_cas_request("plan-a", 11, method.clone()).expect("request a");
-    let request_b = epoch_cas_request("plan-b", 12, method).expect("request b");
+    let request_b = epoch_cas_request("plan-b", 12, method.clone()).expect("request b");
     assert_ne!(
         request_a.mutation.batch_id, request_b.mutation.batch_id,
         "distinct plans must not share a durable replay key"
@@ -186,22 +193,22 @@ async fn placement_state_machine_binds_plan_identity_and_replay_nonce() {
         serde_json::json!(2)
     );
 
-    let (loser, winner) = if applied_a {
-        (request_b, request_a)
+    // A bound command seals its attempt nonce, so a retry with a fresh nonce is
+    // the same plan re-bound under that nonce.
+    let (loser_plan, winner_plan, winner) = if applied_a {
+        ("plan-b", "plan-a", request_a)
     } else {
-        (request_a, request_b)
+        ("plan-a", "plan-b", request_b)
     };
 
-    let mut loser_retry = loser.clone();
-    loser_retry.mutation.attempt_nonce = Some(eg_types::contract::Nonce::from_bytes([14; 32]));
+    let loser_retry = epoch_cas_request(loser_plan, 14, method.clone()).expect("loser retry");
     assert!(!bool_response(
         multi
             .client_write_group(super::DEFAULT_GROUP, loser_retry)
             .await
     ));
 
-    let mut fresh = winner.clone();
-    fresh.mutation.attempt_nonce = Some(eg_types::contract::Nonce::from_bytes([13; 32]));
+    let fresh = epoch_cas_request(winner_plan, 13, method).expect("fresh winner retry");
     assert!(bool_response(
         multi.client_write_group(super::DEFAULT_GROUP, fresh).await
     ));
