@@ -14,12 +14,11 @@
 //! `(node_id, input-leg-order)`, so pagination is deterministic on every node.
 
 use std::cmp::Reverse;
-use std::collections::{BTreeSet, BinaryHeap, HashSet};
+use std::collections::{BTreeSet, BinaryHeap};
 use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::stream::{self, StreamExt};
 use openraft::ReadPolicy;
 use serde::{Deserialize, Serialize};
 
@@ -27,6 +26,9 @@ use super::multi::{GroupRouter, MultiRaft};
 use super::placement::{PlacementCatalog, PlacementRoute};
 use super::{EgRaft, GroupId};
 use crate::server::persistence::PersistenceBackend;
+
+mod assemble;
+mod checks;
 
 pub const MAX_CROSS_GRAPH_LEGS: usize = 256;
 pub const MAX_CROSS_GRAPH_FANOUT: usize = 32;
@@ -118,45 +120,15 @@ impl CrossGraphReadRequest {
     }
 
     fn validate(&self) -> Result<(), CrossGraphReadError> {
-        if self.graph_names.is_empty()
-            || self.graph_names.len() > MAX_CROSS_GRAPH_LEGS
-            || self.page_size == 0
-            || self.page_size as usize > MAX_CROSS_GRAPH_PAGE_ROWS
-            || (self.max_response_bytes as usize) > MAX_CROSS_GRAPH_RESPONSE_BYTES
-            || (self.max_response_bytes as usize) < self.graph_names.len()
-            || self.max_fanout == 0
-            || self.max_fanout as usize > MAX_CROSS_GRAPH_FANOUT
-            || self.timeout_ms == 0
-            || self.timeout_ms > MAX_CROSS_GRAPH_TIMEOUT_MS
-        {
+        let valid = checks::page_limits_are_valid(self)
+            && checks::fanout_and_timeout_are_valid(self)
+            && checks::graph_names_are_unique_and_valid(&self.graph_names)
+            && self
+                .cursor
+                .as_ref()
+                .is_none_or(|cursor| checks::cursor_matches_graphs(cursor, &self.graph_names));
+        if !valid {
             return Err(CrossGraphReadError::invalid());
-        }
-        let mut unique = HashSet::with_capacity(self.graph_names.len());
-        if self.graph_names.iter().any(|name| {
-            name.is_empty()
-                || name.len() > MAX_GRAPH_NAME_BYTES
-                || name.bytes().any(|byte| byte == 0)
-                || !unique.insert(name.as_str())
-        }) {
-            return Err(CrossGraphReadError::invalid());
-        }
-        if let Some(cursor) = &self.cursor {
-            if cursor.legs.len() != self.graph_names.len()
-                || cursor
-                    .legs
-                    .iter()
-                    .zip(&self.graph_names)
-                    .any(|(leg, name)| {
-                        leg.graph_name != *name
-                            || leg.after_node_id.as_ref().is_some_and(|id| {
-                                id.is_empty()
-                                    || id.len() > MAX_GRAPH_NAME_BYTES
-                                    || id.bytes().any(|byte| byte == 0)
-                            })
-                    })
-            {
-                return Err(CrossGraphReadError::invalid());
-            }
         }
         Ok(())
     }
@@ -177,17 +149,16 @@ pub struct ReadPageRequest {
 
 impl ReadPageRequest {
     pub(crate) fn validate(&self, group: GroupId) -> Result<(), ReadPageError> {
-        if self.graph_name.is_empty()
-            || self.graph_name.len() > MAX_GRAPH_NAME_BYTES
-            || self.graph_name.bytes().any(|byte| byte == 0)
+        if !checks::identifier_is_valid(&self.graph_name)
             || self.route.group != group
             || self.limit == 0
             || self.limit as usize > MAX_CROSS_GRAPH_PAGE_ROWS
             || self.max_bytes == 0
             || self.max_bytes as usize > MAX_CROSS_GRAPH_RESPONSE_BYTES
-            || self.after_node_id.as_ref().is_some_and(|id| {
-                id.is_empty() || id.len() > MAX_GRAPH_NAME_BYTES || id.bytes().any(|byte| byte == 0)
-            })
+            || !self
+                .after_node_id
+                .as_deref()
+                .is_none_or(checks::identifier_is_valid)
         {
             return Err(ReadPageError::new(ReadPageErrorCode::InvalidRequest));
         }
@@ -259,35 +230,9 @@ impl ReadPageReply {
         group: GroupId,
     ) -> Result<(), ReadPageError> {
         request.validate(group)?;
-        let ids_valid = self.nodes.iter().all(|(node_id, _)| {
-            !node_id.is_empty()
-                && node_id.len() <= MAX_GRAPH_NAME_BYTES
-                && !node_id.bytes().any(|byte| byte == 0)
-        });
-        let ids_sorted = self.nodes.windows(2).all(|rows| rows[0].0 < rows[1].0);
-        let bytes = self
-            .nodes
-            .iter()
-            .try_fold(0usize, |total, (id, properties)| {
-                total.checked_add(id.len())?.checked_add(properties.len())
-            });
-        let expected_next = self.nodes.last().map(|(node_id, _)| node_id);
-        let advanced = request
-            .after_node_id
-            .as_ref()
-            .is_none_or(|after| self.nodes.first().is_none_or(|(first, _)| first > after));
-        if self.graph_name != request.graph_name
-            || self.route != request.route
-            || self.nodes.len() > request.limit as usize
-            || !ids_valid
-            || !ids_sorted
-            || !advanced
-            || bytes.is_none_or(|bytes| bytes > request.max_bytes as usize)
-            || self.next_after_node_id.as_ref() != expected_next
-            || (self.has_more && self.nodes.is_empty())
-            || request
-                .expected_snapshot_version
-                .is_some_and(|expected| expected != self.snapshot_version)
+        if !checks::reply_echoes_request(self, request)
+            || !checks::reply_rows_are_bounded(self, request)
+            || !checks::reply_pagination_is_consistent(self, request)
         {
             return Err(ReadPageError::new(ReadPageErrorCode::InvalidResponse));
         }
@@ -489,109 +434,16 @@ impl CrossShardReader {
     ) -> Result<CrossGraphReadReply, CrossGraphReadError> {
         request.validate()?;
         let deadline = tokio::time::Instant::now() + Duration::from_millis(request.timeout_ms);
-        tokio::time::timeout_at(
-            deadline,
-            self.multi.read_barrier_group(super::DEFAULT_GROUP),
-        )
-        .await
-        .unwrap_or_else(|_| Err(ReadPageError::new(ReadPageErrorCode::DeadlineExceeded)))
-        .map_err(|error| CrossGraphReadError {
-            code: CrossGraphReadErrorCode::PlacementUnavailable,
-            failed_legs: vec![("placement".to_string(), error.code)],
-        })?;
+        assemble::placement_barrier(&self.multi, deadline).await?;
+        let prior = assemble::prior_leg_cursors(&request);
+        let mut routes =
+            assemble::resolve_routes(&self.multi, &request.graph_names, deadline).await?;
+        let work = assemble::pending_legs(&request.graph_names, &routes, &prior);
+        let fetched =
+            assemble::fetch_pending_legs(self.multi.clone(), &request, work, deadline).await;
+        let outcomes = assemble::LegOutcomes::collect(fetched, &mut routes);
 
-        let prior = request.cursor.clone().map_or_else(
-            || {
-                request
-                    .graph_names
-                    .iter()
-                    .map(|graph_name| CrossGraphLegCursor {
-                        graph_name: graph_name.clone(),
-                        route: RouteToken { group: 0, epoch: 0 },
-                        after_node_id: None,
-                        snapshot_version: None,
-                        complete: false,
-                    })
-                    .collect::<Vec<_>>()
-            },
-            |cursor| cursor.legs,
-        );
-
-        let mut work = Vec::new();
-        let mut routes: Vec<RouteToken> =
-            tokio::time::timeout_at(deadline, self.multi.route_graphs(&request.graph_names))
-                .await
-                .map_err(|_| CrossGraphReadError {
-                    code: CrossGraphReadErrorCode::PlacementUnavailable,
-                    failed_legs: vec![(
-                        "placement".to_string(),
-                        ReadPageErrorCode::DeadlineExceeded,
-                    )],
-                })?
-                .into_iter()
-                .map(RouteToken::from)
-                .collect();
-        for (index, graph_name) in request.graph_names.iter().enumerate() {
-            let route = routes[index];
-            if !prior[index].complete {
-                work.push((index, graph_name.clone(), route, prior[index].clone()));
-            }
-        }
-
-        let max_fanout = request.max_fanout as usize;
-        let limit = request.page_size;
-        let active_legs = work.len().max(1);
-        let byte_base = request.max_response_bytes as usize / active_legs;
-        let byte_remainder = request.max_response_bytes as usize % active_legs;
-        let multi = self.multi.clone();
-        let fetched: Vec<(usize, Result<ReadPageReply, ReadPageError>)> =
-            stream::iter(work.into_iter().enumerate())
-                .map(|(slot, (index, graph_name, route, cursor))| {
-                    let multi = multi.clone();
-                    let max_bytes = (byte_base + usize::from(slot < byte_remainder)) as u32;
-                    async move {
-                        let operation = fetch_leg(
-                            multi,
-                            graph_name,
-                            route,
-                            cursor.after_node_id,
-                            cursor.snapshot_version,
-                            limit,
-                            max_bytes,
-                        );
-                        let result = tokio::time::timeout_at(deadline, operation)
-                            .await
-                            .unwrap_or_else(|_| {
-                                Err(ReadPageError::new(ReadPageErrorCode::DeadlineExceeded))
-                            });
-                        (index, result)
-                    }
-                })
-                .buffer_unordered(max_fanout)
-                .collect()
-                .await;
-
-        let mut replies: Vec<Option<ReadPageReply>> = vec![None; request.graph_names.len()];
-        let mut failures: Vec<Option<ReadPageError>> = vec![None; request.graph_names.len()];
-        for (index, result) in fetched {
-            match result {
-                Ok(reply) => {
-                    routes[index] = reply.route;
-                    replies[index] = Some(reply);
-                }
-                Err(error) => failures[index] = Some(error),
-            }
-        }
-
-        let failed_legs: Vec<(String, ReadPageErrorCode)> = failures
-            .iter()
-            .enumerate()
-            .filter_map(|(index, error)| {
-                error
-                    .as_ref()
-                    .map(|error| (request.graph_names[index].clone(), error.code))
-            })
-            .collect();
+        let failed_legs = outcomes.failed_legs(&request.graph_names);
         if request.completion == CompletionPolicy::RequireComplete && !failed_legs.is_empty() {
             return Err(CrossGraphReadError {
                 code: CrossGraphReadErrorCode::RequiredLegFailed,
@@ -599,77 +451,16 @@ impl CrossShardReader {
             });
         }
 
-        let (merged, consumed) = deterministic_merge(&replies, request.page_size as usize);
-        let mut cursor_legs = Vec::with_capacity(request.graph_names.len());
-        let mut legs = Vec::with_capacity(request.graph_names.len());
-        for index in 0..request.graph_names.len() {
-            let previous = &prior[index];
-            if previous.complete {
-                cursor_legs.push(previous.clone());
-                legs.push(ReadLeg {
-                    graph_name: previous.graph_name.clone(),
-                    route: previous.route,
-                    raft_barrier_index: None,
-                    snapshot_version: previous.snapshot_version,
-                    rows_consumed: 0,
-                    status: ReadLegStatus::Complete,
-                });
-                continue;
-            }
-            if let Some(error) = &failures[index] {
-                let mut retained = previous.clone();
-                retained.route = error.current_route.unwrap_or(routes[index]);
-                cursor_legs.push(retained.clone());
-                legs.push(ReadLeg {
-                    graph_name: retained.graph_name,
-                    route: retained.route,
-                    raft_barrier_index: None,
-                    snapshot_version: retained.snapshot_version,
-                    rows_consumed: 0,
-                    status: ReadLegStatus::Failed(error.code),
-                });
-                continue;
-            }
-            let reply = replies[index].as_ref().expect("successful leg has reply");
-            let used = consumed[index];
-            let fully_consumed = used == reply.nodes.len();
-            let complete = fully_consumed && !reply.has_more;
-            let after_node_id = if used == 0 {
-                previous.after_node_id.clone()
-            } else {
-                Some(reply.nodes[used - 1].0.clone())
-            };
-            let next = CrossGraphLegCursor {
-                graph_name: reply.graph_name.clone(),
-                route: reply.route,
-                after_node_id,
-                snapshot_version: Some(reply.snapshot_version),
-                complete,
-            };
-            cursor_legs.push(next.clone());
-            legs.push(ReadLeg {
-                graph_name: reply.graph_name.clone(),
-                route: reply.route,
-                raft_barrier_index: Some(reply.raft_barrier_index),
-                snapshot_version: Some(reply.snapshot_version),
-                rows_consumed: used as u32,
-                status: if complete {
-                    ReadLegStatus::Complete
-                } else {
-                    ReadLegStatus::More
-                },
-            });
-        }
-
+        let (merged, consumed) = deterministic_merge(&outcomes.replies, request.page_size as usize);
+        let (legs, cursor_legs) = assemble::assemble_legs(&prior, &outcomes, &routes, &consumed);
         let complete = cursor_legs.iter().all(|leg| leg.complete);
-        let partial = !failed_legs.is_empty();
         Ok(CrossGraphReadReply {
             consistency: request.consistency,
             legs,
             merged,
             cursor: (!complete).then_some(CrossGraphCursor { legs: cursor_legs }),
             complete,
-            partial,
+            partial: !failed_legs.is_empty(),
         })
     }
 }
