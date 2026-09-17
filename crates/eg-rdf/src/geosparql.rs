@@ -85,47 +85,51 @@ pub fn geom_from_lexical(lexical: &str) -> Option<Geometry> {
 pub fn eval_relation(local: &str, a_wkt: &str, b_wkt: &str) -> Option<bool> {
     let a = geom_from_lexical(a_wkt)?;
     let b = geom_from_lexical(b_wkt)?;
-    Some(match local {
-        "sfWithin" => predicates::within(&a, &b),
-        "sfContains" => predicates::contains(&a, &b),
-        "sfIntersects" => predicates::intersects(&a, &b),
-        "sfEquals" => predicates::equals(&a, &b),
-        "sfDisjoint" => predicates::disjoint(&a, &b),
-        "sfTouches" => predicates::touches(&a, &b),
-        "sfCrosses" => predicates::crosses(&a, &b),
-        "sfOverlaps" => predicates::overlaps(&a, &b),
-
-        // ── RCC8 (Region Connection Calculus), CONCEPT:EG-KG.ontology.concept-7 ──────────────────────
-        // The 8 jointly-exhaustive pairwise-disjoint RCC8 base relations, each lowered
-        // onto the eg-geo DE-9IM predicate set. `rcc8eq`/`rcc8dc`/`rcc8ec`/`rcc8po` map
-        // directly to equals/disjoint/touches(externally-connected)/overlaps; the four
-        // proper-part relations split on whether the boundaries meet (tangential) — the
-        // inverses just swap the operands.
-        "rcc8eq" => predicates::equals(&a, &b),
-        "rcc8dc" => predicates::disjoint(&a, &b),
-        "rcc8ec" => predicates::touches(&a, &b),
-        "rcc8po" => predicates::overlaps(&a, &b),
-        "rcc8tpp" => is_tangential_proper_part(&a, &b),
-        "rcc8ntpp" => is_nontangential_proper_part(&a, &b),
-        "rcc8tppi" => is_tangential_proper_part(&b, &a),
-        "rcc8ntppi" => is_nontangential_proper_part(&b, &a),
-
-        // ── Egenhofer 9-intersection relations, CONCEPT:EG-KG.ontology.concept-7 ─────────────────────
-        // The 8 Egenhofer topological relations. equals/disjoint/meet/overlap coincide
-        // with RCC8 eq/dc/ec/po; coveredBy/inside (and their inverses covers/contains)
-        // are the tangential/non-tangential proper-part relations respectively.
-        "ehEquals" => predicates::equals(&a, &b),
-        "ehDisjoint" => predicates::disjoint(&a, &b),
-        "ehMeet" => predicates::touches(&a, &b),
-        "ehOverlap" => predicates::overlaps(&a, &b),
-        "ehCoveredBy" => is_tangential_proper_part(&a, &b),
-        "ehInside" => is_nontangential_proper_part(&a, &b),
-        "ehCovers" => is_tangential_proper_part(&b, &a),
-        "ehContains" => is_nontangential_proper_part(&b, &a),
-
-        _ => return None,
-    })
+    let (_, relation) = SPATIAL_RELATIONS.iter().find(|(name, _)| *name == local)?;
+    Some(relation(&a, &b))
 }
+
+/// A boolean spatial relation over two geometry operands.
+type SpatialRelation = fn(&Geometry, &Geometry) -> bool;
+
+/// Every boolean `geof:` relation, keyed by its local name. A name absent from this
+/// table is unsupported, and [`eval_relation`] fails it SAFE (`None`).
+const SPATIAL_RELATIONS: &[(&str, SpatialRelation)] = &[
+    ("sfWithin", predicates::within),
+    ("sfContains", predicates::contains),
+    ("sfIntersects", predicates::intersects),
+    ("sfEquals", predicates::equals),
+    ("sfDisjoint", predicates::disjoint),
+    ("sfTouches", predicates::touches),
+    ("sfCrosses", predicates::crosses),
+    ("sfOverlaps", predicates::overlaps),
+    // ── RCC8 (Region Connection Calculus), CONCEPT:EG-KG.ontology.concept-7 ──────────────────────
+    // The 8 jointly-exhaustive pairwise-disjoint RCC8 base relations, each lowered
+    // onto the eg-geo DE-9IM predicate set. `rcc8eq`/`rcc8dc`/`rcc8ec`/`rcc8po` map
+    // directly to equals/disjoint/touches(externally-connected)/overlaps; the four
+    // proper-part relations split on whether the boundaries meet (tangential) — the
+    // inverses just swap the operands.
+    ("rcc8eq", predicates::equals),
+    ("rcc8dc", predicates::disjoint),
+    ("rcc8ec", predicates::touches),
+    ("rcc8po", predicates::overlaps),
+    ("rcc8tpp", is_tangential_proper_part),
+    ("rcc8ntpp", is_nontangential_proper_part),
+    ("rcc8tppi", has_tangential_proper_part),
+    ("rcc8ntppi", has_nontangential_proper_part),
+    // ── Egenhofer 9-intersection relations, CONCEPT:EG-KG.ontology.concept-7 ─────────────────────
+    // The 8 Egenhofer topological relations. equals/disjoint/meet/overlap coincide
+    // with RCC8 eq/dc/ec/po; coveredBy/inside (and their inverses covers/contains)
+    // are the tangential/non-tangential proper-part relations respectively.
+    ("ehEquals", predicates::equals),
+    ("ehDisjoint", predicates::disjoint),
+    ("ehMeet", predicates::touches),
+    ("ehOverlap", predicates::overlaps),
+    ("ehCoveredBy", is_tangential_proper_part),
+    ("ehInside", is_nontangential_proper_part),
+    ("ehCovers", has_tangential_proper_part),
+    ("ehContains", has_nontangential_proper_part),
+];
 
 /// Is `a` a PROPER PART of `b` — spatially within `b` but not equal to it? The shared base
 /// of the RCC8/Egenhofer part relations (CONCEPT:EG-KG.ontology.concept-7).
@@ -143,6 +147,18 @@ fn is_tangential_proper_part(a: &Geometry, b: &Geometry) -> bool {
 /// interior — boundaries DISJOINT, a *non-tangential* proper part (CONCEPT:EG-KG.ontology.concept-7).
 fn is_nontangential_proper_part(a: &Geometry, b: &Geometry) -> bool {
     is_proper_part(a, b) && !predicates::boundaries_intersect(a, b)
+}
+
+/// The inverse of [`is_tangential_proper_part`] (RCC8 `TPPi` / Egenhofer `covers`):
+/// `b` is a tangential proper part of `a`.
+fn has_tangential_proper_part(a: &Geometry, b: &Geometry) -> bool {
+    is_tangential_proper_part(b, a)
+}
+
+/// The inverse of [`is_nontangential_proper_part`] (RCC8 `NTPPi` / Egenhofer
+/// `contains`): `b` is a non-tangential proper part of `a`.
+fn has_nontangential_proper_part(a: &Geometry, b: &Geometry) -> bool {
+    is_nontangential_proper_part(b, a)
 }
 
 /// `geof:distance(a, b, units)` (CONCEPT:EG-KG.ontology.concept-10): the distance between two geometries in
