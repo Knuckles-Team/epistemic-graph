@@ -155,6 +155,15 @@ fn gated_aggregate_row(
 mod tests {
     use super::*;
 
+    /// Nodes 0 and 1 linked both ways (weight 1), node 2 isolated.
+    fn linked_pair_and_isolated_node() -> AdjacencyGraph<u32> {
+        AdjacencyGraph::from_adjacency([
+            (0u32, vec![(1u32, 1.0)]),
+            (1, vec![(0, 1.0)]),
+            (2, vec![]), // isolated
+        ])
+    }
+
     #[test]
     fn identity_when_alpha_one() {
         let g = AdjacencyGraph::from_unweighted_edges([(0u32, 1u32), (1, 2)]);
@@ -177,11 +186,7 @@ mod tests {
 
     #[test]
     fn isolated_node_keeps_own_vector() {
-        let g = AdjacencyGraph::from_adjacency([
-            (0u32, vec![(1u32, 1.0)]),
-            (1, vec![(0, 1.0)]),
-            (2, vec![]), // isolated
-        ]);
+        let g = linked_pair_and_isolated_node();
         let feats = vec![vec![1.0], vec![2.0], vec![9.0]];
         let out = aggregate_1hop(&g, &feats, 0.5);
         assert!((out[2][0] - 9.0).abs() < 1e-12);
@@ -196,5 +201,23 @@ mod tests {
         let out = aggregate_1hop_weighted(&g, &feats, &ef, 0.0);
         // node 0 pulled toward node 2 (heavier gate) ⇒ > mean(1,10)=5.5.
         assert!(out[0][0] > 5.5);
+    }
+
+    #[test]
+    fn weighted_aggregation_falls_back_to_own_vector() {
+        let g = linked_pair_and_isolated_node();
+        let feats = vec![vec![1.0, -1.0], vec![4.0, 8.0], vec![9.0, 3.0]];
+        // `(edge fn, node)`: with α = 0 the output would be pure neighbour
+        // aggregate, so keeping the own vector proves the fall-back ran.
+        let cases = [
+            // Node 2 has no neighbour at all.
+            (KanEdgeFn::chebyshev(vec![0.5, 0.5]), 2),
+            // Node 0 has a neighbour, but a constant −1 edge fn gates it to 0.
+            (KanEdgeFn::chebyshev(vec![-1.0]), 0),
+        ];
+        for (ef, v) in cases {
+            let out = aggregate_1hop_weighted(&g, &feats, &ef, 0.0);
+            assert_eq!(out[v], feats[v], "node {v}");
+        }
     }
 }

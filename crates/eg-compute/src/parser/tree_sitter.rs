@@ -934,6 +934,63 @@ pub fn free() {}
     }
 
     #[test]
+    fn every_core_extension_resolves_to_its_grammar_and_label() {
+        let python: LangCtor = || tree_sitter_python::LANGUAGE.into();
+        let javascript: LangCtor = || tree_sitter_javascript::LANGUAGE.into();
+        let typescript: LangCtor = || tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into();
+        let tsx: LangCtor = || tree_sitter_typescript::LANGUAGE_TSX.into();
+        let go: LangCtor = || tree_sitter_go::LANGUAGE.into();
+        let rust: LangCtor = || tree_sitter_rust::LANGUAGE.into();
+        let java: LangCtor = || tree_sitter_java::LANGUAGE.into();
+        let c: LangCtor = || tree_sitter_c::LANGUAGE.into();
+        let cpp: LangCtor = || tree_sitter_cpp::LANGUAGE.into();
+        let csharp: LangCtor = || tree_sitter_c_sharp::LANGUAGE.into();
+        let sql: LangCtor = || tree_sitter_sequel::LANGUAGE.into();
+        // One row per extension: `(extension, expected grammar, expected label)`.
+        let cases: [(&str, LangCtor, &str); 25] = [
+            ("py", python, "python"),
+            ("pyi", python, "python"),
+            ("js", javascript, "javascript"),
+            ("jsx", javascript, "javascript"),
+            ("mjs", javascript, "javascript"),
+            ("cjs", javascript, "javascript"),
+            ("ts", typescript, "typescript"),
+            ("mts", typescript, "typescript"),
+            ("cts", typescript, "typescript"),
+            ("tsx", tsx, "typescript"),
+            ("go", go, "go"),
+            ("rs", rust, "rust"),
+            ("java", java, "java"),
+            ("c", c, "c"),
+            ("h", c, "c"),
+            ("cpp", cpp, "cpp"),
+            ("cc", cpp, "cpp"),
+            ("cxx", cpp, "cpp"),
+            ("hpp", cpp, "cpp"),
+            ("hxx", cpp, "cpp"),
+            ("hh", cpp, "cpp"),
+            ("c++", cpp, "cpp"),
+            ("cs", csharp, "csharp"),
+            ("sql", sql, "sql"),
+            ("ddl", sql, "sql"),
+        ];
+        for (ext, grammar, label) in cases {
+            let upper = ext.to_ascii_uppercase();
+            // Extension matching is case-insensitive, so both spellings must resolve.
+            for path in [format!("src/file.{ext}"), format!("SRC/FILE.{upper}")] {
+                let (language, got_label) =
+                    lang_for_path(&path).unwrap_or_else(|| panic!("{path}: no grammar"));
+                assert_eq!(language, grammar(), "{path}: wrong grammar");
+                assert_eq!(got_label, label, "{path}: wrong label");
+                assert!(
+                    parse_file(&path, b"").is_ok(),
+                    "{path}: grammar did not load"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn hash_fields_is_injective_across_field_boundaries() {
         // Length prefixes: plain concatenation would make these two equal.
         assert_ne!(hash_fields(&["ab", "c"]), hash_fields(&["a", "bc"]));

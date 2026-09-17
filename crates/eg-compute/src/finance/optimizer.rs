@@ -537,6 +537,81 @@ mod tests {
     }
 
     #[test]
+    fn efficient_frontier_points_are_valid_and_trade_risk_for_return() {
+        // `(expected returns, covariance, risk-free rate)`.
+        let cases: [(Vec<f64>, Vec<Vec<f64>>, f64); 2] = [
+            (
+                vec![0.08, 0.12],
+                vec![vec![0.04, 0.01], vec![0.01, 0.09]],
+                0.02,
+            ),
+            (
+                vec![0.05, 0.10, 0.15],
+                vec![
+                    vec![0.01, 0.0, 0.0],
+                    vec![0.0, 0.04, 0.0],
+                    vec![0.0, 0.0, 0.09],
+                ],
+                0.0,
+            ),
+        ];
+        for (returns, cov, rf) in cases {
+            let frontier = efficient_frontier(&returns, &cov, rf, 5);
+            assert_eq!(frontier.len(), 5);
+            for (k, point) in frontier.iter().enumerate() {
+                assert_eq!(point.method, format!("efficient_frontier_point_{k}"));
+                assert_valid_long_only_weights(&point.weights, returns.len());
+                let vol = point.expected_volatility;
+                assert!((point.sharpe_ratio - (point.expected_return - rf) / vol).abs() < 1e-12);
+            }
+            // Rising return targets buy strictly more return at no less risk,
+            // by moving weight off the lowest-return asset.
+            for pair in frontier.windows(2) {
+                assert!(
+                    pair[1].expected_return > pair[0].expected_return,
+                    "{frontier:?}"
+                );
+                assert!(
+                    pair[1].expected_volatility >= pair[0].expected_volatility,
+                    "{frontier:?}"
+                );
+                assert!(pair[1].weights[0] < pair[0].weights[0], "{frontier:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn efficient_frontier_matches_golden_two_asset_points() {
+        let returns = vec![0.08, 0.12];
+        let cov = vec![vec![0.04, 0.01], vec![0.01, 0.09]];
+        let frontier = efficient_frontier(&returns, &cov, 0.02, 5);
+        // `(weight on asset 0, expected return, volatility)` per frontier point.
+        let golden = [
+            (0.6295799801447267, 0.09481680079421093, 0.18129536075348843),
+            (0.5802161781848306, 0.09679135287260679, 0.1849243114559098),
+            (0.5308523762249355, 0.09876590495100258, 0.18990020219002657),
+            (0.4814885742650392, 0.10074045702939843, 0.19612053769008883),
+            (0.4321247723051433, 0.10271500910779426, 0.20347121787503997),
+        ];
+        for (point, (w0, ret, vol)) in frontier.iter().zip(golden) {
+            assert!((point.weights[0] - w0).abs() < 1e-9, "{point:?}");
+            assert!((point.expected_return - ret).abs() < 1e-9, "{point:?}");
+            assert!((point.expected_volatility - vol).abs() < 1e-9, "{point:?}");
+        }
+    }
+
+    /// Weights form a long-only portfolio: `n` finite non-negative entries summing to 1.
+    fn assert_valid_long_only_weights(weights: &[f64], n: usize) {
+        assert_eq!(weights.len(), n);
+        assert!(
+            weights.iter().all(|w| w.is_finite() && *w >= 0.0),
+            "{weights:?}"
+        );
+        let sum: f64 = weights.iter().sum();
+        assert!((sum - 1.0).abs() < 1e-9, "{weights:?}");
+    }
+
+    #[test]
     fn test_empty() {
         let result = mean_variance_optimization(&[], &[], 0.02, None, None);
         assert!(result.weights.is_empty());

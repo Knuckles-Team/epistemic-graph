@@ -163,6 +163,26 @@ mod tests {
     }
 
     #[test]
+    fn macro_f1_scores_a_class_with_zero_precision_and_recall_as_zero() {
+        // `(y_true, y_pred, exact macro-F1)`. Every class below that is never
+        // predicted correctly has precision + recall == 0 and must contribute 0
+        // (not the NaN that 2PR/(P+R) would give).
+        let cases: [(&[i64], &[i64], f64); 2] = [
+            // Both classes: tp=0 ⇒ P=R=0 ⇒ F1=0.
+            (&[0, 1], &[1, 0], 0.0),
+            // Class 0: tp=2 fp=1 fn=0 ⇒ P=2/3 R=1 F1=0.8; class 1: tp=0 ⇒ 0.
+            (&[0, 0, 1], &[0, 0, 0], 0.4),
+        ];
+        for (y_true, y_pred, expected) in cases {
+            let f1 = macro_f1(y_true, y_pred);
+            assert!(
+                (f1 - expected).abs() < 1e-12,
+                "macro_f1({y_true:?}, {y_pred:?}) = {f1}, expected {expected}"
+            );
+        }
+    }
+
+    #[test]
     fn r2_perfect_and_degenerate() {
         let y = [1.0, 2.0, 3.0, 4.0];
         assert!((r2(&y, &y) - 1.0).abs() < 1e-12);

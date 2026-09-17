@@ -675,6 +675,22 @@ mod tests {
     }
 
     #[test]
+    fn one_class_svm_without_free_support_vectors_uses_mean_decision_offset() {
+        // ν = 1 puts the box bound at C = 1/n, so the feasible start αᵢ = 1/n is
+        // already at the bound for every point and SMO cannot move it: there is no
+        // free support vector. ρ must then be the mean decision sum over all
+        // points. Linear kernel on x = [0, 1, 3]: Gₖ = Σ αᵢ xᵢ xₖ = (4/3)·xₖ =
+        // [0, 4/3, 4], ρ = mean(G) = 16/9, score = ρ − Gₖ.
+        let pts: Vec<Point> = vec![vec![0.0], vec![1.0], vec![3.0]];
+        let scores = one_class_svm(&pts, Kernel::Linear, 1.0);
+        let expected = [16.0 / 9.0, 4.0 / 9.0, -20.0 / 9.0];
+        assert_eq!(scores.len(), expected.len());
+        for (got, want) in scores.iter().zip(expected) {
+            assert!((got - want).abs() < 1e-12, "scores={scores:?}");
+        }
+    }
+
+    #[test]
     fn threshold_override_changes_flags() {
         let pts = dense_with_outliers();
         // An impossibly high z-score threshold flags nothing.

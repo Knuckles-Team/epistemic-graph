@@ -600,4 +600,33 @@ mod tests {
         assert_eq!(xs_tr.len(), 4);
         assert_eq!(xs_te.len(), 1);
     }
+
+    #[test]
+    fn solve_linear_system_pivots_and_skips_singular_columns() {
+        // `(A, b, exact x)`.
+        let cases: [(Vec<Vec<f64>>, Vec<f64>, Vec<f64>); 2] = [
+            // A zero leading pivot: only a row swap can solve it.
+            (
+                vec![vec![0.0, 1.0], vec![1.0, 0.0]],
+                vec![2.0, 3.0],
+                vec![3.0, 2.0],
+            ),
+            // Rows 0 and 1 are identical, so column 1's pivot is zero after
+            // eliminating column 0. That column must be skipped (no division
+            // by zero into row 2) and its unknown left at 0.
+            (
+                vec![
+                    vec![1.0, 1.0, 0.0],
+                    vec![1.0, 1.0, 0.0],
+                    vec![0.0, 0.0, 1.0],
+                ],
+                vec![2.0, 2.0, 3.0],
+                vec![2.0, 0.0, 3.0],
+            ),
+        ];
+        for (a, b, expected) in cases {
+            let x = solve_linear_system(&a, &b);
+            assert_eq!(x, expected, "A={a:?} b={b:?}");
+        }
+    }
 }
