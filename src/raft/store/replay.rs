@@ -342,7 +342,9 @@ mod tests {
                 attempt_nonce: None,
                 principal: Some("replay-scope-proof-principal"),
                 tenant: "replay-scope-proof-tenant",
-                graph: &graph_fname,
+                // Callers compile under the LOGICAL graph name; the strict
+                // caller authority path rejects a `~xx` physical spelling.
+                graph: logical_graph,
                 placement_epoch: 0,
                 idempotency_key: batch_id,
                 expected_graph_version: Some(0),
@@ -354,6 +356,11 @@ mod tests {
             vec![method.clone()],
         )
         .expect("replay fixture batch must compile");
+        // The durable record is the shard-bound batch: `bind_caller_batch`
+        // rebinds the scope identity to the physical, sanitized graph key.
+        let mut batch = batch;
+        batch.identity = crate::redb_store::shard::graph_scope_identity(&graph_fname)
+            .expect("replay fixture physical graph scope must bind");
         let identity = batch.identity.clone();
         let record = crate::mutation_batch::MutationBatchRecord {
             batch,
