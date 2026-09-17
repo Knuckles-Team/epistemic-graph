@@ -101,6 +101,28 @@ pub(crate) fn fresh_dir(prefix: &str, tag: &str) -> String {
         .expect("harness path is valid UTF-8")
 }
 
+/// One cross-shard participant slice that adds `node` (properties `{"n": node}`)
+/// to the global graph `graph` under the given placement fence.
+pub(crate) fn add_node_slice(
+    graph: &str,
+    node: &str,
+    placement_epoch: u64,
+    fencing_token: Option<u64>,
+) -> crate::raft::cross_shard_txn::GraphSlice {
+    crate::raft::cross_shard_txn::GraphSlice {
+        graph_name: graph.to_string(),
+        graph_fname: crate::persist::sanitize(graph),
+        graph_type: crate::protocol::GraphType::Global,
+        methods: vec![crate::protocol::Method::AddNode {
+            node_id: node.to_string(),
+            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"n": node}))
+                .expect("fixture node properties encode"),
+        }],
+        placement_epoch,
+        fencing_token,
+    }
+}
+
 /// Wait for an asynchronous harness condition with an explicit polling cadence.
 pub(crate) async fn wait_until<F, Fut>(timeout: Duration, mut predicate: F) -> Result<(), ()>
 where

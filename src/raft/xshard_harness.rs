@@ -258,37 +258,19 @@ async fn shutdown_releases_accepted_connection_and_backend_fds_before_reopen() {
 
 /// A two-graph cross-shard txn inserting `a_node` into shardA and `b_node` into shardB.
 fn two_shard_txn(txn_id: &str, a_node: &str, b_node: &str) -> CrossShardTxn {
-    let slice = |graph: &str, node: &str| GraphSlice {
-        graph_name: graph.to_string(),
-        graph_fname: crate::persist::sanitize(graph),
-        graph_type: GraphType::Global,
-        methods: vec![Method::AddNode {
-            node_id: node.to_string(),
-            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"n": node})).unwrap(),
-        }],
-        placement_epoch: 0,
-        fencing_token: None,
-    };
     CrossShardTxn {
         txn_id: txn_id.to_string(),
-        slices: vec![slice(GRAPH_A, a_node), slice(GRAPH_B, b_node)],
+        slices: vec![
+            fixture::add_node_slice(GRAPH_A, a_node, 0, None),
+            fixture::add_node_slice(GRAPH_B, b_node, 0, None),
+        ],
     }
 }
 
 /// A two-graph cross-shard txn where shardA WRITES a node and shardB is READ-ONLY
 /// (its slice carries no methods) — the EG-081 read-only-participant fast-path shape.
 fn writer_plus_readonly_txn(txn_id: &str, a_node: &str) -> CrossShardTxn {
-    let writer = GraphSlice {
-        graph_name: GRAPH_A.to_string(),
-        graph_fname: crate::persist::sanitize(GRAPH_A),
-        graph_type: GraphType::Global,
-        methods: vec![Method::AddNode {
-            node_id: a_node.to_string(),
-            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"n": a_node})).unwrap(),
-        }],
-        placement_epoch: 0,
-        fencing_token: None,
-    };
+    let writer = fixture::add_node_slice(GRAPH_A, a_node, 0, None);
     let read_only = GraphSlice {
         graph_name: GRAPH_B.to_string(),
         graph_fname: crate::persist::sanitize(GRAPH_B),
@@ -856,20 +838,12 @@ async fn add_third_group(multi: &Arc<MultiRaft>) {
 /// A three-graph cross-shard txn inserting one node into each of shardA/B/C — three
 /// WRITING participants, so PHASE 1 joins three prepare futures.
 fn three_writer_txn(txn_id: &str, a: &str, b: &str, c: &str) -> CrossShardTxn {
-    let slice = |graph: &str, node: &str| GraphSlice {
-        graph_name: graph.to_string(),
-        graph_fname: crate::persist::sanitize(graph),
-        graph_type: GraphType::Global,
-        methods: vec![Method::AddNode {
-            node_id: node.to_string(),
-            properties_msgpack: rmp_serde::to_vec_named(&serde_json::json!({"n": node})).unwrap(),
-        }],
-        placement_epoch: 0,
-        fencing_token: None,
-    };
     CrossShardTxn {
         txn_id: txn_id.to_string(),
-        slices: vec![slice(GRAPH_A, a), slice(GRAPH_B, b), slice(GRAPH_C, c)],
+        slices: [(GRAPH_A, a), (GRAPH_B, b), (GRAPH_C, c)]
+            .into_iter()
+            .map(|(graph, node)| fixture::add_node_slice(graph, node, 0, None))
+            .collect(),
     }
 }
 
