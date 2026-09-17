@@ -184,6 +184,37 @@ def test_gates_job_runs_real_prerequisite_backed_vacuity_sweep_tests():
     )
 
 
+RAFT_CLUSTER_GATES = {
+    "Test (raft cluster — consensus, placement, and multi-group unit tests)": (
+        "cargo test --locked -p epistemic-graph --features cluster,harness,calvin "
+        "--lib --no-fail-fast -- raft::"
+    ),
+    "Test (raft cluster — ack-lost commit retry reconciliation)": (
+        "cargo test --locked -p epistemic-graph --features cluster,harness,calvin "
+        "--test txn_reconcile_ack_lost_retry --no-fail-fast"
+    ),
+}
+
+
+def test_gates_job_runs_the_raft_cluster_feature_layer_tests():
+    """`cluster` is outside `full`, so only these steps compile and run it.
+
+    Both must stay release-blocking RUN steps of `gates`, unconditional and
+    without `continue-on-error`, with the exact cluster feature set.
+    """
+    m = _load_module()
+    doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
+    steps = {step.get("name"): step for step in doc["jobs"]["gates"]["steps"]}
+    plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["release.yml"], doc)
+    rows = {row["name"]: row for row in plan if row["job"] == "gates"}
+    for name, command in RAFT_CLUSTER_GATES.items():
+        assert name in steps, f"missing gates step: {name!r}"
+        assert "if" not in steps[name] and "continue-on-error" not in steps[name]
+        assert rows[name]["mode"] == "RUN"
+        assert rows[name]["blocking"] is True
+        assert rows[name]["detail"] == command
+
+
 CAPABILITY_GATE_NAME = "Test (canonical capability policy and generated ledger)"
 # `contract` = `canonical-ledger` + `contract-schema`: it also compiles and runs
 # `tests/contract_generated.rs`, which requires both, so it is the complete profile.

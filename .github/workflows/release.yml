@@ -151,6 +151,16 @@ jobs:
         run: cargo test -p epistemic-graph --features full --no-fail-fast bounded_memory -- --ignored --test-threads=1
       - name: Test (slim server — gated-out methods return the not-built error)
         run: cargo test -p epistemic-graph --no-default-features --features server --no-fail-fast
+      # The Raft cluster layer is an opt-in build layer outside `full` (see
+      # MATURIN_FEATURES above), so no step above compiles its code or runs its
+      # tests: `cluster` (raft HA), `harness` (the in-process multi-node cluster
+      # fixtures), and `calvin` (deterministic cross-shard ordering). Without
+      # these steps a red raft suite, or an integration test that only fails to
+      # compile under this feature set, reaches a release unnoticed.
+      - name: Test (raft cluster — consensus, placement, and multi-group unit tests)
+        run: "cargo test --locked -p epistemic-graph --features cluster,harness,calvin --lib --no-fail-fast -- raft::"
+      - name: Test (raft cluster — ack-lost commit retry reconciliation)
+        run: cargo test --locked -p epistemic-graph --features cluster,harness,calvin --test txn_reconcile_ack_lost_retry --no-fail-fast
       # DE7 (durable-execution-native.md): replay-determinism crash-and-reopen
       # proofs for eg-jobs/eg-statechart.
       - name: Test (replay-determinism — eg-jobs/eg-statechart crash-replay proofs, DE7)
