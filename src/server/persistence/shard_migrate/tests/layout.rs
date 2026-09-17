@@ -14,11 +14,7 @@ async fn roundtrip_k1_to_k4_preserves_all_graphs() {
     // `crate::crypto::acquire_test_env_lock`'s doc for the full mechanism.
     #[cfg(feature = "security")]
     let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let root = temp_root("rt");
-    let _ = std::fs::remove_dir_all(&root);
-    let src = root.join("k1");
-    let dst = root.join("k4");
-    std::fs::create_dir_all(&src).unwrap();
+    let (root, src, dst) = fresh_migration_dirs("rt", "k1", "k4");
     let src_s = src.to_string_lossy().to_string();
 
     let graphs = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta"];
@@ -30,42 +26,9 @@ async fn roundtrip_k1_to_k4_preserves_all_graphs() {
     // ── migrate K=1 -> K=4 ──
     let report = migrate_shards(&src, &dst, 4).expect("migrate");
     assert_eq!(report.source_shards, 1);
-    assert_eq!(report.dest_shards, 4);
-    assert_eq!(report.graphs, graphs.len());
-    assert_eq!(report.nodes, (graphs.len() * 2) as u64);
-    assert_eq!(report.edges, graphs.len() as u64);
-
-    for i in 0..4 {
-        assert!(
-            dst.join(format!("graph-{i}.redb")).exists(),
-            "graph-{i}.redb"
-        );
-    }
-
-    // ── reopen at K=4 and verify each graph routes + reads back intact ──
-    let dst_s = dst.to_string_lossy().to_string();
-    let backend = RedbBackend::open(dst_s.clone(), 256).expect("reopen K=4");
-    assert_eq!(backend.shard_count(), 4, "on-disk layout honored as K=4");
-
-    for g in &graphs {
-        let dump = backend
-            .read_graph_dump_blocking(g)
-            .expect("read")
-            .unwrap_or_else(|| panic!("graph {g} missing after migration"));
-        assert_eq!(dump.name, *g);
-        assert_eq!(dump.nodes.len(), 2, "graph {g} nodes");
-        assert_eq!(dump.edges.len(), 1, "graph {g} edges");
-        // The node 'a' carries the graph tag — proves no cross-graph mixing.
-        let a = dump
-            .nodes
-            .iter()
-            .find(|(id, _)| id == "a")
-            .map(|(_, blob)| blob.clone())
-            .expect("node a present");
-        let val: serde_json::Value = rmp_serde::from_slice(&a).unwrap();
-        assert_eq!(val.get("g").and_then(|x| x.as_str()), Some(*g));
-    }
-    backend.shutdown();
+    // ── reopen at K=4 and verify each graph routes + reads back intact, the node
+    // 'a' carrying its graph tag so no cross-graph mixing ──
+    assert_migrated_graphs_read_back(&report, &dst, 4, &graphs);
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -160,11 +123,7 @@ fn refuses_existing_destination() {
 async fn multi_source_migration_preserves_graphs() {
     #[cfg(feature = "security")]
     let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let root = temp_root("multisrc");
-    let _ = std::fs::remove_dir_all(&root);
-    let src = root.join("k2");
-    let dst = root.join("k3");
-    std::fs::create_dir_all(&src).unwrap();
+    let (root, src, dst) = fresh_migration_dirs("multisrc", "k2", "k3");
     let src_s = src.to_string_lossy().to_string();
 
     let graphs = [
@@ -177,39 +136,7 @@ async fn multi_source_migration_preserves_graphs() {
 
     let report = migrate_shards(&src, &dst, 3).expect("migrate K=2 -> K=3");
     assert_eq!(report.source_shards, 2);
-    assert_eq!(report.dest_shards, 3);
     assert_eq!(report.dest_raft_groups, 3);
-    assert_eq!(report.graphs, graphs.len());
-    assert_eq!(report.nodes, (graphs.len() * 2) as u64);
-    assert_eq!(report.edges, graphs.len() as u64);
-
-    for i in 0..3 {
-        assert!(
-            dst.join(format!("graph-{i}.redb")).exists(),
-            "graph-{i}.redb"
-        );
-    }
-
-    let dst_s = dst.to_string_lossy().to_string();
-    let backend = RedbBackend::open(dst_s.clone(), 256).expect("reopen K=3");
-    assert_eq!(backend.shard_count(), 3, "on-disk layout honored as K=3");
-    for g in &graphs {
-        let dump = backend
-            .read_graph_dump_blocking(g)
-            .expect("read")
-            .unwrap_or_else(|| panic!("graph {g} missing after migration"));
-        assert_eq!(dump.name, *g);
-        assert_eq!(dump.nodes.len(), 2, "graph {g} nodes");
-        assert_eq!(dump.edges.len(), 1, "graph {g} edges");
-        let a = dump
-            .nodes
-            .iter()
-            .find(|(id, _)| id == "a")
-            .map(|(_, blob)| blob.clone())
-            .expect("node a present");
-        let val: serde_json::Value = rmp_serde::from_slice(&a).unwrap();
-        assert_eq!(val.get("g").and_then(|x| x.as_str()), Some(*g));
-    }
-    backend.shutdown();
+    assert_migrated_graphs_read_back(&report, &dst, 3, &graphs);
     let _ = std::fs::remove_dir_all(&root);
 }

@@ -20,11 +20,7 @@ use crate::redb_store::{NODES, RESOURCE_RESERVATIONS};
 /// * the source no longer serves the graph — a migration is a MOVE.
 #[test]
 fn migration_moves_change_authority_and_the_kernel_ledger_with_its_graph() {
-    let root = temp_root("aux");
-    let _ = std::fs::remove_dir_all(&root);
-    let src = root.join("src");
-    let dst = root.join("dst");
-    std::fs::create_dir_all(&src).unwrap();
+    let (root, src, dst) = fresh_migration_dirs("aux", "src", "dst");
     let source_path = src.join("graph-0.redb");
     let (batch_id, source_version) = seed_graph(&source_path, "aux-graph", "aux");
 
@@ -68,11 +64,7 @@ fn migration_moves_change_authority_and_the_kernel_ledger_with_its_graph() {
 /// never the other's, and never one of them dropped.
 #[test]
 fn two_source_shards_move_their_own_ledgers_independently() {
-    let root = temp_root("multisrc-ledger");
-    let _ = std::fs::remove_dir_all(&root);
-    let src = root.join("src");
-    let dst = root.join("dst");
-    std::fs::create_dir_all(&src).unwrap();
+    let (root, src, dst) = fresh_migration_dirs("multisrc-ledger", "src", "dst");
 
     let (alpha_batch, alpha_version) = seed_graph(&src.join("graph-0.redb"), "alpha", "alpha");
     let (beta_batch, beta_version) = seed_graph(&src.join("graph-1.redb"), "beta", "beta");
@@ -125,18 +117,9 @@ fn two_source_shards_move_their_own_ledgers_independently() {
 async fn migration_preserves_provenance_anchor_and_matview_state() {
     #[cfg(feature = "security")]
     let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let root = temp_root("dropped-tables");
-    let _ = std::fs::remove_dir_all(&root);
-    let src = root.join("src");
-    let dst = root.join("dst");
-    std::fs::create_dir_all(&src).unwrap();
-    let src_s = src.to_string_lossy().to_string();
+    let (root, src, dst) = fresh_migration_dirs("dropped-tables", "src", "dst");
 
-    let backend = RedbBackend::open(src_s.clone(), 256).expect("open K=1 backend");
-    backend
-        .register_graph("g", "g", GraphType::Global)
-        .await
-        .expect("register");
+    let backend = k1_backend_with_graph_g(&src).await;
     backend
         .record_durable(
             "g",
@@ -245,18 +228,9 @@ async fn migration_preserves_provenance_anchor_and_matview_state() {
 async fn migration_preserves_resource_lane_capacity_and_capability_tables() {
     #[cfg(feature = "security")]
     let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let root = temp_root("cx054-tables");
-    let _ = std::fs::remove_dir_all(&root);
-    let src = root.join("src");
-    let dst = root.join("dst");
-    std::fs::create_dir_all(&src).unwrap();
-    let src_s = src.to_string_lossy().to_string();
+    let (root, src, dst) = fresh_migration_dirs("cx054-tables", "src", "dst");
 
-    let backend = RedbBackend::open(src_s.clone(), 256).expect("open K=1 backend");
-    backend
-        .register_graph("g", "g", GraphType::Global)
-        .await
-        .expect("register");
+    let backend = k1_backend_with_graph_g(&src).await;
     backend.shutdown();
 
     let shard0 = src.join("graph-0.redb");

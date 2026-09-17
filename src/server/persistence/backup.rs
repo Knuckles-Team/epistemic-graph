@@ -896,6 +896,9 @@ mod tests {
     use crate::server::persistence::redb_backend::RedbBackend;
     #[cfg(feature = "security")]
     use crate::server::persistence::redb_backend::ENCRYPTION_CANARY;
+    use crate::server::persistence::shard_migrate::tests::{
+        assert_node_a_carries_graph_tag, props, seed_at_k as seed,
+    };
     use crate::server::persistence::PersistenceBackend;
     use eg_storage::{
         GraphShardOwner, OwnerLayout, PhysicalStoreIdentity, StorageKernel, StrictRecoveryEvidence,
@@ -903,54 +906,6 @@ mod tests {
     #[cfg(feature = "security")]
     use redb::TableHandle;
     use redb::{Database, ReadableDatabase};
-
-    fn props(v: serde_json::Value) -> Vec<u8> {
-        rmp_serde::to_vec_named(&v).unwrap()
-    }
-
-    /// Write G graphs (each with two nodes + an edge) durably through a backend.
-    async fn seed(dir: &str, shards: usize, graphs: &[&str]) {
-        let backend =
-            RedbBackend::open_with_shards(dir.to_string(), 256, shards).expect("open backend");
-        for g in graphs {
-            backend
-                .register_graph(g, g, GraphType::Global)
-                .await
-                .expect("register");
-            backend
-                .record_durable(
-                    g,
-                    &Method::AddNode {
-                        node_id: "a".into(),
-                        properties_msgpack: props(serde_json::json!({"type": "Task", "g": g})),
-                    },
-                )
-                .await
-                .expect("node a");
-            backend
-                .record_durable(
-                    g,
-                    &Method::AddNode {
-                        node_id: "b".into(),
-                        properties_msgpack: props(serde_json::json!({"type": "Task"})),
-                    },
-                )
-                .await
-                .expect("node b");
-            backend
-                .record_durable(
-                    g,
-                    &Method::AddEdge {
-                        source_id: "a".into(),
-                        target_id: "b".into(),
-                        properties_msgpack: props(serde_json::json!({"w": 1})),
-                    },
-                )
-                .await
-                .expect("edge");
-        }
-        backend.shutdown();
-    }
 
     /// Reopen ONE shard file as the kernel owner it is, for offline inspection.
     /// Only valid once nothing holds the file (redb's exclusive lock).
@@ -1095,14 +1050,7 @@ mod tests {
                 src,
                 "graph {g} shape identical after restore"
             );
-            let a = dump
-                .nodes
-                .iter()
-                .find(|(id, _)| id == "a")
-                .map(|(_, blob)| blob.clone())
-                .expect("node a present");
-            let val: serde_json::Value = rmp_serde::from_slice(&a).unwrap();
-            assert_eq!(val.get("g").and_then(|x| x.as_str()), Some(*g));
+            assert_node_a_carries_graph_tag(&dump, g);
         }
         rb.shutdown();
         let _ = std::fs::remove_dir_all(&root);

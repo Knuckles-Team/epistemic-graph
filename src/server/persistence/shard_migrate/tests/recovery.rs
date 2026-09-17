@@ -19,10 +19,7 @@ async fn in_place_migration_swaps_and_backs_up() {
     // test (this one also reopens after an in-place migration + backup).
     #[cfg(feature = "security")]
     let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let dir = temp_root("inplace");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    let dir_s = dir.to_string_lossy().to_string();
+    let (dir, dir_s) = fresh_in_place_dir("inplace");
 
     let graphs = ["one", "two", "three", "four", "five"];
     seed_k1(&dir_s, &graphs).await;
@@ -191,10 +188,7 @@ fn interrupted_in_place_build_is_preserved_for_recovery() {
 async fn in_place_fault_after_first_graft_keeps_live_source_and_backup() {
     #[cfg(feature = "security")]
     let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let dir = temp_root("inplace-fault-after-graft");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    let dir_s = dir.to_string_lossy().to_string();
+    let (dir, dir_s) = fresh_in_place_dir("inplace-fault-after-graft");
     let graphs = ["fault-one", "fault-two"];
     seed_k1(&dir_s, &graphs).await;
 
@@ -309,10 +303,7 @@ async fn in_place_fault_after_first_graft_keeps_live_source_and_backup() {
 async fn in_place_fault_after_old_move_resumes_without_losing_graphs() {
     #[cfg(feature = "security")]
     let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let dir = temp_root("inplace-fault-after-old-move");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    let dir_s = dir.to_string_lossy().to_string();
+    let (dir, dir_s) = fresh_in_place_dir("inplace-fault-after-old-move");
     let graphs = ["old-move-one", "old-move-two"];
     seed_k1(&dir_s, &graphs).await;
 
@@ -350,10 +341,7 @@ async fn in_place_fault_after_old_move_resumes_without_losing_graphs() {
 async fn in_place_fault_after_first_install_resumes_idempotently() {
     #[cfg(feature = "security")]
     let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let dir = temp_root("inplace-fault-after-install");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    let dir_s = dir.to_string_lossy().to_string();
+    let (dir, dir_s) = fresh_in_place_dir("inplace-fault-after-install");
     let graphs = ["install-one", "install-two"];
     seed_k1(&dir_s, &graphs).await;
 
@@ -392,10 +380,7 @@ async fn in_place_fault_after_first_install_resumes_idempotently() {
 async fn in_place_changed_target_k_refuses_before_swap() {
     #[cfg(feature = "security")]
     let _env_lock = crate::crypto::acquire_test_env_lock().await;
-    let dir = temp_root("inplace-changed-target-k");
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    let dir_s = dir.to_string_lossy().to_string();
+    let (dir, dir_s) = fresh_in_place_dir("inplace-changed-target-k");
     let graphs = ["changed-k-one", "changed-k-two"];
     seed_k1(&dir_s, &graphs).await;
 
