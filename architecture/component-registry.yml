@@ -3765,6 +3765,7 @@ components:
       - "Cargo.toml"
       - "src/lib.rs"
       - "src/main.rs"
+      - "src/server_startup.rs"
       - "src/bin"
       - "src/test_support.rs"
       - ".cargo/config.toml"

@@ -19,13 +19,12 @@ use tokio::sync::RwLock;
 // narrowly than its uses).
 use tracing::info;
 
-#[cfg(feature = "security")]
-use epistemic_graph::isolation::IsolationLayer;
 use epistemic_graph::server;
 use epistemic_graph::server::ServerState;
 
 #[cfg(feature = "full")]
 mod performance_probe;
+mod server_startup;
 
 #[derive(Parser, Debug)]
 #[command(name = "epistemic-graph-server")]
@@ -391,23 +390,12 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(feature = "security")]
 async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
-    let args = Args::parse();
+    let mut args = Args::parse();
 
     if args.exact_performance_probe {
-        let root = args
-            .exact_performance_probe_root
-            .as_deref()
-            .ok_or("exact performance probe root is required")?;
-        #[cfg(feature = "full")]
-        {
-            performance_probe::run_stdio(root)?;
-            return Ok(());
-        }
-        #[cfg(not(feature = "full"))]
-        {
-            let _ = root;
-            return Err("exact performance probes require the full server binary".into());
-        }
+        return server_startup::run_exact_performance_probe(
+            args.exact_performance_probe_root.as_deref(),
+        );
     }
 
     // CONCEPT:EG-OS.observability.tracing-subscriber-init — install the tracing subscriber. This is the fmt-only
@@ -416,59 +404,12 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     // exporter is layered on top. Off/unset ⇒ byte-for-byte the prior behavior.
     epistemic_graph::otel::init_tracing()?;
 
-    let (socket_path, socket_parent) = resolve_socket_path(args.socket_path);
-    let socket_mode = match server::parse_unix_socket_mode(&args.socket_mode) {
-        Ok(mode) => mode,
-        Err(reason) => {
-            eprintln!(
-                "error: invalid --socket-mode/GRAPH_SERVICE_SOCKET_MODE {:?}: {reason}",
-                args.socket_mode
-            );
-            std::process::exit(2);
-        }
-    };
+    let (socket_path, socket_parent) = resolve_socket_path(args.socket_path.take());
+    let socket_mode = server_startup::socket_mode_or_exit(&args.socket_mode);
 
-    // ── Security gate: an auth secret is mandatory ───────────────────────
-    if args.auth_secret.is_empty() {
-        eprintln!(
-            "error: no auth secret configured — refusing to start.\n\
-             Set GRAPH_SERVICE_AUTH_SECRET (or pass --auth-secret) to enable \
-             HMAC-SHA256 authentication."
-        );
-        std::process::exit(2);
-    }
-    if args.persist_dir.is_none() {
-        eprintln!(
-            "error: the served engine requires an externally configured durable-state directory"
-        );
-        std::process::exit(2);
-    }
-
-    let tcp_tls = match (&args.tcp_tls_cert, &args.tcp_tls_key) {
-        (Some(cert_path), Some(key_path)) => Some(server::TcpTlsConfig {
-            cert_path: cert_path.clone(),
-            key_path: key_path.clone(),
-            client_ca_path: args.tcp_tls_client_ca.clone(),
-        }),
-        (None, None) if args.tcp_tls_client_ca.is_none() => None,
-        _ => {
-            eprintln!("error: native TCP TLS requires both certificate and private-key material");
-            std::process::exit(2);
-        }
-    };
-    if let Some(ref addr) = args.tcp_addr {
-        if !native_tcp_addr_is_loopback(addr) && tcp_tls.is_none() {
-            eprintln!("error: non-loopback native TCP requires TLS");
-            std::process::exit(2);
-        }
-    }
-    let tcp_tls = match tcp_tls {
-        Some(tls) => Some(server::prepare_tcp_tls(tls).await?),
-        None => None,
-    };
-
-    info!("Starting epistemic-graph-server");
-    info!("  UDS: private local socket configured");
+    // ── Security gate: an auth secret and a durable-state directory are mandatory ──
+    server_startup::require_secret_and_persist_dir(&args.auth_secret, args.persist_dir.as_deref());
+    let tcp_tls = server_startup::prepare_tcp_tls(&args).await?;
 
     // ── Hardware capacity auto-detection (CONCEPT:AU-KG.backend.b-auto-size) ─────────────────
     // Size the concurrency / buffer / per-graph node-cap DEFAULTS from
@@ -477,286 +418,24 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     // values below may lower their defaults but cannot widen them. Mirrors the
     // shared cgroup-aware runtime sizing above, CoalescerConfig::auto, and
     // cost.rs's effective-memory budget.
-    let host_capacity = epistemic_graph::autosize::detect_capacity();
-    info!(
-        "  Capacity: {} cpu(s), {} MiB RAM, tier {:?} (auto-sizing inflight/writer/node-cap defaults)",
-        host_capacity.cpus,
-        host_capacity.total_ram_bytes / (1024 * 1024),
-        host_capacity.tier
-    );
-    if host_capacity.total_ram_bytes == 0 {
-        tracing::warn!(
-            "  RAM undetectable (non-Linux or a restricted /proc) — defaulting the \
-             per-graph node cap to a conservative {} (the same cap a real 1 GiB Pi \
-             gets); override with EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH",
-            host_capacity.node_cap()
-        );
-    }
-    if args.tcp_addr.is_some() {
-        info!(
-            "  TCP: configured (tls={}, mtls={})",
-            tcp_tls.is_some(),
-            args.tcp_tls_client_ca.is_some()
-        );
-    }
-    info!("  Auth: enabled");
+    let host_capacity = server_startup::detect_capacity_and_log_startup(&args, tcp_tls.is_some());
 
     // ── Single-writer durable-store guard ──────────────────────────────────
     // Refuse to start if another engine already owns this persist dir; hold the
     // lock for the whole process lifetime so no second engine can clobber our
     // authoritative rows (the engine-level complement to the Python spawn guard). Kept in
     // `_persist_lock` until run() returns; the kernel releases it on exit/crash.
-    let _persist_lock = match &args.persist_dir {
-        Some(dir) => match epistemic_graph::persist_lock::acquire(dir) {
-            Ok(lock) => {
-                info!("Acquired the configured single-writer persistence lock");
-                Some(lock)
-            }
-            Err(e) => {
-                eprintln!("error: {e}");
-                std::process::exit(1);
-            }
-        },
-        None => None,
-    };
+    let _persist_lock = server_startup::acquire_persist_lock(args.persist_dir.as_deref());
 
-    // Default auto-sizes from effective CPU capacity (CONCEPT:AU-KG.backend.b-auto-size):
-    // a constrained cgroup sheds early and a big box admits deeper concurrency.
-    // A positive env override can only lower the cgroup-aware default.
-    let automatic_max_in_flight = host_capacity.max_inflight();
-    let max_in_flight = std::env::var("EPISTEMIC_GRAPH_MAX_INFLIGHT")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .filter(|&n| n > 0)
-        .map(|value| {
-            let bounded = epistemic_graph::autosize::bound_explicit(value, automatic_max_in_flight);
-            if bounded != value {
-                tracing::warn!(
-                    requested = value,
-                    bounded,
-                    automatic = automatic_max_in_flight,
-                    "EPISTEMIC_GRAPH_MAX_INFLIGHT exceeds cgroup-aware automatic capacity; clamping"
-                );
-            }
-            bounded
-        })
-        .unwrap_or(automatic_max_in_flight);
-    // Per-graph fairness cap (Phase C-D): default to a quarter of the global pool
-    // so any one hot graph holds at most 25% of capacity and ~4 graphs can saturate
-    // the server, instead of a single tenant monopolizing all in-flight slots.
-    let per_graph_inflight_limit = std::env::var("EPISTEMIC_GRAPH_MAX_INFLIGHT_PER_GRAPH")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .filter(|&n| n > 0)
-        .map(|value| epistemic_graph::autosize::bound_explicit(value, max_in_flight))
-        .unwrap_or_else(|| (max_in_flight / 4).max(1));
-    // Reserved READ-admission lane (CONCEPT:EG-KG.coordination.reserved-read-lane): a dedicated pool of in-flight
-    // slots that ONLY reads/queries may use, so a write firehose that saturates the
-    // global pool + per-graph cap can never shed an interactive MCP read to BUSY.
-    // Auto-sized from effective CPU capacity (an eighth of the admission cap,
-    // floored); a positive env override can only lower the cgroup-aware bound.
-    let automatic_read_reserved = host_capacity.read_reserved().min(max_in_flight).max(1);
-    let read_reserved = std::env::var("EPISTEMIC_GRAPH_READ_RESERVED")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .filter(|&n| n > 0)
-        .map(|value| epistemic_graph::autosize::bound_explicit(value, automatic_read_reserved))
-        .unwrap_or(automatic_read_reserved);
-    info!(
-        "Backpressure: max in-flight = {} (per-graph cap = {}, reserved read lane = {})",
-        max_in_flight, per_graph_inflight_limit, read_reserved
-    );
-    // Per-graph write coalescer (CONCEPT:EG-KG.sharding.per-graph-write-coalescer): batch size auto-sized from cpu
-    // count and always enabled with bounded queues.
-    {
-        let cfg = epistemic_graph::write_coalescer::CoalescerConfig::auto();
-        info!(
-            "Write coalescer: batch up to {} ops/lock (queue {}, linger {:?})",
-            cfg.max_batch, cfg.queue_capacity, cfg.max_linger
-        );
-    }
-
-    // The served engine has one durability implementation: authoritative redb.
-    // Every acknowledged mutation crosses the commit barrier, and bounded writer
-    // queues apply backpressure rather than dropping work. `RedbBackend` (and its
-    // owning module) is gated behind the `redb` feature, so a build without it
-    // (e.g. the slim `server`-only feature set) cannot reference the concrete
-    // type — fail loudly at boot on an attempted `--persist-dir` rather than
-    // silently downgrading to in-memory.
-    #[cfg(feature = "redb")]
-    let persistence: Option<Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>> =
-        args.persist_dir.as_ref().map(|dir| {
-            let automatic_writer_queue = host_capacity.writer_queue();
-            let capacity = std::env::var("EPISTEMIC_GRAPH_REDB_WRITER_QUEUE")
-                .ok()
-                .and_then(|v| v.parse::<usize>().ok())
-                .filter(|&n| n > 0)
-                .map(|value| {
-                    epistemic_graph::autosize::bound_explicit(value, automatic_writer_queue)
-                })
-                .unwrap_or(automatic_writer_queue);
-            info!("Persistence: authoritative redb (queue {})", capacity);
-            let backend = epistemic_graph::server::persistence::redb_backend::RedbBackend::open(
-                dir.clone(),
-                capacity,
-            )
-            .unwrap_or_else(|error| {
-                eprintln!("error: failed to open durable graph store: {error}");
-                std::process::exit(1);
-            });
-            Arc::new(backend) as Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>
-        });
-    #[cfg(not(feature = "redb"))]
-    let persistence: Option<Arc<dyn epistemic_graph::server::persistence::PersistenceBackend>> = {
-        if args.persist_dir.is_some() {
-            eprintln!(
-                "error: --persist-dir requires a redb-enabled build (the `redb` feature is not compiled in)"
-            );
-            std::process::exit(2);
-        }
-        None
-    };
-    let persistence_shutdown = persistence.clone();
-
+    let limits = server_startup::admission_limits(&host_capacity);
     // OCC ACID transaction limits (CONCEPT:EG-KG.txn.multi-op-occ-acid).
-    let (txn_ttl_secs, txn_max_per_graph, txn_max_per_agent) =
-        epistemic_graph::server::txn_limits_from_env();
-
-    // Native time-series store (CONCEPT:AU-KG.retrieval.god-nodes-communities, feature `tsdb`). A durable
-    // `series.redb` beside the graph shards when a persist dir is set; else a
-    // process-temp file (in-memory deployments). Built BEFORE `persist_dir` is moved
-    // into the struct. A store-open failure is fatal at boot (loud + early), same
-    // discipline as the persistence backend above.
-    #[cfg(feature = "tsdb")]
-    let tsdb_store: Option<Arc<eg_tsdb::store::SeriesStore>> = {
-        let path = match &args.persist_dir {
-            Some(dir) => std::path::Path::new(dir).join("series.redb"),
-            None => std::env::temp_dir().join(format!("eg-tsdb-{}.redb", std::process::id())),
-        };
-        match eg_tsdb::store::SeriesStore::open(
-            &path,
-            epistemic_graph::store_authority::process_verifier(),
-            epistemic_graph::store_authority::process_authority().principal(),
-            &epistemic_graph::store_authority::process_authority().proof(),
-        ) {
-            Ok(s) => {
-                info!("Time-series store (tsdb): durable store ready");
-                Some(Arc::new(s))
-            }
-            Err(e) => {
-                tracing::error!("failed to open durable time-series store: {e}");
-                std::process::exit(1);
-            }
-        }
-    };
-
-    // Streamed content-addressed BLOB substrate (CONCEPT:EG-KG.storage.blob-namespace). The CAS lives
-    // in `{persist_dir}/blob.redb`; with no persist dir there is no durable place
-    // for the bytes, so the substrate is disabled and the Blob* methods report
-    // "not available" (matching the in-memory-only philosophy elsewhere).
-    #[cfg(feature = "blob")]
-    let (blob, blob_cursor_ttl_secs) = {
-        let ttl = std::env::var("EPISTEMIC_GRAPH_BLOB_CURSOR_TTL_SECS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .filter(|&n| n > 0)
-            .unwrap_or(300u64);
-        let cursors = match args.persist_dir.as_deref() {
-            Some(dir) => {
-                #[cfg(feature = "blob-s3")]
-                let store: Arc<dyn epistemic_graph::server::blob::ChunkStore> =
-                    match epistemic_graph::server::blob::s3::S3ChunkStore::open(dir) {
-                        Ok(s) => Arc::new(s),
-                        Err(e) => {
-                            eprintln!("error: failed to open durable blob-s3 CAS: {e}");
-                            std::process::exit(1);
-                        }
-                    };
-                #[cfg(not(feature = "blob-s3"))]
-                let store: Arc<dyn epistemic_graph::server::blob::ChunkStore> =
-                    match epistemic_graph::server::blob::RedbChunkStore::open(dir) {
-                        Ok(s) => Arc::new(s),
-                        Err(e) => {
-                            eprintln!("error: failed to open durable blob CAS: {e}");
-                            std::process::exit(1);
-                        }
-                    };
-                info!("Blob substrate: durable content-addressed CAS ready");
-                Some(Arc::new(epistemic_graph::server::blob::BlobCursors::new(
-                    store,
-                )))
-            }
-            None => {
-                tracing::warn!(
-                    "Blob substrate disabled: no persist dir (blob bytes need durable storage)"
-                );
-                None
-            }
-        };
-        (cursors, ttl)
-    };
-
-    // ── Generic Key→Value store (CONCEPT:EG-OS.config.configurable-listeners, feature `kv`) ───────────
-    // A durable `{persist_dir}/kv.redb` when a persist dir is set, else an in-memory
-    // scratch map. Built BEFORE `persist_dir` is moved into the struct. A store-open
-    // failure is fatal at boot (loud + early), same discipline as the other stores.
-    #[cfg(feature = "kv")]
-    let kv: Option<Arc<epistemic_graph::server::kv::KvStore>> =
-        match epistemic_graph::server::kv::KvStore::open(args.persist_dir.as_deref()) {
-            Ok(s) => {
-                if s.is_durable() {
-                    info!("Key→Value store (kv): durable kv.redb (CONCEPT:EG-OS.config.configurable-listeners)");
-                } else {
-                    info!("Key→Value store (kv): in-memory scratch — no persist dir");
-                }
-                Some(Arc::new(s))
-            }
-            Err(e) => {
-                eprintln!("error: failed to open kv store: {e}");
-                std::process::exit(1);
-            }
-        };
-
-    // RLS is unconditionally default-deny. Every served request carries a verified
-    // tenant context and resolves through provisioned durable identity/RBAC policy
-    // before any row is exposed. `run_inner` exists only under `security` (see
-    // `run`'s doc comment), so this path is always reachable here.
-    let isolation = {
-        info!("RLS default-deny ACTIVE: rows require explicit public visibility or an owner grant");
-        let isolation = match args.persist_dir.as_deref() {
-            Some(dir) => match IsolationLayer::with_persist_dir(
-                dir,
-                epistemic_graph::store_authority::process_authority().as_ref(),
-                epistemic_graph::store_authority::process_authority().principal(),
-                &epistemic_graph::store_authority::process_authority().proof(),
-            ) {
-                Ok(layer) => layer,
-                Err(error) => {
-                    eprintln!("error: could not open durable identity/RBAC policy: {error}");
-                    std::process::exit(1);
-                }
-            },
-            None => {
-                eprintln!(
-                    "error: secure request context requires --persist-dir / GRAPH_SERVICE_PERSIST_DIR for durable identity policy and replay state"
-                );
-                std::process::exit(1);
-            }
-        };
-        if let Err(error) = server::validate_verified_request_context_startup(
-            &args.auth_secret,
-            args.persist_dir.as_deref(),
-        ) {
-            eprintln!("error: invalid verified request-context configuration: {error}");
-            std::process::exit(1);
-        }
-        if isolation.identity_bootstrap_pending() {
-            info!(
-                "Identity policy is empty: only a signer-backed current-envelope System identity bootstrap is admitted"
-            );
-        }
-        isolation
-    };
+    let txn_limits = epistemic_graph::server::txn_limits_from_env();
+    // Every store is opened BEFORE `persist_dir` is moved into the state; each
+    // open failure is fatal at boot (loud + early).
+    let stores = server_startup::open_durable_stores(args.persist_dir.as_deref(), &host_capacity);
+    let persistence_shutdown = stores.persistence.clone();
+    let isolation =
+        server_startup::open_isolation_layer(&args.auth_secret, args.persist_dir.as_deref());
 
     // Keep resolution side-effect-free: transport and complete verified-context
     // validation must succeed before startup creates the Windows LOCALAPPDATA
@@ -767,37 +446,13 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(not(windows))]
     debug_assert!(socket_parent.is_none());
 
-    // Keep the complete feature-gated field composition in the canonical state
-    // constructor. Startup overrides only the values sized or opened above;
-    // this prevents the orchestration path from drifting from other state users.
-    let mut server_state = ServerState::new(args.auth_secret, isolation);
-    #[cfg(all(feature = "streaming", feature = "cdc-kafka"))]
-    if let Some(hub) = &server_state.cdc {
-        // CA-11 (DEC-CA-03): install the optional Kafka sink exactly once,
-        // after pure state composition and before any listener can serve.
-        epistemic_graph::server::cdc_sink::install_from_env(hub);
-    }
-    server_state.persist_dir = args.persist_dir;
-    server_state.persistence = persistence;
-    server_state.max_in_flight = Arc::new(tokio::sync::Semaphore::new(max_in_flight));
-    server_state.read_admission = Arc::new(tokio::sync::Semaphore::new(read_reserved));
-    server_state.per_graph_inflight_limit = per_graph_inflight_limit;
-    server_state.txn_ttl_secs = txn_ttl_secs;
-    server_state.txn_max_per_graph = txn_max_per_graph;
-    server_state.txn_max_per_agent = txn_max_per_agent;
-    #[cfg(feature = "blob")]
-    {
-        server_state.blob = blob;
-        server_state.blob_cursor_ttl_secs = blob_cursor_ttl_secs;
-    }
-    #[cfg(feature = "tsdb")]
-    {
-        server_state.tsdb_store = tsdb_store;
-    }
-    #[cfg(feature = "kv")]
-    {
-        server_state.kv = kv;
-    }
+    let server_state = server_startup::compose_server_state(
+        ServerState::new(std::mem::take(&mut args.auth_secret), isolation),
+        args.persist_dir.take(),
+        stores,
+        &limits,
+        txn_limits,
+    );
     let state = Arc::new(RwLock::new(server_state));
 
     // Compose the ordinary process as a real local-placement server before any
@@ -807,20 +462,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(feature = "raft")]
     state.write().await.install_local_placement_authority();
 
-    spawn_optional_service_listeners(
-        &state,
-        args.metrics_addr.as_deref(),
-        args.sparql_addr.as_deref(),
-        args.policy_export_addr.as_deref(),
-        args.federated_addr.as_deref(),
-        args.graphql_max_connections,
-        args.graphql_max_session_secs,
-        args.obs_addr.as_deref(),
-        args.viz_interactive_addr.as_deref(),
-        args.iceberg_addr.as_deref(),
-        args.graphql_addr.as_deref(),
-    )
-    .await?;
+    spawn_optional_service_listeners(&state, &args).await?;
 
     spawn_reasoning_cascade_and_ann_sweep(
         &state,
@@ -830,7 +472,7 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await;
 
-    spawn_memory_and_lifecycle_sweeps(&state, host_capacity, txn_ttl_secs).await;
+    spawn_memory_and_lifecycle_sweeps(&state, host_capacity, txn_limits.0).await;
 
     start_raft_and_matview_reload(&state).await?;
 
@@ -841,140 +483,43 @@ async fn run_inner() -> Result<(), Box<dyn std::error::Error>> {
     // flush below. An acknowledged write is already committed; shutdown only
     // drains the writer's bounded in-flight tail.
     let shutdown = server::ShutdownCoordinator::new();
-
-    // SIGTERM (a supervisor / `kill` / agent-utilities stopping the daemon) and
-    // SIGINT (Ctrl-C) both fire the same graceful signal. On non-unix only Ctrl-C
-    // is available.
-    {
-        let sig_coord = shutdown.clone();
-        tokio::spawn(async move {
-            #[cfg(unix)]
-            {
-                use tokio::signal::unix::{signal, SignalKind};
-                let mut term = match signal(SignalKind::terminate()) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        tracing::error!("failed to install SIGTERM handler: {e}");
-                        return;
-                    }
-                };
-                let mut int = match signal(SignalKind::interrupt()) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        tracing::error!("failed to install SIGINT handler: {e}");
-                        return;
-                    }
-                };
-                tokio::select! {
-                    _ = term.recv() => info!("Received SIGTERM — graceful shutdown"),
-                    _ = int.recv()  => info!("Received SIGINT — graceful shutdown"),
-                }
-            }
-            #[cfg(not(unix))]
-            {
-                if tokio::signal::ctrl_c().await.is_ok() {
-                    info!("Received Ctrl-C — graceful shutdown");
-                }
-            }
-            sig_coord.trigger();
-        });
-    }
-
-    // Optional reference-counted idle shutdown (CONCEPT:EG-KG.backend.tiny-shared). Only spawned
-    // when --idle-shutdown-secs N (N>0); absent/0 ⇒ no watcher ⇒ the engine is
-    // long-living/persistent and never self-terminates on idle.
-    if args.idle_shutdown_secs > 0 {
-        info!(
-            "Idle shutdown ARMED: will self-terminate after {}s with zero active connections",
-            args.idle_shutdown_secs
-        );
-        let idle_coord = shutdown.clone();
-        let secs = args.idle_shutdown_secs;
-        tokio::spawn(async move {
-            server::run_idle_watcher(idle_coord, secs).await;
-        });
-    } else {
-        info!("Idle shutdown disabled (persistent mode): engine stays up while idle");
-    }
+    server_startup::spawn_shutdown_signal_handler(shutdown.clone());
+    server_startup::spawn_idle_shutdown_watcher(&shutdown, args.idle_shutdown_secs);
 
     // ── Transport ───────────────────────────────────────────────────────
-    // UDS is the primary transport on unix; Windows has no Unix Domain Sockets,
-    // so TCP is the main (and only) transport there.
-    #[cfg(unix)]
-    {
-        // TCP listener (secondary) if configured.
-        if let Some(ref tcp_addr) = args.tcp_addr {
-            let tcp_state = state.clone();
-            let tcp_shutdown = shutdown.clone();
-            let addr = tcp_addr.clone();
-            let tls = tcp_tls.clone();
-            tokio::spawn(async move {
-                if let Err(e) = server::serve_tcp(&addr, tcp_state, tcp_shutdown, tls).await {
-                    tracing::error!("TCP server error ({:?})", e.kind());
-                }
-            });
-        }
-
-        // UDS listener (main loop). Returns when the shutdown signal fires.
-        server::serve_uds(&socket_path, socket_mode, state.clone(), shutdown.clone()).await?;
-    }
-
-    #[cfg(not(unix))]
-    {
-        // Non-unix (Windows): Tokio has no UnixListener, so AF_UNIX is unavailable.
-        // TCP loopback is the per-platform DEFAULT transport here — an explicit
-        // --tcp-addr wins; otherwise the loopback-only platform default is used.
-        // `socket_path`/`socket_mode` are still resolved+validated (above) for
-        // config/lock parity & logging.
-        let _ = &socket_path;
-        let _ = socket_mode;
-        let addr = args
-            .tcp_addr
-            .clone()
-            .unwrap_or_else(|| "127.0.0.1:8765".to_string());
-        info!("AF_UNIX unavailable; using the configured native TCP transport");
-        server::serve_tcp(&addr, state.clone(), shutdown.clone(), tcp_tls).await?;
-    }
+    let transports = server_startup::Transports {
+        socket_path,
+        socket_mode,
+        tcp_addr: args.tcp_addr.take(),
+        tcp_tls,
+    };
+    server_startup::serve_transports(transports, &state, &shutdown).await?;
 
     // Graceful shutdown: the accept loop has exited, so flush any bounded writer
     // work that had not yet crossed its acknowledgement barrier.
-    info!("Accept loop stopped — flushing durable state");
-    if let Some(p) = &persistence_shutdown {
-        p.shutdown();
-    }
-    info!("Shutdown complete");
+    server_startup::flush_durable_state(persistence_shutdown);
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn spawn_optional_service_listeners(
     state: &Arc<tokio::sync::RwLock<ServerState>>,
-    metrics_addr_arg: Option<&str>,
-    sparql_addr_arg: Option<&str>,
-    policy_export_addr_arg: Option<&str>,
-    federated_addr_arg: Option<&str>,
-    graphql_max_connections: usize,
-    graphql_max_session_secs: u64,
-    obs_addr_arg: Option<&str>,
-    viz_interactive_addr_arg: Option<&str>,
-    iceberg_addr_arg: Option<&str>,
-    graphql_addr_arg: Option<&str>,
+    args: &Args,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    spawn_metrics_listener(metrics_addr_arg).await?;
-    spawn_sparql_listener(state, sparql_addr_arg).await?;
-    spawn_policy_export_listener(policy_export_addr_arg).await?;
+    spawn_metrics_listener(args.metrics_addr.as_deref()).await?;
+    spawn_sparql_listener(state, args.sparql_addr.as_deref()).await?;
+    spawn_policy_export_listener(args.policy_export_addr.as_deref()).await?;
     run_fuseki_startup_health_check();
-    spawn_federated_listener(state, federated_addr_arg).await?;
+    spawn_federated_listener(state, args.federated_addr.as_deref()).await?;
     spawn_graphql_listener(
         state,
-        graphql_addr_arg,
-        graphql_max_connections,
-        graphql_max_session_secs,
+        args.graphql_addr.as_deref(),
+        args.graphql_max_connections,
+        args.graphql_max_session_secs,
     )
     .await?;
-    spawn_obs_listener(state, obs_addr_arg).await?;
-    spawn_viz_interactive_listener(state, viz_interactive_addr_arg).await?;
-    spawn_iceberg_listener(state, iceberg_addr_arg).await?;
+    spawn_obs_listener(state, args.obs_addr.as_deref()).await?;
+    spawn_viz_interactive_listener(state, args.viz_interactive_addr.as_deref()).await?;
+    spawn_iceberg_listener(state, args.iceberg_addr.as_deref()).await?;
     spawn_lake_materialize_sweep(state).await;
     spawn_pgwire_listener(state).await?;
     spawn_sqlite_listener(state).await?;
@@ -2180,6 +1725,14 @@ async fn spawn_memory_and_lifecycle_sweeps(
     host_capacity: epistemic_graph::autosize::Capacity,
     txn_ttl_secs: u64,
 ) {
+    spawn_memory_sweeps(state, host_capacity).await;
+    spawn_lifecycle_sweeps(state, txn_ttl_secs);
+}
+
+async fn spawn_memory_sweeps(
+    state: &Arc<tokio::sync::RwLock<ServerState>>,
+    host_capacity: epistemic_graph::autosize::Capacity,
+) {
     // ── Per-graph memory cap (CONCEPT:EG-KG.storage.nonblocking-checkpoint) — degrade, don't OOM ─────────
     // The engine keeps a bounded resident projection over the durable backend, so a graph that
     // exceeds EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH is evicted (LRU) back down to it
@@ -2192,68 +1745,25 @@ async fn spawn_memory_and_lifecycle_sweeps(
     // — evicted nodes still serve from the durable redb tier (read-through eviction,
     // CONCEPT:EG-KG.storage.read-through-seam-exercised). Any explicit override must
     // remain positive; the safety bound cannot be disabled.
-    let automatic_node_cap = host_capacity.node_cap();
-    let max_nodes_per_graph = match std::env::var("EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH") {
-        Ok(value) => match value.trim().parse::<usize>() {
-            Ok(limit) if limit > 0 => {
-                let bounded = epistemic_graph::autosize::bound_explicit(limit, automatic_node_cap);
-                if bounded != limit {
-                    tracing::warn!(
-                        requested = limit,
-                        bounded,
-                        automatic = automatic_node_cap,
-                        "EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH exceeds cgroup-aware automatic capacity; clamping"
-                    );
-                }
-                bounded
-            }
-            _ => {
-                eprintln!("error: EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH must be positive");
-                std::process::exit(2);
-            }
+    let max_nodes_per_graph = server_startup::max_nodes_per_graph(&host_capacity);
+    let cap_interval = server_startup::env_or_exit(
+        "EPISTEMIC_GRAPH_MEMCAP_INTERVAL",
+        10,
+        |value| {
+            value
+                .parse::<u64>()
+                .ok()
+                .filter(|interval| (1..=3_600).contains(interval))
         },
-        Err(std::env::VarError::NotPresent) => automatic_node_cap,
-        Err(std::env::VarError::NotUnicode(_)) => {
-            eprintln!("error: EPISTEMIC_GRAPH_MAX_NODES_PER_GRAPH is not valid Unicode");
-            std::process::exit(2);
-        }
-    };
-    let cap_state = state.clone();
-    let cap_interval = match std::env::var("EPISTEMIC_GRAPH_MEMCAP_INTERVAL") {
-        Ok(value) => match value.trim().parse::<u64>() {
-            Ok(interval) if (1..=3_600).contains(&interval) => interval,
-            _ => {
-                eprintln!("error: EPISTEMIC_GRAPH_MEMCAP_INTERVAL must be between 1 and 3600");
-                std::process::exit(2);
-            }
-        },
-        Err(std::env::VarError::NotPresent) => 10,
-        Err(std::env::VarError::NotUnicode(_)) => {
-            eprintln!("error: EPISTEMIC_GRAPH_MEMCAP_INTERVAL is not valid Unicode");
-            std::process::exit(2);
-        }
-    };
+        "EPISTEMIC_GRAPH_MEMCAP_INTERVAL must be between 1 and 3600",
+    );
     info!(
         "Memory cap: per-graph max {} nodes, swept every {}s (LRU eviction)",
         max_nodes_per_graph, cap_interval
     );
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(cap_interval));
-        ticker.tick().await;
-        loop {
-            ticker.tick().await;
-            let loop_started = std::time::Instant::now();
-            let evicted =
-                epistemic_graph::persist::evict_oversized_all(&cap_state, max_nodes_per_graph)
-                    .await;
-            if evicted > 0 {
-                tracing::info!("Memory cap: evicted {} LRU node(s) over cap", evicted);
-            }
-            epistemic_graph::metrics::loop_tick(
-                "memcap_sweep",
-                loop_started.elapsed().as_secs_f64(),
-            );
-        }
+    let cap_state = state.clone();
+    spawn_periodic_sweep(cap_interval, "memcap_sweep", move || {
+        server_startup::memcap_tick(cap_state.clone(), max_nodes_per_graph)
     });
 
     // ── Per-tenant memory budget enforcer (CONCEPT:EG-KG.compute.lane-v, Lane V) ─────
@@ -2271,7 +1781,6 @@ async fn spawn_memory_and_lifecycle_sweeps(
             eprintln!("error: {error}");
             std::process::exit(2);
         });
-        let budget_state = state.clone();
         info!(
             "Memory budget: global ceiling {} bytes, per-tenant {} bytes, swept every {}s \
                  (CONCEPT:EG-KG.compute.lane-v)",
@@ -2279,28 +1788,9 @@ async fn spawn_memory_and_lifecycle_sweeps(
             cost_config.per_tenant_budget_bytes,
             cost_config.interval_secs
         );
-        tokio::spawn(async move {
-            let mut ticker =
-                tokio::time::interval(std::time::Duration::from_secs(cost_config.interval_secs));
-            ticker.tick().await; // consume the immediate first tick
-            loop {
-                ticker.tick().await;
-                let __loop_tick_started = std::time::Instant::now();
-                let (evicted, hibernated) =
-                    epistemic_graph::cost::enforce_memory_budgets(&budget_state, cost_config).await;
-                if evicted > 0 || hibernated > 0 {
-                    tracing::info!(
-                        "Memory budget: evicted {} node(s), hibernated {} graph(s) to keep \
-                             tenants under budget",
-                        evicted,
-                        hibernated
-                    );
-                }
-                epistemic_graph::metrics::loop_tick(
-                    "budget_enforcer",
-                    __loop_tick_started.elapsed().as_secs_f64(),
-                );
-            }
+        let budget_state = state.clone();
+        spawn_periodic_sweep(cost_config.interval_secs, "budget_enforcer", move || {
+            server_startup::budget_tick(budget_state.clone(), cost_config)
         });
     }
 
@@ -2314,10 +1804,7 @@ async fn spawn_memory_and_lifecycle_sweeps(
     // seconds); the sweep then runs every `window` seconds.
     #[cfg(feature = "redb")]
     {
-        let window_secs = std::env::var("EPISTEMIC_GRAPH_COLD_OFFLOAD_SECS")
-            .ok()
-            .and_then(|s| s.trim().parse::<u64>().ok())
-            .unwrap_or(0);
+        let window_secs = server_startup::optional_sweep_secs("EPISTEMIC_GRAPH_COLD_OFFLOAD_SECS");
         if window_secs > 0 {
             let cold_state = state.clone();
             let tracker = { cold_state.read().await.cold_tracker.clone() };
@@ -2327,31 +1814,29 @@ async fn spawn_memory_and_lifecycle_sweeps(
                  (CONCEPT:EG-KG.backend.r6-feature)",
                 window_secs, window_secs
             );
-            tokio::spawn(async move {
-                let mut ticker = tokio::time::interval(window);
-                ticker.tick().await; // consume the immediate first tick
-                loop {
-                    ticker.tick().await;
-                    let __loop_tick_started = std::time::Instant::now();
-                    let n =
-                        epistemic_graph::server::persistence::cold_offload::offload_cold_tenants(
-                            &cold_state,
-                            &tracker,
-                            window,
-                        )
-                        .await;
-                    if n > 0 {
-                        tracing::info!("Cold-tenant offload: hibernated {} idle graph(s)", n);
-                    }
-                    epistemic_graph::metrics::loop_tick(
-                        "cold_offload",
-                        __loop_tick_started.elapsed().as_secs_f64(),
-                    );
-                }
+            spawn_periodic_sweep(window_secs, "cold_offload", move || {
+                cold_offload_tick(cold_state.clone(), tracker.clone(), window)
             });
         }
     }
+}
 
+#[cfg(feature = "redb")]
+async fn cold_offload_tick(
+    state: Arc<tokio::sync::RwLock<ServerState>>,
+    tracker: Arc<epistemic_graph::server::persistence::cold_offload::ColdTenantTracker>,
+    window: std::time::Duration,
+) {
+    let n = epistemic_graph::server::persistence::cold_offload::offload_cold_tenants(
+        &state, &tracker, window,
+    )
+    .await;
+    if n > 0 {
+        tracing::info!("Cold-tenant offload: hibernated {} idle graph(s)", n);
+    }
+}
+
+fn spawn_lifecycle_sweeps(state: &Arc<tokio::sync::RwLock<ServerState>>, txn_ttl_secs: u64) {
     // ── Fleet server registry stale-lease reaper (CONCEPT:EG-KG.sharding.server-registry, W2.5) ──
     // `Method::RegisterServer` writes/renews a `:Server` node with a
     // server-computed `lease_expires_at_ms`. This sweep expires (durably
@@ -2362,35 +1847,15 @@ async fn spawn_memory_and_lifecycle_sweeps(
     // an unreaped dead registration is a correctness/staleness concern, not
     // a resource-usage opt-in) at a short default interval so even the
     // minimum 1s `ttl_secs` lease is reaped promptly.
-    {
-        let reaper_state = state.clone();
-        let reap_interval = epistemic_graph::server::registry_reaper::reap_interval_secs();
-        info!(
-            "Server registry: reaping expired :Server leases every {}s (CONCEPT:EG-KG.sharding.server-registry)",
-            reap_interval
-        );
-        tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(reap_interval));
-            ticker.tick().await; // consume the immediate first tick
-            loop {
-                ticker.tick().await;
-                let __loop_tick_started = std::time::Instant::now();
-                let now_ms = epistemic_graph::server::txn::now_ms();
-                let n = epistemic_graph::server::registry_reaper::reap_expired_servers(
-                    &reaper_state,
-                    now_ms,
-                )
-                .await;
-                if n > 0 {
-                    tracing::info!("Server registry: reaped {} expired :Server lease(s)", n);
-                }
-                epistemic_graph::metrics::loop_tick(
-                    "server_registry_reap",
-                    __loop_tick_started.elapsed().as_secs_f64(),
-                );
-            }
-        });
-    }
+    let reap_interval = epistemic_graph::server::registry_reaper::reap_interval_secs();
+    info!(
+        "Server registry: reaping expired :Server leases every {}s (CONCEPT:EG-KG.sharding.server-registry)",
+        reap_interval
+    );
+    let reaper_state = state.clone();
+    spawn_periodic_sweep(reap_interval, "server_registry_reap", move || {
+        server_startup::registry_reap_tick(reaper_state.clone())
+    });
 
     // ── Provenance anchoring (CONCEPT:EG-KG.sharding.row-level-security) ───────────────────────────────
     // Periodically Merkle-anchor every resident graph's `:ToolCall`/`:RunTrace`
@@ -2405,39 +1870,17 @@ async fn spawn_memory_and_lifecycle_sweeps(
     // (see `server::persistence::provenance_anchor`'s module doc).
     #[cfg(feature = "security")]
     {
-        let interval_secs = std::env::var("EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_SECS")
-            .ok()
-            .and_then(|s| s.trim().parse::<u64>().ok())
-            .unwrap_or(0);
+        let interval_secs =
+            server_startup::optional_sweep_secs("EPISTEMIC_GRAPH_PROVENANCE_ANCHOR_SECS");
         if interval_secs > 0 {
-            let anchor_state = state.clone();
             info!(
                 "Provenance anchoring: Merkle-anchoring :ToolCall/:RunTrace windows every {}s \
                  (CONCEPT:EG-KG.sharding.row-level-security)",
                 interval_secs
             );
-            tokio::spawn(async move {
-                let mut ticker =
-                    tokio::time::interval(std::time::Duration::from_secs(interval_secs));
-                ticker.tick().await; // consume the immediate first tick
-                loop {
-                    ticker.tick().await;
-                    let __loop_tick_started = std::time::Instant::now();
-                    let anchored = epistemic_graph::server::persistence::provenance_anchor::sweep(
-                        &anchor_state,
-                    )
-                    .await;
-                    if anchored > 0 {
-                        tracing::info!(
-                            "Provenance anchoring: anchored {} graph(s) this tick",
-                            anchored
-                        );
-                    }
-                    epistemic_graph::metrics::loop_tick(
-                        "provenance_anchor",
-                        __loop_tick_started.elapsed().as_secs_f64(),
-                    );
-                }
+            let anchor_state = state.clone();
+            spawn_periodic_sweep(interval_secs, "provenance_anchor", move || {
+                server_startup::provenance_anchor_tick(anchor_state.clone())
             });
         }
     }
@@ -2447,32 +1890,10 @@ async fn spawn_memory_and_lifecycle_sweeps(
     // leaks a staged transaction forever. An abandoned txn never committed, so it
     // applied nothing — reclaiming it just frees memory and never touches a graph
     // lock. Sweeps at most every 30s (or sooner for a short TTL).
-    {
-        let sweep_state = state.clone();
-        let ttl = txn_ttl_secs;
-        let sweep_interval = ttl.clamp(5, 30);
-        tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(sweep_interval));
-            ticker.tick().await; // consume the immediate first tick
-            loop {
-                ticker.tick().await;
-                let __loop_tick_started = std::time::Instant::now();
-                let now = epistemic_graph::server::txn::now_ms();
-                let reclaimed =
-                    epistemic_graph::server::txn::sweep_expired_txns(&sweep_state, ttl, now);
-                if reclaimed > 0 {
-                    tracing::info!(
-                        "Txn TTL sweep: rolled back {} idle transaction(s)",
-                        reclaimed
-                    );
-                }
-                epistemic_graph::metrics::loop_tick(
-                    "txn_ttl_sweep",
-                    __loop_tick_started.elapsed().as_secs_f64(),
-                );
-            }
-        });
-    }
+    let sweep_state = state.clone();
+    spawn_periodic_sweep(txn_ttl_secs.clamp(5, 30), "txn_ttl_sweep", move || {
+        server_startup::txn_ttl_tick(sweep_state.clone(), txn_ttl_secs)
+    });
 }
 
 async fn start_raft_and_matview_reload(
