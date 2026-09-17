@@ -431,13 +431,29 @@ mod tests {
             truth_row(BIG, interior),
             truth_row(BIG, abut),
             truth_row(BIG, overlap),
-            truth_row(BIG, BIG),
             truth_row(line, BIG),
         ];
         assert_eq!(
             format!("{rows:?}"),
-            r#"["TFTFFFFFFFFFTFFFFFFFTFFF", "FTTFFFFFFFFFFFTFFFFFFFTF", "TFTFFFFFFFFFFTFFFFFFFTFF", "FTTFFFFFFFFFFFFTFFFFFFFT", "FFTFFTFFFFTFFFFFFFTFFFFF", "FFTFFFFTFFFTFFFFFFFTFFFF", "TFTTFTFFTFTFFFFFTFTFFFFF", "FFTFFFTFFFFFFFFFFFFFFFFF"]"#
+            r#"["TFTFFFFFFFFFTFFFFFFFTFFF", "FTTFFFFFFFFFFFTFFFFFFFTF", "TFTFFFFFFFFFFTFFFFFFFTFF", "FTTFFFFFFFFFFFFTFFFFFFFT", "FFTFFTFFFFTFFFFFFFTFFFFF", "FFTFFFFTFFFTFFFFFFFTFFFF", "FFTFFFTFFFFFFFFFFFFFFFFF"]"#
         );
+    }
+
+    /// The two rows below are derived from the relation definitions, not captured.
+    /// Equal regions (OGC Simple Features DE-9IM): `Equals`, `Within`, `Contains` and
+    /// `Intersects` hold (interiors meet, nothing lies outside the other); `Touches`
+    /// (interiors must NOT meet), `Overlaps` (each must have interior outside the other),
+    /// `Crosses` and `Disjoint` do not. RCC8 base relations are jointly exhaustive and
+    /// pairwise disjoint, so exactly `EQ` holds; the proper-part relations need
+    /// non-equal regions. Egenhofer likewise: exactly `equal`. Far-apart regions: exactly
+    /// the three disjointness relations (`sfDisjoint`, `rcc8dc`, `ehDisjoint`).
+    #[test]
+    fn equal_and_far_apart_regions_select_exactly_the_defining_relations() {
+        // Columns in RELATION_NAMES order.
+        assert_eq!(truth_row(BIG, BIG), "TTTTFFFFTFFFFFFFTFFFFFFF");
+        let far = "POLYGON((20 20, 21 20, 21 21, 20 21, 20 20))";
+        assert_eq!(truth_row(BIG, far), "FFFFTFFFFTFFFFFFFTFFFFFF");
+        assert_eq!(truth_row(far, BIG), "FFFFTFFFFTFFFFFFFTFFFFFF");
     }
 
     #[test]
