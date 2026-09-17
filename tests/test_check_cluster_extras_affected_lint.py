@@ -12,13 +12,7 @@ any of `main`'s fail-closed/skip decisions fails this test.
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
-
 import pytest
-
-ROOT = Path(__file__).resolve().parents[1]
 
 # Pure/static test -- never needs the shared native engine (see
 # conftest.py's session-scoped `start_epistemic_graph_server` fixture,
@@ -28,16 +22,9 @@ pytestmark = pytest.mark.no_engine
 _HEAVY_SENTINEL = 77
 
 
-def _load():
-    path = ROOT / "scripts" / "check_cluster_extras_affected_lint.py"
-    spec = importlib.util.spec_from_file_location(
-        "check_cluster_extras_affected_lint", path
-    )
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["check_cluster_extras_affected_lint"] = module
-    spec.loader.exec_module(module)
-    return module
+@pytest.fixture
+def module(load_script):
+    return load_script("check_cluster_extras_affected_lint")
 
 
 def _stub_run_heavy(monkeypatch, module, reasons: list[str]) -> None:
@@ -52,8 +39,7 @@ def _disable_reuse(monkeypatch, module) -> None:
     monkeypatch.setattr(module, "_reuse_previous_selection", lambda: False)
 
 
-def test_main_runs_heavy_when_changed_files_cannot_be_determined(monkeypatch):
-    module = _load()
+def test_main_runs_heavy_when_changed_files_cannot_be_determined(module, monkeypatch):
     _disable_reuse(monkeypatch, module)
     reasons: list[str] = []
     _stub_run_heavy(monkeypatch, module, reasons)
@@ -63,8 +49,9 @@ def test_main_runs_heavy_when_changed_files_cannot_be_determined(monkeypatch):
     assert "could not determine the push's changed-file range" in reasons[0]
 
 
-def test_main_skips_heavy_when_no_rust_relevant_files_changed(monkeypatch, capsys):
-    module = _load()
+def test_main_skips_heavy_when_no_rust_relevant_files_changed(
+    module, monkeypatch, capsys
+):
     _disable_reuse(monkeypatch, module)
     reasons: list[str] = []
     _stub_run_heavy(monkeypatch, module, reasons)
@@ -75,8 +62,7 @@ def test_main_skips_heavy_when_no_rust_relevant_files_changed(monkeypatch, capsy
     assert "no Rust-relevant files changed" in capsys.readouterr().out
 
 
-def test_main_runs_heavy_when_cargo_toml_changed(monkeypatch):
-    module = _load()
+def test_main_runs_heavy_when_cargo_toml_changed(module, monkeypatch):
     _disable_reuse(monkeypatch, module)
     reasons: list[str] = []
     _stub_run_heavy(monkeypatch, module, reasons)
@@ -86,8 +72,7 @@ def test_main_runs_heavy_when_cargo_toml_changed(monkeypatch):
     assert "the dependency graph itself moved" in reasons[0]
 
 
-def test_main_runs_heavy_when_cargo_lock_changed(monkeypatch):
-    module = _load()
+def test_main_runs_heavy_when_cargo_lock_changed(module, monkeypatch):
     _disable_reuse(monkeypatch, module)
     reasons: list[str] = []
     _stub_run_heavy(monkeypatch, module, reasons)
@@ -99,8 +84,7 @@ def test_main_runs_heavy_when_cargo_lock_changed(monkeypatch):
     assert "the dependency graph itself moved" in reasons[0]
 
 
-def test_main_runs_heavy_when_reachability_cannot_be_computed(monkeypatch):
-    module = _load()
+def test_main_runs_heavy_when_reachability_cannot_be_computed(module, monkeypatch):
     _disable_reuse(monkeypatch, module)
     reasons: list[str] = []
     _stub_run_heavy(monkeypatch, module, reasons)
@@ -115,8 +99,7 @@ def test_main_runs_heavy_when_reachability_cannot_be_computed(monkeypatch):
     assert "could not compute the cluster/full-extras-reachable crate set" in reasons[0]
 
 
-def test_main_runs_heavy_when_touched_crate_reaches_extras(monkeypatch):
-    module = _load()
+def test_main_runs_heavy_when_touched_crate_reaches_extras(module, monkeypatch):
     _disable_reuse(monkeypatch, module)
     reasons: list[str] = []
     _stub_run_heavy(monkeypatch, module, reasons)
@@ -128,8 +111,9 @@ def test_main_runs_heavy_when_touched_crate_reaches_extras(monkeypatch):
     assert "eg-raft" in reasons[0]
 
 
-def test_main_skips_heavy_when_touched_crate_does_not_reach_extras(monkeypatch, capsys):
-    module = _load()
+def test_main_skips_heavy_when_touched_crate_does_not_reach_extras(
+    module, monkeypatch, capsys
+):
     _disable_reuse(monkeypatch, module)
     reasons: list[str] = []
     _stub_run_heavy(monkeypatch, module, reasons)
@@ -143,8 +127,7 @@ def test_main_skips_heavy_when_touched_crate_does_not_reach_extras(monkeypatch, 
     assert "exhaustive leg still runs" in out
 
 
-def test_main_returns_zero_when_previous_selection_is_reused(monkeypatch):
-    module = _load()
+def test_main_returns_zero_when_previous_selection_is_reused(module, monkeypatch):
     monkeypatch.setattr(module, "_reuse_previous_selection", lambda: True)
 
     def unexpected(*args: object, **kwargs: object) -> None:
@@ -155,8 +138,7 @@ def test_main_returns_zero_when_previous_selection_is_reused(monkeypatch):
     assert module.main() == 0
 
 
-def test_rust_relevant_files_keeps_only_cargo_and_rust_paths():
-    module = _load()
+def test_rust_relevant_files_keeps_only_cargo_and_rust_paths(module):
     files = [
         "README.md",
         "Cargo.toml",
@@ -176,16 +158,14 @@ def test_rust_relevant_files_keeps_only_cargo_and_rust_paths():
     ]
 
 
-def test_owning_crate_maps_crates_and_root_facade_paths():
-    module = _load()
+def test_owning_crate_maps_crates_and_root_facade_paths(module):
     assert module._owning_crate("crates/eg-raft/src/lib.rs") == "eg-raft"
     assert module._owning_crate("src/raft/placement.rs") == "epistemic-graph"
     assert module._owning_crate("build.rs") == "epistemic-graph"
     assert module._owning_crate("README.md") is None
 
 
-def test_reuse_previous_selection_is_false_without_prior_evidence(monkeypatch):
-    module = _load()
+def test_reuse_previous_selection_is_false_without_prior_evidence(module, monkeypatch):
     monkeypatch.setattr(
         module.push_gate_evidence, "local_build_environment", lambda: None
     )
@@ -199,9 +179,8 @@ def test_reuse_previous_selection_is_false_without_prior_evidence(monkeypatch):
 
 
 def test_reuse_previous_selection_is_true_when_store_consumes_the_selection(
-    monkeypatch, capsys
+    module, monkeypatch, capsys
 ):
-    module = _load()
     monkeypatch.setattr(
         module.push_gate_evidence, "local_build_environment", lambda: None
     )
@@ -220,8 +199,7 @@ def test_reuse_previous_selection_is_true_when_store_consumes_the_selection(
     assert "reusing the successful advisory" in capsys.readouterr().out
 
 
-def test_reuse_previous_selection_is_false_on_evidence_error(monkeypatch):
-    module = _load()
+def test_reuse_previous_selection_is_false_on_evidence_error(module, monkeypatch):
     monkeypatch.setattr(
         module.push_gate_evidence, "local_build_environment", lambda: None
     )

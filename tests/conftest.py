@@ -1,9 +1,12 @@
 import hashlib
+import importlib.util
 import json
 import os
 import stat
 import subprocess
+import sys
 import time
+from pathlib import Path
 
 import pytest
 
@@ -309,3 +312,25 @@ def clean_graph():
     )
     client.graph.clear()
     return client
+
+
+@pytest.fixture
+def load_script(monkeypatch):
+    """Load ``scripts/<name>.py`` as a fresh module for one test.
+
+    The module is registered in ``sys.modules`` under ``name`` (dataclasses and
+    ``multiprocessing`` pickling resolve it there) only for the test's
+    duration; ``monkeypatch`` removes or restores the entry afterwards, so no
+    loaded module or its monkeypatched state leaks into another test.
+    """
+
+    def load(name: str):
+        path = Path(__file__).resolve().parents[1] / "scripts" / f"{name}.py"
+        spec = importlib.util.spec_from_file_location(name, path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        monkeypatch.setitem(sys.modules, name, module)
+        spec.loader.exec_module(module)
+        return module
+
+    return load

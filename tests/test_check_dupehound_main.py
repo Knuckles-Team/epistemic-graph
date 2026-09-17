@@ -12,56 +12,30 @@ unregistered clone) must fail this test.
 
 from __future__ import annotations
 
-import importlib.util
+import json
 import subprocess
-import sys
-from pathlib import Path
 
 import pytest
-
-ROOT = Path(__file__).resolve().parents[1]
 
 # Pure/static test -- never needs the shared native engine (see
 # conftest.py's session-scoped `start_epistemic_graph_server` fixture,
 # which this marker exempts this module from triggering).
 pytestmark = pytest.mark.no_engine
 
-
-def _load():
-    path = ROOT / "scripts" / "check_dupehound.py"
-    spec = importlib.util.spec_from_file_location("check_dupehound", path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules["check_dupehound"] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def _completed(returncode: int, stdout: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.CompletedProcess(
-        args=["dupehound"], returncode=returncode, stdout=stdout, stderr=""
-    )
+_FINDING = {
+    "file": "src/new.py",
+    "line": 4,
+    "name": "new",
+    "similarity": 0.91,
+    "original_file": "src/old.py",
+    "original_line": 4,
+    "original_name": "old",
+}
 
 
-def _no_findings_payload() -> str:
-    import json
-
-    return json.dumps({"schema_version": 1, "findings": []})
-
-
-def _one_finding_payload() -> str:
-    import json
-
-    finding = {
-        "file": "src/new.py",
-        "line": 4,
-        "name": "new",
-        "similarity": 0.91,
-        "original_file": "src/old.py",
-        "original_line": 4,
-        "original_name": "old",
-    }
-    return json.dumps({"schema_version": 1, "findings": [finding]})
+@pytest.fixture
+def dupehound(load_script):
+    return load_script("check_dupehound")
 
 
 def _stub_environment(dupehound, monkeypatch, *, paths=("src/new.py",)):
@@ -79,8 +53,9 @@ def _stub_environment(dupehound, monkeypatch, *, paths=("src/new.py",)):
     monkeypatch.setattr(dupehound, "_check_version", lambda executable, config: None)
 
 
-def test_main_reports_ok_when_no_changed_supported_source(monkeypatch, capsys):
-    dupehound = _load()
+def test_main_reports_ok_when_no_changed_supported_source(
+    dupehound, monkeypatch, capsys
+):
     _stub_environment(dupehound, monkeypatch, paths=())
 
     code = dupehound.main([])
@@ -89,138 +64,93 @@ def test_main_reports_ok_when_no_changed_supported_source(monkeypatch, capsys):
     assert "no changed supported-language source" in capsys.readouterr().out
 
 
-def test_main_reports_ok_when_dupehound_finds_nothing(monkeypatch, capsys):
-    dupehound = _load()
+@pytest.mark.parametrize(
+    ("findings", "register", "partitioned", "expected_code", "expected_output"),
+    [
+        pytest.param(
+            [],
+            [],
+            ([], [], [], []),
+            0,
+            ["no changed function reimplementation"],
+            id="dupehound-finds-nothing",
+        ),
+        pytest.param(
+            [_FINDING],
+            [],
+            ([_FINDING], [], [], []),
+            1,
+            [
+                "FAIL: 1 structural clone(s)",
+                "src/new.py:4 new reimplements src/old.py:4 old",
+            ],
+            id="unregistered-clone",
+        ),
+        pytest.param(
+            [],
+            ["fake-pair"],
+            ([], [], [], ["fake-pair"]),
+            1,
+            ["reviewed-distinct entr(ies) no longer"],
+            id="rotted-unused-register-entry",
+        ),
+        pytest.param(
+            [],
+            ["fake-pair"],
+            ([], [_FINDING], [], []),
+            1,
+            ["reviewed-distinct pair(s) changed"],
+            id="rotted-changed-register-entry",
+        ),
+        pytest.param(
+            [],
+            ["fake-pair"],
+            ([], [], [], []),
+            0,
+            ["1 reviewed-distinct pair(s) still hold"],
+            id="register-still-holds",
+        ),
+    ],
+)
+def test_main_verdicts(
+    dupehound,
+    monkeypatch,
+    capsys,
+    findings,
+    register,
+    partitioned,
+    expected_code,
+    expected_output,
+):
     _stub_environment(dupehound, monkeypatch)
+    payload = json.dumps({"schema_version": 1, "findings": findings})
     monkeypatch.setattr(
         dupehound,
         "_run_dupehound",
-        lambda executable, config, args: _completed(0, _no_findings_payload()),
+        lambda executable, config, args: subprocess.CompletedProcess(
+            args=["dupehound"],
+            returncode=1 if findings else 0,
+            stdout=payload,
+            stderr="",
+        ),
     )
-    monkeypatch.setattr(dupehound.dupehound_ledger, "load_register", lambda: [])
+    monkeypatch.setattr(dupehound.dupehound_ledger, "load_register", lambda: register)
     # Real `partition` calls `resolved_reason`, which stats the finding's
     # (real) files -- there are none, so pin the wiring in isolation with a
-    # direct fake rather than depending on filesystem-dependent rot checks.
-    monkeypatch.setattr(
-        dupehound.dupehound_ledger,
-        "partition",
-        lambda findings, register: ([], [], [], []),
-    )
+    # direct fake that also proves main hands it the parsed findings and the
+    # loaded register.
+    partition_calls = []
 
-    code = dupehound.main([])
+    def fake_partition(parsed, loaded):
+        partition_calls.append((parsed, loaded))
+        return partitioned
 
-    assert code == 0
-    assert "no changed function reimplementation" in capsys.readouterr().out
-
-
-def test_main_reports_fail_on_unregistered_clone(monkeypatch, capsys):
-    dupehound = _load()
-    _stub_environment(dupehound, monkeypatch)
-    monkeypatch.setattr(
-        dupehound,
-        "_run_dupehound",
-        lambda executable, config, args: _completed(1, _one_finding_payload()),
-    )
-    monkeypatch.setattr(dupehound.dupehound_ledger, "load_register", lambda: [])
-    finding = {
-        "file": "src/new.py",
-        "line": 4,
-        "name": "new",
-        "similarity": 0.91,
-        "original_file": "src/old.py",
-        "original_line": 4,
-        "original_name": "old",
-    }
-    monkeypatch.setattr(
-        dupehound.dupehound_ledger,
-        "partition",
-        lambda findings, register: ([finding], [], [], []),
-    )
+    monkeypatch.setattr(dupehound.dupehound_ledger, "partition", fake_partition)
 
     code = dupehound.main([])
 
     out = capsys.readouterr().out
-    assert code == 1
-    assert "FAIL: 1 structural clone(s)" in out
-    assert "src/new.py:4 new reimplements src/old.py:4 old" in out
-
-
-def test_main_reports_fail_on_rotted_unused_register_entry(monkeypatch, capsys):
-    dupehound = _load()
-    _stub_environment(dupehound, monkeypatch)
-    monkeypatch.setattr(
-        dupehound,
-        "_run_dupehound",
-        lambda executable, config, args: _completed(0, _no_findings_payload()),
-    )
-    monkeypatch.setattr(
-        dupehound.dupehound_ledger, "load_register", lambda: ["fake-pair"]
-    )
-    monkeypatch.setattr(
-        dupehound.dupehound_ledger,
-        "partition",
-        lambda findings, register: ([], [], [], ["fake-pair"]),
-    )
-
-    code = dupehound.main([])
-
-    out = capsys.readouterr().out
-    assert code == 1
-    assert "reviewed-distinct entr(ies) no longer" in out
-
-
-def test_main_reports_fail_on_rotted_changed_register_entry(monkeypatch, capsys):
-    dupehound = _load()
-    _stub_environment(dupehound, monkeypatch)
-    monkeypatch.setattr(
-        dupehound,
-        "_run_dupehound",
-        lambda executable, config, args: _completed(0, _no_findings_payload()),
-    )
-    monkeypatch.setattr(
-        dupehound.dupehound_ledger, "load_register", lambda: ["fake-pair"]
-    )
-    changed_finding = {
-        "file": "src/new.py",
-        "line": 4,
-        "name": "new",
-        "similarity": 0.91,
-        "original_file": "src/old.py",
-        "original_line": 4,
-        "original_name": "old",
-    }
-    monkeypatch.setattr(
-        dupehound.dupehound_ledger,
-        "partition",
-        lambda findings, register: ([], [changed_finding], [], []),
-    )
-
-    code = dupehound.main([])
-
-    out = capsys.readouterr().out
-    assert code == 1
-    assert "reviewed-distinct pair(s) changed" in out
-
-
-def test_main_reports_ok_with_still_holding_register(monkeypatch, capsys):
-    dupehound = _load()
-    _stub_environment(dupehound, monkeypatch)
-    monkeypatch.setattr(
-        dupehound,
-        "_run_dupehound",
-        lambda executable, config, args: _completed(0, _no_findings_payload()),
-    )
-    monkeypatch.setattr(
-        dupehound.dupehound_ledger, "load_register", lambda: ["fake-pair"]
-    )
-    monkeypatch.setattr(
-        dupehound.dupehound_ledger,
-        "partition",
-        lambda findings, register: ([], [], [], []),
-    )
-
-    code = dupehound.main([])
-
-    out = capsys.readouterr().out
-    assert code == 0
-    assert "1 reviewed-distinct pair(s) still hold" in out
+    assert code == expected_code
+    for fragment in expected_output:
+        assert fragment in out
+    assert partition_calls == [(findings, register)]

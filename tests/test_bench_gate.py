@@ -4,7 +4,8 @@
 Exercises the CLI end-to-end (subprocess, like the bench_scale smoke test)
 so the recall gate, the latency gate, and their combination are pinned before
 `main()` is decomposed into helpers -- a change that regresses any of these
-must fail this test.
+must fail this test. Both thresholds are inclusive: a recall exactly at the
+floor and a p50 exactly at the ceiling pass.
 """
 
 from __future__ import annotations
@@ -24,33 +25,84 @@ pytestmark = pytest.mark.no_engine
 _GATE_PATH = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "bench_gate.py"
 
 
-def _write_thresholds(path: pathlib.Path, recall_floor: float, ceilings: dict) -> None:
-    path.write_text(
-        json.dumps({"recall_floor": recall_floor, "latency_p50_ns_max": ceilings})
+@pytest.mark.parametrize(
+    ("ceilings", "recall_at_k", "estimates", "code", "stdout", "stderr"),
+    [
+        pytest.param(
+            {"bench_a": 1_000_000.0},
+            0.95,
+            {"bench_a": 500_000.0},
+            0,
+            ["all perf/recall thresholds held.", "recall@10: 0.9500", "bench_a"],
+            [],
+            id="all-thresholds-hold",
+        ),
+        pytest.param(
+            {"bench_a": 1_000_000.0},
+            0.9,
+            {"bench_a": 1_000_000.0},
+            0,
+            ["all perf/recall thresholds held.", "recall@10: 0.9000"],
+            [],
+            id="values-exactly-at-floor-and-ceiling-hold",
+        ),
+        pytest.param(
+            {"bench_a": 1_000_000.0},
+            0.5,
+            {"bench_a": 500_000.0},
+            1,
+            [],
+            ["REGRESSION", "recall@10 0.5000 < floor 0.9000"],
+            id="recall-regression-fails",
+        ),
+        pytest.param(
+            {"bench_a": 100.0},
+            0.95,
+            {"bench_a": 500_000.0},
+            1,
+            [],
+            ["REGRESSION", "bench_a p50", "> ceiling"],
+            id="latency-regression-fails",
+        ),
+        pytest.param(
+            {},
+            None,
+            {},
+            1,
+            [],
+            ["recall artifact missing"],
+            id="missing-recall-artifact-fails",
+        ),
+        pytest.param(
+            {"bench_missing": 100.0},
+            0.95,
+            {},
+            0,
+            ["bench_missing: (skipped"],
+            [],
+            id="missing-estimate-is-skipped-not-failed",
+        ),
+    ],
+)
+def test_gate_verdicts(
+    tmp_path, ceilings, recall_at_k, estimates, code, stdout, stderr
+):
+    thresholds = tmp_path / "thresholds.json"
+    thresholds.write_text(
+        json.dumps({"recall_floor": 0.9, "latency_p50_ns_max": ceilings})
     )
+    recall = tmp_path / "recall.json"
+    if recall_at_k is not None:
+        recall.write_text(json.dumps({"recall_at_k": recall_at_k, "k": 10}))
+    criterion_dir = tmp_path / "criterion"
+    for name, point_estimate_ns in estimates.items():
+        est_dir = criterion_dir / name / "new"
+        est_dir.mkdir(parents=True)
+        (est_dir / "estimates.json").write_text(
+            json.dumps({"median": {"point_estimate": point_estimate_ns}})
+        )
 
-
-def _write_recall(path: pathlib.Path, recall_at_k: float, k: int = 10) -> None:
-    path.write_text(json.dumps({"recall_at_k": recall_at_k, "k": k}))
-
-
-def _write_estimate(
-    criterion_dir: pathlib.Path, name: str, point_estimate_ns: float
-) -> None:
-    est_dir = criterion_dir / name / "new"
-    est_dir.mkdir(parents=True, exist_ok=True)
-    (est_dir / "estimates.json").write_text(
-        json.dumps({"median": {"point_estimate": point_estimate_ns}})
-    )
-
-
-def _run(
-    tmp_path: pathlib.Path,
-    thresholds: pathlib.Path,
-    recall: pathlib.Path,
-    criterion_dir: pathlib.Path,
-) -> subprocess.CompletedProcess:
-    return subprocess.run(
+    proc = subprocess.run(
         [
             sys.executable,
             str(_GATE_PATH),
@@ -66,75 +118,8 @@ def _run(
         timeout=30,
     )
 
-
-def test_all_thresholds_hold(tmp_path):
-    thresholds = tmp_path / "thresholds.json"
-    recall = tmp_path / "recall.json"
-    criterion_dir = tmp_path / "criterion"
-    _write_thresholds(thresholds, recall_floor=0.9, ceilings={"bench_a": 1_000_000.0})
-    _write_recall(recall, recall_at_k=0.95)
-    _write_estimate(criterion_dir, "bench_a", 500_000.0)
-
-    proc = _run(tmp_path, thresholds, recall, criterion_dir)
-
-    assert proc.returncode == 0, proc.stderr
-    assert "all perf/recall thresholds held." in proc.stdout
-    assert "recall@10: 0.9500" in proc.stdout
-    assert "bench_a" in proc.stdout
-
-
-def test_recall_regression_fails(tmp_path):
-    thresholds = tmp_path / "thresholds.json"
-    recall = tmp_path / "recall.json"
-    criterion_dir = tmp_path / "criterion"
-    _write_thresholds(thresholds, recall_floor=0.9, ceilings={"bench_a": 1_000_000.0})
-    _write_recall(recall, recall_at_k=0.5)
-    _write_estimate(criterion_dir, "bench_a", 500_000.0)
-
-    proc = _run(tmp_path, thresholds, recall, criterion_dir)
-
-    assert proc.returncode == 1
-    assert "REGRESSION" in proc.stderr
-    assert "recall@10 0.5000 < floor 0.9000" in proc.stderr
-
-
-def test_latency_regression_fails(tmp_path):
-    thresholds = tmp_path / "thresholds.json"
-    recall = tmp_path / "recall.json"
-    criterion_dir = tmp_path / "criterion"
-    _write_thresholds(thresholds, recall_floor=0.9, ceilings={"bench_a": 100.0})
-    _write_recall(recall, recall_at_k=0.95)
-    _write_estimate(criterion_dir, "bench_a", 500_000.0)
-
-    proc = _run(tmp_path, thresholds, recall, criterion_dir)
-
-    assert proc.returncode == 1
-    assert "REGRESSION" in proc.stderr
-    assert "bench_a p50" in proc.stderr
-    assert "> ceiling" in proc.stderr
-
-
-def test_missing_recall_artifact_fails(tmp_path):
-    thresholds = tmp_path / "thresholds.json"
-    recall = tmp_path / "recall.json"  # never written
-    criterion_dir = tmp_path / "criterion"
-    _write_thresholds(thresholds, recall_floor=0.9, ceilings={})
-
-    proc = _run(tmp_path, thresholds, recall, criterion_dir)
-
-    assert proc.returncode == 1
-    assert "recall artifact missing" in proc.stderr
-
-
-def test_missing_estimate_is_skipped_not_failed(tmp_path):
-    thresholds = tmp_path / "thresholds.json"
-    recall = tmp_path / "recall.json"
-    criterion_dir = tmp_path / "criterion"
-    _write_thresholds(thresholds, recall_floor=0.9, ceilings={"bench_missing": 100.0})
-    _write_recall(recall, recall_at_k=0.95)
-    # no estimates.json written for bench_missing
-
-    proc = _run(tmp_path, thresholds, recall, criterion_dir)
-
-    assert proc.returncode == 0, proc.stderr
-    assert "bench_missing: (skipped" in proc.stdout
+    assert proc.returncode == code, proc.stderr
+    for fragment in stdout:
+        assert fragment in proc.stdout
+    for fragment in stderr:
+        assert fragment in proc.stderr

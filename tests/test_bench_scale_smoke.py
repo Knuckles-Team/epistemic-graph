@@ -5,7 +5,6 @@ Runs a tiny single-shard load so regressions in the harness (or the server's
 multi-tenant/sharded path) surface in CI, without a heavy benchmark.
 """
 
-import importlib.util
 import json
 import pathlib
 import subprocess
@@ -20,14 +19,6 @@ import pytest
 pytestmark = pytest.mark.no_engine
 
 _BENCH_PATH = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "bench_scale.py"
-
-
-def _load():
-    spec = importlib.util.spec_from_file_location("bench_scale", _BENCH_PATH)
-    assert spec is not None and spec.loader is not None
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
 
 
 def test_scale_harness_smoke(tmp_path):
@@ -65,8 +56,8 @@ def test_scale_harness_smoke(tmp_path):
     assert row["per_agent_rss_kb"] >= 0
 
 
-def test_extrapolation_math():
-    bench = _load()
+def test_extrapolation_math(load_script):
+    bench = load_script("bench_scale")
     ex = bench._extrapolate(
         per_agent_rss_kb=50.0, ram_budget_gb=64.0, target=100_000_000
     )
