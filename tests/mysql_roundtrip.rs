@@ -208,6 +208,54 @@ async fn connect(addr: &str) -> TcpStream {
     stream
 }
 
+/// Panic on an ERR frame, surfacing the server's message (so a rejected
+/// cross-modal verb fails loud).
+fn panic_on_err_packet(sql: &str, first: &[u8]) -> ! {
+    let code = u16::from_le_bytes([first[1], first[2]]);
+    let msg = String::from_utf8_lossy(&first[9..]).into_owned();
+    panic!("query `{sql}` returned ERR {code}: {msg}");
+}
+
+/// Read one text-protocol row of `ncols` cells out of one row packet.
+fn read_text_row(p: &[u8], ncols: usize) -> Vec<Option<String>> {
+    let mut cpos = 0usize;
+    let mut row = Vec::with_capacity(ncols);
+    for _ in 0..ncols {
+        if p[cpos] == 0xfb {
+            row.push(None);
+            cpos += 1;
+        } else {
+            let len = get_lenenc_int(p, &mut cpos) as usize;
+            row.push(Some(
+                String::from_utf8_lossy(&p[cpos..cpos + len]).into_owned(),
+            ));
+            cpos += len;
+        }
+    }
+    row
+}
+
+/// Read a result set whose column-count packet is `first`: discard the column
+/// definitions (CLIENT_DEPRECATE_EOF is mandatory — see `handshake_response` —
+/// so no metadata terminator follows them) and decode rows until the
+/// terminating short EOF, mirroring `mysql_wire::mod::tests::client_query`.
+async fn read_result_set(stream: &mut TcpStream, first: &[u8]) -> Vec<Vec<Option<String>>> {
+    let mut pos = 0usize;
+    let ncols = get_lenenc_int(first, &mut pos) as usize;
+    for _ in 0..ncols {
+        let _ = read_message(stream).await; // column definition (discarded)
+    }
+    let mut rows = Vec::new();
+    loop {
+        let (_s, p) = read_message(stream).await;
+        if p[0] == 0xfe && p.len() < 9 {
+            break; // terminating EOF
+        }
+        rows.push(read_text_row(&p, ncols));
+    }
+    rows
+}
+
 /// Send a `COM_QUERY` and decode the response (OK / result set). Panics on an ERR frame,
 /// surfacing the server's message (so a rejected cross-modal verb fails loud).
 async fn query(stream: &mut TcpStream, sql: &str) -> QueryResult {
@@ -216,48 +264,11 @@ async fn query(stream: &mut TcpStream, sql: &str) -> QueryResult {
     write_packet(stream, 0, &pkt).await; // a new command resets seq to 0
     let (_seq, first) = read_message(stream).await;
     match first[0] {
-        0xff => {
-            let code = u16::from_le_bytes([first[1], first[2]]);
-            let msg = String::from_utf8_lossy(&first[9..]).into_owned();
-            panic!("query `{sql}` returned ERR {code}: {msg}");
-        }
+        0xff => panic_on_err_packet(sql, &first),
         0x00 => QueryResult::Ok,
-        _ => {
-            // Result set: the first packet is the column count.
-            let mut pos = 0usize;
-            let ncols = get_lenenc_int(&first, &mut pos) as usize;
-            for _ in 0..ncols {
-                let _ = read_message(stream).await; // column definition (discarded)
-            }
-            // The handshake negotiates CLIENT_DEPRECATE_EOF (mandatory — see
-            // `handshake_response`), so the metadata terminator is omitted by
-            // definition: rows follow the column definitions directly and the set
-            // ends with the current (short) OK/EOF-shaped terminator, mirroring
-            // `mysql_wire::mod::tests::client_query`.
-            let mut rows = Vec::new();
-            loop {
-                let (_s, p) = read_message(stream).await;
-                if p[0] == 0xfe && p.len() < 9 {
-                    break; // terminating EOF
-                }
-                let mut cpos = 0usize;
-                let mut row = Vec::with_capacity(ncols);
-                for _ in 0..ncols {
-                    if p[cpos] == 0xfb {
-                        row.push(None);
-                        cpos += 1;
-                    } else {
-                        let len = get_lenenc_int(&p, &mut cpos) as usize;
-                        row.push(Some(
-                            String::from_utf8_lossy(&p[cpos..cpos + len]).into_owned(),
-                        ));
-                        cpos += len;
-                    }
-                }
-                rows.push(row);
-            }
-            QueryResult::Rows { rows }
-        }
+        _ => QueryResult::Rows {
+            rows: read_result_set(stream, &first).await,
+        },
     }
 }
 

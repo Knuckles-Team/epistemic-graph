@@ -121,6 +121,83 @@ async fn read_message(stream: &mut TcpStream) -> Vec<u8> {
     payload
 }
 
+/// Read one TYPE_INFO byte (already at `s[*i]`), advancing `*i` past it.
+fn read_column_type(s: &[u8], i: &mut usize) -> TdsType {
+    match s[*i] {
+        TYPE_INTN => {
+            *i += 2;
+            TdsType::IntN
+        }
+        TYPE_FLTN => {
+            *i += 2;
+            TdsType::FloatN
+        }
+        TYPE_BITN => {
+            *i += 2;
+            TdsType::BitN
+        }
+        TYPE_NVARCHAR => {
+            *i += 1 + 2 + 5; // token + max-len + collation
+            TdsType::NVarchar
+        }
+        other => panic!("unexpected TYPE_INFO {other:#x}"),
+    }
+}
+
+/// Read one column descriptor out of a COLMETADATA token body, advancing `*i`.
+fn read_one_column(s: &[u8], i: &mut usize) -> (String, TdsType) {
+    *i += 6; // UserType(4) + Flags(2)
+    let ty = read_column_type(s, i);
+    let units = s[*i] as usize;
+    *i += 1;
+    let name = utf16le_to_string(&s[*i..*i + units * 2]);
+    *i += units * 2;
+    (name, ty)
+}
+
+/// Read a COLMETADATA token body (already past the token byte), advancing `*i`.
+fn read_colmetadata(s: &[u8], i: &mut usize) -> Vec<(String, TdsType)> {
+    let count = u16::from_le_bytes([s[*i], s[*i + 1]]) as usize;
+    *i += 2;
+    (0..count).map(|_| read_one_column(s, i)).collect()
+}
+
+/// Read one row value for column type `ty` (already at `s[*i]`), advancing `*i`.
+fn read_row_value(s: &[u8], i: &mut usize, ty: &TdsType) -> Value {
+    match ty {
+        TdsType::NVarchar => {
+            let len = u16::from_le_bytes([s[*i], s[*i + 1]]) as usize;
+            *i += 2;
+            if len == 0xFFFF {
+                Value::Null
+            } else {
+                let value = Value::String(utf16le_to_string(&s[*i..*i + len]));
+                *i += len;
+                value
+            }
+        }
+        _ => {
+            let len = s[*i] as usize;
+            *i += 1 + len;
+            Value::Null // value bytes not needed for this test
+        }
+    }
+}
+
+/// Read a ROW token body (already past the token byte), advancing `*i`.
+fn read_row(s: &[u8], i: &mut usize, cols: &[(String, TdsType)]) -> Vec<Value> {
+    cols.iter()
+        .map(|(_, ty)| read_row_value(s, i, ty))
+        .collect()
+}
+
+/// Read a DONE token body (already past the token byte), advancing `*i`.
+fn read_done_status(s: &[u8], i: &mut usize) -> u16 {
+    let status = u16::from_le_bytes([s[*i + 1], s[*i + 2]]);
+    *i += 13;
+    status
+}
+
 /// Walk a COLMETADATA + ROW* + DONE token stream into (columns, rows, done_status).
 #[allow(clippy::type_complexity)]
 fn walk_result(s: &[u8]) -> (Vec<(String, TdsType)>, Vec<Vec<Value>>, u16) {
@@ -132,63 +209,14 @@ fn walk_result(s: &[u8]) -> (Vec<(String, TdsType)>, Vec<Vec<Value>>, u16) {
         match s[i] {
             TOKEN_COLMETADATA => {
                 i += 1;
-                let count = u16::from_le_bytes([s[i], s[i + 1]]) as usize;
-                i += 2;
-                for _ in 0..count {
-                    i += 6; // UserType(4) + Flags(2)
-                    let ty = match s[i] {
-                        TYPE_INTN => {
-                            i += 2;
-                            TdsType::IntN
-                        }
-                        TYPE_FLTN => {
-                            i += 2;
-                            TdsType::FloatN
-                        }
-                        TYPE_BITN => {
-                            i += 2;
-                            TdsType::BitN
-                        }
-                        TYPE_NVARCHAR => {
-                            i += 1 + 2 + 5; // token + max-len + collation
-                            TdsType::NVarchar
-                        }
-                        other => panic!("unexpected TYPE_INFO {other:#x}"),
-                    };
-                    let units = s[i] as usize;
-                    i += 1;
-                    let name = utf16le_to_string(&s[i..i + units * 2]);
-                    i += units * 2;
-                    cols.push((name, ty));
-                }
+                cols = read_colmetadata(s, &mut i);
             }
             TOKEN_ROW => {
                 i += 1;
-                let mut row = Vec::new();
-                for (_, ty) in &cols {
-                    match ty {
-                        TdsType::NVarchar => {
-                            let len = u16::from_le_bytes([s[i], s[i + 1]]) as usize;
-                            i += 2;
-                            if len == 0xFFFF {
-                                row.push(Value::Null);
-                            } else {
-                                row.push(Value::String(utf16le_to_string(&s[i..i + len])));
-                                i += len;
-                            }
-                        }
-                        _ => {
-                            let len = s[i] as usize;
-                            i += 1 + len;
-                            row.push(Value::Null); // value bytes not needed for this test
-                        }
-                    }
-                }
-                rows.push(row);
+                rows.push(read_row(s, &mut i, &cols));
             }
             TOKEN_DONE => {
-                status = u16::from_le_bytes([s[i + 1], s[i + 2]]);
-                i += 13;
+                status = read_done_status(s, &mut i);
             }
             other => panic!("unexpected token {other:#x} at {i}"),
         }

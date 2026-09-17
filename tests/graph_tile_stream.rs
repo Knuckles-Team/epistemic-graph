@@ -148,18 +148,11 @@ async fn expand_without_cluster_id_is_a_400_not_a_panic() {
     assert!(text.contains("cluster_id"));
 }
 
-/// Read one HTTP/1.1 chunked-transfer-encoded response body over `stream`,
-/// INCREMENTALLY -- never `read_to_end` first -- recording, for every whole
-/// tile frame that becomes decodable, the cumulative number of raw body bytes
-/// read from the socket AT THE MOMENT it became decodable. This is what lets
-/// the test below assert "the first tile was usable before the rest of the
-/// response existed" as a plain byte-offset comparison.
-async fn read_chunked_and_track_frame_offsets(
-    stream: &mut TcpStream,
-) -> (Vec<(TileKind, usize)>, usize) {
-    // First, consume the HTTP headers (up to the blank line) the same way the
-    // real production client would: read until `\r\n\r\n`, keeping any body
-    // bytes that arrived in the same read.
+/// Read HTTP/1.1 response headers from `stream` up to the blank line, the same
+/// way the real production client would: read until `\r\n\r\n`, keeping any
+/// body bytes that arrived in the same read. Returns the header text and the
+/// leftover body-start bytes.
+async fn read_http_headers(stream: &mut TcpStream) -> (String, Vec<u8>) {
     let mut buf = Vec::new();
     let mut tmp = [0u8; 512];
     let header_end = loop {
@@ -171,39 +164,80 @@ async fn read_chunked_and_track_frame_offsets(
         buf.extend_from_slice(&tmp[..n]);
     };
     let head = String::from_utf8_lossy(&buf[..header_end]).to_string();
+    let body_start = buf[header_end..].to_vec();
+    (head, body_start)
+}
+
+/// One step of decoding a chunked-transfer-encoding byte stream out of
+/// `remainder` (hex length, CRLF, data, CRLF): either a data chunk (drained
+/// from `remainder`), the terminating zero-length chunk (also drained), or
+/// "not enough buffered yet" (left untouched, read more from the socket).
+enum ChunkStep {
+    Data(Vec<u8>),
+    Terminator,
+    NeedMore,
+}
+
+fn try_decode_chunk(remainder: &mut Vec<u8>) -> ChunkStep {
+    let Some(nl) = remainder.windows(2).position(|w| w == b"\r\n") else {
+        return ChunkStep::NeedMore;
+    };
+    let len_str = String::from_utf8_lossy(&remainder[..nl]).to_string();
+    let Ok(len) = usize::from_str_radix(len_str.trim(), 16) else {
+        return ChunkStep::NeedMore;
+    };
+    let needed = nl + 2 + len + 2;
+    if remainder.len() < needed {
+        return ChunkStep::NeedMore;
+    }
+    if len == 0 {
+        remainder.drain(..needed);
+        return ChunkStep::Terminator;
+    }
+    let data = remainder[nl + 2..nl + 2 + len].to_vec();
+    remainder.drain(..needed);
+    ChunkStep::Data(data)
+}
+
+/// Record which frames are newly decodable from `body` so far, appending
+/// `(kind, body.len())` to `offsets` for each one not already recorded.
+fn track_new_frame_offsets(body: &[u8], offsets: &mut Vec<(TileKind, usize)>) {
+    let (frames, _) = read_frames(body);
+    while offsets.len() < frames.len() {
+        offsets.push((frames[offsets.len()].kind, body.len()));
+    }
+}
+
+/// Read one HTTP/1.1 chunked-transfer-encoded response body over `stream`,
+/// INCREMENTALLY -- never `read_to_end` first -- recording, for every whole
+/// tile frame that becomes decodable, the cumulative number of raw body bytes
+/// read from the socket AT THE MOMENT it became decodable. This is what lets
+/// the test below assert "the first tile was usable before the rest of the
+/// response existed" as a plain byte-offset comparison.
+async fn read_chunked_and_track_frame_offsets(
+    stream: &mut TcpStream,
+) -> (Vec<(TileKind, usize)>, usize) {
+    let (head, mut chunked_remainder) = read_http_headers(stream).await;
     assert!(
         head.to_lowercase().contains("transfer-encoding: chunked"),
         "head was: {head}"
     );
-    let mut chunked_remainder = buf[header_end..].to_vec();
 
-    // Decode the chunked-transfer-encoding framing (hex length, CRLF, data,
-    // CRLF, ... terminating 0-length chunk) into the raw tile-frame byte
-    // stream, reading a SMALL amount from the socket at a time (never the
-    // whole response) so this loop genuinely observes partial progress.
+    // Decode the chunked-transfer-encoding framing into the raw tile-frame
+    // byte stream, reading a SMALL amount from the socket at a time (never
+    // the whole response) so this loop genuinely observes partial progress.
     let mut body = Vec::new();
     let mut offsets = Vec::new();
     let mut small_buf = [0u8; 256];
     loop {
-        // Try to decode one chunk out of what has been buffered so far.
-        if let Some(nl) = chunked_remainder.windows(2).position(|w| w == b"\r\n") {
-            let len_str = String::from_utf8_lossy(&chunked_remainder[..nl]).to_string();
-            if let Ok(len) = usize::from_str_radix(len_str.trim(), 16) {
-                let needed = nl + 2 + len + 2;
-                if chunked_remainder.len() >= needed {
-                    if len == 0 {
-                        break; // terminating chunk
-                    }
-                    body.extend_from_slice(&chunked_remainder[nl + 2..nl + 2 + len]);
-                    chunked_remainder.drain(..needed);
-                    // Record which frames are decodable from the body so far.
-                    let (frames, _) = read_frames(&body);
-                    while offsets.len() < frames.len() {
-                        offsets.push((frames[offsets.len()].kind, body.len()));
-                    }
-                    continue;
-                }
+        match try_decode_chunk(&mut chunked_remainder) {
+            ChunkStep::Terminator => break,
+            ChunkStep::Data(chunk) => {
+                body.extend_from_slice(&chunk);
+                track_new_frame_offsets(&body, &mut offsets);
+                continue;
             }
+            ChunkStep::NeedMore => {}
         }
         let n = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut small_buf))
             .await
