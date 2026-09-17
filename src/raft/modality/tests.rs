@@ -138,6 +138,16 @@ fn worst_case_stream_max_fits_and_one_more_is_rejected() {
     assert!(accepted.len() <= MAX_REPLICATED_MODALITY_RESULT_BYTES);
     let decoded = SanitizedModalityResult::from_wire(modality, operation, &accepted).unwrap();
     assert_eq!(decoded.outcomes.len(), MAX_INGEST_STREAM_ITEMS);
+    // The admitted maximum must also survive the full command path: its
+    // canonical digest encoding and every replica's validation.
+    let command = fixture_command(
+        DOCUMENT_INGEST_STREAM,
+        sealed_state(b"opaque runtime state"),
+        accepted,
+    )
+    .unwrap();
+    assert_eq!(command.result.outcomes.len(), MAX_INGEST_STREAM_ITEMS);
+    command.validate("cluster-auth-secret").unwrap();
 
     let rejected = worst_case_stream_result(MAX_INGEST_STREAM_ITEMS + 1);
     assert!(rejected.len() > MAX_REPLICATED_MODALITY_RESULT_BYTES);

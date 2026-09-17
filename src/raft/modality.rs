@@ -11,6 +11,24 @@ const MAX_REPLICATED_MODALITY_STATE_BYTES: usize = 128 * 1024 * 1024;
 
 #[cfg(feature = "modality-serving")]
 const MAX_REPLICATED_MODALITY_RESULT_BYTES: usize = 4 * 1024;
+/// MessagePack values one named `ApplyOutcome` occupies: its map, three keys,
+/// and three scalar values. The structural preflight budgets every value, so a
+/// stream result's budget is per outcome, not per stream item.
+#[cfg(feature = "modality-serving")]
+const APPLY_OUTCOME_MSGPACK_VALUES: usize = 7;
+/// Value budget for one decoded result: the outcome list (or single outcome)
+/// plus its enclosing array, for the largest admitted ingest stream.
+#[cfg(feature = "modality-serving")]
+const MAX_REPLICATED_MODALITY_RESULT_VALUES: usize =
+    1 + MAX_INGEST_STREAM_ITEMS * APPLY_OUTCOME_MSGPACK_VALUES;
+/// Bytes the typed header of the canonical [`SanitizedModalityResult`]
+/// encoding adds beyond the wire result: its five field names plus the longest
+/// schema version, modality, operation, and kind values (77 bytes for a
+/// `document` `ingest_stream` `stream`), rounded up. The canonical form holds
+/// the same outcome list as the wire form, so a result the wire bound admits
+/// always fits this bound.
+#[cfg(feature = "modality-serving")]
+const MAX_CANONICAL_MODALITY_RESULT_HEADER_BYTES: usize = 128;
 #[cfg(feature = "modality-serving")]
 const SANITIZED_MODALITY_CODEC_VERSION: u16 = 2;
 
@@ -161,7 +179,7 @@ impl SanitizedModalityResult {
             result_msgpack,
             eg_types::msgpack::MsgpackLimits::new(
                 MAX_REPLICATED_MODALITY_RESULT_BYTES,
-                MAX_INGEST_STREAM_ITEMS,
+                MAX_REPLICATED_MODALITY_RESULT_VALUES,
                 64,
             ),
         )
@@ -180,7 +198,7 @@ impl SanitizedModalityResult {
                 &outcome_bytes,
                 eg_types::msgpack::MsgpackLimits::new(
                     MAX_REPLICATED_MODALITY_RESULT_BYTES,
-                    MAX_INGEST_STREAM_ITEMS,
+                    MAX_REPLICATED_MODALITY_RESULT_VALUES,
                     64,
                 ),
             )
@@ -191,7 +209,7 @@ impl SanitizedModalityResult {
                 &outcome_bytes,
                 eg_types::msgpack::MsgpackLimits::new(
                     MAX_REPLICATED_MODALITY_RESULT_BYTES,
-                    MAX_INGEST_STREAM_ITEMS,
+                    MAX_REPLICATED_MODALITY_RESULT_VALUES,
                     64,
                 ),
             )
@@ -236,7 +254,9 @@ impl SanitizedModalityResult {
         let bytes = rmp_serde::to_vec_named(self).map_err(|_| {
             "sanitized modality Raft result could not be canonically encoded".to_string()
         })?;
-        if bytes.len() > MAX_REPLICATED_MODALITY_RESULT_BYTES {
+        if bytes.len()
+            > MAX_REPLICATED_MODALITY_RESULT_BYTES + MAX_CANONICAL_MODALITY_RESULT_HEADER_BYTES
+        {
             return Err("sanitized modality Raft result exceeds resource limits".to_string());
         }
         Ok(bytes)
