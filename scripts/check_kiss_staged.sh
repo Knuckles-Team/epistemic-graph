@@ -236,8 +236,17 @@ done
 # file that owns a same-named child directory, fails to find the sibling
 # module, and reports the whole file's closure as broken (fails closed) on
 # any staged change to it.
+# A directory literally named tests/examples/benches/bin is not necessarily cargo's
+# own target-root directory for a crate: a crate can just as well have an ordinary
+# module directory with that name nested under src/ (e.g. `src/tests/replay.rs`, a
+# unit-test-helper module, not a cargo integration-test binary). Cargo's actual
+# target-root directories always sit directly beside that crate's own Cargo.toml --
+# `<crate>/tests/`, `<crate>/examples/`, `<crate>/benches/` -- or, for a binary
+# target, directly under `<crate>/src/bin/`. Require that, not just the bare name,
+# so a nested same-named directory is correctly left as an ordinary module file
+# (crate_root=0) instead of wrongly promoted to a target root.
 is_cargo_target_root() {
-  local path="$1" base dir dirname
+  local path="$1" base dir dirname crate_dir
   base="$(basename -- "$path")"
   case "$base" in
     lib.rs|main.rs|mod.rs) return 1 ;;
@@ -245,9 +254,18 @@ is_cargo_target_root() {
   dir="$(dirname -- "$path")"
   dirname="$(basename -- "$dir")"
   case "$dirname" in
-    tests|examples|benches|bin) return 0 ;;
-    *) return 1 ;;
+    tests|examples|benches)
+      crate_dir="$(dirname -- "$dir")"
+      ;;
+    bin)
+      [ "$(basename -- "$(dirname -- "$dir")")" = "src" ] || return 1
+      crate_dir="$(dirname -- "$(dirname -- "$dir")")"
+      ;;
+    *)
+      return 1
+      ;;
   esac
+  [ -f "$STAGED_ROOT/$crate_dir/Cargo.toml" ] && [ ! -L "$STAGED_ROOT/$crate_dir/Cargo.toml" ]
 }
 
 validate_module_closure() {

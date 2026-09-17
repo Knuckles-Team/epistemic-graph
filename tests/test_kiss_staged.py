@@ -272,23 +272,31 @@ def test_hook_materializes_nested_cfg_path_and_include_closure(
 def test_hook_resolves_a_tests_rs_crate_roots_mod_declaration(
     repository: tuple[Path, Path, Path],
 ) -> None:
-    """A `crates/<crate>/tests/*.rs` file is its own cargo crate root: rustc
-    resolves `mod support;` declared there against the `tests/` directory it
-    shares with the declaring file (`tests/support.rs`), not a same-named
-    subdirectory the walker otherwise expects an ordinary module file to own.
-    Plant a real violation in exactly this shape and prove the hook still
-    reports it, instead of fail-closed on a module closure it resolved
-    against the wrong directory -- the regression behind the eg-tts-piper
+    """A `crates/<crate>/tests/*.rs` file, sitting directly beside that crate's own
+    Cargo.toml, is its own cargo crate root: rustc resolves `mod support;` declared
+    there against the `tests/` directory it shares with the declaring file
+    (`tests/support.rs`), not a same-named subdirectory the walker otherwise expects
+    an ordinary module file to own. Plant a real violation in exactly this shape and
+    prove the hook still reports it, instead of fail-closed on a module closure it
+    resolved against the wrong directory -- the regression behind the eg-tts-piper
     `#[path = "support/mod.rs"]` workaround."""
     repo, kiss, log = repository
     (repo / "crates/dummy/tests").mkdir(parents=True)
+    (repo / "crates/dummy/Cargo.toml").write_text(
+        '[package]\nname = "dummy"\n', encoding="utf-8"
+    )
     (repo / "crates/dummy/tests/plant.rs").write_text(
         "mod support;\nclean\n", encoding="utf-8"
     )
     (repo / "crates/dummy/tests/support.rs").write_text(
         "support clean\n", encoding="utf-8"
     )
-    _commit_files(repo, "crates/dummy/tests/plant.rs", "crates/dummy/tests/support.rs")
+    _commit_files(
+        repo,
+        "crates/dummy/Cargo.toml",
+        "crates/dummy/tests/plant.rs",
+        "crates/dummy/tests/support.rs",
+    )
     (repo / "crates/dummy/tests/plant.rs").write_text(
         "mod support;\nviolation\n", encoding="utf-8"
     )
@@ -299,6 +307,50 @@ def test_hook_resolves_a_tests_rs_crate_roots_mod_declaration(
     assert result.returncode == 1, result.stderr
     assert "VIOLATION:lines_per_file:" in result.stdout
     assert "1 violation(s) in crates/dummy/tests/plant.rs" in result.stdout
+
+
+def test_hook_does_not_treat_a_nested_src_tests_module_as_a_crate_root(
+    repository: tuple[Path, Path, Path],
+) -> None:
+    """A directory literally named `tests` is not always cargo's own target-root
+    directory: `crates/<crate>/src/tests/replay.rs` is an ORDINARY child module
+    (reached via `mod tests;` somewhere under `src/`, then `mod replay;` from that
+    `tests` module) -- unlike `crates/<crate>/tests/replay.rs` (no `src/`, directly
+    beside the crate's own Cargo.toml), which IS a crate root. `mod helpers;`
+    declared inside it must resolve to its OWN child directory,
+    `src/tests/replay/helpers.rs`, never to a same-named sibling
+    `src/tests/helpers.rs` -- the misresolution a bare "parent directory is named
+    tests" check causes (weaker than the pre-fix behavior: it would silently
+    resolve to the wrong file instead of failing closed on the correct, missing
+    one). Plant a real violation in exactly this shape, with the child module
+    ONLY at the correct nested location, and prove the hook still reports it."""
+    repo, kiss, log = repository
+    (repo / "crates/dummy/src/tests/replay").mkdir(parents=True)
+    (repo / "crates/dummy/Cargo.toml").write_text(
+        '[package]\nname = "dummy"\n', encoding="utf-8"
+    )
+    (repo / "crates/dummy/src/tests/replay.rs").write_text(
+        "mod helpers;\nclean\n", encoding="utf-8"
+    )
+    (repo / "crates/dummy/src/tests/replay/helpers.rs").write_text(
+        "helpers clean\n", encoding="utf-8"
+    )
+    _commit_files(
+        repo,
+        "crates/dummy/Cargo.toml",
+        "crates/dummy/src/tests/replay.rs",
+        "crates/dummy/src/tests/replay/helpers.rs",
+    )
+    (repo / "crates/dummy/src/tests/replay.rs").write_text(
+        "mod helpers;\nviolation\n", encoding="utf-8"
+    )
+    _run("git", "add", "--", "crates/dummy/src/tests/replay.rs", cwd=repo)
+
+    result = _run_hook(repo, kiss, log)
+
+    assert result.returncode == 1, result.stderr
+    assert "VIOLATION:lines_per_file:" in result.stdout
+    assert "1 violation(s) in crates/dummy/src/tests/replay.rs" in result.stdout
 
 
 def test_hook_fails_closed_for_missing_declared_child(
