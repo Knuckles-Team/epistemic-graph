@@ -363,47 +363,59 @@ pub fn encode_colmetadata(cols: &[(String, TdsType)]) -> Vec<u8> {
 pub fn encode_row(types: &[TdsType], cells: &[Value]) -> Vec<u8> {
     let mut out = vec![TOKEN_ROW];
     for (ty, cell) in types.iter().zip(cells.iter()) {
-        match ty {
-            TdsType::IntN => match cell.as_i64() {
-                Some(i) => {
-                    out.push(8);
-                    out.extend_from_slice(&i.to_le_bytes());
-                }
-                None => out.push(0), // NULL (length 0)
-            },
-            TdsType::FloatN => match cell.as_f64() {
-                Some(f) => {
-                    out.push(8);
-                    out.extend_from_slice(&f.to_le_bytes());
-                }
-                None => out.push(0),
-            },
-            TdsType::BitN => match cell.as_bool() {
-                Some(b) => {
-                    out.push(1);
-                    out.push(b as u8);
-                }
-                None => out.push(0),
-            },
-            TdsType::NVarchar => {
-                if cell.is_null() {
-                    out.extend_from_slice(&0xFFFFu16.to_le_bytes()); // CHARBIN_NULL
-                } else {
-                    let s = match cell {
-                        Value::String(s) => s.clone(),
-                        other => other.to_string(),
-                    };
-                    let mut bytes = utf16le_bytes(&s);
-                    if bytes.len() > NVARCHAR_MAX_BYTES {
-                        bytes.truncate(NVARCHAR_MAX_BYTES); // even boundary preserved
-                    }
-                    out.extend_from_slice(&(bytes.len() as u16).to_le_bytes());
-                    out.extend_from_slice(&bytes);
-                }
-            }
-        }
+        encode_cell(&mut out, ty, cell);
     }
     out
+}
+
+/// Encode one cell's `ROW` token payload for `ty` — the per-column half of
+/// [`encode_row`]'s loop. Split out so the per-type dispatch doesn't count against
+/// `encode_row`'s own complexity cap.
+fn encode_cell(out: &mut Vec<u8>, ty: &TdsType, cell: &Value) {
+    match ty {
+        TdsType::IntN => match cell.as_i64() {
+            Some(i) => {
+                out.push(8);
+                out.extend_from_slice(&i.to_le_bytes());
+            }
+            None => out.push(0), // NULL (length 0)
+        },
+        TdsType::FloatN => match cell.as_f64() {
+            Some(f) => {
+                out.push(8);
+                out.extend_from_slice(&f.to_le_bytes());
+            }
+            None => out.push(0),
+        },
+        TdsType::BitN => match cell.as_bool() {
+            Some(b) => {
+                out.push(1);
+                out.push(b as u8);
+            }
+            None => out.push(0),
+        },
+        TdsType::NVarchar => encode_nvarchar_cell(out, cell),
+    }
+}
+
+/// The `NVARCHAR` half of [`encode_cell`]: `CHARBIN_NULL` for a null cell, else the
+/// cell JSON-stringified (bare for a string) and UTF-16LE-encoded, truncated to
+/// [`NVARCHAR_MAX_BYTES`]. Split out so `encode_cell` stays under the complexity cap.
+fn encode_nvarchar_cell(out: &mut Vec<u8>, cell: &Value) {
+    if cell.is_null() {
+        out.extend_from_slice(&0xFFFFu16.to_le_bytes()); // CHARBIN_NULL
+    } else {
+        let s = match cell {
+            Value::String(s) => s.clone(),
+            other => other.to_string(),
+        };
+        let mut bytes = utf16le_bytes(&s);
+        if bytes.len() > NVARCHAR_MAX_BYTES {
+            bytes.truncate(NVARCHAR_MAX_BYTES); // even boundary preserved
+        }
+        out.extend_from_slice(&(bytes.len() as u16).to_le_bytes());
+        out.extend_from_slice(&bytes);
+    }
 }
 
 /// Encode a `DONE` token: status flags, the current-command code (0), and the row
@@ -589,107 +601,129 @@ mod tests {
         let mut done = (0u16, 0u64);
         while i < stream.len() {
             match stream[i] {
-                TOKEN_COLMETADATA => {
-                    i += 1;
-                    let count = u16::from_le_bytes([stream[i], stream[i + 1]]) as usize;
-                    i += 2;
-                    for _ in 0..count {
-                        i += 4; // UserType
-                        i += 2; // Flags
-                        let tybyte = stream[i];
-                        i += 1;
-                        let ty = match tybyte {
-                            TYPE_INTN => {
-                                i += 1;
-                                TdsType::IntN
-                            }
-                            TYPE_FLTN => {
-                                i += 1;
-                                TdsType::FloatN
-                            }
-                            TYPE_BITN => {
-                                i += 1;
-                                TdsType::BitN
-                            }
-                            TYPE_NVARCHAR => {
-                                i += 2; // max byte len
-                                i += 5; // collation
-                                TdsType::NVarchar
-                            }
-                            other => panic!("unexpected TYPE_INFO byte {other:#x}"),
-                        };
-                        let name_units = stream[i] as usize;
-                        i += 1;
-                        let name = utf16le_to_string(&stream[i..i + name_units * 2]);
-                        i += name_units * 2;
-                        cols.push((name, ty));
-                    }
-                }
+                TOKEN_COLMETADATA => cols = read_colmetadata(stream, &mut i),
                 TOKEN_ROW => {
                     i += 1;
-                    let mut row = Vec::new();
-                    for (_, ty) in &cols {
-                        match ty {
-                            TdsType::IntN => {
-                                let len = stream[i] as usize;
-                                i += 1;
-                                if len == 0 {
-                                    row.push(Value::Null);
-                                } else {
-                                    let v =
-                                        i64::from_le_bytes(stream[i..i + 8].try_into().unwrap());
-                                    i += len;
-                                    row.push(Value::from(v));
-                                }
-                            }
-                            TdsType::FloatN => {
-                                let len = stream[i] as usize;
-                                i += 1;
-                                if len == 0 {
-                                    row.push(Value::Null);
-                                } else {
-                                    let v =
-                                        f64::from_le_bytes(stream[i..i + 8].try_into().unwrap());
-                                    i += len;
-                                    row.push(Value::from(v));
-                                }
-                            }
-                            TdsType::BitN => {
-                                let len = stream[i] as usize;
-                                i += 1;
-                                if len == 0 {
-                                    row.push(Value::Null);
-                                } else {
-                                    let b = stream[i] != 0;
-                                    i += len;
-                                    row.push(Value::from(b));
-                                }
-                            }
-                            TdsType::NVarchar => {
-                                let len = u16::from_le_bytes([stream[i], stream[i + 1]]) as usize;
-                                i += 2;
-                                if len == 0xFFFF {
-                                    row.push(Value::Null);
-                                } else {
-                                    let s = utf16le_to_string(&stream[i..i + len]);
-                                    i += len;
-                                    row.push(Value::String(s));
-                                }
-                            }
-                        }
-                    }
-                    rows.push(row);
+                    rows.push(read_row(stream, &mut i, &cols));
                 }
-                TOKEN_DONE => {
-                    let status = u16::from_le_bytes([stream[i + 1], stream[i + 2]]);
-                    let rowcount = u64::from_le_bytes(stream[i + 5..i + 13].try_into().unwrap());
-                    done = (status, rowcount);
-                    i += 13;
-                }
+                TOKEN_DONE => done = read_done(stream, &mut i),
                 other => panic!("unexpected token {other:#x} at {i}"),
             }
         }
         (cols, rows, done.0, done.1)
+    }
+
+    /// Parse one COLMETADATA token starting at `stream[*i]` (the token byte itself),
+    /// advancing `*i` past it. Test-only decode-back half of [`walk_result`]. Split
+    /// out so the walker's per-token match stays under the complexity cap.
+    fn read_colmetadata(stream: &[u8], i: &mut usize) -> Vec<(String, TdsType)> {
+        *i += 1;
+        let count = u16::from_le_bytes([stream[*i], stream[*i + 1]]) as usize;
+        *i += 2;
+        let mut cols = Vec::with_capacity(count);
+        for _ in 0..count {
+            *i += 4; // UserType
+            *i += 2; // Flags
+            let tybyte = stream[*i];
+            *i += 1;
+            let ty = match tybyte {
+                TYPE_INTN => {
+                    *i += 1;
+                    TdsType::IntN
+                }
+                TYPE_FLTN => {
+                    *i += 1;
+                    TdsType::FloatN
+                }
+                TYPE_BITN => {
+                    *i += 1;
+                    TdsType::BitN
+                }
+                TYPE_NVARCHAR => {
+                    *i += 2; // max byte len
+                    *i += 5; // collation
+                    TdsType::NVarchar
+                }
+                other => panic!("unexpected TYPE_INFO byte {other:#x}"),
+            };
+            let name_units = stream[*i] as usize;
+            *i += 1;
+            let name = utf16le_to_string(&stream[*i..*i + name_units * 2]);
+            *i += name_units * 2;
+            cols.push((name, ty));
+        }
+        cols
+    }
+
+    /// Parse one ROW token's cells (the token byte itself already consumed by the
+    /// caller), advancing `*i` past them. Test-only decode-back half of
+    /// [`walk_result`].
+    fn read_row(stream: &[u8], i: &mut usize, cols: &[(String, TdsType)]) -> Vec<Value> {
+        let mut row = Vec::with_capacity(cols.len());
+        for (_, ty) in cols {
+            row.push(read_cell(stream, i, ty));
+        }
+        row
+    }
+
+    /// Parse one cell for `ty`, advancing `*i` past it. Split out of [`read_row`] so
+    /// the per-type match doesn't count against the walker's complexity cap.
+    fn read_cell(stream: &[u8], i: &mut usize, ty: &TdsType) -> Value {
+        match ty {
+            TdsType::IntN => {
+                let len = stream[*i] as usize;
+                *i += 1;
+                if len == 0 {
+                    Value::Null
+                } else {
+                    let v = i64::from_le_bytes(stream[*i..*i + 8].try_into().unwrap());
+                    *i += len;
+                    Value::from(v)
+                }
+            }
+            TdsType::FloatN => {
+                let len = stream[*i] as usize;
+                *i += 1;
+                if len == 0 {
+                    Value::Null
+                } else {
+                    let v = f64::from_le_bytes(stream[*i..*i + 8].try_into().unwrap());
+                    *i += len;
+                    Value::from(v)
+                }
+            }
+            TdsType::BitN => {
+                let len = stream[*i] as usize;
+                *i += 1;
+                if len == 0 {
+                    Value::Null
+                } else {
+                    let b = stream[*i] != 0;
+                    *i += len;
+                    Value::from(b)
+                }
+            }
+            TdsType::NVarchar => {
+                let len = u16::from_le_bytes([stream[*i], stream[*i + 1]]) as usize;
+                *i += 2;
+                if len == 0xFFFF {
+                    Value::Null
+                } else {
+                    let s = utf16le_to_string(&stream[*i..*i + len]);
+                    *i += len;
+                    Value::String(s)
+                }
+            }
+        }
+    }
+
+    /// Parse one DONE token starting at `stream[*i]` (the token byte itself),
+    /// advancing `*i` past it. Test-only decode-back half of [`walk_result`].
+    fn read_done(stream: &[u8], i: &mut usize) -> (u16, u64) {
+        let status = u16::from_le_bytes([stream[*i + 1], stream[*i + 2]]);
+        let rowcount = u64::from_le_bytes(stream[*i + 5..*i + 13].try_into().unwrap());
+        *i += 13;
+        (status, rowcount)
     }
 
     #[test]

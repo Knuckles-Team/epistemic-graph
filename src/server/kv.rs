@@ -468,43 +468,12 @@ impl KvStore {
         } else {
             limit.min(MAX_KV_SCAN_LIMIT)
         };
-        let mut out = Vec::new();
-        let mut response_bytes = 0usize;
         match &self.backend {
             Backend::Redb(store) => {
-                let read = store.read()?;
-                let table = read.open_owner_table(KV)?;
-                // Range from (namespace, prefix): all prefix matches are a contiguous
-                // sorted block right after this bound, so we stop as soon as the
-                // namespace changes or a key no longer carries the prefix.
-                for entry in table
-                    .range((namespace, prefix)..)
-                    .map_err(|e| e.to_string())?
-                {
-                    let (k, v) = entry.map_err(|e| e.to_string())?;
-                    let (ns, key) = k.value();
-                    if ns != namespace || !key.starts_with(prefix) {
-                        break;
-                    }
-                    if !push_scan_row(&mut out, &mut response_bytes, limit, key, v.value())? {
-                        break;
-                    }
-                }
+                dispatch_handlers::scan_redb_rows(store, namespace, prefix, limit)
             }
-            Backend::Memory(m) => {
-                let guard = m.lock();
-                let start = (namespace.to_string(), prefix.to_string());
-                for ((ns, key), v) in guard.range(start..) {
-                    if ns != namespace || !key.starts_with(prefix) {
-                        break;
-                    }
-                    if !push_scan_row(&mut out, &mut response_bytes, limit, key, v)? {
-                        break;
-                    }
-                }
-            }
+            Backend::Memory(m) => dispatch_handlers::scan_memory_rows(m, namespace, prefix, limit),
         }
-        Ok(out)
     }
 
     /// Atomic compare-and-swap: if the CURRENT value equals `expected` (both absent
@@ -693,32 +662,16 @@ pub(crate) async fn try_handle(
     // The store is small + the ops are microsecond-cheap (single-key redb get/put,
     // commit fsync coalesced by redb), so they run inline like the tsdb append path.
     let store = { state.read().await.kv.clone() };
-    let store = match store {
-        Some(s) => s,
-        None => {
-            // KV feature compiled but no store on state (should not happen once main
-            // wires it) — surface a clear error rather than a mis-route.
-            if is_kv_method(&method) {
-                return Ok(Response::err(
-                    req_id,
-                    "KV surface not available (no kv store configured)",
-                ));
-            }
-            return Err(method);
-        }
+    let admitted = dispatch_handlers::resolve_kv_store(store, &method, req_id);
+    let Ok(store) = admitted else {
+        return *admitted.err().unwrap();
     };
 
     let original_method = method.clone();
     let resp = match method {
         Method::KvGet { namespace, key } => {
             let namespace = authority.namespace("kv-namespace", &namespace);
-            match store.get(&namespace, &key) {
-                Ok(value) => Response::ok(
-                    req_id,
-                    ResultPayload::of_encoded_or_null::<results::KvGet>(value),
-                ),
-                Err(e) => Response::err(req_id, format!("KvGet error: {e}")),
-            }
+            dispatch_handlers::handle_kv_get(req_id, &store, &namespace, &key)
         }
         Method::KvPut {
             namespace,
@@ -726,26 +679,26 @@ pub(crate) async fn try_handle(
             value,
         } => {
             let namespace = authority.namespace("kv-namespace", &namespace);
-            match compile_kv_batch(&store, req_id, authority, &namespace, &original_method)
-                .and_then(|(batch, now)| store.put_batch(&namespace, &key, value, &batch, now))
-            {
-                Ok(()) => Response::ok(
-                    req_id,
-                    ResultPayload::scalar::<results::KvPut>("ok".to_string()),
-                ),
-                Err(e) => Response::err(req_id, format!("KvPut error: {e}")),
-            }
+            dispatch_handlers::handle_kv_put(
+                req_id,
+                &store,
+                authority,
+                &namespace,
+                &key,
+                value,
+                &original_method,
+            )
         }
         Method::KvDelete { namespace, key } => {
             let namespace = authority.namespace("kv-namespace", &namespace);
-            match compile_kv_batch(&store, req_id, authority, &namespace, &original_method)
-                .and_then(|(batch, now)| store.delete_batch(&namespace, &key, &batch, now))
-            {
-                Ok(existed) => {
-                    Response::ok(req_id, ResultPayload::scalar::<results::KvDelete>(existed))
-                }
-                Err(e) => Response::err(req_id, format!("KvDelete error: {e}")),
-            }
+            dispatch_handlers::handle_kv_delete(
+                req_id,
+                &store,
+                authority,
+                &namespace,
+                &key,
+                &original_method,
+            )
         }
         Method::KvScan {
             namespace,
@@ -762,15 +715,15 @@ pub(crate) async fn try_handle(
             new,
         } => {
             let namespace = authority.namespace("kv-namespace", &namespace);
-            match compile_kv_batch(&store, req_id, authority, &namespace, &original_method)
-                .and_then(|(batch, now)| {
-                    store.cas_batch(&namespace, &key, expected.as_deref(), new, &batch, now)
-                }) {
-                Ok(swapped) => {
-                    Response::ok(req_id, ResultPayload::scalar::<results::KvCas>(swapped))
-                }
-                Err(e) => Response::err(req_id, format!("KvCas error: {e}")),
-            }
+            dispatch_handlers::handle_kv_cas(
+                req_id,
+                &store,
+                authority,
+                &namespace,
+                &key,
+                (expected, new),
+                &original_method,
+            )
         }
         other => return Err(other),
     };
@@ -892,6 +845,7 @@ impl crate::server::persistence::durable_stores::BundledStoreSource for KvStore 
     }
 }
 
+mod dispatch_handlers;
 #[cfg(test)]
 mod dispatch_tests;
 #[cfg(test)]

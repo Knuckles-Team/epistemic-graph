@@ -203,19 +203,13 @@ pub(crate) async fn try_handle(
         original_method: &original_method,
     };
     #[cfg(feature = "matview")]
-    if matches!(
-        &method,
-        Method::PlanMatViewDefine { .. }
-            | Method::PlanMatViewGet { .. }
-            | Method::PlanMatViewRefresh { .. }
-            | Method::PlanMatViewDrop { .. }
-    ) && read_authority.is_some_and(GraphReadAuthority::is_active)
-    {
-        return Ok(Response::err(
-            req_id,
-            "unscoped plan materialized views are unavailable under active RLS",
-        ));
-    }
+    let method = {
+        let admitted = admit_plan_matview_under_rls(method, req_id, read_authority);
+        let Ok(method) = admitted else {
+            return Ok(admitted.err().unwrap());
+        };
+        method
+    };
     match method {
         #[cfg(feature = "compute-dist")]
         Method::DistributedCompute { graphs, algo } => {
@@ -258,6 +252,31 @@ pub(crate) async fn try_handle(
 
         other => Err(other),
     }
+}
+
+/// Admit `method` for dispatch, or reject it as an explicit response when it is a
+/// plan-backed matview method and RLS is active (those views are unscoped, so they
+/// cannot honor a caller-active row-level-security policy).
+#[cfg(feature = "matview")]
+fn admit_plan_matview_under_rls(
+    method: Method,
+    req_id: u64,
+    read_authority: Option<&GraphReadAuthority>,
+) -> Result<Method, Response> {
+    let is_plan_matview_method = matches!(
+        &method,
+        Method::PlanMatViewDefine { .. }
+            | Method::PlanMatViewGet { .. }
+            | Method::PlanMatViewRefresh { .. }
+            | Method::PlanMatViewDrop { .. }
+    );
+    if is_plan_matview_method && read_authority.is_some_and(GraphReadAuthority::is_active) {
+        return Err(Response::err(
+            req_id,
+            "unscoped plan materialized views are unavailable under active RLS",
+        ));
+    }
+    Ok(method)
 }
 
 struct ControlSaga {

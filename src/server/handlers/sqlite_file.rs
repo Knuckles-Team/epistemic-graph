@@ -126,60 +126,103 @@ pub(crate) async fn try_handle(
     attempt_nonce: Option<Nonce>,
     method: Method,
 ) -> Result<Response, Method> {
-    if let Err(error) = authority.require_admin("SQLite user-table import/export") {
-        return Ok(Response::err(req_id, error));
-    }
+    let admitted = admit_sqlite_file_method(authority, req_id);
+    let Ok(()) = admitted else {
+        return *admitted.err().unwrap();
+    };
     let original_method = method.clone();
     match method {
-        Method::ImportSqliteFile { path } => {
-            let persist_dir = match tenant_persist_dir(state).await {
-                Ok(dir) => dir,
-                Err(e) => return Ok(Response::err(req_id, e)),
-            };
-            let owner_authority = authority.clone();
-            // Sample replicated authoritative time on the reactor while its task-local
-            // apply scope is available, then move the complete filesystem/catalog
-            // lifecycle into one owned blocking job.
-            let now = crate::server::dispatch::authoritative_now_ms();
-            let out = run_transfer_job("import", move || {
-                import_sqlite_lifecycle_with_nonce(
-                    req_id,
-                    &owner_authority,
-                    attempt_nonce,
-                    &original_method,
-                    &path,
-                    &persist_dir,
-                    now,
-                )
-            })
-            .await;
-            Ok(match out {
-                Ok(report) => Response::ok(
-                    req_id,
-                    ResultPayload::of::<results::ImportSqliteFile>(report),
-                ),
-                Err(e) => Response::err(req_id, e),
-            })
-        }
+        Method::ImportSqliteFile { path } => Ok(handle_import_sqlite_file(
+            state,
+            req_id,
+            authority,
+            attempt_nonce,
+            &original_method,
+            path,
+        )
+        .await),
         Method::ExportSqliteFile { path, tables } => {
-            let persist_dir = match tenant_persist_dir(state).await {
-                Ok(dir) => dir,
-                Err(e) => return Ok(Response::err(req_id, e)),
-            };
-            let owner_authority = authority.clone();
-            let out = run_transfer_job("export", move || {
-                export_sqlite_lifecycle(&owner_authority, &path, &tables, &persist_dir)
-            })
-            .await;
-            Ok(match out {
-                Ok(report) => Response::ok(
-                    req_id,
-                    ResultPayload::of::<results::ExportSqliteFile>(report),
-                ),
-                Err(e) => Response::err(req_id, e),
-            })
+            Ok(handle_export_sqlite_file(state, req_id, authority, &path, &tables).await)
         }
         other => Err(other),
+    }
+}
+
+/// Gate both SQLite-file methods on `require_admin`; `Err` is the final
+/// routing/error outcome `try_handle` should return as-is.
+fn admit_sqlite_file_method(
+    authority: &CarrierAuthority,
+    req_id: u64,
+) -> Result<(), Box<Result<Response, Method>>> {
+    if let Err(error) = authority.require_admin("SQLite user-table import/export") {
+        return Err(Box::new(Ok(Response::err(req_id, error))));
+    }
+    Ok(())
+}
+
+async fn handle_import_sqlite_file(
+    state: &std::sync::Arc<tokio::sync::RwLock<crate::server::ServerState>>,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    attempt_nonce: Option<Nonce>,
+    original_method: &Method,
+    path: String,
+) -> Response {
+    let persist_dir = match tenant_persist_dir(state).await {
+        Ok(dir) => dir,
+        Err(e) => return Response::err(req_id, e),
+    };
+    let owner_authority = authority.clone();
+    let original_method = original_method.clone();
+    // Sample replicated authoritative time on the reactor while its task-local
+    // apply scope is available, then move the complete filesystem/catalog
+    // lifecycle into one owned blocking job.
+    let now = crate::server::dispatch::authoritative_now_ms();
+    let out = run_transfer_job("import", move || {
+        import_sqlite_lifecycle_with_nonce(
+            req_id,
+            &owner_authority,
+            attempt_nonce,
+            &original_method,
+            &path,
+            &persist_dir,
+            now,
+        )
+    })
+    .await;
+    match out {
+        Ok(report) => Response::ok(
+            req_id,
+            ResultPayload::of::<results::ImportSqliteFile>(report),
+        ),
+        Err(e) => Response::err(req_id, e),
+    }
+}
+
+async fn handle_export_sqlite_file(
+    state: &std::sync::Arc<tokio::sync::RwLock<crate::server::ServerState>>,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    path: &str,
+    tables: &[String],
+) -> Response {
+    let persist_dir = match tenant_persist_dir(state).await {
+        Ok(dir) => dir,
+        Err(e) => return Response::err(req_id, e),
+    };
+    let owner_authority = authority.clone();
+    let path = path.to_string();
+    let tables = tables.to_vec();
+    let out = run_transfer_job("export", move || {
+        export_sqlite_lifecycle(&owner_authority, &path, &tables, &persist_dir)
+    })
+    .await;
+    match out {
+        Ok(report) => Response::ok(
+            req_id,
+            ResultPayload::of::<results::ExportSqliteFile>(report),
+        ),
+        Err(e) => Response::err(req_id, e),
     }
 }
 
@@ -489,41 +532,55 @@ fn sqlite_value_at(row: &[SqliteValue], index: usize) -> SqliteValue {
     }
 }
 
+fn num_f64_to_json(f: f64) -> JsonValue {
+    serde_json::Number::from_f64(f).map_or(JsonValue::Null, JsonValue::Number)
+}
+
+fn sqlite_integer_to_json(i: i64, ty: ColumnType) -> JsonValue {
+    match ty {
+        ColumnType::Float | ColumnType::Double => num_f64_to_json(i as f64),
+        _ => JsonValue::Number(i.into()),
+    }
+}
+
+fn sqlite_text_to_json(s: String, ty: ColumnType) -> Result<JsonValue, String> {
+    match ty {
+        ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp => s
+            .trim()
+            .parse::<i64>()
+            .map(|n| JsonValue::Number(n.into()))
+            .map_err(|_| "non-integer text in an integer column".to_string()),
+        ColumnType::Float | ColumnType::Double => s
+            .trim()
+            .parse::<f64>()
+            .map(num_f64_to_json)
+            .map_err(|_| "non-numeric text in a real column".to_string()),
+        _ => Ok(JsonValue::String(s)),
+    }
+}
+
+fn sqlite_blob_to_json(b: Vec<u8>, ty: ColumnType) -> Result<JsonValue, String> {
+    match ty {
+        // Bytes coerce accepts a JSON array of byte-sized ints (the props escape form).
+        ColumnType::Bytes => Ok(JsonValue::Array(
+            b.into_iter().map(|x| JsonValue::Number(x.into())).collect(),
+        )),
+        ColumnType::Text | ColumnType::Json => {
+            Ok(JsonValue::String(String::from_utf8_lossy(&b).into_owned()))
+        }
+        _ => Err("blob value in a non-bytes column".to_string()),
+    }
+}
+
 /// Convert a SQLite value into the `serde_json::Value` the store's `Cell::coerce`
 /// accepts for `ty`.
 fn sqlite_value_to_json(v: SqliteValue, ty: ColumnType) -> Result<JsonValue, String> {
-    let num_f64 =
-        |f: f64| serde_json::Number::from_f64(f).map_or(JsonValue::Null, JsonValue::Number);
     match v {
         SqliteValue::Null => Ok(JsonValue::Null),
-        SqliteValue::Integer(i) => match ty {
-            ColumnType::Float | ColumnType::Double => Ok(num_f64(i as f64)),
-            _ => Ok(JsonValue::Number(i.into())),
-        },
-        SqliteValue::Real(f) => Ok(num_f64(f)),
-        SqliteValue::Text(s) => match ty {
-            ColumnType::Int | ColumnType::BigInt | ColumnType::Timestamp => s
-                .trim()
-                .parse::<i64>()
-                .map(|n| JsonValue::Number(n.into()))
-                .map_err(|_| "non-integer text in an integer column".to_string()),
-            ColumnType::Float | ColumnType::Double => s
-                .trim()
-                .parse::<f64>()
-                .map(num_f64)
-                .map_err(|_| "non-numeric text in a real column".to_string()),
-            _ => Ok(JsonValue::String(s)),
-        },
-        SqliteValue::Blob(b) => match ty {
-            // Bytes coerce accepts a JSON array of byte-sized ints (the props escape form).
-            ColumnType::Bytes => Ok(JsonValue::Array(
-                b.into_iter().map(|x| JsonValue::Number(x.into())).collect(),
-            )),
-            ColumnType::Text | ColumnType::Json => {
-                Ok(JsonValue::String(String::from_utf8_lossy(&b).into_owned()))
-            }
-            _ => Err("blob value in a non-bytes column".to_string()),
-        },
+        SqliteValue::Integer(i) => Ok(sqlite_integer_to_json(i, ty)),
+        SqliteValue::Real(f) => Ok(num_f64_to_json(f)),
+        SqliteValue::Text(s) => sqlite_text_to_json(s, ty),
+        SqliteValue::Blob(b) => sqlite_blob_to_json(b, ty),
     }
 }
 

@@ -404,12 +404,10 @@ pub(crate) async fn try_handle(
     // cursors reveal the existence/rate of filtered rows even when their payloads
     // are projected away.  The hub has no per-event actor-stable cursor ownership,
     // so active RLS fails this whole carrier closed except for an explicit admin.
-    if read_authority.is_active() && !carrier.is_admin() {
-        return Ok(Response::err(
-            req_id,
-            "ACCESS_DENIED: streaming cursors have no actor-stable ownership under active RLS",
-        ));
-    }
+    let admitted = admit_streaming_under_rls(read_authority, carrier, req_id);
+    let Ok(()) = admitted else {
+        return *admitted.err().unwrap();
+    };
     let request = StreamingRequest {
         state,
         req_id,
@@ -451,4 +449,22 @@ pub(crate) async fn try_handle(
         } => Ok(request.fired_triggers(graph, from_seq, limit).await),
         other => Err(other),
     }
+}
+
+/// Streaming cursors have no actor-stable cursor ownership, so active RLS fails
+/// the whole carrier closed except for an explicit admin — `Err` is the final
+/// routing/error outcome `try_handle` should return as-is (a streaming method
+/// always gets an explicit denial, never a dispatch fall-through).
+fn admit_streaming_under_rls(
+    read_authority: &GraphReadAuthority,
+    carrier: &CarrierAuthority,
+    req_id: u64,
+) -> Result<(), Box<Result<Response, Method>>> {
+    if read_authority.is_active() && !carrier.is_admin() {
+        return Err(Box::new(Ok(Response::err(
+            req_id,
+            "ACCESS_DENIED: streaming cursors have no actor-stable ownership under active RLS",
+        ))));
+    }
+    Ok(())
 }

@@ -530,34 +530,8 @@ impl CdcHub {
             if event.seq < q.through_seq {
                 continue;
             }
-            if !q.spec.label.is_empty() && event.label != q.spec.label {
-                q.through_seq = event.seq + 1;
-                continue;
-            }
-            match &q.spec.agg {
-                ContinuousAgg::Count => match event.kind {
-                    CdcKind::AddNode => q.value += 1.0,
-                    CdcKind::RemoveNode => q.value -= 1.0,
-                    _ => {}
-                },
-                ContinuousAgg::Sum { field } => {
-                    let old = if event.had_before {
-                        field_num(&event.before, field)
-                    } else {
-                        0.0
-                    };
-                    let new = if event.had_after {
-                        field_num(&event.after, field)
-                    } else {
-                        0.0
-                    };
-                    match event.kind {
-                        CdcKind::AddNode => q.value += new,
-                        CdcKind::RemoveNode => q.value -= old,
-                        CdcKind::UpdateNode => q.value += new - old,
-                        _ => {}
-                    }
-                }
+            if q.spec.label.is_empty() || event.label == q.spec.label {
+                apply_query_delta(q, event);
             }
             q.through_seq = event.seq + 1;
         }
@@ -786,240 +760,12 @@ pub fn capture_before(core: &GraphCore, method: &Method) -> CdcPre {
     }
 }
 
-/// Emit the CDC event for a successfully-applied durable mutation, reading the
-/// post-image from `core`. No-op for `CdcPre::Skip`.
-pub fn emit_for_method(hub: &CdcHub, core: &GraphCore, graph: &str, method: &Method, pre: CdcPre) {
-    match (method, pre) {
-        (Method::AddNode { node_id, .. }, CdcPre::Node { before, .. }) => {
-            let after = core.get_node_properties(node_id);
-            let kind = if before.is_some() {
-                CdcKind::UpdateNode
-            } else {
-                CdcKind::AddNode
-            };
-            hub.emit(graph, kind, node_id.clone(), String::new(), before, after);
-        }
-        (Method::CreateNodeIfAbsent { node_id, .. }, CdcPre::Node { before: None, .. }) => {
-            hub.emit(
-                graph,
-                CdcKind::AddNode,
-                node_id.clone(),
-                String::new(),
-                None,
-                core.get_node_properties(node_id),
-            );
-        }
-        (
-            Method::CreateNodeIfAbsent { .. },
-            CdcPre::Node {
-                before: Some(_), ..
-            },
-        ) => {
-            // A losing create is a durable false result, not a row update.
-        }
-        (Method::CompareAndSetNodeFields { node_id, .. }, CdcPre::Node { before, .. }) => {
-            // A CAS that didn't match leaves the blob unchanged; emit UpdateNode with
-            // the post-image so an unchanged after == before is observable but harmless.
-            let after = core.get_node_properties(node_id);
-            hub.emit(
-                graph,
-                CdcKind::UpdateNode,
-                node_id.clone(),
-                String::new(),
-                before,
-                after,
-            );
-        }
-        (Method::RemoveNode { node_id }, CdcPre::Node { before, .. }) => {
-            hub.emit(
-                graph,
-                CdcKind::RemoveNode,
-                node_id.clone(),
-                String::new(),
-                before,
-                None,
-            );
-        }
-        (
-            Method::AddEdge {
-                source_id,
-                target_id,
-                properties_msgpack,
-            },
-            CdcPre::Edge { before, .. },
-        ) => {
-            hub.emit(
-                graph,
-                CdcKind::AddEdge,
-                source_id.clone(),
-                target_id.clone(),
-                before,
-                Some(properties_msgpack.clone()),
-            );
-        }
-        (
-            Method::RemoveEdge {
-                source_id,
-                target_id,
-            },
-            CdcPre::Edge { before, .. },
-        ) => {
-            hub.emit(
-                graph,
-                CdcKind::RemoveEdge,
-                source_id.clone(),
-                target_id.clone(),
-                before,
-                None,
-            );
-        }
-        // A whole-graph wipe resets the change feed: the per-node changes are moot once
-        // the graph is empty, so the feed rewinds to seq 0 and a consumer re-seeds.
-        (Method::ClearGraph, _) => hub.reset_graph(graph),
-        // FromMsgpack/Reconcile both replace the graph's entire node/edge content
-        // with an imported or merged authoritative image (`core.from_msgpack`) --
-        // the same "whole graph replaced" shape as `ClearGraph`, so any prior
-        // incremental deltas are equally moot. W1c: previously fell to the `_`
-        // catch-all (no CDC at all) despite being durable + GATEWAY_ROUTED.
-        (Method::FromMsgpack { .. }, _) => hub.reset_graph(graph),
-        (Method::Reconcile { .. }, _) => hub.reset_graph(graph),
-        // ── W1c: close the 9-method audit/CDC-visibility gap for the remaining
-        // durable admin/ledger methods. None of these map to a single node/edge
-        // row, so -- consistent with `emit_served_modality`'s reserved-marker-id
-        // shape below -- each emits ONE `UpdateNode` marker event with a
-        // reserved `__`-prefixed id (never a real node id) and no before/after
-        // payload, giving CDC consumers an observable "this happened" signal
-        // without fabricating a fake property diff. ──
-        (Method::ApplyMutation { .. }, _) => {
-            hub.emit(
-                graph,
-                CdcKind::UpdateNode,
-                "__apply_mutation".to_string(),
-                String::new(),
-                None,
-                None,
-            );
-        }
-        (Method::ApplyMultisigMutation { .. }, _) => {
-            hub.emit(
-                graph,
-                CdcKind::UpdateNode,
-                "__apply_multisig_mutation".to_string(),
-                String::new(),
-                None,
-                None,
-            );
-        }
-        // W2.5 fleet server registry: defense-in-depth marker mirroring
-        // `ApplyMultisigMutation` above -- this variant self-translates into
-        // `Method::AddNode` in `dispatch.rs` BEFORE ever reaching `commit_mutation`, so
-        // the REAL CDC event for a registration is AddNode's own (`srv:<name>`,
-        // AddNode/UpdateNode kind), not this marker. Unreachable via the single-node
-        // delegation path today.
-        (Method::RegisterServer { .. }, _) => {
-            hub.emit(
-                graph,
-                CdcKind::UpdateNode,
-                "__register_server".to_string(),
-                String::new(),
-                None,
-                None,
-            );
-        }
-        #[cfg(feature = "shacl")]
-        (Method::IcvConfigure { .. }, _) => {
-            hub.emit(
-                graph,
-                CdcKind::UpdateNode,
-                "__icv_configure".to_string(),
-                String::new(),
-                None,
-                None,
-            );
-        }
-        #[cfg(feature = "reasoning")]
-        (Method::RunDatalogReasoning { .. }, _) => {
-            hub.emit(
-                graph,
-                CdcKind::UpdateNode,
-                "__run_datalog_reasoning".to_string(),
-                String::new(),
-                None,
-                None,
-            );
-        }
-        (Method::ClearLedger, _) => {
-            hub.emit(
-                graph,
-                CdcKind::UpdateNode,
-                "__ledger".to_string(),
-                String::new(),
-                None,
-                None,
-            );
-        }
-        (Method::ApplyLedger { .. }, _) => {
-            hub.emit(
-                graph,
-                CdcKind::UpdateNode,
-                "__ledger".to_string(),
-                String::new(),
-                None,
-                None,
-            );
-        }
-        (Method::CompactNodesByType { .. }, _) => {
-            hub.emit(
-                graph,
-                CdcKind::UpdateNode,
-                "__compact_nodes_by_type".to_string(),
-                String::new(),
-                None,
-                None,
-            );
-        }
-        (Method::ApplyChangeEnvelope { envelope }, _) => {
-            hub.emit(
-                graph,
-                CdcKind::UpdateNode,
-                envelope.content_version.object_id.clone(),
-                String::new(),
-                None,
-                None,
-            );
-        }
-        // The batch coordinator emits one change event per envelope (mirroring the
-        // single method) so policy `emits_cdc: true` stays consistent; at runtime the
-        // per-envelope durable outbox is the authoritative change feed.
-        (Method::ApplyChangeEnvelopes { envelopes }, _) => {
-            for envelope in envelopes {
-                hub.emit(
-                    graph,
-                    CdcKind::UpdateNode,
-                    envelope.content_version.object_id.clone(),
-                    String::new(),
-                    None,
-                    None,
-                );
-            }
-        }
-        #[cfg(feature = "modality-serving")]
-        (Method::ServedModality { op }, _) if op.mutates() => {
-            use eg_types::ServedModalityOp;
-            let modality = match op {
-                ServedModalityOp::Ingest { modality, .. }
-                | ServedModalityOp::IngestStream { modality, .. }
-                | ServedModalityOp::Delete { modality, .. }
-                | ServedModalityOp::MoveToCold { modality, .. }
-                | ServedModalityOp::Restore { modality, .. } => modality,
-                ServedModalityOp::CollectTombstones { modality, .. } => modality,
-                _ => return,
-            };
-            emit_served_modality(hub, graph, *modality);
-        }
-        _ => {}
-    }
-}
+/// [`emit_for_method`]'s per-`Method` dispatch, split out so this file's own
+/// hub/ring/continuous-query/trigger machinery has room under the KISS
+/// `lines_per_file` budget. Re-exported so `crate::server::cdc::emit_for_method`
+/// (every call site) is unchanged.
+mod dispatch;
+pub use dispatch::emit_for_method;
 
 /// Emit the privacy-safe category marker used by both the single-node mutation
 /// gateway and the sanitized Raft state machine. No occurrence or partition id is
@@ -1074,6 +820,37 @@ fn extract_label(blob: Option<&[u8]>) -> String {
         }
     }
     String::new()
+}
+
+/// Fold one event into a single continuous query's aggregate value (the per-query
+/// half of [`CdcHub::maintain`]'s incremental step). Split out so `maintain` stays
+/// under the complexity cap.
+fn apply_query_delta(q: &mut ContinuousQuery, event: &CdcEvent) {
+    match &q.spec.agg {
+        ContinuousAgg::Count => match event.kind {
+            CdcKind::AddNode => q.value += 1.0,
+            CdcKind::RemoveNode => q.value -= 1.0,
+            _ => {}
+        },
+        ContinuousAgg::Sum { field } => {
+            let old = if event.had_before {
+                field_num(&event.before, field)
+            } else {
+                0.0
+            };
+            let new = if event.had_after {
+                field_num(&event.after, field)
+            } else {
+                0.0
+            };
+            match event.kind {
+                CdcKind::AddNode => q.value += new,
+                CdcKind::RemoveNode => q.value -= old,
+                CdcKind::UpdateNode => q.value += new - old,
+                _ => {}
+            }
+        }
+    }
 }
 
 /// Decode a numeric node-property field from a msgpack blob (0.0 if absent/non-numeric).

@@ -37,21 +37,9 @@ pub(crate) async fn try_handle(
 ) -> Result<Response, Method> {
     // Pull the cursors handle once (cheap clone of the Arc) so we don't hold the
     // ServerState read lock across the blocking store calls.
-    let cursors = {
-        let s = state.read().await;
-        match &s.blob {
-            Some(c) => c.clone(),
-            None => {
-                // Substrate disabled (no persist dir): only respond for blob methods.
-                if is_blob_method(&method) {
-                    return Ok(Response::err(
-                        req_id,
-                        "Blob substrate disabled (no persist dir configured)",
-                    ));
-                }
-                return Err(method);
-            }
-        }
+    let resolved = resolve_cursors(state, req_id, &method).await;
+    let Ok(cursors) = resolved else {
+        return resolved.err().unwrap();
     };
 
     let original_method = method.clone();
@@ -102,7 +90,7 @@ pub(crate) async fn try_handle(
         }
 
         Method::BlobFetchEnd { cursor } => {
-            handle_blob_fetch_end(&cursors, req_id, authority, cursor)
+            Ok(handle_blob_fetch_end(&cursors, req_id, authority, cursor))
         }
 
         Method::BlobRef { digest } => {
@@ -134,6 +122,26 @@ pub(crate) async fn try_handle(
         }
 
         other => Err(other),
+    }
+}
+
+/// Resolve the blob CAS cursors handle for `method`, or the final routing/error
+/// outcome when the substrate is disabled (no persist dir configured): a blob
+/// method gets an explicit error response, any other method falls through the
+/// dispatch chain via `Err(method)` (routing convention).
+async fn resolve_cursors(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    method: &Method,
+) -> Result<Arc<BlobCursors>, Result<Response, Method>> {
+    let s = state.read().await;
+    match &s.blob {
+        Some(cursors) => Ok(cursors.clone()),
+        None if is_blob_method(method) => Err(Ok(Response::err(
+            req_id,
+            "Blob substrate disabled (no persist dir configured)",
+        ))),
+        None => Err(Err(method.clone())),
     }
 }
 
@@ -324,20 +332,22 @@ async fn handle_blob_chunk_get(
     }
 }
 
+// `Response`, not `Result<Response, Method>`: this handler is only ever reached for
+// `Method::BlobFetchEnd` (already matched by the caller) and never falls through the
+// dispatch chain, so an `Err(Method)` arm can never be constructed here. Clippy's
+// `result_large_err` correctly flags a `Method` (an enum whose largest variant carries
+// full request payloads) in an `Err` position that is dead weight on every call.
 fn handle_blob_fetch_end(
     cursors: &BlobCursors,
     req_id: u64,
     authority: &CarrierAuthority,
     cursor: u64,
-) -> Result<Response, Method> {
+) -> Response {
     if let Err(error) = cursors.authorize_fetch(cursor, authority.owner_scope()) {
-        return Ok(Response::err(req_id, error));
+        return Response::err(req_id, error);
     }
     cursors.close_fetch(cursor);
-    Ok(Response::ok(
-        req_id,
-        ResultPayload::scalar::<results::BlobFetchEnd>(true),
-    ))
+    Response::ok(req_id, ResultPayload::scalar::<results::BlobFetchEnd>(true))
 }
 
 async fn handle_blob_ref(

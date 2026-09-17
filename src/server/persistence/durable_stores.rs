@@ -501,9 +501,43 @@ mod tests {
     /// each one to be classified — bundled, deliberately excluded (with a reason),
     /// retired, or explicitly not a persist-dir store. An unclassified name fails here,
     /// at the point the store is introduced, instead of at a restore years later.
-    #[test]
-    fn registry_covers_every_redb_store() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    /// Extract `*.redb` filename literals from one source file's text into `names`
+    /// (the `".redb\""` scan half of [`scan_redb_store_names`]).
+    fn collect_redb_literals(text: &str, names: &mut std::collections::BTreeSet<String>) {
+        let mut rest = text;
+        while let Some(end) = rest.find(".redb\"") {
+            let head = &rest[..end];
+            rest = &rest[end + 6..];
+            let Some(start) = head.rfind('"') else {
+                continue;
+            };
+            let stem = &head[start + 1..];
+            if stem.is_empty() {
+                // This scanner's own search literal, `".redb\""`.
+                continue;
+            }
+            let name = format!("{stem}.redb");
+            // `graph-<n>.redb` shards are discovered by index, never by name.
+            if name.starts_with("graph-") {
+                continue;
+            }
+            // Only a bare file name is a candidate. This filters interpolated
+            // temp names (`format!("eg-tsdb-{}.redb", ...)`) and prose that
+            // happens to end a string literal with a store name.
+            if !name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+            {
+                continue;
+            }
+            names.insert(name);
+        }
+    }
+
+    /// Walk `src/` and `crates/` under `root`, collecting every `*.redb` filename
+    /// literal found in `.rs` source files — the directory-walk half of
+    /// [`registry_covers_every_redb_store`]'s anti-rot scan.
+    fn scan_redb_store_names(root: &Path) -> std::collections::BTreeSet<String> {
         let mut names: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
         let mut stack = vec![root.join("src"), root.join("crates")];
         while let Some(dir) = stack.pop() {
@@ -529,36 +563,16 @@ mod tests {
                 let Ok(text) = std::fs::read_to_string(&path) else {
                     continue;
                 };
-                let mut rest = text.as_str();
-                while let Some(end) = rest.find(".redb\"") {
-                    let head = &rest[..end];
-                    rest = &rest[end + 6..];
-                    let Some(start) = head.rfind('"') else {
-                        continue;
-                    };
-                    let stem = &head[start + 1..];
-                    if stem.is_empty() {
-                        // This scanner's own search literal, `".redb\""`.
-                        continue;
-                    }
-                    let name = format!("{stem}.redb");
-                    // `graph-<n>.redb` shards are discovered by index, never by name.
-                    if name.starts_with("graph-") {
-                        continue;
-                    }
-                    // Only a bare file name is a candidate. This filters interpolated
-                    // temp names (`format!("eg-tsdb-{}.redb", ...)`) and prose that
-                    // happens to end a string literal with a store name.
-                    if !name
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
-                    {
-                        continue;
-                    }
-                    names.insert(name);
-                }
+                collect_redb_literals(&text, &mut names);
             }
         }
+        names
+    }
+
+    #[test]
+    fn registry_covers_every_redb_store() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let names = scan_redb_store_names(root);
         assert!(
             names.len() > 5,
             "the source scan found almost nothing ({names:?}); it is not doing its job"

@@ -632,14 +632,20 @@ def _check_mutation_policy(capabilities: str, cdc: str) -> None:
         "idempotent: false" in create_policy and "idempotent: false" in tag_policy,
         "state-dependent create/tag results can enter cross-request replay caching",
     )
+    # `emit_for_method`'s CreateNodeIfAbsent/CompareAndSetNodeFields/etc. arms used to
+    # be separate top-level tuple-match arms keyed on `(Method, CdcPre)` directly; they
+    # are now dispatched (still exhaustively, per method) through `emit_node_change`,
+    # which `emit_for_method` calls once `CdcPre::Node`'s `before` is already unpacked.
+    # Re-anchor on that helper the same way `method_policy_body`'s docstring already
+    # explains doing for the method-policy table: the literal text moved, the property
+    # (a losing create emits no row-update event) did not.
     create_cdc = delimited_body(
         cdc,
-        "(Method::CreateNodeIfAbsent { node_id, .. }, CdcPre::Node { before: None, .. "
-        "})",
-        "(Method::CompareAndSetNodeFields",
+        "Method::CreateNodeIfAbsent { node_id, .. } => match before {",
+        "Method::CompareAndSetNodeFields",
     )
     require(
-        "before: Some(_)" in create_cdc
+        "Some(_) => {}" in create_cdc
         and "A losing create is a durable false result, not a row update."
         in create_cdc,
         "a losing create-if-absent emits a false row-update CDC event",
@@ -1093,7 +1099,10 @@ def main() -> None:
     graph_handler = read_module_tree("src/server/handlers/graph_ops.rs", root_dir=ROOT)
     access = read("src/server/access.rs")
     broker = read("crates/eg-core/src/broker.rs")
-    cdc = read("src/server/cdc.rs")
+    # `emit_for_method` and its dispatch helpers moved to `cdc/dispatch.rs` (KISS
+    # `lines_per_file` budget on cdc.rs) -- union both, same pattern as
+    # `mutation_apply`'s hoist-union above.
+    cdc = read("src/server/cdc.rs") + "\n" + read("src/server/cdc/dispatch.rs")
 
     _check_protocol(protocol, wire)
     _check_query_contract(schema, sql_exec, sql_mod, query_lib, plan_exec)

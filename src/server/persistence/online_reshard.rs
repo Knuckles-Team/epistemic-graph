@@ -496,7 +496,6 @@ fn row_change<T: Clone + PartialEq>(bulk: &Option<T>, latest: &Option<T>) -> Opt
 /// Diff the LATEST source rows against the BULK snapshot already on `dst` (CONCEPT:EG-KG.backend.flush-pending-first).
 /// Emits only what changed: new/changed-blob rows to upsert + vanished rows to remove.
 pub(crate) fn compute_delta(bulk: &RawGraphRows, latest: &RawGraphRows) -> RawGraphDelta {
-    use std::collections::HashMap;
     let mut delta = RawGraphDelta {
         semantic: row_change(&bulk.semantic, &latest.semantic),
         requires_graft_reservation: bulk.requires_graft_reservation,
@@ -507,68 +506,9 @@ pub(crate) fn compute_delta(bulk: &RawGraphRows, latest: &RawGraphRows) -> RawGr
         delta.meta = latest.meta.clone();
     }
 
-    // Nodes: keyed by id. Upsert new/changed; remove ids gone from `latest`.
-    let base_nodes: HashMap<&str, &Vec<u8>> =
-        bulk.nodes.iter().map(|(k, v)| (k.as_str(), v)).collect();
-    let latest_node_ids: std::collections::HashSet<&str> =
-        latest.nodes.iter().map(|(k, _)| k.as_str()).collect();
-    for (id, blob) in &latest.nodes {
-        match base_nodes.get(id.as_str()) {
-            Some(prev) if *prev == blob => {}
-            _ => delta.upsert_nodes.push((id.clone(), blob.clone())),
-        }
-    }
-    for (id, _) in &bulk.nodes {
-        if !latest_node_ids.contains(id.as_str()) {
-            delta.remove_nodes.push(id.clone());
-        }
-    }
-
-    // Edges: keyed by (src, tgt, ordinal).
-    type EdgeKey = (String, String, u32);
-    let base_edges: HashMap<EdgeKey, &Vec<u8>> = bulk
-        .edges
-        .iter()
-        .map(|(s, t, o, v)| ((s.clone(), t.clone(), *o), v))
-        .collect();
-    let latest_edge_keys: std::collections::HashSet<EdgeKey> = latest
-        .edges
-        .iter()
-        .map(|(s, t, o, _)| (s.clone(), t.clone(), *o))
-        .collect();
-    for (s, t, o, blob) in &latest.edges {
-        let key = (s.clone(), t.clone(), *o);
-        match base_edges.get(&key) {
-            Some(prev) if *prev == blob => {}
-            _ => delta
-                .upsert_edges
-                .push((s.clone(), t.clone(), *o, blob.clone())),
-        }
-    }
-    for (s, t, o, _) in &bulk.edges {
-        let key = (s.clone(), t.clone(), *o);
-        if !latest_edge_keys.contains(&key) {
-            delta.remove_edges.push(key);
-        }
-    }
-
-    // Ledger is append-only: copy entries with seq beyond the bulk's tail.
-    let base_ledger_max = bulk.ledger.iter().map(|(seq, _)| *seq).max();
-    for (seq, line) in &latest.ledger {
-        if base_ledger_max.is_none_or(|m| *seq > m) {
-            delta.upsert_ledger.push((*seq, line.clone()));
-        }
-    }
-
-    #[cfg(feature = "security")]
-    {
-        let base_audit_max = bulk.audit.iter().map(|(seq, _)| *seq).max();
-        for (seq, blob) in &latest.audit {
-            if base_audit_max.is_none_or(|m| *seq > m) {
-                delta.upsert_audit.push((*seq, blob.clone()));
-            }
-        }
-    }
+    diff::diff_nodes(bulk, latest, &mut delta);
+    diff::diff_edges(bulk, latest, &mut delta);
+    diff::diff_ledger_and_audit(bulk, latest, &mut delta);
 
     if bulk.change != latest.change {
         delta.replace_change = Some(Box::new(latest.change.clone()));
@@ -577,6 +517,11 @@ pub(crate) fn compute_delta(bulk: &RawGraphRows, latest: &RawGraphRows) -> RawGr
 
     delta
 }
+
+/// [`compute_delta`]'s per-table diff halves (`diff_nodes`/`diff_edges`/
+/// `diff_ledger_and_audit`), split out so this file's graft/reshard/migration
+/// machinery has room under the KISS `lines_per_file` budget.
+mod diff;
 
 /// The same "replace the whole set atomically when anything in it changed" diff as
 /// `compute_delta`'s change check, extended to the tables WD5-BUG-04 found missing

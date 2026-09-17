@@ -384,25 +384,8 @@ pub(crate) fn build_graph_with_set(
     let mut adjacency: Vec<(String, Vec<(String, f64)>)> = Vec::with_capacity(owners.len());
     let mut edge_ids: HashSet<(String, String)> = HashSet::new();
     for (owner, _blob) in &owners {
-        let neighbors = neighbors_in_direction(core, owner, &source.direction);
-        let mut nbrs: Vec<(String, f64)> = Vec::new();
-        for nbr in neighbors {
-            if !id_set.contains(&nbr) || &nbr == owner {
-                continue; // only intra-label, non-self links
-            }
-            if let Some(rel) = &source.relation {
-                if !edge_matches_relation(core, owner, &nbr, &source.direction, rel) {
-                    continue;
-                }
-            }
-            nbrs.push((nbr.clone(), 1.0));
-            let key = if owner < &nbr {
-                (owner.clone(), nbr.clone())
-            } else {
-                (nbr.clone(), owner.clone())
-            };
-            edge_ids.insert(key);
-        }
+        let (nbrs, edges) = owner_edges(core, source, &id_set, owner);
+        edge_ids.extend(edges);
         adjacency.push((owner.clone(), nbrs));
     }
     let graph = AdjacencyGraph::from_adjacency(adjacency);
@@ -414,6 +397,44 @@ pub(crate) fn build_graph_with_set(
         })
         .collect();
     (graph, edge_set)
+}
+
+/// Neighbor edges out of `owner`, restricted to intra-label links (`id_set`) and, when
+/// `source.relation` is set, to edges matching that relation. Returns the adjacency-list
+/// entries for `owner` plus the raw (unordered) neighbor id pairs to fold into the
+/// dedup'd edge id set — split out of [`build_graph_with_set`] so the per-neighbor
+/// filtering nests inside its own function instead of a loop-in-a-loop.
+/// `owner_edges`'s return: the adjacency-list entries for one owner, and the raw
+/// neighbor id pairs to fold into the dedup'd edge id set. Named per clippy's
+/// `type_complexity` (a nested-tuple return reads as noise inline).
+type OwnerEdges = (Vec<(String, f64)>, Vec<(String, String)>);
+
+fn owner_edges(
+    core: &GraphCore,
+    source: &GraphSource,
+    id_set: &HashSet<String>,
+    owner: &str,
+) -> OwnerEdges {
+    let mut nbrs: Vec<(String, f64)> = Vec::new();
+    let mut edges: Vec<(String, String)> = Vec::new();
+    for nbr in neighbors_in_direction(core, owner, &source.direction) {
+        if !id_set.contains(&nbr) || nbr == owner {
+            continue; // only intra-label, non-self links
+        }
+        if let Some(rel) = &source.relation {
+            if !edge_matches_relation(core, owner, &nbr, &source.direction, rel) {
+                continue;
+            }
+        }
+        nbrs.push((nbr.clone(), 1.0));
+        let key = if owner < nbr.as_str() {
+            (owner.to_string(), nbr.clone())
+        } else {
+            (nbr.clone(), owner.to_string())
+        };
+        edges.push(key);
+    }
+    (nbrs, edges)
 }
 
 fn neighbors_in_direction(core: &GraphCore, node_id: &str, direction: &str) -> Vec<String> {

@@ -259,52 +259,72 @@ pub async fn offload_cold_tenants(
     };
 
     let mut offloaded = 0u64;
-    for handle in entries {
-        let name = &handle.name;
-        if name.as_str() == "__commons__"
-            || !cold.contains(name)
-            || !tracker.is_cold_for(name, &handle.incarnation_id, idle_window)
-            || tracker.is_offloaded_for(name, &handle.incarnation_id)
-        {
-            continue;
-        }
-        // Lifecycle work and ordinary writes share this lane.  This prevents
-        // a delete/recreate or concurrent write from changing the durable
-        // authority between the presence check and hibernation.
-        let _lifecycle_guard = crate::server::mutation_batch::lock_graph(name).await;
-        let persistence = {
-            let s = state.read().await;
-            if !s.registry.is_current_handle(&handle) {
-                continue;
-            }
-            s.persistence.clone()
-        };
-        let Some(persistence) = persistence else {
-            continue;
-        };
-        if handle.core.node_count() == 0 {
-            continue; // nothing resident to drop
-        }
-        if let Some(freed) = offload_graph_core(&handle.core, &persistence, name) {
-            if freed > 0 {
-                // U-148 / BUG-130: `offload_graph_core` only drops this graph's RAM
-                // (`GraphCore::hibernate`) — it never removes the registry's residency
-                // entry. Left as-is, `is_resident(name)` stays `true` with zero
-                // topology, so the lazy-open dispatch path never rehydrates it and
-                // every whole-graph read (Cypher, counts, traversal) observes a
-                // permanently empty snapshot. Mirror `admit_capacity`'s already-correct
-                // pattern: transition the now durability-confirmed-empty entry to
-                // catalog-only so the NEXT access takes the existing bounded durable
-                // lazy-open instead.
-                let mut s = state.write().await;
-                if s.registry.evict_resident_if_current(&handle) {
-                    tracker.mark_offloaded(&handle);
-                    offloaded += 1;
-                }
-            }
+    for handle in &entries {
+        if offload_one_cold_tenant(state, tracker, &cold, idle_window, handle).await {
+            offloaded += 1;
         }
     }
     offloaded
+}
+
+/// One candidate's worth of [`offload_cold_tenants`]: still cold and current, durably
+/// confirmed empty-able, and actually freed. Returns whether it was offloaded (the
+/// registry's residency entry evicted). Split out so the sweep loop stays a single
+/// early-return dispatch instead of nested conditionals four deep.
+async fn offload_one_cold_tenant(
+    state: &Arc<RwLock<ServerState>>,
+    tracker: &ColdTenantTracker,
+    cold: &HashSet<String>,
+    idle_window: Duration,
+    handle: &GraphHandle,
+) -> bool {
+    let name = &handle.name;
+    if name.as_str() == "__commons__"
+        || !cold.contains(name)
+        || !tracker.is_cold_for(name, &handle.incarnation_id, idle_window)
+        || tracker.is_offloaded_for(name, &handle.incarnation_id)
+    {
+        return false;
+    }
+    // Lifecycle work and ordinary writes share this lane.  This prevents
+    // a delete/recreate or concurrent write from changing the durable
+    // authority between the presence check and hibernation.
+    let _lifecycle_guard = crate::server::mutation_batch::lock_graph(name).await;
+    let persistence = {
+        let s = state.read().await;
+        if !s.registry.is_current_handle(handle) {
+            return false;
+        }
+        s.persistence.clone()
+    };
+    let Some(persistence) = persistence else {
+        return false;
+    };
+    if handle.core.node_count() == 0 {
+        return false; // nothing resident to drop
+    }
+    let Some(freed) = offload_graph_core(&handle.core, &persistence, name) else {
+        return false;
+    };
+    if freed == 0 {
+        return false;
+    }
+    // U-148 / BUG-130: `offload_graph_core` only drops this graph's RAM
+    // (`GraphCore::hibernate`) — it never removes the registry's residency
+    // entry. Left as-is, `is_resident(name)` stays `true` with zero
+    // topology, so the lazy-open dispatch path never rehydrates it and
+    // every whole-graph read (Cypher, counts, traversal) observes a
+    // permanently empty snapshot. Mirror `admit_capacity`'s already-correct
+    // pattern: transition the now durability-confirmed-empty entry to
+    // catalog-only so the NEXT access takes the existing bounded durable
+    // lazy-open instead.
+    let mut s = state.write().await;
+    if s.registry.evict_resident_if_current(handle) {
+        tracker.mark_offloaded(handle);
+        true
+    } else {
+        false
+    }
 }
 
 // ── Bounded hot-context cache: admission control + lazy open (CONCEPT:EG-KG.sharding.lazy-graph-catalog,
@@ -1448,6 +1468,63 @@ mod admission_tests {
             .await
             .registry
             .is_resident(&format!("quota:{}", n - 1)));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Pins [`offload_cold_tenants`]'s R6 idle sweep end to end: every resident graph
+    /// touched at least `idle_window` ago is durability-gated and evicted to
+    /// catalog-only (never merely hibernated — `is_resident` must go false, not just
+    /// `node_count`), `__commons__` is NEVER swept even though it is just as cold, and
+    /// the tracker's offload bookkeeping (`offloaded_total`, `is_offloaded_for`)
+    /// reflects exactly what was evicted. `Duration::ZERO` makes "touched, then never
+    /// touched again" cold without a real sleep — any elapsed time already satisfies
+    /// `>= idle_window`.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn cold_sweep_evicts_idle_graphs_but_never_commons() {
+        let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+        let dir = std::env::temp_dir().join(format!("eg-cold-sweep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let dir_s = dir.to_string_lossy().to_string();
+        let state = redb_state(&dir_s).await;
+
+        create(&state, 1, "cold:a").await;
+        create(&state, 2, "cold:b").await;
+        add_node(&state, 10, "cold:a", "seed").await;
+        add_node(&state, 11, "cold:b", "seed").await;
+        assert!(state.read().await.registry.is_resident("cold:a"));
+        assert!(state.read().await.registry.is_resident("cold:b"));
+        assert!(state.read().await.registry.is_resident("__commons__"));
+
+        let tracker = state.read().await.cold_tracker.clone();
+        let offloaded =
+            super::offload_cold_tenants(&state, &tracker, std::time::Duration::ZERO).await;
+
+        assert_eq!(offloaded, 2, "both idle graphs offloaded, commons excluded");
+        assert!(
+            !state.read().await.registry.is_resident("cold:a"),
+            "cold:a evicted to catalog-only, not merely hibernated"
+        );
+        assert!(
+            !state.read().await.registry.is_resident("cold:b"),
+            "cold:b evicted to catalog-only, not merely hibernated"
+        );
+        assert!(
+            state.read().await.registry.is_resident("__commons__"),
+            "__commons__ is never offloaded by the idle sweep, however cold"
+        );
+        assert_eq!(tracker.offloaded_total(), 2);
+        assert!(tracker.is_offloaded("cold:a"));
+        assert!(tracker.is_offloaded("cold:b"));
+
+        // A repeat sweep offloads nothing more: both are already catalog-only (no
+        // resident core to drop) and already marked offloaded.
+        let offloaded_again =
+            super::offload_cold_tenants(&state, &tracker, std::time::Duration::ZERO).await;
+        assert_eq!(
+            offloaded_again, 0,
+            "nothing left to offload on a repeat sweep"
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
