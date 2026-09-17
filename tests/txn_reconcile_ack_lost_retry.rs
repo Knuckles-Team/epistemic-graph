@@ -94,17 +94,37 @@ fn carrier_tenant_scope(raw_tenant: &str) -> String {
     opaque_coordinator_key("carrier-tenant", "verified", raw_tenant)
 }
 
+/// Reproduce `handlers::txn::receipts::commit_receipt_id` (crate-private) for
+/// the keyed signed Commit: the durable parent receipt id is the tenant-scoped
+/// operation id `transaction-receipt:<digest>` prefixed by its verifiable tenant
+/// binding, `<transaction-receipt-scope:digest>:<operation id>`. The cross-modal
+/// child batch id is derived from this WHOLE id, so a mirror that stops at the
+/// operation id names a batch that never exists.
 fn fault_parent_id() -> String {
-    let scoped_key = opaque_coordinator_key(
-        "transaction-receipt-tenant",
-        &carrier_tenant_scope(TEST_TENANT_CLAIM),
-        FAULT_COMMIT_KEY,
-    );
-    opaque_coordinator_key("transaction-receipt", "idempotency", &scoped_key)
+    let tenant = carrier_tenant_scope(TEST_TENANT_CLAIM);
+    let scoped_key =
+        opaque_coordinator_key("transaction-receipt-tenant", &tenant, FAULT_COMMIT_KEY);
+    let operation_id = opaque_coordinator_key("transaction-receipt", "idempotency", &scoped_key);
+    let binding = opaque_coordinator_key("transaction-receipt-scope", &tenant, &operation_id);
+    format!("{binding}:{operation_id}")
 }
 
+/// The cross-modal child batch id `reconcile_committed_txn` looks up for the
+/// fault parent (`opaque_coordinator_key("crossmodal", graph, parent id)`).
 fn fault_child_id() -> String {
     opaque_coordinator_key("crossmodal", FAULT_GRAPH, &fault_parent_id())
+}
+
+/// Durable status of the fault transaction's cross-modal child batch, or `None`
+/// when no child batch was committed under [`fault_child_id`].
+async fn durable_fault_child_status(
+    backend: &test_support::SharedPersistence,
+) -> Option<MutationBatchStatus> {
+    backend
+        .read_mutation_batch(FAULT_GRAPH, &fault_child_id())
+        .await
+        .expect("inspect the durable cross-modal child batch")
+        .map(|record| record.status)
 }
 
 fn inspect_admin_recovery_counts(
@@ -612,17 +632,14 @@ async fn signed_dispatch_commit_fault_windows_recover_parent_once() {
             prepared_before_retry, 1,
             "{phase} restart must expose exactly one durable Prepared transaction parent"
         );
-        let child_record = backend
-            .read_mutation_batch(FAULT_GRAPH, &fault_child_id())
-            .await
-            .expect("inspect the durable cross-modal child before retry");
+        let child_status = durable_fault_child_status(&backend).await;
         match phase {
-            "before_commit" => assert!(
-                child_record.is_none(),
+            "before_commit" => assert_eq!(
+                child_status, None,
                 "before_commit abort must leave no durable child batch"
             ),
             "after_commit_before_ack" => assert_eq!(
-                child_record.as_ref().map(|record| record.status),
+                child_status,
                 Some(MutationBatchStatus::Committed),
                 "after_commit_before_ack abort must leave the durable committed child"
             ),
@@ -699,6 +716,15 @@ async fn signed_dispatch_commit_fault_windows_recover_parent_once() {
         assert!(
             committed_after_recovery >= 1,
             "{phase} recovery must leave a durable terminal parent receipt"
+        );
+        // Both windows end with the one committed child under the id recovery
+        // derives from the durable parent. This also proves the pre-retry
+        // `None` of the before_commit window inspected the real child id rather
+        // than an id that could never exist.
+        assert_eq!(
+            durable_fault_child_status(&backend).await,
+            Some(MutationBatchStatus::Committed),
+            "{phase} recovery must leave the committed cross-modal child of the durable parent"
         );
 
         let core = state
