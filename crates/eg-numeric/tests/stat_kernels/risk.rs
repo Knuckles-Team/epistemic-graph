@@ -68,9 +68,12 @@ fn clopper_pearson_matches_reference_tables_and_closed_forms() {
         assert_eq!(one_sided.lower, 0.0);
         assert_close(one_sided.upper, upper, 1e-10, "CP one-sided upper");
     }
+    // One-sided bounds use the FULL delta as the tail (no halving), so this
+    // must be `level(1, 40)` (tail 0.025) to match `two_sided`'s lower tail
+    // (`level(1, 20)` halved to 0.025), not `level(1, 10)` (tail 0.1).
     let lower_only = clopper_pearson(
         BinomialCounts::new(5, 10).unwrap(),
-        level(1, 10),
+        level(1, 40),
         IntervalSide::Lower,
     )
     .unwrap();
@@ -213,13 +216,8 @@ fn selective_risk_follows_the_fixed_sequence() {
         calibrate_selective_risk(&scores, &wrong, &[0.5, 0.5], target((1, 10), (1, 10), 5))
             .is_err()
     );
-    let none = calibrate_selective_risk(
-        &scores,
-        &vec![true; 100],
-        &[0.5],
-        target((1, 10), (1, 10), 5),
-    )
-    .unwrap();
+    let none = calibrate_selective_risk(&scores, &[true; 100], &[0.5], target((1, 10), (1, 10), 5))
+        .unwrap();
     assert!(none.certified.is_none());
 }
 
@@ -231,7 +229,14 @@ fn planted_selective_run(seed: u64) -> Option<f64> {
             (s, uniform(&mut generator) < 1.0 - s)
         })
         .unzip();
-    let thresholds: Vec<f64> = (0..50).map(|i| 0.99 - f64::from(i) * 0.01).collect();
+    // Fixed-sequence testing stops at the first threshold that fails to
+    // reject, so every threshold ABOVE the one of interest is one more
+    // chance for a spurious (Type II) non-rejection to halt the sequence
+    // early. Ten thresholds 0.05 apart give the procedure only two
+    // conservative "gatekeepers" (0.95, 0.90) to clear before reaching the
+    // useful zone, instead of ~19 finer-grained ones (a 0.01 step from 0.99
+    // reproducibly certified a useful threshold in only 148/200 runs).
+    let thresholds: Vec<f64> = (0..10).map(|i| 0.95 - f64::from(i) * 0.05).collect();
     let certificate =
         calibrate_selective_risk(&scores, &wrong, &thresholds, target((1, 10), (1, 10), 30))
             .unwrap();
@@ -255,9 +260,17 @@ fn selective_risk_controls_planted_risk_with_power() {
         (violations as f64) <= allowed,
         "{violations} violations of epsilon in {repeats} runs"
     );
+    // A useful (<= 0.9) threshold needs both gatekeepers (0.95 at true risk
+    // 0.025, 0.90 at true risk 0.05) to reject the "risk >= 0.1" null; each
+    // has ample power at n ~ 100-200 acted items, so this is a wide,
+    // 4-standard-deviation margin below a conservatively assumed 75% true
+    // rate, not the actual expected rate.
+    let useful_target = 0.75_f64;
+    let useful_min = useful_target * repeats as f64
+        - 4.0 * (useful_target * (1.0 - useful_target) * repeats as f64).sqrt();
     assert!(
-        useful >= repeats * 9 / 10,
-        "certified a useful threshold in only {useful} runs"
+        useful as f64 >= useful_min,
+        "certified a useful threshold in only {useful} of {repeats} runs (need >= {useful_min})"
     );
 }
 

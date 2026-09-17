@@ -107,7 +107,7 @@ fn doubly_robust_requires_a_reward_model_on_every_record() {
         Propensity::new(1, 2).unwrap(),
     ];
     let bare = LoggedDecision::new(0, 1.0, mu, vec![0.5, 0.5]).unwrap();
-    assert!(doubly_robust(&[bare.clone()]).is_err());
+    assert!(doubly_robust(std::slice::from_ref(&bare)).is_err());
     assert!(switch(&[bare], 1.0).is_err());
 }
 
@@ -246,7 +246,7 @@ fn support_checks_find_the_unsupported_action_and_its_mass() {
             action: 1
         })
     ));
-    assert!(require_support(&[supported.clone()]).is_ok());
+    assert!(require_support(std::slice::from_ref(&supported)).is_ok());
     assert!(ips(&records).is_err());
     assert!(require_support(&[]).is_err());
 

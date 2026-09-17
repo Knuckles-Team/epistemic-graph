@@ -1,6 +1,6 @@
 //! Behaviour of the deterministic kernels against closed forms.
 
-use crate::common::{assert_close, level};
+use crate::common::{assert_close, fnv1a64, level};
 use eg_numeric::detkernel::kernels::{
     entropy, log_sigmoid, log_softmax, log_sum_exp, logit, sigmoid, softmax, softplus,
 };
@@ -111,6 +111,10 @@ fn quantisation_rounds_half_even_and_encodes_canonically() {
     expected.extend_from_slice(&2_147_483_648i64.to_be_bytes());
     expected.extend_from_slice(&(-4_294_967_296i64).to_be_bytes());
     assert_eq!(vector.canonical_bytes(), expected);
+    // Golden vector: the FNV-1a64 fingerprint of these exact canonical bytes,
+    // computed independently. A change here means a digest computed from
+    // `canonical_bytes()` would replay differently on a committed record.
+    assert_eq!(fnv1a64(&vector.canonical_bytes()), 0xd38402a48417b4db);
     assert_eq!(
         QuantisedVector::from_f64s(&[0.0, f64::INFINITY], QuantScale::Pico),
         Err(StatError::NonFinite {
