@@ -67,6 +67,8 @@ use crate::protocol::{GraphType, Method};
 use crate::registry::GraphRegistry;
 
 #[cfg(feature = "redb")]
+mod replay;
+#[cfg(feature = "redb")]
 mod store;
 #[cfg(feature = "redb")]
 use store::EmbeddedRedbStore;
@@ -165,89 +167,7 @@ impl EmbeddedEngine {
                     let store = EmbeddedRedbStore::open(dir)?;
                     // Replay the durable store into the fresh registry (the SAME
                     // reconstruction the server's redb load_all does).
-                    let dumps = store.load_all()?;
-                    {
-                        let mut reg = registry.write();
-                        for dump in dumps {
-                            // `GraphRegistry::new` seeds an in-memory
-                            // `__commons__` placeholder so in-memory callers
-                            // can use it immediately. A durable commons dump
-                            // is a committed image, however, and must replace
-                            // that placeholder so its authoritative
-                            // Graph(version) is adopted before publication.
-                            // Replaying rows into the bootstrap core leaves
-                            // its version at zero and makes the next
-                            // checkpoint look stale.
-                            if dump.name == "__commons__" {
-                                let semantic_store = if dump.semantic.is_empty() {
-                                    crate::compute::semantic::SemanticStore::new()
-                                } else {
-                                    rmp_serde::from_slice::<
-                                        crate::compute::semantic::SemanticStore,
-                                    >(&dump.semantic)
-                                    .map_err(|error| {
-                                        format!(
-                                            "failed to decode durable __commons__ semantic store: {error}"
-                                        )
-                                    })?
-                                };
-                                let snapshot = crate::graph::GraphSnapshot {
-                                    schema_version: crate::graph::GRAPH_SNAPSHOT_SCHEMA_VERSION,
-                                    integrity_policy: dump.integrity_policy,
-                                    nodes: dump
-                                        .nodes
-                                        .into_iter()
-                                        .map(|(id, properties)| (id, Arc::new(properties)))
-                                        .collect(),
-                                    edges: dump
-                                        .edges
-                                        .into_iter()
-                                        .map(|(source, target, properties)| {
-                                            (source, target, Arc::new(properties))
-                                        })
-                                        .collect(),
-                                    ledger: dump.ledger,
-                                    semantic_store,
-                                };
-                                reg.install_committed_graph(
-                                    "__commons__",
-                                    dump.graph_type,
-                                    None,
-                                    dump.incarnation_id,
-                                    snapshot,
-                                    dump.source_snapshot_version,
-                                )?;
-                                continue;
-                            }
-                            if !reg.exists(&dump.name) {
-                                let _ = reg.create_graph_with_incarnation(
-                                    &dump.name,
-                                    dump.graph_type,
-                                    None,
-                                    dump.incarnation_id.clone(),
-                                    dump.source_snapshot_version,
-                                );
-                            }
-                            if let Some(core) = reg.get(&dump.name).map(|e| e.core.clone()) {
-                                core.install_integrity_policy(dump.integrity_policy.clone());
-                                for (id, props) in dump.nodes {
-                                    core.add_node(id, props);
-                                }
-                                for (src, tgt, props) in dump.edges {
-                                    let _ = core.add_edge(src, tgt, props);
-                                }
-                                if !dump.semantic.is_empty() {
-                                    if let Ok(s) =
-                                        rmp_serde::from_slice::<
-                                            crate::compute::semantic::SemanticStore,
-                                        >(&dump.semantic)
-                                    {
-                                        *core.semantic_store.write() = s;
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    replay::replay_durable_dumps(&registry, store.load_all()?)?;
                     Some(store)
                 }
                 _ => None,
