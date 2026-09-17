@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use eg_storage::RecordedOperation;
 use eg_transaction::{MutationKernel, ReplayResolution};
 use eg_types::mutation::{MutationReceipt, MutationResult};
 use eg_types::mutation_batch::{MutationBatchStatus, MutationOutboxIntent};
@@ -12,9 +11,9 @@ use eg_types::{
 
 use super::receipt::agent_library_effect_digest;
 use super::{
-    agent_library_operations, batch_id, AGENT_LIBRARY_OUTBOX_SCHEMA_VERSION,
-    AGENT_LIBRARY_OUTBOX_TOPIC, AGENT_LIBRARY_RESULT_SCHEMA_ID,
+    agent_library_operations, batch_id, AGENT_LIBRARY_OUTBOX_TOPIC, AGENT_LIBRARY_RESULT_SCHEMA_ID,
 };
+use crate::server::persistence::agent_revision::recorded_receipt;
 
 /// What the caller believes its idempotency key committed.  A replayed receipt
 /// is only safe to return when the recorded entry matches this expectation.
@@ -51,7 +50,7 @@ pub(super) fn replayed_receipt(
     context: &AgentLibraryMutationContext,
     expected: ExpectedAgentLibraryMutation<'_>,
 ) -> Result<Option<(AgentLibraryWriteResult, MutationReceipt)>, String> {
-    let Some(receipt) = recorded_replay_receipt(replay)? else {
+    let Some(receipt) = recorded_receipt(replay, "Agent Library")? else {
         return Ok(None);
     };
     validate_replay_receipt_identity(&receipt, operation)?;
@@ -73,31 +72,6 @@ pub(super) fn replayed_receipt(
         },
     )?;
     Ok(Some((stable_result.response(true), receipt)))
-}
-
-fn recorded_replay_receipt(replay: ReplayResolution) -> Result<Option<MutationReceipt>, String> {
-    let recorded = match replay {
-        ReplayResolution::Fresh => return Ok(None),
-        ReplayResolution::NonceRejected { idempotency_key } => {
-            return Err(format!(
-                "REPLAY_NONCE_CONSUMED: attempt nonce already consumed by '{idempotency_key}'"
-            ));
-        }
-        ReplayResolution::Conflict { .. } => {
-            return Err(
-                "IDEMPOTENCY_CONFLICT: key was already used by a different Agent Library mutation"
-                    .to_string(),
-            );
-        }
-        ReplayResolution::ReplayedResult(recorded) => *recorded,
-    };
-    let RecordedOperation::Receipt(receipt) = recorded else {
-        return Err(
-            "CORRUPT_MUTATION_LEDGER: Agent Library replay is missing its typed receipt"
-                .to_string(),
-        );
-    };
-    Ok(Some(*receipt))
 }
 
 fn validate_replay_receipt_identity(
@@ -543,59 +517,7 @@ fn replay_event_content_matches(
 pub(super) fn expected_headers_from_event(
     event: &AgentLibraryOutboxEvent,
 ) -> BTreeMap<String, String> {
-    BTreeMap::from([
-        (
-            "schema_version".to_string(),
-            AGENT_LIBRARY_OUTBOX_SCHEMA_VERSION.to_string(),
-        ),
-        ("tenant_id".to_string(), event.entry.tenant_id.clone()),
-        ("agent_id".to_string(), event.entry.agent_id.clone()),
-        (
-            "entry_revision".to_string(),
-            event.entry.entry_revision.to_string(),
-        ),
-        (
-            "definition_digest".to_string(),
-            event.entry.definition_digest.clone(),
-        ),
-        (
-            "definition_actor_scope".to_string(),
-            event.entry.actor_scope.clone(),
-        ),
-        (
-            "definition_purpose_id".to_string(),
-            event.entry.purpose_id.clone(),
-        ),
-        (
-            "definition_policy_digest".to_string(),
-            event.entry.policy_digest.clone(),
-        ),
-        ("actor".to_string(), event.performing_actor.clone()),
-        (
-            "action_actor_scope".to_string(),
-            event.action_actor_scope.clone(),
-        ),
-        (
-            "action_purpose_id".to_string(),
-            event.action_purpose_id.clone(),
-        ),
-        (
-            "action_policy_revision".to_string(),
-            event.action_policy_revision.clone(),
-        ),
-        (
-            "action_policy_digest".to_string(),
-            event.action_policy_digest.clone(),
-        ),
-        (
-            "action_policy_decision_id".to_string(),
-            event.action_policy_decision_id.clone(),
-        ),
-        (
-            "source_revision_digest".to_string(),
-            event.entry.source_revision_digest.clone(),
-        ),
-    ])
+    super::batch::library_outbox_headers(&event.entry, super::batch::ActionHeaders::of_event(event))
 }
 
 pub(super) fn record_result(

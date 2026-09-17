@@ -1,8 +1,11 @@
 // Existing Agent Graph cross-record and composition tests.
 
-use super::tests::{agent_node, component, context, digest, draft, open_store, shape};
+use super::tests::{
+    child_shape, context, digest, draft, open_store, parent_shape, publish_shape, shape,
+    try_publish,
+};
 use super::*;
-use eg_types::agent_graph::{AgentGraphEdge, AgentGraphNode, AgentGraphNodeKind, AgentGraphShape};
+use eg_types::agent_graph::AgentGraphNodeKind;
 
 #[test]
 fn a_graph_instantiating_a_template_resolves_it_and_refuses_a_ghost() {
@@ -19,11 +22,7 @@ fn a_graph_instantiating_a_template_resolves_it_and_refuses_a_ghost() {
         definition_digest: template_digest.clone(),
         bindings: BTreeMap::new(),
     };
-    store
-        .publish_graph(AgentGraphPublishRequest {
-            context: context(&store, "tenant-a", "key-1", 1, 0, "agent-graph:publish"),
-            graph: graph.clone(),
-        })
+    try_publish(&store, "key-1", 1, 0, graph.clone())
         .expect("a template node pinning a real template publishes");
 
     // And the same shape naming a template nothing carries does not.
@@ -33,11 +32,7 @@ fn a_graph_instantiating_a_template_resolves_it_and_refuses_a_ghost() {
         definition_digest: template_digest,
         bindings: BTreeMap::new(),
     };
-    let error = store
-        .publish_graph(AgentGraphPublishRequest {
-            context: context(&store, "tenant-a", "key-2", 2, 0, "agent-graph:publish"),
-            graph: ghost,
-        })
+    let error = try_publish(&store, "key-2", 2, 0, ghost)
         .expect_err("an unresolvable template pin must be refused");
     assert!(
         error.contains("which does not exist in this tenant"),
@@ -52,88 +47,6 @@ fn a_graph_instantiating_a_template_resolves_it_and_refuses_a_ghost() {
 // `resolve_composed_graph` -- the one reference edge this hierarchy
 // actually resolved -- had no coverage at all, and neither did the composed
 // ceiling that admission stamps from it.
-
-/// The child: one agent, then end, producing `contract:report`.
-fn child_shape(store: &AgentLibraryStore, tenant_id: &str, max_iterations: u32) -> AgentGraphShape {
-    AgentGraphShape {
-        entry_node: "work".into(),
-        nodes: vec![
-            AgentGraphNode {
-                node_id: "work".into(),
-                kind: agent_node(store, tenant_id, "agent:work"),
-                deps_contract: None,
-                output_contract: Some(component(store, tenant_id, "contract:report")),
-            },
-            AgentGraphNode {
-                node_id: "done".into(),
-                kind: AgentGraphNodeKind::End,
-                deps_contract: None,
-                output_contract: None,
-            },
-        ],
-        edges: vec![AgentGraphEdge {
-            from: "work".into(),
-            to: "done".into(),
-            condition: None,
-        }],
-        max_iterations,
-    }
-}
-
-/// A parent whose single step runs the named child graph, pinned by shape.
-fn parent_shape(
-    store: &AgentLibraryStore,
-    tenant_id: &str,
-    child_id: &str,
-    child_shape_digest: &str,
-    max_iterations: u32,
-) -> AgentGraphShape {
-    AgentGraphShape {
-        entry_node: "team".into(),
-        nodes: vec![
-            AgentGraphNode {
-                node_id: "team".into(),
-                kind: AgentGraphNodeKind::Graph {
-                    graph_id: child_id.into(),
-                    shape_digest: child_shape_digest.into(),
-                },
-                deps_contract: None,
-                output_contract: Some(component(store, tenant_id, "contract:report")),
-            },
-            AgentGraphNode {
-                node_id: "done".into(),
-                kind: AgentGraphNodeKind::End,
-                deps_contract: None,
-                output_contract: None,
-            },
-        ],
-        edges: vec![AgentGraphEdge {
-            from: "team".into(),
-            to: "done".into(),
-            condition: None,
-        }],
-        max_iterations,
-    }
-}
-
-fn publish_shape(
-    store: &AgentLibraryStore,
-    graph_id: &str,
-    shape: AgentGraphShape,
-    key: &str,
-    nonce: u8,
-) -> AgentGraphEntry {
-    let mut graph = draft(store, "tenant-a", graph_id);
-    graph.shape = shape;
-    store
-        .publish_graph(AgentGraphPublishRequest {
-            context: context(store, "tenant-a", key, nonce, 0, "agent-graph:publish"),
-            graph,
-        })
-        .expect("publishes")
-        .result
-        .graph
-}
 
 #[test]
 fn a_nested_graph_publishes_and_its_composed_ceiling_is_the_product() {
@@ -150,7 +63,7 @@ fn a_nested_graph_publishes_and_its_composed_ceiling_is_the_product() {
     let parent = publish_shape(
         &store,
         "graph:parent",
-        parent_shape(&store, "tenant-a", "graph:child", &child.shape_digest, 3),
+        parent_shape(&store, "tenant-a", ("graph:child", &child.shape_digest), 3),
         "key-parent",
         2,
     );
@@ -181,19 +94,8 @@ fn a_nested_graph_pinning_a_shape_no_revision_carries_is_refused() {
         1,
     );
     let mut graph = draft(&store, "tenant-a", "graph:parent");
-    graph.shape = parent_shape(&store, "tenant-a", "graph:child", &digest('7'), 3);
-    let error = store
-        .publish_graph(AgentGraphPublishRequest {
-            context: context(
-                &store,
-                "tenant-a",
-                "key-parent",
-                2,
-                0,
-                "agent-graph:publish",
-            ),
-            graph,
-        })
+    graph.shape = parent_shape(&store, "tenant-a", ("graph:child", &digest('7')), 3);
+    let error = try_publish(&store, "key-parent", 2, 0, graph)
         .expect_err("an unresolvable pin must be refused");
     assert!(
         error.contains("no retained revision of that graph matches the pinned shape digest"),
@@ -212,29 +114,14 @@ fn composing_a_child_from_another_tenant_is_refused() {
     let (_dir, store) = open_store();
     let mut child = draft(&store, "tenant-b", "graph:child");
     child.shape = child_shape(&store, "tenant-b", 4);
-    let child = store
-        .publish_graph(AgentGraphPublishRequest {
-            context: context(&store, "tenant-b", "key-child", 1, 0, "agent-graph:publish"),
-            graph: child,
-        })
+    let child = try_publish(&store, "key-child", 1, 0, child)
         .unwrap()
         .result
         .graph;
 
     let mut graph = draft(&store, "tenant-a", "graph:parent");
-    graph.shape = parent_shape(&store, "tenant-a", "graph:child", &child.shape_digest, 3);
-    let error = store
-        .publish_graph(AgentGraphPublishRequest {
-            context: context(
-                &store,
-                "tenant-a",
-                "key-parent",
-                2,
-                0,
-                "agent-graph:publish",
-            ),
-            graph,
-        })
+    graph.shape = parent_shape(&store, "tenant-a", ("graph:child", &child.shape_digest), 3);
+    let error = try_publish(&store, "key-parent", 2, 0, graph)
         .expect_err("a cross-tenant composition must be refused");
     assert!(
         error.contains("no such graph in this tenant"),
@@ -259,19 +146,8 @@ fn composing_a_retired_child_is_refused_while_it_stays_resolvable() {
         })
         .unwrap();
     let mut graph = draft(&store, "tenant-a", "graph:parent");
-    graph.shape = parent_shape(&store, "tenant-a", "graph:child", &child.shape_digest, 3);
-    let error = store
-        .publish_graph(AgentGraphPublishRequest {
-            context: context(
-                &store,
-                "tenant-a",
-                "key-parent",
-                3,
-                0,
-                "agent-graph:publish",
-            ),
-            graph,
-        })
+    graph.shape = parent_shape(&store, "tenant-a", ("graph:child", &child.shape_digest), 3);
+    let error = try_publish(&store, "key-parent", 3, 0, graph)
         .expect_err("nothing new may be built on a withdrawn graph");
     assert!(error.contains("which is retired"), "got: {error}");
     // The retired revision is still RESOLVABLE by id -- a parent published
@@ -298,7 +174,7 @@ fn a_three_level_composition_stamps_the_product_across_every_level() {
     let mid = publish_shape(
         &store,
         "graph:mid",
-        parent_shape(&store, "tenant-a", "graph:leaf", &leaf.shape_digest, 7),
+        parent_shape(&store, "tenant-a", ("graph:leaf", &leaf.shape_digest), 7),
         "key-mid",
         2,
     );
@@ -306,7 +182,7 @@ fn a_three_level_composition_stamps_the_product_across_every_level() {
     let root = publish_shape(
         &store,
         "graph:root",
-        parent_shape(&store, "tenant-a", "graph:mid", &mid.shape_digest, 11),
+        parent_shape(&store, "tenant-a", ("graph:mid", &mid.shape_digest), 11),
         "key-root",
         3,
     );
@@ -325,12 +201,7 @@ fn the_store_reopens_after_a_graph_commit() {
     let path = dir.path().to_str().unwrap();
     {
         let store = AgentLibraryStore::open(path).unwrap();
-        store
-            .publish_graph(AgentGraphPublishRequest {
-                context: context(&store, "tenant-a", "key-1", 1, 0, "agent-graph:publish"),
-                graph: draft(&store, "tenant-a", "graph-a"),
-            })
-            .unwrap();
+        try_publish(&store, "key-1", 1, 0, draft(&store, "tenant-a", "graph-a")).unwrap();
     }
     let reopened = AgentLibraryStore::open(path).expect("owner reopens after a graph commit");
     let current = reopened

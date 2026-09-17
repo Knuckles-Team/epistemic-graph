@@ -1,6 +1,7 @@
-//! Agent Library mutation batch construction.
+//! Agent-hierarchy mutation batch construction.
 
 use super::*;
+use crate::server::persistence::agent_revision::{definition_headers, RevisionDefinition};
 
 pub(super) fn build_batch(
     owner: &eg_storage::OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
@@ -15,86 +16,127 @@ pub(super) fn build_batch(
         "{}:{}:{}",
         entry.tenant_id, entry.agent_id, entry.entry_revision
     );
-    let headers = build_batch_headers(context, entry);
-    let operations = agent_library_operations(kind, entry);
     let outbox = vec![MutationOutboxIntent {
         topic: AGENT_LIBRARY_OUTBOX_TOPIC.to_string(),
         key,
         payload: event_bytes,
-        headers,
+        headers: build_batch_headers(context, entry),
     }];
-    let envelope = compile_batch_envelope(owner, context, &operations, &outbox)?;
-    let batch = MutationBatch {
-        schema_version: MUTATION_BATCH_VERSION,
-        batch_id: batch_id.to_string(),
-        envelope,
-        identity: owner.identity().clone(),
-        placement_epoch: 0,
-        version_expectation: VersionExpectation::Native(version),
-        fencing_token: None,
-        authoritative_state: None,
-        operations,
+    native_lifecycle_batch(
+        owner,
+        context,
+        batch_id,
+        version,
+        agent_library_operations(kind, entry),
         outbox,
-        created_at_ms: context.created_at_ms,
-    };
+    )
+}
+
+/// One native ControlPlane lifecycle batch over its final operations and outbox.
+///
+/// Shared by every agent layer. `version` is the native version the batch is
+/// expected to apply over.
+pub(in crate::server::persistence) fn native_lifecycle_batch(
+    owner: &eg_storage::OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
+    context: &AgentLibraryMutationContext,
+    batch_id: &str,
+    version: u64,
+    operations: Vec<MutationOperation>,
+    outbox: Vec<MutationOutboxIntent>,
+) -> Result<MutationBatch, String> {
+    // The envelope is minted from the batch's FINAL operations and outbox --
+    // `MutationBatch::validate` compares its canonical payload digest against
+    // exactly these, so building it from anything earlier fails closed with
+    // "mutation batch content does not match its envelope's canonical payload
+    // digest".
+    let envelope = compile_batch_envelope(owner, context, &operations, &outbox)?;
+    let batch = MutationBatch::native(
+        batch_id,
+        envelope,
+        owner.identity().clone(),
+        version,
+        (operations, outbox),
+        context.created_at_ms,
+    );
     batch.validate_write_budget()?;
     Ok(batch)
+}
+
+/// The action provenance an Agent Library outbox intent carries beside its
+/// definition headers.
+pub(super) struct ActionHeaders<'a> {
+    pub(super) actor: &'a str,
+    pub(super) actor_scope: &'a str,
+    pub(super) purpose_id: &'a str,
+    pub(super) policy_revision: &'a str,
+    pub(super) policy_digest: &'a str,
+    pub(super) policy_decision_id: &'a str,
+}
+
+impl<'a> ActionHeaders<'a> {
+    pub(super) fn of_context(context: &'a AgentLibraryMutationContext) -> Self {
+        Self {
+            actor: &context.caller_principal,
+            actor_scope: &context.actor_scope,
+            purpose_id: &context.purpose_id,
+            policy_revision: &context.policy_revision,
+            policy_digest: &context.policy_digest,
+            policy_decision_id: &context.policy_decision_id,
+        }
+    }
+
+    pub(super) fn of_event(event: &'a AgentLibraryOutboxEvent) -> Self {
+        Self {
+            actor: &event.performing_actor,
+            actor_scope: &event.action_actor_scope,
+            purpose_id: &event.action_purpose_id,
+            policy_revision: &event.action_policy_revision,
+            policy_digest: &event.action_policy_digest,
+            policy_decision_id: &event.action_policy_decision_id,
+        }
+    }
+}
+
+/// The outbox headers of one Agent Library revision: the definition headers
+/// every layer carries, the action provenance, and the source revision digest.
+pub(super) fn library_outbox_headers(
+    entry: &AgentLibraryEntry,
+    action: ActionHeaders<'_>,
+) -> BTreeMap<String, String> {
+    let mut headers = definition_headers(
+        AGENT_LIBRARY_OUTBOX_SCHEMA_VERSION,
+        "agent_id",
+        &RevisionDefinition {
+            tenant_id: &entry.tenant_id,
+            record_id: &entry.agent_id,
+            entry_revision: entry.entry_revision,
+            lifecycle: entry.lifecycle,
+            definition_digest: &entry.definition_digest,
+            actor_scope: &entry.actor_scope,
+            purpose_id: &entry.purpose_id,
+            policy_digest: &entry.policy_digest,
+        },
+    );
+    headers.extend(
+        [
+            ("actor", action.actor),
+            ("action_actor_scope", action.actor_scope),
+            ("action_purpose_id", action.purpose_id),
+            ("action_policy_revision", action.policy_revision),
+            ("action_policy_digest", action.policy_digest),
+            ("action_policy_decision_id", action.policy_decision_id),
+            ("source_revision_digest", &entry.source_revision_digest),
+        ]
+        .map(|(header, value)| (header.to_string(), value.to_string())),
+    );
+    headers
 }
 
 pub(super) fn build_batch_headers(
     context: &AgentLibraryMutationContext,
     entry: &AgentLibraryEntry,
 ) -> BTreeMap<String, String> {
-    BTreeMap::from([
-        (
-            "schema_version".to_string(),
-            AGENT_LIBRARY_OUTBOX_SCHEMA_VERSION.to_string(),
-        ),
-        ("tenant_id".to_string(), entry.tenant_id.clone()),
-        ("agent_id".to_string(), entry.agent_id.clone()),
-        (
-            "entry_revision".to_string(),
-            entry.entry_revision.to_string(),
-        ),
-        (
-            "definition_digest".to_string(),
-            entry.definition_digest.clone(),
-        ),
-        (
-            "definition_actor_scope".to_string(),
-            entry.actor_scope.clone(),
-        ),
-        (
-            "definition_purpose_id".to_string(),
-            entry.purpose_id.clone(),
-        ),
-        (
-            "definition_policy_digest".to_string(),
-            entry.policy_digest.clone(),
-        ),
-        ("actor".to_string(), context.caller_principal.clone()),
-        (
-            "action_actor_scope".to_string(),
-            context.actor_scope.clone(),
-        ),
-        ("action_purpose_id".to_string(), context.purpose_id.clone()),
-        (
-            "action_policy_revision".to_string(),
-            context.policy_revision.clone(),
-        ),
-        (
-            "action_policy_digest".to_string(),
-            context.policy_digest.clone(),
-        ),
-        (
-            "action_policy_decision_id".to_string(),
-            context.policy_decision_id.clone(),
-        ),
-        (
-            "source_revision_digest".to_string(),
-            entry.source_revision_digest.clone(),
-        ),
-    ])
+    library_outbox_headers(entry, ActionHeaders::of_context(context))
 }
 
 fn compile_batch_envelope(

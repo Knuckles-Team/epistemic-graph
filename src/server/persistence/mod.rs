@@ -51,12 +51,16 @@ pub mod durable_stores;
 // owners; every consumer is itself `redb`-gated.
 #[cfg(feature = "redb")]
 pub mod agent_component;
+#[cfg(all(test, feature = "redb"))]
+pub(crate) mod agent_fixtures;
 #[cfg(feature = "redb")]
 pub mod agent_graph;
 #[cfg(feature = "redb")]
 pub mod agent_library;
 #[cfg(feature = "redb")]
 pub mod agent_pin_resolution;
+#[cfg(feature = "redb")]
+mod agent_revision;
 #[cfg(feature = "redb")]
 pub mod agent_row;
 #[cfg(feature = "redb")]

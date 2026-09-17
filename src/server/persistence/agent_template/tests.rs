@@ -1,12 +1,17 @@
 // Existing Agent Template durability, replay, instantiation, and pin tests.
 
+use super::super::agent_fixtures::{
+    layers_holding, ledger_record, mutation_context as context, open_agent_store as open_store,
+};
+use super::super::agent_revision::{decode_status_result, validate_status_record};
 use super::*;
 use eg_types::agent_component::{AgentComponentKind, ComponentDependency};
 use eg_types::agent_library::AgentLibraryEntryDraft;
 use eg_types::agent_template::{
     AgentTemplateDraft, AgentTemplateInstantiateRequest, TemplateParam,
 };
-use eg_types::contract::Nonce;
+use eg_types::mutation_batch::MutationBatchStatus;
+use std::collections::BTreeMap;
 
 fn digest(byte: char) -> String {
     format!("sha256:{}", byte.to_string().repeat(64))
@@ -20,27 +25,17 @@ fn dep(component_id: &str, kind: AgentComponentKind, seed: char) -> ComponentDep
     }
 }
 
+/// The shared agent draft, pinned to this module's own components.
 fn base(tenant_id: &str, agent_id: &str) -> AgentLibraryEntryDraft {
     AgentLibraryEntryDraft {
-        agent_id: agent_id.to_string(),
-        package_id: "agent-package".to_string(),
-        version: "1.0.0".to_string(),
-        role: "researcher".to_string(),
-        role_digest: digest('1'),
         system_prompt: dep("prompt:agent-v1", AgentComponentKind::SystemPrompt, '2'),
         tools: vec![dep("tool:search", AgentComponentKind::Tool, '3')],
         skills: vec![dep("skill:reason", AgentComponentKind::Skill, '4')],
         model_profile: dep("model-profile:opus", AgentComponentKind::ModelProfile, '5'),
         model_identity: "model:opus".to_string(),
         ontologies: vec![dep("ontology:agent", AgentComponentKind::Ontology, '6')],
-        tenant_id: tenant_id.to_string(),
-        actor_scope: "definition:builder-a".to_string(),
-        purpose_id: "agent-library:definition".to_string(),
-        policy_digest: digest('7'),
         source_revision: "source-revision:42".to_string(),
-        source_revision_digest: digest('8'),
-        runtime: Default::default(),
-        instantiated_from: None,
+        ..super::super::agent_library::seed_agent_draft_for_test(tenant_id, agent_id, 0)
     }
 }
 
@@ -70,51 +65,6 @@ fn template(tenant_id: &str, template_id: &str) -> AgentTemplateDraft {
         purpose_id: "agent-template:definition".to_string(),
         policy_digest: digest('9'),
     }
-}
-
-fn context(
-    store: &AgentLibraryStore,
-    tenant_id: &str,
-    key: &str,
-    nonce: u8,
-    expected_revision: u64,
-    purpose_id: &str,
-) -> AgentLibraryMutationContext {
-    AgentLibraryMutationContext {
-        request_id: u64::from(nonce),
-        principal: store.owner_principal().to_string(),
-        caller_principal: format!("principal:sha256:{}", "a".repeat(64)),
-        attempt_nonce: Nonce::from_bytes([nonce; 32]),
-        tenant_id: tenant_id.to_string(),
-        actor_scope: "action-scope:a".to_string(),
-        purpose_id: purpose_id.to_string(),
-        policy_revision: "policy-v1".to_string(),
-        policy_digest: super::super::agent_library::current_agent_library_policy_digest().unwrap(),
-        policy_decision_id: "agent-template:decision:policy-v1".to_string(),
-        idempotency_key: key.to_string(),
-        expected_revision: Some(expected_revision),
-        trace_id: None,
-        created_at_ms: 10,
-    }
-}
-
-fn open_store() -> (tempfile::TempDir, AgentLibraryStore) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = AgentLibraryStore::open(dir.path().to_str().unwrap()).unwrap();
-    (dir, store)
-}
-
-fn ledger_record(
-    store: &AgentLibraryStore,
-    tenant_id: &str,
-    idempotency_key: &str,
-) -> eg_types::MutationBatchRecord {
-    let owner = store.scope_handle(tenant_id).unwrap();
-    let read = store.kernel.read_scope(&owner).unwrap();
-    let batch_id = super::super::agent_library::batch_id(idempotency_key).unwrap();
-    eg_transaction::read_ledger(&read, &batch_id)
-        .unwrap()
-        .expect("durable template status record")
 }
 
 /// The seeding nonce the five components [`base`] pins are published
@@ -252,6 +202,16 @@ fn a_replayed_fresh_nonce_is_consumed_before_returning() {
 #[test]
 fn template_status_reads_publish_and_retire_domain_envelopes() {
     let (_dir, store) = open_store();
+    let status = |context, kind| {
+        store
+            .template_status(AgentTemplateStatusRequest {
+                context,
+                template_id: "template:status".to_string(),
+                kind,
+            })
+            .unwrap()
+            .expect("durable status")
+    };
     let publish_context = context(
         &store,
         "tenant-a",
@@ -267,14 +227,7 @@ fn template_status_reads_publish_and_retire_domain_envelopes() {
         0,
         template("tenant-a", "template:status"),
     );
-    let publish_status = store
-        .template_status(AgentTemplateStatusRequest {
-            context: publish_context,
-            template_id: "template:status".to_string(),
-            kind: AgentTemplateMutationKind::Publish,
-        })
-        .unwrap()
-        .expect("publish status");
+    let publish_status = status(publish_context, AgentTemplateMutationKind::Publish);
     assert!(publish_status.replayed);
     assert_eq!(publish_status.result, published.result);
 
@@ -292,14 +245,7 @@ fn template_status_reads_publish_and_retire_domain_envelopes() {
             template_id: "template:status".to_string(),
         })
         .unwrap();
-    let retire_status = store
-        .template_status(AgentTemplateStatusRequest {
-            context: retire_context,
-            template_id: "template:status".to_string(),
-            kind: AgentTemplateMutationKind::Retire,
-        })
-        .unwrap()
-        .expect("retire status");
+    let retire_status = status(retire_context, AgentTemplateMutationKind::Retire);
     assert!(retire_status.replayed);
     assert_eq!(retire_status.result, retired.result);
     assert_eq!(
@@ -321,7 +267,7 @@ fn template_status_rejects_an_unwrapped_result() {
     let raw_result =
         eg_storage::encode_bounded(&published.result, "unwrapped agent template status result")
             .unwrap();
-    let error = super::decode_template_status_result(&raw_result).unwrap_err();
+    let error = decode_status_result::<TemplateLayer>(&raw_result).unwrap_err();
     assert!(!error.is_empty(), "an unwrapped result must fail closed");
 }
 
@@ -345,18 +291,28 @@ fn template_status_rejects_redirected_identity_state_version_and_kind() {
     );
     let owner_a = store.scope_handle("tenant-a").unwrap();
     let record = ledger_record(&store, "tenant-a", "status-bindings");
+    let refused = |record: &eg_types::MutationBatchRecord,
+                   template_id: &str,
+                   kind: AgentTemplateMutationKind,
+                   committed: &AgentTemplateCommittedResult| {
+        validate_status_record::<TemplateLayer>(
+            record,
+            owner_a.identity(),
+            &context_a,
+            (template_id, kind),
+            committed,
+        )
+        .is_err()
+    };
 
     let mut wrong_key = published.result.clone();
     wrong_key.batch_id = "agent-library/v1/redirected".to_string();
-    assert!(super::validate_template_status_record(
+    assert!(refused(
         &record,
-        owner_a.identity(),
-        &context_a,
         "template:bindings",
         AgentTemplateMutationKind::Publish,
-        &wrong_key,
-    )
-    .is_err());
+        &wrong_key
+    ));
 
     let other_tenant = publish(
         &store,
@@ -367,49 +323,52 @@ fn template_status_rejects_redirected_identity_state_version_and_kind() {
     );
     let mut wrong_tenant = other_tenant.result.clone();
     wrong_tenant.batch_id = super::super::agent_library::batch_id("status-bindings").unwrap();
-    assert!(super::validate_template_status_record(
+    assert!(refused(
         &record,
-        owner_a.identity(),
-        &context_a,
         "template:other-tenant",
         AgentTemplateMutationKind::Publish,
-        &wrong_tenant,
-    )
-    .is_err());
+        &wrong_tenant
+    ));
 
     let mut stale_version = published.result.clone();
     stale_version.committed_version = 0;
-    assert!(super::validate_template_status_record(
+    assert!(refused(
         &record,
-        owner_a.identity(),
-        &context_a,
         "template:bindings",
         AgentTemplateMutationKind::Publish,
-        &stale_version,
-    )
-    .is_err());
+        &stale_version
+    ));
 
     let mut uncommitted = record.clone();
     uncommitted.status = MutationBatchStatus::Prepared;
-    assert!(super::validate_template_status_record(
+    assert!(refused(
         &uncommitted,
-        owner_a.identity(),
-        &context_a,
         "template:bindings",
         AgentTemplateMutationKind::Publish,
-        &published.result,
-    )
-    .is_err());
+        &published.result
+    ));
 
-    assert!(super::validate_template_status_record(
+    assert!(refused(
         &record,
-        owner_a.identity(),
-        &context_a,
         "template:bindings",
         AgentTemplateMutationKind::Retire,
-        &published.result,
-    )
-    .is_err());
+        &published.result
+    ));
+}
+
+#[test]
+fn a_retired_template_is_a_tombstone_that_cannot_be_resurrected() {
+    let (_dir, store) = open_store();
+    publish(&store, "key-1", 1, 0, template("tenant-a", "template:a"));
+    store
+        .retire_template(AgentTemplateRetireRequest {
+            context: context(&store, "tenant-a", "key-2", 2, 1, "agent-template:retire"),
+            template_id: "template:a".to_string(),
+        })
+        .unwrap();
+    let draft = seeded(&store, template("tenant-a", "template:a"));
+    let error = try_publish(&store, "key-3", 3, 2, draft).unwrap_err();
+    assert_eq!(error, "retired agent templates cannot be resurrected");
 }
 
 #[test]
@@ -420,19 +379,11 @@ fn the_four_layers_share_one_owner_without_colliding() {
     // agent draft, so a collision here would be easy to miss.
     let (_dir, store) = open_store();
     publish(&store, "key-1", 1, 0, template("tenant-a", "same-id"));
-    assert!(store
-        .current_template("tenant-a", "same-id")
-        .unwrap()
-        .is_some());
-    assert!(store.current("tenant-a", "same-id").unwrap().is_none());
-    assert!(store
-        .current_graph("tenant-a", "same-id")
-        .unwrap()
-        .is_none());
-    assert!(store
-        .current_component("tenant-a", "same-id")
-        .unwrap()
-        .is_none());
+    assert_eq!(
+        layers_holding(&store, "tenant-a", "same-id"),
+        [false, false, false, true],
+        "only the template layer holds the id"
+    );
 }
 
 #[test]

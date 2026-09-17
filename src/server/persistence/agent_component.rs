@@ -14,19 +14,13 @@
 //! component from a new one, and "which agents break if this server changes?"
 //! has nothing to traverse.
 //!
-//! The revision protocol is the same one the other two layers use, and reuses
-//! the same machinery from [`super::agent_library`]. See that module's notes on
-//! why the shared parts are shared by parameter rather than by a trait, and why
-//! generalizing is safer once there are several tested implementations than
-//! before there is one.
+//! The revision protocol is the one [`super::agent_revision`] writes once for
+//! components, graphs and templates; [`ComponentLayer`] is what this layer
+//! supplies to it.
 
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use redb::ReadableTable;
-
-use eg_storage::{OwnedStoreHandle, RecordedOperation, ScopedRead};
-use eg_transaction::{AdmittedOwnerWrite, Begin, ReplayResolution};
+use eg_storage::ScopedRead;
 
 use eg_types::agent_component::{
     AgentComponentCommittedResult, AgentComponentEntry, AgentComponentMutationKind,
@@ -34,18 +28,11 @@ use eg_types::agent_component::{
     AgentComponentStatusRequest, AGENT_COMPONENT_SCHEMA_VERSION,
 };
 use eg_types::agent_library::{AgentLibraryLifecycle, AgentLibraryMutationContext};
-use eg_types::mutation::{MutationReceipt, MutationResult};
-use eg_types::mutation_batch::{
-    BatchContent, CompiledEnvelope, CompiledOperation, CompiledScope, DurabilityDomain,
-    MutationBatch, MutationEnvelope, MutationOperation, MutationOutboxIntent, MutationSurface,
-    VersionExpectation, MUTATION_BATCH_VERSION,
-};
-use eg_types::protocol::Method;
 
-use super::agent_library::{
-    admitted_context, agent_library_operation_identity, batch_id,
-    effective_agent_library_policy_digest, next_revision, owner_receipt, require_expected_revision,
-    resolve_nonce_first, validate_context, AgentLibraryStore, OwnerReceiptInput,
+use super::agent_library::AgentLibraryStore;
+use super::agent_revision::{
+    decode_committed, decode_revision, ledger_status_record, status_result_bytes,
+    RevisionDefinition, RevisionLayer, RevisionTables, RevisionVerb,
 };
 mod pins;
 mod write;
@@ -103,29 +90,30 @@ pub struct AgentComponentWriteResult {
 }
 
 impl AgentLibraryStore {
-    /// The head revision of one graph, or `None` if it was never published.
+    /// The head revision of one component, or `None` if it was never published.
     pub fn current_component(
         &self,
         tenant_id: &str,
         component_id: &str,
     ) -> Result<Option<AgentComponentEntry>, String> {
-        eg_types::agent_library::validate_key(tenant_id, component_id)?;
-        let read = self.read()?;
-        Ok(read_component_history(&read, tenant_id, component_id)?
-            .1
+        Ok(self
+            .component_revisions(tenant_id, component_id)?
             .into_iter()
             .last())
     }
 
-    /// Every retained revision of one graph, oldest first.
+    /// Every retained revision of one component, oldest first.
     pub fn component_revisions(
         &self,
         tenant_id: &str,
         component_id: &str,
     ) -> Result<Vec<AgentComponentEntry>, String> {
-        eg_types::agent_library::validate_key(tenant_id, component_id)?;
-        let read = self.read()?;
-        Ok(read_component_history(&read, tenant_id, component_id)?.1)
+        super::agent_revision::revision_history::<ComponentLayer>(
+            self,
+            component_tables(),
+            tenant_id,
+            component_id,
+        )
     }
 
     /// Resolve a prior attempt's durable outcome without re-committing it.
@@ -133,20 +121,13 @@ impl AgentLibraryStore {
         &self,
         request: AgentComponentStatusRequest,
     ) -> Result<Option<AgentComponentWriteResult>, String> {
-        validate_context(self, &request.context)?;
-        eg_types::agent_library::validate_key(&request.context.tenant_id, &request.component_id)?;
-        let owner = self.scope_handle(&request.context.tenant_id)?;
-        let batch_id = batch_id(&request.context.idempotency_key)?;
-        let read = self.kernel.read_scope(&owner)?;
-        let Some(record) = eg_transaction::read_ledger(&read, &batch_id)? else {
+        let Some((_owner, record)) =
+            ledger_status_record(self, &request.context, &request.component_id)?
+        else {
             return Ok(None);
         };
-        let Some(result_bytes) = record.result_msgpack.as_ref() else {
-            return Err(
-                "CORRUPT_MUTATION_LEDGER: agent component status has no typed result".to_string(),
-            );
-        };
-        let committed = decode_committed_result(result_bytes)?;
+        let committed =
+            decode_committed::<ComponentLayer>(status_result_bytes::<ComponentLayer>(&record)?)?;
         if committed.component.component_id != request.component_id {
             return Err(
                 "CORRUPT_MUTATION_LEDGER: agent component status resolved a different graph"
@@ -251,7 +232,7 @@ fn scan_component_search_page(
             return Err("agent component head points to a missing revision".to_string());
         };
         bytes = bytes.saturating_add(value.value().len());
-        let entry = decode_component(value.value())?;
+        let entry = decode_revision::<ComponentLayer>(value.value())?;
         if request.matches(&entry) {
             matched.push(entry);
         }
@@ -270,307 +251,112 @@ fn scan_component_search_page(
     })
 }
 
-/// Head CAS plus the append-only revision row, in the graph tables.
-fn apply_component_rows(
-    owner_write: &AdmittedOwnerWrite<'_, eg_storage::AgentLibraryOwner>,
-    context: &AgentLibraryMutationContext,
-    expected_revision: u64,
-    entry: &AgentComponentEntry,
-    entry_bytes: &[u8],
-) -> Result<(), String> {
-    let mut heads = owner_write.open_table(eg_storage::AGENT_COMPONENT_HEADS)?;
-    let actual_revision = heads
-        .get((context.tenant_id.as_str(), entry.component_id.as_str()))
-        .map_err(|error| error.to_string())?
-        .map(|value| value.value())
-        .unwrap_or(0);
-    require_expected_revision(expected_revision, actual_revision)?;
-    if entry.entry_revision != next_revision(expected_revision)? {
-        return Err("agent component entry revision does not follow its expected head".to_string());
+/// The component layer of the shared revision protocol.
+pub(super) struct ComponentLayer;
+
+/// The component layer's head and revision tables.
+fn component_tables() -> RevisionTables {
+    RevisionTables {
+        heads: eg_storage::AGENT_COMPONENT_HEADS,
+        revisions: eg_storage::AGENT_COMPONENT_REVISIONS,
     }
-    let mut revisions = owner_write.open_table(eg_storage::AGENT_COMPONENT_REVISIONS)?;
-    if actual_revision > 0 {
-        let current = revisions
-            .get((
-                context.tenant_id.as_str(),
-                entry.component_id.as_str(),
-                actual_revision,
-            ))
-            .map_err(|error| error.to_string())?
-            .ok_or_else(|| "agent component head points to a missing revision".to_string())?;
-        let current = decode_component(current.value())?;
-        if current.lifecycle == AgentLibraryLifecycle::Retired {
-            return Err("retired agent components cannot be resurrected".to_string());
+}
+
+impl RevisionLayer for ComponentLayer {
+    type Entry = AgentComponentEntry;
+    type Kind = AgentComponentMutationKind;
+    type Committed = AgentComponentCommittedResult;
+    type WriteResult = AgentComponentWriteResult;
+
+    const NOUN: &'static str = "agent component";
+    /// Not "component": this layer's refusals have always named the record a
+    /// graph, and callers match on them.
+    const RECORD: &'static str = "graph";
+    const SLUG: &'static str = "agent-component";
+    const OPERATION: &'static str = "component";
+    const TOPIC: &'static str = AGENT_COMPONENT_OUTBOX_TOPIC;
+    const RESULT_SCHEMA_ID: &'static str = AGENT_COMPONENT_RESULT_SCHEMA_ID;
+    const SCHEMA_VERSION: u16 = AGENT_COMPONENT_SCHEMA_VERSION;
+    const ID_HEADER: &'static str = "component_id";
+    const RETIRE: AgentComponentMutationKind = AgentComponentMutationKind::Retire;
+    const MAX_REVISIONS: usize = MAX_AGENT_COMPONENT_REVISIONS;
+    const MAX_HISTORY_BYTES: usize = MAX_AGENT_COMPONENT_HISTORY_BYTES;
+
+    fn revision_definition(component: &AgentComponentEntry) -> RevisionDefinition<'_> {
+        RevisionDefinition {
+            tenant_id: &component.tenant_id,
+            record_id: &component.component_id,
+            entry_revision: component.entry_revision,
+            lifecycle: component.lifecycle,
+            definition_digest: &component.definition_digest,
+            actor_scope: &component.actor_scope,
+            purpose_id: &component.purpose_id,
+            policy_digest: &component.policy_digest,
         }
     }
-    if revisions
-        .get((
-            context.tenant_id.as_str(),
-            entry.component_id.as_str(),
-            entry.entry_revision,
-        ))
-        .map_err(|error| error.to_string())?
-        .is_some()
-    {
-        return Err("agent component revision already exists".to_string());
+
+    fn validate_entry(component: &AgentComponentEntry) -> Result<(), String> {
+        component.validate()
     }
-    revisions
-        .insert(
-            (
-                context.tenant_id.as_str(),
-                entry.component_id.as_str(),
-                entry.entry_revision,
-            ),
-            entry_bytes,
-        )
-        .map_err(|error| error.to_string())?;
-    heads
-        .insert(
-            (context.tenant_id.as_str(), entry.component_id.as_str()),
-            entry.entry_revision,
-        )
-        .map_err(|error| error.to_string())?;
-    Ok(())
-}
 
-fn component_operations(
-    kind: AgentComponentMutationKind,
-    entry: &AgentComponentEntry,
-) -> Vec<MutationOperation> {
-    let event_type = match kind {
-        AgentComponentMutationKind::Publish => "agent_component_publish",
-        AgentComponentMutationKind::Retire => "agent_component_retire",
-    };
-    vec![MutationOperation {
-        ordinal: 0,
-        surface: MutationSurface::Lifecycle,
-        domain: DurabilityDomain::ControlPlane,
-        method: Method::ApplyMutation {
-            event_type: event_type.to_string(),
-            query: entry.definition_digest.clone(),
-        },
-    }]
-}
-
-fn component_outbox_headers(entry: &AgentComponentEntry) -> BTreeMap<String, String> {
-    BTreeMap::from([
-        (
-            "schema_version".to_string(),
-            AGENT_COMPONENT_SCHEMA_VERSION.to_string(),
-        ),
-        ("tenant_id".to_string(), entry.tenant_id.clone()),
-        ("component_id".to_string(), entry.component_id.clone()),
-        (
-            "entry_revision".to_string(),
-            entry.entry_revision.to_string(),
-        ),
-        (
-            "definition_digest".to_string(),
-            entry.definition_digest.clone(),
-        ),
-        (
-            "definition_actor_scope".to_string(),
-            entry.actor_scope.clone(),
-        ),
-        (
-            "definition_purpose_id".to_string(),
-            entry.purpose_id.clone(),
-        ),
-        (
-            "definition_policy_digest".to_string(),
-            entry.policy_digest.clone(),
-        ),
-    ])
-}
-
-fn build_component_batch(
-    owner: &OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
-    context: &AgentLibraryMutationContext,
-    kind: AgentComponentMutationKind,
-    entry: &AgentComponentEntry,
-    version: u64,
-    batch_id: &str,
-    event_bytes: Vec<u8>,
-) -> Result<MutationBatch, String> {
-    let key = format!(
-        "{}:{}:{}",
-        entry.tenant_id, entry.component_id, entry.entry_revision
-    );
-    let operations = component_operations(kind, entry);
-    let outbox = vec![MutationOutboxIntent {
-        topic: AGENT_COMPONENT_OUTBOX_TOPIC.to_string(),
-        key,
-        payload: event_bytes,
-        headers: component_outbox_headers(entry),
-    }];
-    // The envelope is minted from the batch's FINAL operations and outbox --
-    // `MutationBatch::validate` compares its canonical payload digest against
-    // exactly these, so building it from anything earlier fails closed with
-    // "mutation batch content does not match its envelope's canonical payload
-    // digest".
-    let content = BatchContent {
-        operations: &operations,
-        outbox: &outbox,
-        authoritative_state: None,
-    };
-    let method_schema_digest = eg_capabilities::method_schema("ApplyMutation")
-        .map(|(_, digest)| eg_types::contract::Digest256::from_bytes(digest))
-        .ok_or_else(|| "ApplyMutation is missing from the contract catalog".to_string())?;
-    let compiled = CompiledOperation::for_content(owner.identity(), content, method_schema_digest)?;
-    let mut compiled_envelope = CompiledEnvelope::new(
-        CompiledScope {
-            identity: owner.identity(),
-            actor: &context.caller_principal,
-            serving_principal: owner.principal(),
-            request_id: context.request_id,
-            idempotency_key: context.idempotency_key.as_str(),
-            nonce: context.attempt_nonce,
-            now_ms: context.created_at_ms,
-        },
-        compiled,
-    )?;
-    compiled_envelope.catalog_digest =
-        eg_types::contract::Digest256::parse(eg_capabilities::CONTRACT_CATALOG_DIGEST)?;
-    compiled_envelope.policy_digest =
-        super::agent_library::parse_prefixed_digest(&context.policy_digest)?;
-    compiled_envelope.policy_revision = context.policy_revision.clone();
-    compiled_envelope.policy_decision_id = context.policy_decision_id.clone();
-    let batch = MutationBatch {
-        schema_version: MUTATION_BATCH_VERSION,
-        batch_id: batch_id.to_string(),
-        envelope: MutationEnvelope::for_compiled_batch(compiled_envelope)?,
-        identity: owner.identity().clone(),
-        placement_epoch: 0,
-        version_expectation: VersionExpectation::Native(version),
-        fencing_token: None,
-        authoritative_state: None,
-        operations,
-        outbox,
-        created_at_ms: context.created_at_ms,
-    };
-    batch.validate_write_budget()?;
-    Ok(batch)
-}
-
-fn read_component_history(
-    read: &ScopedRead<'_, eg_storage::AgentLibraryOwner>,
-    tenant_id: &str,
-    component_id: &str,
-) -> Result<(Option<u64>, Vec<AgentComponentEntry>), String> {
-    let head = read
-        .open_owner_table(eg_storage::AGENT_COMPONENT_HEADS)?
-        .get((tenant_id, component_id))
-        .map_err(|error| error.to_string())?
-        .map(|value| value.value());
-    let table = read.open_owner_table(eg_storage::AGENT_COMPONENT_REVISIONS)?;
-    let mut entries = Vec::new();
-    let mut bytes = 0usize;
-    for row in table
-        .range((tenant_id, component_id, 0)..=(tenant_id, component_id, u64::MAX))
-        .map_err(|error| error.to_string())?
-    {
-        let (key, value) = row.map_err(|error| error.to_string())?;
-        // Bounded: a caller can otherwise ask for an unbounded amount of work
-        // by publishing revisions.
-        if entries.len() >= MAX_AGENT_COMPONENT_REVISIONS {
-            return Err("agent component history exceeds its retained revision bound".to_string());
+    fn verb(kind: AgentComponentMutationKind) -> RevisionVerb {
+        match kind {
+            AgentComponentMutationKind::Publish => RevisionVerb::Publish,
+            AgentComponentMutationKind::Retire => RevisionVerb::Retire,
         }
-        bytes = bytes.saturating_add(value.value().len());
-        if bytes > MAX_AGENT_COMPONENT_HISTORY_BYTES {
-            return Err("agent component history exceeds its retained byte bound".to_string());
-        }
-        let (row_tenant, row_graph, row_revision) = key.value();
-        let entry = decode_component(value.value())?;
-        if entry.tenant_id != row_tenant
-            || entry.component_id != row_graph
-            || entry.entry_revision != row_revision
-        {
-            return Err(
-                "CORRUPT_MUTATION_LEDGER: agent component row does not match its physical key"
-                    .to_string(),
-            );
-        }
-        entries.push(entry);
     }
-    Ok((head, entries))
-}
 
-fn decode_component(bytes: &[u8]) -> Result<AgentComponentEntry, String> {
-    let entry: AgentComponentEntry = super::agent_row::decode(bytes, "agent component row")?;
-    entry.validate()?;
-    Ok(entry)
-}
-
-fn decode_committed_result(bytes: &[u8]) -> Result<AgentComponentCommittedResult, String> {
-    let result: AgentComponentCommittedResult =
-        super::agent_row::decode(bytes, "agent component result")?;
-    result.component.validate()?;
-    Ok(result)
-}
-
-fn component_domain_result(
-    result: &AgentComponentCommittedResult,
-) -> Result<MutationResult, String> {
-    super::agent_row::domain_result(result, AGENT_COMPONENT_RESULT_SCHEMA_ID, "agent component")
-}
-
-fn encode_component_domain_result(
-    result: &AgentComponentCommittedResult,
-) -> Result<Vec<u8>, String> {
-    eg_storage::encode_bounded(
-        &component_domain_result(result)?,
-        "agent component domain result",
-    )
-}
-
-/// Turn a resolved replay into a caller result, or `None` when it is fresh.
-fn replayed_component(
-    replay: ReplayResolution,
-    component_id: &str,
-) -> Result<Option<(AgentComponentWriteResult, MutationReceipt)>, String> {
-    let recorded = match replay {
-        ReplayResolution::Fresh => return Ok(None),
-        ReplayResolution::NonceRejected { idempotency_key } => {
-            return Err(format!(
-                "REPLAY_NONCE_CONSUMED: attempt nonce already consumed by '{idempotency_key}'"
-            ));
-        }
-        ReplayResolution::Conflict { .. } => {
-            return Err(
-                "IDEMPOTENCY_CONFLICT: key was already used by a different agent component mutation"
-                    .to_string(),
-            );
-        }
-        ReplayResolution::ReplayedResult(recorded) => *recorded,
-    };
-    let RecordedOperation::Receipt(receipt) = recorded else {
-        return Err(
-            "CORRUPT_MUTATION_LEDGER: agent component replay is missing its typed receipt"
-                .to_string(),
-        );
-    };
-    let receipt = *receipt;
-    receipt.validate()?;
-    let MutationResult::DomainResult { payload, .. } = &receipt.result else {
-        return Err(
-            "CORRUPT_MUTATION_LEDGER: agent component replay receipt carries no domain result"
-                .to_string(),
-        );
-    };
-    let committed = decode_committed_result(payload.as_slice())?;
-    if committed.component.component_id != component_id {
-        return Err(
-            "CORRUPT_MUTATION_LEDGER: agent component replay resolved a different graph"
-                .to_string(),
-        );
+    fn encode_outbox_event(
+        kind: AgentComponentMutationKind,
+        component: &AgentComponentEntry,
+        context: &AgentLibraryMutationContext,
+    ) -> Result<Vec<u8>, String> {
+        let event = AgentComponentOutboxEvent {
+            schema_version: AGENT_COMPONENT_SCHEMA_VERSION,
+            kind,
+            component: component.clone(),
+            performing_actor: context.caller_principal.clone(),
+            action_actor_scope: context.actor_scope.clone(),
+        };
+        event.validate()?;
+        eg_storage::encode_bounded(&event, "agent component outbox event")
     }
-    Ok(Some((
-        AgentComponentWriteResult {
-            result: committed,
-            replayed: true,
-        },
-        receipt,
-    )))
+
+    fn retired_revision(
+        component: &AgentComponentEntry,
+        entry_revision: u64,
+        retired_at_ms: u64,
+    ) -> Result<AgentComponentEntry, String> {
+        component.retire(entry_revision, retired_at_ms)
+    }
+
+    fn committed(
+        component: AgentComponentEntry,
+        batch_id: String,
+        committed_version: u64,
+    ) -> AgentComponentCommittedResult {
+        AgentComponentCommittedResult {
+            schema_version: AGENT_COMPONENT_SCHEMA_VERSION,
+            component,
+            batch_id,
+            committed_version,
+        }
+    }
+
+    fn committed_entry(result: &AgentComponentCommittedResult) -> &AgentComponentEntry {
+        &result.component
+    }
+
+    fn committed_binding(result: &AgentComponentCommittedResult) -> (&str, u64) {
+        (&result.batch_id, result.committed_version)
+    }
+
+    fn write_result(
+        result: AgentComponentCommittedResult,
+        replayed: bool,
+    ) -> AgentComponentWriteResult {
+        AgentComponentWriteResult { result, replayed }
+    }
 }
 
 /// The shared `Arc` type the server state holds. Re-exported so the handler does
@@ -728,12 +514,12 @@ pub(crate) fn seed_draft_components_for_test(
 
 #[cfg(test)]
 mod tests {
+    use super::super::agent_fixtures::mutation_context;
     use super::*;
     use eg_types::agent_component::{
         AgentComponentDraft, AgentComponentFacts, AgentComponentKind, AgentComponentSearchRequest,
         ComponentDependency, ComponentProvenance, ToolEffect,
     };
-    use eg_types::contract::Nonce;
 
     fn digest(byte: char) -> String {
         format!("sha256:{}", byte.to_string().repeat(64))
@@ -791,9 +577,9 @@ mod tests {
     fn seed_mcp_server(store: &AgentLibraryStore, tenant_id: &str, nonce: u8) {
         store
             .publish_component(AgentComponentPublishRequest {
-                context: context_for(
-                    tenant_id,
+                context: mutation_context(
                     store,
+                    tenant_id,
                     &format!("{tenant_id}-mcp-server-seed"),
                     nonce,
                     0,
@@ -854,40 +640,11 @@ mod tests {
         expected_revision: u64,
         purpose_id: &str,
     ) -> AgentLibraryMutationContext {
-        context_for("tenant-a", store, key, nonce, expected_revision, purpose_id)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn context_for(
-        tenant_id: &str,
-        store: &AgentLibraryStore,
-        key: &str,
-        nonce: u8,
-        expected_revision: u64,
-        purpose_id: &str,
-    ) -> AgentLibraryMutationContext {
-        AgentLibraryMutationContext {
-            request_id: u64::from(nonce),
-            principal: store.owner_principal().to_string(),
-            caller_principal: format!("principal:sha256:{}", "a".repeat(64)),
-            attempt_nonce: Nonce::from_bytes([nonce; 32]),
-            tenant_id: tenant_id.to_string(),
-            actor_scope: "action-scope:a".to_string(),
-            purpose_id: purpose_id.to_string(),
-            policy_revision: "policy-v1".to_string(),
-            policy_digest: super::super::agent_library::current_agent_library_policy_digest()
-                .unwrap(),
-            policy_decision_id: "agent-component:decision:policy-v1".to_string(),
-            idempotency_key: key.to_string(),
-            expected_revision: Some(expected_revision),
-            trace_id: None,
-            created_at_ms: 10,
-        }
+        mutation_context(store, "tenant-a", key, nonce, expected_revision, purpose_id)
     }
 
     fn open_store() -> (tempfile::TempDir, AgentLibraryStore) {
-        let dir = tempfile::tempdir().unwrap();
-        let store = AgentLibraryStore::open(dir.path().to_str().unwrap()).unwrap();
+        let (dir, store) = super::super::agent_fixtures::open_agent_store();
         seed_mcp_server(&store, "tenant-a", SEED_NONCE);
         (dir, store)
     }
@@ -1005,15 +762,11 @@ mod tests {
                 ),
             })
             .unwrap();
-        assert!(store
-            .current_component("tenant-a", "same-id")
-            .unwrap()
-            .is_some());
-        assert!(store.current("tenant-a", "same-id").unwrap().is_none());
-        assert!(store
-            .current_graph("tenant-a", "same-id")
-            .unwrap()
-            .is_none());
+        assert_eq!(
+            super::super::agent_fixtures::layers_holding(&store, "tenant-a", "same-id"),
+            [true, false, false, false],
+            "only the component layer holds the id"
+        );
     }
 
     #[test]
@@ -1184,6 +937,26 @@ mod tests {
         }
     }
 
+    /// Publish read-only tools into `tenant-b` under nonces 100 and up.
+    fn seed_tenant_b_tools(store: &AgentLibraryStore, tools: &[(&str, &str)]) {
+        for (index, (id, capability)) in tools.iter().enumerate() {
+            let nonce = u8::try_from(index + 100).unwrap();
+            store
+                .publish_component(AgentComponentPublishRequest {
+                    context: mutation_context(
+                        store,
+                        "tenant-b",
+                        &format!("tenant-b-key-{index}"),
+                        nonce,
+                        0,
+                        "agent-component:publish",
+                    ),
+                    component: tool_for("tenant-b", id, capability, ToolEffect::Read),
+                })
+                .unwrap();
+        }
+    }
+
     fn search(tenant: &str, task: Option<&str>, read_only: bool) -> AgentComponentSearchRequest {
         AgentComponentSearchRequest {
             tenant_id: tenant.to_string(),
@@ -1252,29 +1025,14 @@ mod tests {
         let (_dir, store) = open_store();
         seed_search_corpus(&store);
         seed_mcp_server(&store, "tenant-b", SEED_NONCE - 1);
-        for (index, (id, capability)) in [
-            ("tool:web", "eg:capability/retrieval/web-search"),
-            ("tool:vector", "eg:capability/retrieval/vector-search"),
-            ("tool:summarize", "eg:capability/analysis/summarize"),
-        ]
-        .iter()
-        .enumerate()
-        {
-            let nonce = u8::try_from(index + 100).unwrap();
-            store
-                .publish_component(AgentComponentPublishRequest {
-                    context: context_for(
-                        "tenant-b",
-                        &store,
-                        &format!("tenant-b-key-{index}"),
-                        nonce,
-                        0,
-                        "agent-component:publish",
-                    ),
-                    component: tool_for("tenant-b", id, capability, ToolEffect::Read),
-                })
-                .unwrap();
-        }
+        seed_tenant_b_tools(
+            &store,
+            &[
+                ("tool:web", "eg:capability/retrieval/web-search"),
+                ("tool:vector", "eg:capability/retrieval/vector-search"),
+                ("tool:summarize", "eg:capability/analysis/summarize"),
+            ],
+        );
         assert!(
             "tenant-a" < "tenant-b",
             "this test only reaches the guard while tenant-a sorts first"
@@ -1435,28 +1193,13 @@ mod tests {
         let (_dir, store) = open_store();
         seed_search_corpus(&store);
         seed_mcp_server(&store, "tenant-b", SEED_NONCE - 1);
-        for (index, (id, capability)) in [
-            ("tool:web", "eg:capability/retrieval/web-search"),
-            ("tool:vector", "eg:capability/retrieval/vector-search"),
-        ]
-        .iter()
-        .enumerate()
-        {
-            let nonce = u8::try_from(index + 100).unwrap();
-            store
-                .publish_component(AgentComponentPublishRequest {
-                    context: context_for(
-                        "tenant-b",
-                        &store,
-                        &format!("tenant-b-key-{index}"),
-                        nonce,
-                        0,
-                        "agent-component:publish",
-                    ),
-                    component: tool_for("tenant-b", id, capability, ToolEffect::Read),
-                })
-                .unwrap();
-        }
+        seed_tenant_b_tools(
+            &store,
+            &[
+                ("tool:web", "eg:capability/retrieval/web-search"),
+                ("tool:vector", "eg:capability/retrieval/vector-search"),
+            ],
+        );
         assert!("tenant-a" < "tenant-b");
 
         let mut cursor = None;

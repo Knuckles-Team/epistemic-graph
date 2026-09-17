@@ -3,8 +3,9 @@
 use std::collections::BTreeSet;
 
 use super::super::agent_pin_resolution::{HeadTable, RevisionTable};
+use super::super::agent_revision::decode_revision;
 use super::{
-    decode_component, AgentLibraryLifecycle, MAX_AGENT_COMPONENT_REVISIONS,
+    AgentLibraryLifecycle, ComponentLayer, MAX_AGENT_COMPONENT_REVISIONS,
     MAX_COMPONENT_PIN_RESOLUTION_ROWS, MAX_RESOLVED_COMPONENT_PINS,
 };
 
@@ -70,7 +71,7 @@ fn resolve_component_pin(
     let head = revisions
         .get((tenant_id, component_id, head_revision))?
         .ok_or_else(|| "agent component head points to a missing revision".to_string())?;
-    let head = decode_component(head.value())?;
+    let head = decode_revision::<ComponentLayer>(head.value())?;
     if head.lifecycle == AgentLibraryLifecycle::Retired {
         return Err(format!(
             "{subject} pins component '{component_id}', which is retired"
@@ -129,7 +130,7 @@ fn find_component_revision(
                  {MAX_COMPONENT_PIN_RESOLUTION_ROWS}-row bound"
             ));
         }
-        let entry = decode_component(value.value())?;
+        let entry = decode_revision::<ComponentLayer>(value.value())?;
         if entry.definition_digest == definition_digest {
             return Ok(Some(entry));
         }

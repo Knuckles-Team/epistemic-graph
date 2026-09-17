@@ -445,179 +445,24 @@ mod tests {
     // through the REAL store so the retained entry is one admission actually
     // minted -- a hand-built entry would not prove the two halves agree.
 
-    #[cfg(feature = "redb")]
-    fn graph_test_store() -> (tempfile::TempDir, AgentLibraryStore) {
-        let dir = tempfile::tempdir().unwrap();
-        let store = AgentLibraryStore::open(dir.path().to_str().unwrap()).unwrap();
-        (dir, store)
-    }
-
-    #[cfg(feature = "redb")]
-    fn graph_context(
-        store: &AgentLibraryStore,
-        key: &str,
-        nonce: u8,
-        expected_revision: u64,
-    ) -> eg_types::agent_library::AgentLibraryMutationContext {
-        eg_types::agent_library::AgentLibraryMutationContext {
-            request_id: u64::from(nonce),
-            principal: store.owner_principal().to_string(),
-            caller_principal: format!("principal:sha256:{}", "a".repeat(64)),
-            attempt_nonce: eg_types::contract::Nonce::from_bytes([nonce; 32]),
-            tenant_id: "tenant-a".to_string(),
-            actor_scope: "action-scope:a".to_string(),
-            purpose_id: "agent-graph:publish".to_string(),
-            policy_revision: "policy-v1".to_string(),
-            policy_digest:
-                crate::server::persistence::agent_library::current_agent_library_policy_digest()
-                    .unwrap(),
-            policy_decision_id: "agent-graph:decision:policy-v1".to_string(),
-            idempotency_key: key.to_string(),
-            expected_revision: Some(expected_revision),
-            trace_id: None,
-            created_at_ms: 10,
-        }
-    }
-
-    /// Seed the schema component a graph fixture pins and return the pin that
-    /// resolves it.
-    ///
-    /// A graph publish RESOLVES every component its shape pins, so the record
-    /// has to exist in this tenant at exactly this revision.
-    #[cfg(feature = "redb")]
-    fn graph_component(
-        store: &AgentLibraryStore,
-        id: &str,
-    ) -> eg_types::agent_component::ComponentDependency {
-        crate::server::persistence::agent_component::seed_component_for_test(
-            store,
-            "tenant-a",
-            id,
-            eg_types::agent_component::AgentComponentKind::Schema,
-            1,
-        )
-    }
-
-    /// The child: one agent, then end, producing `contract:report`.
-    #[cfg(feature = "redb")]
-    fn child_graph_shape(store: &AgentLibraryStore) -> eg_types::agent_graph::AgentGraphShape {
-        use eg_types::agent_graph::{AgentGraphEdge, AgentGraphNode, AgentGraphNodeKind};
-        eg_types::agent_graph::AgentGraphShape {
-            entry_node: "work".into(),
-            nodes: vec![
-                AgentGraphNode {
-                    node_id: "work".into(),
-                    kind: AgentGraphNodeKind::Agent {
-                        agent_id: "agent:work".into(),
-                        // Seeding an agent also seeds the five components it is
-                        // assembled from, starting at this index -- so it is
-                        // spaced clear of the schema seed above.
-                        definition_digest:
-                            crate::server::persistence::agent_library::seed_agent_for_test(
-                                store,
-                                "tenant-a",
-                                "agent:work",
-                                10,
-                            ),
-                    },
-                    deps_contract: None,
-                    output_contract: Some(graph_component(store, "contract:report")),
-                },
-                AgentGraphNode {
-                    node_id: "done".into(),
-                    kind: AgentGraphNodeKind::End,
-                    deps_contract: None,
-                    output_contract: None,
-                },
-            ],
-            edges: vec![AgentGraphEdge {
-                from: "work".into(),
-                to: "done".into(),
-                condition: None,
-            }],
-            max_iterations: 4,
-        }
-    }
-
-    /// The parent: one step that RUNS the child graph, pinned by shape digest.
-    #[cfg(feature = "redb")]
-    fn parent_graph_shape(
-        store: &AgentLibraryStore,
-        child_shape_digest: &str,
-    ) -> eg_types::agent_graph::AgentGraphShape {
-        use eg_types::agent_graph::{AgentGraphEdge, AgentGraphNode, AgentGraphNodeKind};
-        eg_types::agent_graph::AgentGraphShape {
-            entry_node: "team".into(),
-            nodes: vec![
-                AgentGraphNode {
-                    node_id: "team".into(),
-                    kind: AgentGraphNodeKind::Graph {
-                        graph_id: "graph:child".into(),
-                        shape_digest: child_shape_digest.into(),
-                    },
-                    deps_contract: None,
-                    output_contract: Some(graph_component(store, "contract:report")),
-                },
-                AgentGraphNode {
-                    node_id: "done".into(),
-                    kind: AgentGraphNodeKind::End,
-                    deps_contract: None,
-                    output_contract: None,
-                },
-            ],
-            edges: vec![AgentGraphEdge {
-                from: "team".into(),
-                to: "done".into(),
-                condition: None,
-            }],
-            max_iterations: 3,
-        }
-    }
-
-    #[cfg(feature = "redb")]
-    fn publish_graph_shape(
-        store: &AgentLibraryStore,
-        graph_id: &str,
-        shape: eg_types::agent_graph::AgentGraphShape,
-        key: &str,
-        nonce: u8,
-    ) -> eg_types::agent_graph::AgentGraphEntry {
-        store
-            .publish_graph(eg_types::agent_graph::AgentGraphPublishRequest {
-                context: graph_context(store, key, nonce, 0),
-                graph: eg_types::agent_graph::AgentGraphDraft {
-                    graph_id: graph_id.to_string(),
-                    version: "1.0.0".to_string(),
-                    shape,
-                    tenant_id: "tenant-a".to_string(),
-                    actor_scope: "action-scope:a".to_string(),
-                    purpose_id: "agent-graph:publish".to_string(),
-                    policy_digest:
-                        crate::server::persistence::agent_library::current_agent_library_policy_digest()
-                            .unwrap(),
-                    synthesis_evidence: None,
-                },
-            })
-            .expect("publishes")
-            .result
-            .graph
-    }
-
     /// Publish child + parent and return the RETAINED parent, resolved the way
     /// admission resolves it.
     #[cfg(feature = "redb")]
     fn nested_graph(store: &AgentLibraryStore) -> eg_types::agent_graph::AgentGraphEntry {
-        let child = publish_graph_shape(
+        use crate::server::persistence::agent_graph::tests::{
+            child_shape, parent_shape, publish_shape,
+        };
+        let child = publish_shape(
             store,
             "graph:child",
-            child_graph_shape(store),
+            child_shape(store, "tenant-a", 4),
             "key-child",
             1,
         );
-        let parent = publish_graph_shape(
+        let parent = publish_shape(
             store,
             "graph:parent",
-            parent_graph_shape(store, &child.shape_digest),
+            parent_shape(store, "tenant-a", ("graph:child", &child.shape_digest), 3),
             "key-parent",
             2,
         );
@@ -671,7 +516,7 @@ mod tests {
     #[cfg(feature = "redb")]
     #[test]
     fn a_published_nested_graph_is_delegated_end_to_end() {
-        let (_dir, store) = graph_test_store();
+        let (_dir, store) = crate::server::persistence::agent_fixtures::open_agent_store();
         let graph = nested_graph(&store);
         // The parent runs the child: 3 iterations x the child's 4.
         assert_eq!(graph.composed_work_ceiling, 12);
@@ -713,7 +558,7 @@ mod tests {
         // The escape this field exists to close: a caller declaring a ceiling
         // the composition check never admitted would fan out past the bound
         // publish enforced.
-        let (_dir, store) = graph_test_store();
+        let (_dir, store) = crate::server::persistence::agent_fixtures::open_agent_store();
         let graph = nested_graph(&store);
         let mut request = graph_request(&graph);
         let eg_types::delegation::DelegationTarget::Graph { graph: reference } =
@@ -741,7 +586,7 @@ mod tests {
         // Each of these three is a DISTINCT refusal on the graph arm, and each
         // is asserted by its own message: an `error.contains("digest")` would
         // pass on any of them, and on several unrelated ones.
-        let (_dir, store) = graph_test_store();
+        let (_dir, store) = crate::server::persistence::agent_fixtures::open_agent_store();
         let graph = nested_graph(&store);
 
         let mut wrong_digest = graph_request(&graph);
@@ -801,7 +646,7 @@ mod tests {
         // an unprefixed one failed the comparison, so the graph arm could never
         // admit anything. Nothing caught it because nothing ever built a graph
         // target end to end.
-        let (_dir, store) = graph_test_store();
+        let (_dir, store) = crate::server::persistence::agent_fixtures::open_agent_store();
         let graph = nested_graph(&store);
         let mut unprefixed = graph_request(&graph);
         if let eg_types::delegation::DelegationTarget::Graph { graph: reference } =

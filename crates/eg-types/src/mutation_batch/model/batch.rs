@@ -105,6 +105,33 @@ pub struct MutationBatch {
 }
 
 impl MutationBatch {
+    /// A batch that applies over its owner's native version with no placement
+    /// epoch, fencing token or staged state -- the shape every native owner
+    /// write shares. `content` is the batch's final operations and outbox.
+    pub fn native(
+        batch_id: &str,
+        envelope: MutationEnvelope,
+        identity: MutationScopeIdentity,
+        version: u64,
+        content: (Vec<MutationOperation>, Vec<MutationOutboxIntent>),
+        created_at_ms: u64,
+    ) -> Self {
+        let (operations, outbox) = content;
+        Self {
+            schema_version: crate::mutation_batch::MUTATION_BATCH_VERSION,
+            batch_id: batch_id.to_string(),
+            envelope,
+            identity,
+            placement_epoch: 0,
+            version_expectation: VersionExpectation::Native(version),
+            fencing_token: None,
+            authoritative_state: None,
+            operations,
+            outbox,
+            created_at_ms,
+        }
+    }
+
     pub fn validate_identity(&self) -> Result<(), String> {
         self.identity.validate_digest()
     }

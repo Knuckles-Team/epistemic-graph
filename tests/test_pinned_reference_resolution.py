@@ -11,13 +11,9 @@ reported for exactly the layer it was removed from.
 
 from __future__ import annotations
 
-import importlib.util
-import sys
-from pathlib import Path
-
+import check_pinned_reference_resolution
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.no_engine
 
 # The public write entrypoints of each record layer.  No layer's anchor set
@@ -31,39 +27,16 @@ PUBLIC_WRITES = {
 }
 
 EXPECTED_ANCHORS = {
-    "COMPONENT": {
-        "commit_component_in_write",
-        "prepare_component_entry",
-        "prepare_component_retirement",
-    },
-    "GRAPH": {
-        "commit_graph_in_write",
-        "prepare_graph_entry",
-        "prepare_graph_retirement",
-    },
-    "LIBRARY": {"prepare_publish"},
-    "TEMPLATE": {
-        "commit_template_in_write",
-        "prepare_template_entry",
-        "prepare_template_retirement",
-    },
+    "COMPONENT": {"prepare_component_entry"},
+    "GRAPH": {"prepare_graph_entry"},
+    "LIBRARY": {"prepare_library_write"},
+    "TEMPLATE": {"prepare_template_entry"},
 }
-
-
-def _load_gate():
-    name = "check_pinned_reference_resolution"
-    path = ROOT / "scripts" / f"{name}.py"
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 @pytest.fixture(scope="module")
 def gate():
-    return _load_gate()
+    return check_pinned_reference_resolution
 
 
 @pytest.fixture(scope="module")

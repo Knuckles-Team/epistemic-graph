@@ -1,8 +1,24 @@
 //! Agent Library publish/retire transaction phases.
+//!
+//! The admitted-write steps that are identical across the agent layers --
+//! replay prelude, begin, owner rows, ledger finish and version check -- are the
+//! shared ones in [`super::super::agent_revision`]. What stays here is what the
+//! Agent Library does differently: its replay check binds the submitted draft
+//! and the recorded outbox effect, it stamps an authoritative commit time, and
+//! it builds its receipt before the owner rows are written.
 
 use super::batch::build_batch;
 use super::replay::{expected_headers_from_event, replayed_receipt, ExpectedAgentLibraryMutation};
 use super::*;
+use crate::server::persistence::agent_revision::{
+    apply_owner_rows, finish_committed_ledger, finish_replayed, policy_admitted_context,
+    revision_scope, stage_batch, within_write, RevisionVerb, StagedBatch,
+};
+
+type Write<'a> = eg_transaction::AdmittedMutation<'a, eg_storage::AgentLibraryOwner>;
+
+/// How refusals shared with the other layers name this one.
+const LIBRARY_NOUN: &str = "agent library";
 
 /// The pair the mutation kernel treats as one replay identity: an attempt is
 /// the same attempt only when BOTH the operation class and the attempt nonce
@@ -27,14 +43,6 @@ struct AgentLibraryRevisionCommit {
     entry: AgentLibraryEntry,
 }
 
-struct AgentLibraryAdmission {
-    nonce: eg_types::authority::NonceReplayKey,
-    next_revision: u64,
-    replay_context: AgentLibraryMutationContext,
-    operation: eg_types::authority::OperationReplayIdentity,
-    replay: ReplayResolution,
-}
-
 /// The outcome of admitting one publish/retire before anything is committed.
 /// The variant-specific payloads are large and differ in size, so they are
 /// boxed; the enum itself stays small whichever path is taken.
@@ -53,192 +61,154 @@ enum PreparedLibraryWrite {
     },
 }
 
-struct AgentLibraryAdmissionRequest<'a> {
-    owner: &'a OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
-    context: &'a AgentLibraryMutationContext,
-    purpose_id: &'a str,
-    kind_name: &'a str,
-    record_id: &'a str,
-    expected_revision: u64,
-    definition_digest: Option<&'a str>,
+/// One publish or retire as the caller asked for it.
+#[derive(Clone, Copy)]
+enum LibraryRequest<'r> {
+    Publish(&'r AgentLibraryPublishRequest),
+    Retire(&'r AgentLibraryRetireRequest),
 }
 
-fn prepare_admission(
-    mutations: &MutationKernel,
-    txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
-    request: AgentLibraryAdmissionRequest<'_>,
-    nonce: eg_types::authority::NonceReplayKey,
-    next_revision: u64,
-) -> Result<AgentLibraryAdmission, String> {
-    let replay_context = admitted_context(request.context, request.purpose_id)?;
+impl<'r> LibraryRequest<'r> {
+    fn context(self) -> &'r AgentLibraryMutationContext {
+        match self {
+            Self::Publish(request) => &request.context,
+            Self::Retire(request) => &request.context,
+        }
+    }
+
+    /// What the caller believes its idempotency key commits.
+    fn expected(self) -> ExpectedAgentLibraryMutation<'r> {
+        match self {
+            Self::Publish(request) => ExpectedAgentLibraryMutation {
+                kind: AgentLibraryMutationKind::Publish,
+                agent_id: &request.entry.agent_id,
+                draft: Some(&request.entry),
+            },
+            Self::Retire(request) => ExpectedAgentLibraryMutation {
+                kind: AgentLibraryMutationKind::Retire,
+                agent_id: &request.agent_id,
+                draft: None,
+            },
+        }
+    }
+}
+
+pub(super) fn library_verb(kind: AgentLibraryMutationKind) -> RevisionVerb {
+    match kind {
+        AgentLibraryMutationKind::Publish => RevisionVerb::Publish,
+        AgentLibraryMutationKind::Retire => RevisionVerb::Retire,
+    }
+}
+
+fn prepare_library_write(
+    store: &AgentLibraryStore,
+    txn: &Write<'_>,
+    owner: &OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
+    request: LibraryRequest<'_>,
+    expected_revision: u64,
+) -> Result<PreparedLibraryWrite, String> {
+    let mutations = &store.mutations;
+    let expected = request.expected();
+    let nonce = resolve_nonce_first(mutations, txn, request.context())?;
+    let next_revision = next_revision(expected_revision)?;
+    let definition_digest = expected
+        .draft
+        .map(|draft| {
+            AgentLibraryEntry::publish(draft.clone(), next_revision, 0)
+                .map(|entry| entry.definition_digest)
+        })
+        .transpose()?;
+    let verb = library_verb(expected.kind).as_str();
+    let replay_context = admitted_context(request.context(), &format!("agent-library:{verb}"))?;
     let operation = agent_library_operation_identity(
-        request.owner,
+        owner,
         &replay_context,
-        request.kind_name,
-        request.record_id,
-        request.expected_revision,
-        request.definition_digest,
+        verb,
+        expected.agent_id,
+        expected_revision,
+        definition_digest.as_deref(),
     )?;
     let replay = mutations.resolve_replay(txn, &operation, &nonce)?;
-    Ok(AgentLibraryAdmission {
-        nonce,
-        next_revision,
-        replay_context,
-        operation,
+    if let Some((result, receipt)) = replayed_receipt(
+        mutations,
+        txn,
         replay,
+        &operation,
+        &replay_context,
+        expected,
+    )? {
+        return Ok(PreparedLibraryWrite::Replay {
+            operation,
+            nonce,
+            result: Box::new(result),
+            receipt: Box::new(receipt),
+        });
+    }
+    let (context, entry) = match request {
+        LibraryRequest::Publish(publish) => prepare_publish_entry(
+            store,
+            txn,
+            publish,
+            expected_revision,
+            next_revision,
+            &replay_context,
+        )?,
+        LibraryRequest::Retire(retire) => prepare_retire_entry(
+            store,
+            txn,
+            retire,
+            expected_revision,
+            next_revision,
+            &replay_context,
+        )?,
+    };
+    Ok(PreparedLibraryWrite::Fresh {
+        operation,
+        nonce,
+        context: Box::new(context),
+        entry: Box::new(entry),
     })
 }
 
-fn finish_replayed(
-    mutations: &MutationKernel,
-    txn: eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
-    operation: &eg_types::authority::OperationReplayIdentity,
-    nonce: &eg_types::authority::NonceReplayKey,
-    result: AgentLibraryWriteResult,
-    receipt: MutationReceipt,
+/// Admit and commit one publish or retire. The write is opened here, once, for
+/// both.
+fn write_library_entry(
+    store: &AgentLibraryStore,
+    request: LibraryRequest<'_>,
 ) -> Result<AgentLibraryWriteResult, String> {
-    if let Err(error) = mutations.finalize_replay_receipt(&txn, operation, nonce, &receipt) {
-        txn.abort()?;
-        return Err(error);
-    }
-    mutations.commit_replay_receipt(txn)?;
-    Ok(result)
-}
-
-fn prepare_publish(
-    store: &AgentLibraryStore,
-    mutations: &MutationKernel,
-    txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
-    owner: &OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
-    request: &AgentLibraryPublishRequest,
-    expected_revision: u64,
-) -> Result<PreparedLibraryWrite, String> {
-    let nonce = resolve_nonce_first(mutations, txn, &request.context)?;
-    let next_revision = next_revision(expected_revision)?;
-    let definition_digest = AgentLibraryEntry::publish(request.entry.clone(), next_revision, 0)
-        .map(|entry| entry.definition_digest)?;
-    let admission = prepare_admission(
-        mutations,
-        txn,
-        AgentLibraryAdmissionRequest {
-            owner,
-            context: &request.context,
-            purpose_id: "agent-library:publish",
-            kind_name: "publish",
-            record_id: &request.entry.agent_id,
-            expected_revision,
-            definition_digest: Some(&definition_digest),
-        },
-        nonce,
-        next_revision,
-    )?;
-    let AgentLibraryAdmission {
-        nonce,
-        next_revision,
-        replay_context,
-        operation,
-        replay,
-    } = admission;
-    if let Some((result, receipt)) = replayed_receipt(
-        mutations,
-        txn,
-        replay,
-        &operation,
-        &replay_context,
-        ExpectedAgentLibraryMutation {
-            kind: AgentLibraryMutationKind::Publish,
-            agent_id: request.entry.agent_id.as_str(),
-            draft: Some(&request.entry),
-        },
-    )? {
-        return Ok(PreparedLibraryWrite::Replay {
+    let (expected_revision, owner) = revision_scope(store, request.context(), LIBRARY_NOUN)?;
+    let txn = store.mutations.open_write(&owner)?;
+    let (txn, prepared) = within_write(txn, |txn| {
+        prepare_library_write(store, txn, &owner, request, expected_revision)
+    })?;
+    match prepared {
+        PreparedLibraryWrite::Replay {
             operation,
             nonce,
-            result: Box::new(result),
-            receipt: Box::new(receipt),
-        });
-    }
-    let (context, entry) = prepare_publish_entry(
-        store,
-        txn,
-        request,
-        expected_revision,
-        next_revision,
-        &replay_context,
-    )?;
-    Ok(PreparedLibraryWrite::Fresh {
-        operation,
-        nonce,
-        context: Box::new(context),
-        entry: Box::new(entry),
-    })
-}
-
-fn prepare_retire(
-    store: &AgentLibraryStore,
-    mutations: &MutationKernel,
-    txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
-    owner: &OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
-    request: &AgentLibraryRetireRequest,
-    expected_revision: u64,
-) -> Result<PreparedLibraryWrite, String> {
-    let nonce = resolve_nonce_first(mutations, txn, &request.context)?;
-    let next_revision = next_revision(expected_revision)?;
-    let admission = prepare_admission(
-        mutations,
-        txn,
-        AgentLibraryAdmissionRequest {
-            owner,
-            context: &request.context,
-            purpose_id: "agent-library:retire",
-            kind_name: "retire",
-            record_id: &request.agent_id,
-            expected_revision,
-            definition_digest: None,
-        },
-        nonce,
-        next_revision,
-    )?;
-    let AgentLibraryAdmission {
-        nonce,
-        next_revision,
-        replay_context,
-        operation,
-        replay,
-    } = admission;
-    if let Some((result, receipt)) = replayed_receipt(
-        mutations,
-        txn,
-        replay,
-        &operation,
-        &replay_context,
-        ExpectedAgentLibraryMutation {
-            kind: AgentLibraryMutationKind::Retire,
-            agent_id: request.agent_id.as_str(),
-            draft: None,
-        },
-    )? {
-        return Ok(PreparedLibraryWrite::Replay {
+            result,
+            receipt,
+        } => finish_replayed(&store.mutations, txn, &operation, &nonce, *result, *receipt),
+        PreparedLibraryWrite::Fresh {
             operation,
             nonce,
-            result: Box::new(result),
-            receipt: Box::new(receipt),
-        });
+            context,
+            entry,
+        } => commit_entry_in_write(
+            store,
+            txn,
+            &owner,
+            &context,
+            AgentLibraryRevisionCommit {
+                expected_revision,
+                kind: request.expected().kind,
+                entry: *entry,
+            },
+            ReplayIdentity {
+                operation: &operation,
+                nonce: &nonce,
+            },
+        ),
     }
-    let (context, entry) = prepare_retire_entry(
-        store,
-        txn,
-        request,
-        expected_revision,
-        next_revision,
-        &replay_context,
-    )?;
-    Ok(PreparedLibraryWrite::Fresh {
-        operation,
-        nonce,
-        context: Box::new(context),
-        entry: Box::new(entry),
-    })
 }
 
 fn prepare_publish_entry(
@@ -344,16 +314,14 @@ struct EntryCommitPlan {
     entry_bytes: Vec<u8>,
     event: AgentLibraryOutboxEvent,
     event_bytes: Vec<u8>,
-    batch: MutationBatch,
-    source_version: u64,
-    committed_version: u64,
+    staged: StagedBatch,
     stable_result: AgentLibraryCommittedResult,
     result_bytes: Vec<u8>,
 }
 
 fn build_entry_commit_plan(
     store: &AgentLibraryStore,
-    txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
+    txn: &Write<'_>,
     owner: &OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
     context: &AgentLibraryMutationContext,
     commit: AgentLibraryRevisionCommit,
@@ -364,30 +332,32 @@ fn build_entry_commit_plan(
         kind,
         entry,
     } = commit;
-    let operations = agent_library_operations(kind, &entry);
-    let policy_digest = effective_agent_library_policy_digest(&operations)?;
-    let mut admitted_context = context.clone();
-    admitted_context.policy_digest = format!("sha256:{}", policy_digest.to_hex());
+    let admitted_context =
+        policy_admitted_context(context, &agent_library_operations(kind, &entry))?;
     let event = AgentLibraryOutboxEvent::new(kind, entry.clone(), &admitted_context)?;
     let event_bytes = eg_storage::encode_bounded(&event, "agent library outbox event")?;
     let entry_bytes = eg_storage::encode_bounded(&entry, "agent library revision")?;
-    let batch_id = batch_id(&admitted_context.idempotency_key)?;
-    let authoritative_version = store.mutations.current_version(txn, owner)?;
-    let batch = build_batch(
+    let (batch_id, staged) = stage_batch(
+        store,
+        txn,
         owner,
         &admitted_context,
-        kind,
-        &entry,
-        authoritative_version,
-        &batch_id,
-        event_bytes.clone(),
+        (replay.operation, replay.nonce),
+        LIBRARY_NOUN,
+        |version, batch_id| {
+            build_batch(
+                owner,
+                &admitted_context,
+                kind,
+                &entry,
+                version,
+                batch_id,
+                event_bytes.clone(),
+            )
+        },
     )?;
-    let source_version = begin_entry_commit(txn, &batch, replay, authoritative_version)?;
-    let committed_version = source_version
-        .checked_add(1)
-        .ok_or_else(|| "agent library committed version overflow".to_string())?;
     let stable_result =
-        AgentLibraryCommittedResult::new(entry.clone(), batch_id, committed_version)?;
+        AgentLibraryCommittedResult::new(entry.clone(), batch_id, staged.committed_version)?;
     let result_bytes = encode_domain_result(&stable_result)?;
     Ok(EntryCommitPlan {
         expected_revision,
@@ -396,39 +366,10 @@ fn build_entry_commit_plan(
         entry_bytes,
         event,
         event_bytes,
-        batch,
-        source_version,
-        committed_version,
+        staged,
         stable_result,
         result_bytes,
     })
-}
-
-fn begin_entry_commit(
-    txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
-    batch: &MutationBatch,
-    replay: &ReplayIdentity<'_>,
-    authoritative_version: u64,
-) -> Result<u64, String> {
-    let begun = txn.begin_with_replay_identity(batch, replay.operation, replay.nonce)?;
-    let source_version = match begun {
-        Begin::Apply {
-            source_version: Some(source_version),
-        } => source_version,
-        Begin::Apply {
-            source_version: None,
-        } => return Err("agent library admission has no native source version".to_string()),
-        Begin::Replay(_) => {
-            return Err(
-                "CORRUPT_MUTATION_LEDGER: replay became visible after a fresh admission decision"
-                    .to_string(),
-            );
-        }
-    };
-    if source_version != authoritative_version {
-        return Err("agent library source version changed while admitting write".to_string());
-    }
-    Ok(source_version)
 }
 
 fn build_entry_receipt(
@@ -444,7 +385,7 @@ fn build_entry_receipt(
     owner_receipt(
         operation,
         nonce,
-        &plan.batch,
+        &plan.staged.batch,
         OwnerReceiptInput {
             slug: "agent-library",
             topic: AGENT_LIBRARY_OUTBOX_TOPIC,
@@ -452,52 +393,46 @@ fn build_entry_receipt(
             event_bytes: &plan.event_bytes,
             headers: &headers,
             mutation_result: domain_result_for(&plan.stable_result)?,
-            committed_version: plan.committed_version,
+            committed_version: plan.staged.committed_version,
             committed_at_ms: plan.admitted_context.created_at_ms,
         },
     )
 }
 
-fn finish_entry_commit(
-    mutations: &MutationKernel,
-    txn: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
+/// Commit one fresh revision. Unlike the other layers, the receipt is built
+/// before the owner rows are written.
+fn commit_entry_in_write(
+    store: &AgentLibraryStore,
+    txn: Write<'_>,
     owner: &OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
-    plan: &EntryCommitPlan,
-    operation: &eg_types::authority::OperationReplayIdentity,
-    nonce: &eg_types::authority::NonceReplayKey,
-    receipt: &MutationReceipt,
-) -> Result<eg_types::MutationBatchRecord, String> {
-    let owner_write = txn.owner_rows(owner, &plan.batch)?;
-    apply_entry_rows(
-        &owner_write,
-        &plan.admitted_context,
-        plan.expected_revision,
-        &plan.entry,
-        plan.entry_bytes.as_slice(),
-    )?;
-    owner_write.finish_owner()?;
-    mutations.finish_with_replay(
-        txn,
-        &plan.batch,
-        Some(plan.result_bytes.clone()),
-        plan.admitted_context.created_at_ms,
-        Some(plan.source_version),
-        (operation, nonce, receipt),
-    )
-}
-
-fn validate_entry_commit_version(
-    record: &eg_types::MutationBatchRecord,
-    expected_version: u64,
-) -> Result<(), String> {
-    let recorded_version = record
-        .committed_version
-        .target()
-        .ok_or_else(|| "agent library commit has no target version".to_string())?;
-    if recorded_version != expected_version {
-        return Err("agent library result version differs from the committed version".to_string());
-    }
-    Ok(())
+    context: &AgentLibraryMutationContext,
+    commit: AgentLibraryRevisionCommit,
+    replay: ReplayIdentity<'_>,
+) -> Result<AgentLibraryWriteResult, String> {
+    let (txn, plan) = within_write(txn, |txn| {
+        let plan = build_entry_commit_plan(store, txn, owner, context, commit, &replay)?;
+        let receipt = build_entry_receipt(&plan, replay.operation, replay.nonce)?;
+        apply_owner_rows(txn, owner, &plan.staged.batch, |owner_write| {
+            apply_entry_rows(
+                owner_write,
+                &plan.admitted_context,
+                plan.expected_revision,
+                &plan.entry,
+                plan.entry_bytes.as_slice(),
+            )
+        })?;
+        finish_committed_ledger(
+            &store.mutations,
+            txn,
+            (&plan.staged, &plan.result_bytes),
+            plan.admitted_context.created_at_ms,
+            (replay.operation, replay.nonce, &receipt),
+            LIBRARY_NOUN,
+        )?;
+        Ok(plan)
+    })?;
+    store.mutations.commit(txn, &plan.staged.batch)?;
+    Ok(plan.stable_result.response(false))
 }
 
 impl AgentLibraryStore {
@@ -585,52 +520,7 @@ impl AgentLibraryStore {
         validate_context(self, &request.context)?;
         request.entry.validate()?;
         validate_context_matches_draft(&request.context, &request.entry)?;
-        let expected_revision = request.context.expected_revision.ok_or_else(|| {
-            "agent library writes require an explicit expected_revision".to_string()
-        })?;
-        let owner = self.scope_handle(&request.context.tenant_id)?;
-        let txn = self.mutations.open_write(&owner)?;
-        let prepared = match prepare_publish(
-            self,
-            &self.mutations,
-            &txn,
-            &owner,
-            &request,
-            expected_revision,
-        ) {
-            Ok(prepared) => prepared,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        match prepared {
-            PreparedLibraryWrite::Replay {
-                operation,
-                nonce,
-                result,
-                receipt,
-            } => finish_replayed(&self.mutations, txn, &operation, &nonce, *result, *receipt),
-            PreparedLibraryWrite::Fresh {
-                operation,
-                nonce,
-                context,
-                entry,
-            } => self.commit_entry_in_write(
-                txn,
-                &owner,
-                &context,
-                AgentLibraryRevisionCommit {
-                    expected_revision,
-                    kind: AgentLibraryMutationKind::Publish,
-                    entry: *entry,
-                },
-                ReplayIdentity {
-                    operation: &operation,
-                    nonce: &nonce,
-                },
-            ),
-        }
+        write_library_entry(self, LibraryRequest::Publish(&request))
     }
 
     /// Retire the current definition with a durable tombstone revision.
@@ -640,98 +530,6 @@ impl AgentLibraryStore {
     ) -> Result<AgentLibraryWriteResult, String> {
         validate_context(self, &request.context)?;
         eg_types::agent_library::validate_key(&request.context.tenant_id, &request.agent_id)?;
-        let expected_revision = request.context.expected_revision.ok_or_else(|| {
-            "agent library writes require an explicit expected_revision".to_string()
-        })?;
-        let owner = self.scope_handle(&request.context.tenant_id)?;
-        let txn = self.mutations.open_write(&owner)?;
-        let prepared = match prepare_retire(
-            self,
-            &self.mutations,
-            &txn,
-            &owner,
-            &request,
-            expected_revision,
-        ) {
-            Ok(prepared) => prepared,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        match prepared {
-            PreparedLibraryWrite::Replay {
-                operation,
-                nonce,
-                result,
-                receipt,
-            } => finish_replayed(&self.mutations, txn, &operation, &nonce, *result, *receipt),
-            PreparedLibraryWrite::Fresh {
-                operation,
-                nonce,
-                context,
-                entry,
-            } => self.commit_entry_in_write(
-                txn,
-                &owner,
-                &context,
-                AgentLibraryRevisionCommit {
-                    expected_revision,
-                    kind: AgentLibraryMutationKind::Retire,
-                    entry: *entry,
-                },
-                ReplayIdentity {
-                    operation: &operation,
-                    nonce: &nonce,
-                },
-            ),
-        }
-    }
-
-    fn commit_entry_in_write(
-        &self,
-        txn: eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
-        owner: &OwnedStoreHandle<eg_storage::AgentLibraryOwner>,
-        context: &AgentLibraryMutationContext,
-        commit: AgentLibraryRevisionCommit,
-        replay: ReplayIdentity<'_>,
-    ) -> Result<AgentLibraryWriteResult, String> {
-        let replay_operation = replay.operation;
-        let replay_nonce = replay.nonce;
-        let plan = match build_entry_commit_plan(self, &txn, owner, context, commit, &replay) {
-            Ok(plan) => plan,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let receipt = match build_entry_receipt(&plan, replay_operation, replay_nonce) {
-            Ok(receipt) => receipt,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        let record = match finish_entry_commit(
-            &self.mutations,
-            &txn,
-            owner,
-            &plan,
-            replay_operation,
-            replay_nonce,
-            &receipt,
-        ) {
-            Ok(record) => record,
-            Err(error) => {
-                txn.abort()?;
-                return Err(error);
-            }
-        };
-        if let Err(error) = validate_entry_commit_version(&record, plan.committed_version) {
-            txn.abort()?;
-            return Err(error);
-        }
-        self.mutations.commit(txn, &plan.batch)?;
-        Ok(plan.stable_result.response(false))
+        write_library_entry(self, LibraryRequest::Retire(&request))
     }
 }

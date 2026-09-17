@@ -17,19 +17,18 @@ use redb::{ReadableTable, ReadableTableMetadata};
 use eg_storage::{
     OwnedStoreHandle, PhysicalStoreIdentity, RecordedOperation, ScopedRead, StorageKernel,
 };
-use eg_transaction::{AdmittedOwnerWrite, Begin, MutationKernel, ReplayResolution};
+use eg_transaction::{AdmittedOwnerWrite, MutationKernel};
 use eg_types::mutation::{MutationReceipt, MutationResult};
 use eg_types::mutation_batch::{
     BatchContent, CompiledEnvelope, CompiledOperation, CompiledScope, DurabilityDomain,
-    MutationEnvelope, MutationOperation, MutationOutboxIntent, MutationSurface, VersionExpectation,
+    MutationEnvelope, MutationOperation, MutationOutboxIntent,
 };
-use eg_types::protocol::Method;
 use eg_types::{
     AgentLibraryCommittedResult, AgentLibraryEntry, AgentLibraryEntryDraft,
     AgentLibraryMutationContext, AgentLibraryMutationKind, AgentLibraryOutboxEvent,
     AgentLibraryPublishRequest, AgentLibraryRetireRequest, AgentLibraryStatusRequest,
     AgentLibraryWriteResult, MutationBatch, AGENT_LIBRARY_OUTBOX_SCHEMA_VERSION,
-    AGENT_LIBRARY_RESULT_SCHEMA_ID, MUTATION_BATCH_VERSION,
+    AGENT_LIBRARY_RESULT_SCHEMA_ID,
 };
 
 use super::durable_stores::BundledStoreSource;
@@ -40,6 +39,7 @@ mod receipt;
 mod replay;
 mod write;
 
+pub(super) use batch::native_lifecycle_batch;
 use history::read_history;
 pub(super) use receipt::{owner_receipt, OwnerReceiptInput};
 use replay::{receipt_result, record_result, replay_record};
@@ -482,19 +482,10 @@ fn agent_library_operations(
     kind: AgentLibraryMutationKind,
     entry: &AgentLibraryEntry,
 ) -> Vec<MutationOperation> {
-    let event_type = match kind {
-        AgentLibraryMutationKind::Publish => "agent_library_publish",
-        AgentLibraryMutationKind::Retire => "agent_library_retire",
-    };
-    vec![MutationOperation {
-        ordinal: 0,
-        surface: MutationSurface::Lifecycle,
-        domain: DurabilityDomain::ControlPlane,
-        method: Method::ApplyMutation {
-            event_type: event_type.to_string(),
-            query: entry.definition_digest.clone(),
-        },
-    }]
+    super::agent_revision::lifecycle_operations(
+        format!("agent_library_{}", write::library_verb(kind).as_str()),
+        entry.definition_digest.clone(),
+    )
 }
 
 pub(super) fn effective_agent_library_policy_digest(
@@ -507,15 +498,10 @@ pub(super) fn effective_agent_library_policy_digest(
 }
 
 pub(crate) fn current_agent_library_policy_digest() -> Result<String, String> {
-    let operations = vec![MutationOperation {
-        ordinal: 0,
-        surface: MutationSurface::Lifecycle,
-        domain: DurabilityDomain::ControlPlane,
-        method: Method::ApplyMutation {
-            event_type: "agent_library_policy".to_string(),
-            query: String::new(),
-        },
-    }];
+    let operations = super::agent_revision::lifecycle_operations(
+        "agent_library_policy".to_string(),
+        String::new(),
+    );
     Ok(format!(
         "sha256:{}",
         effective_agent_library_policy_digest(&operations)?.to_hex()
@@ -699,7 +685,7 @@ pub(crate) fn seed_agent_for_test(
     {
         return existing.definition_digest;
     }
-    let mut entry = seed_agent_draft_for_test(store, tenant_id, agent_id, nonce_index);
+    let mut entry = seed_agent_draft_for_test(tenant_id, agent_id, nonce_index);
     super::agent_component::seed_draft_components_for_test(store, &mut entry, nonce_index);
     // A seeding nonce can never collide with a test's own: every test module
     // builds its nonces as `[n; 32]` for a small `n`.
@@ -736,7 +722,6 @@ pub(crate) fn seed_agent_for_test(
 /// rewrite.
 #[cfg(test)]
 pub(crate) fn seed_agent_draft_for_test(
-    _store: &AgentLibraryStore,
     tenant_id: &str,
     agent_id: &str,
     nonce_index: u8,
@@ -814,59 +799,13 @@ mod tests {
         )
     }
 
+    /// The shared agent draft with its five components seeded under nonces
+    /// 1..=5 and a fixed source revision.
     fn draft(store: &AgentLibraryStore, tenant_id: &str, agent_id: &str) -> AgentLibraryEntryDraft {
-        use eg_types::agent_component::AgentComponentKind;
-        AgentLibraryEntryDraft {
-            agent_id: agent_id.to_string(),
-            package_id: "agent-package".to_string(),
-            version: "1.0.0".to_string(),
-            role: "researcher".to_string(),
-            role_digest: digest('1'),
-            system_prompt: component_pin(
-                store,
-                tenant_id,
-                "prompt:agent",
-                AgentComponentKind::SystemPrompt,
-                1,
-            ),
-            tools: vec![component_pin(
-                store,
-                tenant_id,
-                "tool:search",
-                AgentComponentKind::Tool,
-                2,
-            )],
-            skills: vec![component_pin(
-                store,
-                tenant_id,
-                "skill:reason",
-                AgentComponentKind::Skill,
-                3,
-            )],
-            model_profile: component_pin(
-                store,
-                tenant_id,
-                "model-profile:default",
-                AgentComponentKind::ModelProfile,
-                4,
-            ),
-            model_identity: "model:default".to_string(),
-            ontologies: vec![component_pin(
-                store,
-                tenant_id,
-                "ontology:agent",
-                AgentComponentKind::Ontology,
-                5,
-            )],
-            tenant_id: tenant_id.to_string(),
-            actor_scope: "definition:builder-a".to_string(),
-            purpose_id: "agent-library:definition".to_string(),
-            policy_digest: digest('7'),
-            source_revision: "source-revision:42".to_string(),
-            source_revision_digest: digest('8'),
-            runtime: Default::default(),
-            instantiated_from: None,
-        }
+        let mut draft = seed_agent_draft_for_test(tenant_id, agent_id, 0);
+        draft.source_revision = "source-revision:42".to_string();
+        super::super::agent_component::seed_draft_components_for_test(store, &mut draft, 1);
+        draft
     }
 
     /// One write attempt's replay coordinates.  These three are what the store

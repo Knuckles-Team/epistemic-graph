@@ -15,10 +15,10 @@ use eg_transaction::{AdmittedMutation, AdmittedOwnerWrite};
 use eg_types::contract::Digest256;
 use eg_types::mutation_batch::{
     BatchContent, CompiledOperation, CompiledScope, DurabilityDomain, MutationEnvelope,
-    MutationOutboxIntent, MutationOutboxLease, MutationSurface, VersionExpectation,
+    MutationOutboxIntent, MutationOutboxLease, MutationSurface,
 };
 use eg_types::semantic_index::{SemanticDigest, SemanticIndexMutation};
-use eg_types::{MutationBatch, MutationOperation, MUTATION_BATCH_VERSION};
+use eg_types::{MutationBatch, MutationOperation};
 use sha2::{Digest, Sha256};
 
 /// What one semantic metadata mutation records.
@@ -110,32 +110,25 @@ impl SemanticCodeStore {
             subject,
             mutation_digest,
         } = mutation;
-        Ok(MutationBatch {
-            schema_version: MUTATION_BATCH_VERSION,
-            batch_id: batch_id.to_string(),
-            envelope: MutationEnvelope::maintenance(
-                owner.principal(),
-                event_type,
-                subject,
-                batch_id,
-            )?,
-            identity: owner.identity().clone(),
-            placement_epoch: 0,
-            version_expectation: VersionExpectation::Native(version),
-            fencing_token: None,
-            authoritative_state: None,
-            operations: vec![MutationOperation {
-                ordinal: 0,
-                surface: MutationSurface::Other,
-                domain: DurabilityDomain::SemanticIndex,
-                method: eg_types::protocol::Method::ApplyMutation {
-                    event_type: event_type.to_string(),
-                    query: format!("sha256:{}", mutation_digest.to_hex()),
-                },
-            }],
-            outbox,
+        let envelope =
+            MutationEnvelope::maintenance(owner.principal(), event_type, subject, batch_id)?;
+        let operations = vec![MutationOperation {
+            ordinal: 0,
+            surface: MutationSurface::Other,
+            domain: DurabilityDomain::SemanticIndex,
+            method: eg_types::protocol::Method::ApplyMutation {
+                event_type: event_type.to_string(),
+                query: format!("sha256:{}", mutation_digest.to_hex()),
+            },
+        }];
+        Ok(MutationBatch::native(
+            batch_id,
+            envelope,
+            owner.identity().clone(),
+            version,
+            (operations, outbox),
             created_at_ms,
-        })
+        ))
     }
 
     pub(super) fn metadata_operation_batch(
@@ -198,19 +191,14 @@ impl SemanticCodeStore {
             },
             operation,
         )?;
-        Ok(MutationBatch {
-            schema_version: MUTATION_BATCH_VERSION,
-            batch_id: batch_id.to_string(),
+        Ok(MutationBatch::native(
+            batch_id,
             envelope,
-            identity: owner.identity().clone(),
-            placement_epoch: 0,
-            version_expectation: VersionExpectation::Native(version),
-            fencing_token: None,
-            authoritative_state: None,
-            operations,
-            outbox,
+            owner.identity().clone(),
+            version,
+            (operations, outbox),
             created_at_ms,
-        })
+        ))
     }
 }
 

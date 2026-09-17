@@ -177,16 +177,6 @@ reviewed_on = "2026-09-16"
 reason = """An 8-field program-candidate/revision-identity binding versus a 7-field mutation-receipt/request-envelope binding: different crates (eg-program vs eg-types::mutation), different record kinds, no field in common by name or meaning. Both are exact-match admission checks over a durable record and its expected identity, which is why they share the same &&-chained equality shape; there is no common type to factor the check onto without inventing one that serves no other purpose."""
 
 [[pair]]
-left_file = "src/server/persistence/agent_library/batch.rs"
-left_name = "build_batch_headers"
-left_digest = "sha256:f7639ab6dc6540f035085a1cdaf966b0aafca4a6fc02eeb62930f6a24bc3f2fe"
-right_file = "src/server/persistence/agent_template.rs"
-right_name = "template_outbox_headers"
-right_digest = "sha256:e478eb957f64f7340003eb2d643d4edcfcdd9a75e8dfe4d273fce1eb714fe7af"
-reviewed_on = "2026-09-16"
-reason = """Two of the four agent-layer outbox header builders (Library and Template; see check_pinned_reference_resolution.py's docstring for the four-layer contract) build the same-shaped BTreeMap from their own layer's entry and mutation context. They are genuinely parallel by design, not copy-paste of one another: AgentLibraryEntry keys on agent_id, AgentTemplateEntry keys on template_id, and each already calls only its own layer's outbox topic/schema-version constants. The Library layer's two former near-duplicates within its own file (build_batch_headers and replay.rs's expected_headers) WERE the same function and have been merged onto this one; this remaining pair is cross-layer and stays distinct, the same intentional per-layer parallelism as the rest of the four-layer admission contract."""
-
-[[pair]]
 left_file = "crates/eg-types/src/outcome_bundle/validation.rs"
 left_name = "event_execution_identity_matches_bundle"
 left_digest = "sha256:109fe0620e57b569ddfe690cb980edab69df8c62fba828498b2620e489f898f4"

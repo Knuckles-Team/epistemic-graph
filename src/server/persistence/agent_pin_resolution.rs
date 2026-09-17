@@ -403,7 +403,6 @@ pub(crate) fn seed_template_for_test(
         return existing.definition_digest;
     }
     let mut base = super::agent_library::seed_agent_draft_for_test(
-        store,
         tenant_id,
         &format!("{template_id}:base"),
         nonce_index,
@@ -449,7 +448,7 @@ pub(crate) fn seed_template_for_test(
 
 #[cfg(test)]
 mod tests {
-    use super::super::agent_library::{current_agent_library_policy_digest, AgentLibraryStore};
+    use super::super::agent_library::AgentLibraryStore;
     use eg_types::agent_library::{
         AgentLibraryEntryDraft, AgentLibraryMutationContext, AgentLibraryPublishRequest,
     };
@@ -460,22 +459,14 @@ mod tests {
     const INSTANCE_ID: &str = "agent:researcher-cheap";
 
     fn context(store: &AgentLibraryStore, nonce: u8) -> AgentLibraryMutationContext {
-        AgentLibraryMutationContext {
-            request_id: u64::from(nonce),
-            principal: store.owner_principal().to_string(),
-            caller_principal: format!("principal:sha256:{}", "a".repeat(64)),
-            attempt_nonce: eg_types::contract::Nonce::from_bytes([nonce; 32]),
-            tenant_id: "tenant-a".to_string(),
-            actor_scope: "action-scope:a".to_string(),
-            purpose_id: "agent-library:definition".to_string(),
-            policy_revision: "policy-v1".to_string(),
-            policy_digest: current_agent_library_policy_digest().unwrap(),
-            policy_decision_id: "agent-library:decision:policy-v1".to_string(),
-            idempotency_key: format!("instance-key-{nonce}"),
-            expected_revision: Some(0),
-            trace_id: None,
-            created_at_ms: 10,
-        }
+        super::super::agent_fixtures::mutation_context(
+            store,
+            "tenant-a",
+            &format!("instance-key-{nonce}"),
+            nonce,
+            0,
+            "agent-library:definition",
+        )
     }
 
     /// A store holding one template at revision 1, and the instance draft it
