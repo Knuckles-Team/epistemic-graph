@@ -398,34 +398,118 @@ def test_exact_binary_probe_entrypoint_uses_declared_contract_owner(
     assert "contract::probe_row(" in probe_source
 
 
+def _table(contract_source: str, name: str, element: str) -> list[str]:
+    """The bodies of every `<element> { .. }` literal in `static <name>`."""
+
+    header = f"static {name}: &[{element}] = &["
+    assert contract_source.count(header) == 1, f"{name} table not found"
+    table = contract_source.split(header, 1)[1].split("\n];", 1)[0]
+    return re.findall(rf"\b{element} \{{(.*?)\n    \}},", table, flags=re.DOTALL)
+
+
+_RUNNER = re.compile(
+    r"\brunner: ProbeRunner::([A-Z][A-Za-z]+)"
+    r"\(super::([a-z_]+)::([a-z_0-9]+)\)"
+)
+
+
+def _function_body(source: str, header: str) -> str:
+    """The text of the item that starts at `header`, up to its closing brace."""
+
+    return source.split(header, 1)[1].split("\n}", 1)[0]
+
+
+def _string_list(body: str, field: str) -> list[str]:
+    match = re.search(rf"\b{field}: &\[(.*?)\]", body, flags=re.DOTALL)
+    assert match is not None, f"no `{field}` list in {body!r}"
+    return re.findall(r'"([^"]+)"', match.group(1))
+
+
+def _string_field(body: str, field: str) -> str:
+    match = re.search(rf'\b{field}: "([^"]+)"', body)
+    assert match is not None, f"no `{field}` string in {body!r}"
+    return match.group(1)
+
+
+def _check_scenario_table(contract_source: str, scenarios: list[dict]) -> None:
+    """SCENARIO_CONTRACTS lists the manifest's scenarios, in order, exactly."""
+
+    table = [
+        (
+            _string_field(body, "id"),
+            _string_field(body, "driver"),
+            _string_list(body, "rows"),
+        )
+        for body in _table(contract_source, "SCENARIO_CONTRACTS", "ScenarioContract")
+    ]
+    assert table == [
+        (
+            scenario["scenario_id"],
+            scenario["driver"],
+            [row["row_id"] for row in scenario["rows"]],
+        )
+        for scenario in scenarios
+    ]
+    lookup = _function_body(contract_source, "fn scenario_contract")
+    assert "SCENARIO_CONTRACTS" in lookup
+    assert "contract.id == scenario_id" in lookup
+
+
+def _check_equivalence_table(contract_source: str, contracts: Any) -> None:
+    """Every ledger row has exactly one contract, carrying its manifest checks."""
+
+    rows = {}
+    for body in _table(contract_source, "ROW_CONTRACTS", "RowContract"):
+        row_id = _string_field(body, "id")
+        assert row_id not in rows, f"{row_id} has two contracts"
+        rows[row_id] = _string_list(body, "equivalence")
+    assert set(rows) == set(contracts.ledger_rows)
+    for scenario in contracts.manifest["scenarios"]:
+        for row in scenario["rows"]:
+            assert rows[row["row_id"]] == row["equivalence_checks"], row["row_id"]
+    lookup = _function_body(contract_source, "fn row_equivalence_contract")
+    assert "row_contract(row_id)" in lookup
+    assert "contract.equivalence" in lookup
+
+
+def _check_dispatch_table(
+    contract_source: str, module_sources: dict[str, str], ledger_rows: Any
+) -> None:
+    """Every ledger row dispatches, through `probe_row`, to a real probe function."""
+
+    runner_enum = contract_source.split("enum ProbeRunner {", 1)[1].split("\n}", 1)[0]
+    variants = set(re.findall(r"^\s{4}([A-Z][A-Za-z]+)\(", runner_enum, flags=re.M))
+    run_arms = contract_source.split("impl ProbeRunner {", 1)[1].split("\n}", 1)[0]
+    assert variants == set(re.findall(r"Self::([A-Z][A-Za-z]+)\(run\) =>", run_arms))
+
+    dispatched = []
+    for body in _table(contract_source, "ROW_CONTRACTS", "RowContract"):
+        runner = re.search(_RUNNER, body)
+        assert runner is not None, f"no runner in {body!r}"
+        variant, module, function = runner.groups()
+        assert variant in variants
+        assert re.search(rf"\bfn {function}\(", module_sources[module]), (
+            f"{module}::{function} is not defined"
+        )
+        dispatched.append(_string_field(body, "id"))
+    assert len(dispatched) == len(set(dispatched)) == 54
+    assert set(dispatched) == set(ledger_rows)
+
+    probe_row = _function_body(contract_source, "pub(super) fn probe_row(")
+    assert "row_contract(row_id)" in probe_row
+    assert (
+        ".runner" in probe_row
+        and ".run(row_id, scale, seed, repetition, probe_root)" in probe_row
+    )
+
+
 def test_exact_binary_probe_source_covers_manifest_inventory(
     compiled_probe_sources: tuple[str, dict[str, str]],
 ) -> None:
     harness = _load_harness()
     contracts = harness._load_scenario_contracts(harness.DEFAULT_SCENARIOS)
     _probe_source, module_sources = compiled_probe_sources
-    contract_source = module_sources["contract"]
-    scenario_source = contract_source.split("fn scenario_contract", 1)[1].split(
-        "fn probe_row", 1
-    )[0]
-    scenarios = contracts.manifest["scenarios"]
-    scenario_offsets = [
-        scenario_source.index(f'"{scenario["scenario_id"]}"') for scenario in scenarios
-    ]
-    assert scenario_offsets == sorted(scenario_offsets)
-    for ordinal, scenario in enumerate(scenarios):
-        assert f'"{scenario["scenario_id"]}"' in contract_source
-        assert f'"{scenario["driver"]}"' in contract_source
-        end = (
-            scenario_offsets[ordinal + 1]
-            if ordinal + 1 < len(scenario_offsets)
-            else len(scenario_source)
-        )
-        scenario_arm = scenario_source[scenario_offsets[ordinal] : end]
-        assert f'"{scenario["driver"]}"' in scenario_arm
-        assert re.findall(r'"(G37-HP-[0-9]{3})"', scenario_arm) == [
-            row["row_id"] for row in scenario["rows"]
-        ]
+    _check_scenario_table(module_sources["contract"], contracts.manifest["scenarios"])
 
 
 def test_exact_binary_probe_equivalence_checks_match_manifest(
@@ -434,23 +518,48 @@ def test_exact_binary_probe_equivalence_checks_match_manifest(
     harness = _load_harness()
     contracts = harness._load_scenario_contracts(harness.DEFAULT_SCENARIOS)
     _probe_source, module_sources = compiled_probe_sources
-    equivalence_source = (
-        module_sources["contract"]
-        .split("fn row_equivalence_contract", 1)[1]
-        .split("fn scenario_contract", 1)[0]
+    _check_equivalence_table(module_sources["contract"], contracts)
+
+
+def test_exact_binary_probe_contract_checks_refuse_a_mismapped_row(
+    compiled_probe_sources: tuple[str, dict[str, str]],
+) -> None:
+    """Each contract check fails when one row is mapped to the wrong place."""
+
+    harness = _load_harness()
+    contracts = harness._load_scenario_contracts(harness.DEFAULT_SCENARIOS)
+    _probe_source, module_sources = compiled_probe_sources
+    source = module_sources["contract"]
+
+    moved_row = source.replace(
+        'rows: &["G37-HP-006", "G37-HP-007"]', 'rows: &["G37-HP-007", "G37-HP-006"]', 1
     )
-    equivalence_arms = {
-        row_id: re.findall(r'"([a-z][a-z0-9_]+)"', body)
-        for row_id, body in re.findall(
-            r'"(G37-HP-[0-9]{3})"\s*=>\s*&\[(.*?)\],',
-            equivalence_source,
-            flags=re.DOTALL,
-        )
-    }
-    assert set(equivalence_arms) == set(contracts.ledger_rows)
-    for scenario in contracts.manifest["scenarios"]:
-        for row in scenario["rows"]:
-            assert equivalence_arms[row["row_id"]] == row["equivalence_checks"]
+    assert moved_row != source
+    with pytest.raises(AssertionError):
+        _check_scenario_table(moved_row, contracts.manifest["scenarios"])
+
+    wrong_checks = source.replace(
+        'equivalence: &["cursor_page_matches_reference"]',
+        'equivalence: &["cdc_suffix_matches_reference"]',
+        1,
+    )
+    assert wrong_checks != source
+    with pytest.raises(AssertionError):
+        _check_equivalence_table(wrong_checks, contracts)
+
+    missing_probe = source.replace(
+        "ProbeRunner::Scale(super::storage::probe_tms)",
+        "ProbeRunner::Scale(super::storage::probe_missing)",
+        1,
+    )
+    assert missing_probe != source
+    with pytest.raises(AssertionError):
+        _check_dispatch_table(missing_probe, module_sources, contracts.ledger_rows)
+
+    duplicated_row = source.replace('id: "G37-HP-054"', 'id: "G37-HP-053"', 1)
+    assert duplicated_row != source
+    with pytest.raises(AssertionError):
+        _check_dispatch_table(duplicated_row, module_sources, contracts.ledger_rows)
 
 
 def test_exact_binary_probe_dispatch_covers_manifest_inventory(
@@ -459,10 +568,9 @@ def test_exact_binary_probe_dispatch_covers_manifest_inventory(
     harness = _load_harness()
     contracts = harness._load_scenario_contracts(harness.DEFAULT_SCENARIOS)
     probe_source, module_sources = compiled_probe_sources
-    dispatch_source = module_sources["contract"].split("fn probe_row", 1)[1]
-    dispatched_rows = re.findall(r'"(G37-HP-[0-9]{3})"', dispatch_source)
-    assert len(dispatched_rows) == len(set(dispatched_rows)) == 54
-    assert set(dispatched_rows) == set(contracts.ledger_rows)
+    _check_dispatch_table(
+        module_sources["contract"], module_sources, contracts.ledger_rows
+    )
     compiled_probe_source = "\n".join([probe_source, *module_sources.values()])
     for required_real_surface in (
         "ServedModalityRuntime",
