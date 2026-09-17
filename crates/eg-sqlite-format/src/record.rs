@@ -45,24 +45,19 @@ fn encode_int(i: i64) -> (u64, Vec<u8>) {
 }
 
 /// Payload byte length of a serial type, and whether it's valid.
+///
+/// The match is exhaustive over `u64` (no catch-all): every serial type is either a
+/// fixed-width class or a variable-length BLOB/TEXT. For `N >= 12`, `(N - 12) / 2`
+/// is the BLOB length when `N` is even and equals the TEXT length `(N - 13) / 2`
+/// when `N` is odd (integer division floors the odd remainder away).
 fn serial_type_len(serial: u64) -> Result<usize> {
     Ok(match serial {
         0 | 8 | 9 => 0,
-        1 => 1,
-        2 => 2,
-        3 => 3,
-        4 => 4,
+        1..=4 => serial as usize,
         5 => 6,
         6 | 7 => 8,
         10 | 11 => return Err(Error::corrupt("reserved serial type 10/11")),
-        n if n >= 12 => {
-            if n % 2 == 0 {
-                ((n - 12) / 2) as usize
-            } else {
-                ((n - 13) / 2) as usize
-            }
-        }
-        _ => unreachable!(),
+        12.. => ((serial - 12) / 2) as usize,
     })
 }
 
@@ -198,5 +193,49 @@ mod tests {
             Value::Blob(Vec::new()),
             Value::Blob(vec![1, 2, 3, 255]),
         ]);
+    }
+
+    #[test]
+    fn serial_type_len_covers_every_serial_class() {
+        let fixed = [
+            (0, 0),
+            (1, 1),
+            (2, 2),
+            (3, 3),
+            (4, 4),
+            (5, 6),
+            (6, 8),
+            (7, 8),
+            (8, 0),
+            (9, 0),
+        ];
+        for (serial, len) in fixed {
+            assert_eq!(serial_type_len(serial).unwrap(), len, "serial {serial}");
+        }
+        assert!(serial_type_len(10).is_err());
+        assert!(serial_type_len(11).is_err());
+        // Even N >= 12 is a BLOB of (N-12)/2 bytes; odd N >= 13 is TEXT of (N-13)/2.
+        let variable = [
+            (12, 0),
+            (13, 0),
+            (14, 1),
+            (15, 1),
+            (1_000, 494),
+            (1_001, 494),
+        ];
+        for (serial, len) in variable {
+            assert_eq!(serial_type_len(serial).unwrap(), len, "serial {serial}");
+        }
+        assert_eq!(
+            serial_type_len(u64::MAX).unwrap(),
+            ((u64::MAX - 13) / 2) as usize
+        );
+    }
+
+    #[test]
+    fn decode_record_rejects_reserved_serial_types() {
+        // header size 2, one serial type of 10 (reserved), no body.
+        assert!(decode_record(&[2, 10]).is_err());
+        assert!(decode_record(&[2, 11]).is_err());
     }
 }

@@ -53,41 +53,68 @@ pub fn time_bucket(points: &[Point], width: Ts, agg: Agg) -> Vec<Bucket> {
     }
     let mut i = 0;
     while i < points.len() {
-        let b = (points[i].ts / width) * width;
-        let mut j = i;
-        let mut count = 0usize;
-        let mut value = match agg {
-            Agg::Min => f64::INFINITY,
-            Agg::Max => f64::NEG_INFINITY,
-            _ => 0.0,
-        };
-        while j < points.len() && (points[j].ts / width) * width == b {
-            let sample = points[j].values[0];
-            match agg {
-                Agg::First if count == 0 => value = sample,
-                Agg::First => {}
-                Agg::Last => value = sample,
-                Agg::Min => value = value.min(sample),
-                Agg::Max => value = value.max(sample),
-                Agg::Mean | Agg::Sum => value += sample,
-                Agg::Count => {}
-            }
-            count += 1;
-            j += 1;
-        }
-        if agg == Agg::Mean {
-            value /= count as f64;
-        } else if agg == Agg::Count {
-            value = count as f64;
-        }
+        let bucket_start = (points[i].ts / width) * width;
+        let end = bucket_run_end(points, i, width, bucket_start);
+        let samples = &points[i..end];
         out.push(Bucket {
-            bucket_start: b,
-            value,
-            count,
+            bucket_start,
+            value: aggregate_samples(samples, agg),
+            count: samples.len(),
         });
-        i = j;
+        i = end;
     }
     out
+}
+
+/// One past the last index of the contiguous run starting at `start` whose points
+/// align to `bucket_start` under `width`.
+fn bucket_run_end(points: &[Point], start: usize, width: Ts, bucket_start: Ts) -> usize {
+    points[start..]
+        .iter()
+        .position(|p| (p.ts / width) * width != bucket_start)
+        .map_or(points.len(), |offset| start + offset)
+}
+
+/// Fold field 0 of one bucket's (non-empty) samples with `agg`.
+fn aggregate_samples(samples: &[Point], agg: Agg) -> f64 {
+    let value = samples
+        .iter()
+        .enumerate()
+        .fold(agg_seed(agg), |value, (seen, p)| {
+            agg_step(agg, value, p.values[0], seen)
+        });
+    agg_finish(agg, value, samples.len())
+}
+
+/// The accumulator's starting value for `agg`.
+fn agg_seed(agg: Agg) -> f64 {
+    match agg {
+        Agg::Min => f64::INFINITY,
+        Agg::Max => f64::NEG_INFINITY,
+        Agg::First | Agg::Last | Agg::Mean | Agg::Sum | Agg::Count => 0.0,
+    }
+}
+
+/// Fold one `sample` into `value`; `seen` is how many samples were folded before it.
+fn agg_step(agg: Agg, value: f64, sample: f64, seen: usize) -> f64 {
+    match agg {
+        Agg::First if seen == 0 => sample,
+        Agg::First => value,
+        Agg::Last => sample,
+        Agg::Min => value.min(sample),
+        Agg::Max => value.max(sample),
+        Agg::Mean | Agg::Sum => value + sample,
+        Agg::Count => value,
+    }
+}
+
+/// Turn the folded accumulator into the bucket value (`count` samples were folded).
+fn agg_finish(agg: Agg, value: f64, count: usize) -> f64 {
+    match agg {
+        Agg::Mean => value / count as f64,
+        Agg::Count => count as f64,
+        Agg::First | Agg::Last | Agg::Min | Agg::Max | Agg::Sum => value,
+    }
 }
 
 /// One OHLC bar: bucket start + open/high/low/close (field 0 = price) and volume
@@ -562,5 +589,26 @@ mod aggregation_tests {
         assert_eq!(count[0].value, 3.0);
         assert_eq!(count[0].count, 3);
         assert_eq!(count[1].value, 1.0);
+    }
+
+    #[test]
+    fn time_bucket_rejects_nonpositive_width_and_aligns_bucket_starts() {
+        let points = vec![
+            Point::single(3, 1.0),
+            Point::single(9, 2.0),
+            Point::single(10, 4.0),
+            Point::single(25, 8.0),
+        ];
+        assert!(time_bucket(&points, 0, Agg::Sum).is_empty());
+        assert!(time_bucket(&points, -5, Agg::Sum).is_empty());
+        assert!(time_bucket(&[], 10, Agg::Sum).is_empty());
+
+        let sums = time_bucket(&points, 10, Agg::Sum);
+        let starts: Vec<Ts> = sums.iter().map(|b| b.bucket_start).collect();
+        let values: Vec<f64> = sums.iter().map(|b| b.value).collect();
+        let counts: Vec<usize> = sums.iter().map(|b| b.count).collect();
+        assert_eq!(starts, vec![0, 10, 20]);
+        assert_eq!(values, vec![3.0, 4.0, 8.0]);
+        assert_eq!(counts, vec![2, 1, 1]);
     }
 }
