@@ -153,14 +153,12 @@ fn classify_entangling_connectivity(program: &QuantumProgram) -> EntanglingConne
 /// or `None` when it touches fewer than two: a single-qubit gate cannot entangle
 /// anything by itself, and a non-gate instruction entangles nothing.
 fn entangling_qubits(instr: &Instruction) -> Option<Vec<u32>> {
-    let g = match instr {
-        Instruction::Gate(g) => g,
+    let mut touched = match instr {
+        Instruction::Gate(_) => instr.touched_qubits(),
         Instruction::Measure { .. } | Instruction::Reset { .. } | Instruction::Barrier { .. } => {
             return None
         }
     };
-    let mut touched = g.qubits.clone();
-    touched.extend(g.controls.iter().map(|c| c.qubit));
     touched.sort_unstable();
     touched.dedup();
     (touched.len() >= 2).then_some(touched)
