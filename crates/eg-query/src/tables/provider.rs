@@ -477,6 +477,13 @@ fn serial_column_eq(expr: &Expr, serial_col: &str) -> Option<i64> {
     if col.name != serial_col {
         return None;
     }
+    integer_literal_i64(lit)
+}
+
+/// A signed/unsigned integer literal widened to `i64`. Split out of
+/// [`serial_column_eq`] (extract-method) so each function stays within the
+/// per-function complexity cap.
+fn integer_literal_i64(lit: &ScalarValue) -> Option<i64> {
     match lit {
         ScalarValue::Int8(Some(n)) => Some(*n as i64),
         ScalarValue::Int16(Some(n)) => Some(*n as i64),
@@ -510,11 +517,26 @@ fn is_equality_shape(expr: &Expr) -> bool {
 /// The engine deliberately accepts only the finite set that has a stable
 /// secondary-index encoding; NULL and complex/list literals remain scan-only.
 fn scalar_to_json(value: &ScalarValue) -> Option<serde_json::Value> {
+    text_or_bool_json(value)
+        .or_else(|| integer_json(value))
+        .or_else(|| float_json(value))
+}
+
+/// The string/boolean arm of [`scalar_to_json`]. Split out (extract-method) so
+/// each arm group stays within the per-function complexity cap.
+fn text_or_bool_json(value: &ScalarValue) -> Option<serde_json::Value> {
     match value {
         ScalarValue::Utf8(Some(value)) | ScalarValue::LargeUtf8(Some(value)) => {
             Some(value.clone().into())
         }
         ScalarValue::Boolean(Some(value)) => Some((*value).into()),
+        _ => None,
+    }
+}
+
+/// The signed/unsigned integer arm of [`scalar_to_json`].
+fn integer_json(value: &ScalarValue) -> Option<serde_json::Value> {
+    match value {
         ScalarValue::Int8(Some(value)) => Some((*value as i64).into()),
         ScalarValue::Int16(Some(value)) => Some((*value as i64).into()),
         ScalarValue::Int32(Some(value)) => Some((*value as i64).into()),
@@ -523,6 +545,13 @@ fn scalar_to_json(value: &ScalarValue) -> Option<serde_json::Value> {
         ScalarValue::UInt16(Some(value)) => Some((*value as u64).into()),
         ScalarValue::UInt32(Some(value)) => Some((*value as u64).into()),
         ScalarValue::UInt64(Some(value)) => Some((*value).into()),
+        _ => None,
+    }
+}
+
+/// The floating-point arm of [`scalar_to_json`].
+fn float_json(value: &ScalarValue) -> Option<serde_json::Value> {
+    match value {
         ScalarValue::Float32(Some(value)) => {
             serde_json::Number::from_f64(*value as f64).map(serde_json::Value::Number)
         }

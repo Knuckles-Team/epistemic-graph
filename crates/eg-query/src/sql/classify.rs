@@ -493,71 +493,36 @@ pub struct DeleteNodes {
 /// a write whose shape this increment cannot route (e.g. a write into a table
 /// other than `nodes`, a complex WHERE, or a join/subquery in DML).
 ///
-/// CX complexity cap exception (documented floor, CX cyclomatic<=10/cognitive<=15
-/// north star): cyclomatic 16, cognitive 2. Every substantive arm already
-/// delegates to its own function (`classify_query_stmt`, `classify_any_insert`,
-/// `classify_update_stmt`, `classify_any_delete`, `classify_create_table`,
-/// `classify_create_extension`, `classify_drop`, `classify_alter_table`,
-/// `classify_create_view`, `classify_copy_stmt`) — this is a flat exhaustive
-/// dispatch over `Statement`'s DML/DDL/transaction/COPY variants, one arm per
-/// variant, so cccc counts each arm toward cyclomatic while cognitive stays flat
-/// (no nesting). Collapsing arms into a `_ =>` wildcard, or re-nesting them into
-/// fewer, deeper branches, would either widen what silently falls through to
-/// "unsupported statement" or trade this flat, easy-to-audit shape for a worse
-/// one purely to move a number — see the brief's "never re-nest a flat
-/// dispatcher" rule and BUG-CX-069/090.
+/// `Statement` is sqlparser's full AST enum (dozens of variants this crate has no
+/// use for), so the dispatch below ends in "unsupported statement" rather than
+/// naming every foreign variant — a genuine, necessary catch-all, not a lazily
+/// collapsed one. That disqualifies the whole function from the exhaustive-match
+/// cyclomatic exemption (`scripts/rust_exhaustive_match.py`: no arm anywhere in
+/// the body may be irrefutable), so the dispatch is grouped into
+/// [`dispatch::classify_dml_or_query`] / [`dispatch::classify_ddl_stmt`] /
+/// [`dispatch::classify_tcl_or_copy_stmt`]
+/// instead: three flat, one-arm-per-variant matches (same order, same delegation
+/// to each variant's own function as before), each individually under the
+/// ordinary caps. This is NOT the "re-nest into fewer, deeper branches" shape the
+/// old floor-exception note warned against — no match nests inside another, and
+/// every `Statement` variant this crate handles still gets exactly one arm.
 pub fn classify(sql: &str) -> Result<StatementKind, String> {
     if let Some(result) = classify_textual_precheck(sql) {
         return result;
     }
     let stmts = parse_classify_stmts(sql)?;
     let stmt = single_classify_stmt(&stmts)?;
-
-    match stmt {
-        // CONCEPT:EG-KG.query.continuous-aggregate-lowering — `SELECT create_hypertable('t','ts')` parses as an ordinary
-        // query; detect it before falling through to the read path.
-        Statement::Query(_) => classify_query_stmt(stmt),
-        Statement::Explain { .. }
-        | Statement::ShowVariable { .. }
-        | Statement::ShowColumns { .. }
-        | Statement::ShowTables { .. } => Ok(StatementKind::Read),
-        Statement::Insert(insert) => classify_any_insert(insert),
-        Statement::Update(update) => classify_update_stmt(update),
-        Statement::Delete(delete) => classify_any_delete(delete),
-        // ── DDL (CONCEPT:EG-KG.query.register-user-tables-alongside) ──────────────────────────────────────────────
-        Statement::CreateTable(ct) => classify_create_table(ct).map(StatementKind::CreateTable),
-        // ── extensions (CONCEPT:EG-KG.query.create-drop-extension-over) ─────────────────────────────────────────
-        Statement::CreateExtension(extension) => {
-            classify_create_extension(&extension.name.value, extension.if_not_exists)
-        }
-        Statement::Drop {
-            object_type,
-            if_exists,
-            names,
-            ..
-        } => classify_drop(*object_type, *if_exists, names),
-        Statement::AlterTable(alter) => {
-            classify_alter_table(&alter.name, &alter.operations).map(StatementKind::AlterTable)
-        }
-        // ── views (CONCEPT:EG-KG.query.create-drop-view) ─────────────────────────────────────────────
-        Statement::CreateView(view) => {
-            classify_create_view(&view.name, &view.query, view.or_replace, view.materialized)
-        }
-        // ── transactions + COPY (CONCEPT:EG-KG.query.register-each-user-table) ──────────────────────────────
-        Statement::StartTransaction { .. } => Ok(StatementKind::Begin),
-        Statement::Commit { .. } => Ok(StatementKind::Commit),
-        Statement::Rollback { .. } => Ok(StatementKind::Rollback),
-        Statement::Copy {
-            source,
-            to,
-            target,
-            options,
-            legacy_options,
-            ..
-        } => classify_copy_stmt(source, *to, target, options, legacy_options),
-        other => Err(format!("unsupported statement: {other}")),
-    }
+    dispatch::classify_dml_or_query(stmt)
+        .or_else(|| dispatch::classify_ddl_stmt(stmt))
+        .or_else(|| dispatch::classify_tcl_or_copy_stmt(stmt))
+        .unwrap_or_else(|| Err(format!("unsupported statement: {stmt}")))
 }
+
+// The three grouping matches `classify` chains through — split into their own
+// module (kiss file-size split, not a rename: this file keeps every helper
+// each group delegates to; see `classify`'s doc comment above for why the
+// dispatch is grouped this way).
+mod dispatch;
 
 /// [`classify`]'s parse step: `COPY … FROM STDIN` is sent over the wire WITHOUT
 /// the inline TSV data block that `sqlparser` insists follows the `;` — so

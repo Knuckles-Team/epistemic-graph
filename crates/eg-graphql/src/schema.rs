@@ -13,6 +13,7 @@
 //! root type exists); the RESOLVER (`crate::resolver`) does the actual scan/traversal.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use eg_core::graph::GraphView;
 use serde_json::Value;
@@ -36,67 +37,12 @@ impl Schema {
     /// Introspect `view` into a schema. O(nodes + edges) over the off-lock snapshot.
     pub fn from_view(view: &GraphView) -> Result<Self, String> {
         let mut types: BTreeMap<String, ObjectType> = BTreeMap::new();
-
-        // node types + their scalar fields.
         for (id, blob) in &view.node_properties {
-            let val =
-                decode(blob).map_err(|error| format!("GraphQL schema: node `{id}` {error}"))?;
-            let obj = val.as_object().ok_or_else(|| {
-                format!("GraphQL schema: node `{id}` properties must be an object")
-            })?;
-            for label in node_labels(&val)? {
-                validate_type_name(&label)?;
-                let t = types.entry(label).or_default();
-                for (k, _) in obj {
-                    if !is_label_key(k) {
-                        validate_field_name(k)?;
-                        t.scalar_fields.insert(k.clone());
-                    }
-                }
-            }
+            register_node_type(&mut types, id, blob)?;
         }
-
-        // edge relationship types → object fields on the SOURCE node's type(s).
         for ((source, target), blobs) in &view.edge_properties {
-            let src_blob = view.node_properties.get(source).ok_or_else(|| {
-                format!(
-                    "GraphQL schema: edge `{source}` -> `{target}` has no source node properties"
-                )
-            })?;
-            let src_val = decode(src_blob)
-                .map_err(|error| format!("GraphQL schema: node `{source}` {error}"))?;
-            let src_labels = node_labels(&src_val)?;
-            for blob in blobs {
-                let ev = decode(blob).map_err(|error| {
-                    format!("GraphQL schema: edge `{source}` -> `{target}` {error}")
-                })?;
-                let edge = ev.as_object().ok_or_else(|| {
-                    format!(
-                        "GraphQL schema: edge `{source}` -> `{target}` properties must be an object"
-                    )
-                })?;
-                // Relationship identity has one structural field. An edge's ordinary
-                // `type` property remains payload and is never reinterpreted here.
-                let rel = relationship_name(edge)?.ok_or_else(|| {
-                    format!(
-                        "GraphQL schema: edge `{source}` -> `{target}` has no relationship name"
-                    )
-                })?;
-                validate_field_name(rel)?;
-                for label in &src_labels {
-                    let t = types.get_mut(label).ok_or_else(|| {
-                        format!("GraphQL schema: source type `{label}` was not registered")
-                    })?;
-                    if t.scalar_fields.contains(rel) {
-                        return Err(format!(
-                            "GraphQL schema: type `{label}` defines `{rel}` as both a scalar and an edge field"
-                        ));
-                    }
-                    t.edge_fields.insert(rel.to_string());
-                }
-            }
+            register_edge_fields(&mut types, view, source, target, blobs)?;
         }
-
         Ok(Schema { types })
     }
 
@@ -157,6 +103,75 @@ impl Schema {
         }
         out
     }
+}
+
+/// [`Schema::from_view`]'s node pass: decode one node's properties and register
+/// its label(s) as object type(s), and its non-label keys as scalar fields.
+/// Split out of `from_view` (extract-method) so each function stays within the
+/// per-function complexity cap; same validation, same order as before.
+fn register_node_type(
+    types: &mut BTreeMap<String, ObjectType>,
+    id: &str,
+    blob: &[u8],
+) -> Result<(), String> {
+    let val = decode(blob).map_err(|error| format!("GraphQL schema: node `{id}` {error}"))?;
+    let obj = val
+        .as_object()
+        .ok_or_else(|| format!("GraphQL schema: node `{id}` properties must be an object"))?;
+    for label in node_labels(&val)? {
+        validate_type_name(&label)?;
+        let t = types.entry(label).or_default();
+        for (k, _) in obj {
+            if !is_label_key(k) {
+                validate_field_name(k)?;
+                t.scalar_fields.insert(k.clone());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// [`Schema::from_view`]'s edge pass: register one `source -> target` edge
+/// relationship's blobs as an object field on every label the source node
+/// carries. Split out of `from_view` (extract-method).
+fn register_edge_fields(
+    types: &mut BTreeMap<String, ObjectType>,
+    view: &GraphView,
+    source: &str,
+    target: &str,
+    blobs: &[Arc<Vec<u8>>],
+) -> Result<(), String> {
+    let src_blob = view.node_properties.get(source).ok_or_else(|| {
+        format!("GraphQL schema: edge `{source}` -> `{target}` has no source node properties")
+    })?;
+    let src_val =
+        decode(src_blob).map_err(|error| format!("GraphQL schema: node `{source}` {error}"))?;
+    let src_labels = node_labels(&src_val)?;
+    for blob in blobs {
+        let ev = decode(blob)
+            .map_err(|error| format!("GraphQL schema: edge `{source}` -> `{target}` {error}"))?;
+        let edge = ev.as_object().ok_or_else(|| {
+            format!("GraphQL schema: edge `{source}` -> `{target}` properties must be an object")
+        })?;
+        // Relationship identity has one structural field. An edge's ordinary
+        // `type` property remains payload and is never reinterpreted here.
+        let rel = relationship_name(edge)?.ok_or_else(|| {
+            format!("GraphQL schema: edge `{source}` -> `{target}` has no relationship name")
+        })?;
+        validate_field_name(rel)?;
+        for label in &src_labels {
+            let t = types.get_mut(label).ok_or_else(|| {
+                format!("GraphQL schema: source type `{label}` was not registered")
+            })?;
+            if t.scalar_fields.contains(rel) {
+                return Err(format!(
+                    "GraphQL schema: type `{label}` defines `{rel}` as both a scalar and an edge field"
+                ));
+            }
+            t.edge_fields.insert(rel.to_string());
+        }
+    }
+    Ok(())
 }
 
 /// Decode a MessagePack property blob to JSON.

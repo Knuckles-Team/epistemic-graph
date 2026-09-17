@@ -1127,11 +1127,7 @@ impl<'a> Interp<'a> {
     fn exec(&mut self, stmt: &Stmt) -> Result<Flow, String> {
         match stmt {
             Stmt::Noop => Ok(Flow::Normal),
-            Stmt::Assign { var, expr } => {
-                let v = self.eval(expr)?;
-                self.env.insert(var.to_ascii_lowercase(), v);
-                Ok(Flow::Normal)
-            }
+            Stmt::Assign { var, expr } => exec::exec_assign(self, var, expr),
             Stmt::Return(None) => Ok(Flow::Return(Val::Null)),
             Stmt::Return(Some(e)) => Ok(Flow::Return(self.eval(e)?)),
             Stmt::If { arms, els } => self.exec_if(arms, els),
@@ -1145,32 +1141,20 @@ impl<'a> Interp<'a> {
                 step,
                 body,
             } => self.exec_for(var, *reverse, lo, hi, step, body),
-            Stmt::Exit { when } => match when {
-                Some(c) if !self.eval_bool(c)? => Ok(Flow::Normal),
-                _ => Ok(Flow::Exit),
-            },
-            Stmt::Continue { when } => match when {
-                Some(c) if !self.eval_bool(c)? => Ok(Flow::Normal),
-                _ => Ok(Flow::Continue),
-            },
-            Stmt::Raise { fatal, message } => {
-                let msg = message.clone().unwrap_or_else(|| "raised".to_string());
-                if *fatal {
-                    Err(format!("plpgsql RAISE EXCEPTION: {msg}"))
-                } else {
-                    Ok(Flow::Normal)
-                }
-            }
+            Stmt::Exit { when } => exec::exec_exit(self, when),
+            Stmt::Continue { when } => exec::exec_continue(self, when),
+            Stmt::Raise { fatal, message } => exec::exec_raise(*fatal, message),
             Stmt::SelectInto { vars, select_sql } => self.exec_select_into(vars, select_sql),
-            Stmt::Perform(sql) => {
-                let sql = substitute_vars(sql, &self.env);
-                self.query(&sql)?;
-                Ok(Flow::Normal)
-            }
+            Stmt::Perform(sql) => exec::exec_perform(self, sql),
             Stmt::Block(body) => self.exec_list(body),
         }
     }
 }
+
+// `exec`'s simple-statement arms (assignment, EXIT/CONTINUE, RAISE, a bare
+// PERFORM) — split into their own module as free functions, not `Interp`
+// methods (kiss `methods_per_class`; see that module's doc comment).
+mod exec;
 
 /// Execute a parsed body against `args` (bound by declared parameter name), returning the
 /// `RETURN`ed value (or `Null` if control falls off the end) (CONCEPT:EG-KG.query.concept-7).

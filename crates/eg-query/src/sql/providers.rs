@@ -828,22 +828,15 @@ impl NodesTableProvider {
 /// pushed `col = 'x'` / `col = 5` finds the indexed bucket. `None` for null / a
 /// type we don't index (the predicate then stays unsupported).
 fn scalar_to_key(v: &ScalarValue) -> Option<IndexKey> {
-    match v {
-        ScalarValue::Utf8(Some(s)) | ScalarValue::LargeUtf8(Some(s)) => Some(s.clone()),
-        ScalarValue::Boolean(Some(b)) => Some(b.to_string()),
-        ScalarValue::Int8(Some(n)) => Some(n.to_string()),
-        ScalarValue::Int16(Some(n)) => Some(n.to_string()),
-        ScalarValue::Int32(Some(n)) => Some(n.to_string()),
-        ScalarValue::Int64(Some(n)) => Some(n.to_string()),
-        ScalarValue::UInt8(Some(n)) => Some(n.to_string()),
-        ScalarValue::UInt16(Some(n)) => Some(n.to_string()),
-        ScalarValue::UInt32(Some(n)) => Some(n.to_string()),
-        ScalarValue::UInt64(Some(n)) => Some(n.to_string()),
-        ScalarValue::Float32(Some(f)) => Some((*f as f64).to_string()),
-        ScalarValue::Float64(Some(f)) => Some(f.to_string()),
-        _ => None,
-    }
+    scalar_key::text_or_bool_key(v)
+        .or_else(|| scalar_key::integer_key(v))
+        .or_else(|| scalar_key::float_key(v))
 }
+
+// `scalar_to_key`'s per-type-group arms — split into their own module (kiss
+// file-size split, not a rename: this file keeps `scalar_to_key` itself and
+// every caller).
+mod scalar_key;
 
 #[async_trait]
 impl TableProvider for NodesTableProvider {

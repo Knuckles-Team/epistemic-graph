@@ -11,8 +11,8 @@
 
 use eg_core::graph::{GraphCore, GraphView};
 use eg_query::{
-    classify, exec_sql_typed_with_tables, Cell, Column, ColumnType, PgColType, StatementKind,
-    TableSchema, TableStore, TypedQueryResult,
+    classify, exec_sql_typed_with_tables, AlterTableAction, Cell, Column, ColumnType, PgColType,
+    StatementKind, TableSchema, TableStore, TypedQueryResult,
 };
 // CONCEPT:EG-KG.query.table-schema-constraints/NE-001/NE-002 — table-level constraints + the new scalar types are
 // reachable via the fully-qualified `tables::schema` path (not yet added to the
@@ -40,8 +40,29 @@ fn to_store_column(c: &eg_query::ColumnDef) -> Column {
 /// Drive ONE statement through the same classify → route path the pgwire shim uses.
 /// Read statements return their typed result; writes/DDL return `None`.
 fn run(store: &TableStore, view: &GraphView, sql: &str) -> Option<TypedQueryResult> {
-    match classify(sql).expect("classify") {
-        StatementKind::Read => Some(exec_sql_typed_with_tables(view, store, sql).expect("select")),
+    let kind = classify(sql).expect("classify");
+    if matches!(kind, StatementKind::Read) {
+        return Some(exec_sql_typed_with_tables(view, store, sql).expect("select"));
+    }
+    apply_write_statement(store, view, kind);
+    None
+}
+
+/// `run`'s DDL + row-write dispatch, split out (extract-method) so every
+/// function stays within the per-function complexity cap. Same routing, same
+/// order, as `run`'s single match used to do inline.
+fn apply_write_statement(store: &TableStore, view: &GraphView, kind: StatementKind) {
+    if apply_ddl_statement(store, &kind) {
+        return;
+    }
+    apply_row_write_statement(store, view, kind);
+}
+
+/// The DDL statement kinds `run` supports: table/view/function/index
+/// definitions. Returns `false` (and does nothing) for a `kind` it doesn't own,
+/// so [`apply_write_statement`] falls through to [`apply_row_write_statement`].
+fn apply_ddl_statement(store: &TableStore, kind: &StatementKind) -> bool {
+    match kind {
         StatementKind::CreateTable(plan) => {
             let schema = TableSchema::new(
                 plan.name.clone(),
@@ -49,60 +70,12 @@ fn run(store: &TableStore, view: &GraphView, sql: &str) -> Option<TypedQueryResu
             )
             .with_constraints(plan.constraints.clone());
             store.create_table(&schema, plan.if_not_exists).unwrap();
-            None
         }
         StatementKind::DropTable(plan) => {
             store.drop_table(&plan.name, plan.if_exists).unwrap();
-            None
         }
-        StatementKind::AlterTable(plan) => {
-            // CONCEPT:EG-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog the rest — mirror the facade.
-            use eg_query::AlterTableAction as A;
-            match plan.action {
-                A::AddColumn(col) => store.add_column(&plan.name, to_store_column(&col)).unwrap(),
-                A::DropColumn { column, if_exists } => {
-                    store.drop_column(&plan.name, &column, if_exists).unwrap()
-                }
-                A::RenameColumn { from, to } => {
-                    store.rename_column(&plan.name, &from, &to).unwrap()
-                }
-                A::RenameTable { new_name } => store.rename_table(&plan.name, &new_name).unwrap(),
-                A::AlterColumnType { column, new_type } => store
-                    .alter_column_type(&plan.name, &column, ColumnType::parse(&new_type).unwrap())
-                    .unwrap(),
-                A::DropConstraint {
-                    constraint,
-                    if_exists,
-                } => store
-                    .drop_constraint(&plan.name, &constraint, if_exists)
-                    .unwrap(),
-            }
-            None
-        }
-        StatementKind::InsertTable(ins) => {
-            store
-                .insert_rows(&ins.table, &ins.columns, &ins.rows)
-                .unwrap();
-            None
-        }
-        StatementKind::InsertSelect(ins) => {
-            // Run the SELECT through DataFusion (graph + user tables), then insert.
-            let res = exec_sql_typed_with_tables(view, store, &ins.select_sql).expect("subselect");
-            store
-                .insert_rows(&ins.table, &ins.columns, &res.rows)
-                .unwrap();
-            None
-        }
-        StatementKind::UpdateTable(upd) => {
-            store
-                .update_where(&upd.table, &upd.set, &upd.selector.pred)
-                .unwrap();
-            None
-        }
-        StatementKind::DeleteTable(del) => {
-            store.delete_where(&del.table, &del.selector.pred).unwrap();
-            None
-        }
+        // CONCEPT:EG-KG.query.register-user-tables-alongside ADD COLUMN + CONCEPT:EG-KG.query.rename-table-moves-catalog the rest — mirror the facade.
+        StatementKind::AlterTable(plan) => apply_alter_table(store, &plan.name, &plan.action),
         // CONCEPT:EG-KG.query.route-create-view-create — route CREATE VIEW / CREATE FUNCTION to the store so the
         // system-catalog tests can assert views (relkind='v') and functions (pg_proc)
         // are reflected. Mirrors the pgwire shim's routing.
@@ -110,20 +83,71 @@ fn run(store: &TableStore, view: &GraphView, sql: &str) -> Option<TypedQueryResu
             store
                 .create_view(&plan.name, &plan.select_sql, plan.or_replace)
                 .unwrap();
-            None
         }
         StatementKind::CreateFunction(plan) => {
             store.create_function(&plan.func, plan.or_replace).unwrap();
-            None
         }
         // CONCEPT:EG-KG.query.real-ann-top-k/EG-313 — route `CREATE INDEX … USING hnsw|ivfflat` to the
         // durable ANN index catalog so a matching `ORDER BY col <-> $1 LIMIT k` pushes
         // down to a real eg-ann index. Mirrors the pgwire shim's routing.
         StatementKind::CreateAnnIndex(plan) => {
-            store.put_ann_index(&plan).unwrap();
-            None
+            store.put_ann_index(plan).unwrap();
+        }
+        _ => return false,
+    }
+    true
+}
+
+/// The row-write statement kinds `run` supports: INSERT/UPDATE/DELETE against a
+/// user table. Panics on any other `kind` — `run` already routed `Read` and
+/// [`apply_ddl_statement`] away, so reaching here with anything else is a bug
+/// in this test helper, not a case to silently ignore.
+fn apply_row_write_statement(store: &TableStore, view: &GraphView, kind: StatementKind) {
+    match kind {
+        StatementKind::InsertTable(ins) => {
+            store
+                .insert_rows(&ins.table, &ins.columns, &ins.rows)
+                .unwrap();
+        }
+        StatementKind::InsertSelect(ins) => {
+            // Run the SELECT through DataFusion (graph + user tables), then insert.
+            let res = exec_sql_typed_with_tables(view, store, &ins.select_sql).expect("subselect");
+            store
+                .insert_rows(&ins.table, &ins.columns, &res.rows)
+                .unwrap();
+        }
+        StatementKind::UpdateTable(upd) => {
+            store
+                .update_where(&upd.table, &upd.set, &upd.selector.pred)
+                .unwrap();
+        }
+        StatementKind::DeleteTable(del) => {
+            store.delete_where(&del.table, &del.selector.pred).unwrap();
         }
         other => panic!("unexpected statement kind for user-table test: {other:?}"),
+    }
+}
+
+/// [`apply_ddl_statement`]'s `AlterTable` action dispatch, extracted
+/// (extract-method) — same order, same store calls as before.
+fn apply_alter_table(store: &TableStore, table: &str, action: &AlterTableAction) {
+    use AlterTableAction as A;
+    match action {
+        A::AddColumn(col) => store.add_column(table, to_store_column(col)).unwrap(),
+        A::DropColumn { column, if_exists } => {
+            store.drop_column(table, column, *if_exists).unwrap()
+        }
+        A::RenameColumn { from, to } => store.rename_column(table, from, to).unwrap(),
+        A::RenameTable { new_name } => store.rename_table(table, new_name).unwrap(),
+        A::AlterColumnType { column, new_type } => store
+            .alter_column_type(table, column, ColumnType::parse(new_type).unwrap())
+            .unwrap(),
+        A::DropConstraint {
+            constraint,
+            if_exists,
+        } => store
+            .drop_constraint(table, constraint, *if_exists)
+            .unwrap(),
     }
 }
 

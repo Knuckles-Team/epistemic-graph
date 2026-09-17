@@ -1945,22 +1945,9 @@ impl Cell {
             (Cell::Text(value), ColumnType::Uuid) => normalize_uuid(value)
                 .map(Value::String)
                 .unwrap_or(Value::Null),
-            (Cell::Json(Value::String(value)), ColumnType::Numeric(precision_scale)) => {
-                typed_numeric_value(value, precision_scale)
-            }
-            (Cell::Json(Value::Number(value)), ColumnType::Numeric(precision_scale)) => {
-                typed_numeric_value(&value.to_string(), precision_scale)
-            }
-            // Legacy rows written by the WIP implementation used f64. Preserve
-            // their readable value while ensuring new writes never take this path.
-            (Cell::Float(value), ColumnType::Numeric(precision_scale)) if value.is_finite() => {
-                typed_numeric_value(&value.to_string(), precision_scale)
-            }
-            (Cell::Int(value) | Cell::Timestamp(value), ColumnType::Numeric(precision_scale)) => {
-                typed_numeric_value(&value.to_string(), precision_scale)
-            }
-            (Cell::Text(value), ColumnType::Numeric(precision_scale)) => {
-                typed_numeric_value(value, precision_scale)
+            (_, ColumnType::Numeric(precision_scale)) => {
+                numeric_json::numeric_typed_json(self, precision_scale)
+                    .unwrap_or_else(|| self.to_json())
             }
             (Cell::Json(Value::Array(values)), ColumnType::Array(elem)) => Value::Array(
                 values
@@ -1973,6 +1960,11 @@ impl Cell {
         }
     }
 }
+
+// [`Cell::to_typed_json`]'s `ColumnType::Numeric` arm — split into its own
+// module as a free function, not a `Cell` method (kiss `methods_per_class` +
+// file-size caps; see that module's doc comment).
+mod numeric_json;
 
 /// Parse a JSON value into a dense `Vec<f32>` for a vector column (CONCEPT:EG-KG.query.vector-json-array-render):
 /// a JSON array of numbers, or the pgvector text literal `[1,2,3]` (an array or a

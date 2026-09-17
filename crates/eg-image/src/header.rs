@@ -51,39 +51,61 @@ pub fn read_jpeg_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
         }
         let marker = bytes[pos + 1];
         pos += 2;
-        // Markers with no payload: SOI/EOI, RSTn, and the (rare) TEM marker.
-        if marker == 0xD8 || marker == 0xD9 || (0xD0..=0xD7).contains(&marker) || marker == 0x01 {
+        if is_payload_less_marker(marker) {
             continue;
         }
         if marker == 0xDA {
             // Start of Scan reached — no SOF was found before the entropy-coded data.
             return None;
         }
-        if pos + 2 > bytes.len() {
-            return None;
-        }
-        let seg_len = u16::from_be_bytes(bytes[pos..pos + 2].try_into().ok()?) as usize;
-        if seg_len < 2 || pos + seg_len > bytes.len() {
-            return None;
-        }
-        // SOF0..SOF15 except DHT(C4)/JPG(C8)/DAC(CC), which share the C0..CF range but
-        // are not frame headers.
-        let is_sof = matches!(marker, 0xC0..=0xC3 | 0xC5..=0xC7 | 0xC9..=0xCB | 0xCD..=0xCF);
-        if is_sof {
-            let payload = &bytes[pos + 2..pos + seg_len];
-            if payload.len() < 5 {
-                return None;
-            }
-            let height = u16::from_be_bytes(payload[1..3].try_into().ok()?) as u32;
-            let width = u16::from_be_bytes(payload[3..5].try_into().ok()?) as u32;
-            if width == 0 || height == 0 {
-                return None;
-            }
-            return Some((width, height));
+        let seg_len = jpeg_segment_len(bytes, pos)?;
+        if is_sof_marker(marker) {
+            return jpeg_frame_dimensions(&bytes[pos + 2..pos + seg_len]);
         }
         pos += seg_len;
     }
     None
+}
+
+/// Markers with no payload: SOI/EOI, RSTn, and the (rare) TEM marker. Split out
+/// of [`read_jpeg_dimensions`] (extract-method) so each function stays within
+/// the per-function complexity cap.
+fn is_payload_less_marker(marker: u8) -> bool {
+    marker == 0xD8 || marker == 0xD9 || (0xD0..=0xD7).contains(&marker) || marker == 0x01
+}
+
+/// SOF0..SOF15 except DHT(C4)/JPG(C8)/DAC(CC), which share the C0..CF range but
+/// are not frame headers.
+fn is_sof_marker(marker: u8) -> bool {
+    matches!(marker, 0xC0..=0xC3 | 0xC5..=0xC7 | 0xC9..=0xCB | 0xCD..=0xCF)
+}
+
+/// The declared length of the marker segment starting at `pos` (the 2 big-
+/// endian length bytes at `bytes[pos..pos+2]`, length itself included), or
+/// `None` if the stream is truncated or the length is malformed.
+fn jpeg_segment_len(bytes: &[u8], pos: usize) -> Option<usize> {
+    if pos + 2 > bytes.len() {
+        return None;
+    }
+    let seg_len = u16::from_be_bytes(bytes[pos..pos + 2].try_into().ok()?) as usize;
+    if seg_len < 2 || pos + seg_len > bytes.len() {
+        return None;
+    }
+    Some(seg_len)
+}
+
+/// `(width, height)` from an SOF marker segment's payload (length bytes
+/// excluded): 1 precision byte, then big-endian height, then width.
+fn jpeg_frame_dimensions(payload: &[u8]) -> Option<(u32, u32)> {
+    if payload.len() < 5 {
+        return None;
+    }
+    let height = u16::from_be_bytes(payload[1..3].try_into().ok()?) as u32;
+    let width = u16::from_be_bytes(payload[3..5].try_into().ok()?) as u32;
+    if width == 0 || height == 0 {
+        return None;
+    }
+    Some((width, height))
 }
 
 /// SHA-256 content address rendered as 64 lowercase hexadecimal characters.
@@ -162,6 +184,38 @@ mod tests {
         // SOI followed immediately by SOS (0xDA) with no SOF in between.
         let bytes = vec![0xFF, 0xD8, 0xFF, 0xDA, 0x00, 0x02];
         assert_eq!(read_jpeg_dimensions(&bytes), None);
+    }
+
+    #[test]
+    fn jpeg_rejects_zero_dimension() {
+        let bytes = jpeg_fixture(0, 4);
+        assert_eq!(read_jpeg_dimensions(&bytes), None);
+    }
+
+    #[test]
+    fn jpeg_rejects_a_segment_length_that_overruns_the_buffer() {
+        // SOI + SOF0 whose declared length claims far more bytes than remain.
+        let mut bytes = vec![0xFF, 0xD8, 0xFF, 0xC0];
+        bytes.extend_from_slice(&100u16.to_be_bytes());
+        bytes.extend_from_slice(&[8, 0, 1, 0, 1]);
+        assert_eq!(read_jpeg_dimensions(&bytes), None);
+    }
+
+    #[test]
+    fn jpeg_rejects_an_sof_payload_shorter_than_the_dimension_fields() {
+        // SOF0 with declared length 4 (2 length bytes + 2 payload bytes) — too
+        // short to hold the precision + height + width fields.
+        let bytes = vec![0xFF, 0xD8, 0xFF, 0xC0, 0x00, 0x04, 0x08, 0x00];
+        assert_eq!(read_jpeg_dimensions(&bytes), None);
+    }
+
+    #[test]
+    fn jpeg_skips_a_payload_less_marker_before_the_sof() {
+        // SOI, then a restart marker (RST0, no payload) the walk must step over,
+        // then the real SOF0 segment.
+        let mut bytes = vec![0xFF, 0xD8, 0xFF, 0xD0];
+        bytes.extend_from_slice(&jpeg_fixture(5, 6)[2..]);
+        assert_eq!(read_jpeg_dimensions(&bytes), Some((5, 6)));
     }
 
     #[test]

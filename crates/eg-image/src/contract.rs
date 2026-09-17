@@ -15,6 +15,36 @@ fn opaque(value: &str) -> bool {
     OpaqueRef::new(value.to_string()).is_ok()
 }
 
+/// One region's contribution to [`GovernedModality::validate_governed_payload`]:
+/// finite, positive-size, in-bounds-of-`(width, height)`, and an opaque-or-absent
+/// label. Named predicates split out of the validator's closure (extract-method)
+/// so it stays within the per-function complexity cap — same checks, same order,
+/// as the original single `&&` chain.
+fn region_is_governed(region: &ImageRegion, width: u32, height: u32) -> bool {
+    region_geometry_is_finite(region)
+        && region_geometry_is_positive(region)
+        && region_is_within_image(region, width, height)
+        && region.label.as_deref().is_none_or(opaque)
+}
+
+/// Every geometry field is a finite `f64` (no NaN/infinity).
+fn region_geometry_is_finite(region: &ImageRegion) -> bool {
+    region.x.is_finite()
+        && region.y.is_finite()
+        && region.width.is_finite()
+        && region.height.is_finite()
+}
+
+/// A non-negative origin and a strictly positive size.
+fn region_geometry_is_positive(region: &ImageRegion) -> bool {
+    region.x >= 0.0 && region.y >= 0.0 && region.width > 0.0 && region.height > 0.0
+}
+
+/// The region's extent does not exceed the image's decoded pixel bounds.
+fn region_is_within_image(region: &ImageRegion, width: u32, height: u32) -> bool {
+    region.x + region.width <= width as f64 && region.y + region.height <= height as f64
+}
+
 /// Element count for `modality_contract_runtime_hooks!` — passed as a function
 /// path rather than an inline `self`-bearing expression; see that macro's docs
 /// for why (the macro is invoked at item position, where `self` has no binding).
@@ -88,19 +118,10 @@ impl GovernedModality for ImageData {
             && self.bit_depth == 8
             && eg_modality::content_address(&self.blob_ref)
             && self.regions.len() <= MAX_REGIONS
-            && self.regions.iter().all(|region| {
-                region.x.is_finite()
-                    && region.y.is_finite()
-                    && region.width.is_finite()
-                    && region.height.is_finite()
-                    && region.x >= 0.0
-                    && region.y >= 0.0
-                    && region.width > 0.0
-                    && region.height > 0.0
-                    && region.x + region.width <= self.width as f64
-                    && region.y + region.height <= self.height as f64
-                    && region.label.as_deref().is_none_or(opaque)
-            })
+            && self
+                .regions
+                .iter()
+                .all(|region| region_is_governed(region, self.width, self.height))
     }
 
     fn native_index_keys(&self) -> Vec<NativeIndexKey> {

@@ -448,37 +448,87 @@ fn unfilter(
 ) -> Option<Vec<u8>> {
     let mut output = vec![0u8; row_bytes.checked_mul(rows)?];
     for row in 0..rows {
-        let encoded_start = row.checked_mul(row_bytes.checked_add(1)?)?;
-        let filter = *input.get(encoded_start)?;
-        let source = input.get(encoded_start + 1..encoded_start + 1 + row_bytes)?;
-        let target_start = row.checked_mul(row_bytes)?;
-        for column in 0..row_bytes {
-            let left = if column >= bytes_per_pixel {
-                output[target_start + column - bytes_per_pixel]
-            } else {
-                0
-            };
-            let above = if row > 0 {
-                output[target_start + column - row_bytes]
-            } else {
-                0
-            };
-            let upper_left = if row > 0 && column >= bytes_per_pixel {
-                output[target_start + column - row_bytes - bytes_per_pixel]
-            } else {
-                0
-            };
-            output[target_start + column] = match filter {
-                0 => source[column],
-                1 => source[column].wrapping_add(left),
-                2 => source[column].wrapping_add(above),
-                3 => source[column].wrapping_add(((u16::from(left) + u16::from(above)) / 2) as u8),
-                4 => source[column].wrapping_add(paeth(left, above, upper_left)),
-                _ => return None,
-            };
-        }
+        unfilter_row(input, &mut output, row, row_bytes, bytes_per_pixel)?;
     }
     Some(output)
+}
+
+/// Reconstruct one scanline in place. Split out of [`unfilter`] (extract-method)
+/// so the per-pixel reconstruction isn't nested inside a `for` + `for` in the
+/// same function — same math, same order, as before.
+fn unfilter_row(
+    input: &[u8],
+    output: &mut [u8],
+    row: usize,
+    row_bytes: usize,
+    bytes_per_pixel: usize,
+) -> Option<()> {
+    let encoded_start = row.checked_mul(row_bytes.checked_add(1)?)?;
+    let filter = *input.get(encoded_start)?;
+    let source = input.get(encoded_start + 1..encoded_start + 1 + row_bytes)?;
+    let target_start = row.checked_mul(row_bytes)?;
+    for column in 0..row_bytes {
+        let (left, above, upper_left) = unfilter_neighbors(
+            output,
+            target_start,
+            column,
+            row,
+            row_bytes,
+            bytes_per_pixel,
+        );
+        output[target_start + column] =
+            reconstruct_byte(filter, source[column], left, above, upper_left)?;
+    }
+    Some(())
+}
+
+/// The already-reconstructed `(left, above, upper_left)` neighbor bytes a PNG
+/// filter reconstructs a byte from, `0` at a scanline/column boundary. Split
+/// out of [`unfilter_row`] (extract-method).
+fn unfilter_neighbors(
+    output: &[u8],
+    target_start: usize,
+    column: usize,
+    row: usize,
+    row_bytes: usize,
+    bytes_per_pixel: usize,
+) -> (u8, u8, u8) {
+    let left = if column >= bytes_per_pixel {
+        output[target_start + column - bytes_per_pixel]
+    } else {
+        0
+    };
+    let above = if row > 0 {
+        output[target_start + column - row_bytes]
+    } else {
+        0
+    };
+    let upper_left = if row > 0 && column >= bytes_per_pixel {
+        output[target_start + column - row_bytes - bytes_per_pixel]
+    } else {
+        0
+    };
+    (left, above, upper_left)
+}
+
+/// The PNG filter-type dispatch for one byte. Split out of [`unfilter_row`]
+/// (extract-method); `None` for an unknown filter type, exactly as the inline
+/// `_ => return None` did before.
+fn reconstruct_byte(
+    filter: u8,
+    source_byte: u8,
+    left: u8,
+    above: u8,
+    upper_left: u8,
+) -> Option<u8> {
+    Some(match filter {
+        0 => source_byte,
+        1 => source_byte.wrapping_add(left),
+        2 => source_byte.wrapping_add(above),
+        3 => source_byte.wrapping_add(((u16::from(left) + u16::from(above)) / 2) as u8),
+        4 => source_byte.wrapping_add(paeth(left, above, upper_left)),
+        _ => return None,
+    })
 }
 
 fn paeth(left: u8, above: u8, upper_left: u8) -> u8 {
@@ -498,43 +548,11 @@ fn paeth(left: u8, above: u8, upper_left: u8) -> u8 {
         .unwrap_or(0)
 }
 
-fn to_rgba(raw: &[u8], color_type: u8, palette: &[u8], alpha: &[u8]) -> Option<Vec<u8>> {
-    let pixel_count = match color_type {
-        0 => raw.len(),
-        2 => raw.len().checked_div(3)?,
-        3 => raw.len(),
-        4 => raw.len().checked_div(2)?,
-        6 => raw.len().checked_div(4)?,
-        _ => return None,
-    };
-    let mut output = Vec::with_capacity(pixel_count.checked_mul(4)?);
-    match color_type {
-        0 => raw
-            .iter()
-            .for_each(|gray| output.extend_from_slice(&[*gray, *gray, *gray, 255])),
-        2 => raw
-            .chunks_exact(3)
-            .for_each(|rgb| output.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 255])),
-        3 => {
-            for index in raw {
-                let offset = usize::from(*index).checked_mul(3)?;
-                let rgb = palette.get(offset..offset + 3)?;
-                output.extend_from_slice(&[
-                    rgb[0],
-                    rgb[1],
-                    rgb[2],
-                    alpha.get(usize::from(*index)).copied().unwrap_or(255),
-                ]);
-            }
-        }
-        4 => raw
-            .chunks_exact(2)
-            .for_each(|value| output.extend_from_slice(&[value[0], value[0], value[0], value[1]])),
-        6 => output.extend_from_slice(raw),
-        _ => return None,
-    }
-    Some(output)
-}
+// PNG color-type → RGBA conversion — split into its own module (kiss
+// file-size split, not a rename: this file keeps every other decode
+// concern). `to_rgba` is `pub(super)` there and used only by `finish_decode`.
+mod color;
+use color::to_rgba;
 
 fn difference_hash(pixels: &PixelBuffer) -> u64 {
     let mut hash = 0u64;

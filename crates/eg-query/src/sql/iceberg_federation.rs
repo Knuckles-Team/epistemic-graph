@@ -436,13 +436,26 @@ fn iceberg_predicate_for(expr: &Expr, schema: &Schema) -> Option<Predicate> {
         return None;
     }
     let reference = Reference::new(col.name.clone());
-    let datum = match lit {
+    let datum = iceberg_datum_for_literal(lit)?;
+    iceberg_predicate_for_op(*op, reference, datum)
+}
+
+/// The subset of DataFusion scalar literals this federation pushdown can encode
+/// as an Iceberg [`Datum`]. Split out of [`iceberg_predicate_for`] (extract-method)
+/// so each function stays within the per-function complexity cap.
+fn iceberg_datum_for_literal(lit: &ScalarValue) -> Option<Datum> {
+    Some(match lit {
         ScalarValue::Utf8(Some(s)) | ScalarValue::LargeUtf8(Some(s)) => Datum::string(s.clone()),
         ScalarValue::Int64(Some(v)) => Datum::long(*v),
         ScalarValue::Int32(Some(v)) => Datum::long(*v as i64),
         ScalarValue::Float64(Some(v)) => Datum::double(*v),
         _ => return None,
-    };
+    })
+}
+
+/// The subset of comparison operators this federation pushdown encodes as an
+/// Iceberg [`Predicate`]. Split out of [`iceberg_predicate_for`] (extract-method).
+fn iceberg_predicate_for_op(op: Operator, reference: Reference, datum: Datum) -> Option<Predicate> {
     Some(match op {
         Operator::Eq => reference.equal_to(datum),
         Operator::NotEq => reference.not_equal_to(datum),
