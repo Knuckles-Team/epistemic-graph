@@ -284,14 +284,24 @@ pub(crate) fn predecessor_in_write<D: OwnerDomain>(
         position.ordinal,
     );
     let mut rows = table.range_inclusive((scope, topic, 0u64, 0u64, "", 0u32), high)?;
-    let last = rows.next_back().transpose().map_err(|error| error.to_string())?;
+    let last = rows
+        .next_back()
+        .transpose()
+        .map_err(|error| error.to_string())?;
     let Some((key, _)) = last else {
-        return Err("CORRUPT_OUTBOX_INDEX: rewind target is absent from the topic index".to_string());
+        return Err(
+            "CORRUPT_OUTBOX_INDEX: rewind target is absent from the topic index".to_string(),
+        );
     };
     if key.value().position() != *position {
-        return Err("CORRUPT_OUTBOX_INDEX: rewind target is absent from the topic index".to_string());
+        return Err(
+            "CORRUPT_OUTBOX_INDEX: rewind target is absent from the topic index".to_string(),
+        );
     }
-    let previous = rows.next_back().transpose().map_err(|error| error.to_string())?;
+    let previous = rows
+        .next_back()
+        .transpose()
+        .map_err(|error| error.to_string())?;
     Ok(previous.map(|(key, _)| key.value().position()))
 }
 

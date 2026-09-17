@@ -85,6 +85,72 @@ fn drain_claims(
     }
 }
 
+/// The batch ids of a set of leases, in order -- the one assertion shape
+/// nearly every test in this file uses to check delivery order.
+fn batch_ids(claims: &[MutationOutboxLease]) -> Vec<&str> {
+    claims
+        .iter()
+        .map(|lease| lease.record.batch_id.as_str())
+        .collect()
+}
+
+/// Read one consumer's durable delivery row directly, for tests that must
+/// prove exact retry evidence survives (attempt count, dead-letter marker)
+/// rather than only observing it through the claim/status API.
+fn read_delivery_row<D: OwnerDomain>(
+    read: &eg_storage::ScopedRead<'_, D>,
+    identity: &MutationScopeIdentity,
+    consumer: &str,
+    batch_id: &str,
+    ordinal: u32,
+) -> Option<OutboxDelivery> {
+    let scope = eg_storage::ledger_scope_key(identity);
+    read.scoped_table(crate::tables::OUTBOX_DELIVERIES)
+        .unwrap()
+        .get((scope.as_str(), consumer, batch_id, ordinal))
+        .unwrap()
+        .map(|value| crate::outbox::decode_row::<OutboxDelivery>(value.value()))
+        .transpose()
+        .unwrap()
+}
+
+/// A fresh scope with `rows` committed events, subscribed to `TOPIC` and
+/// every row claimed at t=10 -- the common setup a couple of PX10a tests
+/// share before diverging.
+fn seeded_and_claimed(
+    path: &std::path::Path,
+    incarnation: &str,
+    rows: u64,
+) -> (
+    Fixture,
+    OwnedStoreHandle<LedgerOnlyOwner>,
+    Vec<MutationOutboxLease>,
+) {
+    let identity = native_identity("tenant-a", incarnation);
+    let (fixture, owner) = ledger_fixture(path, identity);
+    emit(&fixture, &owner, rows);
+    fixture
+        .mutations
+        .outbox_subscribe(&owner, "projection", TOPIC)
+        .unwrap();
+    let claimed = claim_all(&fixture, &owner, "projection", rows as usize, 10);
+    (fixture, owner, claimed)
+}
+
+/// Subscribe `consumer` to `TOPIC` and drain every claimable row.
+fn subscribe_and_drain(
+    fixture: &Fixture,
+    owner: &OwnedStoreHandle<LedgerOnlyOwner>,
+    consumer: &str,
+) -> Vec<MutationOutboxLease> {
+    fixture
+        .mutations
+        .outbox_subscribe(owner, consumer, TOPIC)
+        .unwrap();
+    let mut sweep = budget(8, 10);
+    drain_claims(fixture, owner, consumer, &mut sweep)
+}
+
 /// One claim, for a test that wants the outcome rather than the leases.
 fn claim_once(
     fixture: &Fixture,
@@ -112,16 +178,8 @@ fn a_claim_needs_a_durable_subscription_and_returns_rows_in_commit_order() {
         .outbox_claim(&owner, "projection", &mut unsubscribed)
         .is_err());
 
-    fixture
-        .mutations
-        .outbox_subscribe(&owner, "projection", TOPIC)
-        .unwrap();
-    let mut sweep = budget(8, 10);
-    let claimed = drain_claims(&fixture, &owner, "projection", &mut sweep);
-    let ids: Vec<&str> = claimed
-        .iter()
-        .map(|lease| lease.record.batch_id.as_str())
-        .collect();
+    let claimed = subscribe_and_drain(&fixture, &owner, "projection");
+    let ids: Vec<&str> = batch_ids(&claimed);
     assert_eq!(ids, vec!["batch-0", "batch-1", "batch-2"]);
     assert!(claimed.iter().all(|lease| lease.lease_epoch == 1));
 }
@@ -528,17 +586,8 @@ fn commit_order_decides_delivery_order_even_when_batch_ids_sort_backwards() {
         let batch = event_batch(owner.identity(), id, version, 1);
         apply_batch(&fixture, &owner, &batch);
     }
-    fixture
-        .mutations
-        .outbox_subscribe(&owner, "projection", TOPIC)
-        .unwrap();
-
-    let mut sweep = budget(8, 10);
-    let claimed = drain_claims(&fixture, &owner, "projection", &mut sweep);
-    let ids: Vec<&str> = claimed
-        .iter()
-        .map(|lease| lease.record.batch_id.as_str())
-        .collect();
+    let claimed = subscribe_and_drain(&fixture, &owner, "projection");
+    let ids: Vec<&str> = batch_ids(&claimed);
     assert_eq!(
         ids,
         vec!["zzz", "aaa"],
@@ -623,16 +672,9 @@ fn a_poison_row_is_dead_lettered_and_the_stream_continues() {
             .is_empty()
     );
     let read = reopened.kernel.read_scope(&reopened_owner).unwrap();
-    let scope = eg_storage::ledger_scope_key(reopened_owner.identity());
-    let dead_letter = read
-        .scoped_table(crate::tables::OUTBOX_DELIVERIES)
-        .unwrap()
-        .get((scope.as_str(), "projection", "batch-0", 0))
-        .unwrap()
-        .map(|value| crate::outbox::decode_row::<OutboxDelivery>(value.value()))
-        .transpose()
-        .unwrap()
-        .expect("dead-letter evidence was pruned");
+    let dead_letter =
+        read_delivery_row(&read, reopened_owner.identity(), "projection", "batch-0", 0)
+            .expect("dead-letter evidence was pruned");
     assert_eq!(dead_letter.position.batch_id, "batch-0");
     assert_eq!(dead_letter.attempt, attempts);
     assert!(dead_letter.dead_lettered_at_ms.is_some());
@@ -1545,11 +1587,14 @@ fn a_failing_head_never_dead_letters_a_healthy_successor() {
 
     let attempts = crate::outbox::max_delivery_attempts();
     for round in 0..attempts {
-        let claimed = claim_all(&fixture, &owner, "projection", 3, u64::from(round) * 10 + 10);
-        let ids: Vec<&str> = claimed
-            .iter()
-            .map(|lease| lease.record.batch_id.as_str())
-            .collect();
+        let claimed = claim_all(
+            &fixture,
+            &owner,
+            "projection",
+            3,
+            u64::from(round) * 10 + 10,
+        );
+        let ids: Vec<&str> = batch_ids(&claimed);
         assert_eq!(ids, vec!["batch-0", "batch-1", "batch-2"], "round {round}");
         fixture
             .mutations
@@ -1559,11 +1604,7 @@ fn a_failing_head_never_dead_letters_a_healthy_successor() {
 
     let mut sweep = budget(16, u64::from(attempts) * 1_000_000);
     let after = claim_once(&fixture, &owner, "projection", &mut sweep);
-    let ids: Vec<&str> = after
-        .claims
-        .iter()
-        .map(|lease| lease.record.batch_id.as_str())
-        .collect();
+    let ids: Vec<&str> = batch_ids(&after.claims);
     assert_eq!(
         ids,
         vec!["batch-1", "batch-2"],
@@ -1591,11 +1632,19 @@ fn a_failing_head_never_dead_letters_a_healthy_successor() {
     // The successors are genuinely deliverable: ack them in order.
     fixture
         .mutations
-        .outbox_ack(&owner, &after.claims[0], u64::from(attempts) * 1_000_000 + 1)
+        .outbox_ack(
+            &owner,
+            &after.claims[0],
+            u64::from(attempts) * 1_000_000 + 1,
+        )
         .unwrap();
     fixture
         .mutations
-        .outbox_ack(&owner, &after.claims[1], u64::from(attempts) * 1_000_000 + 2)
+        .outbox_ack(
+            &owner,
+            &after.claims[1],
+            u64::from(attempts) * 1_000_000 + 2,
+        )
         .unwrap();
 }
 
@@ -1604,14 +1653,7 @@ fn after_head_position(
     owner: &OwnedStoreHandle<LedgerOnlyOwner>,
 ) -> OutboxPosition {
     let read = fixture.kernel.read_scope(owner).unwrap();
-    let scope = eg_storage::ledger_scope_key(owner.identity());
-    read.scoped_table(crate::tables::OUTBOX_DELIVERIES)
-        .unwrap()
-        .get((scope.as_str(), "projection", "batch-0", 0))
-        .unwrap()
-        .map(|value| crate::outbox::decode_row::<OutboxDelivery>(value.value()))
-        .transpose()
-        .unwrap()
+    read_delivery_row(&read, owner.identity(), "projection", "batch-0", 0)
         .expect("the head's delivery row is durable")
         .position
 }
@@ -1648,7 +1690,10 @@ fn releasing_a_successor_row_never_consumes_its_own_retry_budget() {
 
     let cycles = crate::outbox::max_delivery_attempts() + 4;
     for round in 0..cycles {
-        fixture.mutations.outbox_release(&owner, &successor).unwrap();
+        fixture
+            .mutations
+            .outbox_release(&owner, &successor)
+            .unwrap();
         let mut sweep = budget(16, u64::from(round) + 20);
         let outcome = claim_once(&fixture, &owner, "projection", &mut sweep);
         successor = outcome
@@ -1709,23 +1754,18 @@ fn reject_dead_letters_the_head_at_once_and_the_stream_continues() {
         .into_iter()
         .find(|lease| lease.record.batch_id == "batch-1")
         .unwrap();
-    fixture.mutations.outbox_ack(&owner, &successor, 40).unwrap();
+    fixture
+        .mutations
+        .outbox_ack(&owner, &successor, 40)
+        .unwrap();
 
     drop(owner);
     drop(fixture);
     let reopened = Fixture::open::<LedgerOnlyOwner>(&path, "physical:test:ledger-only", None);
     let reopened_owner = bind_scope(&reopened, "tenant-a", identity);
     let read = reopened.kernel.read_scope(&reopened_owner).unwrap();
-    let scope = eg_storage::ledger_scope_key(reopened_owner.identity());
-    let dead = read
-        .scoped_table(crate::tables::OUTBOX_DELIVERIES)
-        .unwrap()
-        .get((scope.as_str(), "projection", "batch-0", 0))
-        .unwrap()
-        .map(|value| crate::outbox::decode_row::<OutboxDelivery>(value.value()))
-        .transpose()
-        .unwrap()
-        .unwrap();
+    let dead =
+        read_delivery_row(&read, reopened_owner.identity(), "projection", "batch-0", 0).unwrap();
     assert_eq!(dead.attempt, crate::outbox::max_delivery_attempts());
     assert!(dead.dead_lettered_at_ms.is_some());
 }
@@ -1757,7 +1797,12 @@ fn reject_is_refused_like_an_ack_for_a_stale_lease() {
     // Expired lease: the lease window (5_000ms) has long passed.
     assert!(fixture
         .mutations
-        .outbox_reject(&owner, &claimed[1], OutboxRejectReason::InvalidEvent, 999_999)
+        .outbox_reject(
+            &owner,
+            &claimed[1],
+            OutboxRejectReason::InvalidEvent,
+            999_999
+        )
         .is_err());
 
     // Released lease.
@@ -1772,7 +1817,12 @@ fn reject_is_refused_like_an_ack_for_a_stale_lease() {
 
     // None of the refused rejects took effect.
     let read = fixture.kernel.read_scope(&owner).unwrap();
-    assert_eq!(outbox_status(&read, "projection", 20).unwrap().dead_lettered, 0);
+    assert_eq!(
+        outbox_status(&read, "projection", 20)
+            .unwrap()
+            .dead_lettered,
+        0
+    );
 }
 
 /// X10-T5: `reject_in`, then the caller aborts its own transaction -- neither
@@ -1815,11 +1865,19 @@ fn reject_in_is_discarded_by_the_callers_abort() {
     write.abort().unwrap();
 
     let read = fixture.kernel.read_scope(&owner).unwrap();
-    assert_eq!(outbox_status(&read, "projection", 20).unwrap().dead_lettered, 0);
+    assert_eq!(
+        outbox_status(&read, "projection", 20)
+            .unwrap()
+            .dead_lettered,
+        0
+    );
     drop(read);
 
     // The lease is exactly as it was: still claimed, still ackable.
-    fixture.mutations.outbox_ack(&owner, &claimed[0], 30).unwrap();
+    fixture
+        .mutations
+        .outbox_ack(&owner, &claimed[0], 30)
+        .unwrap();
 }
 
 /// X10-T6 (release half): releasing the head 16 times dead-letters it too --
@@ -1865,11 +1923,7 @@ fn releasing_the_head_sixteen_times_dead_letters_it() {
     let after = claim_once(&fixture, &owner, "projection", &mut sweep);
     assert_eq!(after.dead_lettered.len(), 1);
     assert_eq!(after.dead_lettered[0].batch_id, "batch-0");
-    let ids: Vec<&str> = after
-        .claims
-        .iter()
-        .map(|lease| lease.record.batch_id.as_str())
-        .collect();
+    let ids: Vec<&str> = batch_ids(&after.claims);
     assert_eq!(
         ids,
         vec!["batch-1"],
@@ -1893,11 +1947,17 @@ fn status_reports_the_stream_head() {
         .outbox_subscribe(&owner, "projection", TOPIC)
         .unwrap();
 
+    // Even before any claim, the head is the first committed, unresolved
+    // row: an unclaimed row still occupies the stream's head position, with
+    // no attempt spent and no lease held.
     let read = fixture.kernel.read_scope(&owner).unwrap();
-    assert!(
-        outbox_status(&read, "projection", 0).unwrap().head.is_none(),
-        "nothing has been claimed yet; the head is unknown from this snapshot only via pending"
-    );
+    let unclaimed_head = outbox_status(&read, "projection", 0)
+        .unwrap()
+        .head
+        .expect("a committed, unclaimed row is still the head");
+    assert_eq!(unclaimed_head.position.batch_id, "batch-0");
+    assert_eq!(unclaimed_head.attempt, 0);
+    assert!(!unclaimed_head.leased);
     drop(read);
 
     let claimed = claim_all(&fixture, &owner, "projection", 2, 10);
@@ -1911,7 +1971,10 @@ fn status_reports_the_stream_head() {
     assert!(head.leased);
     drop(read);
 
-    fixture.mutations.outbox_ack(&owner, &claimed[0], 5_020).unwrap();
+    fixture
+        .mutations
+        .outbox_ack(&owner, &claimed[0], 5_020)
+        .unwrap();
     let read = fixture.kernel.read_scope(&owner).unwrap();
     let head = outbox_status(&read, "projection", 5_020)
         .unwrap()
@@ -1925,14 +1988,8 @@ fn status_reports_the_stream_head() {
 fn dead_letters_are_listed_across_bounded_pages() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("native.redb");
-    let identity = native_identity("tenant-a", "incarnation:px10a:dead-letters-1");
-    let (fixture, owner) = ledger_fixture(&path, identity);
-    emit(&fixture, &owner, 2);
-    fixture
-        .mutations
-        .outbox_subscribe(&owner, "projection", TOPIC)
-        .unwrap();
-    let claimed = claim_all(&fixture, &owner, "projection", 2, 10);
+    let (fixture, owner, claimed) =
+        seeded_and_claimed(&path, "incarnation:px10a:dead-letters-1", 2);
     for (index, lease) in claimed.iter().enumerate() {
         fixture
             .mutations
@@ -1956,12 +2013,7 @@ fn dead_letters_are_listed_across_bounded_pages() {
 
     let second_page = fixture
         .mutations
-        .outbox_dead_letters(
-            &read,
-            "projection",
-            Some(&first_page.rows[0].position),
-            1,
-        )
+        .outbox_dead_letters(&read, "projection", Some(&first_page.rows[0].position), 1)
         .unwrap();
     assert_eq!(second_page.rows.len(), 1);
     assert_eq!(second_page.rows[0].position.batch_id, "batch-1");
@@ -2014,7 +2066,10 @@ fn rewind_redelivers_in_order_from_a_mid_stream_target() {
             100,
         )
         .unwrap();
-    assert!(!outcome.complete, "transaction 1 alone never finishes a rewind");
+    assert!(
+        !outcome.complete,
+        "transaction 1 alone never finishes a rewind"
+    );
     let mut sweep = budget(16, 110);
     let deferred = claim_once(&fixture, &owner, "projection", &mut sweep);
     assert_eq!(deferred.deferred, Some(OutboxDeferral::RewindPending));
@@ -2035,11 +2090,7 @@ fn rewind_redelivers_in_order_from_a_mid_stream_target() {
 
     let mut sweep = budget(16, 120);
     let redelivered = claim_once(&fixture, &owner, "projection", &mut sweep);
-    let ids: Vec<&str> = redelivered
-        .claims
-        .iter()
-        .map(|lease| lease.record.batch_id.as_str())
-        .collect();
+    let ids: Vec<&str> = batch_ids(&redelivered.claims);
     assert_eq!(ids, vec!["batch-2", "batch-3", "batch-4"]);
     // Only the new head (batch-2) has spent an attempt; its successors have
     // not (X10-R1 applies to a rewind's fresh rows exactly as it does to any
@@ -2099,10 +2150,7 @@ fn rewind_resumes_correctly_across_a_restart_between_every_step() {
     let owner = bind_scope(&fixture, "tenant-a", identity);
     // No control row remains: an ordinary claim now works.
     let claimed = claim_all(&fixture, &owner, "projection", 3, 200);
-    let ids: Vec<&str> = claimed
-        .iter()
-        .map(|lease| lease.record.batch_id.as_str())
-        .collect();
+    let ids: Vec<&str> = batch_ids(&claimed);
     assert_eq!(ids, vec!["batch-0", "batch-1", "batch-2"]);
     assert_eq!(claimed[0].attempt, 1, "only the head spends an attempt");
     assert_eq!(claimed[1].attempt, 0);
@@ -2116,14 +2164,8 @@ fn rewind_resumes_correctly_across_a_restart_between_every_step() {
 fn a_pending_rewind_fences_every_other_delivery_write() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("native.redb");
-    let identity = native_identity("tenant-a", "incarnation:px10a:rewind-fence-1");
-    let (fixture, owner) = ledger_fixture(&path, identity);
-    emit(&fixture, &owner, 2);
-    fixture
-        .mutations
-        .outbox_subscribe(&owner, "projection", TOPIC)
-        .unwrap();
-    let claimed = claim_all(&fixture, &owner, "projection", 2, 10);
+    let (fixture, owner, claimed) =
+        seeded_and_claimed(&path, "incarnation:px10a:rewind-fence-1", 2);
 
     let outcome = fixture
         .mutations

@@ -6,8 +6,7 @@
 //! evidence without opening the delivery table directly.
 
 use crate::outbox::rows::{
-    decode_row, validate_consumer, validate_delivery_key, validate_delivery_state, validate_stamp,
-    OutboxDelivery, OutboxPosition, MAX_CLAIM_SCAN_ROWS,
+    decode_row, validate_consumer, OutboxDelivery, OutboxPosition, MAX_CLAIM_SCAN_ROWS,
 };
 use crate::outbox::{claim, index, stream};
 use crate::tables::OUTBOX_DELIVERIES;
@@ -42,8 +41,8 @@ pub(crate) fn dead_letters<D: OwnerDomain>(
             truncated: false,
         });
     };
-    let acked_through = claim::read_claim_cursor_in_read(read, &scope, consumer, identity)?
-        .acked_through;
+    let acked_through =
+        claim::read_claim_cursor_in_read(read, &scope, consumer, identity)?.acked_through;
     let page = index::scan_in_read(read, &scope, &topic, after, MAX_CLAIM_SCAN_ROWS)?;
     let table = read.scoped_table(OUTBOX_DELIVERIES)?;
     let mut rows = Vec::new();
@@ -63,9 +62,13 @@ pub(crate) fn dead_letters<D: OwnerDomain>(
         let Some(delivery) = delivery else {
             continue;
         };
-        validate_stamp(&delivery.identity, identity)?;
-        validate_delivery_key(&delivery, consumer, &entry.position)?;
-        validate_delivery_state(&delivery, acked_through.as_ref())?;
+        claim::validate_existing_delivery(
+            &delivery,
+            identity,
+            consumer,
+            &entry.position,
+            acked_through.as_ref(),
+        )?;
         if !delivery.dead_lettered() {
             continue;
         }

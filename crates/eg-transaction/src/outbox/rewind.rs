@@ -20,7 +20,9 @@
 use crate::admitted::AdmittedMutation;
 use crate::outbox::claim::scan_validated_page;
 use crate::outbox::cursor::rewind_watermark_in_write;
-use crate::outbox::rows::{decode_row, encode_row, validate_consumer, validate_stamp, OutboxPosition};
+use crate::outbox::rows::{
+    decode_row, encode_row, validate_consumer, validate_stamp, OutboxPosition,
+};
 use crate::outbox::stream::subscribed_topic;
 use crate::outbox::{claim, ensure_not_graft_fenced, index};
 use crate::tables::{OUTBOX_CLAIM_CURSORS, OUTBOX_DELIVERIES};
@@ -50,7 +52,7 @@ pub struct OutboxRewindOutcome {
 /// precedent).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RewindCursor {
+pub(crate) struct RewindCursor {
     schema_version: u16,
     identity: MutationScopeIdentity,
     consumer: String,
@@ -129,7 +131,14 @@ fn prepare_rewind<D: OwnerDomain>(
         None => None,
         Some(position) => index::predecessor_in_write(write, scope, &topic, position)?,
     };
-    rewind_watermark_in_write(write, scope, consumer, identity, predecessor.as_ref(), now_ms)?;
+    rewind_watermark_in_write(
+        write,
+        scope,
+        consumer,
+        identity,
+        predecessor.as_ref(),
+        now_ms,
+    )?;
     let mut state = claim::read_consumer_state(write, scope, consumer, identity)?;
     state.inflight = 0;
     claim::write_consumer_state(write, scope, consumer, &state)?;

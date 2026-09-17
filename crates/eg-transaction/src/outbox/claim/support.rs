@@ -4,22 +4,6 @@
 
 use super::*;
 
-/// A delivery row already on file for this key must be stamped for the same scope, key
-/// itself to the same claim identity, and consistent with the caller's acked-through
-/// watermark, before it is trusted for the resolved/dead-letter/lease decisions below.
-pub(super) fn validate_existing_delivery(
-    existing: &OutboxDelivery,
-    identity: &MutationScopeIdentity,
-    consumer: &str,
-    position: &OutboxPosition,
-    acked_through: Option<&OutboxPosition>,
-) -> Result<(), String> {
-    validate_stamp(&existing.identity, identity)?;
-    validate_delivery_key(existing, consumer, position)?;
-    validate_delivery_state(existing, acked_through)?;
-    Ok(())
-}
-
 /// Extend the contiguous resolved prefix with `position` — but only while every row
 /// before it in this page was ALSO already resolved (`prefix_intact`); once a claimable
 /// row is found the prefix stops advancing even if a later row is independently

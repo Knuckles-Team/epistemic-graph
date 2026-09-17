@@ -154,15 +154,7 @@ fn prepare_ack<D: OwnerDomain>(
     lease: &MutationOutboxLease,
     now_ms: u64,
 ) -> Result<PreparedAck, String> {
-    validate_consumer(&lease.consumer)?;
-    ensure_not_graft_fenced(write, identity)?;
-    if lease.record.identity != *identity {
-        return Err("outbox ack route does not match the leased record".to_string());
-    }
-    lease.record.validate()?;
-    let scope = ledger_scope_key(identity);
-    refuse_if_rewind_pending(write, &scope, &lease.consumer, identity)?;
-    let delivery = read_delivery(write, &scope, lease, identity)?;
+    let (scope, delivery) = prepare_delivery_op(write, identity, lease, "ack")?;
     let position = delivery.position.clone();
     let durable = read_outbox_row_in_write(write, &scope, &position)?;
     if durable != lease.record {
@@ -194,6 +186,30 @@ fn prepare_ack<D: OwnerDomain>(
         cursor,
         claim_cursor,
     })))
+}
+
+/// Everything an ack or a reject checks before it may even look at the
+/// delivery row's own resolution state: consumer validity, graft fencing,
+/// rewind fencing, and that the lease's own record matches the caller's
+/// route. Shared so the two operations' prologues don't drift apart.
+fn prepare_delivery_op<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+    identity: &MutationScopeIdentity,
+    lease: &MutationOutboxLease,
+    op: &str,
+) -> Result<(String, OutboxDelivery), String> {
+    validate_consumer(&lease.consumer)?;
+    ensure_not_graft_fenced(write, identity)?;
+    if lease.record.identity != *identity {
+        return Err(format!(
+            "outbox {op} route does not match the leased record"
+        ));
+    }
+    lease.record.validate()?;
+    let scope = ledger_scope_key(identity);
+    refuse_if_rewind_pending(write, &scope, &lease.consumer, identity)?;
+    let delivery = read_delivery(write, &scope, lease, identity)?;
+    Ok((scope, delivery))
 }
 
 /// Fail a superseded, expired or released lease; replay an already-delivered
@@ -374,15 +390,7 @@ fn prepare_reject<D: OwnerDomain>(
     lease: &MutationOutboxLease,
     now_ms: u64,
 ) -> Result<PreparedReject, String> {
-    validate_consumer(&lease.consumer)?;
-    ensure_not_graft_fenced(write, identity)?;
-    if lease.record.identity != *identity {
-        return Err("outbox reject route does not match the leased record".to_string());
-    }
-    lease.record.validate()?;
-    let scope = ledger_scope_key(identity);
-    refuse_if_rewind_pending(write, &scope, &lease.consumer, identity)?;
-    let delivery = read_delivery(write, &scope, lease, identity)?;
+    let (scope, delivery) = prepare_delivery_op(write, identity, lease, "reject")?;
     let durable = read_outbox_row_in_write(write, &scope, &delivery.position)?;
     if durable != lease.record {
         return Err("outbox lease record does not match durable event".to_string());

@@ -9,7 +9,8 @@
 
 use crate::outbox::rows::{
     decode_row, validate_delivery_key, validate_delivery_state, validate_stamp, OutboxClaimCursor,
-    OutboxConsumerState, OutboxDelivery, OutboxPosition, MAX_CLAIM_SCAN_ROWS, OUTBOX_QUEUE_CAPACITY,
+    OutboxConsumerState, OutboxDelivery, OutboxPosition, MAX_CLAIM_SCAN_ROWS,
+    OUTBOX_QUEUE_CAPACITY,
 };
 use crate::outbox::{claim, cursor, index, stream};
 use crate::tables::{OUTBOX_CLAIM_CURSORS, OUTBOX_DELIVERIES, OUTBOX_FAIRNESS};

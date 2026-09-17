@@ -71,12 +71,12 @@ pub use status::{OutboxHead, OutboxStatus};
 
 pub(crate) use claim::{claim, expire, release};
 pub(crate) use cursor::{ack, ack_in_transaction, reject, reject_in, validate_in};
-pub use dead_letters::OutboxDeadLetterPage;
 pub(crate) use dead_letters::dead_letters;
+pub use dead_letters::OutboxDeadLetterPage;
 pub use index::OutboxBackfillOutcome;
 pub(crate) use index::{backfill, index_outbox_row, mark_index_ready_in_write};
-pub use rewind::{OutboxRewindOutcome, OutboxRewindTarget};
 pub(crate) use rewind::rewind;
+pub use rewind::{OutboxRewindOutcome, OutboxRewindTarget};
 pub(crate) use stream::subscribe;
 
 use eg_storage::{OwnerDomain, ScopedRead};

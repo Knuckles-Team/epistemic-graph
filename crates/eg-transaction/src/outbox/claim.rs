@@ -36,7 +36,7 @@ use eg_storage::{
 use eg_types::{MutationOutboxLease, MutationScopeIdentity, MUTATION_BATCH_VERSION};
 
 mod support;
-use support::{mark_resolved_if_prefix_intact, validate_existing_delivery};
+use support::mark_resolved_if_prefix_intact;
 
 const EXPIRY_CURSOR_PREFIX: &str = "\u{1}kernel-outbox-expiry/";
 const PRUNE_CURSOR_PREFIX: &str = "\u{1}kernel-outbox-prune/";
@@ -284,24 +284,26 @@ fn decide_claim_room<D: OwnerDomain>(
     if allowance != 0 {
         return Ok(ClaimGate::Room(allowance.min(room)));
     }
-    Ok(match fairness_candidate(
-        write,
-        at.scope,
-        at.consumer,
-        at.identity,
-        at.cursor.acked_through.as_ref(),
-        at.page,
-        budget.now_ms(),
-    )? {
-        FairnessCandidate::Fresh => ClaimGate::Deferred(OutboxClaimOutcome::deferred(
-            OutboxDeferral::FairnessCapped {
-                consecutive: budget.consecutive(),
-                cap: budget.consecutive_cap(),
-            },
-        )),
-        FairnessCandidate::Retry => ClaimGate::Room(1),
-        FairnessCandidate::None => ClaimGate::Room(0),
-    })
+    Ok(
+        match fairness_candidate(
+            write,
+            at.scope,
+            at.consumer,
+            at.identity,
+            at.cursor.acked_through.as_ref(),
+            at.page,
+            budget.now_ms(),
+        )? {
+            FairnessCandidate::Fresh => ClaimGate::Deferred(OutboxClaimOutcome::deferred(
+                OutboxDeferral::FairnessCapped {
+                    consecutive: budget.consecutive(),
+                    cap: budget.consecutive_cap(),
+                },
+            )),
+            FairnessCandidate::Retry => ClaimGate::Room(1),
+            FairnessCandidate::None => ClaimGate::Room(0),
+        },
+    )
 }
 
 /// Zero expired delivery leases from the bounded, commit-ordered claim page.
@@ -420,6 +422,22 @@ struct Claiming<'c> {
     identity: &'c MutationScopeIdentity,
     budget: &'c OutboxClaimBudget,
     room: u32,
+}
+
+/// Prove a decoded delivery row is self-consistent with the key that
+/// selected it and with the caller's watermark, before any decision is made
+/// from its contents. `pub(crate)`: `outbox::dead_letters` reuses it rather
+/// than repeating the same three checks a third time.
+pub(crate) fn validate_existing_delivery(
+    existing: &OutboxDelivery,
+    identity: &MutationScopeIdentity,
+    consumer: &str,
+    position: &OutboxPosition,
+    acked_through: Option<&OutboxPosition>,
+) -> Result<(), String> {
+    validate_stamp(&existing.identity, identity)?;
+    validate_delivery_key(existing, consumer, position)?;
+    validate_delivery_state(existing, acked_through)
 }
 
 /// One page's claimable outcome: the leases installed, the rows this pass
@@ -634,7 +652,10 @@ fn build_lease<D: OwnerDomain>(
 /// counters. `held` is whether a live lease was believed outstanding for it
 /// (a fresh row never leased before is not), since the in-flight counter only
 /// counts leases still believed held.
-pub(crate) fn record_dead_letter(state: &mut OutboxConsumerState, held: bool) -> Result<(), String> {
+pub(crate) fn record_dead_letter(
+    state: &mut OutboxConsumerState,
+    held: bool,
+) -> Result<(), String> {
     if held {
         state.inflight = state.inflight.checked_sub(1).ok_or_else(|| {
             "CORRUPT_OUTBOX_FAIRNESS: dead-lettered lease is absent from counter".to_string()
