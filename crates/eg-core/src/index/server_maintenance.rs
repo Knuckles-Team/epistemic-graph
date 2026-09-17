@@ -1,9 +1,21 @@
 //! Per-batch maintenance of the SERVER-LAYER secondary indexes (text / temporal /
 //! derived-OWL) driven by [`super::IndexManager::commit_batch_at`]: whether a batch
-//! delta may be applied over an index's current manifest, and what is published.
+//! delta may be applied over an index's current manifest, what is published, and how a
+//! manifest is marked planner-ineligible.
 
 use super::{BatchMaintenance, ChangeSet, IndexManifest, IndexValidity, SecondaryIndex};
 use crate::graph::GraphCore;
+
+impl IndexManifest {
+    /// This manifest marked `validity` and incomplete, so no planner selects the
+    /// index until recovery rebuilds it (`Stale` after a failed or unsafe delta,
+    /// `Failed` after a failed rebuild).
+    pub(crate) fn marked_incomplete(mut self, validity: IndexValidity) -> Self {
+        self.validity = validity;
+        self.completeness.complete = false;
+        self
+    }
+}
 
 /// What maintaining one server-layer index did for a committed batch.
 pub(super) enum ServerIndexStep {
@@ -37,7 +49,7 @@ pub(super) fn maintain_server_index(
     // partially materialized index as complete.
     let source_coverage_valid = delta_base_is_covered(&prior, core, change, &target);
     if idx.maintains_manifest() && !source_coverage_valid {
-        publish_stale_manifest(idx, prior);
+        idx.publish_manifest(prior.marked_incomplete(IndexValidity::Stale));
         return ServerIndexStep::MarkedStale;
     }
     if change.is_empty() {
@@ -53,7 +65,7 @@ pub(super) fn maintain_server_index(
             ServerIndexStep::Applied
         }
         Err(_) => {
-            publish_stale_manifest(idx, idx.manifest());
+            idx.publish_manifest(idx.manifest().marked_incomplete(IndexValidity::Stale));
             ServerIndexStep::MarkedStale
         }
     }
@@ -82,11 +94,4 @@ fn delta_base_is_covered(
         // let the registry/read surfaces perform the exact tuple check.
         prior.covers_version(core.version())
     }
-}
-
-/// Publish `manifest` marked stale and incomplete (planner-ineligible).
-fn publish_stale_manifest(idx: &dyn SecondaryIndex, mut manifest: IndexManifest) {
-    manifest.validity = IndexValidity::Stale;
-    manifest.completeness.complete = false;
-    idx.publish_manifest(manifest);
 }

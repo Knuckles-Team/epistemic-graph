@@ -1398,12 +1398,10 @@ fn register_secondary_indexes(
                     core.node_count() as u64,
                     core.edge_count() as u64,
                 )),
-                Err(_) => {
-                    let mut manifest = idx.manifest();
-                    manifest.validity = crate::index::IndexValidity::Failed;
-                    manifest.completeness.complete = false;
-                    idx.publish_manifest(manifest);
-                }
+                Err(_) => idx.publish_manifest(
+                    idx.manifest()
+                        .marked_incomplete(crate::index::IndexValidity::Failed),
+                ),
             }
         }
         core.register_index(idx);

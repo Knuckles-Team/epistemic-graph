@@ -965,10 +965,7 @@ impl IndexManager {
                     edges,
                 )),
                 Err(_) => {
-                    let mut manifest = idx.manifest();
-                    manifest.validity = IndexValidity::Failed;
-                    manifest.completeness.complete = false;
-                    idx.publish_manifest(manifest);
+                    idx.publish_manifest(idx.manifest().marked_incomplete(IndexValidity::Failed));
                 }
             }
         }
@@ -1030,13 +1027,14 @@ mod tests {
 
     struct ManifestProbe {
         manifest: std::sync::Mutex<IndexManifest>,
-        fail_delta: bool,
+        /// Both `apply_delta` and `full_rebuild` fail.
+        fails: bool,
     }
 
-    fn manifest_probe(manifest: IndexManifest, fail_delta: bool) -> Box<ManifestProbe> {
+    fn manifest_probe(manifest: IndexManifest, fails: bool) -> Box<ManifestProbe> {
         Box::new(ManifestProbe {
             manifest: std::sync::Mutex::new(manifest),
-            fail_delta,
+            fails,
         })
     }
 
@@ -1078,7 +1076,17 @@ mod tests {
         }
 
         fn apply_delta(&self, _core: &GraphCore, _change: &ChangeSet) -> Result<(), IndexError> {
-            if self.fail_delta {
+            self.outcome()
+        }
+
+        fn full_rebuild(&self, _core: &GraphCore) -> Result<(), IndexError> {
+            self.outcome()
+        }
+    }
+
+    impl ManifestProbe {
+        fn outcome(&self) -> Result<(), IndexError> {
+            if self.fails {
                 return Err(IndexError::Failed("probe".to_string()));
             }
             Ok(())
@@ -1122,9 +1130,9 @@ mod tests {
     fn server_delta_outcome_decides_the_published_manifest() {
         let mut change = ChangeSet::new();
         change.record_remove_node("gone".into());
-        let run = |manifest: IndexManifest, fail_delta: bool| {
+        let run = |manifest: IndexManifest, fails: bool| {
             let g = GraphCore::new();
-            g.register_index(manifest_probe(manifest, fail_delta));
+            g.register_index(manifest_probe(manifest, fails));
             let tally = g.indexes().commit_batch_at(&g, &change, 5, 2, 1);
             (tally, g.indexes().server_manifests()[0].1)
         };
@@ -1144,6 +1152,55 @@ mod tests {
         assert_eq!(fenced.source_snapshot_version, 3);
         assert_eq!(behind.failures, applied.failures + 1);
         assert_eq!(behind.deltas_applied + 1, applied.deltas_applied);
+    }
+
+    /// A full rebuild publishes `Valid` over the current source when it succeeds; a
+    /// failed one leaves the index `Failed` and incomplete, with the `building`
+    /// manifest's source version and cursor.
+    #[test]
+    fn rebuild_outcome_decides_the_published_manifest() {
+        let rebuilt = |fails: bool| {
+            let g = graph();
+            g.register_index(manifest_probe(IndexManifest::default(), fails));
+            g.indexes().rebuild_server_indexes(&g);
+            (g.version(), g.indexes().server_manifests()[0].1)
+        };
+        let (version, valid) = rebuilt(false);
+        assert_eq!(valid, IndexManifest::valid(version, 3, 0));
+        let (version, failed) = rebuilt(true);
+        assert_eq!(failed.validity, IndexValidity::Failed);
+        assert!(!failed.completeness.complete);
+        assert_eq!(failed.source_snapshot_version, version);
+        assert_eq!(
+            (failed.completeness.nodes, failed.completeness.edges),
+            (0, 0)
+        );
+    }
+
+    /// Installing a secondary-index factory rebuilds each registered index before
+    /// publication; a failed rebuild is published `Failed` and incomplete.
+    #[test]
+    fn registry_factory_publishes_a_failed_rebuild_as_failed() {
+        struct ProbeFactory(bool);
+        impl SecondaryIndexFactory for ProbeFactory {
+            fn for_graph(&self, _name: &str) -> Vec<Box<dyn SecondaryIndex>> {
+                vec![manifest_probe(IndexManifest::default(), self.0)]
+            }
+        }
+        let registered = |fails: bool| {
+            let mut registry = crate::registry::GraphRegistry::new();
+            registry.set_secondary_index_factory(std::sync::Arc::new(ProbeFactory(fails)));
+            let core = &registry.get("__commons__").expect("commons exists").core;
+            let manifests = core.indexes().server_manifests();
+            assert_eq!(manifests.len(), 1);
+            (core.version(), manifests[0].1)
+        };
+        let (version, valid) = registered(false);
+        assert_eq!(valid, IndexManifest::valid(version, 0, 0));
+        let (version, failed) = registered(true);
+        assert_eq!(failed.validity, IndexValidity::Failed);
+        assert!(!failed.completeness.complete);
+        assert_eq!(failed.source_snapshot_version, version);
     }
 
     /// `index_for` routes a label predicate to the LABEL index and a property
