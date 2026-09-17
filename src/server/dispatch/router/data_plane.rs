@@ -179,10 +179,6 @@ pub(super) async fn dispatch_sql_source_methods(
     })
 }
 
-/// The reactive subscription plane: CDC tailing, continuous queries, watches,
-/// triggers and live CEP standing queries.
-///
-/// Hands a method it does not own back as `ControlFlow::Continue`.
 #[cfg(feature = "blob")]
 async fn dispatch_store_methods_arm_0(ctx: DispatchCtx<'_>, method: Method) -> Response {
     #[allow(unused_variables)]
@@ -306,6 +302,11 @@ async fn dispatch_store_methods_arm_2(ctx: DispatchCtx<'_>, method: Method) -> R
         _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
+
+/// The reactive subscription plane: CDC tailing, continuous queries, watches,
+/// triggers and live CEP standing queries.
+///
+/// Hands a method it does not own back as `ControlFlow::Continue`.
 pub(super) async fn dispatch_streaming_methods(
     ctx: DispatchCtx<'_>,
     method: Method,
@@ -365,12 +366,6 @@ pub(super) async fn dispatch_streaming_methods(
     }
 }
 
-/// The two governed stream WRITE surfaces — served-modality results and the
-/// knowledge batch stream. Both go through an `authorize_and_route_*` admission
-/// step before reaching the target graph, which is what separates them from the
-/// read-side subscription plane above.
-///
-/// Hands a method it does not own back as `ControlFlow::Continue`.
 #[cfg(feature = "streaming")]
 async fn dispatch_streaming_methods_arm_0(ctx: DispatchCtx<'_>, method: Method) -> Response {
     #[allow(unused_variables)]
@@ -459,6 +454,13 @@ async fn dispatch_streaming_methods_arm_1(ctx: DispatchCtx<'_>, method: Method) 
         _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
+
+/// The two governed stream WRITE surfaces — served-modality results and the
+/// knowledge batch stream. Both go through an `authorize_and_route_*` admission
+/// step before reaching the target graph, which is what separates them from the
+/// read-side subscription plane above.
+///
+/// Hands a method it does not own back as `ControlFlow::Continue`.
 pub(super) async fn dispatch_governed_stream_write_methods(
     ctx: DispatchCtx<'_>,
     method: Method,
