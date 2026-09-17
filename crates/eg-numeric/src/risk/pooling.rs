@@ -40,7 +40,10 @@ impl GroupCounts {
         let overflow = StatError::ArithmeticOverflow {
             what: "pooled counts",
         };
-        let successes = self.successes().checked_add(other.successes()).ok_or(overflow)?;
+        let successes = self
+            .successes()
+            .checked_add(other.successes())
+            .ok_or(overflow)?;
         let trials = self.trials().checked_add(other.trials()).ok_or(overflow)?;
         let counts = Counts::checked(successes, trials)?;
         Ok(Self(counts))
@@ -115,7 +118,11 @@ impl ConcentrationBounds {
 /// Method-of-moments concentration of the siblings around `mean`. With fewer
 /// than two informative siblings, or no excess spread, the result is `max`.
 pub fn fit_concentration(siblings: &[GroupCounts], mean: f64, bounds: ConcentrationBounds) -> f64 {
-    let informative: Vec<GroupCounts> = siblings.iter().copied().filter(|g| g.trials() > 0).collect();
+    let informative: Vec<GroupCounts> = siblings
+        .iter()
+        .copied()
+        .filter(|g| g.trials() > 0)
+        .collect();
     let trial_counts: Vec<f64> = informative.iter().map(|g| g.trials() as f64).collect();
     let trials = serial_sum(&trial_counts);
     let spread = mean * (1.0 - mean);
@@ -167,7 +174,9 @@ fn aggregate(tree: &PoolTree) -> StatResult<GroupCounts> {
         PoolTree::Leaf(counts) => Ok(*counts),
         PoolTree::Branch(children) => children
             .values()
-            .try_fold(GroupCounts::default(), |acc, child| acc.checked_add(aggregate(child)?)),
+            .try_fold(GroupCounts::default(), |acc, child| {
+                acc.checked_add(aggregate(child)?)
+            }),
     }
 }
 
@@ -195,7 +204,10 @@ fn pool_children(
     mean: f64,
     bounds: ConcentrationBounds,
 ) -> StatResult<BTreeMap<String, PooledNode>> {
-    let sibling_counts = branch.values().map(aggregate).collect::<StatResult<Vec<_>>>()?;
+    let sibling_counts = branch
+        .values()
+        .map(aggregate)
+        .collect::<StatResult<Vec<_>>>()?;
     let concentration = fit_concentration(&sibling_counts, mean, bounds);
     let prior = BetaDistribution::new(mean * concentration, (1.0 - mean) * concentration)?;
     branch

@@ -82,7 +82,11 @@ impl RapsPenalty {
 
     /// `lambda >= 0` finite.
     pub fn new(lambda: f64, k_reg: usize) -> StatResult<Self> {
-        validate::parameter(lambda.is_finite() && lambda >= 0.0, "lambda", "finite and >= 0")?;
+        validate::parameter(
+            lambda.is_finite() && lambda >= 0.0,
+            "lambda",
+            "finite and >= 0",
+        )?;
         Ok(Self { lambda, k_reg })
     }
 

@@ -8,14 +8,19 @@ use eg_numeric::risk::pooling::fit_concentration;
 use eg_numeric::risk::sample_gate::coverage_standard_deviation;
 use eg_numeric::risk::selective::ThresholdTest;
 use eg_numeric::risk::{
-    beta_quantile, binomial_cdf, calibrate_selective_risk, clopper_pearson, pool_hierarchy, regularized_incomplete_beta,
-    BetaDistribution, BinomialCounts, ConcentrationBounds, GroupCounts, IntervalSide, PoolTree, RiskTarget,
-    SampleAssessment, SampleGate, TestOutcome,
+    beta_quantile, binomial_cdf, calibrate_selective_risk, clopper_pearson, pool_hierarchy,
+    regularized_incomplete_beta, BetaDistribution, BinomialCounts, ConcentrationBounds,
+    GroupCounts, IntervalSide, PoolTree, RiskTarget, SampleAssessment, SampleGate, TestOutcome,
 };
 use std::collections::BTreeMap;
 
 fn two_sided(k: u64, n: u64) -> (f64, f64) {
-    let interval = clopper_pearson(BinomialCounts::new(k, n).unwrap(), level(1, 20), IntervalSide::TwoSided).unwrap();
+    let interval = clopper_pearson(
+        BinomialCounts::new(k, n).unwrap(),
+        level(1, 20),
+        IntervalSide::TwoSided,
+    )
+    .unwrap();
     (interval.lower, interval.upper)
 }
 
@@ -42,15 +47,37 @@ fn clopper_pearson_matches_reference_tables_and_closed_forms() {
     for n in [1u64, 7, 30, 500] {
         let closed_upper = 1.0 - math::pow(0.025, 1.0 / n as f64);
         assert_close(two_sided(0, n).1, closed_upper, 1e-12, "k = 0 closed form");
-        assert_close(two_sided(n, n).0, 1.0 - closed_upper, 1e-12, "k = n closed form");
+        assert_close(
+            two_sided(n, n).0,
+            1.0 - closed_upper,
+            1e-12,
+            "k = n closed form",
+        );
     }
-    for (k, n, upper) in [(0u64, 30u64, 0.09503385285530411), (2, 50, 0.12061415542204412), (10, 200, 0.08333515106637196)] {
-        let one_sided = clopper_pearson(BinomialCounts::new(k, n).unwrap(), level(1, 20), IntervalSide::Upper).unwrap();
+    for (k, n, upper) in [
+        (0u64, 30u64, 0.09503385285530411),
+        (2, 50, 0.12061415542204412),
+        (10, 200, 0.08333515106637196),
+    ] {
+        let one_sided = clopper_pearson(
+            BinomialCounts::new(k, n).unwrap(),
+            level(1, 20),
+            IntervalSide::Upper,
+        )
+        .unwrap();
         assert_eq!(one_sided.lower, 0.0);
         assert_close(one_sided.upper, upper, 1e-10, "CP one-sided upper");
     }
-    let lower_only = clopper_pearson(BinomialCounts::new(5, 10).unwrap(), level(1, 10), IntervalSide::Lower).unwrap();
-    assert_eq!((lower_only.lower, lower_only.upper), (two_sided(5, 10).0, 1.0));
+    let lower_only = clopper_pearson(
+        BinomialCounts::new(5, 10).unwrap(),
+        level(1, 10),
+        IntervalSide::Lower,
+    )
+    .unwrap();
+    assert_eq!(
+        (lower_only.lower, lower_only.upper),
+        (two_sided(5, 10).0, 1.0)
+    );
     assert!(BinomialCounts::new(3, 2).is_err() && BinomialCounts::new(0, 0).is_err());
 }
 
@@ -66,7 +93,12 @@ fn incomplete_beta_quantile_and_binomial_cdf_match_references() {
         (0.1, 10.0, 1e-5, 0.41655822619209415),
     ];
     for (a, b, x, expected) in incomplete {
-        assert_close(regularized_incomplete_beta(x, a, b).unwrap(), expected, 1e-12, "I_x(a, b)");
+        assert_close(
+            regularized_incomplete_beta(x, a, b).unwrap(),
+            expected,
+            1e-12,
+            "I_x(a, b)",
+        );
     }
     let quantiles = [
         (2.0, 3.0, 0.5, 0.3857275681323895),
@@ -76,14 +108,32 @@ fn incomplete_beta_quantile_and_binomial_cdf_match_references() {
         (1.0, 50.0, 1e-6, 2.000000980000647e-8),
     ];
     for (a, b, p, expected) in quantiles {
-        assert_close(beta_quantile(p, a, b).unwrap(), expected, 1e-10 * expected, "beta quantile");
+        assert_close(
+            beta_quantile(p, a, b).unwrap(),
+            expected,
+            1e-10 * expected,
+            "beta quantile",
+        );
     }
-    for (k, n, p, expected) in [(3u64, 20u64, 0.1, 0.8670466765656649), (50, 1000, 0.07, 0.005929633320516831), (0, 5, 0.3, 0.16807), (12, 40, 0.5, 0.008294501687487355)] {
-        assert_close(binomial_cdf(k, n, p).unwrap(), expected, 1e-12, "binomial cdf");
+    for (k, n, p, expected) in [
+        (3u64, 20u64, 0.1, 0.8670466765656649),
+        (50, 1000, 0.07, 0.005929633320516831),
+        (0, 5, 0.3, 0.16807),
+        (12, 40, 0.5, 0.008294501687487355),
+    ] {
+        assert_close(
+            binomial_cdf(k, n, p).unwrap(),
+            expected,
+            1e-12,
+            "binomial cdf",
+        );
     }
     assert_eq!(binomial_cdf(5, 5, 0.3).unwrap(), 1.0);
     assert_close(ln_beta(2.0, 3.0), math::ln(1.0 / 12.0), 1e-14, "ln B(2, 3)");
-    assert!(regularized_incomplete_beta(0.5, 0.0, 1.0).is_err() && beta_quantile(1.5, 1.0, 1.0).is_err());
+    assert!(
+        regularized_incomplete_beta(0.5, 0.0, 1.0).is_err()
+            && beta_quantile(1.5, 1.0, 1.0).is_err()
+    );
     let (lo, hi) = beta_interval(90.0, 10.0, level(1, 20)).unwrap();
     assert!(lo < 0.9 && 0.9 < hi);
 }
@@ -106,7 +156,10 @@ fn exact_coverage(n: u64, p: f64) -> f64 {
 fn clopper_pearson_exact_coverage_is_at_least_nominal() {
     for (n, p) in [(10u64, 0.05), (25, 0.3), (40, 0.5), (60, 0.9), (120, 0.02)] {
         let coverage = exact_coverage(n, p);
-        assert!(coverage >= 0.95 - 1e-12, "n = {n}, p = {p}: exact coverage {coverage}");
+        assert!(
+            coverage >= 0.95 - 1e-12,
+            "n = {n}, p = {p}: exact coverage {coverage}"
+        );
     }
 }
 
@@ -127,15 +180,46 @@ fn selective_risk_follows_the_fixed_sequence() {
     let scores: Vec<f64> = (0..100).map(|i| f64::from(i) / 100.0).collect();
     let wrong: Vec<bool> = (0..100).map(|i| i < 50 && i % 2 == 0).collect();
     let thresholds = [0.995, 0.7, 0.5, 0.2, 0.0];
-    let certificate = calibrate_selective_risk(&scores, &wrong, &thresholds, target((1, 10), (1, 10), 5)).unwrap();
+    let certificate =
+        calibrate_selective_risk(&scores, &wrong, &thresholds, target((1, 10), (1, 10), 5))
+            .unwrap();
     use TestOutcome::{Certified, NotReached, NotRejected, SkippedBelowMinimum};
-    assert_eq!(outcomes(&certificate.tests), vec![SkippedBelowMinimum, Certified, Certified, NotRejected, NotReached]);
+    assert_eq!(
+        outcomes(&certificate.tests),
+        vec![
+            SkippedBelowMinimum,
+            Certified,
+            Certified,
+            NotRejected,
+            NotReached
+        ]
+    );
     let certified = certificate.certified.unwrap();
-    assert_eq!((certified.threshold, certified.acted, certified.wrong), (0.5, 50, 0));
-    assert_close(certified.risk_upper_bound, 1.0 - math::pow(0.1, 1.0 / 50.0), 1e-12, "CP bound at k = 0");
-    assert_eq!((certificate.tests[3].acted, certificate.tests[3].wrong), (80, 15));
-    assert!(calibrate_selective_risk(&scores, &wrong, &[0.5, 0.5], target((1, 10), (1, 10), 5)).is_err());
-    let none = calibrate_selective_risk(&scores, &vec![true; 100], &[0.5], target((1, 10), (1, 10), 5)).unwrap();
+    assert_eq!(
+        (certified.threshold, certified.acted, certified.wrong),
+        (0.5, 50, 0)
+    );
+    assert_close(
+        certified.risk_upper_bound,
+        1.0 - math::pow(0.1, 1.0 / 50.0),
+        1e-12,
+        "CP bound at k = 0",
+    );
+    assert_eq!(
+        (certificate.tests[3].acted, certificate.tests[3].wrong),
+        (80, 15)
+    );
+    assert!(
+        calibrate_selective_risk(&scores, &wrong, &[0.5, 0.5], target((1, 10), (1, 10), 5))
+            .is_err()
+    );
+    let none = calibrate_selective_risk(
+        &scores,
+        &vec![true; 100],
+        &[0.5],
+        target((1, 10), (1, 10), 5),
+    )
+    .unwrap();
     assert!(none.certified.is_none());
 }
 
@@ -148,7 +232,9 @@ fn planted_selective_run(seed: u64) -> Option<f64> {
         })
         .unzip();
     let thresholds: Vec<f64> = (0..50).map(|i| 0.99 - f64::from(i) * 0.01).collect();
-    let certificate = calibrate_selective_risk(&scores, &wrong, &thresholds, target((1, 10), (1, 10), 30)).unwrap();
+    let certificate =
+        calibrate_selective_risk(&scores, &wrong, &thresholds, target((1, 10), (1, 10), 30))
+            .unwrap();
     certificate.certified.map(|c| c.threshold)
 }
 
@@ -165,23 +251,46 @@ fn selective_risk_controls_planted_risk_with_power() {
         useful += u64::from(certified.is_some_and(|l| l <= 0.9));
     }
     let allowed = 0.1 * repeats as f64 + 4.0 * (0.09 * repeats as f64).sqrt();
-    assert!((violations as f64) <= allowed, "{violations} violations of epsilon in {repeats} runs");
-    assert!(useful >= repeats * 9 / 10, "certified a useful threshold in only {useful} runs");
+    assert!(
+        (violations as f64) <= allowed,
+        "{violations} violations of epsilon in {repeats} runs"
+    );
+    assert!(
+        useful >= repeats * 9 / 10,
+        "certified a useful threshold in only {useful} runs"
+    );
 }
 
 #[test]
 fn sample_gates_assess_and_refuse() {
     let gate = SampleGate::new(30).unwrap();
-    assert_eq!(gate.assess(29), SampleAssessment::Insufficient { n: 29, n_min: 30 });
+    assert_eq!(
+        gate.assess(29),
+        SampleAssessment::Insufficient { n: 29, n_min: 30 }
+    );
     assert_eq!(gate.assess(30), SampleAssessment::Sufficient { n: 30 });
     assert!(gate.require(12, "class a").is_err() && gate.require(31, "class a").is_ok());
-    assert_eq!(SampleGate::for_conformal(level(1, 10), 5).unwrap().n_min(), 9);
-    assert_eq!(SampleGate::for_conformal(level(1, 10), 50).unwrap().n_min(), 50);
+    assert_eq!(
+        SampleGate::for_conformal(level(1, 10), 5).unwrap().n_min(),
+        9
+    );
+    assert_eq!(
+        SampleGate::for_conformal(level(1, 10), 50).unwrap().n_min(),
+        50
+    );
     assert!(SampleGate::new(0).is_err());
     let counts: BTreeMap<&str, u64> = [("b", 40), ("a", 3)].into_iter().collect();
     let assessed: Vec<_> = gate.assess_classes(&counts).into_iter().collect();
-    assert_eq!(assessed[0], ("a", SampleAssessment::Insufficient { n: 3, n_min: 30 }));
-    assert_close(coverage_standard_deviation(level(1, 10), 100), (0.09f64 / 102.0).sqrt(), 1e-15, "coverage sd");
+    assert_eq!(
+        assessed[0],
+        ("a", SampleAssessment::Insufficient { n: 3, n_min: 30 })
+    );
+    assert_close(
+        coverage_standard_deviation(level(1, 10), 100),
+        (0.09f64 / 102.0).sqrt(),
+        1e-15,
+        "coverage sd",
+    );
 }
 
 fn counts(successes: u64, trials: u64) -> GroupCounts {
@@ -201,14 +310,31 @@ fn leaf_tree(groups: &[(&str, u64, u64)]) -> PoolTree {
 fn pooling_closed_forms_and_structure() {
     let prior = BetaDistribution::new(2.0, 3.0).unwrap();
     let posterior = prior.update(counts(3, 5));
-    assert_eq!((posterior.alpha(), posterior.beta(), posterior.mean()), (5.0, 5.0, 0.5));
+    assert_eq!(
+        (posterior.alpha(), posterior.beta(), posterior.mean()),
+        (5.0, 5.0, 0.5)
+    );
     assert_eq!(posterior.concentration(), 10.0);
     let bounds = ConcentrationBounds::new(1.0, 1000.0).unwrap();
-    assert_eq!(fit_concentration(&[counts(5, 10), counts(50, 100)], 0.5, bounds), 1000.0, "no excess spread");
-    assert_eq!(fit_concentration(&[counts(5, 10)], 0.5, bounds), 1000.0, "one sibling");
-    assert_eq!(fit_concentration(&[counts(0, 50), counts(50, 50)], 0.5, bounds), 1.0, "maximal spread");
+    assert_eq!(
+        fit_concentration(&[counts(5, 10), counts(50, 100)], 0.5, bounds),
+        1000.0,
+        "no excess spread"
+    );
+    assert_eq!(
+        fit_concentration(&[counts(5, 10)], 0.5, bounds),
+        1000.0,
+        "one sibling"
+    );
+    assert_eq!(
+        fit_concentration(&[counts(0, 50), counts(50, 50)], 0.5, bounds),
+        1.0,
+        "maximal spread"
+    );
     let tree = PoolTree::Branch(
-        [("kind".to_string(), leaf_tree(&[("z", 9, 10), ("a", 1, 10)]))].into_iter().collect(),
+        [("kind".to_string(), leaf_tree(&[("z", 9, 10), ("a", 1, 10)]))]
+            .into_iter()
+            .collect(),
     );
     let pooled = pool_hierarchy(&tree, BetaDistribution::new(1.0, 1.0).unwrap(), bounds).unwrap();
     assert_eq!(pooled.counts, counts(10, 20));
@@ -229,9 +355,16 @@ fn planted_hierarchy_errors(seed: u64) -> (f64, f64) {
     for (class, class_mean) in [("c0", 0.2), ("c1", 0.5), ("c2", 0.8)] {
         let mut options = BTreeMap::new();
         for option in 0..8 {
-            let rate = beta_quantile(uniform(&mut generator), 20.0 * class_mean, 20.0 * (1.0 - class_mean)).unwrap();
+            let rate = beta_quantile(
+                uniform(&mut generator),
+                20.0 * class_mean,
+                20.0 * (1.0 - class_mean),
+            )
+            .unwrap();
             let trials = 4 + (uniform(&mut generator) * 12.0) as u64;
-            let successes = (0..trials).filter(|_| uniform(&mut generator) < rate).count() as u64;
+            let successes = (0..trials)
+                .filter(|_| uniform(&mut generator) < rate)
+                .count() as u64;
             let name = format!("o{option}");
             truth.push((class, name.clone(), rate, successes as f64 / trials as f64));
             options.insert(name, PoolTree::Leaf(counts(successes, trials)));
@@ -239,15 +372,28 @@ fn planted_hierarchy_errors(seed: u64) -> (f64, f64) {
         classes.insert(class.to_string(), PoolTree::Branch(options));
     }
     let bounds = ConcentrationBounds::new(0.5, 500.0).unwrap();
-    let pooled = pool_hierarchy(&PoolTree::Branch(classes), BetaDistribution::new(1.0, 1.0).unwrap(), bounds).unwrap();
-    truth.iter().fold((0.0, 0.0), |(pooled_error, raw_error), (class, option, rate, raw)| {
-        let estimate = pooled.children[*class].children[option].posterior.mean();
-        (pooled_error + (estimate - rate) * (estimate - rate), raw_error + (raw - rate) * (raw - rate))
-    })
+    let pooled = pool_hierarchy(
+        &PoolTree::Branch(classes),
+        BetaDistribution::new(1.0, 1.0).unwrap(),
+        bounds,
+    )
+    .unwrap();
+    truth.iter().fold(
+        (0.0, 0.0),
+        |(pooled_error, raw_error), (class, option, rate, raw)| {
+            let estimate = pooled.children[*class].children[option].posterior.mean();
+            (
+                pooled_error + (estimate - rate) * (estimate - rate),
+                raw_error + (raw - rate) * (raw - rate),
+            )
+        },
+    )
 }
 
 #[test]
 fn pooling_beats_raw_rates_on_planted_hierarchies() {
-    let (pooled, raw) = (0..20).map(|seed| planted_hierarchy_errors(500 + seed)).fold((0.0, 0.0), |acc, e| (acc.0 + e.0, acc.1 + e.1));
+    let (pooled, raw) = (0..20)
+        .map(|seed| planted_hierarchy_errors(500 + seed))
+        .fold((0.0, 0.0), |acc, e| (acc.0 + e.0, acc.1 + e.1));
     assert!(pooled < 0.7 * raw, "pooled {pooled} vs raw {raw}");
 }

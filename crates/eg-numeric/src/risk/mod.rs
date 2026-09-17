@@ -11,6 +11,8 @@ pub mod selective;
 
 pub use beta::{beta_quantile, regularized_incomplete_beta};
 pub use binomial::{binomial_cdf, clopper_pearson, BinomialCounts, BinomialInterval, IntervalSide};
-pub use pooling::{pool_hierarchy, BetaDistribution, ConcentrationBounds, GroupCounts, PoolTree, PooledNode};
+pub use pooling::{
+    pool_hierarchy, BetaDistribution, ConcentrationBounds, GroupCounts, PoolTree, PooledNode,
+};
 pub use sample_gate::{SampleAssessment, SampleGate};
 pub use selective::{calibrate_selective_risk, RiskTarget, SelectiveRiskCertificate, TestOutcome};

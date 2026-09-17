@@ -66,7 +66,10 @@ impl IsotonicFit {
 
 /// Fit on scores and binary outcomes with unit weights.
 pub fn fit_isotonic(scores: &[f64], outcomes: &[bool]) -> StatResult<IsotonicFit> {
-    let targets: Vec<f64> = outcomes.iter().map(|&o| if o { 1.0 } else { 0.0 }).collect();
+    let targets: Vec<f64> = outcomes
+        .iter()
+        .map(|&o| if o { 1.0 } else { 0.0 })
+        .collect();
     let weights = vec![1.0; outcomes.len()];
     fit_isotonic_weighted(scores, &targets, &weights)
 }

@@ -16,7 +16,9 @@ fn disallowed_method_paths(toml_text: &str) -> BTreeSet<String> {
     let mut rest = toml_text;
     while let Some(start) = rest.find(marker) {
         let after = &rest[start + marker.len()..];
-        let end = after.find('"').expect("clippy.toml: unterminated path string");
+        let end = after
+            .find('"')
+            .expect("clippy.toml: unterminated path string");
         paths.insert(after[..end].to_string());
         rest = &after[end + 1..];
     }
@@ -33,7 +35,10 @@ fn read(relative: &str) -> String {
 fn crate_clippy_policy_is_a_superset_of_the_workspace_policy() {
     let workspace_paths = disallowed_method_paths(&read("../../clippy.toml"));
     let crate_paths = disallowed_method_paths(&read("clippy.toml"));
-    assert!(!workspace_paths.is_empty(), "sanity: the workspace clippy.toml lists disallowed methods");
+    assert!(
+        !workspace_paths.is_empty(),
+        "sanity: the workspace clippy.toml lists disallowed methods"
+    );
     let missing: Vec<&String> = workspace_paths.difference(&crate_paths).collect();
     assert!(
         missing.is_empty(),
@@ -45,14 +50,17 @@ fn crate_clippy_policy_is_a_superset_of_the_workspace_policy() {
 fn crate_clippy_policy_bans_every_float_transcendental() {
     let crate_paths = disallowed_method_paths(&read("clippy.toml"));
     let methods = [
-        "acos", "acosh", "asin", "asinh", "atan", "atan2", "atanh", "cbrt", "cos", "cosh", "exp", "exp2", "exp_m1",
-        "hypot", "ln", "ln_1p", "log", "log10", "log2", "mul_add", "powf", "powi", "sin", "sin_cos", "sinh", "tan",
-        "tanh",
+        "acos", "acosh", "asin", "asinh", "atan", "atan2", "atanh", "cbrt", "cos", "cosh", "exp",
+        "exp2", "exp_m1", "hypot", "ln", "ln_1p", "log", "log10", "log2", "mul_add", "powf",
+        "powi", "sin", "sin_cos", "sinh", "tan", "tanh",
     ];
     for base in ["f64", "f32"] {
         for method in methods {
             let full = format!("{base}::{method}");
-            assert!(crate_paths.contains(&full), "crate clippy.toml is missing {full}");
+            assert!(
+                crate_paths.contains(&full),
+                "crate clippy.toml is missing {full}"
+            );
         }
     }
     // Every entry must carry a reason pointing at the pinned replacement, so a
@@ -60,5 +68,8 @@ fn crate_clippy_policy_bans_every_float_transcendental() {
     let toml = read("clippy.toml");
     let reasons = toml.matches("reason = ").count();
     let paths = toml.matches("path = \"").count();
-    assert_eq!(reasons, paths, "every disallowed-methods entry needs a reason");
+    assert_eq!(
+        reasons, paths,
+        "every disallowed-methods entry needs a reason"
+    );
 }

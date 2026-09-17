@@ -139,7 +139,11 @@ pub fn weighted_split_conformal(
 /// a split-conformal set built from `n` calibration items at `alpha`: coverage
 /// is `Beta(l, n + 1 - l)` with `l = ceil((n + 1)(1 - alpha))`. `None` when the
 /// set is trivial (`l > n`, coverage 1).
-pub fn realised_coverage_interval(alpha: Level, n: u64, delta: Level) -> StatResult<Option<(f64, f64)>> {
+pub fn realised_coverage_interval(
+    alpha: Level,
+    n: u64,
+    delta: Level,
+) -> StatResult<Option<(f64, f64)>> {
     let rank = alpha.conformal_rank(n);
     if rank > n {
         return Ok(None);

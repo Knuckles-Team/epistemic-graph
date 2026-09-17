@@ -6,8 +6,8 @@
 use crate::common::{assert_close, categorical, rng};
 use eg_numeric::detkernel::{Propensity, StatError};
 use eg_numeric::ope::{
-    clipped_ips, doubly_robust, effective_sample_size, ips, require_support, snips, support_report, switch, EssGate,
-    LoggedDecision,
+    clipped_ips, doubly_robust, effective_sample_size, ips, require_support, snips, support_report,
+    switch, EssGate, LoggedDecision,
 };
 
 /// Fixed logging policy `mu = [1/2, 1/4, 1/4]`, target `pi = [1/4, 1/4, 1/2]`
@@ -59,8 +59,15 @@ fn clipped_ips_caps_the_large_weight_only() {
     assert_close(result.effective_sample_size, 8.0, 1e-9, "clipped ips ESS");
     // a cap at or above the largest weight reproduces plain IPS exactly.
     let uncapped = clipped_ips(&fixed_log(), 100.0).unwrap();
-    assert_close(uncapped.value, ips(&fixed_log()).unwrap().value, 1e-12, "large cap matches IPS");
-    assert!(clipped_ips(&fixed_log(), 0.0).is_err() && clipped_ips(&fixed_log(), f64::NAN).is_err());
+    assert_close(
+        uncapped.value,
+        ips(&fixed_log()).unwrap().value,
+        1e-12,
+        "large cap matches IPS",
+    );
+    assert!(
+        clipped_ips(&fixed_log(), 0.0).is_err() && clipped_ips(&fixed_log(), f64::NAN).is_err()
+    );
 }
 
 #[test]
@@ -72,7 +79,10 @@ fn snips_self_normalises_by_the_weight_sum() {
 
 #[test]
 fn snips_refuses_a_log_whose_weights_sum_to_zero() {
-    let mu = vec![Propensity::new(1, 2).unwrap(), Propensity::new(1, 2).unwrap()];
+    let mu = vec![
+        Propensity::new(1, 2).unwrap(),
+        Propensity::new(1, 2).unwrap(),
+    ];
     // target puts zero mass on the executed action, so its importance weight
     // is exactly 0 (not unsupported: target[0] == 0 short-circuits).
     let zero_weight = LoggedDecision::new(0, 5.0, mu, vec![0.0, 1.0]).unwrap();
@@ -92,7 +102,10 @@ fn doubly_robust_is_exact_when_the_reward_model_matches_the_reward() {
 
 #[test]
 fn doubly_robust_requires_a_reward_model_on_every_record() {
-    let mu = vec![Propensity::new(1, 2).unwrap(), Propensity::new(1, 2).unwrap()];
+    let mu = vec![
+        Propensity::new(1, 2).unwrap(),
+        Propensity::new(1, 2).unwrap(),
+    ];
     let bare = LoggedDecision::new(0, 1.0, mu, vec![0.5, 0.5]).unwrap();
     assert!(doubly_robust(&[bare.clone()]).is_err());
     assert!(switch(&[bare], 1.0).is_err());
@@ -108,17 +121,37 @@ fn switch_uses_the_reward_model_above_the_weight_threshold() {
     let result = switch(&fixed_log(), 1.5).unwrap();
     let expected = (2.0 * 2.0 + 3.0 * 3.5 + 4.0 * 1.5) / 9.0;
     assert_close(result.value, expected, 1e-9, "switch value");
-    assert_close(result.max_weight, 1.0, 1e-12, "switch only ever uses weight <= tau");
+    assert_close(
+        result.max_weight,
+        1.0,
+        1e-12,
+        "switch only ever uses weight <= tau",
+    );
     assert!(switch(&fixed_log(), -1.0).is_err());
     // tau above every weight reduces to plain IPS (nothing is switched).
     let never_switches = switch(&fixed_log(), 100.0).unwrap();
-    assert_close(never_switches.value, ips(&fixed_log()).unwrap().value, 1e-9, "high tau matches IPS");
+    assert_close(
+        never_switches.value,
+        ips(&fixed_log()).unwrap().value,
+        1e-9,
+        "high tau matches IPS",
+    );
 }
 
 #[test]
 fn effective_sample_size_matches_its_closed_form() {
-    assert_close(effective_sample_size(&[2.0; 5]), 5.0, 1e-12, "equal weights: ESS = n");
-    assert_close(effective_sample_size(&[100.0, 0.0, 0.0]), 1.0, 1e-12, "one dominant weight: ESS = 1");
+    assert_close(
+        effective_sample_size(&[2.0; 5]),
+        5.0,
+        1e-12,
+        "equal weights: ESS = n",
+    );
+    assert_close(
+        effective_sample_size(&[100.0, 0.0, 0.0]),
+        1.0,
+        1e-12,
+        "one dominant weight: ESS = 1",
+    );
     assert_eq!(effective_sample_size(&[0.0, 0.0]), 0.0);
     assert_eq!(effective_sample_size(&[]), 0.0);
 }
@@ -130,22 +163,35 @@ fn ess_gate_refuses_below_its_minimum() {
     let refusal = EssGate::new(8.0).unwrap().check(&result);
     assert!(matches!(
         refusal,
-        Err(StatError::InsufficientSamples { required: 8, actual: 7, .. })
+        Err(StatError::InsufficientSamples {
+            required: 8,
+            actual: 7,
+            ..
+        })
     ));
     assert!(EssGate::new(0.0).is_err() && EssGate::new(f64::NAN).is_err());
 }
 
 #[test]
 fn logged_decision_validates_propensities_and_target() {
-    let mu = vec![Propensity::new(1, 2).unwrap(), Propensity::new(1, 4).unwrap()];
+    let mu = vec![
+        Propensity::new(1, 2).unwrap(),
+        Propensity::new(1, 4).unwrap(),
+    ];
     // propensities sum to 3/4, not 1.
     assert!(LoggedDecision::new(0, 1.0, mu, vec![0.5, 0.5]).is_err());
-    let zero_at_executed = vec![Propensity::new(0, 1).unwrap(), Propensity::new(1, 1).unwrap()];
+    let zero_at_executed = vec![
+        Propensity::new(0, 1).unwrap(),
+        Propensity::new(1, 1).unwrap(),
+    ];
     assert!(matches!(
         LoggedDecision::new(0, 1.0, zero_at_executed, vec![0.0, 1.0]),
         Err(StatError::ZeroLoggingPropensity { action: 0 })
     ));
-    let ok_mu = vec![Propensity::new(1, 2).unwrap(), Propensity::new(1, 2).unwrap()];
+    let ok_mu = vec![
+        Propensity::new(1, 2).unwrap(),
+        Propensity::new(1, 2).unwrap(),
+    ];
     // target does not sum to 1.
     assert!(LoggedDecision::new(0, 1.0, ok_mu.clone(), vec![0.5, 0.6]).is_err());
     assert!(LoggedDecision::new(5, 1.0, ok_mu.clone(), vec![0.5, 0.5]).is_err());
@@ -156,25 +202,49 @@ fn logged_decision_validates_propensities_and_target() {
 
 #[test]
 fn support_checks_find_the_unsupported_action_and_its_mass() {
-    let unsupported_mu = vec![Propensity::new(1, 1).unwrap(), Propensity::new(0, 1).unwrap()];
+    let unsupported_mu = vec![
+        Propensity::new(1, 1).unwrap(),
+        Propensity::new(0, 1).unwrap(),
+    ];
     // all target mass is on action 1, which the logging policy never takes.
     let unsupported = LoggedDecision::new(0, 1.0, unsupported_mu, vec![0.0, 1.0]).unwrap();
     assert_eq!(unsupported.unsupported_action(), Some(1));
-    assert_close(unsupported.unsupported_mass(), 1.0, 1e-12, "unsupported mass");
+    assert_close(
+        unsupported.unsupported_mass(),
+        1.0,
+        1e-12,
+        "unsupported mass",
+    );
 
-    let supported_mu = vec![Propensity::new(1, 2).unwrap(), Propensity::new(1, 2).unwrap()];
+    let supported_mu = vec![
+        Propensity::new(1, 2).unwrap(),
+        Propensity::new(1, 2).unwrap(),
+    ];
     let supported = LoggedDecision::new(0, 2.0, supported_mu, vec![0.5, 0.5]).unwrap();
     assert_eq!(supported.unsupported_action(), None);
-    assert_close(supported.unsupported_mass(), 0.0, 1e-12, "fully supported record");
+    assert_close(
+        supported.unsupported_mass(),
+        0.0,
+        1e-12,
+        "fully supported record",
+    );
 
     let records = vec![unsupported, supported.clone()];
     let report = support_report(&records).unwrap();
     assert_eq!((report.records, report.unsupported_records), (2, 1));
-    assert_close(report.mean_unsupported_mass, 0.5, 1e-12, "mean unsupported mass");
+    assert_close(
+        report.mean_unsupported_mass,
+        0.5,
+        1e-12,
+        "mean unsupported mass",
+    );
 
     assert!(matches!(
         require_support(&records),
-        Err(StatError::UnsupportedAction { record: 0, action: 1 })
+        Err(StatError::UnsupportedAction {
+            record: 0,
+            action: 1
+        })
     ));
     assert!(require_support(&[supported.clone()]).is_ok());
     assert!(ips(&records).is_err());
@@ -190,7 +260,13 @@ fn support_checks_find_the_unsupported_action_and_its_mass() {
 /// Draw `n` actions from `mu`, build a fully logged decision for each with a
 /// noiseless reward `base[a]` and the fixed target `pi`, so
 /// `E[reward] = sum_a pi(a) base(a)` exactly.
-fn planted_records(seed: u64, n: usize, mu: &[f64], pi: &[f64], base: &[f64]) -> Vec<LoggedDecision> {
+fn planted_records(
+    seed: u64,
+    n: usize,
+    mu: &[f64],
+    pi: &[f64],
+    base: &[f64],
+) -> Vec<LoggedDecision> {
     let denominators = [10u64; 4];
     let logging: Vec<Propensity> = mu
         .iter()

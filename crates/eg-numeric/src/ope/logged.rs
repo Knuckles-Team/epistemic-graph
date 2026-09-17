@@ -36,7 +36,11 @@ impl LoggedDecision {
         validate::labels_below(&[action], logging.len())?;
         validate::all_finite(&[reward], "reward")?;
         validate::probability_vector(&target, "target policy")?;
-        validate::parameter(sums_to_one(&logging)?, "logging propensities", "sum exactly to 1")?;
+        validate::parameter(
+            sums_to_one(&logging)?,
+            "logging propensities",
+            "sum exactly to 1",
+        )?;
         if logging[action].is_zero() {
             return Err(StatError::ZeroLoggingPropensity { action });
         }

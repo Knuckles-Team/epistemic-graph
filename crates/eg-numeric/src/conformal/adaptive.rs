@@ -70,7 +70,10 @@ impl AdaptiveConformal {
         }
         let n = calibration_scores.len();
         let rank = ((n as f64 + 1.0) * (1.0 - self.alpha_t)).ceil();
-        Ok(threshold_at_rank(&sorted_ascending(calibration_scores), rank as u64))
+        Ok(threshold_at_rank(
+            &sorted_ascending(calibration_scores),
+            rank as u64,
+        ))
     }
 
     /// Record whether the last set covered the observed label.

@@ -272,7 +272,11 @@ impl FitState {
             base.extend(affine(&self.weights, &self.biases, row));
             directions.extend(direction(coordinate, row));
         }
-        let penalty = if penalised(coordinate, self.family) { l2 } else { 0.0 };
+        let penalty = if penalised(coordinate, self.family) {
+            l2
+        } else {
+            0.0
+        };
         LineProblem {
             labels: data.labels(),
             classes: self.classes,
@@ -295,7 +299,12 @@ impl FitState {
             Coordinate::Scale => {
                 let (lower, upper) = INVERSE_TEMPERATURE_BOUNDS;
                 let start = problem.start;
-                minimise_convex_bounded(|t| problem.derivative(t), lower - start, upper - start, steps)?
+                minimise_convex_bounded(
+                    |t| problem.derivative(t),
+                    lower - start,
+                    upper - start,
+                    steps,
+                )?
             }
             Coordinate::Weight { .. } | Coordinate::Bias(_) => {
                 minimise_convex_unbounded(|t| problem.derivative(t), 0.0, 1.0, steps)?

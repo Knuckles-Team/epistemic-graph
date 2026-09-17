@@ -124,7 +124,10 @@ pub fn top_label_reliability(
     reliability(&confidences, &correct, bins)
 }
 
-fn top_label(probabilities: &ProbabilityMatrix, labels: &[usize]) -> StatResult<(Vec<f64>, Vec<bool>)> {
+fn top_label(
+    probabilities: &ProbabilityMatrix,
+    labels: &[usize],
+) -> StatResult<(Vec<f64>, Vec<bool>)> {
     let matrix = probabilities.labelled(labels)?;
     let mut confidences = Vec::with_capacity(labels.len());
     let mut correct = Vec::with_capacity(labels.len());
@@ -186,7 +189,9 @@ pub fn log_loss(
     labels: &[usize],
     floor: ProbabilityFloor,
 ) -> StatResult<f64> {
-    let terms = per_item(probabilities, labels, |row, label| -math::ln(row[label].max(floor.0)))?;
+    let terms = per_item(probabilities, labels, |row, label| {
+        -math::ln(row[label].max(floor.0))
+    })?;
     serial_mean(&terms, "log-loss items")
 }
 
@@ -196,5 +201,9 @@ fn per_item(
     term: impl Fn(&[f64], usize) -> f64,
 ) -> StatResult<Vec<f64>> {
     let matrix = probabilities.labelled(labels)?;
-    Ok(matrix.rows().zip(labels).map(|(row, &label)| term(row, label)).collect())
+    Ok(matrix
+        .rows()
+        .zip(labels)
+        .map(|(row, &label)| term(row, label))
+        .collect())
 }

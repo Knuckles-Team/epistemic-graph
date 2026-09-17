@@ -84,10 +84,17 @@ pub fn planted_logits(
     let mut labels = Vec::with_capacity(n);
     let mut truth = Vec::with_capacity(n);
     for _ in 0..n {
-        let z: Vec<f64> = (0..classes).map(|_| uniform_in(&mut generator, -3.0, 3.0)).collect();
+        let z: Vec<f64> = (0..classes)
+            .map(|_| uniform_in(&mut generator, -3.0, 3.0))
+            .collect();
         let p = softmax(&z).expect("finite logits");
         labels.push(categorical(&mut generator, &p));
-        presented.push(z.iter().zip(shift).map(|(v, s)| v * overconfidence + s).collect());
+        presented.push(
+            z.iter()
+                .zip(shift)
+                .map(|(v, s)| v * overconfidence + s)
+                .collect(),
+        );
         truth.push(p);
     }
     (presented, labels, truth)
@@ -98,7 +105,12 @@ pub fn mean_max_abs_difference(left: &[Vec<f64>], right: &[Vec<f64>]) -> f64 {
     let total: f64 = left
         .iter()
         .zip(right)
-        .map(|(a, b)| a.iter().zip(b).map(|(x, y)| (x - y).abs()).fold(0.0, f64::max))
+        .map(|(a, b)| {
+            a.iter()
+                .zip(b)
+                .map(|(x, y)| (x - y).abs())
+                .fold(0.0, f64::max)
+        })
         .sum();
     total / left.len() as f64
 }

@@ -63,12 +63,19 @@ fn standard_error(contributions: &[f64], mean: f64) -> f64 {
     if contributions.len() < 2 {
         return f64::INFINITY;
     }
-    let squares: Vec<f64> = contributions.iter().map(|c| (c - mean) * (c - mean)).collect();
+    let squares: Vec<f64> = contributions
+        .iter()
+        .map(|c| (c - mean) * (c - mean))
+        .collect();
     let n = contributions.len() as f64;
     (serial_sum(&squares) / (n - 1.0) / n).sqrt()
 }
 
-fn estimate(estimator: Estimator, contributions: &[f64], weights: &[f64]) -> StatResult<OpeEstimate> {
+fn estimate(
+    estimator: Estimator,
+    contributions: &[f64],
+    weights: &[f64],
+) -> StatResult<OpeEstimate> {
     let value = serial_mean(contributions, "logged decisions")?;
     Ok(OpeEstimate {
         estimator,
@@ -91,7 +98,11 @@ fn weighted_rewards(
 ) -> StatResult<OpeEstimate> {
     require_support(records)?;
     let weights: Vec<f64> = records.iter().map(weight).collect();
-    let contributions: Vec<f64> = records.iter().zip(&weights).map(|(r, w)| w * r.reward()).collect();
+    let contributions: Vec<f64> = records
+        .iter()
+        .zip(&weights)
+        .map(|(r, w)| w * r.reward())
+        .collect();
     estimate(estimator, &contributions, &weights)
 }
 
@@ -103,13 +114,18 @@ pub fn ips(records: &[LoggedDecision]) -> StatResult<OpeEstimate> {
 /// IPS with every weight capped at `cap > 0`.
 pub fn clipped_ips(records: &[LoggedDecision], cap: f64) -> StatResult<OpeEstimate> {
     positive_cap(cap, "cap")?;
-    weighted_rewards(records, Estimator::ClippedIps { cap }, |r| r.executed_weight().min(cap))
+    weighted_rewards(records, Estimator::ClippedIps { cap }, |r| {
+        r.executed_weight().min(cap)
+    })
 }
 
 /// Self-normalised IPS; refuses a log whose weights sum to 0.
 pub fn snips(records: &[LoggedDecision]) -> StatResult<OpeEstimate> {
     require_support(records)?;
-    let weights: Vec<f64> = records.iter().map(LoggedDecision::executed_weight).collect();
+    let weights: Vec<f64> = records
+        .iter()
+        .map(LoggedDecision::executed_weight)
+        .collect();
     let total = serial_sum(&weights);
     validate::parameter(total > 0.0, "weights", "positive total weight")?;
     let n = records.len() as f64;
@@ -169,7 +185,10 @@ fn switch_contribution(record: &LoggedDecision, tau: f64) -> StatResult<(f64, f6
     let above = |a: usize| record.weight_of(a).is_some_and(|w| w > tau);
     let w = record.executed_weight();
     let used = if w <= tau { w } else { 0.0 };
-    Ok((model_value(record, model, above) + used * record.reward(), used))
+    Ok((
+        model_value(record, model, above) + used * record.reward(),
+        used,
+    ))
 }
 
 /// SWITCH estimator with weight threshold `tau > 0`.
@@ -205,7 +224,11 @@ pub struct EssGate {
 impl EssGate {
     /// `minimum >= 1`, finite.
     pub fn new(minimum: f64) -> StatResult<Self> {
-        validate::parameter(minimum.is_finite() && minimum >= 1.0, "minimum", "finite and >= 1")?;
+        validate::parameter(
+            minimum.is_finite() && minimum >= 1.0,
+            "minimum",
+            "finite and >= 1",
+        )?;
         Ok(Self { minimum })
     }
 

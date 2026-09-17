@@ -86,7 +86,11 @@ pub fn minimise_convex_unbounded(
         let far = start + direction * step;
         let far_slope = derivative_at(&derivative, far)?;
         if far_slope * direction >= 0.0 {
-            let (lower, upper) = if direction > 0.0 { (start, far) } else { (far, start) };
+            let (lower, upper) = if direction > 0.0 {
+                (start, far)
+            } else {
+                (far, start)
+            };
             return bisect_sign_change(&derivative, lower, upper, steps);
         }
         step *= 2.0;

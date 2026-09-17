@@ -10,5 +10,8 @@
 pub mod estimators;
 pub mod logged;
 
-pub use estimators::{clipped_ips, doubly_robust, effective_sample_size, ips, snips, switch, EssGate, Estimator, OpeEstimate};
+pub use estimators::{
+    clipped_ips, doubly_robust, effective_sample_size, ips, snips, switch, EssGate, Estimator,
+    OpeEstimate,
+};
 pub use logged::{require_support, support_report, LoggedDecision, SupportReport};

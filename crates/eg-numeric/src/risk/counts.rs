@@ -5,12 +5,17 @@
 //! as-yet-unobserved node in a pooling hierarchy). Both `Deref` to this one
 //! validated pair, so its accessors are defined once, and each adds only the
 //! extra constraint its own guarantee needs on top of [`Counts::checked`].
+//!
+//! `Counts` itself is `pub` (a public `Deref::Target` cannot name a more
+//! restricted type), but the `counts` module is private and its constructor
+//! is `pub(super)`, so nothing outside `risk` can name or build one directly
+//! -- only reach its two accessors through `BinomialCounts`/`GroupCounts`.
 
 use crate::detkernel::{validate, StatResult};
 
 /// `successes <= trials`; nothing else constrained here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub(super) struct Counts {
+pub struct Counts {
     successes: u64,
     trials: u64,
 }
