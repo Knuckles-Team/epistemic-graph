@@ -47,7 +47,22 @@ pub struct Bucket {
 /// aggregate. Buckets are aligned to `width` (`(ts/width)*width`). Empty buckets are
 /// omitted (use `gap_fill_locf` afterwards to densify). `width <= 0` ⇒ empty.
 pub fn time_bucket(points: &[Point], width: Ts, agg: Agg) -> Vec<Bucket> {
-    let mut out: Vec<Bucket> = Vec::new();
+    map_buckets(points, width, |bucket_start, samples| Bucket {
+        bucket_start,
+        value: aggregate_samples(samples, agg),
+        count: samples.len(),
+    })
+}
+
+/// Split a ts-sorted series into its contiguous width-aligned buckets
+/// (`(ts/width)*width`) and map each non-empty bucket's samples with `per_bucket`.
+/// `width <= 0` ⇒ empty.
+fn map_buckets<T>(
+    points: &[Point],
+    width: Ts,
+    mut per_bucket: impl FnMut(Ts, &[Point]) -> T,
+) -> Vec<T> {
+    let mut out = Vec::new();
     if width <= 0 {
         return out;
     }
@@ -55,12 +70,7 @@ pub fn time_bucket(points: &[Point], width: Ts, agg: Agg) -> Vec<Bucket> {
     while i < points.len() {
         let bucket_start = (points[i].ts / width) * width;
         let end = bucket_run_end(points, i, width, bucket_start);
-        let samples = &points[i..end];
-        out.push(Bucket {
-            bucket_start,
-            value: aggregate_samples(samples, agg),
-            count: samples.len(),
-        });
+        out.push(per_bucket(bucket_start, &points[i..end]));
         i = end;
     }
     out
@@ -131,37 +141,31 @@ pub struct Ohlc {
 
 /// OHLC bars over a ts-sorted series. `width <= 0` ⇒ empty.
 pub fn ohlc_bars(points: &[Point], width: Ts) -> Vec<Ohlc> {
-    let mut out = Vec::new();
-    if width <= 0 {
-        return out;
-    }
-    let mut i = 0;
-    while i < points.len() {
-        let b = (points[i].ts / width) * width;
-        let mut j = i;
-        let p0 = points[i].values[0];
-        let (open, mut high, mut low, mut close, mut vol) = (p0, p0, p0, p0, 0.0);
-        while j < points.len() && (points[j].ts / width) * width == b {
-            let p = points[j].values[0];
-            high = high.max(p);
-            low = low.min(p);
-            close = p;
-            if points[j].values.len() > 1 {
-                vol += points[j].values[1];
-            }
-            j += 1;
+    map_buckets(points, width, ohlc_bar)
+}
+
+/// One bar over a bucket's (non-empty) samples: field 0 is the price, field 1 (when
+/// present) the volume.
+fn ohlc_bar(bucket_start: Ts, samples: &[Point]) -> Ohlc {
+    let open = samples[0].values[0];
+    let mut bar = Ohlc {
+        bucket_start,
+        open,
+        high: open,
+        low: open,
+        close: open,
+        volume: 0.0,
+    };
+    for point in samples {
+        let price = point.values[0];
+        bar.high = bar.high.max(price);
+        bar.low = bar.low.min(price);
+        bar.close = price;
+        if point.values.len() > 1 {
+            bar.volume += point.values[1];
         }
-        out.push(Ohlc {
-            bucket_start: b,
-            open,
-            high,
-            low,
-            close,
-            volume: vol,
-        });
-        i = j;
     }
-    out
+    bar
 }
 
 /// One ASOF output row: the left event time/value and the nearest prior right value.
@@ -610,5 +614,39 @@ mod aggregation_tests {
         assert_eq!(starts, vec![0, 10, 20]);
         assert_eq!(values, vec![3.0, 4.0, 8.0]);
         assert_eq!(counts, vec![2, 1, 1]);
+    }
+
+    #[test]
+    fn ohlc_bars_split_buckets_and_default_missing_volume() {
+        let points = vec![
+            Point {
+                ts: 1,
+                values: vec![5.0, 2.0],
+            },
+            Point::single(4, 9.0),
+            Point {
+                ts: 7,
+                values: vec![3.0, 0.5],
+            },
+            Point::single(12, 6.0),
+            Point {
+                ts: 31,
+                values: vec![7.0, 4.0],
+            },
+        ];
+        assert!(ohlc_bars(&points, 0).is_empty());
+        let bars = ohlc_bars(&points, 10);
+        let rows: Vec<(Ts, f64, f64, f64, f64, f64)> = bars
+            .iter()
+            .map(|b| (b.bucket_start, b.open, b.high, b.low, b.close, b.volume))
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                (0, 5.0, 9.0, 3.0, 3.0, 2.5),
+                (10, 6.0, 6.0, 6.0, 6.0, 0.0),
+                (30, 7.0, 7.0, 7.0, 7.0, 4.0),
+            ]
+        );
     }
 }
