@@ -50,6 +50,24 @@ Requires-Dist: numpy>=1.22.0
 Requires-Python: >=3.10
 """
 
+# msgpack is the bundled kernel's one required runtime dependency: it must be
+# an unconditional Requires-Dist, never gated behind an extra or absent.
+METADATA_MSGPACK_BEHIND_EXTRA = f"""Metadata-Version: 2.3
+Name: epistemic-graph
+Version: {VERSION}
+Requires-Dist: msgpack>=1.2.1 ; extra == 'wire'
+Provides-Extra: wire
+Requires-Python: >=3.10
+"""
+
+METADATA_WITHOUT_MSGPACK = f"""Metadata-Version: 2.3
+Name: epistemic-graph
+Version: {VERSION}
+Requires-Dist: pyoxigraph>=0.3.22 ; extra == 'owl'
+Provides-Extra: owl
+Requires-Python: >=3.10
+"""
+
 METADATA_NUMPY_BEHIND_EXTRA = f"""Metadata-Version: 2.3
 Name: epistemic-graph
 Version: {VERSION}
@@ -65,12 +83,23 @@ def _urlsafe_sha256(data: bytes) -> str:
     return "sha256=" + base64.urlsafe_b64encode(digest).decode().rstrip("=")
 
 
+def _record_row(
+    name: str, payload: bytes, corrupt_record: bool, misreported_size: str | None
+) -> tuple[str, str, int]:
+    """RECORD row for one member: a corrupt record hashes and sizes different
+    bytes; a misreported size keeps the correct hash with a size off by one."""
+    recorded = payload + b"x" if corrupt_record else payload
+    size_error = 1 if name == misreported_size else 0
+    return name, _urlsafe_sha256(recorded), len(recorded) + size_error
+
+
 def _build_wheel(
     path: Path,
     *,
     members: dict[str, bytes],
     executable: AbstractSet[str] = frozenset(),
     corrupt_record: bool = False,
+    misreported_size: str | None = None,
 ) -> Path:
     rows: list[tuple[str, bytes]] = []
     with zipfile.ZipFile(path, "w") as archive:
@@ -83,8 +112,9 @@ def _build_wheel(
         buffer = io.StringIO(newline="")
         writer = csv.writer(buffer, lineterminator="\n")
         for name, payload in sorted(rows):
-            recorded = payload + b"x" if corrupt_record else payload
-            writer.writerow((name, _urlsafe_sha256(recorded), len(recorded)))
+            writer.writerow(
+                _record_row(name, payload, corrupt_record, misreported_size)
+            )
         writer.writerow((f"{DIST_INFO}/RECORD", "", ""))
         archive.writestr(f"{DIST_INFO}/RECORD", buffer.getvalue())
     return path
@@ -239,6 +269,46 @@ def test_an_inconsistent_record_is_rejected(tmp_path: Path) -> None:
     )
     failures = check_wheel(wheel)
     assert any("RECORD hash mismatch" in failure for failure in failures)
+
+
+@pytest.mark.parametrize(
+    ("metadata", "misreported_size", "expected_failure"),
+    [
+        pytest.param(
+            METADATA_MSGPACK_BEHIND_EXTRA,
+            None,
+            "'msgpack' is not an unconditional Requires-Dist",
+            id="msgpack-behind-an-extra",
+        ),
+        pytest.param(
+            METADATA_WITHOUT_MSGPACK,
+            None,
+            "'msgpack' is not an unconditional Requires-Dist",
+            id="msgpack-missing",
+        ),
+        pytest.param(
+            METADATA_COMPLETE,
+            "epistemic_graph/client.py",
+            "RECORD size mismatch for epistemic_graph/client.py",
+            id="record-size-wrong-with-correct-hash",
+        ),
+    ],
+)
+def test_release_invariant_violation_is_the_only_failure(
+    tmp_path: Path, metadata: str, misreported_size: str | None, expected_failure: str
+) -> None:
+    """Each release invariant is reported on its own: the wheel is otherwise
+    complete, so exactly one failure names exactly this violation."""
+    wheel = _build_wheel(
+        tmp_path / "one-violation.whl",
+        members=_complete_members(metadata),
+        executable={f"{DATA_SCRIPTS}/epistemic-graph-server"},
+        misreported_size=misreported_size,
+    )
+    failures = check_wheel(wheel)
+    assert len(failures) == 1
+    assert failures[0].startswith(expected_failure)
+    assert main([str(wheel)]) == 1
 
 
 def test_main_reports_every_incomplete_wheel(tmp_path: Path, capsys) -> None:
