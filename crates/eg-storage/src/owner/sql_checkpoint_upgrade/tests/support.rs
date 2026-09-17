@@ -45,15 +45,7 @@ impl ScopeGrantVerifier for SqlFixtureGrant {
     }
 }
 
-/// Inspection stages beside the database, and private direct-state staging
-/// requires a mode-0700 parent regardless of the process umask.
-pub(super) fn private_tempdir() -> tempfile::TempDir {
-    use std::os::unix::fs::PermissionsExt;
-
-    let directory = tempfile::tempdir().unwrap();
-    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-    directory
-}
+pub(super) use crate::direct_state::private_tempdir;
 
 pub(super) fn physical() -> PhysicalStoreIdentity {
     PhysicalStoreIdentity::new("eg-query:sql-user-tables").unwrap()

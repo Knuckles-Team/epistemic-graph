@@ -16,7 +16,7 @@ use eg_types::contract::{Digest256, Nonce};
 use eg_types::storage_wire::{SqlSourceBatchRequest, SqlSourceBatchResult};
 use tokio::sync::RwLock;
 
-use crate::mutation_batch::{MutationBatch, MutationSurface};
+use crate::mutation_batch::MutationBatch;
 use crate::protocol::{Response, ResultPayload};
 use crate::server::access::CarrierAuthority;
 use crate::server::auth::VerifiedRequestContext;
@@ -129,32 +129,17 @@ fn compile_batch(
     now_ms: u64,
 ) -> Result<MutationBatch, String> {
     let scope = publication_scope(authority, &request)?;
-    let expected_version = store.mutation_version(authority.tenant_scope(), &scope)?;
-    let batch_id = crate::server::mutation_batch::opaque_idempotency_key_for_context(
-        "sql-source",
-        authority.tenant_scope(),
-        &scope,
-        Some(authority.actor_scope()),
-        authority.idempotency_key(),
-    );
-    crate::server::mutation_batch::compile_sql_source_batch(
-        crate::server::mutation_batch::CompileBatch {
-            batch_id: &batch_id,
-            request_id: req_id,
-            attempt_nonce,
-            principal: Some(authority.actor_scope()),
-            tenant: authority.tenant_scope(),
-            graph: &scope,
-            placement_epoch: 0,
-            idempotency_key: authority.idempotency_key(),
-            expected_graph_version: Some(expected_version),
-            fencing_token: None,
-            created_at_ms: now_ms,
-            default_surface: MutationSurface::Query,
-            authoritative_state: None,
-        },
-        request,
-    )
+    crate::server::sql_tables::SqlOwnerMutation {
+        authority,
+        kind: "sql-source",
+        scope: &scope,
+        request_id: req_id,
+        attempt_nonce,
+        created_at_ms: now_ms,
+    }
+    .compile(store, |context| {
+        crate::server::mutation_batch::compile_sql_source_batch(context, request)
+    })
 }
 
 fn publication_scope(

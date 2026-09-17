@@ -237,7 +237,7 @@ fn audit_line_carries_only_the_canonical_batch_digest() {
         crate::audit::audit_line(&crate::protocol::Method::SqlSourceBatch { batch: request })
             .unwrap();
     assert_eq!(line, format!("SQL_SOURCE_BATCH_MUTATION|sha256:{expected}"));
-    for leaked in ["jira", "issues", "project-a", "issue-id", "deployment"] {
+    for leaked in ["jira", "issues", "project-a", "issue_id", "deployment"] {
         assert!(!line.contains(leaked), "audit line leaked {leaked}");
     }
 }

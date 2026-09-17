@@ -5,25 +5,20 @@ use crate::tables::schema::{Cell, Column, ColumnType, TableSchema};
 use eg_types::change_envelope::CursorPosition;
 use eg_types::contract::{BoundedVec, Digest256, RecordBytes};
 use eg_types::storage_wire::{
-    SqlSourceBatch, SqlSourceCell, SqlSourceFloat, SqlSourceJson, SqlSourceText, SqlSourceVector,
+    SqlSourceCell, SqlSourceFloat, SqlSourceJson, SqlSourceText, SqlSourceVector,
 };
 use serde_json::json;
 
 mod support;
-use support::{batch, change, checkpoint_bytes, epoch, id, next, request, result, schema, Fixture};
+use support::{
+    batch, change, checkpoint_bytes, commit_first, epoch, id, next, omitted_default_schema,
+    one_row, request, result, seeded, with_id_rows, Fixture, Publication,
+};
 
 #[test]
 fn rows_provider_checkpoint_result_and_outbox_publish_at_the_exact_staged_epoch() {
-    let schema = schema();
-    let fixture = Fixture::new(&schema);
+    let (fixture, request) = seeded();
     let store = fixture.store();
-    let request = request(
-        &schema,
-        vec![
-            SqlSourceCell::Int(1),
-            SqlSourceCell::Text(SqlSourceText::new("first".into()).unwrap()),
-        ],
-    );
     let before = epoch(store);
     let batch = batch(&request, "first", "source-a", 0);
     let commit = store.commit_source_batch(&batch, 101).unwrap();
@@ -65,10 +60,8 @@ fn rows_provider_checkpoint_result_and_outbox_publish_at_the_exact_staged_epoch(
 
 #[test]
 fn fresh_nonce_replay_after_later_batches_keeps_original_epoch_and_has_no_duplicate_effects() {
-    let schema = schema();
-    let fixture = Fixture::new(&schema);
+    let (fixture, request) = seeded();
     let store = fixture.store();
-    let request = request(&schema, vec![SqlSourceCell::Int(1), SqlSourceCell::Null]);
     let first = batch(&request, "replay", "source-a", 0);
     let original = store.commit_source_batch(&first, 101).unwrap();
     let later = next(&request, 2, 2);
@@ -97,12 +90,7 @@ fn fresh_nonce_replay_after_later_batches_keeps_original_epoch_and_has_no_duplic
     let duplicate = store.commit_source_batch(&retry, 104).unwrap_err();
     assert!(duplicate.contains("REPLAY"), "{duplicate}");
     let changed = change(&request, |request| {
-        request.rows = BoundedVec::new(vec![BoundedVec::new(vec![
-            SqlSourceCell::Int(99),
-            SqlSourceCell::Null,
-        ])
-        .unwrap()])
-        .unwrap()
+        request.rows = one_row(vec![SqlSourceCell::Int(99), SqlSourceCell::Null])
     });
     let error = store
         .commit_source_batch(&batch(&changed, "replay", "source-a", 2), 105)
@@ -113,13 +101,9 @@ fn fresh_nonce_replay_after_later_batches_keeps_original_epoch_and_has_no_duplic
 
 #[test]
 fn checkpoint_compare_and_swap_is_serialized_across_distinct_admitted_owner_scopes() {
-    let schema = schema();
-    let fixture = Fixture::new(&schema);
+    let (fixture, request) = seeded();
     let store = fixture.store();
-    let request = request(&schema, vec![SqlSourceCell::Int(1), SqlSourceCell::Null]);
-    store
-        .commit_source_batch(&batch(&request, "initial", "source-a", 0), 101)
-        .unwrap();
+    commit_first(store, &request, "initial");
     let winner = next(&request, 2, 2);
     let loser = next(&request, 3, 3);
     let before = epoch(store);
@@ -164,30 +148,19 @@ fn interruption_at_each_native_boundary_rolls_back_or_replays_one_complete_publi
         SqlMutationCrashpoint::BeforeCommit,
         SqlMutationCrashpoint::AfterCommitBeforeAck,
     ] {
-        let schema = schema();
-        let fixture = Fixture::new(&schema);
+        let (fixture, request) = seeded();
         let store = fixture.store();
-        let request = request(&schema, vec![SqlSourceCell::Int(1), SqlSourceCell::Null]);
         let original = batch(&request, "interruption", "source-a", 0);
         let before = epoch(store);
         assert!(commit(store, &original, 101, Some(point)).is_err());
         let committed = point == SqlMutationCrashpoint::AfterCommitBeforeAck;
-        assert_eq!(epoch(store), before + u64::from(committed));
-        assert_eq!(store.scan("issues").unwrap().len(), usize::from(committed));
-        assert_eq!(checkpoint_bytes(store, &request).is_some(), committed);
         assert_eq!(
-            store
-                .mutation_batch(&original.identity, &original.batch_id)
-                .unwrap()
-                .is_some(),
-            committed
-        );
-        assert_eq!(
-            store
-                .mutation_outbox(&original.identity, &original.batch_id)
-                .unwrap()
-                .len(),
-            usize::from(committed)
+            Publication::observe(store, &request, &original),
+            Publication::expected(
+                before + u64::from(committed),
+                usize::from(committed),
+                committed
+            )
         );
         let retry = batch(&request, "interruption", "source-a", u64::from(committed));
         let recovered = store.commit_source_batch(&retry, 102).unwrap();
@@ -200,13 +173,9 @@ fn interruption_at_each_native_boundary_rolls_back_or_replays_one_complete_publi
 #[test]
 fn descriptor_mapping_table_and_schema_changes_cannot_rebind_a_provider_stream() {
     for case in 0..5 {
-        let schema = schema();
-        let fixture = Fixture::new(&schema);
+        let (fixture, request) = seeded();
         let store = fixture.store();
-        let request = request(&schema, vec![SqlSourceCell::Int(1), SqlSourceCell::Null]);
-        store
-            .commit_source_batch(&batch(&request, "original", "source-a", 0), 101)
-            .unwrap();
+        commit_first(store, &request, "original");
         let changed = change(&next(&request, 2, 2), |request| match case {
             0 => request.source_descriptor.dataset = id("other-dataset"),
             1 => {
@@ -233,10 +202,8 @@ fn descriptor_mapping_table_and_schema_changes_cannot_rebind_a_provider_stream()
 
 #[test]
 fn schema_change_after_request_preparation_is_seen_inside_the_admitted_writer() {
-    let schema = schema();
-    let fixture = Fixture::new(&schema);
+    let (fixture, request) = seeded();
     let store = fixture.store();
-    let request = request(&schema, vec![SqlSourceCell::Int(1), SqlSourceCell::Null]);
     store
         .add_column(
             "issues",
@@ -255,23 +222,14 @@ fn schema_change_after_request_preparation_is_seen_inside_the_admitted_writer() 
 
 #[test]
 fn partition_and_source_have_separate_cursors_and_cross_tenant_batch_is_refused() {
-    let schema = schema();
-    let fixture = Fixture::new(&schema);
+    let (fixture, request) = seeded();
     let store = fixture.store();
-    let request = request(&schema, vec![SqlSourceCell::Int(1), SqlSourceCell::Null]);
-    store
-        .commit_source_batch(&batch(&request, "original", "source-a", 0), 101)
-        .unwrap();
+    commit_first(store, &request, "original");
     for (source, partition, row_id) in [("jira", "project-b", 2), ("servicenow", "project-a", 3)] {
         let separate = change(&request, |request| {
             request.source = id(source);
             request.partition = SqlSourceText::new(partition.into()).unwrap();
-            request.rows = BoundedVec::new(vec![BoundedVec::new(vec![
-                SqlSourceCell::Int(row_id),
-                SqlSourceCell::Null,
-            ])
-            .unwrap()])
-            .unwrap();
+            request.rows = one_row(vec![SqlSourceCell::Int(row_id), SqlSourceCell::Null]);
         });
         let commit = store
             .commit_source_batch(&batch(&separate, source, source, 0), 102)
@@ -291,29 +249,20 @@ fn partition_and_source_have_separate_cursors_and_cross_tenant_batch_is_refused(
 
 #[test]
 fn opaque_provider_tokens_use_exact_cas_and_never_lexical_ordering() {
-    let schema = schema();
-    let fixture = Fixture::new(&schema);
+    let (fixture, seeded_request) = seeded();
     let store = fixture.store();
-    let request = change(
-        &request(&schema, vec![SqlSourceCell::Int(1), SqlSourceCell::Null]),
-        |request| {
-            request.position = CursorPosition::Opaque {
-                cursor_type: "jira-page".into(),
-                value: "z".into(),
-            };
-        },
-    );
+    let request = change(&seeded_request, |request| {
+        request.position = CursorPosition::Opaque {
+            cursor_type: "jira-page".into(),
+            value: "z".into(),
+        };
+    });
     store
         .commit_source_batch(&batch(&request, "opaque-start", "source-a", 0), 101)
         .unwrap();
     let lexical_backwards = change(&request, |request| {
         request.expected_previous = Some(request.position.clone());
-        request.rows = BoundedVec::new(vec![BoundedVec::new(vec![
-            SqlSourceCell::Int(2),
-            SqlSourceCell::Null,
-        ])
-        .unwrap()])
-        .unwrap();
+        request.rows = one_row(vec![SqlSourceCell::Int(2), SqlSourceCell::Null]);
         request.position = CursorPosition::Opaque {
             cursor_type: "jira-page".into(),
             value: "a".into(),
@@ -477,12 +426,10 @@ fn typed_insert_reuses_defaults_serial_uniqueness_and_foreign_key_checks() {
         &request(&schema, vec![SqlSourceCell::Int(1), SqlSourceCell::Int(1)]),
         |request| {
             request.columns = BoundedVec::new(vec![id("parent_id"), id("payload")]).unwrap();
-            request.rows = BoundedVec::new(vec![BoundedVec::new(vec![
+            request.rows = one_row(vec![
                 SqlSourceCell::Int(1),
                 SqlSourceCell::Json(SqlSourceJson::new(json!(null)).unwrap()),
-            ])
-            .unwrap()])
-            .unwrap();
+            ]);
         },
     );
     store
@@ -501,12 +448,10 @@ fn typed_insert_reuses_defaults_serial_uniqueness_and_foreign_key_checks() {
         let bad = change(&request, |request| {
             request.expected_previous = Some(request.position.clone());
             request.position = CursorPosition::Sequence(2);
-            request.rows = BoundedVec::new(vec![BoundedVec::new(vec![
+            request.rows = one_row(vec![
                 SqlSourceCell::Int(parent_id),
                 SqlSourceCell::Json(SqlSourceJson::new(json!(null)).unwrap()),
-            ])
-            .unwrap()])
-            .unwrap();
+            ]);
         });
         let before = epoch(store);
         assert!(store
@@ -542,10 +487,8 @@ fn typed_insert_reuses_defaults_serial_uniqueness_and_foreign_key_checks() {
 
 #[test]
 fn terminal_receipt_tampering_and_wrong_operation_shapes_fail_closed() {
-    let schema = schema();
-    let fixture = Fixture::new(&schema);
+    let (fixture, request) = seeded();
     let store = fixture.store();
-    let request = request(&schema, vec![SqlSourceCell::Int(1), SqlSourceCell::Null]);
     let original = batch(&request, "report", "source-a", 0);
     let commit = store.commit_source_batch(&original, 101).unwrap();
     let invocation = Invocation::check(store, &original).unwrap();
@@ -585,10 +528,8 @@ fn terminal_receipt_tampering_and_wrong_operation_shapes_fail_closed() {
 #[test]
 fn missing_previous_and_corrupted_checkpoint_key_bindings_cannot_reset_a_stream() {
     for case in 0..4 {
-        let schema = schema();
-        let fixture = Fixture::new(&schema);
+        let (fixture, request) = seeded();
         let store = fixture.store();
-        let request = request(&schema, vec![SqlSourceCell::Int(1), SqlSourceCell::Null]);
         let missing = change(&request, |request| {
             request.position = CursorPosition::Sequence(2);
             request.expected_previous = Some(CursorPosition::Sequence(1));
@@ -671,9 +612,7 @@ fn source_publication_crash_child() {
 
 #[test]
 fn process_death_after_staged_checkpoint_and_receipt_recovers_no_partial_publication() {
-    let schema = schema();
-    let mut fixture = Fixture::new(&schema);
-    let request = request(&schema, vec![SqlSourceCell::Int(1), SqlSourceCell::Null]);
+    let (mut fixture, request) = seeded();
     let before = epoch(fixture.store());
     let path = fixture.path();
     fixture.close();
@@ -690,17 +629,10 @@ fn process_death_after_staged_checkpoint_and_receipt_recovers_no_partial_publica
     fixture.reopen();
     let store = fixture.store();
     let retry = batch(&request, "process-crash", "source-a", 0);
-    assert_eq!(epoch(store), before);
-    assert!(store.scan("issues").unwrap().is_empty());
-    assert!(checkpoint_bytes(store, &request).is_none());
-    assert!(store
-        .mutation_batch(&retry.identity, &retry.batch_id)
-        .unwrap()
-        .is_none());
-    assert!(store
-        .mutation_outbox(&retry.identity, &retry.batch_id)
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        Publication::observe(store, &request, &retry),
+        Publication::expected(before, 0, false)
+    );
     let committed = store.commit_source_batch(&retry, 102).unwrap();
     assert!(!committed.replayed);
     assert_eq!(result(&committed).committed_source_epoch.get(), before + 1);
@@ -708,38 +640,19 @@ fn process_death_after_staged_checkpoint_and_receipt_recovers_no_partial_publica
 
 #[test]
 fn omitted_default_amplification_is_refused_without_any_publication() {
-    let mut omitted = Column::new("expanded", ColumnType::Text, false, false);
-    omitted.default = Some(json!("x".repeat(64 * 1024)));
-    let schema = TableSchema::new(
-        "issues",
-        vec![Column::new("id", ColumnType::BigInt, false, true), omitted],
-    );
+    let schema = omitted_default_schema(64 * 1024);
     let fixture = Fixture::new(&schema);
     let store = fixture.store();
-    let request = change(&request(&schema, vec![SqlSourceCell::Int(1)]), |request| {
-        request.rows = BoundedVec::new(
-            (1..=1024)
-                .map(|id| BoundedVec::new(vec![SqlSourceCell::Int(id)]).unwrap())
-                .collect(),
-        )
-        .unwrap();
-    });
+    let request = with_id_rows(&request(&schema, vec![SqlSourceCell::Int(1)]), 1024);
     assert!(request.canonical_bytes().unwrap().len() < 128 * 1024);
     let before = epoch(store);
     let batch = batch(&request, "amplification", "source-a", 0);
     let error = store.commit_source_batch(&batch, 101).unwrap_err();
     assert!(error.contains("materialization"), "{error}");
-    assert_eq!(epoch(store), before);
-    assert!(store.scan("issues").unwrap().is_empty());
-    assert!(checkpoint_bytes(store, &request).is_none());
-    assert!(store
-        .mutation_batch(&batch.identity, &batch.batch_id)
-        .unwrap()
-        .is_none());
-    assert!(store
-        .mutation_outbox(&batch.identity, &batch.batch_id)
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        Publication::observe(store, &request, &batch),
+        Publication::expected(before, 0, false)
+    );
     // The native allocator is also untouched by failed admission.
     store
         .insert_rows("issues", &["id".into()], &[vec![json!(1)]])
@@ -756,45 +669,21 @@ fn aggregate_materialization_reservation_accepts_its_boundary_and_rejects_one_by
     let maximum_default =
         eg_types::storage_wire::source_batch::MAX_SQL_SOURCE_BATCH_BYTES / rows - 69;
     for (extra, succeeds) in [(0, true), (1, false)] {
-        let mut omitted = Column::new("expanded", ColumnType::Text, false, false);
-        omitted.default = Some(json!("x".repeat(maximum_default + extra)));
-        let schema = TableSchema::new(
-            "issues",
-            vec![Column::new("id", ColumnType::BigInt, false, true), omitted],
-        );
+        let schema = omitted_default_schema(maximum_default + extra);
         let fixture = Fixture::new(&schema);
         let store = fixture.store();
-        let request = change(&request(&schema, vec![SqlSourceCell::Int(1)]), |request| {
-            request.rows = BoundedVec::new(
-                (1..=rows as i64)
-                    .map(|id| BoundedVec::new(vec![SqlSourceCell::Int(id)]).unwrap())
-                    .collect(),
-            )
-            .unwrap();
-        });
+        let request = with_id_rows(&request(&schema, vec![SqlSourceCell::Int(1)]), rows as i64);
         let before = epoch(store);
         let batch = batch(&request, "boundary", "source-a", 0);
         let committed = store.commit_source_batch(&batch, 101);
         assert_eq!(committed.is_ok(), succeeds);
-        assert_eq!(epoch(store), before + u64::from(succeeds));
         assert_eq!(
-            store.scan("issues").unwrap().len(),
-            if succeeds { rows } else { 0 }
-        );
-        assert_eq!(checkpoint_bytes(store, &request).is_some(), succeeds);
-        assert_eq!(
-            store
-                .mutation_batch(&batch.identity, &batch.batch_id)
-                .unwrap()
-                .is_some(),
-            succeeds
-        );
-        assert_eq!(
-            store
-                .mutation_outbox(&batch.identity, &batch.batch_id)
-                .unwrap()
-                .len(),
-            usize::from(succeeds)
+            Publication::observe(store, &request, &batch),
+            Publication::expected(
+                before + u64::from(succeeds),
+                if succeeds { rows } else { 0 },
+                succeeds
+            )
         );
     }
 }
@@ -808,14 +697,7 @@ fn wide_omitted_null_rows_are_rejected_by_structural_expansion_before_cloning_ce
     let schema = TableSchema::new("issues", columns);
     let fixture = Fixture::new(&schema);
     let store = fixture.store();
-    let request = change(&request(&schema, vec![SqlSourceCell::Int(1)]), |request| {
-        request.rows = BoundedVec::new(
-            (1..=1024)
-                .map(|id| BoundedVec::new(vec![SqlSourceCell::Int(id)]).unwrap())
-                .collect(),
-        )
-        .unwrap();
-    });
+    let request = with_id_rows(&request(&schema, vec![SqlSourceCell::Int(1)]), 1024);
     // Codec reservation is below 16MiB; omitted cell/tag nodes independently
     // exceed the same standard structural ceiling used by the bounded decoder.
     assert!(
@@ -826,15 +708,8 @@ fn wide_omitted_null_rows_are_rejected_by_structural_expansion_before_cloning_ce
     let batch = batch(&request, "wide-expansion", "source-a", 0);
     let error = store.commit_source_batch(&batch, 101).unwrap_err();
     assert!(error.contains("structural"), "{error}");
-    assert_eq!(epoch(store), before);
-    assert!(store.scan("issues").unwrap().is_empty());
-    assert!(checkpoint_bytes(store, &request).is_none());
-    assert!(store
-        .mutation_batch(&batch.identity, &batch.batch_id)
-        .unwrap()
-        .is_none());
-    assert!(store
-        .mutation_outbox(&batch.identity, &batch.batch_id)
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        Publication::observe(store, &request, &batch),
+        Publication::expected(before, 0, false)
+    );
 }

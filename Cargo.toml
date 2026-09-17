@@ -1876,6 +1876,9 @@ eg-wasm = { path = "crates/eg-wasm", features = ["wasm-udf"] }
 # what eg-query's gate is protecting: `open_temp` supplies its own dev scope
 # grant, and a production build must not be able to link one.
 eg-query = { path = "crates/eg-query", features = ["dev-scope-grant"] }
+# `eg_types::test_support` (the shared SQL source batch fixture) for the lib's
+# own tests; `cfg(test)` does not cross the crate boundary, same reason as above.
+eg-types = { path = "crates/eg-types", features = ["test-support"] }
 # Criterion harness for the write-coalescer contention bench (CONCEPT:EG-012)
 # and the massive-scale core harness (CONCEPT:EG-096). DEV-only — never linked
 # into the engine binary; zero release-build impact.

@@ -6,7 +6,7 @@
 //! Provider cursors are business state, distinct from semantic dirty progress.
 
 use super::{
-    commit_sql_mutation_with_crashpoints, sql_batch_commit, sql_scope_key,
+    finish_and_commit_sql_mutation, sql_batch_commit, sql_scope_key,
     verify_batch_is_sql_catalog_only, MutationBatch, MutationBatchCommit, SqlMutation,
     SqlMutationCrashpoint, SqlWrite, TableStore,
 };
@@ -163,16 +163,7 @@ fn publish(
             return Err(error);
         }
     };
-    let record = match mutation.finish(Some(terminal), committed_at_ms) {
-        Ok(record) => record,
-        Err(error) => {
-            mutation.abort()?;
-            return Err(error);
-        }
-    };
-    let commit = sql_batch_commit(record, false)?;
-    commit_sql_mutation_with_crashpoints(mutation, batch, crashpoint)?;
-    Ok(commit)
+    finish_and_commit_sql_mutation(mutation, batch, terminal, committed_at_ms, crashpoint)
 }
 
 fn apply_rows(

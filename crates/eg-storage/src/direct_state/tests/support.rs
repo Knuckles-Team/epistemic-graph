@@ -477,17 +477,7 @@ impl DirectStateProvider for Provider {
 
 /// A temporary directory that already satisfies the private-root contract.
 ///
-/// `tempfile::tempdir` creates with mode 0o777 masked by the ambient umask, so under
-/// the common 0o022/0o002 umasks it yields 0o755/0o775 and every
-/// `PinnedPrivateDirectory::open` on it fails the mode-0700 check. These tests assert
-/// direct-state behaviour, not the caller's umask, so they mint their own 0700 root.
-pub(super) fn private_tempdir() -> tempfile::TempDir {
-    use std::os::unix::fs::PermissionsExt;
-
-    let directory = tempfile::tempdir().unwrap();
-    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-    directory
-}
+pub(super) use crate::direct_state::private_tempdir;
 
 /// The one shared staging/generations pair for this test process.
 ///

@@ -56,13 +56,7 @@ fn prove_exclusive_lock(pinned: &File, path: &Path) -> Result<(), String> {
     let probe = File::open(path).map_err(|error| error.to_string())?;
     // The scratch file is deliberately still empty at this point. This proves
     // lock identity, not the nonempty original predecessor's write authority.
-    let expected = pinned.metadata().map_err(|error| error.to_string())?;
-    let actual = probe.metadata().map_err(|error| error.to_string())?;
-    if !expected.is_file()
-        || !actual.is_file()
-        || expected.dev() != actual.dev()
-        || expected.ino() != actual.ino()
-    {
+    if super::same_regular_file_len(pinned, &probe)?.is_none() {
         return Err("SQL checkpoint lock probe is not the pinned physical file".into());
     }
     match probe.try_lock_shared() {

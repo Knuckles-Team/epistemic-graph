@@ -71,21 +71,13 @@ pub(crate) fn read_manifest_slot<T>(table: &T) -> Result<OwnerManifest, String>
 where
     T: redb::ReadableTable<&'static str, &'static [u8]>,
 {
-    let mut rows = table.iter().map_err(|error| error.to_string())?;
-    let Some(first) = rows.next() else {
-        return Err("mutation owner manifest is missing".to_string());
-    };
-    let (key, value) = first.map_err(|error| error.to_string())?;
-    if key.value() != MANIFEST_KEY
-        || rows
-            .next()
-            .transpose()
-            .map_err(|error| error.to_string())?
-            .is_some()
-    {
-        return Err("mutation store must contain exactly one owner manifest".to_string());
-    }
-    decode_ledger_record(value.value())
+    crate::physical::incarnation::read_single_slot(
+        table,
+        MANIFEST_KEY,
+        "mutation store must contain exactly one owner manifest",
+        decode_ledger_record::<OwnerManifest>,
+    )?
+    .ok_or_else(|| "mutation owner manifest is missing".to_string())
 }
 
 pub(crate) fn write_new_manifest(

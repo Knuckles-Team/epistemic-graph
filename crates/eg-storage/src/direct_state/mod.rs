@@ -46,6 +46,20 @@ pub type GroupId = u64;
 /// The single group that owns process-wide sidecar state.
 pub const DEFAULT_GROUP: GroupId = 0;
 
+/// `tempfile::tempdir` creates with mode 0o777 masked by the ambient umask, so under
+/// the common 0o022/0o002 umasks it yields 0o755/0o775 and every
+/// `PinnedPrivateDirectory::open` on it fails the mode-0700 check. Tests of
+/// direct-state staging (here and in the SQL checkpoint upgrade) assert behaviour,
+/// not the caller's umask, so they mint their own 0700 root.
+#[cfg(test)]
+pub(crate) fn private_tempdir() -> tempfile::TempDir {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    directory
+}
+
 #[cfg(test)]
 thread_local! {
     static FAIL_PREPARED_RETIREMENT_AFTER_SYNC: Cell<bool> = const { Cell::new(false) };

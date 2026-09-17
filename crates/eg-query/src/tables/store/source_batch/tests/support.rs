@@ -2,13 +2,13 @@
 
 use super::*;
 use crate::tables::store::dev_scope_grant;
-use eg_types::contract::{BoundedVec, Digest256, MethodId, Nonce, RecordBytes, ResourceId};
+use eg_types::contract::{BoundedVec, Digest256, MethodId, Nonce};
 use eg_types::mutation_batch::{
     method_schema_id, CompiledOperation, CompiledScope, DurabilityDomain, MutationEnvelope,
     MutationOperation, MutationOutboxIntent, MutationSurface, VersionExpectation,
     BATCH_COMPILED_METHODS, MUTATION_BATCH_VERSION,
 };
-use eg_types::storage_wire::{SqlSourceDescriptor, SqlSourceJson, SqlSourceMappingDescriptor};
+use eg_types::test_support::sql_source;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -79,7 +79,7 @@ impl Drop for Fixture {
     }
 }
 
-pub(super) fn schema() -> TableSchema {
+fn schema() -> TableSchema {
     TableSchema::new(
         "issues",
         vec![
@@ -89,49 +89,68 @@ pub(super) fn schema() -> TableSchema {
     )
 }
 
-pub(super) fn id(value: &str) -> ResourceId {
-    ResourceId::new(value.to_string()).unwrap()
-}
+pub(super) use eg_types::test_support::sql_source::{change, id};
 
 pub(super) fn request(schema: &TableSchema, cells: Vec<SqlSourceCell>) -> SqlSourceBatchRequest {
-    SqlSourceBatchRequest::new(SqlSourceBatch {
-        source: id("jira"),
-        partition: SqlSourceText::new("project-a".into()).unwrap(),
-        position: CursorPosition::Sequence(1),
-        expected_previous: None,
-        source_descriptor: SqlSourceDescriptor {
-            provider: id("jira"),
-            dataset: id("issues"),
-            metadata: SqlSourceJson::new(serde_json::json!({"deployment":"internal"})).unwrap(),
-        },
-        mapping_descriptor: SqlSourceMappingDescriptor {
-            format: id("json"),
-            content: RecordBytes::new(br#"{"issue_id":"id"}"#.to_vec()).unwrap(),
-        },
-        table: id(&schema.name),
-        columns: BoundedVec::new(
-            schema
-                .columns()
-                .iter()
-                .take(cells.len())
-                .map(|column| id(&column.name))
-                .collect(),
-        )
-        .unwrap(),
-        rows: BoundedVec::new(vec![BoundedVec::new(cells).unwrap()]).unwrap(),
-        expected_schema_version: 0,
-        expected_schema_digest: Digest256::parse(&schema.schema_digest().unwrap()).unwrap(),
-    })
-    .unwrap()
+    let columns: Vec<&str> = schema
+        .columns()
+        .iter()
+        .take(cells.len())
+        .map(|column| column.name.as_str())
+        .collect();
+    let target = sql_source::SqlSourceTarget {
+        table: &schema.name,
+        columns: &columns,
+        schema_version: 0,
+        schema_digest: Digest256::parse(&schema.schema_digest().unwrap()).unwrap(),
+    };
+    SqlSourceBatchRequest::new(sql_source::batch(&target, vec![cells])).unwrap()
 }
 
-pub(super) fn change(
+/// An id table whose omitted `expanded` column defaults to `default_len` bytes.
+pub(super) fn omitted_default_schema(default_len: usize) -> TableSchema {
+    let mut omitted = Column::new("expanded", ColumnType::Text, false, false);
+    omitted.default = Some(serde_json::json!("x".repeat(default_len)));
+    TableSchema::new(
+        "issues",
+        vec![Column::new("id", ColumnType::BigInt, false, true), omitted],
+    )
+}
+
+/// The standard two-column table with one `(1, NULL)` request against it.
+pub(super) fn seeded() -> (Fixture, SqlSourceBatchRequest) {
+    let schema = schema();
+    let fixture = Fixture::new(&schema);
+    let request = request(&schema, vec![SqlSourceCell::Int(1), SqlSourceCell::Null]);
+    (fixture, request)
+}
+
+/// Commit `request` as the stream's first batch on scope `source-a`.
+pub(super) fn commit_first(
+    store: &TableStore,
     request: &SqlSourceBatchRequest,
-    mutate: impl FnOnce(&mut SqlSourceBatch),
-) -> SqlSourceBatchRequest {
-    let mut batch = request.as_batch().clone();
-    mutate(&mut batch);
-    SqlSourceBatchRequest::new(batch).unwrap()
+    key: &str,
+) -> MutationBatchCommit {
+    store
+        .commit_source_batch(&batch(request, key, "source-a", 0), 101)
+        .unwrap()
+}
+
+/// A single-row row set.
+pub(super) fn one_row(cells: Vec<SqlSourceCell>) -> eg_types::storage_wire::SqlSourceRows {
+    BoundedVec::new(vec![BoundedVec::new(cells).unwrap()]).unwrap()
+}
+
+/// `request` carrying `count` single-cell rows with ids `1..=count`.
+pub(super) fn with_id_rows(request: &SqlSourceBatchRequest, count: i64) -> SqlSourceBatchRequest {
+    change(request, |batch| {
+        batch.rows = BoundedVec::new(
+            (1..=count)
+                .map(|id| BoundedVec::new(vec![SqlSourceCell::Int(id)]).unwrap())
+                .collect(),
+        )
+        .unwrap();
+    })
 }
 
 pub(super) fn next(
@@ -142,13 +161,55 @@ pub(super) fn next(
     change(request, |batch| {
         batch.expected_previous = Some(batch.position.clone());
         batch.position = CursorPosition::Sequence(position);
-        batch.rows = BoundedVec::new(vec![BoundedVec::new(vec![
+        batch.rows = one_row(vec![
             SqlSourceCell::Int(row_id),
             SqlSourceCell::Text(SqlSourceText::new("next".into()).unwrap()),
-        ])
-        .unwrap()])
-        .unwrap();
+        ]);
     })
+}
+
+/// Every durable effect of one publication attempt, for all-or-nothing checks.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) struct Publication {
+    pub(super) epoch: u64,
+    pub(super) rows: usize,
+    pub(super) checkpoint: bool,
+    pub(super) receipt: bool,
+    pub(super) outbox: usize,
+}
+
+impl Publication {
+    /// The state after `rows` published rows, with or without this attempt's
+    /// own checkpoint, receipt and outbox record.
+    pub(super) fn expected(epoch: u64, rows: usize, published: bool) -> Self {
+        Self {
+            epoch,
+            rows,
+            checkpoint: published,
+            receipt: published,
+            outbox: usize::from(published),
+        }
+    }
+
+    pub(super) fn observe(
+        store: &TableStore,
+        request: &SqlSourceBatchRequest,
+        batch: &MutationBatch,
+    ) -> Self {
+        Self {
+            epoch: epoch(store),
+            rows: store.scan(request.as_batch().table.as_str()).unwrap().len(),
+            checkpoint: checkpoint_bytes(store, request).is_some(),
+            receipt: store
+                .mutation_batch(&batch.identity, &batch.batch_id)
+                .unwrap()
+                .is_some(),
+            outbox: store
+                .mutation_outbox(&batch.identity, &batch.batch_id)
+                .unwrap()
+                .len(),
+        }
+    }
 }
 
 pub(super) fn batch(
@@ -187,23 +248,24 @@ pub(super) fn batch_in_tenant(
         },
     )
     .unwrap();
+    let publication = MutationOperation {
+        ordinal: 0,
+        surface: MutationSurface::Query,
+        domain: DurabilityDomain::SqlCatalog,
+        method: Method::SqlSourceBatch {
+            batch: request.clone(),
+        },
+    };
     let mut batch = MutationBatch {
         schema_version: MUTATION_BATCH_VERSION,
         batch_id: format!("batch-{key}"),
-        envelope,
         identity,
-        placement_epoch: 0,
+        envelope,
+        operations: vec![publication],
         version_expectation: VersionExpectation::Native(expected),
+        placement_epoch: 0,
         fencing_token: None,
         authoritative_state: None,
-        operations: vec![MutationOperation {
-            ordinal: 0,
-            surface: MutationSurface::Query,
-            domain: DurabilityDomain::SqlCatalog,
-            method: Method::SqlSourceBatch {
-                batch: request.clone(),
-            },
-        }],
         outbox: vec![MutationOutboxIntent {
             topic: "engine.projection.rebuild".into(),
             key: "issues".into(),

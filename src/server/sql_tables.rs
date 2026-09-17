@@ -36,6 +36,52 @@ use crate::server::access::CarrierAuthority;
 
 const SQL_CATALOG_DIR: &str = "sql-catalog";
 
+/// One carrier-owned native SQL-owner mutation: compiled at the owner scope's
+/// current version under the verified carrier's idempotency identity.
+pub(crate) struct SqlOwnerMutation<'a> {
+    pub(crate) authority: &'a CarrierAuthority,
+    /// Idempotency namespace for this kind of owner mutation.
+    pub(crate) kind: &'static str,
+    pub(crate) scope: &'a str,
+    pub(crate) request_id: u64,
+    pub(crate) attempt_nonce: Option<eg_types::contract::Nonce>,
+    pub(crate) created_at_ms: u64,
+}
+
+impl SqlOwnerMutation<'_> {
+    /// Hand `compile` the batch context for this mutation.
+    pub(crate) fn compile<T>(
+        &self,
+        store: &TableStore,
+        compile: impl FnOnce(crate::server::mutation_batch::CompileBatch<'_>) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let authority = self.authority;
+        let expected = store.mutation_version(authority.tenant_scope(), self.scope)?;
+        let batch_id = crate::server::mutation_batch::opaque_idempotency_key_for_context(
+            self.kind,
+            authority.tenant_scope(),
+            self.scope,
+            Some(authority.actor_scope()),
+            authority.idempotency_key(),
+        );
+        compile(crate::server::mutation_batch::CompileBatch {
+            batch_id: &batch_id,
+            request_id: self.request_id,
+            attempt_nonce: self.attempt_nonce,
+            principal: Some(authority.actor_scope()),
+            tenant: authority.tenant_scope(),
+            graph: self.scope,
+            placement_epoch: 0,
+            idempotency_key: authority.idempotency_key(),
+            expected_graph_version: Some(expected),
+            fencing_token: None,
+            created_at_ms: self.created_at_ms,
+            default_surface: crate::mutation_batch::MutationSurface::Query,
+            authoritative_state: None,
+        })
+    }
+}
+
 fn registry() -> &'static Mutex<HashMap<String, TableStore>> {
     static STORES: OnceLock<Mutex<HashMap<String, TableStore>>> = OnceLock::new();
     STORES.get_or_init(|| Mutex::new(HashMap::new()))

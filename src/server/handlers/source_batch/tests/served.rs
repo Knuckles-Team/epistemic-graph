@@ -39,31 +39,24 @@ impl Served {
             method: Method::SqlSourceBatch { batch },
         };
         let context = RequestContextClaims {
-            principal: WRITER.to_string(),
-            tenant: "tenant-a".to_string(),
-            audience: "epistemic-graph-test".to_string(),
-            agent_id: WRITER.to_string(),
-            roles: Vec::new(),
+            principal: WRITER.into(),
+            agent_id: WRITER.into(),
+            tenant: "tenant-a".into(),
+            audience: "epistemic-graph-test".into(),
+            policy_version: "policy-test".into(),
             scopes: attempt
                 .scopes
                 .iter()
                 .map(|scope| scope.to_string())
                 .collect(),
-            policy_version: "policy-test".to_string(),
-            delegation: Vec::new(),
-            node: None,
-            priority: None,
+            ..RequestContextClaims::default()
         };
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
         request.auth_token = compute_verified_envelope_token(
             SECRET,
             &request,
             &VerifiedEnvelopeParams {
                 context: &context,
-                timestamp,
+                timestamp: crate::server::dispatch::authoritative_now_ms() / 1000,
                 nonce: attempt.nonce,
                 idempotency_key: "sql-source-operation",
             },

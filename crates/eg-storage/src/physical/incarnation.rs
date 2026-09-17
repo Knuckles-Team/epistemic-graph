@@ -116,6 +116,25 @@ pub(crate) fn persisted_root<T>(table: &T) -> Result<Option<StoreIncarnation>, S
 where
     T: redb::ReadableTable<&'static str, &'static [u8]>,
 {
+    read_single_slot(
+        table,
+        STORE_ROOT_KEY,
+        "mutation store must contain exactly one canonical root",
+        decode_incarnation,
+    )
+}
+
+/// Decode the only row of a single-slot table, or `None` when it is empty. Any
+/// other key or a second row is refused with `ambiguous`.
+pub(crate) fn read_single_slot<T, R>(
+    table: &T,
+    slot: &str,
+    ambiguous: &str,
+    decode: impl FnOnce(&[u8]) -> Result<R, String>,
+) -> Result<Option<R>, String>
+where
+    T: redb::ReadableTable<&'static str, &'static [u8]>,
+{
     let mut rows = table.iter().map_err(|error| error.to_string())?;
     let Some(first) = rows.next() else {
         return Ok(None);
@@ -126,10 +145,10 @@ where
         .transpose()
         .map_err(|error| error.to_string())?
         .is_some();
-    if key.value() != STORE_ROOT_KEY || has_extra_row {
-        return Err("mutation store must contain exactly one canonical root".to_string());
+    if key.value() != slot || has_extra_row {
+        return Err(ambiguous.to_string());
     }
-    decode_incarnation(value.value()).map(Some)
+    decode(value.value()).map(Some)
 }
 
 pub(crate) fn require_persisted_root<T>(table: &T) -> Result<StoreIncarnation, String>

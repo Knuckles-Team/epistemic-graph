@@ -272,19 +272,23 @@ fn validate_descriptor_path(file: &File, path: &Path) -> Result<(), String> {
 
 #[cfg(unix)]
 fn validate_same_descriptor(expected: &File, actual: &File) -> Result<(), String> {
+    match same_regular_file_len(expected, actual)? {
+        Some(len) if len > 0 => Ok(()),
+        _ => Err("SQL checkpoint opened file is not the pinned physical predecessor".to_string()),
+    }
+}
+
+/// The length of `actual` when both handles name the same regular file (same
+/// device and inode), or `None` when they do not.
+#[cfg(unix)]
+fn same_regular_file_len(expected: &File, actual: &File) -> Result<Option<u64>, String> {
     let expected = expected.metadata().map_err(|error| error.to_string())?;
     let actual = actual.metadata().map_err(|error| error.to_string())?;
-    if !expected.is_file()
-        || !actual.is_file()
-        || expected.dev() != actual.dev()
-        || expected.ino() != actual.ino()
-        || actual.len() == 0
-    {
-        return Err(
-            "SQL checkpoint opened file is not the pinned physical predecessor".to_string(),
-        );
-    }
-    Ok(())
+    let same = expected.is_file()
+        && actual.is_file()
+        && expected.dev() == actual.dev()
+        && expected.ino() == actual.ino();
+    Ok(same.then_some(actual.len()))
 }
 
 #[cfg(not(unix))]

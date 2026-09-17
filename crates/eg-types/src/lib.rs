@@ -128,6 +128,8 @@ pub mod semantic_index;
 #[cfg(feature = "statechart")]
 pub mod statechart;
 pub mod storage_wire;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 pub mod types;
 // Result bodies of the `compute` contract domain, declared by
 // `result_contract::compute`; gated per compute family like `wire`.

@@ -199,3 +199,5 @@ ipnet = { version = "2.12", optional = true }
 # The spike's OUTER reactor mimics the server's multi-thread runtime; the inner
 # DataFusion driver uses only the current-thread runtime from the `sql` dep.
 tokio = { version = "1.38", features = ["rt", "rt-multi-thread", "macros"] }
+# Shared SQL source batch fixture (`eg_types::test_support::sql_source`).
+eg-types = { path = "../eg-types", features = ["test-support"] }

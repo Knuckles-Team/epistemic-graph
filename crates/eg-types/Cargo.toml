@@ -17,6 +17,11 @@ name = "eg_types"
 # schema crate behind a feature flag does not invert the crate DAG this crate sits at
 # the bottom of -- that rule is about depending on `eg-capabilities`/`eg-core`.
 contract-schema = ["dep:schemars"]
+# Shared test fixtures (`eg_types::test_support`): the canonical SQL source batch
+# fixture. Default OFF; consumers enable it only from
+# `[dev-dependencies]` (the eg-query `dev-scope-grant` precedent) because
+# `cfg(test)` does not cross a crate boundary.
+test-support = []
 # Mirror the facade's feature names so cross-crate passthrough is 1:1. `metrics`
 # adds the strum static-str derive on `Method` (per-op gauge labels). `finance` /
 # `datascience` gate the wire DTOs + the Method variants that embed them — a slim

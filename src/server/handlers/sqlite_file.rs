@@ -335,36 +335,23 @@ fn compile_import_batch_with_nonce(
     attempt_nonce: Option<Nonce>,
 ) -> Result<MutationBatch, String> {
     let scope = authority.namespace("sqlite-import", "global-user-tables");
-    let expected = store.mutation_version(authority.tenant_scope(), &scope)?;
-    let batch_id = crate::server::mutation_batch::opaque_idempotency_key_for_context(
-        "sqlite-import",
-        authority.tenant_scope(),
-        &scope,
-        Some(authority.actor_scope()),
-        authority.idempotency_key(),
-    );
-    let batch = crate::server::mutation_batch::compile_opaque_method(
-        crate::server::mutation_batch::CompileBatch {
-            batch_id: &batch_id,
-            request_id: req_id,
-            attempt_nonce,
-            principal: Some(authority.actor_scope()),
-            tenant: authority.tenant_scope(),
-            graph: &scope,
-            placement_epoch: 0,
-            idempotency_key: authority.idempotency_key(),
-            expected_graph_version: Some(expected),
-            fencing_token: None,
-            created_at_ms: now,
-            default_surface: MutationSurface::Query,
-            authoritative_state: None,
-        },
-        method,
-        MutationSurface::Query,
-        DurabilityDomain::SqlCatalog,
-        "sqlite_import",
-    )?;
-    Ok(batch)
+    crate::server::sql_tables::SqlOwnerMutation {
+        authority,
+        kind: "sqlite-import",
+        scope: &scope,
+        request_id: req_id,
+        attempt_nonce,
+        created_at_ms: now,
+    }
+    .compile(store, |context| {
+        crate::server::mutation_batch::compile_opaque_method(
+            context,
+            method,
+            MutationSurface::Query,
+            DurabilityDomain::SqlCatalog,
+            "sqlite_import",
+        )
+    })
 }
 
 /// Register ownership from the durable result on both the fresh-commit and replay

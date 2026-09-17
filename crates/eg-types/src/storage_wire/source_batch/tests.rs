@@ -1,32 +1,24 @@
 use super::*;
 use serde_json::json;
 
-fn id(value: &str) -> ResourceId {
-    ResourceId::new(value).unwrap()
-}
+use crate::test_support::sql_source::{batch as shared_batch, id, SqlSourceTarget};
 
+/// The shared fixture at its second position, so cursor-advance checks apply.
 fn batch(cells: Vec<SqlSourceCell>) -> SqlSourceBatch {
-    SqlSourceBatch {
-        source: id("jira"),
-        partition: SqlSourceText::new(String::new()).unwrap(),
-        position: CursorPosition::Sequence(2),
-        expected_previous: Some(CursorPosition::Sequence(1)),
-        source_descriptor: SqlSourceDescriptor {
-            provider: id("jira"),
-            dataset: id("issues"),
-            metadata: SqlSourceJson::new(json!({"revision": "v1"})).unwrap(),
+    let columns: Vec<String> = (0..cells.len()).map(|n| format!("col{n}")).collect();
+    let columns: Vec<&str> = columns.iter().map(String::as_str).collect();
+    let mut batch = shared_batch(
+        &SqlSourceTarget {
+            table: "issues",
+            columns: &columns,
+            schema_version: 0,
+            schema_digest: Digest256::from_bytes([1; 32]),
         },
-        mapping_descriptor: SqlSourceMappingDescriptor {
-            format: id("json"),
-            content: RecordBytes::new(br#"{"issue_id":"id"}"#.to_vec()).unwrap(),
-        },
-        table: id("issues"),
-        columns: BoundedVec::new((0..cells.len()).map(|n| id(&format!("col{n}"))).collect())
-            .unwrap(),
-        rows: BoundedVec::new(vec![BoundedVec::new(cells).unwrap()]).unwrap(),
-        expected_schema_version: 0,
-        expected_schema_digest: Digest256::from_bytes([1; 32]),
-    }
+        vec![cells],
+    );
+    batch.expected_previous = Some(batch.position.clone());
+    batch.position = CursorPosition::Sequence(2);
+    batch
 }
 
 fn encoded(value: &impl Serialize) -> Vec<u8> {

@@ -2116,16 +2116,7 @@ impl TableStore {
             Some(result) => result,
             None => rmp_serde::to_vec_named(&affected).map_err(|e| e.to_string())?,
         };
-        let record = match mutation.finish(Some(result_msgpack), committed_at_ms) {
-            Ok(record) => record,
-            Err(error) => {
-                mutation.abort()?;
-                return Err(error);
-            }
-        };
-        let commit = sql_batch_commit(record, false)?;
-        commit_sql_mutation_with_crashpoints(mutation, batch, crashpoint)?;
-        Ok(commit)
+        finish_and_commit_sql_mutation(mutation, batch, result_msgpack, committed_at_ms, crashpoint)
     }
 
     /// Current authoritative mutation version of one SQL scope, for batch
@@ -2295,17 +2286,29 @@ fn apply_mutation_txn_ops_with_crashpoints(
     Ok(affected)
 }
 
-/// Commits `mutation`, honoring the two crash-injection points either side of
-/// the actual kernel commit (CONCEPT: chaos/durability certification).
+/// Finishes `mutation` with its terminal result and commits it, honoring the
+/// two crash-injection points either side of the actual kernel commit
+/// (CONCEPT: chaos/durability certification). A failed finish aborts the
+/// admitted mutation.
 ///
 /// An injected crash BEFORE the commit returns without committing, and dropping
 /// the unconsumed mutation drops its write transaction, so redb discards every
 /// staged row -- the same true rollback the raw transaction gave.
-fn commit_sql_mutation_with_crashpoints(
+fn finish_and_commit_sql_mutation(
     mutation: SqlMutation<'_>,
     batch: &MutationBatch,
+    result_msgpack: Vec<u8>,
+    committed_at_ms: u64,
     crashpoint: Option<SqlMutationCrashpoint>,
-) -> Result<(), String> {
+) -> Result<MutationBatchCommit, String> {
+    let record = match mutation.finish(Some(result_msgpack), committed_at_ms) {
+        Ok(record) => record,
+        Err(error) => {
+            mutation.abort()?;
+            return Err(error);
+        }
+    };
+    let commit = sql_batch_commit(record, false)?;
     if crashpoint == Some(SqlMutationCrashpoint::BeforeCommit) {
         return Err("injected crash before SQL mutation commit".to_string());
     }
@@ -2320,7 +2323,8 @@ fn commit_sql_mutation_with_crashpoints(
     eg_types::mutation_batch::apply_certification_fault(
         batch,
         eg_types::mutation_batch::MutationCommitPhase::AfterCommitBeforeAck,
-    )
+    )?;
+    Ok(commit)
 }
 
 // ── txn-scoped helpers (operate on an OPEN WriteTransaction) ──────────────────

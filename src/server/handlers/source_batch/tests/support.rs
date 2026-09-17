@@ -2,11 +2,8 @@ use super::*;
 use crate::server::sql_catalog_acl::{create_owned_table, grant, SqlPrivilege};
 use eg_query::{Column, ColumnType, TableSchema};
 use eg_types::acl::RequestContextClaims;
-use eg_types::contract::{BoundedVec, RecordBytes, ResourceId};
-use eg_types::storage_wire::{
-    SqlSourceBatch, SqlSourceCell, SqlSourceDescriptor, SqlSourceJson, SqlSourceMappingDescriptor,
-    SqlSourceText,
-};
+use eg_types::storage_wire::{SqlSourceCell, SqlSourceJson, SqlSourceText};
+pub(super) use eg_types::test_support::sql_source::{self, change, id, SqlSourceTarget};
 
 pub(super) struct Fixture {
     pub(super) directory: PathBuf,
@@ -71,34 +68,18 @@ impl Fixture {
     }
 
     pub(super) fn request(&self, stamp: &str) -> SqlSourceBatchRequest {
-        SqlSourceBatchRequest::new(SqlSourceBatch {
-            source: id("jira"),
-            partition: SqlSourceText::new("project-a".into()).unwrap(),
-            position: eg_types::change_envelope::CursorPosition::Sequence(1),
-            expected_previous: None,
-            source_descriptor: SqlSourceDescriptor {
-                provider: id("jira"),
-                dataset: id("issues"),
-                metadata: SqlSourceJson::new(serde_json::json!({"deployment":"internal"})).unwrap(),
-            },
-            mapping_descriptor: SqlSourceMappingDescriptor {
-                format: id("json"),
-                content: RecordBytes::new(b"issue-id maps to id".to_vec()).unwrap(),
-            },
-            table: id("issues"),
-            columns: BoundedVec::new(vec![id("id"), id("owner_tag"), id("payload")]).unwrap(),
-            rows: BoundedVec::new(vec![BoundedVec::new(vec![
-                SqlSourceCell::Int(1),
-                SqlSourceCell::Text(SqlSourceText::new(stamp.into()).unwrap()),
-                SqlSourceCell::Json(SqlSourceJson::new(serde_json::Value::Null).unwrap()),
-            ])
-            .unwrap()])
-            .unwrap(),
-            expected_schema_version: self.store().schema_version("issues").unwrap(),
-            expected_schema_digest: Digest256::parse(&self.schema.schema_digest().unwrap())
-                .unwrap(),
-        })
-        .unwrap()
+        let target = SqlSourceTarget {
+            table: "issues",
+            columns: &["id", "owner_tag", "payload"],
+            schema_version: self.store().schema_version("issues").unwrap(),
+            schema_digest: Digest256::parse(&self.schema.schema_digest().unwrap()).unwrap(),
+        };
+        let row = vec![
+            SqlSourceCell::Int(1),
+            SqlSourceCell::Text(SqlSourceText::new(stamp.into()).unwrap()),
+            SqlSourceCell::Json(SqlSourceJson::new(serde_json::Value::Null).unwrap()),
+        ];
+        SqlSourceBatchRequest::new(sql_source::batch(&target, vec![row])).unwrap()
     }
 }
 
@@ -139,19 +120,6 @@ pub(super) fn verified(
 
 pub(super) fn authority(agent: &str, tenant: &str, key: &str, write: bool) -> CarrierAuthority {
     CarrierAuthority::from_verified(&verified(agent, tenant, key, write)).unwrap()
-}
-
-pub(super) fn id(name: &str) -> ResourceId {
-    ResourceId::new(name).unwrap()
-}
-
-pub(super) fn change(
-    request: &SqlSourceBatchRequest,
-    edit: impl FnOnce(&mut SqlSourceBatch),
-) -> SqlSourceBatchRequest {
-    let mut batch = request.as_batch().clone();
-    edit(&mut batch);
-    SqlSourceBatchRequest::new(batch).unwrap()
 }
 
 pub(super) fn submit(
