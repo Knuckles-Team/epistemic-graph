@@ -1578,25 +1578,7 @@ async fn wait_for_public_active_status(
                         &bytes,
                         eg_types::msgpack::MsgpackLimits::new(64 * 1024, 10_000, 32),
                     ) {
-                        Ok(status)
-                            if status.host_snapshot.as_ref().is_some_and(|snapshot| {
-                                snapshot.revision >= expected_host_revision
-                            }) && status.held_cpu_weight == 2
-                                && status.held_memory_mib == 1024
-                                && status.held_disk_mib == 200
-                                && status.held_process_slots == 1
-                                && status.fairness_debt == 1
-                                && status.reservations.iter().any(|summary| {
-                                    summary.reservation_id == RESERVATION
-                                        && summary.state
-                                            == ResourceReservationSummaryState::Reserved
-                                        && !summary.tombstone
-                                        && summary.held_cpu_weight == 2
-                                        && summary.held_memory_mib == 1024
-                                        && summary.held_disk_mib == 200
-                                        && summary.held_process_slots == 1
-                                }) =>
-                        {
+                        Ok(status) if reservation_is_active(&status, expected_host_revision) => {
                             return;
                         }
                         Ok(status) => last_error = format!("observed public status {status:?}"),
@@ -1890,19 +1872,13 @@ async fn wait_for_backend_active_reservation(
     node_id: NodeId,
     expected_host_revision: u64,
 ) {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
-    let mut last_error = String::new();
-    while tokio::time::Instant::now() < deadline {
-        match poll_reservation_status(cluster, node_id).await {
-            Ok(result) if reservation_is_active(&result, expected_host_revision) => return,
-            Ok(result) => last_error = format!("observed active status {result:?}"),
-            Err(error) => last_error = error,
-        }
-        tokio::time::sleep(Duration::from_millis(150)).await;
-    }
-    panic!(
-        "node {node_id} did not observe the active reservation {expected_host_revision}: {last_error}"
-    );
+    wait_for_backend_reservation(
+        cluster,
+        node_id,
+        &format!("the active reservation {expected_host_revision}"),
+        |result| reservation_is_active(result, expected_host_revision),
+    )
+    .await;
 }
 
 /// Harness-only restart/catch-up synchronization. Public exact queries and
@@ -1913,27 +1889,34 @@ async fn wait_for_backend_reservation_state(
     expected_host_revision: u64,
     expected_state: ResourceReservationSummaryState,
 ) {
+    wait_for_backend_reservation(
+        cluster,
+        node_id,
+        &format!("terminal reservation state {expected_state:?}"),
+        |result| reservation_matches_terminal(result, expected_host_revision, expected_state),
+    )
+    .await;
+}
+
+/// Poll `node_id`'s backend reservation status until `matches` holds, or panic
+/// naming `expectation` and the last observation after the harness deadline.
+async fn wait_for_backend_reservation(
+    cluster: &Cluster,
+    node_id: NodeId,
+    expectation: &str,
+    matches: impl Fn(&ResourceReservationStatusResult) -> bool,
+) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     let mut last_error = String::new();
     while tokio::time::Instant::now() < deadline {
         match poll_reservation_status(cluster, node_id).await {
-            Ok(result)
-                if reservation_matches_terminal(
-                    &result,
-                    expected_host_revision,
-                    expected_state,
-                ) =>
-            {
-                return;
-            }
-            Ok(result) => last_error = format!("observed terminal status {result:?}"),
+            Ok(result) if matches(&result) => return,
+            Ok(result) => last_error = format!("observed status {result:?}"),
             Err(error) => last_error = error,
         }
         tokio::time::sleep(Duration::from_millis(150)).await;
     }
-    panic!(
-        "node {node_id} did not catch up terminal reservation state {expected_state:?}: {last_error}"
-    );
+    panic!("node {node_id} did not observe {expectation}: {last_error}");
 }
 
 /// Shared backend poll used by both `wait_for_backend_*` helpers above -- both

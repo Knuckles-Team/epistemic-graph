@@ -19,6 +19,13 @@ use thiserror::Error;
 
 use super::NodeId;
 
+// CCCC burn-down (L-raft-a): the per-placement admission helpers `plan()`
+// dispatches to (and the `MoveBudget` they thread through) live in this
+// submodule rather than as further items in this already-oversized file --
+// see `plan.rs`'s module doc for why.
+mod plan;
+use plan::MoveBudget;
+
 /// Basis-point scale used by pressure and policy thresholds.
 pub const PRESSURE_SCALE_BP: u64 = 10_000;
 /// A deliberately bounded planner input.  A fleet controller can partition a larger
@@ -762,13 +769,6 @@ pub enum PlannerError {
 /// Stateless M3 planner.  Constructing or calling it has no side effects.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CrossNodeElasticityPlanner;
-
-// CCCC burn-down (L-raft-a): the per-placement admission helpers `plan()`
-// dispatches to (and the `MoveBudget` they thread through) live in this
-// submodule rather than as further items in this already-oversized file --
-// see `plan.rs`'s module doc for why.
-mod plan;
-use plan::MoveBudget;
 
 impl CrossNodeElasticityPlanner {
     pub fn plan(&self, input: &PlannerInput) -> Result<ElasticityPlan, PlannerError> {

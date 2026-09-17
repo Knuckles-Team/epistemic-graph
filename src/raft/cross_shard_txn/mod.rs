@@ -189,10 +189,11 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-// EG-081/CCCC burn-down (L-raft-a): the phase-1 prepare/vote-tally and the
-// read-only-participant abort loop of `commit_cross_shard_inner`, plus the
-// AddEdge-endpoint check `validate_slices` delegates to, live in this
-// submodule rather than as further items in this already-oversized file --
+// EG-081/CCCC burn-down (L-raft-a, L-raft-b): the phase-1 prepare/vote-tally and
+// the read-only-participant abort loop shared by the 2PC, non-blocking, and Calvin
+// commits, the AddEdge-endpoint check `validate_slices` delegates to, and the
+// replicated decision-graph and recovery helpers the commit strategies share, live
+// in this submodule rather than as further items in this already-oversized file --
 // see `commit.rs`'s module doc for why.
 mod commit;
 
@@ -445,20 +446,13 @@ impl CrossShardCoordinator {
             self.apply_abort(redb, &txn.txn_id, &gids, false).await?;
             return Ok(TxnOutcome::Aborted);
         }
-        if redb.xshard_decision_retain_get(&txn.txn_id)? {
-            // A durable protocol-start marker with no decision means the process
-            // failed before the atomic commit point.  Presumed abort is exact and
-            // remains retained for the parent even if phase 1 wrote no prepares.
-            redb.xshard_recoverable_decision_put(&txn.txn_id, false)
-                .await?;
-            let gids = prepared.keys().copied().collect::<Vec<_>>();
-            self.apply_abort(redb, &txn.txn_id, &gids, false).await?;
-            return Ok(TxnOutcome::Aborted);
-        }
-        if !prepared.is_empty() {
-            // Crash during phase 1, before the atomic decision: presumed abort.
-            // Record that exact terminal outcome before clearing the encrypted
-            // prepares so a subsequent parent retry cannot turn it into COMMIT.
+        // No decision, but either a durable protocol-start marker (the process
+        // failed before the atomic commit point, even if phase 1 wrote no
+        // prepares) or in-flight prepares (a crash during phase 1): presumed
+        // abort is exact. Record that terminal outcome, retained for the parent,
+        // before clearing the encrypted prepares so a subsequent parent retry
+        // cannot turn it into COMMIT.
+        if redb.xshard_decision_retain_get(&txn.txn_id)? || !prepared.is_empty() {
             redb.xshard_recoverable_decision_put(&txn.txn_id, false)
                 .await?;
             let gids = prepared.keys().copied().collect::<Vec<_>>();
@@ -737,14 +731,8 @@ impl CrossShardCoordinator {
     /// Returns the number of in-doubt txns resolved.
     pub async fn recover_in_doubt(&self) -> Result<usize, String> {
         let redb = self.redb()?;
-        // Group every durable prepare record by txn_id.
-        let mut by_txn: BTreeMap<String, BTreeMap<GroupId, Vec<GraphSlice>>> = BTreeMap::new();
-        for (txn_id, gid, blob) in redb.xshard_scan_prepares()? {
-            let slices = decode_prepared_slices(&blob)?;
-            by_txn.entry(txn_id).or_default().insert(gid, slices);
-        }
         let mut resolved = 0usize;
-        for (txn_id, participants) in by_txn {
+        for (txn_id, participants) in commit::prepares_by_txn(redb)? {
             let retain_for_parent = redb.xshard_decision_retain_get(&txn_id)?;
             match redb.xshard_decision_get(&txn_id)? {
                 // COMMIT was logged → re-run phase 2 commit (re-apply, then clear).
@@ -885,44 +873,19 @@ impl CrossShardCoordinator {
         let (writing, read_only) = self.split_participants(participants);
         self.readonly_skipped
             .fetch_add(read_only.len() as u64, Ordering::Relaxed);
-        for (gid, slices) in &read_only {
-            if !self.validate_read_only_participant(*gid, slices).await? {
-                return Ok(TxnOutcome::Aborted);
-            }
+        if let Some(outcome) = self
+            .abort_on_invalid_read_only(redb, &txn.txn_id, &read_only, false)
+            .await?
+        {
+            return Ok(outcome);
         }
         if writing.is_empty() {
             return Ok(TxnOutcome::Committed);
         }
 
         // PHASE 1: durable, commit-before-vote prepare of every WRITING participant,
-        // issued concurrently — byte-for-byte the 2PC prepare (same invariant).
-        let prepare_futs = writing.iter().map(|(gid, slices)| {
-            let gid = *gid;
-            async move {
-                (
-                    gid,
-                    self.prepare_participant(redb, &txn.txn_id, gid, slices)
-                        .await,
-                )
-            }
-        });
-        let votes = futures::future::join_all(prepare_futs).await;
-        let mut prepared_groups: Vec<GroupId> = Vec::new();
-        let mut all_yes = true;
-        for (gid, vote) in votes {
-            match vote {
-                Ok(true) => prepared_groups.push(gid),
-                Ok(false) => all_yes = false,
-                Err(e) => {
-                    tracing::warn!(
-                        "xshard-nb {}: prepare of group {} errored ({e}) → abort",
-                        txn.txn_id,
-                        gid
-                    );
-                    all_yes = false;
-                }
-            }
-        }
+        // issued concurrently — the 2PC prepare phase itself (same invariant).
+        let (all_yes, prepared_groups) = self.run_prepare_phase(redb, &txn.txn_id, &writing).await;
         let commit = all_yes && prepared_groups.len() == writing.len();
 
         // ── THE ATOMIC COMMIT POINT: REPLICATE the decision through Raft ────────
@@ -967,13 +930,8 @@ impl CrossShardCoordinator {
         decision_gid: GroupId,
     ) -> Result<usize, String> {
         let redb = self.redb()?;
-        let mut by_txn: BTreeMap<String, BTreeMap<GroupId, Vec<GraphSlice>>> = BTreeMap::new();
-        for (txn_id, gid, blob) in redb.xshard_scan_prepares()? {
-            let slices = decode_prepared_slices(&blob)?;
-            by_txn.entry(txn_id).or_default().insert(gid, slices);
-        }
         let mut resolved = 0usize;
-        for (txn_id, participants) in by_txn {
+        for (txn_id, participants) in commit::prepares_by_txn(redb)? {
             // Learn the outcome from the REPLICATED decision, not coordinator redb.
             match self.learn_decision(&txn_id).await? {
                 // COMMIT replicated → re-run phase 2 commit (re-apply, then clear), then
@@ -1022,34 +980,20 @@ impl CrossShardCoordinator {
         let group = self.multi.group(decision_gid).await.ok_or_else(|| {
             format!("xshard-nb: decision group {decision_gid} not running on this node")
         })?;
-        let properties_msgpack = rmp_serde::to_vec_named(&serde_json::json!({
+        let properties = serde_json::json!({
             "kind": "xshard_decision",
             "xshard_commit": commit,
-        }))
-        .map_err(|e| e.to_string())?;
-        let server_secret = self.multi.app_state().read().await.auth_secret.clone();
-        let req = RaftRequest {
-            graph_fname: crate::persist::sanitize(XSHARD_DECISION_GRAPH),
-            graph_name: XSHARD_DECISION_GRAPH.to_string(),
-            graph_type: GraphType::Global,
-            committed_at_ms: 0,
-            mutation: super::RaftMutationContext::internal(
+        });
+        commit::write_decision_graph(
+            &self.multi,
+            &group,
+            (
                 "raft-xshard-decision",
-                XSHARD_DECISION_GRAPH,
                 &format!("{txn_id}:decision:{commit}"),
-                0,
-                0,
             ),
-            command: super::ReplicatedMutation::graph(
-                Method::AddNode {
-                    node_id: txn_id.to_string(),
-                    properties_msgpack,
-                },
-                &server_secret,
-            )?,
-        };
-        group.client_write(req).await?;
-        Ok(())
+            commit::decision_node_method(txn_id, &properties)?,
+        )
+        .await
     }
 
     /// GC a resolved txn's replicated decision node (CONCEPT:EG-KG.txn.harness-crash) — a `RemoveNode`
@@ -1064,28 +1008,15 @@ impl CrossShardCoordinator {
         let Some(group) = self.multi.group(decision_gid).await else {
             return Ok(());
         };
-        let server_secret = self.multi.app_state().read().await.auth_secret.clone();
-        let req = RaftRequest {
-            graph_fname: crate::persist::sanitize(XSHARD_DECISION_GRAPH),
-            graph_name: XSHARD_DECISION_GRAPH.to_string(),
-            graph_type: GraphType::Global,
-            committed_at_ms: 0,
-            mutation: super::RaftMutationContext::internal(
-                "raft-xshard-decision",
-                XSHARD_DECISION_GRAPH,
-                &format!("{txn_id}:clear"),
-                0,
-                0,
-            ),
-            command: super::ReplicatedMutation::graph(
-                Method::RemoveNode {
-                    node_id: txn_id.to_string(),
-                },
-                &server_secret,
-            )?,
-        };
-        group.client_write(req).await?;
-        Ok(())
+        commit::write_decision_graph(
+            &self.multi,
+            &group,
+            ("raft-xshard-decision", &format!("{txn_id}:clear")),
+            Method::RemoveNode {
+                node_id: txn_id.to_string(),
+            },
+        )
+        .await
     }
 
     /// Learn a txn's outcome from the REPLICATED decision graph (CONCEPT:EG-KG.txn.harness-crash):
@@ -1096,24 +1027,17 @@ impl CrossShardCoordinator {
     /// so the gauntlet can assert the decision is readable from replicated state.
     #[cfg(any(feature = "nonblocking", test, feature = "harness"))]
     pub async fn learn_decision(&self, txn_id: &str) -> Result<Option<bool>, String> {
-        let state = self.multi.app_state();
-        let s = state.read().await;
-        let core = match s.registry.get(XSHARD_DECISION_GRAPH) {
-            Some(e) => e.core.clone(),
-            None => return Ok(None),
-        };
-        match core.get_node_properties(txn_id) {
-            None => Ok(None),
-            Some(blob) => {
-                let v = eg_types::msgpack::decode_property_value(&blob)
-                    .map_err(|_| "invalid replicated cross-shard decision".to_string())?;
-                Ok(Some(
-                    v.get("xshard_commit")
-                        .and_then(|b| b.as_bool())
-                        .unwrap_or(false),
-                ))
-            }
-        }
+        let properties = commit::replicated_decision_properties(
+            &self.multi,
+            txn_id,
+            "invalid replicated cross-shard decision",
+        )
+        .await?;
+        Ok(properties.map(|v| {
+            v.get("xshard_commit")
+                .and_then(|b| b.as_bool())
+                .unwrap_or(false)
+        }))
     }
 
     /// Replicate a decision WITHOUT applying phase 2 (CONCEPT:EG-KG.txn.harness-crash harness crash
@@ -1190,7 +1114,7 @@ impl CrossShardCoordinator {
         // Calvin still requires the redb durable tier (participant groups persist via it),
         // but writes NO coordinator-private redb record — so we assert the backend is
         // present and discard the handle (the order lives only in the replicated log).
-        self.redb()?;
+        let redb = self.redb()?;
         let participants = self.participants(txn);
         if participants.len() < 2 {
             return Err(format!(
@@ -1204,13 +1128,14 @@ impl CrossShardCoordinator {
         let (writing, read_only) = self.split_participants(participants);
         self.readonly_skipped
             .fetch_add(read_only.len() as u64, Ordering::Relaxed);
-        for (gid, slices) in &read_only {
-            if !self.validate_read_only_participant(*gid, slices).await? {
-                // A read-only participant whose reads no longer hold cannot be ordered
-                // consistently; in the deterministic model this txn is dropped from the
-                // input log before it is sequenced (nothing durable written yet).
-                return Ok((TxnOutcome::Aborted, GlobalSeq(0)));
-            }
+        // A read-only participant whose reads no longer hold cannot be ordered
+        // consistently; in the deterministic model this txn is dropped from the
+        // input log before it is sequenced (nothing durable written yet).
+        if let Some(outcome) = self
+            .abort_on_invalid_read_only(redb, &txn.txn_id, &read_only, false)
+            .await?
+        {
+            return Ok((outcome, GlobalSeq(0)));
         }
 
         // 1. SEQUENCE — draw the global total-order position.
@@ -1279,34 +1204,17 @@ impl CrossShardCoordinator {
         let group = self.multi.group(decision_gid).await.ok_or_else(|| {
             format!("calvin: decision group {decision_gid} not running on this node")
         })?;
-        let properties_msgpack = rmp_serde::to_vec_named(&serde_json::json!({
+        let properties = serde_json::json!({
             "kind": "xshard_sequence",
             "seq": seq.0,
-        }))
-        .map_err(|e| e.to_string())?;
-        let server_secret = self.multi.app_state().read().await.auth_secret.clone();
-        let req = RaftRequest {
-            graph_fname: crate::persist::sanitize(XSHARD_DECISION_GRAPH),
-            graph_name: XSHARD_DECISION_GRAPH.to_string(),
-            graph_type: GraphType::Global,
-            committed_at_ms: 0,
-            mutation: super::RaftMutationContext::internal(
-                "raft-xshard-sequence",
-                XSHARD_DECISION_GRAPH,
-                &format!("{txn_id}:{}", seq.0),
-                0,
-                0,
-            ),
-            command: super::ReplicatedMutation::graph(
-                Method::AddNode {
-                    node_id: txn_id.to_string(),
-                    properties_msgpack,
-                },
-                &server_secret,
-            )?,
-        };
-        group.client_write(req).await?;
-        Ok(())
+        });
+        commit::write_decision_graph(
+            &self.multi,
+            &group,
+            ("raft-xshard-sequence", &format!("{txn_id}:{}", seq.0)),
+            commit::decision_node_method(txn_id, &properties)?,
+        )
+        .await
     }
 
     /// Learn a txn's replicated [`GlobalSeq`] from the decision graph (CONCEPT:EG-KG.txn.calvin-deterministic-ordering):
@@ -1316,20 +1224,13 @@ impl CrossShardCoordinator {
     /// not the coordinator-private redb, so any replica can resolve.
     #[cfg(any(feature = "calvin", test, feature = "harness"))]
     pub async fn learn_sequence(&self, txn_id: &str) -> Result<Option<GlobalSeq>, String> {
-        let state = self.multi.app_state();
-        let s = state.read().await;
-        let core = match s.registry.get(XSHARD_DECISION_GRAPH) {
-            Some(e) => e.core.clone(),
-            None => return Ok(None),
-        };
-        match core.get_node_properties(txn_id) {
-            None => Ok(None),
-            Some(blob) => {
-                let v = eg_types::msgpack::decode_property_value(&blob)
-                    .map_err(|_| "invalid replicated cross-shard sequence".to_string())?;
-                Ok(v.get("seq").and_then(|s| s.as_u64()).map(GlobalSeq))
-            }
-        }
+        let properties = commit::replicated_decision_properties(
+            &self.multi,
+            txn_id,
+            "invalid replicated cross-shard sequence",
+        )
+        .await?;
+        Ok(properties.and_then(|v| v.get("seq").and_then(|s| s.as_u64()).map(GlobalSeq)))
     }
 
     /// Replicate a txn's ORDER WITHOUT executing it (CONCEPT:EG-KG.txn.calvin-deterministic-ordering harness crash window:
@@ -1416,12 +1317,7 @@ impl CrossShardCoordinator {
     where
         F: FnOnce(&BTreeMap<RecordKey, Option<Vec<u8>>>) -> RwSet,
     {
-        let mut observed: BTreeMap<RecordKey, Option<Vec<u8>>> = BTreeMap::new();
-        for k in seeds {
-            let bytes = self.reconnoiter(k).await?;
-            observed.insert(k.clone(), bytes);
-        }
-        Ok(derive(&observed))
+        Ok(derive(&commit::reconnoiter_seeds(self, seeds).await?))
     }
 
     /// EG-342: re-validate an OLLP prediction — under the acquired ordered locks, re-read
@@ -1499,10 +1395,7 @@ impl CrossShardCoordinator {
             attempts += 1;
 
             // 1. RECON — read the seeds and derive the predicted set (retain the snapshot).
-            let mut observed: BTreeMap<RecordKey, Option<Vec<u8>>> = BTreeMap::new();
-            for k in seeds {
-                observed.insert(k.clone(), self.reconnoiter(k).await?);
-            }
+            let observed = commit::reconnoiter_seeds(self, seeds).await?;
             let rwset = derive(&observed);
 
             // 2. SEQUENCE — a restart draws a NEW, strictly-higher slot in the total order.
@@ -1605,10 +1498,7 @@ impl CrossShardCoordinator {
             attempts += 1;
 
             // 1. RECON — read the seeds and derive the predicted set (retain snapshot).
-            let mut observed: BTreeMap<RecordKey, Option<Vec<u8>>> = BTreeMap::new();
-            for k in seeds {
-                observed.insert(k.clone(), self.reconnoiter(k).await?);
-            }
+            let observed = commit::reconnoiter_seeds(self, seeds).await?;
             let rwset = derive(&observed);
 
             // 2. ROUTE — pure function of (base_epoch, attempts): the original try stays

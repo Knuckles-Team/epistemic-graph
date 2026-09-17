@@ -1,24 +1,29 @@
-//! Helpers for [`super::CrossShardCoordinator::commit_cross_shard_inner`] and
-//! [`super::CrossShardCoordinator::validate_slices`], split out of `mod.rs`
-//! (CCCC burn-down lane L-raft-a, D-CX-cross-shard-txn-split).
+//! Helpers shared by the cross-shard commit strategies, split out of `mod.rs`
+//! (CCCC burn-down lanes L-raft-a and L-raft-b, D-CX-cross-shard-txn-split).
 //!
 //! `cross_shard_txn/mod.rs` was already well over the KISS whole-file
 //! `lines_per_file`/`functions_per_file`/`methods_per_class` thresholds before
-//! this split (pre-existing debt, out of this lane's scope); the
-//! `kiss-changed-rust` gate only fails a commit that WORSENS an
-//! already-crossed whole-file count relative to `HEAD`. Fixing
-//! `commit_cross_shard_inner`'s and `validate_slices`'s cognitive complexity
-//! requires new named helpers, and adding them as further items/methods in
-//! `mod.rs` would have worsened those counts. Putting the new helpers in this
-//! sibling submodule instead keeps `mod.rs`'s own counts flat-or-improved
-//! (code moved OUT, not added) while this file starts fresh, well under every
-//! threshold. `CrossShardCoordinator`'s two methods here are `pub(super)`:
-//! implementation detail visible only to `commit_cross_shard_inner` in the
-//! parent module, not part of the crate's public surface.
+//! this split (pre-existing debt); the `kiss-changed-rust` gate only fails a
+//! commit that WORSENS an already-crossed whole-file count relative to `HEAD`.
+//! The helpers here are ONE copy of logic the 2PC, non-blocking, and Calvin
+//! commits (and their recovery paths) each used to spell out: the read-only
+//! participant check, the phase-1 prepare/vote tally, the replicated
+//! decision-graph write and read, the prepare-record scan, and the OLLP seed
+//! reconnaissance. Keeping them in this sibling submodule keeps `mod.rs`'s own
+//! counts flat-or-improved while this file stays under every threshold.
+//! `CrossShardCoordinator`'s methods here are `pub(super)`: implementation detail
+//! of the parent module, not part of the crate's public surface.
 
 use std::collections::BTreeMap;
 
-use super::{CrossShardCoordinator, GraphSlice, GroupId, Method, RedbBackend, TxnOutcome};
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+use super::RecordKey;
+use super::{
+    decode_prepared_slices, CrossShardCoordinator, GraphSlice, GroupId, Method, RedbBackend,
+    TxnOutcome,
+};
+#[cfg(any(feature = "nonblocking", test, feature = "harness"))]
+use super::{GraphType, MultiRaft, RaftRequest, XSHARD_DECISION_GRAPH};
 use crate::graph::GraphCore;
 
 impl CrossShardCoordinator {
@@ -136,4 +141,94 @@ fn slice_inserts_node(slices: &[GraphSlice], node_id: &str) -> bool {
             .iter()
             .any(|m| matches!(m, Method::AddNode { node_id: nid, .. } if nid == node_id))
     })
+}
+
+/// Every durable prepare record, grouped by transaction and participant group.
+pub(super) fn prepares_by_txn(
+    redb: &RedbBackend,
+) -> Result<BTreeMap<String, BTreeMap<GroupId, Vec<GraphSlice>>>, String> {
+    let mut by_txn: BTreeMap<String, BTreeMap<GroupId, Vec<GraphSlice>>> = BTreeMap::new();
+    for (txn_id, gid, blob) in redb.xshard_scan_prepares()? {
+        let slices = decode_prepared_slices(&blob)?;
+        by_txn.entry(txn_id).or_default().insert(gid, slices);
+    }
+    Ok(by_txn)
+}
+
+/// The `AddNode(txn_id, properties)` record a replicated decision or sequence writes.
+#[cfg(any(feature = "nonblocking", test, feature = "harness"))]
+pub(super) fn decision_node_method(
+    txn_id: &str,
+    properties: &serde_json::Value,
+) -> Result<Method, String> {
+    Ok(Method::AddNode {
+        node_id: txn_id.to_string(),
+        properties_msgpack: rmp_serde::to_vec_named(properties).map_err(|e| e.to_string())?,
+    })
+}
+
+/// Commit one engine-owned `method` on [`XSHARD_DECISION_GRAPH`] through the
+/// decision `group`, under internal authority keyed by `(namespace,
+/// coordinator_id)`. Returns after the entry is quorum-committed AND applied
+/// locally; nothing is written to the coordinator-private redb.
+#[cfg(any(feature = "nonblocking", test, feature = "harness"))]
+pub(super) async fn write_decision_graph(
+    multi: &MultiRaft,
+    group: &super::super::multi::Group,
+    (namespace, coordinator_id): (&str, &str),
+    method: Method,
+) -> Result<(), String> {
+    let server_secret = multi.app_state().read().await.auth_secret.clone();
+    let req = RaftRequest {
+        graph_fname: crate::persist::sanitize(XSHARD_DECISION_GRAPH),
+        graph_name: XSHARD_DECISION_GRAPH.to_string(),
+        graph_type: GraphType::Global,
+        committed_at_ms: 0,
+        mutation: super::super::RaftMutationContext::internal(
+            namespace,
+            XSHARD_DECISION_GRAPH,
+            coordinator_id,
+            0,
+            0,
+        ),
+        command: super::super::ReplicatedMutation::graph(method, &server_secret)?,
+    };
+    group.client_write(req).await?;
+    Ok(())
+}
+
+/// The properties of `txn_id`'s node in the REPLICATED decision graph, read from
+/// the applied state machine (not the coordinator-private redb), so any replica
+/// that applied the entry can answer. `None` when nothing was replicated.
+#[cfg(any(feature = "nonblocking", test, feature = "harness"))]
+pub(super) async fn replicated_decision_properties(
+    multi: &MultiRaft,
+    txn_id: &str,
+    invalid: &str,
+) -> Result<Option<serde_json::Value>, String> {
+    let state = multi.app_state();
+    let s = state.read().await;
+    let Some(entry) = s.registry.get(XSHARD_DECISION_GRAPH) else {
+        return Ok(None);
+    };
+    entry
+        .core
+        .get_node_properties(txn_id)
+        .map(|blob| {
+            eg_types::msgpack::decode_property_value(&blob).map_err(|_| invalid.to_string())
+        })
+        .transpose()
+}
+
+/// OLLP reconnaissance: the committed value observed at every seed record.
+#[cfg(any(feature = "calvin", test, feature = "harness"))]
+pub(super) async fn reconnoiter_seeds(
+    coordinator: &CrossShardCoordinator,
+    seeds: &[RecordKey],
+) -> Result<BTreeMap<RecordKey, Option<Vec<u8>>>, String> {
+    let mut observed: BTreeMap<RecordKey, Option<Vec<u8>>> = BTreeMap::new();
+    for key in seeds {
+        observed.insert(key.clone(), coordinator.reconnoiter(key).await?);
+    }
+    Ok(observed)
 }

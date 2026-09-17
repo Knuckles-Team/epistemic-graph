@@ -29,6 +29,29 @@ pub(super) struct MoveBudget {
     total_budget_used: u64,
 }
 
+impl MoveBudget {
+    /// Spend one emitted proposal's network and total budget, and project its load
+    /// from `source` onto `target` for the placements evaluated after it.
+    fn charge(
+        &mut self,
+        cost: &MovementCost,
+        (source, target): (NodeId, NodeId),
+        load: ResourceVector,
+        kind: MoveKind,
+    ) {
+        self.network_budget_used = self.network_budget_used.saturating_add(cost.network_bytes);
+        self.total_budget_used = self.total_budget_used.saturating_add(cost.budget_units);
+        CrossNodeElasticityPlanner::record_load_delta(
+            &mut self.planned_additions,
+            &mut self.planned_removals,
+            source,
+            target,
+            load,
+            kind,
+        );
+    }
+}
+
 impl CrossNodeElasticityPlanner {
     /// Resume/re-evaluate a placement that already has an in-flight checkpoint:
     /// re-validate the checkpoint against the current topology, then run the same
@@ -59,15 +82,9 @@ impl CrossNodeElasticityPlanner {
             projected_target,
             cost,
         );
-        budget.network_budget_used = budget
-            .network_budget_used
-            .saturating_add(cost.network_bytes);
-        budget.total_budget_used = budget.total_budget_used.saturating_add(cost.budget_units);
-        Self::record_load_delta(
-            &mut budget.planned_additions,
-            &mut budget.planned_removals,
-            checkpoint.source_node,
-            checkpoint.target_node,
+        budget.charge(
+            &cost,
+            (checkpoint.source_node, checkpoint.target_node),
             placement.load,
             checkpoint.kind,
         );
@@ -187,15 +204,9 @@ impl CrossNodeElasticityPlanner {
             projected_target,
             cost,
         );
-        budget.network_budget_used = budget
-            .network_budget_used
-            .saturating_add(cost.network_bytes);
-        budget.total_budget_used = budget.total_budget_used.saturating_add(cost.budget_units);
-        Self::record_load_delta(
-            &mut budget.planned_additions,
-            &mut budget.planned_removals,
-            placement.primary_node,
-            target.node_id,
+        budget.charge(
+            &cost,
+            (placement.primary_node, target.node_id),
             placement.load,
             kind,
         );
