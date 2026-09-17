@@ -18,6 +18,13 @@
 //! backed by a `RedbBackend` (persistence present), exactly as a client.
 
 #![cfg(feature = "redb")]
+// Boxing every `dispatch(...)` future keeps it out of the test bodies' layouts,
+// but rustc still lays out the dispatch future itself in THIS crate. Under the
+// `cluster` feature set that future nests past the default query depth
+// ("queries overflow the depth limit!"), exactly as for the service binaries
+// that drive `dispatch` (src/main.rs, src/bin/nemesis.rs), which set the same
+// crate-root limit.
+#![recursion_limit = "256"]
 
 mod common;
 #[path = "common/test_support.rs"]
