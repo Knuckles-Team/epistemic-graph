@@ -20,24 +20,21 @@
 # entry with `#[allow]`; call the pinned kernel instead.
 
 disallowed-methods = [
-  # ── Unbounded waits ────────────────────────────────────────────────────────
-  { path = "std::sync::Barrier::wait", reason = "no deadline: if the other party never arrives the thread blocks for the life of the process. Use crate::test_rendezvous::meet, which fails naming the missed rendezvous" },
-  { path = "std::thread::JoinHandle::join", reason = "no deadline: a worker that deadlocked upstream takes its joiner with it. Use crate::test_rendezvous::join_bounded" },
-  { path = "std::sync::mpsc::Receiver::recv", reason = "no deadline. Use recv_timeout so a producer that never sends is a failure, not a hang" },
-
-  # ── Lock poisoning is a decision, not a reflex ─────────────────────────────
-  # `.lock().unwrap()` propagates a panic from some other thread into this one,
-  # and poisoning is sticky: one panic makes every later caller panic too.
-  # `crate::lock_recovery` makes the choice explicit -- `lock_recovering` for
-  # rebuildable state, `lock_or_panic` for authority state that must not be
-  # served on broken invariants.
-  { path = "std::sync::PoisonError::into_inner", reason = "recovering silently hides that an invariant may be broken. Use crate::lock_recovery, which recovers AND reports, or panics with a reason" },
-
-  # ── Unbounded queues ───────────────────────────────────────────────────────
-  { path = "std::sync::mpsc::channel", reason = "unbounded: a slow consumer becomes unbounded memory. Use sync_channel(n), or sync_channel(0) for a rendezvous" },
-  { path = "tokio::sync::mpsc::unbounded_channel", reason = "no backpressure. Use tokio::sync::mpsc::channel(n)" },
-  { path = "futures::channel::mpsc::unbounded", reason = "no backpressure. Use futures::channel::mpsc::channel(n)" },
+  # Every entry on this page down to the float-transcendental section below is
+  # the workspace root's own `disallowed-methods` list (unbounded waits, lock
+  # poisoning, unbounded queues) -- same values, deliberately NOT the same
+  # order or the same banner comments, since clippy replaces rather than
+  # merges the nearest file. See the root `clippy.toml` for the rationale
+  # behind each one; `tests/stat_kernels/clippy_policy.rs` proves every one of
+  # its entries is still present here.
   { path = "crossbeam_channel::unbounded", reason = "no backpressure. Use crossbeam_channel::bounded(n), or bounded(0) for a rendezvous" },
+  { path = "futures::channel::mpsc::unbounded", reason = "no backpressure. Use futures::channel::mpsc::channel(n)" },
+  { path = "std::sync::Barrier::wait", reason = "no deadline: if the other party never arrives the thread blocks for the life of the process. Use crate::test_rendezvous::meet, which fails naming the missed rendezvous" },
+  { path = "std::sync::PoisonError::into_inner", reason = "recovering silently hides that an invariant may be broken. Use crate::lock_recovery, which recovers AND reports, or panics with a reason" },
+  { path = "std::sync::mpsc::Receiver::recv", reason = "no deadline. Use recv_timeout so a producer that never sends is a failure, not a hang" },
+  { path = "std::sync::mpsc::channel", reason = "unbounded: a slow consumer becomes unbounded memory. Use sync_channel(n), or sync_channel(0) for a rendezvous" },
+  { path = "std::thread::JoinHandle::join", reason = "no deadline: a worker that deadlocked upstream takes its joiner with it. Use crate::test_rendezvous::join_bounded" },
+  { path = "tokio::sync::mpsc::unbounded_channel", reason = "no backpressure. Use tokio::sync::mpsc::channel(n)" },
 
   # ── Platform-dependent float transcendentals (determinism) ────────────────
   { path = "f64::acos", reason = "platform math library: the last bit differs across release targets. Use crate::detkernel::math (pinned pure-Rust libm)" },

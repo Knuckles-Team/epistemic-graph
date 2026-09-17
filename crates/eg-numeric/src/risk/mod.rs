@@ -4,6 +4,7 @@
 
 pub mod beta;
 pub mod binomial;
+mod counts;
 pub mod pooling;
 pub mod sample_gate;
 pub mod selective;

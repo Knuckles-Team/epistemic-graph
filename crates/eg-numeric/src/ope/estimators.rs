@@ -144,35 +144,55 @@ fn model_value(record: &LoggedDecision, model: &[f64], include: impl Fn(usize) -
     serial_sum(&terms)
 }
 
+/// Run `per_record` over every record, collecting its `(contribution, weight)`
+/// pair into the two parallel vectors [`estimate`] expects. Shared by
+/// [`switch`] and [`doubly_robust`], whose only difference is this closure.
+fn accumulate(
+    records: &[LoggedDecision],
+    mut per_record: impl FnMut(&LoggedDecision) -> StatResult<(f64, f64)>,
+) -> StatResult<(Vec<f64>, Vec<f64>)> {
+    let mut contributions = Vec::with_capacity(records.len());
+    let mut weights = Vec::with_capacity(records.len());
+    for record in records {
+        let (contribution, weight) = per_record(record)?;
+        contributions.push(contribution);
+        weights.push(weight);
+    }
+    Ok((contributions, weights))
+}
+
+/// One record's SWITCH contribution and weight at threshold `tau`: the model
+/// term for actions whose weight exceeds `tau`, plus the executed weight's own
+/// contribution when it does not.
+fn switch_contribution(record: &LoggedDecision, tau: f64) -> StatResult<(f64, f64)> {
+    let model = reward_model(record)?;
+    let above = |a: usize| record.weight_of(a).is_some_and(|w| w > tau);
+    let w = record.executed_weight();
+    let used = if w <= tau { w } else { 0.0 };
+    Ok((model_value(record, model, above) + used * record.reward(), used))
+}
+
 /// SWITCH estimator with weight threshold `tau > 0`.
 pub fn switch(records: &[LoggedDecision], tau: f64) -> StatResult<OpeEstimate> {
     positive_cap(tau, "tau")?;
     require_support(records)?;
-    let mut contributions = Vec::with_capacity(records.len());
-    let mut weights = Vec::with_capacity(records.len());
-    for record in records {
-        let model = reward_model(record)?;
-        let above = |a: usize| record.weight_of(a).is_some_and(|w| w > tau);
-        let w = record.executed_weight();
-        let used = if w <= tau { w } else { 0.0 };
-        contributions.push(model_value(record, model, above) + used * record.reward());
-        weights.push(used);
-    }
+    let (contributions, weights) = accumulate(records, |record| switch_contribution(record, tau))?;
     estimate(Estimator::Switch { tau }, &contributions, &weights)
+}
+
+/// One record's doubly robust contribution and weight: the full model value
+/// plus the executed action's importance-weighted correction.
+fn doubly_robust_contribution(record: &LoggedDecision) -> StatResult<(f64, f64)> {
+    let model = reward_model(record)?;
+    let w = record.executed_weight();
+    let correction = w * (record.reward() - model[record.action()]);
+    Ok((model_value(record, model, |_| true) + correction, w))
 }
 
 /// Doubly robust estimator.
 pub fn doubly_robust(records: &[LoggedDecision]) -> StatResult<OpeEstimate> {
     require_support(records)?;
-    let mut contributions = Vec::with_capacity(records.len());
-    let mut weights = Vec::with_capacity(records.len());
-    for record in records {
-        let model = reward_model(record)?;
-        let w = record.executed_weight();
-        let correction = w * (record.reward() - model[record.action()]);
-        contributions.push(model_value(record, model, |_| true) + correction);
-        weights.push(w);
-    }
+    let (contributions, weights) = accumulate(records, doubly_robust_contribution)?;
     estimate(Estimator::DoublyRobust, &contributions, &weights)
 }
 

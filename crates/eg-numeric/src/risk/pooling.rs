@@ -10,42 +10,40 @@
 //! order (`BTreeMap`), so results are deterministic.
 
 use super::beta::beta_interval;
+use super::counts::Counts;
 use crate::detkernel::reduce::serial_sum;
 use crate::detkernel::{validate, Level, StatError, StatResult};
 use std::collections::BTreeMap;
 
 /// `successes` out of `trials` (zero trials allowed).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct GroupCounts {
-    successes: u64,
-    trials: u64,
-}
+pub struct GroupCounts(Counts);
 
 impl GroupCounts {
     /// Validate `successes <= trials`.
     pub fn new(successes: u64, trials: u64) -> StatResult<Self> {
-        validate::parameter(successes <= trials, "successes", "successes <= trials")?;
-        Ok(Self { successes, trials })
+        let counts = Counts::checked(successes, trials)?;
+        Ok(Self(counts))
     }
 
     /// Successes.
     pub fn successes(self) -> u64 {
-        self.successes
+        self.0.successes
     }
 
     /// Trials.
     pub fn trials(self) -> u64 {
-        self.trials
+        self.0.trials
     }
 
     fn checked_add(self, other: Self) -> StatResult<Self> {
         let overflow = StatError::ArithmeticOverflow {
             what: "pooled counts",
         };
-        Ok(Self {
-            successes: self.successes.checked_add(other.successes).ok_or(overflow)?,
-            trials: self.trials.checked_add(other.trials).ok_or(overflow)?,
-        })
+        let successes = self.successes().checked_add(other.successes()).ok_or(overflow)?;
+        let trials = self.trials().checked_add(other.trials()).ok_or(overflow)?;
+        let counts = Counts::checked(successes, trials)?;
+        Ok(Self(counts))
     }
 }
 
@@ -87,8 +85,8 @@ impl BetaDistribution {
     /// The conjugate posterior after `counts`.
     pub fn update(self, counts: GroupCounts) -> Self {
         Self {
-            alpha: self.alpha + counts.successes as f64,
-            beta: self.beta + (counts.trials - counts.successes) as f64,
+            alpha: self.alpha + counts.successes() as f64,
+            beta: self.beta + (counts.trials() - counts.successes()) as f64,
         }
     }
 
@@ -117,8 +115,8 @@ impl ConcentrationBounds {
 /// Method-of-moments concentration of the siblings around `mean`. With fewer
 /// than two informative siblings, or no excess spread, the result is `max`.
 pub fn fit_concentration(siblings: &[GroupCounts], mean: f64, bounds: ConcentrationBounds) -> f64 {
-    let informative: Vec<GroupCounts> = siblings.iter().copied().filter(|g| g.trials > 0).collect();
-    let trial_counts: Vec<f64> = informative.iter().map(|g| g.trials as f64).collect();
+    let informative: Vec<GroupCounts> = siblings.iter().copied().filter(|g| g.trials() > 0).collect();
+    let trial_counts: Vec<f64> = informative.iter().map(|g| g.trials() as f64).collect();
     let trials = serial_sum(&trial_counts);
     let spread = mean * (1.0 - mean);
     if informative.len() < 2 || spread <= 0.0 || trials <= informative.len() as f64 {
@@ -137,8 +135,8 @@ fn intra_class_correlation(groups: &[GroupCounts], mean: f64, spread: f64, trial
     let count = groups.len() as f64;
     let mut weighted = 0.0;
     for g in groups {
-        let rate = g.successes as f64 / g.trials as f64;
-        weighted += g.trials as f64 * (rate - mean) * (rate - mean);
+        let rate = g.successes() as f64 / g.trials() as f64;
+        weighted += g.trials() as f64 * (rate - mean) * (rate - mean);
     }
     let variance = weighted / trials * count / (count - 1.0);
     (variance * trials / spread - count) / (trials - count)

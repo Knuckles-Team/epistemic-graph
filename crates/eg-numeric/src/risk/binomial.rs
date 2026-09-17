@@ -7,31 +7,29 @@
 //! `1 - B(delta/2; n-k, k+1)` so that small tails keep full precision.
 
 use super::beta::{beta_quantile, regularized_incomplete_beta};
+use super::counts::Counts;
 use crate::detkernel::{validate, Level, StatResult};
 
 /// `successes` out of `trials`, with `1 <= trials` and `successes <= trials`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct BinomialCounts {
-    successes: u64,
-    trials: u64,
-}
+pub struct BinomialCounts(Counts);
 
 impl BinomialCounts {
     /// Validate counts.
     pub fn new(successes: u64, trials: u64) -> StatResult<Self> {
         validate::parameter(trials >= 1, "trials", "trials >= 1")?;
-        validate::parameter(successes <= trials, "successes", "successes <= trials")?;
-        Ok(Self { successes, trials })
+        let counts = Counts::checked(successes, trials)?;
+        Ok(Self(counts))
     }
 
     /// Successes.
     pub fn successes(self) -> u64 {
-        self.successes
+        self.0.successes
     }
 
     /// Trials.
     pub fn trials(self) -> u64 {
-        self.trials
+        self.0.trials
     }
 }
 
@@ -71,19 +69,19 @@ pub fn binomial_cdf(k: u64, n: u64, p: f64) -> StatResult<f64> {
 }
 
 fn lower_end(counts: BinomialCounts, tail: f64) -> StatResult<f64> {
-    if counts.successes == 0 {
+    if counts.successes() == 0 {
         return Ok(0.0);
     }
-    let failures = counts.trials - counts.successes;
-    beta_quantile(tail, counts.successes as f64, failures as f64 + 1.0)
+    let failures = counts.trials() - counts.successes();
+    beta_quantile(tail, counts.successes() as f64, failures as f64 + 1.0)
 }
 
 fn upper_end(counts: BinomialCounts, tail: f64) -> StatResult<f64> {
-    if counts.successes == counts.trials {
+    if counts.successes() == counts.trials() {
         return Ok(1.0);
     }
-    let failures = counts.trials - counts.successes;
-    Ok(1.0 - beta_quantile(tail, failures as f64, counts.successes as f64 + 1.0)?)
+    let failures = counts.trials() - counts.successes();
+    Ok(1.0 - beta_quantile(tail, failures as f64, counts.successes() as f64 + 1.0)?)
 }
 
 /// The exact (conservative) Clopper–Pearson interval.
