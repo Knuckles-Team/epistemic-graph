@@ -174,6 +174,9 @@ pub fn select_backend(
     })
 }
 
+/// A rule's pick: the chosen backend, its family, and the rule that matched.
+type RulePick = (BackendId, BackendFamily, PlannerRule);
+
 /// R0-R4, no override handling. Returns `(BackendId, BackendFamily, PlannerRule)` of
 /// the rule that matched, or a `PlannerError` if nothing fits.
 fn rule_engine_pick(
@@ -181,20 +184,9 @@ fn rule_engine_pick(
     available: &[BackendDescriptor],
     opts: &PlannerOptions,
     audit: &mut Vec<AuditEntry>,
-) -> Result<(BackendId, BackendFamily, PlannerRule), PlannerError> {
+) -> Result<RulePick, PlannerError> {
     // R0: hard constraints narrow the candidate pool before anything else runs.
-    let candidates: Vec<&BackendDescriptor> = available
-        .iter()
-        .filter(|d| {
-            if opts.want_hardware {
-                d.family == BackendFamily::Hardware
-            } else {
-                d.family != BackendFamily::Hardware
-            }
-        })
-        .filter(|d| !estimate.requires_density_matrix || d.capabilities.supports_density_matrix)
-        .filter(|d| descriptor_fits(estimate, d))
-        .collect();
+    let candidates = hard_constraint_candidates(estimate, available, opts);
     audit.push(AuditEntry {
         rule: PlannerRule::R0HardConstraint,
         note: format!(
@@ -218,31 +210,14 @@ fn rule_engine_pick(
     // depth, cost, calibration fidelity — once real hardware providers exist; Q0 has
     // no such data, so it takes the first available candidate deterministically).
     if opts.want_hardware {
-        let d = candidates[0];
-        audit.push(AuditEntry {
-            rule: PlannerRule::R0HardConstraint,
-            note: format!("want_hardware=true -> selected hardware backend '{}' (no further ranking available at Q0)", d.id),
-        });
-        return Ok((d.id.clone(), d.family, PlannerRule::R0HardConstraint));
+        return Ok(hardware_pick(candidates[0], audit));
     }
 
     // R1: Clifford fast path — never pay O(2^n) for an O(n^2)-representable circuit.
     if estimate.is_clifford && !estimate.has_non_clifford_noise {
-        if let Some(d) = candidates
-            .iter()
-            .find(|d| d.family == BackendFamily::Stabilizer)
-            .copied()
-        {
-            audit.push(AuditEntry {
-                rule: PlannerRule::R1CliffordStabilizer,
-                note: format!("circuit is Clifford with no non-Clifford noise -> selected stabilizer backend '{}'", d.id),
-            });
-            return Ok((d.id.clone(), d.family, PlannerRule::R1CliffordStabilizer));
+        if let Some(pick) = clifford_stabilizer_pick(&candidates, audit) {
+            return Ok(pick);
         }
-        audit.push(AuditEntry {
-            rule: PlannerRule::R1CliffordStabilizer,
-            note: "circuit is Clifford but no stabilizer backend is registered/available -> falling through".to_string(),
-        });
     }
 
     // R2-R4 collapse into "walk Estimate::preferred in order, first fitting +
@@ -251,31 +226,9 @@ fn rule_engine_pick(
     // priority ordering: MatrixProductState appears ahead of the statevector families
     // in `preferred` exactly when `Estimate::entangling_connectivity` says the
     // circuit is genuinely low-entanglement, and is absent from `preferred` entirely
-    // when it is not. The rule LABEL attached to the pick is a semantic
-    // classification of the family itself (a noise-only family is always an R2 pick,
-    // MPS is always R3, anything else reaching this loop is R4 placement), not a
-    // re-derivation of what `estimate()` was thinking — that keeps the audit trail
-    // meaningful even though the actual selection logic is one uniform walk.
-    for family in &estimate.preferred {
-        if *family == BackendFamily::Stabilizer {
-            continue; // already tried under R1 above; do not re-attempt here
-        }
-        if let Some(d) = candidates.iter().find(|d| d.family == *family).copied() {
-            let rule = match family {
-                BackendFamily::Trajectory => PlannerRule::R2Noise,
-                BackendFamily::DensityMatrixCpu | BackendFamily::DensityMatrixGpu => {
-                    PlannerRule::R2Noise
-                }
-                BackendFamily::QuestFfi if estimate.requires_density_matrix => PlannerRule::R2Noise,
-                BackendFamily::MatrixProductState => PlannerRule::R3Structure,
-                _ => PlannerRule::R4Placement,
-            };
-            audit.push(AuditEntry {
-                rule,
-                note: format!("selected '{}' from preferred family {:?}", d.id, family),
-            });
-            return Ok((d.id.clone(), d.family, rule));
-        }
+    // when it is not.
+    if let Some(pick) = preferred_family_pick(estimate, &candidates, audit) {
+        return Ok(pick);
     }
 
     audit.push(AuditEntry {
@@ -285,6 +238,107 @@ fn rule_engine_pick(
     Err(PlannerError::NoBackendAvailable {
         reason: "no registered backend among Estimate::preferred fits the circuit under the current constraints".to_string(),
     })
+}
+
+/// R0: the registered backends that survive the hardware request, the
+/// density-matrix requirement, and the per-descriptor memory/qubit ceilings.
+fn hard_constraint_candidates<'a>(
+    estimate: &Estimate,
+    available: &'a [BackendDescriptor],
+    opts: &PlannerOptions,
+) -> Vec<&'a BackendDescriptor> {
+    available
+        .iter()
+        .filter(|d| {
+            if opts.want_hardware {
+                d.family == BackendFamily::Hardware
+            } else {
+                d.family != BackendFamily::Hardware
+            }
+        })
+        .filter(|d| !estimate.requires_density_matrix || d.capabilities.supports_density_matrix)
+        .filter(|d| descriptor_fits(estimate, d))
+        .collect()
+}
+
+/// R0 with `want_hardware`: the first hardware candidate, audited.
+fn hardware_pick(d: &BackendDescriptor, audit: &mut Vec<AuditEntry>) -> RulePick {
+    audit.push(AuditEntry {
+        rule: PlannerRule::R0HardConstraint,
+        note: format!("want_hardware=true -> selected hardware backend '{}' (no further ranking available at Q0)", d.id),
+    });
+    (d.id.clone(), d.family, PlannerRule::R0HardConstraint)
+}
+
+/// R1: the first registered stabilizer candidate, or `None` (audited as a
+/// fall-through) when no stabilizer backend is available.
+fn clifford_stabilizer_pick(
+    candidates: &[&BackendDescriptor],
+    audit: &mut Vec<AuditEntry>,
+) -> Option<RulePick> {
+    let Some(d) = candidates
+        .iter()
+        .find(|d| d.family == BackendFamily::Stabilizer)
+        .copied()
+    else {
+        audit.push(AuditEntry {
+            rule: PlannerRule::R1CliffordStabilizer,
+            note: "circuit is Clifford but no stabilizer backend is registered/available -> falling through".to_string(),
+        });
+        return None;
+    };
+    audit.push(AuditEntry {
+        rule: PlannerRule::R1CliffordStabilizer,
+        note: format!(
+            "circuit is Clifford with no non-Clifford noise -> selected stabilizer backend '{}'",
+            d.id
+        ),
+    });
+    Some((d.id.clone(), d.family, PlannerRule::R1CliffordStabilizer))
+}
+
+/// R2-R4: the first family in `Estimate::preferred` (Stabilizer excluded — already
+/// tried under R1) with a registered candidate.
+fn preferred_family_pick(
+    estimate: &Estimate,
+    candidates: &[&BackendDescriptor],
+    audit: &mut Vec<AuditEntry>,
+) -> Option<RulePick> {
+    for family in &estimate.preferred {
+        if *family == BackendFamily::Stabilizer {
+            continue; // already tried under R1 above; do not re-attempt here
+        }
+        if let Some(d) = candidates.iter().find(|d| d.family == *family).copied() {
+            let rule = preferred_family_rule(*family, estimate.requires_density_matrix);
+            audit.push(AuditEntry {
+                rule,
+                note: format!("selected '{}' from preferred family {:?}", d.id, family),
+            });
+            return Some((d.id.clone(), d.family, rule));
+        }
+    }
+    None
+}
+
+/// The rule LABEL attached to a preferred-family pick is a semantic classification of
+/// the family itself (a noise-only family is always an R2 pick, MPS is always R3,
+/// anything else reaching the preferred walk is R4 placement), not a re-derivation of
+/// what `estimate()` was thinking — that keeps the audit trail meaningful even though
+/// the actual selection logic is one uniform walk. Every family is named so a new
+/// family must be classified here explicitly.
+fn preferred_family_rule(family: BackendFamily, requires_density_matrix: bool) -> PlannerRule {
+    match family {
+        BackendFamily::Trajectory
+        | BackendFamily::DensityMatrixCpu
+        | BackendFamily::DensityMatrixGpu => PlannerRule::R2Noise,
+        BackendFamily::QuestFfi if requires_density_matrix => PlannerRule::R2Noise,
+        BackendFamily::MatrixProductState => PlannerRule::R3Structure,
+        BackendFamily::QuestFfi
+        | BackendFamily::Stabilizer
+        | BackendFamily::StatevectorCpu
+        | BackendFamily::StatevectorGpu
+        | BackendFamily::Hardware => PlannerRule::R4Placement,
+    }
 }
 
 #[cfg(test)]

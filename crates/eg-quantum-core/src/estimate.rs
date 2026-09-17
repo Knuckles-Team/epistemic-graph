@@ -11,6 +11,7 @@
 
 use crate::backend::{BackendFamily, BackendId};
 use crate::ir::{Instruction, QuantumProgram};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// A caller-declared property of a requested noise model: whether it is restricted
 /// to Clifford-preserving channels (e.g. depolarizing/Pauli-twirled noise at fixed
@@ -131,29 +132,12 @@ pub enum EntanglingConnectivity {
 /// Compute [`EntanglingConnectivity`] for `program`. See that type's docs for exactly
 /// what this does and does not prove.
 fn classify_entangling_connectivity(program: &QuantumProgram) -> EntanglingConnectivity {
-    use std::collections::{BTreeMap, BTreeSet};
-
     let mut edges: BTreeSet<(u32, u32)> = BTreeSet::new();
     let mut any_wide_gate = false; // a single instruction touching 3+ qubits at once
 
-    for instr in &program.instructions {
-        if let Instruction::Gate(g) = instr {
-            let mut touched = g.qubits.clone();
-            touched.extend(g.controls.iter().map(|c| c.qubit));
-            touched.sort_unstable();
-            touched.dedup();
-            if touched.len() < 2 {
-                continue; // a single-qubit gate cannot entangle anything by itself
-            }
-            if touched.len() > 2 {
-                any_wide_gate = true;
-            }
-            for (i, &a) in touched.iter().enumerate() {
-                for &b in &touched[i + 1..] {
-                    edges.insert((a.min(b), a.max(b)));
-                }
-            }
-        }
+    for touched in program.instructions.iter().filter_map(entangling_qubits) {
+        any_wide_gate |= touched.len() > 2;
+        insert_pairwise_edges(&touched, &mut edges);
     }
 
     if edges.is_empty() {
@@ -162,9 +146,39 @@ fn classify_entangling_connectivity(program: &QuantumProgram) -> EntanglingConne
     if any_wide_gate {
         return EntanglingConnectivity::Dense;
     }
+    classify_pairwise_edges(&edges)
+}
 
+/// The sorted, deduplicated qubits (targets + controls) a gate instruction touches,
+/// or `None` when it touches fewer than two: a single-qubit gate cannot entangle
+/// anything by itself, and a non-gate instruction entangles nothing.
+fn entangling_qubits(instr: &Instruction) -> Option<Vec<u32>> {
+    let g = match instr {
+        Instruction::Gate(g) => g,
+        Instruction::Measure { .. } | Instruction::Reset { .. } | Instruction::Barrier { .. } => {
+            return None
+        }
+    };
+    let mut touched = g.qubits.clone();
+    touched.extend(g.controls.iter().map(|c| c.qubit));
+    touched.sort_unstable();
+    touched.dedup();
+    (touched.len() >= 2).then_some(touched)
+}
+
+/// One graph edge per pair of qubits in `touched`, normalized to `(low, high)`.
+fn insert_pairwise_edges(touched: &[u32], edges: &mut BTreeSet<(u32, u32)>) {
+    for (i, &a) in touched.iter().enumerate() {
+        for &b in &touched[i + 1..] {
+            edges.insert((a.min(b), a.max(b)));
+        }
+    }
+}
+
+/// Classify a non-empty edge set produced only by two-qubit instructions.
+fn classify_pairwise_edges(edges: &BTreeSet<(u32, u32)>) -> EntanglingConnectivity {
     let mut degree: BTreeMap<u32, u32> = BTreeMap::new();
-    for &(a, b) in &edges {
+    for &(a, b) in edges {
         if b - a != 1 {
             return EntanglingConnectivity::Dense; // long-range pair
         }
@@ -226,6 +240,14 @@ fn estimate_time_ms(n_qubits: u32, depth: u32) -> u64 {
     state_space.saturating_mul(depth.max(1) as u64) / 1_000_000
 }
 
+/// The structural request facts the `preferred` ranking depends on.
+struct RankingFacts {
+    is_clifford: bool,
+    has_non_clifford_noise: bool,
+    noise_requested: bool,
+    requires_density_matrix: bool,
+}
+
 pub fn estimate(program: &QuantumProgram, opts: &EstimateOptions) -> Estimate {
     let n_qubits = program.n_qubits;
     let depth = program.depth();
@@ -239,59 +261,14 @@ pub fn estimate(program: &QuantumProgram, opts: &EstimateOptions) -> Estimate {
     let bound = opts.memory_bound_bytes.unwrap_or(u64::MAX);
     let entangling_connectivity = classify_entangling_connectivity(program);
 
-    let mut preferred = Vec::new();
-    let mut forbidden = Vec::new();
-
-    // R1 affinity: a Clifford circuit with no non-Clifford noise request is always
-    // O(n^2)-representable exactly by the stabilizer formalism — surface that first
-    // regardless of what else is requested, since paying O(2^n) for it is never
-    // justified.
-    if is_clifford && !has_non_clifford_noise {
-        preferred.push(BackendFamily::Stabilizer);
-    }
-
-    if let Some(noise) = &opts.noise {
-        if requires_density_matrix {
-            preferred.push(BackendFamily::DensityMatrixCpu);
-            preferred.push(BackendFamily::DensityMatrixGpu);
-            preferred.push(BackendFamily::QuestFfi);
-        } else {
-            preferred.push(BackendFamily::Trajectory);
-        }
-        let _ = noise; // model_id currently informational only at Q0 (no noise-model catalog yet)
-    } else if !is_clifford || has_non_clifford_noise {
-        // No noise requested and not the Clifford fast-path: statevector family,
-        // GPU-preferred over CPU when it fits. R3: MatrixProductState is ranked
-        // AHEAD of statevector when `entangling_connectivity` genuinely supports it
-        // (Product/NearestNeighborChain), and is not offered as a preferred candidate
-        // at all when it does not (Dense) — "reject if bond dim explodes" per
-        // PROGRAM.md's R3. See `EntanglingConnectivity` docs for what this
-        // classification does and does not prove.
-        match entangling_connectivity {
-            EntanglingConnectivity::Product | EntanglingConnectivity::NearestNeighborChain => {
-                preferred.push(BackendFamily::MatrixProductState);
-                preferred.push(BackendFamily::StatevectorGpu);
-                preferred.push(BackendFamily::StatevectorCpu);
-            }
-            EntanglingConnectivity::Dense => {
-                preferred.push(BackendFamily::StatevectorGpu);
-                preferred.push(BackendFamily::StatevectorCpu);
-            }
-        }
-        preferred.push(BackendFamily::QuestFfi);
-    }
-
-    // R0 hard elimination: a family whose EXACT memory footprint at this circuit size
-    // would exceed the caller's bound is forbidden outright — never a candidate the
-    // planner can silently fall back to.
-    if mem_bytes_sv > bound {
-        forbidden.push(BackendFamily::StatevectorCpu);
-        forbidden.push(BackendFamily::StatevectorGpu);
-    }
-    if requires_density_matrix && mem_bytes_dm > bound {
-        forbidden.push(BackendFamily::DensityMatrixCpu);
-        forbidden.push(BackendFamily::DensityMatrixGpu);
-    }
+    let facts = RankingFacts {
+        is_clifford,
+        has_non_clifford_noise,
+        noise_requested: opts.noise.is_some(),
+        requires_density_matrix,
+    };
+    let preferred = preferred_families(&facts, entangling_connectivity);
+    let forbidden = forbidden_families(mem_bytes_sv, mem_bytes_dm, requires_density_matrix, bound);
 
     Estimate {
         n_qubits,
@@ -306,6 +283,98 @@ pub fn estimate(program: &QuantumProgram, opts: &EstimateOptions) -> Estimate {
         forbidden,
         est_time_ms: estimate_time_ms(n_qubits, depth),
     }
+}
+
+/// The advisory, priority-ordered `preferred` ranking (R1-R4 affinities).
+fn preferred_families(
+    facts: &RankingFacts,
+    entangling_connectivity: EntanglingConnectivity,
+) -> Vec<BackendFamily> {
+    let mut preferred = Vec::new();
+
+    // R1 affinity: a Clifford circuit with no non-Clifford noise request is always
+    // O(n^2)-representable exactly by the stabilizer formalism — surface that first
+    // regardless of what else is requested, since paying O(2^n) for it is never
+    // justified.
+    if facts.is_clifford && !facts.has_non_clifford_noise {
+        preferred.push(BackendFamily::Stabilizer);
+    }
+
+    if facts.noise_requested {
+        // The noise model_id is currently informational only at Q0 (no noise-model
+        // catalog yet); only whether noise was requested shapes the ranking.
+        preferred.extend(noise_families(facts.requires_density_matrix));
+    } else if !facts.is_clifford || facts.has_non_clifford_noise {
+        preferred.extend(noiseless_statevector_families(entangling_connectivity));
+    }
+    preferred
+}
+
+/// R2: a noise request needs a density-matrix-capable family when the caller wants
+/// the exact density matrix, and a trajectory sampler otherwise.
+fn noise_families(requires_density_matrix: bool) -> Vec<BackendFamily> {
+    if requires_density_matrix {
+        vec![
+            BackendFamily::DensityMatrixCpu,
+            BackendFamily::DensityMatrixGpu,
+            BackendFamily::QuestFfi,
+        ]
+    } else {
+        vec![BackendFamily::Trajectory]
+    }
+}
+
+/// No noise requested and not the Clifford fast-path: statevector family,
+/// GPU-preferred over CPU when it fits. R3: MatrixProductState is ranked AHEAD of
+/// statevector when `entangling_connectivity` genuinely supports it
+/// (Product/NearestNeighborChain), and is not offered as a preferred candidate at all
+/// when it does not (Dense) — "reject if bond dim explodes" per PROGRAM.md's R3. See
+/// `EntanglingConnectivity` docs for what this classification does and does not
+/// prove.
+fn noiseless_statevector_families(
+    entangling_connectivity: EntanglingConnectivity,
+) -> Vec<BackendFamily> {
+    let mut families = match entangling_connectivity {
+        EntanglingConnectivity::Product | EntanglingConnectivity::NearestNeighborChain => {
+            mps_then_statevector_families()
+        }
+        EntanglingConnectivity::Dense => statevector_families(),
+    };
+    families.push(BackendFamily::QuestFfi);
+    families
+}
+
+/// Low structural entanglement: MPS first, then the statevector families.
+fn mps_then_statevector_families() -> Vec<BackendFamily> {
+    let mut families = vec![BackendFamily::MatrixProductState];
+    families.extend(statevector_families());
+    families
+}
+
+/// The statevector families, GPU-preferred over CPU.
+fn statevector_families() -> Vec<BackendFamily> {
+    vec![BackendFamily::StatevectorGpu, BackendFamily::StatevectorCpu]
+}
+
+/// R0 hard elimination: a family whose EXACT memory footprint at this circuit size
+/// would exceed the caller's bound is forbidden outright — never a candidate the
+/// planner can silently fall back to.
+fn forbidden_families(
+    mem_bytes_sv: u64,
+    mem_bytes_dm: u64,
+    requires_density_matrix: bool,
+    bound: u64,
+) -> Vec<BackendFamily> {
+    let mut forbidden = Vec::new();
+    if mem_bytes_sv > bound {
+        forbidden.push(BackendFamily::StatevectorCpu);
+        forbidden.push(BackendFamily::StatevectorGpu);
+    }
+    if requires_density_matrix && mem_bytes_dm > bound {
+        forbidden.push(BackendFamily::DensityMatrixCpu);
+        forbidden.push(BackendFamily::DensityMatrixGpu);
+    }
+    forbidden
 }
 
 #[cfg(test)]
