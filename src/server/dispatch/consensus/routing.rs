@@ -73,6 +73,29 @@ fn native_route_opaque_target(tenant_scope: &str, domain: Option<&str>) -> Optio
     None
 }
 
+/// Route label of the sealed `Transaction` command, the named-transaction
+/// coordinator ledger. It shares the `Transaction` validation domain with the
+/// participant, decision, and finalize commands, which stay on the request
+/// graph, so it needs a label of its own to be routed to the placement group.
+#[cfg(feature = "raft")]
+const TRANSACTION_LEDGER_ROUTE: &str = "TransactionLedger";
+
+/// Give the sealed `Transaction` ledger command its own route label instead of
+/// the shared `Transaction` domain label `command.domain()` reports.
+#[cfg(feature = "raft")]
+fn native_route_ledger_override(
+    command: &crate::raft::NativeMutationCommand,
+    domain: Option<String>,
+) -> Option<String> {
+    if matches!(
+        command,
+        crate::raft::NativeMutationCommand::Transaction { .. }
+    ) {
+        return Some(TRANSACTION_LEDGER_ROUTE.to_string());
+    }
+    domain
+}
+
 /// The consensus route for one native mutation command.
 ///
 /// `NativeMutationCommand::domain()` is itself compiler-exhaustive over the
@@ -98,6 +121,7 @@ fn native_route_target(
         return request_graph.to_string();
     }
     let domain = command.domain().map(|domain| format!("{domain:?}"));
+    let domain = native_route_ledger_override(command, domain);
     if let Some(route) = native_route_opaque_target(tenant_scope, domain.as_deref()) {
         return route;
     }
@@ -106,7 +130,7 @@ fn native_route_target(
             request_graph.to_string()
         }
         Some("GraphLifecycle") => native_route_lifecycle_target(request_graph, method),
-        Some("ClusterAdmin") | Some("SessionControl") => {
+        Some("ClusterAdmin") | Some("SessionControl") | Some(TRANSACTION_LEDGER_ROUTE) => {
             crate::raft::placement::PLACEMENT_GRAPH.to_string()
         }
         // Identity/RBAC state is process-global authority. Every such command must
