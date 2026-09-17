@@ -24,10 +24,10 @@ use crate::admitted::AdmittedMutation;
 use crate::outbox::rows::{
     decode_row, encode_row, validate_consumer, validate_delivery_event, validate_delivery_key,
     validate_delivery_state, validate_stamp, OutboxClaimCursor, OutboxDelivery, OutboxPosition,
-    MAX_CLAIM_SCAN_ROWS,
+    MAX_CLAIM_SCAN_ROWS, MAX_DELIVERY_ATTEMPTS,
 };
 use crate::outbox::stream::{read_outbox_row_in_write, subscribed_topic};
-use crate::outbox::{claim, ensure_not_graft_fenced, index};
+use crate::outbox::{claim, ensure_not_graft_fenced, index, rewind, OutboxRejectReason};
 use crate::tables::{OUTBOX, OUTBOX_CURSORS, OUTBOX_DELIVERIES};
 use eg_storage::{
     decode_outbox_record, ledger_scope_key, MutationOwnerAuthority, OwnedStoreHandle, OwnerDomain,
@@ -161,6 +161,7 @@ fn prepare_ack<D: OwnerDomain>(
     }
     lease.record.validate()?;
     let scope = ledger_scope_key(identity);
+    refuse_if_rewind_pending(write, &scope, &lease.consumer, identity)?;
     let delivery = read_delivery(write, &scope, lease, identity)?;
     let position = delivery.position.clone();
     let durable = read_outbox_row_in_write(write, &scope, &position)?;
@@ -315,7 +316,179 @@ fn require_no_earlier_gap<D: OwnerDomain>(
     Ok(())
 }
 
-fn build_cursor(
+/// Resolve one held lease as a consumer-declared terminal failure.
+///
+/// Fenced exactly like an acknowledgement -- lease, epoch, expiry and durable
+/// -record checks are the same -- but it never moves the watermark, so a
+/// superseded, expired, released or already-delivered lease is refused the
+/// same way an ack refuses it (X10-T4).
+pub(crate) fn reject<D: OwnerDomain>(
+    authority: &MutationOwnerAuthority,
+    owner: &OwnedStoreHandle<D>,
+    lease: &MutationOutboxLease,
+    reason: OutboxRejectReason,
+    now_ms: u64,
+) -> Result<(), String> {
+    validate_consumer(&lease.consumer)?;
+    let write = AdmittedMutation::open(authority, owner)?;
+    match reject_in(&write, owner.identity(), lease, reason, now_ms) {
+        Ok(()) => write.commit(),
+        Err(error) => {
+            write.abort()?;
+            Err(error)
+        }
+    }
+}
+
+/// Reject inside the caller's already-open admitted transaction, so a
+/// domain's own terminal evidence and this resolution commit atomically
+/// (X10-T5, mirrors [`ack_in_transaction`]).
+pub(crate) fn reject_in<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+    identity: &MutationScopeIdentity,
+    lease: &MutationOutboxLease,
+    reason: OutboxRejectReason,
+    now_ms: u64,
+) -> Result<(), String> {
+    // Closed reason codes are the caller's own log, metric and domain
+    // evidence; the kernel row never carries one (X10-R6, decision D4).
+    let _ = reason;
+    let prepared = prepare_reject(write, identity, lease, now_ms)?;
+    commit_reject(write, &prepared.scope, lease, prepared.delivery, now_ms)?;
+    record_rejected(write, &prepared.scope, &lease.consumer, identity)
+}
+
+/// Everything one rejection needs in order to write.
+struct PreparedReject {
+    scope: String,
+    delivery: OutboxDelivery,
+}
+
+/// Perform every rejection check before the first delivery-side write. Reuses
+/// [`resolve_delivered`]'s lease/epoch/expiry/delivered checks -- the same
+/// ones an ack runs -- and adds none of the ordering checks, because a
+/// rejection never advances the watermark.
+fn prepare_reject<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+    identity: &MutationScopeIdentity,
+    lease: &MutationOutboxLease,
+    now_ms: u64,
+) -> Result<PreparedReject, String> {
+    validate_consumer(&lease.consumer)?;
+    ensure_not_graft_fenced(write, identity)?;
+    if lease.record.identity != *identity {
+        return Err("outbox reject route does not match the leased record".to_string());
+    }
+    lease.record.validate()?;
+    let scope = ledger_scope_key(identity);
+    refuse_if_rewind_pending(write, &scope, &lease.consumer, identity)?;
+    let delivery = read_delivery(write, &scope, lease, identity)?;
+    let durable = read_outbox_row_in_write(write, &scope, &delivery.position)?;
+    if durable != lease.record {
+        return Err("outbox lease record does not match durable event".to_string());
+    }
+    let current = read_cursor_in_write(write, &scope, &lease.consumer, identity)?;
+    if resolve_delivered(&delivery, lease, &current, now_ms)?.is_some() {
+        return Err("STALE_OUTBOX_LEASE: event was already delivered".to_string());
+    }
+    let claim_cursor = claim::read_claim_cursor(write, &scope, &lease.consumer, identity)?;
+    validate_delivery_state(&delivery, claim_cursor.acked_through.as_ref())?;
+    Ok(PreparedReject { scope, delivery })
+}
+
+/// Write one rejected row's terminal dead-letter state: the same terminal
+/// shape a bounded-retry exhaustion produces (`rows.rs` invariant unchanged),
+/// so every reader of a dead-lettered row stays correct either way.
+fn commit_reject<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+    scope: &str,
+    lease: &MutationOutboxLease,
+    mut delivery: OutboxDelivery,
+    now_ms: u64,
+) -> Result<(), String> {
+    delivery.attempt = delivery.attempt.max(MAX_DELIVERY_ATTEMPTS);
+    delivery.lease_until_ms = 0;
+    delivery.dead_lettered_at_ms = Some(now_ms);
+    let bytes = encode_row(&delivery, "outbox delivery row")?;
+    write.scoped_table(OUTBOX_DELIVERIES)?.insert(
+        (
+            scope,
+            lease.consumer.as_str(),
+            delivery.position.batch_id.as_str(),
+            delivery.position.ordinal,
+        ),
+        bytes.as_slice(),
+    )
+}
+
+/// A rejection always holds a live lease at the point it is accepted
+/// (`prepare_reject` refused it otherwise), so the fairness counter update is
+/// the held-lease case of [`claim::record_dead_letter`] every time.
+fn record_rejected<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+    scope: &str,
+    consumer: &str,
+    identity: &MutationScopeIdentity,
+) -> Result<(), String> {
+    let mut state = claim::read_consumer_state(write, scope, consumer, identity)?;
+    claim::record_dead_letter(&mut state, true)?;
+    claim::write_consumer_state(write, scope, consumer, &state)
+}
+
+/// Refuse a delivery-side write for a consumer whose stream is mid-rewind. No
+/// pre-rewind lease may move the watermark the rewind is about to relocate
+/// (X10 2.6).
+pub(crate) fn refuse_if_rewind_pending<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+    scope: &str,
+    consumer: &str,
+    identity: &MutationScopeIdentity,
+) -> Result<(), String> {
+    if rewind::read_rewind_cursor(write, scope, consumer, identity)?.is_some() {
+        return Err("OUTBOX_REWIND_PENDING: rewind in progress for this consumer".to_string());
+    }
+    Ok(())
+}
+
+/// Move (or remove) one consumer's durable projection cursor and claim
+/// watermark to `predecessor` -- the position immediately before a rewind's
+/// target, or `None` when the rewind restarts the whole stream.
+///
+/// Kept here because this module is the one place that writes
+/// `OUTBOX_CURSORS`, and [`read_cursor_in_write`] enforces the exact
+/// invariant this must leave true: a claim watermark and a projection cursor
+/// are set or absent together.
+pub(crate) fn rewind_watermark_in_write<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+    scope: &str,
+    consumer: &str,
+    identity: &MutationScopeIdentity,
+    predecessor: Option<&OutboxPosition>,
+    now_ms: u64,
+) -> Result<(), String> {
+    let mut claim_cursor = claim::read_claim_cursor(write, scope, consumer, identity)?;
+    claim_cursor.resolved_through = predecessor.cloned();
+    claim_cursor.acked_through = predecessor.cloned();
+    match predecessor {
+        Some(position) => {
+            let record = read_outbox_row_in_write(write, scope, position)?;
+            let cursor = build_cursor(consumer, &record, now_ms)?;
+            validate_stamp(&cursor.identity, identity)?;
+            let bytes = encode_row(&cursor, "outbox projection cursor")?;
+            write
+                .scoped_table(OUTBOX_CURSORS)?
+                .insert((scope, consumer), bytes.as_slice())?;
+        }
+        None => {
+            write
+                .scoped_table(OUTBOX_CURSORS)?
+                .remove((scope, consumer))?;
+        }
+    }
+    claim::write_claim_cursor(write, scope, consumer, &claim_cursor)
+}
+
+pub(crate) fn build_cursor(
     consumer: &str,
     record: &eg_types::MutationOutboxRecord,
     now_ms: u64,

@@ -9,7 +9,7 @@
 
 use crate::outbox::rows::{
     decode_row, validate_delivery_key, validate_delivery_state, validate_stamp, OutboxClaimCursor,
-    OutboxConsumerState, OutboxDelivery, MAX_CLAIM_SCAN_ROWS, OUTBOX_QUEUE_CAPACITY,
+    OutboxConsumerState, OutboxDelivery, OutboxPosition, MAX_CLAIM_SCAN_ROWS, OUTBOX_QUEUE_CAPACITY,
 };
 use crate::outbox::{claim, cursor, index, stream};
 use crate::tables::{OUTBOX_CLAIM_CURSORS, OUTBOX_DELIVERIES, OUTBOX_FAIRNESS};
@@ -65,6 +65,26 @@ pub struct OutboxStatus {
     /// Whether a requested legacy index backfill has reached EOF. A false
     /// value makes pending/lag figures lower bounds until claims reopen.
     pub index_complete: bool,
+    /// The stream head: the first unresolved row in commit order, if any is
+    /// within the bounded scan. `None` with `pending == 0` is an idle queue;
+    /// `None` with `pending_is_lower_bound` is an unknown head, not an idle
+    /// one (X10-R5).
+    pub head: Option<OutboxHead>,
+}
+
+/// Where one consumer's stream is currently stuck (or waiting), read from a
+/// snapshot.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct OutboxHead {
+    /// The head row's index position.
+    pub position: OutboxPosition,
+    /// How many attempts it has spent as the head (X10-R1: a row can only
+    /// accumulate an attempt while it is the head).
+    pub attempt: u32,
+    /// Whether it is currently held by a live, unexpired lease.
+    pub leased: bool,
+    /// Its age at the snapshot time.
+    pub age_ms: u64,
 }
 
 /// Read one consumer's queue state on the read's bound scope.
@@ -122,6 +142,7 @@ pub(crate) fn status<D: OwnerDomain>(
         consecutive_claims: state.consecutive_claims,
         total_claims: state.total_claims,
         index_complete,
+        head: pending.head,
     })
 }
 
@@ -132,6 +153,7 @@ struct Pending {
     rows: u64,
     oldest_age_ms: u64,
     truncated: bool,
+    head: Option<OutboxHead>,
 }
 
 /// Pending rows, scanned from the consumer's own resolved prefix.
@@ -172,30 +194,71 @@ fn pending_rows<D: OwnerDomain>(
             ))?
             .map(|value| decode_row::<OutboxDelivery>(value.value()))
             .transpose()?;
-        let resolved = match delivery {
-            Some(row) => {
-                validate_stamp(&row.identity, read.scope())?;
-                validate_delivery_key(&row, consumer, &entry.position)?;
-                validate_delivery_state(&row, acked_through)?;
-                if !row.resolved() && row.lease_until_ms != 0 {
-                    pending.inflight_accounted = pending.inflight_accounted.saturating_add(1);
-                }
-                if row.leased_at(now_ms) {
-                    pending.inflight = pending.inflight.saturating_add(1);
-                }
-                row.resolved()
-            }
-            None => false,
-        };
+        let (resolved, attempt, leased) = fold_delivery(
+            delivery,
+            read.scope(),
+            consumer,
+            &entry.position,
+            acked_through,
+            now_ms,
+            &mut pending,
+        )?;
         if resolved {
             continue;
         }
-        pending.rows = pending.rows.saturating_add(1);
-        pending.oldest_age_ms = pending
-            .oldest_age_ms
-            .max(now_ms.saturating_sub(entry.position.created_at_ms));
+        note_pending_entry(&mut pending, &entry.position, attempt, leased, now_ms);
     }
     Ok(pending)
+}
+
+/// One entry's delivery state, and the two inflight-related counter bumps a
+/// present row implies. Extracted so `pending_rows`'s loop stays a flat
+/// sequence of named steps instead of one long inline match.
+fn fold_delivery(
+    delivery: Option<OutboxDelivery>,
+    identity: &MutationScopeIdentity,
+    consumer: &str,
+    position: &OutboxPosition,
+    acked_through: Option<&OutboxPosition>,
+    now_ms: u64,
+    pending: &mut Pending,
+) -> Result<(bool, u32, bool), String> {
+    let Some(row) = delivery else {
+        return Ok((false, 0, false));
+    };
+    validate_stamp(&row.identity, identity)?;
+    validate_delivery_key(&row, consumer, position)?;
+    validate_delivery_state(&row, acked_through)?;
+    if !row.resolved() && row.lease_until_ms != 0 {
+        pending.inflight_accounted = pending.inflight_accounted.saturating_add(1);
+    }
+    let leased = row.leased_at(now_ms);
+    if leased {
+        pending.inflight = pending.inflight.saturating_add(1);
+    }
+    Ok((row.resolved(), row.attempt, leased))
+}
+
+/// Record one still-pending row: the stream head (the first one seen) and the
+/// running pending/age totals every unresolved row contributes to.
+fn note_pending_entry(
+    pending: &mut Pending,
+    position: &OutboxPosition,
+    attempt: u32,
+    leased: bool,
+    now_ms: u64,
+) {
+    let age_ms = now_ms.saturating_sub(position.created_at_ms);
+    if pending.head.is_none() {
+        pending.head = Some(OutboxHead {
+            position: position.clone(),
+            attempt,
+            leased,
+            age_ms,
+        });
+    }
+    pending.rows = pending.rows.saturating_add(1);
+    pending.oldest_age_ms = pending.oldest_age_ms.max(age_ms);
 }
 
 fn consumer_state<D: OwnerDomain>(

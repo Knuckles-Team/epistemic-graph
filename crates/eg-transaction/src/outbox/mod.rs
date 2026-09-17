@@ -56,7 +56,10 @@ use eg_types::MutationScopeIdentity;
 
 mod claim;
 mod cursor;
+mod dead_letters;
 mod index;
+mod operator;
+mod rewind;
 mod rows;
 mod status;
 mod stream;
@@ -64,12 +67,16 @@ mod stream;
 #[cfg(test)]
 pub(crate) use rows::{decode_row, encode_row};
 pub use rows::{OutboxClaimCursor, OutboxConsumerState, OutboxDelivery, OutboxPosition};
-pub use status::OutboxStatus;
+pub use status::{OutboxHead, OutboxStatus};
 
 pub(crate) use claim::{claim, expire, release};
-pub(crate) use cursor::{ack, ack_in_transaction, validate_in};
+pub(crate) use cursor::{ack, ack_in_transaction, reject, reject_in, validate_in};
+pub use dead_letters::OutboxDeadLetterPage;
+pub(crate) use dead_letters::dead_letters;
 pub use index::OutboxBackfillOutcome;
 pub(crate) use index::{backfill, index_outbox_row, mark_index_ready_in_write};
+pub use rewind::{OutboxRewindOutcome, OutboxRewindTarget};
+pub(crate) use rewind::rewind;
 pub(crate) use stream::subscribe;
 
 use eg_storage::{OwnerDomain, ScopedRead};
@@ -165,6 +172,28 @@ pub enum OutboxDeferral {
     /// closed until its durable cursor completes, so a later producer cannot
     /// be delivered ahead of an unindexed historical row.
     IndexBackfillPending,
+    /// An operator rewind is in progress for this consumer. Claims stay
+    /// closed until it completes, so no pre-rewind lease can move the
+    /// watermark the rewind is about to relocate (X10 2.6).
+    RewindPending,
+}
+
+/// Why a consumer declared one delivered row a terminal failure instead of
+/// letting bounded retry exhaust it.
+///
+/// A closed set, not a free string: the kernel never stores it (X10-R6,
+/// decision D4) and returns it as nothing more than the caller's own typed
+/// echo for its log, metric and domain row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutboxRejectReason {
+    /// The event's payload or shape could never be applied.
+    InvalidEvent,
+    /// The consumer's domain logic refused the event on its merits.
+    DomainRefused,
+    /// The consumer's own projection could not apply the event.
+    ProjectionFailed,
+    /// An operator declared the row undeliverable.
+    Operator,
 }
 
 /// What one claim decided.
@@ -179,14 +208,24 @@ pub struct OutboxClaimOutcome {
     /// Whether the selection scan stopped at its page bound, so more rows may
     /// be claimable immediately.
     pub more_available: bool,
+    /// The rows THIS claim dead-lettered, in memory only, never persisted.
+    /// An ordered consumer diffs this against what it expected to reconcile
+    /// a skipped position instead of discovering the gap from a later ack
+    /// refusal (X10-R4, X10-R5).
+    pub dead_lettered: Vec<OutboxPosition>,
 }
 
 impl OutboxClaimOutcome {
-    pub(crate) fn claimed(claims: Vec<MutationOutboxLease>, more_available: bool) -> Self {
+    pub(crate) fn claimed(
+        claims: Vec<MutationOutboxLease>,
+        more_available: bool,
+        dead_lettered: Vec<OutboxPosition>,
+    ) -> Self {
         Self {
             claims,
             deferred: None,
             more_available,
+            dead_lettered,
         }
     }
 
@@ -195,6 +234,7 @@ impl OutboxClaimOutcome {
             claims: Vec::new(),
             deferred: Some(reason),
             more_available: true,
+            dead_lettered: Vec::new(),
         }
     }
 

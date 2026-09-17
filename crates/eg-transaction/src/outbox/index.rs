@@ -260,6 +260,41 @@ pub(crate) fn scan_in_read<D: OwnerDomain>(
     collect(rows.map(|row| row.map_err(|e| e.to_string())), from, limit)
 }
 
+/// The index entry immediately before `position` in `topic`'s commit order,
+/// or `None` if `position` is the topic's first entry.
+///
+/// Uses the index's reverse iteration rather than a forward scan from zero,
+/// so locating a deep rewind target costs two bounded seeks, not a scan of
+/// the whole prefix (X10 2.4 item 5). `position` must already be proven to
+/// name a real index row; a caller that has not done so gets
+/// `CORRUPT_OUTBOX_INDEX` here instead of a wrong answer.
+pub(crate) fn predecessor_in_write<D: OwnerDomain>(
+    write: &AdmittedMutation<'_, D>,
+    scope: &str,
+    topic: &str,
+    position: &OutboxPosition,
+) -> Result<Option<OutboxPosition>, String> {
+    let table = write.scoped_table(OUTBOX_TOPIC_INDEX)?;
+    let high = (
+        scope,
+        topic,
+        position.sequence,
+        position.created_at_ms,
+        position.batch_id.as_str(),
+        position.ordinal,
+    );
+    let mut rows = table.range_inclusive((scope, topic, 0u64, 0u64, "", 0u32), high)?;
+    let last = rows.next_back().transpose().map_err(|error| error.to_string())?;
+    let Some((key, _)) = last else {
+        return Err("CORRUPT_OUTBOX_INDEX: rewind target is absent from the topic index".to_string());
+    };
+    if key.value().position() != *position {
+        return Err("CORRUPT_OUTBOX_INDEX: rewind target is absent from the topic index".to_string());
+    }
+    let previous = rows.next_back().transpose().map_err(|error| error.to_string())?;
+    Ok(previous.map(|(key, _)| key.value().position()))
+}
+
 /// Prove that a durable claim cursor position names an index row of its
 /// subscribed topic.  Cursor fields are caller-visible durable bytes; using a
 /// forged high position as a lower bound would silently skip the queue.

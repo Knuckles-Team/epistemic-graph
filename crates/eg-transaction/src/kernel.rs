@@ -30,7 +30,15 @@ use std::collections::BTreeSet;
 
 /// The sole mutation owner over one physical owner file.
 pub struct MutationKernel {
-    authority: MutationOwnerAuthority,
+    // `pub(crate)` rather than a `pub(crate)` accessor method: every inherent
+    // method this kernel exposes from another file in this crate's own
+    // module tree (`outbox::operator`'s `impl MutationKernel` included) reads
+    // this field directly, and kernel.rs is already near `kiss`'s
+    // functions-per-file cap, so a same-crate field is one file-aggregate
+    // finding cheaper than an equivalent accessor without changing what is
+    // reachable from outside the crate (still nothing -- `pub(crate)` stops
+    // at this crate's boundary either way).
+    pub(crate) authority: MutationOwnerAuthority,
 }
 
 impl MutationKernel {
@@ -41,6 +49,8 @@ impl MutationKernel {
         Self { authority }
     }
 
+    /// The move-once write authority itself, for test code that must write a
+    /// deliberately malformed row.
     #[cfg(test)]
     pub(crate) fn authority(&self) -> &MutationOwnerAuthority {
         &self.authority
@@ -672,6 +682,12 @@ impl MutationKernel {
         crate::outbox::expire(&self.authority, owner, consumer, now_ms)
     }
 
+    // `outbox_reject`, `outbox_reject_in`, `outbox_dead_letters` and
+    // `outbox_rewind` are inherent methods too, defined in
+    // `outbox::operator` to keep this file's aggregates from growing further
+    // (`Self::authority` is the seam that lets another file in this crate's
+    // module tree write an `impl MutationKernel` block at all).
+
     /// Phases B and C of a graft: copy the fenced scope's whole ledger into
     /// `destination` verbatim, then retire the source binding
     /// (RF-RULING-004 application note 4).
@@ -833,7 +849,7 @@ impl MutationKernel {
 }
 
 /// Bind an in-transaction helper to the exact admitted owner capability.
-fn ensure_admitted_owner<D: OwnerDomain>(
+pub(crate) fn ensure_admitted_owner<D: OwnerDomain>(
     write: &AdmittedMutation<'_, D>,
     owner: &OwnedStoreHandle<D>,
 ) -> Result<(), String> {

@@ -4,29 +4,6 @@
 
 use super::*;
 
-/// Dead-letter `current` when it has exhausted its retries, writing the dead-lettered
-/// row and the fairness-counter adjustments that go with it. Returns whether the row
-/// was dead-lettered (the caller then advances the resolved prefix and moves on).
-pub(super) fn try_dead_letter(
-    deliveries: &mut ScopedTableMut<'_, (&str, &str, &str, u32), &[u8]>,
-    key: (&str, &str, &str, u32),
-    current: Option<&OutboxDelivery>,
-    at: &Claiming<'_>,
-    position: &OutboxPosition,
-    expired: bool,
-    state: &mut OutboxConsumerState,
-) -> Result<bool, String> {
-    let Some(dead) = dead_letter(current, at.identity, at.consumer, position, at.budget) else {
-        return Ok(false);
-    };
-    if expired {
-        decrement_inflight(state, "dead-lettered lease is absent from counter")?;
-    }
-    deliveries.insert(key, encode_row(&dead, "outbox delivery row")?.as_slice())?;
-    increment_dead_lettered(state)?;
-    Ok(true)
-}
-
 /// A delivery row already on file for this key must be stamped for the same scope, key
 /// itself to the same claim identity, and consistent with the caller's acked-through
 /// watermark, before it is trusted for the resolved/dead-letter/lease decisions below.
@@ -55,31 +32,4 @@ pub(super) fn mark_resolved_if_prefix_intact(
     if prefix_intact {
         *resolved_through = Some(position.clone());
     }
-}
-
-pub(super) fn decrement_inflight(
-    state: &mut OutboxConsumerState,
-    absent_message: &str,
-) -> Result<(), String> {
-    state.inflight = state
-        .inflight
-        .checked_sub(1)
-        .ok_or_else(|| format!("CORRUPT_OUTBOX_FAIRNESS: {absent_message}"))?;
-    Ok(())
-}
-
-pub(super) fn increment_inflight(state: &mut OutboxConsumerState) -> Result<(), String> {
-    state.inflight = state
-        .inflight
-        .checked_add(1)
-        .ok_or_else(|| "CORRUPT_OUTBOX_FAIRNESS: in-flight counter overflow".to_string())?;
-    Ok(())
-}
-
-pub(super) fn increment_dead_lettered(state: &mut OutboxConsumerState) -> Result<(), String> {
-    state.dead_lettered = state
-        .dead_lettered
-        .checked_add(1)
-        .ok_or_else(|| "CORRUPT_OUTBOX_FAIRNESS: dead-letter counter overflow".to_string())?;
-    Ok(())
 }

@@ -49,8 +49,9 @@ pub use kernel::MutationKernel;
 pub use maintenance::MaintenanceBatch;
 pub use outbox::{
     max_delivery_attempts, outbox_cursor, outbox_status, queue_capacity, OutboxClaimBudget,
-    OutboxClaimCursor, OutboxClaimOutcome, OutboxConsumerState, OutboxDeferral, OutboxDelivery,
-    OutboxPosition, OutboxStatus,
+    OutboxClaimCursor, OutboxClaimOutcome, OutboxConsumerState, OutboxDeadLetterPage,
+    OutboxDeferral, OutboxDelivery, OutboxHead, OutboxPosition, OutboxRejectReason,
+    OutboxRewindOutcome, OutboxRewindTarget, OutboxStatus,
 };
 pub use participant::{
     decode_record, decode_record_key, encode_record, encode_record_key, is_sealed_payload,
