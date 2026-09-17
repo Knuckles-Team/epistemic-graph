@@ -27,37 +27,94 @@ fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
-/// Top-level variant identifiers of `pub enum Method { .. }`.
+/// The chunk files that build `pub enum Method { .. }`, discovered from
+/// `crates/eg-types/src/protocol/method/mod.rs` rather than hardcoded.
 ///
-/// Variants sit at exactly 4-space indent; struct fields are deeper and attributes or
-/// doc comments start with `#` or `/`.
-fn wire_method_variants() -> BTreeSet<String> {
-    let path = repo_root().join("crates/eg-types/src/protocol.rs");
-    let text = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
-    let start = text
-        .find("pub enum Method {")
-        .expect("could not locate `pub enum Method {` in protocol.rs")
-        + "pub enum Method {".len();
-    // The item ends at the first line that is exactly `}` in column 0. Counting braces
-    // instead would run through doc comments and string literals: a single `}` inside a
-    // doc comment on a variant would truncate the scan and silently drop every variant
-    // after it, and only the hardcoded census below would notice.
-    let body = text[start..]
-        .split_once("\n}\n")
-        .map(|(body, _)| body)
-        .unwrap_or_else(|| {
-            panic!("`pub enum Method` is not terminated by a column-0 `}}` in protocol.rs")
-        });
-    body.lines()
-        .filter_map(|line| line.strip_prefix("    "))
-        .filter(|rest| rest.starts_with(|c: char| c.is_ascii_uppercase()))
-        .map(|rest| {
-            rest.chars()
-                .take_while(|c| c.is_ascii_alphanumeric())
-                .collect::<String>()
+/// `crates/eg-types/src/protocol.rs` is now a facade (`mod method;`): the enum is
+/// assembled by a `__eg_method_chunk_0..N` macro chain, each chunk file appending its
+/// own variants to an `@acc` token-tree accumulator before handing off to the next, with
+/// `__eg_method_finish` wrapping the final accumulator in `pub enum Method { $($variants)* }`
+/// (`crates/eg-types/src/protocol/method/method_finish.rs`). That means the literal text
+/// `pub enum Method {` still exists, but its body there is only the macro placeholder
+/// `$($variants)*` -- reading just that file finds the wrapper and none of the variants.
+/// Discovering the chunk list from `mod.rs`'s own `mod method_NN;` declarations (instead
+/// of hardcoding `method_00..method_10`) means a future chunk added to the chain is
+/// picked up automatically rather than silently skipped.
+fn method_chunk_files() -> Vec<PathBuf> {
+    let dir = repo_root().join("crates/eg-types/src/protocol/method");
+    let mod_path = dir.join("mod.rs");
+    let text = std::fs::read_to_string(&mod_path)
+        .unwrap_or_else(|e| panic!("failed to read {}: {e}", mod_path.display()));
+    let files: Vec<PathBuf> = text
+        .lines()
+        .map(str::trim)
+        .filter_map(|line| line.strip_prefix("mod ")?.strip_suffix(';'))
+        .filter(|name| {
+            name.strip_prefix("method_").is_some_and(|suffix| {
+                !suffix.is_empty() && suffix.bytes().all(|b| b.is_ascii_digit())
+            })
         })
+        .map(|name| dir.join(format!("{name}.rs")))
+        .collect();
+    assert!(
+        !files.is_empty(),
+        "could not locate any `mod method_<N>;` declaration in {} -- the Method enum's \
+         macro chain moved again and this gate needs to follow it there",
+        mod_path.display()
+    );
+    files
+}
+
+/// Top-level variant identifiers of `pub enum Method { .. }`, walked across its chunk
+/// files (see [`method_chunk_files`]).
+///
+/// Within each chunk file, variants sit at exactly 4-space indent; struct fields are
+/// deeper, and attributes, doc comments and the macro's own syntax (`macro_rules!`,
+/// `(@acc [$($variants:tt)*])`, the `$($variants)*` re-embed of earlier chunks) start
+/// with something other than an uppercase ASCII letter, so the same column-based filter
+/// that used to read the literal enum body reads a chunk body just as well.
+fn wire_method_variants() -> BTreeSet<String> {
+    method_chunk_files()
+        .iter()
+        .flat_map(|path| chunk_file_variants(path))
         .collect()
+}
+
+/// The `Method` variants one chunk file contributes (see [`wire_method_variants`]).
+///
+/// Fails loudly, naming the file, on either way this can go silently wrong: the file no
+/// longer defining a chunk macro at all (the chain restructured again), or defining one
+/// that -- at exactly 4-space indent, uppercase-starting -- contributes zero variants
+/// (the accumulator's layout changed under this filter).
+fn chunk_file_variants(path: &std::path::Path) -> BTreeSet<String> {
+    let text = std::fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+    assert!(
+        text.contains("macro_rules! __eg_method_chunk_"),
+        "{} no longer defines an `__eg_method_chunk_*` macro -- the Method enum's macro \
+         chain moved again and this gate needs to follow it there",
+        path.display()
+    );
+    let found: BTreeSet<String> = text.lines().filter_map(variant_name_at_enum_indent).collect();
+    assert!(
+        !found.is_empty(),
+        "{} contributed no Method variants -- confirm its variant lines are still at \
+         4-space indent",
+        path.display()
+    );
+    found
+}
+
+/// A variant name if `line` is a top-level variant row (exactly 4-space indent,
+/// uppercase-starting) -- `None` for struct fields (deeper), attributes, doc comments,
+/// and the macro's own syntax (`macro_rules!`, `(@acc [$($variants:tt)*])`, the
+/// `$($variants)*` re-embed of earlier chunks), none of which starts this way.
+fn variant_name_at_enum_indent(line: &str) -> Option<String> {
+    let rest = line.strip_prefix("    ")?;
+    if !rest.starts_with(|c: char| c.is_ascii_uppercase()) {
+        return None;
+    }
+    Some(rest.chars().take_while(|c| c.is_ascii_alphanumeric()).collect())
 }
 
 fn descriptor_ids() -> Vec<String> {

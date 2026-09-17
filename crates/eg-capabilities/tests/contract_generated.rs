@@ -130,9 +130,17 @@ fn split_transaction_result_marker_is_collected_by_the_generator() {
         .find(|artifact| artifact.path == "epistemic_graph/generated/transactions.py")
         .expect("the generator renders the transactions client");
     let transactions = String::from_utf8_lossy(&transactions.bytes);
+    // `chore: normalize generated Python contracts` (53039e03f) legitimately split every
+    // generated docstring field, including this one, from a single combined
+    // `Result: ResultPayload::Json (schema#/pointer).` line into two separate
+    // `push_doc_field`/`push_result_schema` labeled blocks -- the same shape every other
+    // docstring field in the generator now uses. The marker did not stop being collected;
+    // it moved to this shape, so the assertion follows it there instead of the pre-split
+    // single-line text that `push_doc_field`/`push_result_schema` no longer emit.
+    assert!(transactions.contains("    Result:\n        ResultPayload::Json\n"));
     assert!(transactions.contains(
-        "Result: ResultPayload::Json \
-         (contract/schemas/result.transactions.json#/methods/ApplyMultisigMutation)."
+        "    Result schema:\n        contract/schemas/result.transactions.json\n        \
+         #/methods/ApplyMultisigMutation\n"
     ));
 }
 
