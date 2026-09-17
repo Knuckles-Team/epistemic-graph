@@ -21,6 +21,8 @@ use super::support_01::{
     default_umap_min_dist, default_umap_neighbors,
 };
 
+mod families;
+pub use families::MethodWriteFamily;
 mod method_00;
 mod method_01;
 mod method_02;

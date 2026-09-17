@@ -7,7 +7,7 @@ use super::graphql_is_mutation;
 use super::sql_is_write;
 #[cfg(feature = "cypher")]
 use crate::protocol::CypherMode;
-use crate::protocol::Method;
+use crate::protocol::{Method, MethodWriteFamily};
 
 /// The operation-conditional agent-layer and semantic-index surfaces.
 fn requires_write_agent_surface(method: &Method) -> Option<bool> {
@@ -86,37 +86,15 @@ fn requires_write_native_surface(method: &Method) -> Option<bool> {
     // access + WAL record). Consume/ack ride `ClaimNext`/`CompareAndSetNodeFields`,
     // already classified below.
     //
-    // L10 (EG-P0-6 security finding): the stream + tag-addressed publisher-confirm/
-    // consumer-ack family mutates the SAME Outbox control-graph state as the ops
-    // above, so the ACL-write and durability classifications agree exactly.
+    // Broker policy extensions (CONCEPT:EG-KG.compute.dead-letter-queues..280) mutate
+    // policy/message/dead-letter/claim state. L10 (EG-P0-6 security finding): the
+    // streams (CONCEPT:EG-KG.compute.replayable-append-log) and tag-addressed
+    // publisher-confirm/consumer-ack family
+    // (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos) mutate the SAME Outbox
+    // control-graph state as the ops above, so the ACL-write and durability
+    // classifications agree exactly.
     #[cfg(feature = "broker")]
-    if matches!(
-        method,
-        Method::DeclareExchange { .. }
-            | Method::DeleteExchange { .. }
-            | Method::BindQueue { .. }
-            | Method::UnbindQueue { .. }
-            | Method::Publish { .. }
-            // Broker policy extensions (CONCEPT:EG-KG.compute.dead-letter-queues..280) all mutate control-graph
-            // nodes (policy/message/dead-letter/claim state) → writes.
-            | Method::DeclareQueue { .. }
-            | Method::PublishEx { .. }
-            | Method::BrokerConsume { .. }
-            | Method::BrokerAck { .. }
-            | Method::BrokerReject { .. }
-            | Method::SweepExpired { .. }
-            // L10: streams (CONCEPT:EG-KG.compute.replayable-append-log).
-            | Method::StreamDeclare { .. }
-            | Method::StreamPublish { .. }
-            | Method::StreamTrim { .. }
-            | Method::StreamCommitOffset { .. }
-            // L10: publisher-confirm / tag-addressed consumer ack/nack (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos).
-            | Method::PublishConfirmed { .. }
-            | Method::PublishIdempotent { .. }
-            | Method::BrokerAckTag { .. }
-            | Method::BrokerNackTag { .. }
-            | Method::BrokerRenewTag { .. }
-    ) {
+    if matches!(method.write_family(), Some(MethodWriteFamily::Broker)) {
         return Some(true);
     }
     None
@@ -263,77 +241,51 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     if let Some(result) = requires_write_learning_surface(method) {
         return result;
     }
+    // Agent-memory / scene-graph / trajectory mutations (CONCEPT:EG-KG.memory.eg-batch-decay-caller):
+    // each writes nodes/edges (summaries, semantic nodes, decay/evict
+    // bookkeeping, scene objects, trajectories/steps) → Write access + WAL
+    // record. The paired reads (SummaryChildren/SummariesAtLevel/
+    // WorldTransform/SceneChildren/DiscountedReturn/BestTrajectory) stay Read.
     matches!(
-        method,
-        Method::BeginTxn { .. }
-            | Method::Rollback { .. }
-            | Method::AddNode { .. }
-            | Method::CreateNodeIfAbsent { .. }
-            | Method::RemoveNode { .. }
-            | Method::CompareAndSetNodeFields { .. }
-            | Method::AddEdge { .. }
-            | Method::RemoveEdge { .. }
-            | Method::InvalidateEdge { .. }
-            | Method::SupersedeEdge { .. }
-            | Method::ClearGraph
-            | Method::AddEmbedding { .. }
-            | Method::PruneByLifecycle { .. }
-            | Method::BatchUpdate { .. }
-            | Method::EvictLRU { .. }
-            | Method::DecaySweep { .. }
-            | Method::TouchNodes { .. }
-            | Method::FromMsgpack { .. }
-            | Method::ClearLedger
-            | Method::ApplyLedger { .. }
-            | Method::CompactNodesByType { .. }
-            | Method::RunDatalogReasoning { .. }
-            | Method::ApplyChangeEnvelope { .. }
-            | Method::ApplyChangeEnvelopes { .. }
-            | Method::Reconcile { .. }
-            | Method::ApplyMutation { .. }
-            | Method::ApplyMultisigMutation { .. }
-            // X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard): configuring the ICV
-            // shapes for a graph is a security-relevant operation. Its
-            // `security:admin` capability is enforced before this graph Write check;
-            // the graph ACL then binds that admin operation to its authorized route.
-            | Method::IcvConfigure { .. }
-            | Method::DeleteGraph { .. }
-            | Method::ClaimNext { .. }
-            | Method::ClaimWorkItem { .. }
-            | Method::SubmitWorkItem { .. }
-            | Method::KgDelegate { .. }
-            | Method::SubmitWorkItems { .. }
-            | Method::AcquireCapacity { .. }
-            | Method::RenewCapacity { .. }
-            | Method::ReleaseCapacity { .. }
-            | Method::ReclaimExpiredCapacity { .. }
-            | Method::UpdateCapacityCell { .. }
-            | Method::MintWorkItemClaimCapability { .. }
-            | Method::RenewWorkItemLease { .. }
-            | Method::CommitWorkItemResult { .. }
-            | Method::CancelWorkItem { .. }
-            | Method::DeferWorkItem { .. }
-            | Method::CasWorkItemMetadata { .. }
-            | Method::ReserveWorkItemResources { .. }
-            | Method::ReleaseWorkItemResources { .. }
-            | Method::ReclaimWorkItemResources { .. }
-            | Method::UpdateResourceHost { .. }
-            // Agent-memory / scene-graph / trajectory mutations (CONCEPT:EG-KG.memory.eg-batch-decay-caller):
-            // each writes nodes/edges (summaries, semantic nodes, decay/evict
-            // bookkeeping, scene objects, trajectories/steps) → Write access + WAL
-            // record. The paired reads (SummaryChildren/SummariesAtLevel/
-            // WorldTransform/SceneChildren/DiscountedReturn/BestTrajectory) stay Read.
-            | Method::CreateSummaryNode { .. }
-            | Method::Consolidate { .. }
-            | Method::Reinforce { .. }
-            | Method::DecayNode { .. }
-            | Method::DecayMemories { .. }
-            | Method::EvictBelow { .. }
-            | Method::Maintain { .. }
-            | Method::AddSceneObject { .. }
-            | Method::SetPose { .. }
-            | Method::Reparent { .. }
-            | Method::StartTrajectory { .. }
-            | Method::AppendStep { .. }
+        (method.write_family(), method),
+        (
+            Some(
+                MethodWriteFamily::GraphElement
+                    | MethodWriteFamily::WorkItemSubmission
+                    | MethodWriteFamily::CapacityLease
+                    | MethodWriteFamily::WorkItemLease
+                    | MethodWriteFamily::WorkItemResource
+                    | MethodWriteFamily::MemoryScene
+            ),
+            _
+        ) | (
+            _,
+            Method::BeginTxn { .. }
+                | Method::Rollback { .. }
+                | Method::ClearGraph
+                | Method::AddEmbedding { .. }
+                | Method::PruneByLifecycle { .. }
+                | Method::EvictLRU { .. }
+                | Method::DecaySweep { .. }
+                | Method::TouchNodes { .. }
+                | Method::FromMsgpack { .. }
+                | Method::ClearLedger
+                | Method::ApplyLedger { .. }
+                | Method::CompactNodesByType { .. }
+                | Method::RunDatalogReasoning { .. }
+                | Method::ApplyChangeEnvelope { .. }
+                | Method::ApplyChangeEnvelopes { .. }
+                | Method::Reconcile { .. }
+                | Method::ApplyMutation { .. }
+                | Method::ApplyMultisigMutation { .. }
+                // X5-enforce (CONCEPT:EG-KG.ontology.rdf-update-guard): configuring the ICV
+                // shapes for a graph is a security-relevant operation. Its
+                // `security:admin` capability is enforced before this graph Write check;
+                // the graph ACL then binds that admin operation to its authorized route.
+                | Method::IcvConfigure { .. }
+                | Method::DeleteGraph { .. }
+                | Method::ClaimNext { .. }
+                | Method::MintWorkItemClaimCapability { .. }
+        )
     )
 }

@@ -386,7 +386,7 @@ def test_gateway_inventory_rejects_comment_spoof_for_deleted_router_arm() -> Non
 def test_every_work_item_variant_is_required_by_direct_classifier() -> None:
     module = _gate_module()
     base_sources = module.mutation_inventory_sources()
-    classifier = module._function(base_sources["mutation_batch"], "is_work_item_method")
+    families = base_sources["method_families"]
     for variant in (
         "SubmitWorkItem",
         "SubmitWorkItems",
@@ -398,16 +398,15 @@ def test_every_work_item_variant_is_required_by_direct_classifier() -> None:
         "CasWorkItemMetadata",
     ):
         sources = copy.deepcopy(base_sources)
-        marker = f"Method::{variant} {{ .. }}"
-        assert marker in classifier
-        mutated_classifier = classifier.replace(
-            marker, "Method::RemovedWorkItem { .. }", 1
-        )
-        sources["mutation_batch"] = sources["mutation_batch"].replace(
-            classifier, mutated_classifier, 1
+        marker = f"Self::{variant} {{ .. }}"
+        assert families.count(marker) == 1
+        sources["method_families"] = families.replace(
+            marker, "Self::RemovedWorkItem { .. }", 1
         )
 
-        with pytest.raises(SystemExit, match="current WorkItem lifecycle"):
+        with pytest.raises(
+            SystemExit, match="current WorkItem lifecycle|live durable classifier"
+        ):
             module.check_mutation_inventory(sources)
 
 
@@ -422,6 +421,17 @@ def test_every_work_item_variant_is_required_by_direct_classifier() -> None:
         "matches!(method, Method::SubmitWorkItem { .. }) "
         "|| matches!(method, Method::SubmitWorkItems { .. })",
         "matches!(candidate, Method::SubmitWorkItem { .. })",
+        "matches!(candidate.write_family(), "
+        "Some(MethodWriteFamily::WorkItemSubmission "
+        "| MethodWriteFamily::WorkItemLease))",
+        "matches!(method.write_family(), Some(MethodWriteFamily::WorkItemSubmission)) "
+        "|| matches!(method.write_family(), Some(MethodWriteFamily::WorkItemLease))",
+        "!matches!(method.write_family(), "
+        "Some(MethodWriteFamily::WorkItemSubmission "
+        "| MethodWriteFamily::WorkItemLease))",
+        "matches!(method.write_family(), "
+        "None | Some(MethodWriteFamily::WorkItemSubmission "
+        "| MethodWriteFamily::WorkItemLease))",
     ),
 )
 def test_work_item_classifier_rejects_nondirect_or_spoofed_shapes(
@@ -436,6 +446,32 @@ def test_work_item_classifier_rejects_nondirect_or_spoofed_shapes(
 
     with pytest.raises(SystemExit, match="is_work_item_method must"):
         module.check_mutation_inventory(sources)
+
+
+def test_work_item_family_selection_rejects_unknown_or_spoofed_families() -> None:
+    module = _gate_module()
+    base_sources = module.mutation_inventory_sources()
+    classifier = module._function(base_sources["mutation_batch"], "is_work_item_method")
+
+    unknown = copy.deepcopy(base_sources)
+    unknown["mutation_batch"] = unknown["mutation_batch"].replace(
+        classifier,
+        "matches!(method.write_family(), "
+        "Some(MethodWriteFamily::WorkItemSubmission | MethodWriteFamily::Unreviewed))",
+        1,
+    )
+    with pytest.raises(SystemExit, match="unknown Method family"):
+        module.check_mutation_inventory(unknown)
+
+    spoofed = copy.deepcopy(base_sources)
+    spoofed["method_families"] = spoofed["method_families"].replace(
+        "| Self::SubmitWorkItems { .. }",
+        "/* | Self::SubmitWorkItems { .. } */",
+        1,
+    )
+    assert spoofed["method_families"] != base_sources["method_families"]
+    with pytest.raises(SystemExit, match="current WorkItem lifecycle"):
+        module.check_mutation_inventory(spoofed)
 
 
 def test_internal_graph_commit_lock_is_fail_closed() -> None:
@@ -497,6 +533,30 @@ def test_durable_apply_source_union_contains_recursive_lanes() -> None:
         "Method::PublishIdempotent",
     ):
         assert marker in source
+
+
+def test_durable_classifier_reads_family_variants_from_code_only() -> None:
+    module = _gate_module()
+    sources = module.mutation_inventory_sources()
+    module.check_mutation_inventory(sources)
+
+    removed = copy.deepcopy(sources)
+    removed["method_families"] = removed["method_families"].replace(
+        "| Self::AppendStep { .. }", "", 1
+    )
+    assert removed["method_families"] != sources["method_families"]
+    with pytest.raises(SystemExit, match="AppendStep"):
+        module.check_mutation_inventory(removed)
+
+    spoofed = copy.deepcopy(removed)
+    spoofed["method_families"] = spoofed["method_families"].replace(
+        "| Self::StartTrajectory { .. }",
+        "| Self::StartTrajectory { .. } // | Self::AppendStep { .. }",
+        1,
+    )
+    assert spoofed["method_families"] != removed["method_families"]
+    with pytest.raises(SystemExit, match="AppendStep"):
+        module.check_mutation_inventory(spoofed)
 
 
 def test_native_command_catalog_rejects_drift_and_comment_spoofs() -> None:

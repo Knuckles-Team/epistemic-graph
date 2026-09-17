@@ -3895,6 +3895,7 @@ components:
       - "tests/test_lazy_lifecycle_architecture.py"
       - "tests/test_match_ontology_terms.py"
       - "tests/test_measurement_lite.py"
+      - "tests/test_method_families.py"
       - "tests/test_method_policy_registry.py"
       - "tests/test_mining.py"
       - "tests/test_modality_stream_clients.py"

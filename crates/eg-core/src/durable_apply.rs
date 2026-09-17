@@ -35,7 +35,7 @@
 //! produces the same graph state on every path.
 
 use crate::graph::GraphCore;
-use crate::protocol::Method;
+use crate::protocol::{Method, MethodWriteFamily};
 
 const MAX_DURABLE_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 const MAX_DURABLE_PAYLOAD_ITEMS: usize = 1_000_000;
@@ -60,90 +60,38 @@ fn decode_durable_payload<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Optio
 /// checks on top — see this module's doc comment for exactly why those four stay
 /// there.
 pub fn is_durable_mutation(m: &Method) -> bool {
-    // Message-broker admin + publish (CONCEPT:EG-KG.compute.message-broker-exchanges): each mutates control-graph
-    // nodes and replays deterministically (routing + monotonic seq derive from graph
-    // state; `apply` below re-runs the SAME broker fn over the same pre-image).
-    #[cfg(feature = "broker")]
-    if matches!(
-        m,
-        Method::DeclareExchange { .. }
-            | Method::DeleteExchange { .. }
-            | Method::BindQueue { .. }
-            | Method::UnbindQueue { .. }
-            | Method::Publish { .. }
-            // Broker policy extensions (CONCEPT:EG-KG.compute.dead-letter-queues..280): all mutate control-graph
-            // nodes deterministically from explicit args (caller `now_ms`), so replay
-            // reproduces identical state (routing + monotonic seq derive from graph).
-            | Method::DeclareQueue { .. }
-            | Method::PublishEx { .. }
-            | Method::BrokerConsume { .. }
-            | Method::BrokerAck { .. }
-            | Method::BrokerReject { .. }
-            | Method::SweepExpired { .. }
-            // Streams (CONCEPT:EG-KG.compute.replayable-append-log) + publisher-confirm / consumer-ack (CONCEPT:
-            // EG-284): the mutating variants (append/trim/commit/confirm/ack-tag/
-            // nack-tag/renew-tag) write control-graph nodes deterministically from explicit args
-            // (caller `now_ms` + durable counters), so replay reproduces them. Pure
-            // reads (`StreamRead`/`StreamCommittedOffset`) are NOT logged.
-            | Method::StreamDeclare { .. }
-            | Method::StreamPublish { .. }
-            | Method::StreamTrim { .. }
-            | Method::StreamCommitOffset { .. }
-            | Method::PublishConfirmed { .. }
-            | Method::BrokerAckTag { .. }
-            | Method::BrokerNackTag { .. }
-            | Method::BrokerRenewTag { .. }
-            // Idempotent producer (CONCEPT:EG-KG.ingest.broker-reject-publish): the dedup check + high-water-mark
-            // bump mutate a durable producer node deterministically from explicit args,
-            // so replay reproduces the identical mark + duplicate-verdict.
-            | Method::PublishIdempotent { .. }
-    ) {
-        return true;
-    }
+    // Message-broker admin + publish (CONCEPT:EG-KG.compute.message-broker-exchanges),
+    // broker policy extensions (CONCEPT:EG-KG.compute.dead-letter-queues..280),
+    // streams (CONCEPT:EG-KG.compute.replayable-append-log), publisher-confirm /
+    // consumer-ack (CONCEPT:EG-KG.compute.publisher-confirms-consumer-qos) and the
+    // idempotent producer (CONCEPT:EG-KG.ingest.broker-reject-publish) each mutate
+    // control-graph nodes deterministically from explicit args (caller `now_ms` +
+    // durable counters), so `apply` below re-runs the SAME broker fn over the same
+    // pre-image. Pure stream reads are not members of the family and are not logged.
+    // Embedding write (CONCEPT:EG-KG.compute.semantic-search): mutates the
+    // per-graph `semantic_store` (HNSW index) — classified a write by
+    // `access::requires_write` but previously missing here (EG-P0-3), so an
+    // acknowledged embedding write was lost on crash. `apply` below re-runs the
+    // SAME deterministic upsert over the same pre-image.
+    //
+    // Agent-memory / scene-graph / trajectory mutations
+    // (CONCEPT:EG-KG.memory.eg-batch-decay-caller): each writes durable nodes/edges
+    // via an eg-core primitive whose generated ids derive deterministically from
+    // sorted inputs / node-count / step ordinals and whose only clock is the
+    // EXPLICIT caller `now_ms`, so `apply` re-runs the SAME primitive over the same
+    // pre-image and reproduces byte-identical state (mirrors the EG-276..284 broker
+    // precedent). The paired READ variants are recomputable ⇒ not logged.
     matches!(
+        m.write_family(),
+        Some(
+            MethodWriteFamily::GraphElement
+                | MethodWriteFamily::WorkItemLease
+                | MethodWriteFamily::MemoryScene
+                | MethodWriteFamily::Broker
+        )
+    ) || matches!(
         m,
-        Method::AddNode { .. }
-            | Method::CreateNodeIfAbsent { .. }
-            | Method::RemoveNode { .. }
-            | Method::CompareAndSetNodeFields { .. }
-            | Method::AddEdge { .. }
-            | Method::RemoveEdge { .. }
-            | Method::InvalidateEdge { .. }
-            | Method::SupersedeEdge { .. }
-            | Method::BatchUpdate { .. }
-            | Method::ClaimNext { .. }
-            | Method::ClaimWorkItem { .. }
-            | Method::RenewWorkItemLease { .. }
-            | Method::CommitWorkItemResult { .. }
-            | Method::CancelWorkItem { .. }
-            | Method::DeferWorkItem { .. }
-            | Method::CasWorkItemMetadata { .. }
-            | Method::ClearGraph
-            // Embedding write (CONCEPT:EG-KG.compute.semantic-search): mutates the
-            // per-graph `semantic_store` (HNSW index) — classified a write by
-            // `access::requires_write` but previously missing here (EG-P0-3), so an
-            // acknowledged embedding write was lost on crash. `apply` below re-runs
-            // the SAME deterministic upsert over the same pre-image.
-            | Method::AddEmbedding { .. }
-            // Agent-memory / scene-graph / trajectory mutations (CONCEPT:EG-KG.memory.eg-batch-decay-caller):
-            // each writes durable nodes/edges via an eg-core primitive whose
-            // generated ids derive deterministically from sorted inputs / node-count
-            // / step ordinals and whose only clock is the EXPLICIT caller `now_ms`, so
-            // `apply` below re-runs the SAME primitive over the same pre-image and
-            // reproduces byte-identical state (mirrors the EG-276..284 broker
-            // precedent). The paired READ variants are recomputable ⇒ not logged.
-            | Method::CreateSummaryNode { .. }
-            | Method::Consolidate { .. }
-            | Method::Reinforce { .. }
-            | Method::DecayNode { .. }
-            | Method::DecayMemories { .. }
-            | Method::EvictBelow { .. }
-            | Method::Maintain { .. }
-            | Method::AddSceneObject { .. }
-            | Method::SetPose { .. }
-            | Method::Reparent { .. }
-            | Method::StartTrajectory { .. }
-            | Method::AppendStep { .. }
+        Method::ClaimNext { .. } | Method::ClearGraph | Method::AddEmbedding { .. }
     )
 }
 

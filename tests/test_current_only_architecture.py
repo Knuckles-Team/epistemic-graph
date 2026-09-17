@@ -57,7 +57,11 @@ def test_protocol_child_variant_is_composed_and_required() -> None:
     assert "CreateNodeIfAbsent {" in protocol
     module._check_protocol(protocol, wire)
 
-    omitted = protocol.replace("CreateNodeIfAbsent {", "CreateNodeIfAbsentRemoved {", 1)
+    # Target the variant declaration itself (four-space indent), not a family
+    # predicate pattern that also names the variant.
+    declaration = "\n    CreateNodeIfAbsent {"
+    assert protocol.count(declaration) == 1
+    omitted = protocol.replace(declaration, "\n    CreateNodeIfAbsentRemoved {", 1)
     with pytest.raises(
         SystemExit, match="missing contract variant: CreateNodeIfAbsent"
     ):

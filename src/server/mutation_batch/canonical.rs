@@ -1,7 +1,7 @@
 //! Canonical mutation classification and one-to-one method lowering.
 
 use crate::mutation_batch::{DurabilityDomain, MutationSurface};
-use crate::protocol::{CypherMode, Method};
+use crate::protocol::{CypherMode, Method, MethodWriteFamily};
 
 /// Exhaustive durability-domain classifier for mutating methods accepted by a
 /// batch adapter. Public mutation inventory tests ensure no mutating method lacks
@@ -80,59 +80,31 @@ fn owner_domain(method: &Method) -> Option<DurabilityDomain> {
 
 /// Control-plane, SQL, RDF and broker owners.
 fn service_owner_domain(method: &Method) -> Option<DurabilityDomain> {
-    Some(match method {
-        Method::KgDelegate { .. }
-        | Method::SubmitWorkItem { .. }
-        | Method::SubmitWorkItems { .. }
-        | Method::ClaimWorkItem { .. }
-        | Method::RenewWorkItemLease { .. }
-        | Method::CommitWorkItemResult { .. }
-        | Method::CancelWorkItem { .. }
-        | Method::DeferWorkItem { .. }
-        | Method::CasWorkItemMetadata { .. }
-        | Method::ReserveWorkItemResources { .. }
-        | Method::ReleaseWorkItemResources { .. }
-        | Method::ReclaimWorkItemResources { .. }
-        | Method::UpdateResourceHost { .. }
-        | Method::AcquireCapacity { .. }
-        | Method::RenewCapacity { .. }
-        | Method::ReleaseCapacity { .. }
-        | Method::ReclaimExpiredCapacity { .. }
-        | Method::UpdateCapacityCell { .. } => DurabilityDomain::ControlPlane,
+    Some(match (method.write_family(), method) {
+        (
+            Some(
+                MethodWriteFamily::WorkItemSubmission
+                | MethodWriteFamily::WorkItemLease
+                | MethodWriteFamily::WorkItemResource
+                | MethodWriteFamily::CapacityLease,
+            ),
+            _,
+        ) => DurabilityDomain::ControlPlane,
         // `Sql` is likewise wire-unconditional (gated only downstream behind
         // `query`); see the `Ts*` note above -- same reason, same fix.
-        Method::Sql { .. } => DurabilityDomain::SqlCatalog,
+        (_, Method::Sql { .. }) => DurabilityDomain::SqlCatalog,
         // Unlike `Sql`, `SqlSourceBatch` really is declared
         // `#[cfg(feature = "query")]` in eg-types (method_07.rs) with nothing
         // forcing that feature on unconditionally, so it keeps its own gate
         // as a separate arm rather than sharing `Sql`'s now-unconditional one.
         #[cfg(feature = "query")]
-        Method::SqlSourceBatch { .. } => DurabilityDomain::SqlCatalog,
+        (_, Method::SqlSourceBatch { .. }) => DurabilityDomain::SqlCatalog,
         #[cfg(feature = "rdf")]
-        Method::AddTriples { .. } | Method::RemoveTriples { .. } | Method::DropNamedGraph => {
+        (_, Method::AddTriples { .. } | Method::RemoveTriples { .. } | Method::DropNamedGraph) => {
             DurabilityDomain::RdfDataset
         }
         #[cfg(feature = "broker")]
-        Method::DeclareExchange { .. }
-        | Method::DeleteExchange { .. }
-        | Method::BindQueue { .. }
-        | Method::UnbindQueue { .. }
-        | Method::Publish { .. }
-        | Method::DeclareQueue { .. }
-        | Method::PublishEx { .. }
-        | Method::BrokerConsume { .. }
-        | Method::BrokerAck { .. }
-        | Method::BrokerReject { .. }
-        | Method::SweepExpired { .. }
-        | Method::StreamDeclare { .. }
-        | Method::StreamPublish { .. }
-        | Method::StreamTrim { .. }
-        | Method::StreamCommitOffset { .. }
-        | Method::PublishConfirmed { .. }
-        | Method::PublishIdempotent { .. }
-        | Method::BrokerAckTag { .. }
-        | Method::BrokerNackTag { .. }
-        | Method::BrokerRenewTag { .. } => DurabilityDomain::Broker,
+        (Some(MethodWriteFamily::Broker), _) => DurabilityDomain::Broker,
         _ => return None,
     })
 }
@@ -603,74 +575,48 @@ pub(super) fn lower_canonical_operation(method: Method) -> Method {
 /// Query/RDF/lifecycle adapters are classified here, not in persistence.  Their
 /// operations still use exactly the same Method payload and commit machinery.
 pub(super) fn surface_for(method: &Method) -> Option<MutationSurface> {
-    match method {
-        Method::Sql { .. }
-        | Method::SqlSourceBatch { .. }
-        | Method::CypherQuery {
-            mode: CypherMode::Write,
-            ..
-        } => Some(MutationSurface::Query),
+    match (method.write_family(), method) {
+        (
+            _,
+            Method::Sql { .. }
+            | Method::SqlSourceBatch { .. }
+            | Method::CypherQuery {
+                mode: CypherMode::Write,
+                ..
+            },
+        ) => Some(MutationSurface::Query),
         #[cfg(feature = "graphql")]
-        Method::GraphQl { .. } => Some(MutationSurface::Query),
+        (_, Method::GraphQl { .. }) => Some(MutationSurface::Query),
         #[cfg(feature = "rdf")]
-        Method::AddTriples { .. } | Method::RemoveTriples { .. } | Method::DropNamedGraph => {
+        (_, Method::AddTriples { .. } | Method::RemoveTriples { .. } | Method::DropNamedGraph) => {
             Some(MutationSurface::Rdf)
         }
-        Method::CreateGraph { .. } | Method::DeleteGraph { .. } => Some(MutationSurface::Lifecycle),
-        Method::KgDelegate { .. }
-        | Method::SubmitWorkItem { .. }
-        | Method::SubmitWorkItems { .. }
-        | Method::ReserveWorkItemResources { .. }
-        | Method::ReleaseWorkItemResources { .. }
-        | Method::ReclaimWorkItemResources { .. }
-        | Method::UpdateResourceHost { .. }
-        | Method::AcquireCapacity { .. }
-        | Method::RenewCapacity { .. }
-        | Method::ReleaseCapacity { .. }
-        | Method::ReclaimExpiredCapacity { .. }
-        | Method::UpdateCapacityCell { .. } => Some(MutationSurface::Job),
+        (_, Method::CreateGraph { .. } | Method::DeleteGraph { .. }) => {
+            Some(MutationSurface::Lifecycle)
+        }
+        (
+            Some(
+                MethodWriteFamily::WorkItemSubmission
+                | MethodWriteFamily::WorkItemResource
+                | MethodWriteFamily::CapacityLease,
+            ),
+            _,
+        ) => Some(MutationSurface::Job),
         #[cfg(feature = "jobs")]
-        Method::AnalyticsJob { .. } => Some(MutationSurface::Job),
-        Method::QueryWorkItemReservation { .. } | Method::ResourceReservationStatus { .. } => {
+        (_, Method::AnalyticsJob { .. }) => Some(MutationSurface::Job),
+        (_, Method::QueryWorkItemReservation { .. } | Method::ResourceReservationStatus { .. }) => {
             Some(MutationSurface::Query)
         }
         #[cfg(feature = "broker")]
-        Method::DeclareExchange { .. }
-        | Method::DeleteExchange { .. }
-        | Method::BindQueue { .. }
-        | Method::UnbindQueue { .. }
-        | Method::Publish { .. }
-        | Method::DeclareQueue { .. }
-        | Method::PublishEx { .. }
-        | Method::BrokerConsume { .. }
-        | Method::BrokerAck { .. }
-        | Method::BrokerReject { .. }
-        | Method::SweepExpired { .. }
-        | Method::StreamDeclare { .. }
-        | Method::StreamPublish { .. }
-        | Method::StreamTrim { .. }
-        | Method::StreamCommitOffset { .. }
-        | Method::PublishConfirmed { .. }
-        | Method::PublishIdempotent { .. }
-        | Method::BrokerAckTag { .. }
-        | Method::BrokerNackTag { .. }
-        | Method::BrokerRenewTag { .. } => Some(MutationSurface::Broker),
+        (Some(MethodWriteFamily::Broker), _) => Some(MutationSurface::Broker),
         _ => None,
     }
 }
 
 pub(crate) fn is_work_item_method(method: &Method) -> bool {
     matches!(
-        method,
-        Method::KgDelegate { .. }
-            | Method::SubmitWorkItem { .. }
-            | Method::SubmitWorkItems { .. }
-            | Method::ClaimWorkItem { .. }
-            | Method::RenewWorkItemLease { .. }
-            | Method::CommitWorkItemResult { .. }
-            | Method::CancelWorkItem { .. }
-            | Method::DeferWorkItem { .. }
-            | Method::CasWorkItemMetadata { .. }
+        method.write_family(),
+        Some(MethodWriteFamily::WorkItemSubmission | MethodWriteFamily::WorkItemLease)
     )
 }
 

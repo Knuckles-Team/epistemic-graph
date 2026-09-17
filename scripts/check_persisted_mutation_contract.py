@@ -7,6 +7,7 @@ import re
 from collections.abc import Mapping
 from pathlib import Path
 
+from method_families import expand_method_families, families_source, family_pattern
 from method_policy_inventory import (
     EXPECTED_METHOD_POLICY_ROWS,
     MethodPolicyInventoryError,
@@ -285,6 +286,48 @@ def _method_set(block: str, inventory: str) -> set[str]:
     return set(values)
 
 
+_FAMILY_NAME = r"MethodWriteFamily\s*::\s*[A-Z][A-Za-z0-9_]*"
+_FAMILY_SELECTION = re.compile(
+    r"matches\s*!\s*\(\s*method\s*\.\s*write_family\s*\(\s*\)\s*,\s*Some\s*\(\s*"
+    rf"{_FAMILY_NAME}(?:\s*\|\s*{_FAMILY_NAME})*"
+    r"\s*\)\s*,?\s*\)"
+)
+
+
+def _direct_method_inventory(block: str, inventory: str, families: str) -> set[str]:
+    """An exact ``matches!`` union, or an exact selection of `Method` families.
+
+    The family form is
+    ``matches!(method.write_family(), Some(MethodWriteFamily::A | ...))`` and
+    nothing else; each named family must have a `write_family` arm whose pattern
+    is itself an exact ``Self::... { .. } | ...`` union, parsed with the same
+    direct-shape rules. A variant appearing in two selected families is a
+    duplicate entry.
+    """
+
+    mask = _rust_code_mask(block).strip()
+    if _FAMILY_SELECTION.fullmatch(mask) is None:
+        return _direct_method_matches_set(block, inventory)
+    values: list[str] = []
+    for name in re.findall(r"MethodWriteFamily\s*::\s*([A-Z][A-Za-z0-9_]*)", mask):
+        pattern = family_pattern(families, name)
+        require(
+            pattern is not None,
+            f"{inventory} selects an unknown Method family: {name}",
+        )
+        assert pattern is not None  # narrowed: require() above already enforces this
+        values.extend(
+            _direct_method_matches_set(
+                f"matches!(method, {pattern.strip()})", f"{inventory}::{name}"
+            )
+        )
+    require(
+        len(values) == len(set(values)),
+        f"duplicate entry in Rust inventory: {inventory}",
+    )
+    return set(values)
+
+
 def _direct_method_matches_set(block: str, inventory: str) -> set[str]:
     """Parse an exact ``matches!(method, Method::... | ...)`` return body.
 
@@ -463,7 +506,9 @@ def _check_mutation_authority_inventory(
         _function_with_callees(mutation_apply, "is_durable_mutation", max_depth=4),
         "is_durable_mutation",
     ) | _method_set(
-        _function(durable_apply, "is_durable_mutation"),
+        expand_method_families(
+            _function(durable_apply, "is_durable_mutation"), sources["method_families"]
+        ),
         "eg_core::durable_apply::is_durable_mutation",
     )
     require(
@@ -509,7 +554,9 @@ def _check_mutation_applier_inventory(
     # indirection: changing any WorkItem variant must make this proof fail until
     # all durability inventories are reviewed together.
     work_item_classifier = _function(sources["mutation_batch"], "is_work_item_method")
-    work_items = _direct_method_matches_set(work_item_classifier, "is_work_item_method")
+    work_items = _direct_method_inventory(
+        work_item_classifier, "is_work_item_method", sources["method_families"]
+    )
     expected_work_items = {
         # RF-020: `KgDelegate` is an Agent Library pinned delegation that its
         # handler lowers into `SubmitWorkItem`, so it must take the same
@@ -1186,6 +1233,7 @@ def mutation_inventory_sources() -> dict[str, str]:
         # classifier/applier inventory below must read BOTH sources and union
         # them, or it silently measures only the facade remainder (BUG-CX-112).
         "durable_apply": read_module_tree("crates/eg-core/src/durable_apply.rs"),
+        "method_families": families_source(ROOT),
         "mutation_runtime": mutation_runtime.production,
         "mutation_runtime_tests": mutation_runtime.with_tests,
         "mutation_batch": mutation_batch.production,

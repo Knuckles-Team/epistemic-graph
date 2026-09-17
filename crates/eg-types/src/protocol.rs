@@ -330,6 +330,6 @@ mod support_04;
 pub use support_04::*;
 
 mod method;
-pub use method::Method;
+pub use method::{Method, MethodWriteFamily};
 #[cfg(test)]
 mod tests;

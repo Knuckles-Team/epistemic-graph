@@ -1,5 +1,6 @@
 use super::store_prelude::*;
 use super::*;
+use crate::protocol::MethodWriteFamily;
 
 /// Methods whose complete authoritative effect is represented by the NODES/EDGES/
 /// LEDGER row transaction below.  Anything else must first be lowered by its
@@ -7,30 +8,26 @@ use super::*;
 /// run would create a committed status with missing state.
 pub(crate) fn supports_atomic_batch_rows(method: &Method) -> bool {
     matches!(
-        method,
-        Method::AddNode { .. }
-            | Method::RemoveNode { .. }
-            | Method::CompareAndSetNodeFields { .. }
-            | Method::AddEdge { .. }
-            | Method::RemoveEdge { .. }
-            | Method::BatchUpdate { .. }
-            | Method::AddEmbedding { .. }
-            | Method::ClearGraph
-            | Method::ClearLedger
-            | Method::CreateGraph { .. }
-            | Method::DeleteGraph { .. }
-            | Method::ClaimWorkItem { .. }
-            | Method::SubmitWorkItem { .. }
-            | Method::SubmitWorkItems { .. }
-            | Method::RenewWorkItemLease { .. }
-            | Method::CommitWorkItemResult { .. }
-            | Method::CancelWorkItem { .. }
-            | Method::DeferWorkItem { .. }
-            | Method::CasWorkItemMetadata { .. }
-            | Method::ReserveWorkItemResources { .. }
-            | Method::ReleaseWorkItemResources { .. }
-            | Method::ReclaimWorkItemResources { .. }
-            | Method::UpdateResourceHost { .. }
+        (method.write_family(), method),
+        (
+            Some(MethodWriteFamily::WorkItemLease | MethodWriteFamily::WorkItemResource),
+            _
+        ) | (
+            _,
+            Method::AddNode { .. }
+                | Method::RemoveNode { .. }
+                | Method::CompareAndSetNodeFields { .. }
+                | Method::AddEdge { .. }
+                | Method::RemoveEdge { .. }
+                | Method::BatchUpdate { .. }
+                | Method::AddEmbedding { .. }
+                | Method::ClearGraph
+                | Method::ClearLedger
+                | Method::CreateGraph { .. }
+                | Method::DeleteGraph { .. }
+                | Method::SubmitWorkItem { .. }
+                | Method::SubmitWorkItems { .. }
+        )
     )
 }
 

@@ -7,6 +7,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from method_families import expand_method_families, families_source
 from method_policy_inventory import (
     MethodPolicyInventoryError,
     load_capability_sources,
@@ -1097,7 +1098,10 @@ def main() -> None:
     # measures a partial universe post-hoist (BUG-CX-112) -- union both.
     mutation_apply += "\n" + read("crates/eg-core/src/durable_apply.rs")
     graph_handler = read_module_tree("src/server/handlers/graph_ops.rs", root_dir=ROOT)
-    access = read_module_tree("src/server/access.rs", root_dir=ROOT, include_tests=True)
+    access = expand_method_families(
+        read_module_tree("src/server/access.rs", root_dir=ROOT, include_tests=True),
+        families_source(ROOT),
+    )
     broker = read("crates/eg-core/src/broker.rs")
     # `emit_for_method` and its dispatch helpers moved to `cdc/dispatch.rs` (KISS
     # `lines_per_file` budget on cdc.rs) -- union both, same pattern as
