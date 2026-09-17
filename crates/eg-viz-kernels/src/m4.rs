@@ -104,34 +104,9 @@ pub fn m4_reduce(xs: &[f64], ys: &[f64], x_domain: (f64, f64), width_px: u32) ->
     let mut buckets: Vec<Option<Bucket>> = vec![None; cols];
 
     if xs.len() >= SIMD_BATCH_MIN_LEN {
-        let mut idx = vec![0u32; xs.len()];
-        let mut finite = vec![false; xs.len()];
-        simd::bucket_indices(xs, domain_min, inv_range, cols, &mut idx, &mut finite);
-        for i in 0..xs.len() {
-            if !finite[i] || !ys[i].is_finite() {
-                continue;
-            }
-            let p = (xs[i], ys[i]);
-            let col = idx[i] as usize;
-            match &mut buckets[col] {
-                None => buckets[col] = Some(Bucket::seed(p)),
-                Some(b) => b.update(p),
-            }
-        }
+        accumulate_batched(xs, ys, domain_min, inv_range, &mut buckets);
     } else {
-        for i in 0..xs.len() {
-            let (x, y) = (xs[i], ys[i]);
-            if !x.is_finite() || !y.is_finite() {
-                continue;
-            }
-            let t = ((x - domain_min) * inv_range).clamp(0.0, 1.0);
-            let col = ((t * cols as f64) as usize).min(cols - 1);
-            let p = (x, y);
-            match &mut buckets[col] {
-                None => buckets[col] = Some(Bucket::seed(p)),
-                Some(b) => b.update(p),
-            }
-        }
+        accumulate_scalar(xs, ys, domain_min, inv_range, &mut buckets);
     }
 
     let mut out = Vec::with_capacity(cols * 2);
@@ -139,6 +114,59 @@ pub fn m4_reduce(xs: &[f64], ys: &[f64], x_domain: (f64, f64), width_px: u32) ->
         out.extend(bucket.into_points());
     }
     out
+}
+
+/// Seed pixel column `col`'s bucket with `p`, or fold `p` into it.
+fn fold_into_bucket(buckets: &mut [Option<Bucket>], col: usize, p: (f64, f64)) {
+    match &mut buckets[col] {
+        None => buckets[col] = Some(Bucket::seed(p)),
+        Some(b) => b.update(p),
+    }
+}
+
+/// Bucket every finite row using the batched `simd::bucket_indices` precompute.
+fn accumulate_batched(
+    xs: &[f64],
+    ys: &[f64],
+    domain_min: f64,
+    inv_range: f64,
+    buckets: &mut [Option<Bucket>],
+) {
+    let mut idx = vec![0u32; xs.len()];
+    let mut finite = vec![false; xs.len()];
+    simd::bucket_indices(
+        xs,
+        domain_min,
+        inv_range,
+        buckets.len(),
+        &mut idx,
+        &mut finite,
+    );
+    for i in 0..xs.len() {
+        if finite[i] && ys[i].is_finite() {
+            fold_into_bucket(buckets, idx[i] as usize, (xs[i], ys[i]));
+        }
+    }
+}
+
+/// Bucket every finite row one at a time (small inputs, below the batching
+/// threshold).
+fn accumulate_scalar(
+    xs: &[f64],
+    ys: &[f64],
+    domain_min: f64,
+    inv_range: f64,
+    buckets: &mut [Option<Bucket>],
+) {
+    let cols = buckets.len();
+    for (&x, &y) in xs.iter().zip(ys) {
+        if !x.is_finite() || !y.is_finite() {
+            continue;
+        }
+        let t = ((x - domain_min) * inv_range).clamp(0.0, 1.0);
+        let col = ((t * cols as f64) as usize).min(cols - 1);
+        fold_into_bucket(buckets, col, (x, y));
+    }
 }
 
 #[cfg(test)]

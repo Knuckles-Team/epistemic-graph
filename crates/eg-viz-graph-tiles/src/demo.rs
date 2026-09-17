@@ -172,55 +172,15 @@ impl DemoGraph {
     /// module's bounds first).
     pub fn build(params: DemoParams) -> Self {
         let params = params.clamped();
-        let n = params.node_count as usize;
-        let mut node_type_idx = Vec::with_capacity(n);
-        let mut pos = Vec::with_capacity(n);
-        let mut top_cluster_of = Vec::with_capacity(n);
-        let mut sub_cluster_of = Vec::with_capacity(n);
-
-        for i in 0..n as u64 {
-            let type_idx = (mix(params.seed, 0x1, i) % NODE_TYPES.len() as u64) as u8;
-            let x = (mix(params.seed, 0x2, i) >> 11) as f64 / (1u64 << 53) as f64;
-            let y = (mix(params.seed, 0x3, i) >> 11) as f64 / (1u64 << 53) as f64;
-            let top = (mix(params.seed, 0x4, i) % params.top_clusters as u64) as u32;
-            let sub = (mix(params.seed, 0x5, i) % params.sub_clusters_per_top as u64) as u32;
-            node_type_idx.push(type_idx);
-            pos.push((x as f32, y as f32));
-            top_cluster_of.push(top);
-            sub_cluster_of.push(sub);
-        }
-
-        let mut edges = Vec::with_capacity(params.edge_count as usize);
-        if n > 0 {
-            for e in 0..params.edge_count {
-                let src = (mix(params.seed, 0x6, e) % n as u64) as u32;
-                let want_intra = mix(params.seed, 0x7, e) % 100 < 80; // 80% intra-cluster bias
-                let mut dst = (mix(params.seed, 0x8, e) % n as u64) as u32;
-                if want_intra && n > 1 {
-                    // Bounded retry: reroll `dst` toward the same top cluster
-                    // as `src`, giving up (and keeping whatever `dst` landed
-                    // on) after a few tries rather than looping unboundedly.
-                    for retry in 0..4u64 {
-                        if top_cluster_of[dst as usize] == top_cluster_of[src as usize] {
-                            break;
-                        }
-                        dst = (mix(params.seed, 0x9 + retry, e) % n as u64) as u32;
-                    }
-                }
-                if dst == src {
-                    dst = ((src as u64 + 1) % n as u64) as u32;
-                }
-                let type_idx = (mix(params.seed, 0xA, e) % EDGE_TYPES.len() as u64) as u8;
-                edges.push(Edge { src, dst, type_idx });
-            }
-        }
+        let nodes = generate_nodes(&params);
+        let edges = generate_edges(&params, &nodes.top_cluster_of);
 
         Self {
             params,
-            node_type_idx,
-            pos,
-            top_cluster_of,
-            sub_cluster_of,
+            node_type_idx: nodes.node_type_idx,
+            pos: nodes.pos,
+            top_cluster_of: nodes.top_cluster_of,
+            sub_cluster_of: nodes.sub_cluster_of,
             edges,
         }
     }
@@ -309,124 +269,34 @@ enum ClusterRef {
 impl GraphSource for DemoGraph {
     fn clusters(&self, level: u32, parent: Option<u64>) -> ClusterLevel {
         if level == 0 {
-            let mut clusters = Vec::with_capacity(self.params.top_clusters as usize);
-            for c in 0..self.params.top_clusters {
-                let members: Vec<usize> = (0..self.node_count())
-                    .filter(|&i| self.top_cluster_of[i] == c)
-                    .collect();
-                let node_count = members.len() as u32;
-                let edge_count = self
-                    .edges
-                    .iter()
-                    .filter(|e| {
-                        self.top_cluster_of[e.src as usize] == c
-                            && self.top_cluster_of[e.dst as usize] == c
-                    })
-                    .count() as u32;
-                clusters.push(ClusterSummary {
-                    id: self.top_cluster_id(c),
-                    label: format!("cluster-{c}"),
-                    node_count,
-                    edge_count,
-                    centroid: self.centroid_of(members.iter().copied()),
-                    top_node_types: self.top_node_types_for(members.iter().copied()),
-                });
-            }
-            // src_idx/dst_idx are positions in the `clusters` array above,
-            // which is built in `c` order 0..top_clusters -- so `c` IS the
-            // index, no separate lookup needed.
-            let mut agg: HashMap<(u32, u32), (u32, f32)> = HashMap::new();
-            for e in &self.edges {
-                let a = self.top_cluster_of[e.src as usize];
-                let b = self.top_cluster_of[e.dst as usize];
-                if a != b {
-                    let entry = agg.entry((a, b)).or_insert((0, 0.0));
-                    entry.0 += 1;
-                    entry.1 += 1.0;
-                }
-            }
-            let mut inter_cluster_edges: Vec<InterClusterEdge> = agg
-                .into_iter()
-                .map(|((a, b), (_, weight))| InterClusterEdge {
-                    src_idx: a,
-                    dst_idx: b,
-                    weight,
-                })
-                .collect();
-            inter_cluster_edges.sort_by_key(|e| (e.src_idx, e.dst_idx));
-            ClusterLevel {
-                level: 0,
-                parent_cluster_id: None,
-                clusters,
-                inter_cluster_edges,
-            }
-        } else {
-            let Some(ClusterRef::Top(c)) = parent.and_then(|p| self.decode_cluster_id(p)) else {
-                // Unknown/out-of-range/wrong-kind parent: an empty level, not
-                // an error -- "degrade honestly" per this crate's own doc.
-                return ClusterLevel {
-                    level,
-                    parent_cluster_id: parent,
-                    clusters: Vec::new(),
-                    inter_cluster_edges: Vec::new(),
-                };
-            };
-            let mut clusters = Vec::with_capacity(self.params.sub_clusters_per_top as usize);
-            for s in 0..self.params.sub_clusters_per_top {
-                let members: Vec<usize> = (0..self.node_count())
-                    .filter(|&i| self.top_cluster_of[i] == c && self.sub_cluster_of[i] == s)
-                    .collect();
-                let node_count = members.len() as u32;
-                let edge_count = self
-                    .edges
-                    .iter()
-                    .filter(|e| {
-                        self.top_cluster_of[e.src as usize] == c
-                            && self.top_cluster_of[e.dst as usize] == c
-                            && self.sub_cluster_of[e.src as usize] == s
-                            && self.sub_cluster_of[e.dst as usize] == s
-                    })
-                    .count() as u32;
-                clusters.push(ClusterSummary {
-                    id: self.sub_cluster_id(c, s),
-                    label: format!("cluster-{c}-{s}"),
-                    node_count,
-                    edge_count,
-                    centroid: self.centroid_of(members.iter().copied()),
-                    top_node_types: self.top_node_types_for(members.iter().copied()),
-                });
-            }
-            let mut agg: HashMap<(u32, u32), (u32, f32)> = HashMap::new();
-            for e in &self.edges {
-                let (src_c, src_s) = (
-                    self.top_cluster_of[e.src as usize],
-                    self.sub_cluster_of[e.src as usize],
-                );
-                let (dst_c, dst_s) = (
-                    self.top_cluster_of[e.dst as usize],
-                    self.sub_cluster_of[e.dst as usize],
-                );
-                if src_c == c && dst_c == c && src_s != dst_s {
-                    let entry = agg.entry((src_s, dst_s)).or_insert((0, 0.0));
-                    entry.0 += 1;
-                    entry.1 += 1.0;
-                }
-            }
-            let mut inter_cluster_edges: Vec<InterClusterEdge> = agg
-                .into_iter()
-                .map(|((a, b), (_, weight))| InterClusterEdge {
-                    src_idx: a,
-                    dst_idx: b,
-                    weight,
-                })
-                .collect();
-            inter_cluster_edges.sort_by_key(|e| (e.src_idx, e.dst_idx));
-            ClusterLevel {
+            return top_level_clusters(self);
+        }
+        let Some(ClusterRef::Top(c)) = parent.and_then(|p| self.decode_cluster_id(p)) else {
+            // Unknown/out-of-range/wrong-kind parent: an empty level, not
+            // an error -- "degrade honestly" per this crate's own doc.
+            return ClusterLevel {
                 level,
                 parent_cluster_id: parent,
-                clusters,
-                inter_cluster_edges,
-            }
+                clusters: Vec::new(),
+                inter_cluster_edges: Vec::new(),
+            };
+        };
+        ClusterLevel {
+            level,
+            parent_cluster_id: parent,
+            clusters: (0..self.params.sub_clusters_per_top)
+                .map(|s| {
+                    cluster_summary(
+                        self,
+                        self.sub_cluster_id(c, s),
+                        format!("cluster-{c}-{s}"),
+                        |i| self.top_cluster_of[i] == c && self.sub_cluster_of[i] == s,
+                    )
+                })
+                .collect(),
+            inter_cluster_edges: aggregate_inter_cluster_edges(self, |e| {
+                sub_level_edge_key(self, c, e)
+            }),
         }
     }
 
@@ -458,6 +328,177 @@ impl GraphSource for DemoGraph {
             },
         }
     }
+}
+
+/// The per-node columns of a [`DemoGraph`], generated together.
+struct NodeColumns {
+    node_type_idx: Vec<u8>,
+    pos: Vec<(f32, f32)>,
+    top_cluster_of: Vec<u32>,
+    sub_cluster_of: Vec<u32>,
+}
+
+/// Every node's type, position and (top, sub) cluster, each a pure function of
+/// `(seed, node index)`.
+fn generate_nodes(params: &DemoParams) -> NodeColumns {
+    let n = params.node_count as usize;
+    let mut nodes = NodeColumns {
+        node_type_idx: Vec::with_capacity(n),
+        pos: Vec::with_capacity(n),
+        top_cluster_of: Vec::with_capacity(n),
+        sub_cluster_of: Vec::with_capacity(n),
+    };
+    for i in 0..n as u64 {
+        let type_idx = (mix(params.seed, 0x1, i) % NODE_TYPES.len() as u64) as u8;
+        let x = (mix(params.seed, 0x2, i) >> 11) as f64 / (1u64 << 53) as f64;
+        let y = (mix(params.seed, 0x3, i) >> 11) as f64 / (1u64 << 53) as f64;
+        let top = (mix(params.seed, 0x4, i) % params.top_clusters as u64) as u32;
+        let sub = (mix(params.seed, 0x5, i) % params.sub_clusters_per_top as u64) as u32;
+        nodes.node_type_idx.push(type_idx);
+        nodes.pos.push((x as f32, y as f32));
+        nodes.top_cluster_of.push(top);
+        nodes.sub_cluster_of.push(sub);
+    }
+    nodes
+}
+
+/// `edge_count` edges over the nodes whose top clusters are `top_cluster_of`, each a
+/// pure function of `(seed, edge index)`. A graph with no nodes has no edges.
+fn generate_edges(params: &DemoParams, top_cluster_of: &[u32]) -> Vec<Edge> {
+    let n = top_cluster_of.len() as u64;
+    let mut edges = Vec::with_capacity(params.edge_count as usize);
+    if n == 0 {
+        return edges;
+    }
+    for e in 0..params.edge_count {
+        let src = (mix(params.seed, 0x6, e) % n) as u32;
+        let dst = edge_destination(params.seed, top_cluster_of, src, e);
+        let type_idx = (mix(params.seed, 0xA, e) % EDGE_TYPES.len() as u64) as u8;
+        edges.push(Edge { src, dst, type_idx });
+    }
+    edges
+}
+
+/// Edge `e`'s destination: 80% of edges are biased toward `src`'s own top cluster,
+/// and a self-loop is redirected to the next node index.
+fn edge_destination(seed: u64, top_cluster_of: &[u32], src: u32, e: u64) -> u32 {
+    let n = top_cluster_of.len() as u64;
+    let want_intra = mix(seed, 0x7, e) % 100 < 80; // 80% intra-cluster bias
+    let mut dst = (mix(seed, 0x8, e) % n) as u32;
+    if want_intra && n > 1 {
+        dst = reroll_toward_source_cluster(seed, top_cluster_of, src, dst, e);
+    }
+    if dst == src {
+        dst = ((src as u64 + 1) % n) as u32;
+    }
+    dst
+}
+
+/// Bounded retry: reroll `dst` toward the same top cluster as `src`, giving up (and
+/// keeping whatever `dst` landed on) after a few tries rather than looping
+/// unboundedly.
+fn reroll_toward_source_cluster(
+    seed: u64,
+    top_cluster_of: &[u32],
+    src: u32,
+    mut dst: u32,
+    e: u64,
+) -> u32 {
+    let n = top_cluster_of.len() as u64;
+    for retry in 0..4u64 {
+        if top_cluster_of[dst as usize] == top_cluster_of[src as usize] {
+            break;
+        }
+        dst = (mix(seed, 0x9 + retry, e) % n) as u32;
+    }
+    dst
+}
+
+/// Level 0: one summary per top cluster, plus the aggregated edges between them.
+/// `src_idx`/`dst_idx` are positions in the `clusters` array, which is built in `c`
+/// order 0..top_clusters -- so `c` IS the index, no separate lookup needed.
+fn top_level_clusters(g: &DemoGraph) -> ClusterLevel {
+    ClusterLevel {
+        level: 0,
+        parent_cluster_id: None,
+        clusters: (0..g.params.top_clusters)
+            .map(|c| {
+                cluster_summary(g, g.top_cluster_id(c), format!("cluster-{c}"), |i| {
+                    g.top_cluster_of[i] == c
+                })
+            })
+            .collect(),
+        inter_cluster_edges: aggregate_inter_cluster_edges(g, |e| top_level_edge_key(g, e)),
+    }
+}
+
+/// One cluster's summary; `member` decides node membership, and an edge counts
+/// toward the cluster when both endpoints are members.
+fn cluster_summary(
+    g: &DemoGraph,
+    id: u64,
+    label: String,
+    member: impl Fn(usize) -> bool,
+) -> ClusterSummary {
+    let members: Vec<usize> = (0..g.node_count()).filter(|&i| member(i)).collect();
+    let edge_count = g
+        .edges
+        .iter()
+        .filter(|e| member(e.src as usize) && member(e.dst as usize))
+        .count() as u32;
+    ClusterSummary {
+        id,
+        label,
+        node_count: members.len() as u32,
+        edge_count,
+        centroid: g.centroid_of(members.iter().copied()),
+        top_node_types: g.top_node_types_for(members.iter().copied()),
+    }
+}
+
+/// The `(src_idx, dst_idx)` of an edge crossing two different top clusters.
+fn top_level_edge_key(g: &DemoGraph, e: &Edge) -> Option<(u32, u32)> {
+    let a = g.top_cluster_of[e.src as usize];
+    let b = g.top_cluster_of[e.dst as usize];
+    (a != b).then_some((a, b))
+}
+
+/// The `(src_idx, dst_idx)` of an edge inside top cluster `c` that crosses two
+/// different sub-clusters.
+fn sub_level_edge_key(g: &DemoGraph, c: u32, e: &Edge) -> Option<(u32, u32)> {
+    let (src_c, src_s) = (
+        g.top_cluster_of[e.src as usize],
+        g.sub_cluster_of[e.src as usize],
+    );
+    let (dst_c, dst_s) = (
+        g.top_cluster_of[e.dst as usize],
+        g.sub_cluster_of[e.dst as usize],
+    );
+    (src_c == c && dst_c == c && src_s != dst_s).then_some((src_s, dst_s))
+}
+
+/// Sum one unit of weight per edge into its `key` bucket (edges with no key are
+/// skipped), sorted by `(src_idx, dst_idx)`.
+fn aggregate_inter_cluster_edges(
+    g: &DemoGraph,
+    key: impl Fn(&Edge) -> Option<(u32, u32)>,
+) -> Vec<InterClusterEdge> {
+    let mut agg: HashMap<(u32, u32), (u32, f32)> = HashMap::new();
+    for k in g.edges.iter().filter_map(key) {
+        let entry = agg.entry(k).or_insert((0, 0.0));
+        entry.0 += 1;
+        entry.1 += 1.0;
+    }
+    let mut inter_cluster_edges: Vec<InterClusterEdge> = agg
+        .into_iter()
+        .map(|((a, b), (_, weight))| InterClusterEdge {
+            src_idx: a,
+            dst_idx: b,
+            weight,
+        })
+        .collect();
+    inter_cluster_edges.sort_by_key(|e| (e.src_idx, e.dst_idx));
+    inter_cluster_edges
 }
 
 #[cfg(test)]

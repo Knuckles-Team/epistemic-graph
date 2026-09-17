@@ -58,75 +58,133 @@ pub fn lttb_reduce(xs: &[f64], ys: &[f64], threshold: usize) -> Vec<(f64, f64)> 
         return data;
     }
     if threshold <= 2 {
-        return if threshold == 1 {
-            vec![data[0]]
-        } else {
-            vec![data[0], data[n - 1]]
-        };
+        return endpoints_only(&data, threshold);
     }
 
-    let bucket_size = (n - 2) as f64 / (threshold - 2) as f64;
-    let max_bucket_cap = (bucket_size.ceil() as usize) + 2;
-    let mut cx_buf: Vec<f64> = Vec::with_capacity(max_bucket_cap);
-    let mut cy_buf: Vec<f64> = Vec::with_capacity(max_bucket_cap);
-    let mut area_buf: Vec<f64> = Vec::with_capacity(max_bucket_cap);
+    select_bucket_representatives(&data, threshold)
+}
+
+/// `threshold` is 1 or 2 (and below the input length): the first point, or the first
+/// and last.
+fn endpoints_only(data: &[(f64, f64)], threshold: usize) -> Vec<(f64, f64)> {
+    if threshold == 1 {
+        vec![data[0]]
+    } else {
+        vec![data[0], data[data.len() - 1]]
+    }
+}
+
+/// The LTTB selection chain for `3 <= threshold < data.len()` over x-sorted, finite
+/// `data`: the first point, one representative per interior bucket, the last point.
+fn select_bucket_representatives(data: &[(f64, f64)], threshold: usize) -> Vec<(f64, f64)> {
+    let n = data.len();
+    let buckets = LttbBuckets {
+        size: (n - 2) as f64 / (threshold - 2) as f64,
+        n,
+    };
+    let mut scratch = TriangleScratch::with_capacity((buckets.size.ceil() as usize) + 2);
 
     let mut sampled = Vec::with_capacity(threshold);
     sampled.push(data[0]);
     let mut a = 0usize;
 
     for i in 0..(threshold - 2) {
-        let avg_start = (((i + 1) as f64 * bucket_size) as usize + 1).min(n);
-        let avg_end = (((i + 2) as f64 * bucket_size) as usize + 1).min(n);
-        let avg_start = avg_start.min(avg_end);
-        let avg_point = if avg_end > avg_start {
-            let (mut sx, mut sy) = (0.0, 0.0);
-            for p in &data[avg_start..avg_end] {
-                sx += p.0;
-                sy += p.1;
-            }
-            let len = (avg_end - avg_start) as f64;
-            (sx / len, sy / len)
+        let avg_point = buckets.next_bucket_mean(data, i);
+        let (range_start, range_end) = buckets.bounds(i, i + 1);
+        a = if range_start >= range_end {
+            range_start.min(n - 1)
         } else {
-            data[n - 1]
+            range_start + scratch.largest_triangle(data, a, avg_point, range_start, range_end)
         };
-
-        let range_start = ((i as f64 * bucket_size) as usize + 1).min(n);
-        let range_end = (((i + 1) as f64 * bucket_size) as usize + 1).min(n);
-        let range_start = range_start.min(range_end);
-
-        if range_start >= range_end {
-            let idx = range_start.min(n - 1);
-            sampled.push(data[idx]);
-            a = idx;
-            continue;
-        }
-
-        cx_buf.clear();
-        cy_buf.clear();
-        for p in &data[range_start..range_end] {
-            cx_buf.push(p.0);
-            cy_buf.push(p.1);
-        }
-        area_buf.clear();
-        area_buf.resize(cx_buf.len(), 0.0);
-        simd::triangle_areas(data[a], avg_point, &cx_buf, &cy_buf, &mut area_buf);
-
-        let mut best_local = 0usize;
-        let mut best_area = area_buf[0];
-        for (j, &area) in area_buf.iter().enumerate().skip(1) {
-            if area > best_area {
-                best_area = area;
-                best_local = j;
-            }
-        }
-        let best_idx = range_start + best_local;
-        sampled.push(data[best_idx]);
-        a = best_idx;
+        sampled.push(data[a]);
     }
 
     sampled.push(data[n - 1]);
     sampled
+}
+
+/// The bucket geometry of one LTTB run over `n` points.
+struct LttbBuckets {
+    size: f64,
+    n: usize,
+}
+
+impl LttbBuckets {
+    /// `[start, end)` of the index range spanning bucket boundaries `from..to`,
+    /// clamped to `n` and never inverted.
+    fn bounds(&self, from: usize, to: usize) -> (usize, usize) {
+        let start = ((from as f64 * self.size) as usize + 1).min(self.n);
+        let end = ((to as f64 * self.size) as usize + 1).min(self.n);
+        (start.min(end), end)
+    }
+
+    /// The mean point of the bucket after bucket `i`, or the last point when that
+    /// bucket is empty.
+    fn next_bucket_mean(&self, data: &[(f64, f64)], i: usize) -> (f64, f64) {
+        let (avg_start, avg_end) = self.bounds(i + 1, i + 2);
+        if avg_end <= avg_start {
+            return data[self.n - 1];
+        }
+        let (mut sx, mut sy) = (0.0, 0.0);
+        for p in &data[avg_start..avg_end] {
+            sx += p.0;
+            sy += p.1;
+        }
+        let len = (avg_end - avg_start) as f64;
+        (sx / len, sy / len)
+    }
+}
+
+/// Reused per-bucket buffers for the SIMD triangle-area pass.
+struct TriangleScratch {
+    cx: Vec<f64>,
+    cy: Vec<f64>,
+    area: Vec<f64>,
+}
+
+impl TriangleScratch {
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            cx: Vec::with_capacity(capacity),
+            cy: Vec::with_capacity(capacity),
+            area: Vec::with_capacity(capacity),
+        }
+    }
+
+    /// Offset within `data[range_start..range_end]` (non-empty) of the point forming
+    /// the largest triangle with `data[a]` and `avg_point`; the first wins ties.
+    fn largest_triangle(
+        &mut self,
+        data: &[(f64, f64)],
+        a: usize,
+        avg_point: (f64, f64),
+        range_start: usize,
+        range_end: usize,
+    ) -> usize {
+        self.cx.clear();
+        self.cy.clear();
+        for p in &data[range_start..range_end] {
+            self.cx.push(p.0);
+            self.cy.push(p.1);
+        }
+        self.area.clear();
+        self.area.resize(self.cx.len(), 0.0);
+        simd::triangle_areas(data[a], avg_point, &self.cx, &self.cy, &mut self.area);
+        first_max_index(&self.area)
+    }
+}
+
+/// Index of the first maximum of a non-empty slice (strict `>` keeps the earliest).
+fn first_max_index(values: &[f64]) -> usize {
+    let mut best_local = 0usize;
+    let mut best_area = values[0];
+    for (j, &area) in values.iter().enumerate().skip(1) {
+        if area > best_area {
+            best_area = area;
+            best_local = j;
+        }
+    }
+    best_local
 }
 
 #[cfg(test)]

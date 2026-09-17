@@ -342,35 +342,11 @@ impl ViewSpec {
         let declared_scales: std::collections::HashSet<&str> =
             self.scales.iter().map(|s| s.id.as_str()).collect();
         for (i, mark) in self.marks.iter().enumerate() {
-            if mark.data_ref.trim().is_empty() {
-                errors.push(format!("mark[{i}] has an empty data_ref"));
-            }
-            for (channel, encoding) in [
-                ("x", &mark.encodings.x),
-                ("y", &mark.encodings.y),
-                ("color", &mark.encodings.color),
-                ("size", &mark.encodings.size),
-                ("shape", &mark.encodings.shape),
-            ] {
-                if let Some(encoding) = encoding {
-                    if let Some(scale_id) = &encoding.scale {
-                        if !declared_scales.contains(scale_id.as_str()) {
-                            errors.push(format!(
-                                "mark[{i}] channel `{channel}` references undeclared scale `{scale_id}`"
-                            ));
-                        }
-                    }
-                }
-            }
+            collect_mark_errors(i, mark, &declared_scales, &mut errors);
         }
 
         if let Some(facet) = &self.facet {
-            if facet.by.trim().is_empty() {
-                errors.push("facet.by must be non-empty".to_string());
-            }
-            if facet.columns == 0 {
-                errors.push("facet.columns must be positive".to_string());
-            }
+            collect_facet_errors(facet, &mut errors);
         }
 
         if errors.is_empty() {
@@ -378,6 +354,43 @@ impl ViewSpec {
         } else {
             Err(errors)
         }
+    }
+}
+
+/// `mark[i]`'s errors: an empty `data_ref`, then every encoding channel (in
+/// x/y/color/size/shape order) whose `scale` id is not a declared scale.
+fn collect_mark_errors(
+    i: usize,
+    mark: &MarkSpec,
+    declared_scales: &std::collections::HashSet<&str>,
+    errors: &mut SpecErrors,
+) {
+    if mark.data_ref.trim().is_empty() {
+        errors.push(format!("mark[{i}] has an empty data_ref"));
+    }
+    for (channel, encoding) in [
+        ("x", &mark.encodings.x),
+        ("y", &mark.encodings.y),
+        ("color", &mark.encodings.color),
+        ("size", &mark.encodings.size),
+        ("shape", &mark.encodings.shape),
+    ] {
+        let scale_id = encoding.as_ref().and_then(|e| e.scale.as_deref());
+        if let Some(scale_id) = scale_id.filter(|id| !declared_scales.contains(id)) {
+            errors.push(format!(
+                "mark[{i}] channel `{channel}` references undeclared scale `{scale_id}`"
+            ));
+        }
+    }
+}
+
+/// A facet's errors: an empty `by`, then a zero `columns`.
+fn collect_facet_errors(facet: &FacetSpec, errors: &mut SpecErrors) {
+    if facet.by.trim().is_empty() {
+        errors.push("facet.by must be non-empty".to_string());
+    }
+    if facet.columns == 0 {
+        errors.push("facet.columns must be positive".to_string());
     }
 }
 
