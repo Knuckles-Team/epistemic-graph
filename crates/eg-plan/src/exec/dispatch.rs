@@ -22,13 +22,13 @@ pub(super) const UNSUPPORTED_MODALITY_OP: &str =
 pub(crate) fn is_epistemic_op(op: &Op) -> bool {
     matches!(
         op,
-        Op::EvidenceFor { .. }
-            | Op::Contradicts { .. }
-            | Op::SupportedBy { .. }
-            | Op::BeliefAsOf { .. }
-            | Op::SourceReliability { .. }
+        Op::ExplainBelief { .. }
             | Op::ConfidenceOp {}
-            | Op::ExplainBelief { .. }
+            | Op::SourceReliability { .. }
+            | Op::BeliefAsOf { .. }
+            | Op::SupportedBy { .. }
+            | Op::Contradicts { .. }
+            | Op::EvidenceFor { .. }
     )
 }
 
