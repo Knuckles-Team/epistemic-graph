@@ -41,3 +41,8 @@ bloc
 # ABI name, not a misspelling of "wrongly". It cannot be reworded, and the only
 # occurrence in the tree is the one open() call that needs write-only access.
 wronly
+# AtMost/AtLeast: eg-compute solve::model::ConstraintBody cardinality variant
+# names ("at most k of vars", "at least k of vars" — standard integer-programming
+# terminology), not misspellings of "almost"/"utmost"/"at least".
+atmost
+atleast

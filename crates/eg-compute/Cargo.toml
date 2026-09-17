@@ -29,6 +29,12 @@ mining = ["eg-types/mining", "dep:eg-geo"]
 # wire variants exist. No heavy dep (no torch) — folded into `full` via `compute`.
 graphlearn = ["datascience", "eg-types/graphlearn"]
 reasoning = []
+# General bounded 0-1 integer programming with verifiable certificates (Decide
+# layer package A3): validated models with integer rows and a lexicographic
+# objective, a deterministic node-budgeted branch-and-bound, Lagrangian
+# leaf-bound certificates and an independent verifier. Integer-only and
+# dependency-free beyond the crate's existing serde/sha2/hex.
+solve = []
 # GPU transitive-closure DISPATCH SEAM (CONCEPT:EG-KG.compute.reasoning-closure-gpu):
 # compiles the `ClosureBackend` trait + backend selection in `reasoning_closure`. The
 # pure-Rust CPU hash-join is ALWAYS the compiled-in fallback; this marker just opts a
@@ -136,6 +142,15 @@ criterion = "0.5"
 # `rand_chacha` dep is optional under `datascience`; tests need it unconditionally).
 rand_chacha = "0.3"
 
+# Offline `IndexRepository` driver harness: calls `parser::resolve::index_repository`,
+# which lives behind the `ast` grammars, so the example is gated to it (a default
+# `cargo check --examples`, or a check under another feature such as `solve`, skips it).
+# Run: `cargo run -p eg-compute --features ast --example index_repository_json`.
+[[example]]
+name = "index_repository_json"
+path = "examples/index_repository_json.rs"
+required-features = ["ast"]
+
 # AST parse-throughput baseline (CONCEPT:EG-012). `parse_files` lives behind the
 # `ast` grammars, so the bench is gated to it (a default `cargo check --benches`
 # skips it). Run: `cargo bench -p eg-compute --features ast --bench parse_bench`.
@@ -152,6 +167,15 @@ required-features = ["ast"]
 name = "approx_knn"
 path = "benches/approx_knn.rs"
 harness = false
+
+# Assembly-scale solver bench (Decide A3): 64 candidates x 32 capabilities with
+# exactly-one, implication, budget and cardinality rows, solved and verified.
+# Run: `cargo bench -p eg-compute --features solve --bench solve_cover`.
+[[bench]]
+name = "solve_cover"
+path = "benches/solve_cover.rs"
+harness = false
+required-features = ["solve"]
 
 # Test-only opt-in cfg (not a feature, so `--all-features` never turns it on). See the
 # crate's device/CPU-feature parity tests for when to pass `--cfg eg_gpu_device_tests`.

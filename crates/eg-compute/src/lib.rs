@@ -103,6 +103,11 @@ pub mod graphlearn;
 pub mod probabilistic;
 #[cfg(feature = "reasoning")]
 pub mod reasoning;
+// Decide layer package A3 — general bounded 0-1 integer programming: validated
+// models, deterministic node-budgeted branch-and-bound, Lagrangian leaf-bound
+// certificates and an independent verifier. Integer-only, no heavy deps.
+#[cfg(feature = "solve")]
+pub mod solve;
 // CONCEPT:EG-KG.compute.reasoning-closure-gpu — semi-naive integer-interned rewrite of
 // the `reasoning` fixpoint, with the transitive-closure join factored behind a
 // `ClosureBackend` seam (CPU always-on + feature-gated CUDA kernel). Rides `reasoning`;
