@@ -200,20 +200,36 @@ pub(crate) fn orient(a: &Point, b: &Point, c: &Point) -> f64 {
 
 /// Do segments `p1→p2` and `p3→p4` intersect (proper or at an endpoint)?
 fn seg_seg_intersect(p1: &Point, p2: &Point, p3: &Point, p4: &Point) -> bool {
-    let d1 = orient(p3, p4, p1);
-    let d2 = orient(p3, p4, p2);
-    let d3 = orient(p1, p2, p3);
-    let d4 = orient(p1, p2, p4);
-    if ((d1 > 0.0 && d2 < 0.0) || (d1 < 0.0 && d2 > 0.0))
-        && ((d3 > 0.0 && d4 < 0.0) || (d3 < 0.0 && d4 > 0.0))
-    {
+    let [d1, d2, d3, d4] = segment_orientations(p1, p2, p3, p4);
+    if opposite_sides(d1, d2) && opposite_sides(d3, d4) {
         return true;
     }
     // Collinear-overlap / touching endpoints.
-    (d1 == 0.0 && point_on_segment(p1, p3, p4))
-        || (d2 == 0.0 && point_on_segment(p2, p3, p4))
-        || (d3 == 0.0 && point_on_segment(p3, p1, p2))
-        || (d4 == 0.0 && point_on_segment(p4, p1, p2))
+    collinear_on_segment(d1, p1, p3, p4)
+        || collinear_on_segment(d2, p2, p3, p4)
+        || collinear_on_segment(d3, p3, p1, p2)
+        || collinear_on_segment(d4, p4, p1, p2)
+}
+
+/// The orientations of each segment's endpoints against the other segment's line:
+/// `p1`, `p2` against `p3→p4`, then `p3`, `p4` against `p1→p2`.
+fn segment_orientations(p1: &Point, p2: &Point, p3: &Point, p4: &Point) -> [f64; 4] {
+    [
+        orient(p3, p4, p1),
+        orient(p3, p4, p2),
+        orient(p1, p2, p3),
+        orient(p1, p2, p4),
+    ]
+}
+
+/// Two orientation values strictly on opposite sides of a directed line.
+fn opposite_sides(a: f64, b: f64) -> bool {
+    (a > 0.0 && b < 0.0) || (a < 0.0 && b > 0.0)
+}
+
+/// `p` is collinear with segment `a→b` (its orientation value `d` is zero) and lies on it.
+fn collinear_on_segment(d: f64, p: &Point, a: &Point, b: &Point) -> bool {
+    d == 0.0 && point_on_segment(p, a, b)
 }
 
 // ── DE-9IM topological relations (CONCEPT:EG-KG.ontology.de-9im-relations) ────────────────────────────────
@@ -522,12 +538,8 @@ fn collinear_overlap(p1: &Point, p2: &Point, p3: &Point, p4: &Point) -> bool {
 /// Do segments `p1→p2` and `p3→p4` cross PROPERLY — at a single point interior to both
 /// (all four orientations strictly non-zero with opposite signs)?
 fn seg_proper_cross(p1: &Point, p2: &Point, p3: &Point, p4: &Point) -> bool {
-    let d1 = orient(p3, p4, p1);
-    let d2 = orient(p3, p4, p2);
-    let d3 = orient(p1, p2, p3);
-    let d4 = orient(p1, p2, p4);
-    ((d1 > 0.0 && d2 < 0.0) || (d1 < 0.0 && d2 > 0.0))
-        && ((d3 > 0.0 && d4 < 0.0) || (d3 < 0.0 && d4 > 0.0))
+    let [d1, d2, d3, d4] = segment_orientations(p1, p2, p3, p4);
+    opposite_sides(d1, d2) && opposite_sides(d3, d4)
 }
 
 #[cfg(test)]
@@ -907,5 +919,32 @@ mod tests {
         let b = line(&[(2.0, 0.0), (6.0, 0.0)]);
         assert!(overlaps(&a, &b));
         assert!(!crosses(&a, &b));
+    }
+
+    #[test]
+    fn seg_seg_intersect_proper_touching_collinear_and_disjoint() {
+        let p = |x: f64, y: f64| Point::new(x, y);
+        let hit = |a: (f64, f64), b: (f64, f64), c: (f64, f64), d: (f64, f64)| {
+            seg_seg_intersect(&p(a.0, a.1), &p(b.0, b.1), &p(c.0, c.1), &p(d.0, d.1))
+        };
+        // Proper crossing, in both orientations of each segment.
+        assert!(hit((0.0, 0.0), (2.0, 2.0), (0.0, 2.0), (2.0, 0.0)));
+        assert!(hit((2.0, 2.0), (0.0, 0.0), (2.0, 0.0), (0.0, 2.0)));
+        // Straddling lines whose segments stop short of each other.
+        assert!(!hit((0.0, 0.0), (1.0, 1.0), (0.0, 4.0), (4.0, 0.0)));
+        assert!(!hit((0.0, 4.0), (4.0, 0.0), (0.0, 0.0), (1.0, 1.0)));
+        // Parallel, disjoint.
+        assert!(!hit((0.0, 0.0), (2.0, 0.0), (0.0, 1.0), (2.0, 1.0)));
+        // Each endpoint touching the other segment (d1, d2, d3, d4 == 0 in turn).
+        assert!(hit((1.0, 0.0), (1.0, 5.0), (0.0, 0.0), (2.0, 0.0)));
+        assert!(hit((1.0, 5.0), (1.0, 0.0), (0.0, 0.0), (2.0, 0.0)));
+        assert!(hit((0.0, 0.0), (2.0, 0.0), (1.0, 0.0), (1.0, 5.0)));
+        assert!(hit((0.0, 0.0), (2.0, 0.0), (1.0, 5.0), (1.0, 0.0)));
+        // Collinear: overlapping, sharing one endpoint, and disjoint.
+        assert!(hit((0.0, 0.0), (3.0, 0.0), (2.0, 0.0), (5.0, 0.0)));
+        assert!(hit((0.0, 0.0), (2.0, 0.0), (2.0, 0.0), (5.0, 0.0)));
+        assert!(!hit((0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (5.0, 0.0)));
+        // Orientation zero on the carrier line but the endpoint lies outside the segment.
+        assert!(!hit((3.0, 0.0), (3.0, 5.0), (0.0, 0.0), (2.0, 0.0)));
     }
 }
