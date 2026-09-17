@@ -47,6 +47,9 @@ use parking_lot::RwLock;
 
 use crate::graph::GraphCore;
 
+mod server_maintenance;
+use server_maintenance::{maintain_server_index, record_server_index_step};
+
 /// One node touched by a committed write batch (CONCEPT:EG-KG.storage.write-changeset). Carries
 /// the node id and — for adds/updates — OPTIONALLY the new property blob, so a
 /// content-derived index (text / temporal) can compute its own delta without
@@ -931,55 +934,10 @@ impl IndexManager {
         // Their `apply_delta` reads ONLY the ChangeSet's captured blobs — NEVER
         // `core`'s topology lock, which this batch already holds. A failure marks
         // the manifest stale and excludes the index from planner selection.
+        let target = IndexManifest::valid(target_version, node_count, edge_count);
         for idx in self.server_indexes.read().iter() {
-            let prior = idx.manifest();
-            // A delta is safe only over an index that completely covers the
-            // pre-mutation source. Never let one later delta bless a stale or
-            // partially materialized index as complete.
-            let source_coverage_valid = if change.is_empty() {
-                // With no topology delta, the supplied post-mutation counts
-                // are also the pre-mutation source counts, so the exact
-                // reconciliation predicate is available even under the held
-                // topology guard.
-                prior.covers_source(core.version(), node_count, edge_count)
-            } else {
-                // Structural callers currently provide post-mutation counts;
-                // retain the version gate for the pre-mutation delta base and
-                // let the registry/read surfaces perform the exact tuple check.
-                prior.covers_version(core.version())
-            };
-            if idx.maintains_manifest() && !source_coverage_valid {
-                let mut stale = prior;
-                stale.validity = IndexValidity::Stale;
-                stale.completeness.complete = false;
-                idx.publish_manifest(stale);
-                tally.failures += 1;
-                continue;
-            }
-            if change.is_empty() {
-                // Vector-only batches leave server-derived content unchanged but
-                // still advance the graph version. Carry forward known-complete
-                // coverage without rebuilding or applying a phantom delta.
-                idx.publish_manifest(IndexManifest::valid(target_version, node_count, edge_count));
-                continue;
-            }
-            match idx.apply_delta(core, change) {
-                Ok(()) => {
-                    idx.publish_manifest(IndexManifest::valid(
-                        target_version,
-                        node_count,
-                        edge_count,
-                    ));
-                    tally.deltas_applied += 1;
-                }
-                Err(_) => {
-                    let mut manifest = idx.manifest();
-                    manifest.validity = IndexValidity::Stale;
-                    manifest.completeness.complete = false;
-                    idx.publish_manifest(manifest);
-                    tally.failures += 1;
-                }
-            }
+            let step = maintain_server_index(idx.as_ref(), core, change, target);
+            record_server_index_step(&mut tally, step);
         }
         tally
     }
@@ -1072,6 +1030,14 @@ mod tests {
 
     struct ManifestProbe {
         manifest: std::sync::Mutex<IndexManifest>,
+        fail_delta: bool,
+    }
+
+    fn manifest_probe(manifest: IndexManifest, fail_delta: bool) -> Box<ManifestProbe> {
+        Box::new(ManifestProbe {
+            manifest: std::sync::Mutex::new(manifest),
+            fail_delta,
+        })
     }
 
     impl SecondaryIndex for ManifestProbe {
@@ -1112,6 +1078,9 @@ mod tests {
         }
 
         fn apply_delta(&self, _core: &GraphCore, _change: &ChangeSet) -> Result<(), IndexError> {
+            if self.fail_delta {
+                return Err(IndexError::Failed("probe".to_string()));
+            }
             Ok(())
         }
     }
@@ -1121,9 +1090,7 @@ mod tests {
     #[test]
     fn stale_manifest_cursor_blocks_noop_maintenance() {
         let g = GraphCore::new();
-        g.register_index(Box::new(ManifestProbe {
-            manifest: std::sync::Mutex::new(IndexManifest::valid(0, 1, 0)),
-        }));
+        g.register_index(manifest_probe(IndexManifest::valid(0, 1, 0), false));
 
         let tally = g.indexes().commit_batch_at(&g, &ChangeSet::new(), 1, 0, 0);
         assert_eq!(tally.deltas_applied, 0);
@@ -1131,6 +1098,52 @@ mod tests {
         let manifest = g.indexes().server_manifests()[0].1;
         assert_eq!(manifest.validity, IndexValidity::Stale);
         assert!(!manifest.completeness.complete);
+    }
+
+    /// A no-op batch over an exactly covering manifest carries coverage forward to
+    /// the target version without applying a delta.
+    #[test]
+    fn covering_manifest_carries_forward_on_a_noop_batch() {
+        let g = GraphCore::new();
+        g.register_index(manifest_probe(IndexManifest::valid(0, 0, 0), true));
+
+        let tally = g.indexes().commit_batch_at(&g, &ChangeSet::new(), 9, 0, 0);
+        assert_eq!(tally, BatchMaintenance::default());
+        assert_eq!(
+            g.indexes().server_manifests()[0].1,
+            IndexManifest::valid(9, 0, 0)
+        );
+    }
+
+    /// A real delta over a version-current manifest publishes `Valid` at the target
+    /// version when the index applies it, and `Stale` when it fails; a manifest
+    /// built for another version is marked stale without attempting the delta.
+    #[test]
+    fn server_delta_outcome_decides_the_published_manifest() {
+        let mut change = ChangeSet::new();
+        change.record_remove_node("gone".into());
+        let run = |manifest: IndexManifest, fail_delta: bool| {
+            let g = GraphCore::new();
+            g.register_index(manifest_probe(manifest, fail_delta));
+            let tally = g.indexes().commit_batch_at(&g, &change, 5, 2, 1);
+            (tally, g.indexes().server_manifests()[0].1)
+        };
+
+        let (applied, published) = run(IndexManifest::valid(0, 7, 7), false);
+        assert_eq!(published, IndexManifest::valid(5, 2, 1));
+
+        let (failed, stale) = run(IndexManifest::valid(0, 7, 7), true);
+        assert_eq!(stale.validity, IndexValidity::Stale);
+        assert!(!stale.completeness.complete);
+        assert_eq!(stale.source_snapshot_version, 0);
+        assert_eq!(failed.failures, applied.failures + 1);
+        assert_eq!(failed.deltas_applied + 1, applied.deltas_applied);
+
+        let (behind, fenced) = run(IndexManifest::valid(3, 7, 7), false);
+        assert_eq!(fenced.validity, IndexValidity::Stale);
+        assert_eq!(fenced.source_snapshot_version, 3);
+        assert_eq!(behind.failures, applied.failures + 1);
+        assert_eq!(behind.deltas_applied + 1, applied.deltas_applied);
     }
 
     /// `index_for` routes a label predicate to the LABEL index and a property

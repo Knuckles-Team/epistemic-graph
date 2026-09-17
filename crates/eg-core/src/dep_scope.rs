@@ -126,6 +126,11 @@ impl WriteFootprint {
     pub fn is_touching(&self) -> bool {
         self.node_changed || self.edge_changed || self.coarse_node
     }
+
+    /// Whether this footprint names any fine (label / property-key) dimension.
+    fn has_fine_dims(&self) -> bool {
+        !self.labels.is_empty() || !self.keys.is_empty()
+    }
 }
 
 /// Per-graph dependency clock (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation).
@@ -161,51 +166,13 @@ impl DepClock {
     /// so the write's subsequent `mark_dirty` does not floor. Returns the number of fine
     /// dimensions recorded (observability).
     pub fn note_footprint(&self, fp: &WriteFootprint, version: u64) {
-        if fp.node_changed || fp.coarse_node {
-            self.all_nodes.fetch_max(version, Ordering::AcqRel);
-        }
-        if fp.edge_changed {
-            self.all_edges.fetch_max(version, Ordering::AcqRel);
-        }
-        // An un-attributable node change floors everything at this version: no
-        // dependency-scoped entry computed at or before it may survive.
-        if fp.coarse_node {
-            self.floor.fetch_max(version, Ordering::AcqRel);
-        }
-        if !fp.labels.is_empty() || !fp.keys.is_empty() {
-            let mut fine = self.fine.lock();
-            for label in &fp.labels {
-                Self::bump_fine(
-                    &mut fine,
-                    &self.saturated,
-                    Dim::Label(label.clone()),
-                    version,
-                );
-            }
-            for key in &fp.keys {
-                Self::bump_fine(&mut fine, &self.saturated, Dim::Key(key.clone()), version);
-            }
-        }
+        note_coarse_dimensions(self, fp, version);
+        note_fine_dimensions(self, fp, version);
         // ORDER: advance covered_through LAST, after every dimension is recorded, so a
         // concurrent reader that observes covered_through >= V is guaranteed to also observe
         // the dimension writes for V (AcqRel fences the fine-map mutex release).
         self.covered_through.fetch_max(version, Ordering::AcqRel);
-        // GOOD LOGS: the invalidation DECISION — which dependency dimensions this write touched
-        // (so a dependency-scoped result-cache entry overlapping them is now invalid) and whether
-        // it floored (an un-attributable change invalidating everything). Off the hot path (once
-        // per committed batch, field formatting lazy under `tracing`).
-        if fp.is_touching() || !fp.labels.is_empty() || !fp.keys.is_empty() {
-            tracing::debug!(
-                target: "epistemic_graph::dep_cache",
-                version,
-                labels = ?fp.labels,
-                keys = ?fp.keys,
-                node = fp.node_changed,
-                edge = fp.edge_changed,
-                coarse_floor = fp.coarse_node,
-                "dependency-scoped invalidation: entries depending on these dimensions are retired"
-            );
-        }
+        trace_footprint_invalidation(fp, version);
     }
 
     /// Record that `version` is now the committed graph version (called from every `mark_dirty`).
@@ -327,6 +294,54 @@ impl DepClock {
         fine.entry(dim)
             .and_modify(|v| *v = (*v).max(version))
             .or_insert(version);
+    }
+}
+
+/// Bump the coarse `AllNodes` / `AllEdges` dimensions a footprint touched, and floor
+/// everything at `version` for an un-attributable node change: no dependency-scoped
+/// entry computed at or before it may survive.
+fn note_coarse_dimensions(clock: &DepClock, fp: &WriteFootprint, version: u64) {
+    if fp.node_changed || fp.coarse_node {
+        clock.all_nodes.fetch_max(version, Ordering::AcqRel);
+    }
+    if fp.edge_changed {
+        clock.all_edges.fetch_max(version, Ordering::AcqRel);
+    }
+    if fp.coarse_node {
+        clock.floor.fetch_max(version, Ordering::AcqRel);
+    }
+}
+
+/// Record every label, then every property key, a footprint names at `version`
+/// (taking the fine-map lock only when there is at least one).
+fn note_fine_dimensions(clock: &DepClock, fp: &WriteFootprint, version: u64) {
+    if !fp.has_fine_dims() {
+        return;
+    }
+    let mut fine = clock.fine.lock();
+    let labels = fp.labels.iter().cloned().map(Dim::Label);
+    let keys = fp.keys.iter().cloned().map(Dim::Key);
+    for dim in labels.chain(keys) {
+        DepClock::bump_fine(&mut fine, &clock.saturated, dim, version);
+    }
+}
+
+/// GOOD LOGS: the invalidation DECISION — which dependency dimensions this write touched
+/// (so a dependency-scoped result-cache entry overlapping them is now invalid) and whether
+/// it floored (an un-attributable change invalidating everything). Off the hot path (once
+/// per committed batch, field formatting lazy under `tracing`).
+fn trace_footprint_invalidation(fp: &WriteFootprint, version: u64) {
+    if fp.is_touching() || fp.has_fine_dims() {
+        tracing::debug!(
+            target: "epistemic_graph::dep_cache",
+            version,
+            labels = ?fp.labels,
+            keys = ?fp.keys,
+            node = fp.node_changed,
+            edge = fp.edge_changed,
+            coarse_floor = fp.coarse_node,
+            "dependency-scoped invalidation: entries depending on these dimensions are retired"
+        );
     }
 }
 
