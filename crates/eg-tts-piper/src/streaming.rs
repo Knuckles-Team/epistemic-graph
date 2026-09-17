@@ -10,6 +10,7 @@
 //! delivered to the caller one at a time over a bounded channel as they are produced —
 //! never after buffering the whole response.
 
+use std::ops::ControlFlow;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;
@@ -190,6 +191,165 @@ impl Drop for ProducerExitSignal {
     }
 }
 
+/// The phrases to synthesize, in order. Phrase-level segmentation is only meaningful
+/// over ORIGINAL text — arbitrary caller-supplied phonemes (InputMode::Phonemes) have
+/// no reliably-detectable sentence boundary, so that mode streams as one phrase (still
+/// chunked at the audio-byte level). Fails closed when nothing is synthesizable.
+fn request_phrases(input_mode: InputMode, input_text: &str) -> Result<Vec<String>, TtsError> {
+    let phrases: Vec<String> = match input_mode {
+        InputMode::Text => segment_phrases(input_text),
+        InputMode::Phonemes => {
+            let trimmed = input_text.trim();
+            if trimmed.is_empty() {
+                Vec::new()
+            } else {
+                vec![trimmed.to_string()]
+            }
+        }
+    };
+    if phrases.is_empty() {
+        return Err(TtsError::MalformedRequest {
+            reason: "no synthesizable phrase found in input",
+        });
+    }
+    Ok(phrases)
+}
+
+/// The producer thread of [`synthesize_streaming`]: the request state the synthesis
+/// loop reads, plus the running chunk position (`sample_offset`, `sequence`).
+struct Producer {
+    voice: LoadedVoice,
+    tx: mpsc::SyncSender<Result<SynthesizedChunk, TtsError>>,
+    cancel: CancellationToken,
+    request_id: RequestId,
+    job_id: JobId,
+    input_mode: InputMode,
+    espeak_voice: String,
+    speaker_id: Option<i64>,
+    controls: SynthesisControls,
+    max_samples_per_chunk: usize,
+    max_chunks: u64,
+    sample_offset: u64,
+    sequence: u64,
+}
+
+impl Producer {
+    /// Synthesize and stream every phrase in order, stopping at the first delivered
+    /// error, cancellation, resource cap, or dropped receiver.
+    fn run(mut self, phrases: Vec<String>) {
+        let phrase_count = phrases.len();
+        for (phrase_index, phrase) in phrases.into_iter().enumerate() {
+            let is_last_phrase = phrase_index + 1 == phrase_count;
+            if self
+                .stream_phrase(phrase_index, &phrase, is_last_phrase)
+                .is_break()
+            {
+                return;
+            }
+        }
+    }
+
+    /// Synthesize one phrase and stream its audio in chunks of at most
+    /// `max_samples_per_chunk` samples, checking cancellation before the phrase and
+    /// before every chunk. `Break` ends production.
+    fn stream_phrase(
+        &mut self,
+        phrase_index: usize,
+        phrase: &str,
+        is_last_phrase: bool,
+    ) -> ControlFlow<()> {
+        if self.cancel.is_cancelled() {
+            return self.fail(TtsError::Cancelled);
+        }
+        let (samples, sample_rate) = match self.phrase_samples(phrase) {
+            Ok(Some(audio)) => audio,
+            Ok(None) => return ControlFlow::Continue(()),
+            Err(e) => return self.fail(e),
+        };
+        let mut start = 0usize;
+        while start < samples.len() {
+            if self.cancel.is_cancelled() {
+                return self.fail(TtsError::Cancelled);
+            }
+            let end = (start + self.max_samples_per_chunk).min(samples.len());
+            let is_final = is_last_phrase && end == samples.len();
+            self.send_chunk(&samples[start..end], phrase_index, sample_rate, is_final)?;
+            start = end;
+        }
+        ControlFlow::Continue(())
+    }
+
+    /// The phrase's raw samples and sample rate, or `None` when it contributes no
+    /// audio: a phrase that resolved to no phonemes at all (e.g. pure punctuation) or
+    /// synthesized to no samples — neither is an error.
+    fn phrase_samples(&mut self, phrase: &str) -> Result<Option<(Vec<f32>, u32)>, TtsError> {
+        let phonemes = self
+            .voice
+            .resolve_phonemes(self.input_mode, phrase, &self.espeak_voice)?;
+        if phonemes.trim().is_empty() {
+            return Ok(None);
+        }
+        let (samples, sample_rate) =
+            self.voice
+                .create_raw(&phonemes, self.speaker_id, self.controls)?;
+        Ok((!samples.is_empty()).then_some((samples, sample_rate)))
+    }
+
+    /// Encode one chunk of samples, advance the chunk position, and send it — unless
+    /// that exceeds `max_chunks` (delivered as `ResourceExhausted`) or the receiver
+    /// is gone (the caller stopped consuming). Either ends production.
+    fn send_chunk(
+        &mut self,
+        slice: &[f32],
+        phrase_index: usize,
+        sample_rate: u32,
+        is_final: bool,
+    ) -> ControlFlow<()> {
+        let (pcm, clipped_samples, non_finite_samples, peak_abs) = pcm16le_with_quality(slice);
+        let digest = sha256_hex(&pcm);
+        let rendition_ref = TtsBoundedId::new(format!("chunk-{}", self.sequence))
+            .expect("`chunk-<u64>` always satisfies BoundedId's 1..=128 alnum/dash/colon shape");
+        let chunk = TtsChunk {
+            request_id: self.request_id.clone(),
+            job_id: self.job_id.clone(),
+            sequence: ChunkSequence(self.sequence),
+            phrase_index: phrase_index as u32,
+            sample_offset: self.sample_offset,
+            sample_count: slice.len() as u32,
+            sample_rate,
+            channels: 1,
+            encoding: OutputEncoding::Pcm16Le,
+            rendition_ref,
+            rendition_digest: digest,
+            is_final,
+            quality: ChunkQuality::Measured {
+                clipped_samples,
+                non_finite_samples,
+                peak_abs,
+            },
+        };
+
+        self.sample_offset += slice.len() as u64;
+        self.sequence += 1;
+        if self.sequence > self.max_chunks {
+            return self.fail(TtsError::ResourceExhausted {
+                limit: "max_chunks",
+            });
+        }
+        if self.tx.send(Ok(SynthesizedChunk { chunk, pcm })).is_err() {
+            // Receiver dropped (caller stopped consuming) — stop producing.
+            return ControlFlow::Break(());
+        }
+        ControlFlow::Continue(())
+    }
+
+    /// Deliver `error` as the stream's next item and stop producing.
+    fn fail(&self, error: TtsError) -> ControlFlow<()> {
+        let _ = self.tx.send(Err(error));
+        ControlFlow::Break(())
+    }
+}
+
 /// Everything [`synthesize_streaming`] needs beyond the loaded voice and cancellation
 /// handle, grouped into one struct so the function signature stays small regardless of
 /// how many `tts.rs` request fields a synthesis call ultimately depends on.
@@ -211,7 +371,7 @@ pub struct SynthesizeRequest {
 /// DURING synthesis (phonemization, inference, or a resource cap) are delivered as the
 /// next item of the returned stream rather than panicking or being lost.
 pub fn synthesize_streaming(
-    mut voice: LoadedVoice,
+    voice: LoadedVoice,
     request: SynthesizeRequest,
     cancel: CancellationToken,
 ) -> Result<ChunkStream, TtsError> {
@@ -240,123 +400,33 @@ pub fn synthesize_streaming(
     }
     let speaker_id = voice.validate_speaker(speaker)?;
 
-    // Phrase-level segmentation is only meaningful over ORIGINAL text — arbitrary
-    // caller-supplied phonemes (InputMode::Phonemes) have no reliably-detectable
-    // sentence boundary, so that mode streams as one phrase (still chunked at the
-    // audio-byte level below).
-    let phrases: Vec<String> = match input_mode {
-        InputMode::Text => segment_phrases(&input_text),
-        InputMode::Phonemes => {
-            let trimmed = input_text.trim();
-            if trimmed.is_empty() {
-                Vec::new()
-            } else {
-                vec![trimmed.to_string()]
-            }
-        }
-    };
-    if phrases.is_empty() {
-        return Err(TtsError::MalformedRequest {
-            reason: "no synthesizable phrase found in input",
-        });
-    }
+    let phrases = request_phrases(input_mode, &input_text)?;
 
     let (tx, rx) = mpsc::sync_channel(4);
     let (exited, producer_exited) = mpsc::sync_channel(1);
-    let max_samples_per_chunk = (limits.max_chunk_decoded_bytes / 2).max(1) as usize;
-    let max_chunks = u64::from(limits.max_chunks);
     let deadline = Instant::now() + Duration::from_millis(u64::from(limits.request_deadline_ms));
     let stream_cancel = cancel.clone();
+
+    let producer = Producer {
+        voice,
+        tx,
+        cancel,
+        request_id,
+        job_id,
+        input_mode,
+        espeak_voice,
+        speaker_id,
+        controls,
+        max_samples_per_chunk: (limits.max_chunk_decoded_bytes / 2).max(1) as usize,
+        max_chunks: u64::from(limits.max_chunks),
+        sample_offset: 0,
+        sequence: 0,
+    };
 
     // Detached on purpose: the stream waits on `ProducerExitSignal`, never on a join.
     thread::spawn(move || {
         let _exit_signal = ProducerExitSignal(exited);
-        let phrase_count = phrases.len();
-        let mut sample_offset: u64 = 0;
-        let mut sequence: u64 = 0;
-
-        for (phrase_index, phrase) in phrases.into_iter().enumerate() {
-            if cancel.is_cancelled() {
-                let _ = tx.send(Err(TtsError::Cancelled));
-                return;
-            }
-
-            let phonemes = match voice.resolve_phonemes(input_mode, &phrase, &espeak_voice) {
-                Ok(p) => p,
-                Err(e) => {
-                    let _ = tx.send(Err(e));
-                    return;
-                }
-            };
-            if phonemes.trim().is_empty() {
-                // A phrase that resolved to no phonemes at all (e.g. pure
-                // punctuation) contributes no audio — not an error.
-                continue;
-            }
-
-            let (samples, sample_rate) = match voice.create_raw(&phonemes, speaker_id, controls) {
-                Ok(v) => v,
-                Err(e) => {
-                    let _ = tx.send(Err(e));
-                    return;
-                }
-            };
-            if samples.is_empty() {
-                continue;
-            }
-
-            let is_last_phrase = phrase_index + 1 == phrase_count;
-            let mut start = 0usize;
-            while start < samples.len() {
-                if cancel.is_cancelled() {
-                    let _ = tx.send(Err(TtsError::Cancelled));
-                    return;
-                }
-                let end = (start + max_samples_per_chunk).min(samples.len());
-                let slice = &samples[start..end];
-                let (pcm, clipped_samples, non_finite_samples, peak_abs) =
-                    pcm16le_with_quality(slice);
-                let digest = sha256_hex(&pcm);
-                let rendition_ref = TtsBoundedId::new(format!("chunk-{sequence}")).expect(
-                    "`chunk-<u64>` always satisfies BoundedId's 1..=128 alnum/dash/colon shape",
-                );
-                let is_final = is_last_phrase && end == samples.len();
-
-                let chunk = TtsChunk {
-                    request_id: request_id.clone(),
-                    job_id: job_id.clone(),
-                    sequence: ChunkSequence(sequence),
-                    phrase_index: phrase_index as u32,
-                    sample_offset,
-                    sample_count: slice.len() as u32,
-                    sample_rate,
-                    channels: 1,
-                    encoding: OutputEncoding::Pcm16Le,
-                    rendition_ref,
-                    rendition_digest: digest,
-                    is_final,
-                    quality: ChunkQuality::Measured {
-                        clipped_samples,
-                        non_finite_samples,
-                        peak_abs,
-                    },
-                };
-
-                sample_offset += slice.len() as u64;
-                sequence += 1;
-                if sequence > max_chunks {
-                    let _ = tx.send(Err(TtsError::ResourceExhausted {
-                        limit: "max_chunks",
-                    }));
-                    return;
-                }
-                if tx.send(Ok(SynthesizedChunk { chunk, pcm })).is_err() {
-                    // Receiver dropped (caller stopped consuming) — stop producing.
-                    return;
-                }
-                start = end;
-            }
-        }
+        producer.run(phrases);
     });
 
     Ok(ChunkStream {
