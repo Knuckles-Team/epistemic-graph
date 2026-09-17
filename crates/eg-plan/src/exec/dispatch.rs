@@ -13,6 +13,26 @@ use super::*;
 pub(super) const UNSUPPORTED_MODALITY_OP: &str =
     "plan operator requires a modality feature not enabled in this build";
 
+/// The `epistemic` variant family, in one place — shared by [`apply`]'s routing arm and
+/// [`crate::optimizer`]'s reorder-exclusion check so the two lists of `Op::EvidenceFor`/
+/// `Contradicts`/`SupportedBy`/`BeliefAsOf`/`SourceReliability`/`ConfidenceOp`/
+/// `ExplainBelief` can't drift apart as separately copied literals (BUG-CX-136 clone
+/// gate: an identical literal list in two files is a real duplicate even when it
+/// originates from the same enum).
+#[cfg(feature = "epistemic")]
+pub(crate) fn is_epistemic_op(op: &Op) -> bool {
+    matches!(
+        op,
+        Op::EvidenceFor { .. }
+            | Op::Contradicts { .. }
+            | Op::SupportedBy { .. }
+            | Op::BeliefAsOf { .. }
+            | Op::SourceReliability { .. }
+            | Op::ConfidenceOp {}
+            | Op::ExplainBelief { .. }
+    )
+}
+
 /// Dispatch one physical [`Op`] to its executor (CONCEPT:EG-KG.query.exec-arm-dispatch).
 /// Grouped by theme into the tier functions below purely to keep each match's own arm
 /// count under the complexity cap — [`Op`] itself, and every arm's behavior, is
@@ -63,15 +83,10 @@ pub(super) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         // evidence for/against a claim, belief-confidence re-scoring and time-pinning, source
         // reliability, and justification-tree flattening. Gated behind `epistemic`; the
         // variants only exist when eg-types/epistemic is on (the tensor/geo/probabilistic
-        // gating precedent).
+        // gating precedent). The variant list itself lives once in `is_epistemic_op` above,
+        // shared with `optimizer::is_reorderable`'s exclusion check.
         #[cfg(feature = "epistemic")]
-        Op::EvidenceFor { .. }
-        | Op::Contradicts { .. }
-        | Op::SupportedBy { .. }
-        | Op::BeliefAsOf { .. }
-        | Op::SourceReliability { .. }
-        | Op::ConfidenceOp {}
-        | Op::ExplainBelief { .. } => apply_epistemic(op, input, ctx),
+        _ if is_epistemic_op(op) => apply_epistemic(op, input, ctx),
 
         // SOURCE/FUSE (time-series, CONCEPT:EG-KG.query.multi-rate-sensor-stream /
         // native-time-series): multi-rate sensor fusion (ASOF-aligned or clock-resampled) and

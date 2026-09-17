@@ -502,18 +502,11 @@ fn is_reorderable(op: &Op) -> bool {
     // re-score by a stateful belief-propagation walk (not a stateless per-row predicate), and
     // `ExplainBelief`'s flattened output depends on tree DEPTH/order — none of these commute
     // freely with a reorder the way a pure narrowing predicate does. Excluded EXPLICITLY (not
-    // by omission) so a future edit to this match can't silently make them reorder-eligible.
+    // by omission) via the shared `crate::exec::dispatch::is_epistemic_op` (also `apply`'s
+    // own routing check) so a future edit to that ONE list can't silently make them
+    // reorder-eligible.
     #[cfg(feature = "epistemic")]
-    if matches!(
-        op,
-        Op::EvidenceFor { .. }
-            | Op::Contradicts { .. }
-            | Op::SupportedBy { .. }
-            | Op::BeliefAsOf { .. }
-            | Op::SourceReliability { .. }
-            | Op::ConfidenceOp {}
-            | Op::ExplainBelief { .. }
-    ) {
+    if crate::exec::dispatch::is_epistemic_op(op) {
         return false;
     }
     false

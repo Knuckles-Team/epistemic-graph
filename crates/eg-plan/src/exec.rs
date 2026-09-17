@@ -26,7 +26,8 @@ use crate::algebra::{Op, Plan, Pred};
 use crate::rowset::RowSet;
 use eg_types::wire::TimeAxis;
 
-mod dispatch;
+pub(crate) mod dispatch;
+pub(crate) use dispatch::apply;
 
 /// Everything an operator might touch, gathered from ONE consistent snapshot. In a
 /// handler this is exactly what is already available off-lock: the `GraphView`
@@ -677,8 +678,6 @@ impl PlanExt for Plan {
         execute(self, ctx)
     }
 }
-
-pub(crate) use dispatch::apply;
 
 /// GRAPH TRAVERSE (CONCEPT:EG-KG.query.exec-arm-dispatch) — petgraph BFS over the `GraphView`
 /// topology for `min..=max` hops of relationship `rel`, seeded by the current candidate ids.
