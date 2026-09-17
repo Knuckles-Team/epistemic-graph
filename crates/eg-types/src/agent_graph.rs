@@ -36,6 +36,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use crate::agent_component::{AgentComponentKind, ComponentDependency};
 use crate::agent_library::AgentLibraryLifecycle;
+use crate::agent_template::validate_definition_texts;
 
 /// Advanced to 2 by the pre-freeze contract review, which changed both halves
 /// of a graph's identity: a decision node and an edge condition now pin a
@@ -811,15 +812,7 @@ impl AgentGraphEntry {
 
 impl AgentGraphDraft {
     pub fn validate(&self) -> Result<(), String> {
-        for (field, value) in [
-            ("graph_id", self.graph_id.as_str()),
-            ("version", self.version.as_str()),
-            ("tenant_id", self.tenant_id.as_str()),
-            ("actor_scope", self.actor_scope.as_str()),
-            ("purpose_id", self.purpose_id.as_str()),
-        ] {
-            validate_text(field, value)?;
-        }
+        validate_definition_texts!(self, graph_id, validate_text)?;
         validate_digest("policy_digest", &self.policy_digest)?;
         if let Some(evidence) = &self.synthesis_evidence {
             // Evidence is an opaque artifact, not a typed component: it records

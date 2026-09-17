@@ -17,6 +17,18 @@ pub use identifiers::{
     SchemaId, ScopeKind, TenantId, UtcUnixNanos, VerificationStatus,
 };
 
+/// Whether a located-evidence region is well-formed: every coordinate finite
+/// and a strictly positive extent. The wire contract and the modality artifact
+/// contract both validate image and page regions against this one definition.
+pub fn valid_evidence_region(x: f64, y: f64, width: f64, height: f64) -> bool {
+    x.is_finite()
+        && y.is_finite()
+        && width.is_finite()
+        && height.is_finite()
+        && width > 0.0
+        && height > 0.0
+}
+
 pub const SHA256_BYTES: usize = 32;
 pub const SHA256_HEX_BYTES: usize = SHA256_BYTES * 2;
 pub const NONCE_BYTES: usize = 32;

@@ -103,15 +103,22 @@ fn validate_frame_timing(
         && temporal_buckets(frame.start_ms, frame.end_ms).is_ok()
 }
 
+/// What frame validation accumulates across one payload's frames: the frame
+/// identities seen, each track's last frame (number and end time), and every
+/// accepted frame's payload byte range.
+struct FrameLedger {
+    frame_ids: BTreeSet<(u32, u64)>,
+    last_frame: BTreeMap<u32, (u64, u64)>,
+    byte_ranges: Vec<(u64, u64)>,
+}
+
 fn validate_frame(
     frame: &VideoFrame,
     video: &VideoData,
     track_ids: &BTreeSet<u32>,
-    frame_ids: &mut BTreeSet<(u32, u64)>,
-    last_frame: &mut BTreeMap<u32, (u64, u64)>,
-    byte_ranges: &mut Vec<(u64, u64)>,
+    ledger: &mut FrameLedger,
 ) -> bool {
-    let previous = last_frame.get(&frame.track_id).copied();
+    let previous = ledger.last_frame.get(&frame.track_id).copied();
     let sequential = previous.map_or(
         frame.frame_number == 1 && frame.start_ms == 0,
         |(number, end_ms)| {
@@ -119,7 +126,7 @@ fn validate_frame(
         },
     );
     let byte_end = frame.byte_offset.checked_add(u64::from(frame.byte_length));
-    let valid = validate_frame_identity(frame, track_ids, frame_ids)
+    let valid = validate_frame_identity(frame, track_ids, &mut ledger.frame_ids)
         && validate_frame_timing(
             frame,
             video.duration_ms,
@@ -129,24 +136,23 @@ fn validate_frame(
             },
         );
     if valid {
-        last_frame.insert(frame.track_id, (frame.frame_number, frame.end_ms));
-        byte_ranges.push((frame.byte_offset, byte_end.unwrap_or_default()));
+        ledger
+            .last_frame
+            .insert(frame.track_id, (frame.frame_number, frame.end_ms));
+        ledger
+            .byte_ranges
+            .push((frame.byte_offset, byte_end.unwrap_or_default()));
     }
     valid
 }
 
-fn validate_frames(
-    video: &VideoData,
-    track_ids: &BTreeSet<u32>,
-    frame_ids: &mut BTreeSet<(u32, u64)>,
-    last_frame: &mut BTreeMap<u32, (u64, u64)>,
-    byte_ranges: &mut Vec<(u64, u64)>,
-) -> bool {
+fn validate_frames(video: &VideoData, track_ids: &BTreeSet<u32>, ledger: &mut FrameLedger) -> bool {
     !video.frames.is_empty()
         && video.frames.len() <= MAX_FRAMES
-        && video.frames.iter().all(|frame| {
-            validate_frame(frame, video, track_ids, frame_ids, last_frame, byte_ranges)
-        })
+        && video
+            .frames
+            .iter()
+            .all(|frame| validate_frame(frame, video, track_ids, ledger))
 }
 
 fn has_video_track(video: &VideoData) -> bool {
@@ -237,22 +243,18 @@ impl ModalityContract for VideoData {
 impl GovernedModality for VideoData {
     fn validate_governed_payload(&self) -> bool {
         let mut track_ids = BTreeSet::new();
-        let mut frame_ids = BTreeSet::new();
-        let mut last_frame: BTreeMap<u32, (u64, u64)> = BTreeMap::new();
-        let mut byte_ranges = Vec::with_capacity(self.frames.len().min(MAX_FRAMES));
+        let mut ledger = FrameLedger {
+            frame_ids: BTreeSet::new(),
+            last_frame: BTreeMap::new(),
+            byte_ranges: Vec::with_capacity(self.frames.len().min(MAX_FRAMES)),
+        };
         validate_video_header(self)
             && validate_shots(self)
             && validate_tracks(self, &mut track_ids)
             && has_video_track(self)
-            && validate_frames(
-                self,
-                &track_ids,
-                &mut frame_ids,
-                &mut last_frame,
-                &mut byte_ranges,
-            )
+            && validate_frames(self, &track_ids, &mut ledger)
             && has_video_frame(self)
-            && payload_ranges_are_disjoint(&mut byte_ranges)
+            && payload_ranges_are_disjoint(&mut ledger.byte_ranges)
     }
 
     fn native_index_keys(&self) -> Vec<NativeIndexKey> {

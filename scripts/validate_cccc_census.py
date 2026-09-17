@@ -14,6 +14,7 @@ import argparse
 import json
 import math
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NamedTuple, NoReturn
 
@@ -75,13 +76,20 @@ def fail(message: str) -> NoReturn:
     raise SystemExit(2)
 
 
-def _read_report(path: Path) -> dict[str, Any]:
+def read_report_object(
+    path: Path, refuse: Callable[[str], NoReturn] = fail
+) -> dict[str, Any]:
+    """Read a report file as a JSON object, refusing through `refuse`.
+
+    `refuse` lets a consumer of this validator refuse in its own name.
+    """
+
     try:
         document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        fail(f"cannot read report {path}: {exc}")
+        refuse(f"cannot read report {path}: {exc}")
     if not isinstance(document, dict):
-        fail(f"report {path} is not a JSON object")
+        refuse(f"report {path} is not a JSON object")
     return document
 
 
@@ -346,7 +354,7 @@ def _validate_exact_paths(
 
 
 def validate_report(path: Path, source_manifest: Path | None = None) -> int:
-    document = _read_report(path)
+    document = read_report_object(path)
     validated = validate_document(document, path, source_manifest)
     print(
         f"cccc census: {len(validated.files)} tracked source file(s), "

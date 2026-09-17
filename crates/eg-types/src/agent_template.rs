@@ -368,15 +368,7 @@ fn substitute(
 
 impl AgentTemplateDraft {
     pub fn validate(&self) -> Result<(), String> {
-        for (field, value) in [
-            ("template_id", self.template_id.as_str()),
-            ("version", self.version.as_str()),
-            ("tenant_id", self.tenant_id.as_str()),
-            ("actor_scope", self.actor_scope.as_str()),
-            ("purpose_id", self.purpose_id.as_str()),
-        ] {
-            validate_text(field, value)?;
-        }
+        validate_definition_texts!(self, template_id, validate_text)?;
         validate_digest("policy_digest", &self.policy_digest)?;
         // The base must be a real agent. A template whose default does not
         // validate is a template that can produce nothing.
@@ -524,6 +516,26 @@ fn validate_text(field: &str, value: &str) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Validate the text header every agent-hierarchy definition carries -- its id,
+/// version, tenant, actor scope and purpose, in that order -- with the calling
+/// layer's own text validator, so each refuses in its own words. A macro so each
+/// field name is `stringify!`d from the field it reads and the two cannot drift.
+macro_rules! validate_definition_texts {
+    ($draft:expr, $id:ident, $validate_text:path) => {{
+        let draft = $draft;
+        [
+            (stringify!($id), &draft.$id),
+            (stringify!(version), &draft.version),
+            (stringify!(tenant_id), &draft.tenant_id),
+            (stringify!(actor_scope), &draft.actor_scope),
+            (stringify!(purpose_id), &draft.purpose_id),
+        ]
+        .into_iter()
+        .try_for_each(|(field, value)| $validate_text(field, value))
+    }};
+}
+pub(crate) use validate_definition_texts;
 
 /// Which durable mutation a template operation performs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

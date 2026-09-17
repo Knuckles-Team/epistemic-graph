@@ -50,15 +50,6 @@ impl EvidenceLocusWire {
         }
     }
 
-    fn valid_region(x: f64, y: f64, width: f64, height: f64) -> bool {
-        x.is_finite()
-            && y.is_finite()
-            && width.is_finite()
-            && height.is_finite()
-            && width > 0.0
-            && height > 0.0
-    }
-
     fn valid_ordered_range(address: &EvidenceAddressWire) -> bool {
         match address {
             EvidenceAddressWire::CharacterRange { start, end }
@@ -137,7 +128,7 @@ impl EvidenceLocusWire {
             ..
         } = address
         {
-            return Self::valid_region(*x, *y, *width, *height);
+            return crate::contract::valid_evidence_region(*x, *y, *width, *height);
         }
         if let EvidenceAddressWire::Point { x, y } = address {
             return x.is_finite() && y.is_finite();

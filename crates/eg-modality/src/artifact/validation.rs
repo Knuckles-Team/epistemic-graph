@@ -53,7 +53,7 @@ fn valid_address(address: &EvidenceAddress) -> bool {
             width,
             height,
             ..
-        } => valid_region(*x, *y, *width, *height),
+        } => eg_types::contract::valid_evidence_region(*x, *y, *width, *height),
         EvidenceAddress::Point { x, y } => x.is_finite() && y.is_finite(),
         EvidenceAddress::RowVersion { .. } | EvidenceAddress::TraceSpan { .. } => true,
     }
@@ -65,15 +65,6 @@ fn strictly_ordered(start: u64, end: u64) -> bool {
 
 fn ordered_or_equal(start: u64, end: u64) -> bool {
     end >= start
-}
-
-fn valid_region(x: f64, y: f64, width: f64, height: f64) -> bool {
-    x.is_finite()
-        && y.is_finite()
-        && width.is_finite()
-        && height.is_finite()
-        && width > 0.0
-        && height > 0.0
 }
 
 pub(super) fn validate_bundle(bundle: &ArtifactBundle) -> Result<(), ProtocolError> {

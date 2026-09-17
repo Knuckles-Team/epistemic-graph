@@ -25,33 +25,41 @@ fn validate_receipt_reference_properties(
             node.node_id
         ));
     }
-    let result_ref = properties
-        .get("result_ref")
-        .ok_or_else(|| format!("receipt node '{}' is missing 'result_ref'", node.node_id))?;
-    match (&bundle.result_ref, result_ref) {
-        (Some(expected), serde_json::Value::String(actual)) if actual == expected => {}
-        (None, serde_json::Value::Null) => {}
-        _ => {
-            return Err(format!(
-                "receipt node '{}' result_ref is not bound",
-                node.node_id
-            ))
+    validate_optional_string_property(
+        node,
+        properties,
+        "result_ref",
+        bundle.result_ref.as_deref(),
+    )?;
+    validate_optional_string_property(
+        node,
+        properties,
+        "result_digest",
+        bundle.result_digest.as_deref(),
+    )
+}
+
+/// A receipt property bound to an optional bundle string: present on the node,
+/// and either the same string or JSON null when the bundle carries none.
+fn validate_optional_string_property(
+    node: &ReceiptNode,
+    properties: &std::collections::BTreeMap<String, serde_json::Value>,
+    name: &str,
+    expected: Option<&str>,
+) -> Result<(), String> {
+    let actual = properties
+        .get(name)
+        .ok_or_else(|| format!("receipt node '{}' is missing '{name}'", node.node_id))?;
+    match (expected, actual) {
+        (Some(expected), serde_json::Value::String(actual)) if actual.as_str() == expected => {
+            Ok(())
         }
+        (None, serde_json::Value::Null) => Ok(()),
+        _ => Err(format!(
+            "receipt node '{}' {name} is not bound",
+            node.node_id
+        )),
     }
-    let result_digest = properties
-        .get("result_digest")
-        .ok_or_else(|| format!("receipt node '{}' is missing 'result_digest'", node.node_id))?;
-    match (&bundle.result_digest, result_digest) {
-        (Some(expected), serde_json::Value::String(actual)) if actual == expected => {}
-        (None, serde_json::Value::Null) => {}
-        _ => {
-            return Err(format!(
-                "receipt node '{}' result_digest is not bound",
-                node.node_id
-            ))
-        }
-    }
-    Ok(())
 }
 
 fn validate_receipt_completion_properties(

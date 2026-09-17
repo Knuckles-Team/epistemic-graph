@@ -26,7 +26,6 @@ produced (an ENVIRONMENT fact -- never reported as "no findings").
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from collections import Counter
 from pathlib import Path
@@ -37,7 +36,7 @@ from scanner_contract import (
     CCCC_MAX_COGNITIVE,
     CCCC_MAX_CYCLOMATIC,
 )
-from validate_cccc_census import ValidatedReport, validate_document
+from validate_cccc_census import ValidatedReport, read_report_object, validate_document
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -100,13 +99,7 @@ def classify(
 
 
 def _document(path: Path) -> ValidatedReport:
-    try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        fail(f"cannot read report {path}: {exc}")
-    if not isinstance(document, dict):
-        fail(f"report {path} is not a JSON object")
-    return validate_document(document, path)
+    return validate_document(read_report_object(path, fail), path)
 
 
 def _print_report(measured: int, over: int, cognitive: int, tally: Counter) -> int:

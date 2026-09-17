@@ -14,16 +14,8 @@ pub(super) fn validate_draft(draft: &AgentComponentDraft) -> Result<(), String> 
 }
 
 fn validate_draft_identity(draft: &AgentComponentDraft) -> Result<(), String> {
-    for (field, value) in [
-        ("component_id", draft.component_id.as_str()),
-        ("version", draft.version.as_str()),
-        ("tenant_id", draft.tenant_id.as_str()),
-        ("actor_scope", draft.actor_scope.as_str()),
-        ("purpose_id", draft.purpose_id.as_str()),
-        ("source_revision", draft.source_revision.as_str()),
-    ] {
-        super::validate_text(field, value)?;
-    }
+    crate::agent_template::validate_definition_texts!(draft, component_id, super::validate_text)?;
+    super::validate_text("source_revision", &draft.source_revision)?;
     for (field, value) in [
         ("content_digest", draft.content_digest.as_str()),
         ("policy_digest", draft.policy_digest.as_str()),
