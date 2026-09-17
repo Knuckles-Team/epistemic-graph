@@ -197,14 +197,7 @@ pub fn apply(core: &GraphCore, m: &Method) {
         // replay reconstructs the lossless dataset without a second authority.
         #[cfg(feature = "rdf")]
         Method::AddTriples { turtle, ntriples } => {
-            let parsed = if !turtle.trim().is_empty() {
-                eg_rdf::mapping::parse_turtle(turtle)
-            } else if !ntriples.trim().is_empty() {
-                eg_rdf::mapping::parse_ntriples(ntriples)
-            } else {
-                Ok(Vec::new())
-            };
-            if let Ok(triples) = parsed {
+            if let Ok(triples) = parse_replayed_triples(turtle, ntriples) {
                 let mut iris = eg_rdf::mapping::IriStore::default();
                 // Rebuild the canonical property-graph RDF projection.
                 let _ = eg_rdf::mapping::load_triples(core, &mut iris, "", triples);
@@ -215,14 +208,7 @@ pub fn apply(core: &GraphCore, m: &Method) {
         // triple is a no-op. The lossless quad store is durable on its own file.
         #[cfg(feature = "rdf")]
         Method::RemoveTriples { turtle, ntriples } => {
-            let parsed = if !turtle.trim().is_empty() {
-                eg_rdf::mapping::parse_turtle(turtle)
-            } else if !ntriples.trim().is_empty() {
-                eg_rdf::mapping::parse_ntriples(ntriples)
-            } else {
-                Ok(Vec::new())
-            };
-            if let Ok(triples) = parsed {
+            if let Ok(triples) = parse_replayed_triples(turtle, ntriples) {
                 let _ = eg_rdf::update::remove_triples(core, &triples);
             }
         }
@@ -262,5 +248,40 @@ pub fn apply(core: &GraphCore, m: &Method) {
             crate::server::handlers::graphlearn::replay(core, m)
         }
         _ => eg_core::durable_apply::apply(core, m),
+    }
+}
+
+/// Re-parse a recorded `AddTriples`/`RemoveTriples` source for replay.
+///
+/// Replay is lenient where admission is strict: Turtle wins when both sources
+/// are present, and an empty source replays as no triples. The committed Method
+/// already passed admission, so replay must reproduce its effect, not re-judge it.
+#[cfg(feature = "rdf")]
+fn parse_replayed_triples(
+    turtle: &str,
+    ntriples: &str,
+) -> Result<Vec<eg_rdf::oxrdf::Triple>, String> {
+    if !turtle.trim().is_empty() {
+        eg_rdf::mapping::parse_turtle(turtle)
+    } else if !ntriples.trim().is_empty() {
+        eg_rdf::mapping::parse_ntriples(ntriples)
+    } else {
+        Ok(Vec::new())
+    }
+}
+
+#[cfg(all(test, feature = "rdf"))]
+mod tests {
+    use super::parse_replayed_triples;
+
+    const TURTLE: &str = "<urn:a> <urn:p> <urn:b> .";
+    const NTRIPLES: &str = "<urn:c> <urn:p> <urn:d> .\n<urn:e> <urn:p> <urn:f> .\n";
+
+    #[test]
+    fn replay_parse_prefers_turtle_then_ntriples_then_nothing() {
+        assert_eq!(parse_replayed_triples(TURTLE, NTRIPLES).unwrap().len(), 1);
+        assert_eq!(parse_replayed_triples("  ", NTRIPLES).unwrap().len(), 2);
+        assert!(parse_replayed_triples(" ", "\n").unwrap().is_empty());
+        assert!(parse_replayed_triples("not turtle <", NTRIPLES).is_err());
     }
 }

@@ -133,6 +133,128 @@ fn event_eq(key: &str, value: serde_json::Value) -> Guard {
     }
 }
 
+/// One transition per active `from` state, in `ACTIVE_STATES` order:
+/// `<from> --event[guard]--> target`.
+fn from_each_active<'a>(
+    event: &'a str,
+    target: &'a str,
+    guard: Guard,
+) -> impl Iterator<Item = Transition> + 'a {
+    ACTIVE_STATES
+        .iter()
+        .map(move |from| Transition::new(*from, event, target).with_guard(guard.clone()))
+}
+
+/// A logged human-interrupt row: `<from> --pretick[guard]--> target`, logging `message`.
+fn human_interrupt<'a>(
+    target: &'a str,
+    guard: Guard,
+    message: &'a str,
+) -> impl Iterator<Item = Transition> + 'a {
+    from_each_active("pretick", target, guard).map(move |transition| {
+        transition.with_actions(vec![Action::Log {
+            message: message.into(),
+        }])
+    })
+}
+
+/// Pretick guards (§1.3 rows 3-6), evaluated in declaration order per
+/// `run_loop`'s human-interrupt -> budget -> external-event precedence, one
+/// transition per active `from` state.
+fn pretick_transitions() -> Vec<Transition> {
+    let kill = Guard::Any {
+        guards: vec![
+            event_eq("human_signal", serde_json::json!("kill")),
+            event_eq("human_signal", serde_json::json!("cancel")),
+            event_eq("human_signal", serde_json::json!("stop")),
+        ],
+    };
+    human_interrupt(
+        "paused",
+        event_eq("human_signal", serde_json::json!("pause")),
+        "human interrupt: pause",
+    )
+    .chain(human_interrupt("cancelled", kill, "human interrupt: kill"))
+    .chain(from_each_active(
+        "pretick",
+        "budget_exceeded",
+        event_eq("budget_exceeded", serde_json::json!(true)),
+    ))
+    .chain(from_each_active(
+        "pretick",
+        "external_event_satisfied",
+        event_eq("external_event_fired", serde_json::json!(true)),
+    ))
+    .collect()
+}
+
+/// A posttick row guarded on one boolean event flag.
+fn posttick_on(target: &'static str, flag: &'static str) -> impl Iterator<Item = Transition> {
+    from_each_active("posttick", target, event_eq(flag, serde_json::json!(true)))
+}
+
+/// Posttick guards (§1.3 rows 8-16), one block per row, one transition per active
+/// `from` state within a block, in declaration order.
+fn posttick_transitions() -> Vec<Transition> {
+    let mut transitions: Vec<Transition> = Vec::new();
+    // Row 8: exit 1 GOAL MET.
+    transitions.extend(posttick_on("completed", "measured_pass"));
+    // Row 9: exit 7 ERROR THRESHOLD. Declared before row 11's plain retryable check so
+    // a threshold trip always wins ties (mirrors `fail_guard.record_failure()`
+    // short-circuiting the "keep looping" branch). See correction (3) above:
+    // `error_threshold_tripped` is the pre-computed boolean, not a numeric comparison.
+    transitions.extend(from_each_active(
+        "posttick",
+        "error_threshold_exceeded",
+        Guard::All {
+            guards: vec![
+                event_eq("retryable_failure", serde_json::json!(true)),
+                event_eq("error_threshold_tripped", serde_json::json!(true)),
+            ],
+        },
+    ));
+    // Row 10: exit 5 NO PROGRESS.
+    transitions.extend(posttick_on("stalled", "stalled"));
+    // Row 11: a retryable failure that did NOT trip the error threshold (row 9 already
+    // claimed that case) keeps the lease alive as a heartbeat (self-loop).
+    let retryable = event_eq("retryable_failure", serde_json::json!(true));
+    transitions.extend(
+        ACTIVE_STATES
+            .iter()
+            .map(|from| Transition::new(*from, "posttick", *from).with_guard(retryable.clone())),
+    );
+    // Row 12: legacy-trust, callee self-declared `completed`.
+    transitions.extend(from_each_active(
+        "posttick",
+        "completed",
+        event_eq("callee_terminal", serde_json::json!("completed")),
+    ));
+    // Row 13: legacy-trust mirror — every OTHER final `callee_terminal` value maps to
+    // that same terminal state (9 values x 3 active `from` states = 27 rows).
+    transitions.extend(ACTIVE_STATES.iter().flat_map(|from| {
+        CALLEE_TERMINAL_MIRRORS.iter().map(move |terminal| {
+            Transition::new(*from, "posttick", *terminal)
+                .with_guard(event_eq("callee_terminal", serde_json::json!(*terminal)))
+        })
+    }));
+    // Row 14: exit 2 TURN CAP (post-loop fallback, modeled as a same-tick guard). See
+    // correction (3): `turn_cap_reached` is the pre-computed `iteration >= max_iterations`.
+    transitions.extend(posttick_on("max_iterations_exceeded", "turn_cap_reached"));
+    // Row 15: exit 4 WALL CLOCK.
+    transitions.extend(posttick_on("wall_clock_exceeded", "deadline_passed"));
+    // Row 16 (correction 4): ordinary non-terminal continuation. Declared LAST among
+    // the posttick rows so every terminal guard (8-15) gets first refusal; only fires
+    // once nothing terminal did. `heartbeat_target` is whichever of
+    // running/pending/validating the caller's `decided`/`heartbeat_status` already is.
+    transitions.extend(ACTIVE_STATES.iter().flat_map(|from| {
+        ACTIVE_STATES.iter().map(move |target| {
+            Transition::new(*from, "posttick", *target)
+                .with_guard(event_eq("heartbeat_target", serde_json::json!(*target)))
+        })
+    }));
+    transitions
+}
+
 /// Build the Loop `StatechartDef` (CONCEPT:INT-P2-2 §1). Pure, deterministic, and
 /// content-addressed via [`StatechartDef::def_id`] — calling this twice yields
 /// byte-identical definitions (`define()` is therefore idempotent to re-register).
@@ -150,140 +272,17 @@ pub fn loop_statechart_def() -> StatechartDef {
     transitions.push(Transition::new("orphaned", "claim", "running").with_guard(Guard::Always));
     transitions.push(Transition::new("submitted", "reject", "rejected").with_guard(Guard::Always));
 
-    // ── pretick guards (§1.3 rows 3-6), evaluated in declaration order per
-    // `run_loop`'s human-interrupt -> budget -> external-event precedence, one
-    // transition per active `from` state. ───────────────────────────────────────
-    for from in ACTIVE_STATES {
-        transitions.push(
-            Transition::new(*from, "pretick", "paused")
-                .with_guard(event_eq("human_signal", serde_json::json!("pause")))
-                .with_actions(vec![Action::Log {
-                    message: "human interrupt: pause".into(),
-                }]),
-        );
-    }
-    for from in ACTIVE_STATES {
-        transitions.push(
-            Transition::new(*from, "pretick", "cancelled")
-                .with_guard(Guard::Any {
-                    guards: vec![
-                        event_eq("human_signal", serde_json::json!("kill")),
-                        event_eq("human_signal", serde_json::json!("cancel")),
-                        event_eq("human_signal", serde_json::json!("stop")),
-                    ],
-                })
-                .with_actions(vec![Action::Log {
-                    message: "human interrupt: kill".into(),
-                }]),
-        );
-    }
-    for from in ACTIVE_STATES {
-        transitions.push(
-            Transition::new(*from, "pretick", "budget_exceeded")
-                .with_guard(event_eq("budget_exceeded", serde_json::json!(true))),
-        );
-    }
-    for from in ACTIVE_STATES {
-        transitions.push(
-            Transition::new(*from, "pretick", "external_event_satisfied")
-                .with_guard(event_eq("external_event_fired", serde_json::json!(true))),
-        );
-    }
+    transitions.extend(pretick_transitions());
 
     // ── resume (§1.3 row 7): awaitingHuman -> running, inbound/external. ────────
     transitions.push(Transition::new("paused", "resume", "running").with_guard(Guard::Always));
 
-    // ── posttick guards (§1.3 rows 8-15), one block per row, one transition per
-    // active `from` state within a block, in declaration order. ────────────────
-
-    // Row 8: exit 1 GOAL MET.
-    for from in ACTIVE_STATES {
-        transitions.push(
-            Transition::new(*from, "posttick", "completed")
-                .with_guard(event_eq("measured_pass", serde_json::json!(true))),
-        );
-    }
-    // Row 9: exit 7 ERROR THRESHOLD. Declared before row 11's plain retryable check so
-    // a threshold trip always wins ties (mirrors `fail_guard.record_failure()`
-    // short-circuiting the "keep looping" branch). See correction (3) above:
-    // `error_threshold_tripped` is the pre-computed boolean, not a numeric comparison.
-    for from in ACTIVE_STATES {
-        transitions.push(
-            Transition::new(*from, "posttick", "error_threshold_exceeded").with_guard(Guard::All {
-                guards: vec![
-                    event_eq("retryable_failure", serde_json::json!(true)),
-                    event_eq("error_threshold_tripped", serde_json::json!(true)),
-                ],
-            }),
-        );
-    }
-    // Row 10: exit 5 NO PROGRESS.
-    for from in ACTIVE_STATES {
-        transitions.push(
-            Transition::new(*from, "posttick", "stalled")
-                .with_guard(event_eq("stalled", serde_json::json!(true))),
-        );
-    }
-    // Row 11: a retryable failure that did NOT trip the error threshold (row 9 already
-    // claimed that case) keeps the lease alive as a heartbeat (self-loop).
-    for from in ACTIVE_STATES {
-        transitions.push(
-            Transition::new(*from, "posttick", *from)
-                .with_guard(event_eq("retryable_failure", serde_json::json!(true))),
-        );
-    }
-    // Row 12: legacy-trust, callee self-declared `completed`.
-    for from in ACTIVE_STATES {
-        transitions.push(
-            Transition::new(*from, "posttick", "completed")
-                .with_guard(event_eq("callee_terminal", serde_json::json!("completed"))),
-        );
-    }
-    // Row 13: legacy-trust mirror — every OTHER final `callee_terminal` value maps to
-    // that same terminal state (9 values x 3 active `from` states = 27 rows).
-    for from in ACTIVE_STATES {
-        for terminal in CALLEE_TERMINAL_MIRRORS {
-            transitions.push(
-                Transition::new(*from, "posttick", *terminal)
-                    .with_guard(event_eq("callee_terminal", serde_json::json!(*terminal))),
-            );
-        }
-    }
-    // Row 14: exit 2 TURN CAP (post-loop fallback, modeled as a same-tick guard). See
-    // correction (3): `turn_cap_reached` is the pre-computed `iteration >= max_iterations`.
-    for from in ACTIVE_STATES {
-        transitions.push(
-            Transition::new(*from, "posttick", "max_iterations_exceeded")
-                .with_guard(event_eq("turn_cap_reached", serde_json::json!(true))),
-        );
-    }
-    // Row 15: exit 4 WALL CLOCK.
-    for from in ACTIVE_STATES {
-        transitions.push(
-            Transition::new(*from, "posttick", "wall_clock_exceeded")
-                .with_guard(event_eq("deadline_passed", serde_json::json!(true))),
-        );
-    }
-    // Row 16 (correction 4): ordinary non-terminal continuation. Declared LAST among
-    // the posttick rows so every terminal guard (8-15) gets first refusal; only fires
-    // once nothing terminal did. `heartbeat_target` is whichever of
-    // running/pending/validating the caller's `decided`/`heartbeat_status` already is.
-    for from in ACTIVE_STATES {
-        for target in ACTIVE_STATES {
-            transitions.push(
-                Transition::new(*from, "posttick", *target)
-                    .with_guard(event_eq("heartbeat_target", serde_json::json!(*target))),
-            );
-        }
-    }
+    transitions.extend(posttick_transitions());
 
     // `lease_lost` (correction 5): an internally-fired event (mirrors
     // WorkItem's `lease_reclaim`, §2.3) — a reaper/expiry sweep observing the backing
     // WorkItem lease expired out from under an in-flight Loop marks it re-claimable.
-    for from in ACTIVE_STATES {
-        transitions
-            .push(Transition::new(*from, "lease_lost", "orphaned").with_guard(Guard::Always));
-    }
+    transitions.extend(from_each_active("lease_lost", "orphaned", Guard::Always));
 
     StatechartDef {
         name: "loop".to_string(),
