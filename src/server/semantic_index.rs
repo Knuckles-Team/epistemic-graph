@@ -536,6 +536,18 @@ fn map_semantic_text_snapshot_with_decision(
     })
 }
 
+/// A `SourceManifestMismatch` refusal carrying `reason`.
+#[cfg(feature = "query")]
+fn source_mismatch(reason: impl Into<String>) -> (SemanticIndexError, String) {
+    (SemanticIndexError::SourceManifestMismatch, reason.into())
+}
+
+/// Keep a precondition's own error code, and say which precondition raised it.
+#[cfg(feature = "query")]
+fn refused_by(context: &str) -> impl Fn(SemanticIndexError) -> (SemanticIndexError, String) + '_ {
+    move |error| (error.clone(), format!("{context}: {error:?}"))
+}
+
 #[cfg(feature = "query")]
 fn tombstone_claim_from_complete_page(
     binding: &SemanticBinding,
@@ -549,7 +561,6 @@ fn tombstone_claim_from_complete_page(
     // six independent authorities disagreed -- and a deletion claim is reconstituted
     // from four of them at once (the retained prior manifest, the leased intent, the
     // live complete snapshot, and the derived deletion proof).
-    let mismatch = |reason: String| (SemanticIndexError::SourceManifestMismatch, reason);
     // NOT `SemanticSqlSourceManifest::validate_against_binding`. That predicate pins
     // `manifest.source_revision` (and `binding_digest`, which folds the revision in) to
     // the binding's CURRENT source revision -- and a tombstone's `prior` manifest is
@@ -567,68 +578,71 @@ fn tombstone_claim_from_complete_page(
     // CALLER-supplied binding is that same binding identity. The revision relationship
     // is checked below where it belongs: the deletion proof is derived from the PAGE's
     // revision and must equal the leased intent's `input_digest`.
-    prior.validate().map_err(|error| {
-        (
-            error.clone(),
-            format!("prior manifest is invalid: {error:?}"),
-        )
-    })?;
+    prior
+        .validate()
+        .map_err(refused_by("prior manifest is invalid"))?;
     prior
         .source_identity
         .validate_against_binding(binding)
-        .map_err(|error| {
-            (
-                error.clone(),
-                format!("prior source identity is outside the binding: {error:?}"),
-            )
-        })?;
-    if prior.binding_id != binding.binding_id
-        || prior.generation != binding.generation
-        || prior.source_schema_digest != binding.source_schema_digest
-        || prior.source_field_set_digest != binding.source_field_set_digest
-        || prior.source_acl_revision != binding.policy_identity.components.source_acl_revision
-        || prior.source_acl_digest != binding.policy_identity.components.source_acl_digest
-    {
-        return Err(mismatch(
-            "prior manifest is bound to a different binding identity".to_string(),
+        .map_err(refused_by("prior source identity is outside the binding"))?;
+    let prior_identity = (
+        &prior.binding_id,
+        prior.generation,
+        &prior.source_schema_digest,
+        &prior.source_field_set_digest,
+        prior.source_acl_revision,
+        &prior.source_acl_digest,
+    );
+    let acl = &binding.policy_identity.components;
+    let binding_identity = (
+        &binding.binding_id,
+        binding.generation,
+        &binding.source_schema_digest,
+        &binding.source_field_set_digest,
+        acl.source_acl_revision,
+        &acl.source_acl_digest,
+    );
+    if prior_identity != binding_identity {
+        return Err(source_mismatch(
+            "prior manifest is bound to a different binding identity",
         ));
     }
     intent
         .validate()
-        .map_err(|error| (error.clone(), format!("stage intent is invalid: {error:?}")))?;
+        .map_err(refused_by("stage intent is invalid"))?;
     let source_entity_id = intent
         .scope
         .source_entity_id()
-        .ok_or_else(|| mismatch("stage scope names no source entity".to_string()))?;
+        .ok_or_else(|| source_mismatch("stage scope names no source entity"))?;
     let complete_snapshot_receipt_digest = snapshot
         .page
         .complete_snapshot_receipt_digest
-        .ok_or_else(|| mismatch("page carries no complete-snapshot receipt digest".to_string()))?;
+        .ok_or_else(|| source_mismatch("page carries no complete-snapshot receipt digest"))?;
     let deletion_proof_digest = sql_source_deletion_proof(
         source_entity_id,
         &snapshot.page.source_revision,
         complete_snapshot_receipt_digest,
     );
     if intent.stage != SemanticStage::SourceCommit {
-        return Err(mismatch("intent is not a SourceCommit stage".to_string()));
+        return Err(source_mismatch("intent is not a SourceCommit stage"));
     }
     if prior.source_entity_id != source_entity_id {
-        return Err(mismatch(
-            "prior manifest names a different source entity".to_string(),
+        return Err(source_mismatch(
+            "prior manifest names a different source entity",
         ));
     }
     if intent.source_revision != snapshot.page.source_revision {
-        return Err(mismatch(format!(
+        return Err(source_mismatch(format!(
             "intent source revision {} is not the page's {}",
             intent.source_revision, snapshot.page.source_revision
         )));
     }
     if !snapshot.page.complete {
-        return Err(mismatch("page is not a complete snapshot".to_string()));
+        return Err(source_mismatch("page is not a complete snapshot"));
     }
     if intent.input_digest != deletion_proof_digest {
-        return Err(mismatch(
-            "intent input digest is not the derived deletion proof".to_string(),
+        return Err(source_mismatch(
+            "intent input digest is not the derived deletion proof",
         ));
     }
     if snapshot
@@ -637,8 +651,8 @@ fn tombstone_claim_from_complete_page(
         .iter()
         .any(|source| source.source_entity_id() == source_entity_id)
     {
-        return Err(mismatch(
-            "the source entity is still present in the page".to_string(),
+        return Err(source_mismatch(
+            "the source entity is still present in the page",
         ));
     }
     let claim = AuthorizedSqlSourceClaim {
@@ -659,12 +673,9 @@ fn tombstone_claim_from_complete_page(
         decision_at_ms: snapshot.decision_at_ms,
         intent_digest: intent.intent_digest,
     };
-    source_claim_matches_intent(&claim.source, intent).map_err(|error| {
-        (
-            error.clone(),
-            format!("reconstituted tombstone does not match the intent: {error:?}"),
-        )
-    })?;
+    source_claim_matches_intent(&claim.source, intent).map_err(refused_by(
+        "reconstituted tombstone does not match the intent",
+    ))?;
     Ok(claim)
 }
 
@@ -786,34 +797,23 @@ impl SemanticIndexServerAdapter {
         // disagreed. The wire-visible `SemanticIndexError` code is unchanged (it is a
         // contract enum); what is added is the REASON alongside it.
         let result = compute_off_lock(req_id, move || {
-            let source_entity_id = intent.scope.source_entity_id().ok_or_else(|| {
-                (
-                    SemanticIndexError::SourceManifestMismatch,
-                    "stage scope names no source entity".to_string(),
-                )
-            })?;
+            let source_entity_id = intent
+                .scope
+                .source_entity_id()
+                .ok_or_else(|| source_mismatch("stage scope names no source entity"))?;
             let prior = service
                 .sql_source_manifest(binding.generation, source_entity_id)
                 .map_err(|error| {
-                    (
-                        SemanticIndexError::SourceManifestMismatch,
-                        format!("prior SQL source manifest is unreadable: {error:?}"),
-                    )
+                    source_mismatch(format!(
+                        "prior SQL source manifest is unreadable: {error:?}"
+                    ))
                 })?
                 .ok_or_else(|| {
-                    (
-                        SemanticIndexError::SourceManifestMismatch,
-                        "no retained prior SQL source manifest for this source entity".to_string(),
-                    )
+                    source_mismatch("no retained prior SQL source manifest for this source entity")
                 })?;
             let snapshot = port
                 .read_snapshot_with_decision(&binding, page_cursor.as_deref())
-                .map_err(|error| {
-                    (
-                        error.clone(),
-                        format!("authorized complete-snapshot read refused: {error:?}"),
-                    )
-                })?;
+                .map_err(refused_by("authorized complete-snapshot read refused"))?;
             tombstone_claim_from_complete_page(&binding, &intent, &prior, page_cursor, snapshot)
         })
         .await?;

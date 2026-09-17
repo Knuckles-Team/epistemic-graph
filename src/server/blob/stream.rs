@@ -54,17 +54,8 @@ pub fn stream_blob_put<R: Read>(
     let mut eof = false;
 
     loop {
-        // Top the window up to at least `max` bytes so a cut is never starved.
-        while !eof && window.len() < max {
-            let n = read_full(&mut reader, &mut read_buf)?;
-            if n == 0 {
-                eof = true;
-                break;
-            }
-            window.extend_from_slice(&read_buf[..n]);
-            if n < read_buf.len() {
-                eof = true; // short read at a clean EOF.
-            }
+        if !eof {
+            eof = top_up_window(&mut reader, &mut read_buf, &mut window, max)?;
         }
         if window.is_empty() {
             break;
@@ -76,9 +67,6 @@ pub fn stream_blob_put<R: Read>(
         len += cut as u64;
         // Shift the unconsumed tail to the front (≤ max bytes, bounded memory).
         window.drain(..cut);
-        if eof && window.is_empty() {
-            break;
-        }
     }
 
     let manifest = BlobManifest {
@@ -118,6 +106,24 @@ pub fn stream_blob_get<W: Write>(
     }
     writer.flush().map_err(|e| e.to_string())?;
     Ok(written)
+}
+
+/// Top the window up to at least `max` bytes so a cut is never starved, returning
+/// whether the reader hit EOF (a clean zero read, or a short read at a clean EOF).
+fn top_up_window<R: Read>(
+    reader: &mut R,
+    read_buf: &mut [u8],
+    window: &mut Vec<u8>,
+    max: usize,
+) -> Result<bool, String> {
+    while window.len() < max {
+        let n = read_full(reader, read_buf)?;
+        window.extend_from_slice(&read_buf[..n]);
+        if n < read_buf.len() {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Read until `buf` is full or EOF, returning the bytes filled (handles a `Read` that
@@ -232,6 +238,43 @@ mod tests {
         let mut out2 = Vec::new();
         stream_blob_get(&store, &b2.digest, &mut out2).unwrap();
         assert_eq!(out2.len(), b2.manifest.len as usize);
+    }
+
+    /// A `Read` that hands out at most `step` bytes per call, to prove the chunk
+    /// boundaries and blob digest do not depend on how the source is read.
+    struct Trickle {
+        inner: Cursor<Vec<u8>>,
+        step: usize,
+    }
+    impl Read for Trickle {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let cap = buf.len().min(self.step);
+            self.inner.read(&mut buf[..cap])
+        }
+    }
+
+    /// Pins the window-refill loop: an empty source commits an empty manifest, and a
+    /// source whose length straddles read blocks and window refills produces the same
+    /// manifest whether it is read in full blocks or a few bytes at a time.
+    #[test]
+    fn manifest_is_independent_of_read_shape() {
+        let store = RedbChunkStore::open_temp().unwrap();
+        let empty = stream_blob_put(&store, Cursor::new(Vec::new()), 0).unwrap();
+        assert!(empty.manifest.chunks.is_empty());
+        assert_eq!(empty.manifest.len, 0);
+
+        let data = pseudo_random(2 * READ_BLOCK + 12_345, 0xFACE);
+        for chunk_size in [0, 4096] {
+            let whole = stream_blob_put(&store, Cursor::new(data.clone()), chunk_size).unwrap();
+            let trickle = Trickle {
+                inner: Cursor::new(data.clone()),
+                step: 7_919,
+            };
+            let trickled = stream_blob_put(&store, trickle, chunk_size).unwrap();
+            assert_eq!(whole.digest, trickled.digest, "chunk_size {chunk_size}");
+            assert_eq!(whole.manifest.chunk_lens, trickled.manifest.chunk_lens);
+            assert_eq!(whole.manifest.len, data.len() as u64);
+        }
     }
 
     #[test]

@@ -31,53 +31,64 @@ pub(crate) fn weight_semantic_results(
     if n_results == 0 {
         return Vec::new();
     }
-    let mut weighted_results = Vec::new();
-    for (ordinal, (node_id, mut similarity, props)) in candidates.into_iter().enumerate() {
-        if let Some(props_bytes) = props {
-            if let Ok(properties) = eg_types::msgpack::decode_property_object(&props_bytes) {
-                // Filter out strictly stale facts where the validity window has closed
-                if let Some(vu) = properties
-                    .get("valid_until")
-                    .and_then(|value| value.as_u64())
-                {
-                    if now > vu {
-                        continue;
-                    }
-                }
-
-                // Apply temporal decay to confidence using the ONE shared
-                // Ebbinghaus curve (CONCEPT:EG-KG.compute.handled-outside-single-anchor, `eg_core::decay`): the same
-                // half-life model the time-series `decay_weighted_mean` uses. Here
-                // the unit is DAYS with a 30-day half-life — identical numerics to
-                // the previously-inlined `(-ln2/30 * age_days).exp()`.
-                let mut current_confidence = properties
-                    .get("confidence")
-                    .and_then(|value| value.as_f64())
-                    .unwrap_or(1.0);
-                if let Some(vf) = properties
-                    .get("valid_from")
-                    .and_then(|value| value.as_u64())
-                {
-                    if now > vf {
-                        let age_days = (now - vf) as f64 / 86400.0;
-                        current_confidence *= crate::decay::ebbinghaus_weight(age_days, 30.0);
-                    }
-                }
-
-                // Adjust similarity by current confidence (salience)
-                similarity *= current_confidence as f32;
-            }
-        }
-        weighted_results.push((ordinal, node_id, similarity));
-    }
+    // The original ordinal is kept as the stable tiebreak for re-ranking.
+    let mut weighted_results: Vec<(usize, String, f32)> = candidates
+        .into_iter()
+        .enumerate()
+        .filter_map(|(ordinal, (node_id, similarity, props))| {
+            let salience = salience_at(props.as_deref(), now)?;
+            // Adjust similarity by current confidence (salience).
+            Some((ordinal, node_id, similarity * salience))
+        })
+        .collect();
 
     // Re-rank by the new confidence-weighted similarity. The original ordinal is
     // the exact stable-sort tiebreak used by the historical full sort. NaN scores
     // are explicitly last so partial selection receives a total ordering.
-    let compare = |left: &(usize, String, f32), right: &(usize, String, f32)| match (
-        left.2.is_nan(),
-        right.2.is_nan(),
-    ) {
+    if weighted_results.len() > n_results {
+        weighted_results.select_nth_unstable_by(n_results, rank_order);
+        weighted_results.truncate(n_results);
+    }
+    weighted_results.sort_by(rank_order);
+    weighted_results
+        .into_iter()
+        .map(|(_, node_id, similarity)| (node_id, similarity))
+        .collect()
+}
+
+/// The multiplier a hit's properties apply to its similarity, or `None` when the
+/// fact is strictly stale (its validity window has closed) and must be dropped.
+/// A hit without decodable properties is unweighted (`1.0`).
+fn salience_at(props: Option<&[u8]>, now: u64) -> Option<f32> {
+    let Some(properties) =
+        props.and_then(|bytes| eg_types::msgpack::decode_property_object(bytes).ok())
+    else {
+        return Some(1.0);
+    };
+    let property_u64 = |key: &str| properties.get(key).and_then(|value| value.as_u64());
+    // Filter out strictly stale facts where the validity window has closed.
+    if property_u64("valid_until").is_some_and(|valid_until| now > valid_until) {
+        return None;
+    }
+    // Apply temporal decay to confidence using the ONE shared Ebbinghaus curve
+    // (CONCEPT:EG-KG.compute.handled-outside-single-anchor, `eg_core::decay`): the same
+    // half-life model the time-series `decay_weighted_mean` uses. Here the unit is
+    // DAYS with a 30-day half-life — identical numerics to the previously-inlined
+    // `(-ln2/30 * age_days).exp()`.
+    let mut current_confidence = properties
+        .get("confidence")
+        .and_then(|value| value.as_f64())
+        .unwrap_or(1.0);
+    if let Some(valid_from) = property_u64("valid_from").filter(|valid_from| now > *valid_from) {
+        let age_days = (now - valid_from) as f64 / 86400.0;
+        current_confidence *= crate::decay::ebbinghaus_weight(age_days, 30.0);
+    }
+    Some(current_confidence as f32)
+}
+
+/// Descending weighted similarity, NaN last, original ordinal as the tiebreak.
+fn rank_order(left: &(usize, String, f32), right: &(usize, String, f32)) -> std::cmp::Ordering {
+    match (left.2.is_nan(), right.2.is_nan()) {
         (true, false) => std::cmp::Ordering::Greater,
         (false, true) => std::cmp::Ordering::Less,
         _ => right
@@ -85,16 +96,7 @@ pub(crate) fn weight_semantic_results(
             .partial_cmp(&left.2)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| left.0.cmp(&right.0)),
-    };
-    if weighted_results.len() > n_results {
-        weighted_results.select_nth_unstable_by(n_results, compare);
-        weighted_results.truncate(n_results);
     }
-    weighted_results.sort_by(compare);
-    weighted_results
-        .into_iter()
-        .map(|(_, node_id, similarity)| (node_id, similarity))
-        .collect()
 }
 
 #[cfg(test)]
@@ -129,5 +131,40 @@ mod tests {
             vec![("finite".to_string(), 0.5)]
         );
         assert!(weight_semantic_results(candidates, 0, 0).is_empty());
+    }
+
+    /// Pins the property-driven weighting: explicit confidence, the inclusive end of
+    /// the validity window, a future `valid_from` (no decay), and undecodable bytes.
+    #[test]
+    fn semantic_weighting_pins_confidence_window_edges_and_bad_props() {
+        let props = |value: serde_json::Value| Some(rmp_serde::to_vec_named(&value).unwrap());
+        let now = 1_000_000u64;
+        let candidates = vec![
+            (
+                "confident".to_string(),
+                0.8,
+                props(serde_json::json!({"confidence": 0.5})),
+            ),
+            (
+                "window-ends-now".to_string(),
+                0.3,
+                props(serde_json::json!({"valid_until": now})),
+            ),
+            (
+                "future".to_string(),
+                0.6,
+                props(serde_json::json!({"valid_from": now + 1, "confidence": 0.5})),
+            ),
+            ("undecodable".to_string(), 0.2, Some(vec![0xC1])),
+        ];
+        assert_eq!(
+            weight_semantic_results(candidates, now, 10),
+            vec![
+                ("confident".to_string(), 0.4),
+                ("window-ends-now".to_string(), 0.3),
+                ("future".to_string(), 0.3),
+                ("undecodable".to_string(), 0.2),
+            ]
+        );
     }
 }

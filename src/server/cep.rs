@@ -467,87 +467,99 @@ pub(crate) async fn try_handle(
     if let Err(error) = authority.require_admin("CEP subscriptions") {
         return Ok(Response::err(req_id, error));
     }
-    match method {
+    let outcome = match method {
         Method::CepSubscribe {
             pattern_msgpack,
             buffer,
-        } => {
-            let spec: CepPatternSpec = match eg_types::msgpack::decode_bounded(
-                &pattern_msgpack,
-                eg_types::msgpack::MsgpackLimits::new(1024 * 1024, 50_000, 64),
-            ) {
-                Ok(s) => s,
-                Err(_) => return Ok(Response::err(req_id, "invalid or over-complex CEP pattern")),
-            };
-            let surface = match surface_of(state, req_id).await {
-                Ok(s) => s,
-                Err(r) => return Ok(r),
-            };
-            let pattern = pattern_from_spec(&spec.pattern);
-            let window = window_from_spec(spec.window);
-            let buf = if buffer == 0 {
-                DEFAULT_MATCH_BUFFER
-            } else {
-                buffer as usize
-            };
-            let id = surface.register(&pattern, window, buf);
-            // Opt-in push extension (W4.10/M6): if configured, forward this standing
-            // query's matches to the broker too. No-op (nothing read, nothing spawned)
-            // when `EPISTEMIC_GRAPH_CEP_BROKER_EXCHANGE` is unset — see the module doc.
-            #[cfg(feature = "broker")]
-            forward_to_broker_if_configured(state, &surface, id).await;
-            Ok(Response::ok(
-                req_id,
-                ResultPayload::scalar::<eg_types::result_contract::messaging::CepSubscribe>(id),
-            ))
-        }
+        } => cep_subscribe(state, req_id, &pattern_msgpack, buffer).await,
+        Method::CepPoll { sub_id, timeout_ms } => cep_poll(state, req_id, sub_id, timeout_ms).await,
+        Method::CepUnsubscribe { sub_id } => cep_unsubscribe(state, req_id, sub_id).await,
+        other => return Err(other),
+    };
+    Ok(outcome.unwrap_or_else(|refusal| refusal))
+}
 
-        Method::CepPoll { sub_id, timeout_ms } => {
-            let surface = match surface_of(state, req_id).await {
-                Ok(s) => s,
-                Err(r) => return Ok(r),
-            };
-            Ok(match surface.poll(sub_id, timeout_ms).await {
-                Ok(matches) => Response::ok(
-                    req_id,
-                    ResultPayload::of::<CepPoll>(
-                        matches
-                            .into_iter()
-                            .map(|matched| CepMatch {
-                                events: matched
-                                    .events
-                                    .into_iter()
-                                    .map(|event| CepEvent {
-                                        ts: event.ts,
-                                        key: event.key,
-                                        attrs: event.attrs,
-                                    })
-                                    .collect(),
-                                start_ts: matched.start_ts,
-                                end_ts: matched.end_ts,
-                            })
-                            .collect(),
-                    ),
-                ),
-                Err(e) => Response::err(req_id, e),
+/// `CepSubscribe`: decode the bounded pattern, register it as a standing query, and
+/// answer its subscription id. `Err` carries the ERROR response to send instead.
+async fn cep_subscribe(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    pattern_msgpack: &[u8],
+    buffer: u32,
+) -> Result<Response, Response> {
+    let spec: CepPatternSpec = eg_types::msgpack::decode_bounded(
+        pattern_msgpack,
+        eg_types::msgpack::MsgpackLimits::new(1024 * 1024, 50_000, 64),
+    )
+    .map_err(|_| Response::err(req_id, "invalid or over-complex CEP pattern"))?;
+    let surface = surface_of(state, req_id).await?;
+    let pattern = pattern_from_spec(&spec.pattern);
+    let window = window_from_spec(spec.window);
+    let buf = if buffer == 0 {
+        DEFAULT_MATCH_BUFFER
+    } else {
+        buffer as usize
+    };
+    let id = surface.register(&pattern, window, buf);
+    // Opt-in push extension (W4.10/M6): if configured, forward this standing
+    // query's matches to the broker too. No-op (nothing read, nothing spawned)
+    // when `EPISTEMIC_GRAPH_CEP_BROKER_EXCHANGE` is unset — see the module doc.
+    #[cfg(feature = "broker")]
+    forward_to_broker_if_configured(state, &surface, id).await;
+    Ok(Response::ok(
+        req_id,
+        ResultPayload::scalar::<eg_types::result_contract::messaging::CepSubscribe>(id),
+    ))
+}
+
+/// `CepPoll`: long-poll one standing query for the matches it has accumulated.
+async fn cep_poll(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    sub_id: u64,
+    timeout_ms: u64,
+) -> Result<Response, Response> {
+    let surface = surface_of(state, req_id).await?;
+    let matches = surface
+        .poll(sub_id, timeout_ms)
+        .await
+        .map_err(|e| Response::err(req_id, e))?;
+    Ok(Response::ok(
+        req_id,
+        ResultPayload::of::<CepPoll>(matches.into_iter().map(cep_match_payload).collect()),
+    ))
+}
+
+/// The wire shape of one CEP match.
+fn cep_match_payload(matched: Match) -> CepMatch {
+    CepMatch {
+        events: matched
+            .events
+            .into_iter()
+            .map(|event| CepEvent {
+                ts: event.ts,
+                key: event.key,
+                attrs: event.attrs,
             })
-        }
-
-        Method::CepUnsubscribe { sub_id } => {
-            let surface = match surface_of(state, req_id).await {
-                Ok(s) => s,
-                Err(r) => return Ok(r),
-            };
-            Ok(Response::ok(
-                req_id,
-                ResultPayload::scalar::<eg_types::result_contract::messaging::CepUnsubscribe>(
-                    surface.unsubscribe(sub_id),
-                ),
-            ))
-        }
-
-        other => Err(other),
+            .collect(),
+        start_ts: matched.start_ts,
+        end_ts: matched.end_ts,
     }
+}
+
+/// `CepUnsubscribe`: drop a standing query, answering whether it existed.
+async fn cep_unsubscribe(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    sub_id: u64,
+) -> Result<Response, Response> {
+    let surface = surface_of(state, req_id).await?;
+    Ok(Response::ok(
+        req_id,
+        ResultPayload::scalar::<eg_types::result_contract::messaging::CepUnsubscribe>(
+            surface.unsubscribe(sub_id),
+        ),
+    ))
 }
 
 #[cfg(test)]
@@ -650,6 +662,99 @@ mod tests {
         // Nothing fed → an empty, non-error poll (zero timeout ⇒ immediate).
         let matches = surface.poll(sub, 0).await.expect("known sub");
         assert!(matches.is_empty());
+    }
+
+    fn shared_state() -> Arc<RwLock<ServerState>> {
+        Arc::new(RwLock::new(ServerState::new_for_test(
+            "test",
+            crate::isolation::IsolationLayer::new(),
+        )))
+    }
+
+    /// Pins `try_handle`'s protocol surface: the admin gate, fall-through for
+    /// non-CEP methods, the pattern-decode refusal, the missing-CDC refusal, and a
+    /// subscribe -> poll -> unsubscribe -> poll lifecycle.
+    #[tokio::test]
+    async fn try_handle_pins_admin_gate_refusals_and_lifecycle() {
+        let authority = |scopes: &[&str]| {
+            CarrierAuthority::from_verified(
+                &crate::server::authority_context::VerifiedRequestContext::verified_for_test_with_scopes(
+                    "cep-admin",
+                    "tenant-cep",
+                    scopes,
+                ),
+            )
+            .unwrap()
+        };
+        let admin = authority(&["kg:admin"]);
+        let state = shared_state();
+        let error_of = |outcome: Result<Response, Method>| outcome.expect("CEP method").error;
+        let unsubscribe = |sub_id| Method::CepUnsubscribe { sub_id };
+
+        let denied = try_handle(&state, 1, &authority(&["kg:read"]), unsubscribe(1)).await;
+        assert!(error_of(denied)
+            .unwrap()
+            .starts_with("ACCESS_DENIED: CEP subscriptions"));
+        assert!(matches!(
+            try_handle(&state, 2, &admin, Method::Ping).await,
+            Err(Method::Ping)
+        ));
+        let bad_pattern = Method::CepSubscribe {
+            pattern_msgpack: vec![0xC1],
+            buffer: 0,
+        };
+        assert_eq!(
+            error_of(try_handle(&state, 3, &admin, bad_pattern).await).as_deref(),
+            Some("invalid or over-complex CEP pattern")
+        );
+
+        let spec = CepPatternSpec {
+            pattern: CepNodeSpec::Sequence(vec![CepMatcherSpec {
+                key: Some("Alert".to_string()),
+                preds: Vec::new(),
+            }]),
+            window: CepWindowSpec::Sliding { size: 0 },
+        };
+        let subscribe = || Method::CepSubscribe {
+            pattern_msgpack: rmp_serde::to_vec_named(&spec).unwrap(),
+            buffer: 4,
+        };
+        let subscribed = try_handle(&state, 4, &admin, subscribe()).await.unwrap();
+        assert_eq!((subscribed.id, subscribed.error.as_deref()), (4, None));
+        let Some(ResultPayload::Count(subscribed_id)) = subscribed.result else {
+            panic!("CepSubscribe answers a count: {:?}", subscribed.result);
+        };
+        let poll = |sub_id| Method::CepPoll {
+            sub_id,
+            timeout_ms: 0,
+        };
+        let polled = try_handle(&state, 5, &admin, poll(subscribed_id))
+            .await
+            .unwrap();
+        assert_eq!((polled.id, polled.error.as_deref()), (5, None));
+        assert!(matches!(polled.result, Some(ResultPayload::Raw(_))));
+        let removed = try_handle(&state, 6, &admin, unsubscribe(subscribed_id))
+            .await
+            .unwrap();
+        assert!(matches!(removed.result, Some(ResultPayload::Bool(true))));
+        let again = try_handle(&state, 7, &admin, unsubscribe(subscribed_id))
+            .await
+            .unwrap();
+        assert!(matches!(again.result, Some(ResultPayload::Bool(false))));
+        assert!(error_of(try_handle(&state, 8, &admin, poll(subscribed_id)).await).is_some());
+
+        state.write().await.cdc = None;
+        for (req_id, method) in [
+            (9, subscribe()),
+            (10, poll(subscribed_id)),
+            (11, unsubscribe(1)),
+        ] {
+            let refused = try_handle(&state, req_id, &admin, method).await.unwrap();
+            assert_eq!(
+                (refused.id, refused.error.as_deref()),
+                (req_id, Some("streaming/CDC not configured"))
+            );
+        }
     }
 
     #[test]
@@ -763,10 +868,7 @@ mod tests {
     #[cfg(feature = "broker")]
     #[tokio::test]
     async fn forward_to_broker_spawns_a_live_forwarder_that_delivers_matches() {
-        let state = Arc::new(RwLock::new(ServerState::new_for_test(
-            "test",
-            crate::isolation::IsolationLayer::new(),
-        )));
+        let state = shared_state();
         let exchange = "cep-live-exchange";
         let core = {
             let s = state.read().await;
@@ -822,10 +924,7 @@ mod tests {
             std::env::var(CEP_BROKER_EXCHANGE_ENV).is_err(),
             "test assumes the CI/dev environment never sets this var"
         );
-        let state = Arc::new(RwLock::new(ServerState::new_for_test(
-            "test",
-            crate::isolation::IsolationLayer::new(),
-        )));
+        let state = shared_state();
         let surface = CepSurface::new();
         let sub_id = surface.register(
             &alert_pattern(),

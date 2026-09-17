@@ -445,31 +445,31 @@ impl ServerState {
     /// Compose the production server state with every feature-gated field
     /// initialized. Runtime-specific capacity, persistence, and backend values
     /// are supplied by the startup orchestrator after this baseline is built.
+    ///
+    /// A field built empty uses its type's `Default` (every such type's `Default`
+    /// is its `new()`); only the fields with a non-default starting value are spelled
+    /// out.
     pub fn new(auth_secret: impl Into<String>, isolation: IsolationLayer) -> Self {
         Self {
-            registry: GraphRegistry::new(),
+            registry: GraphRegistry::default(),
             isolation,
-            channels: ChannelManager::new(),
+            channels: ChannelManager::default(),
             auth_secret: auth_secret.into(),
             persist_dir: None,
             persistence: None,
             #[cfg(feature = "redb")]
             agent_library: None,
             #[cfg(feature = "redb")]
-            cold_tracker: Arc::new(
-                crate::server::persistence::cold_offload::ColdTenantTracker::new(),
-            ),
+            cold_tracker: Arc::default(),
             #[cfg(feature = "viz-static-export")]
             viz_engine: None,
             max_in_flight: Arc::new(Semaphore::new(16)),
             read_admission: Arc::new(Semaphore::new(16)),
-            per_graph_inflight: Arc::new(DashMap::new()),
+            per_graph_inflight: Arc::default(),
             per_graph_inflight_limit: 8,
-            write_coalescer: Arc::new(crate::write_coalescer::WriteCoalescerRegistry::new()),
-            routed_write_coalescer: Arc::new(
-                crate::server::routed_write_coalescer::RoutedWriteCoalescerRegistry::new(),
-            ),
-            open_txns: Arc::new(DashMap::new()),
+            write_coalescer: Arc::default(),
+            routed_write_coalescer: Arc::default(),
+            open_txns: Arc::default(),
             txn_id_gen: Arc::new(TxnIdGen),
             txn_ttl_secs: 300,
             txn_max_per_graph: 256,
@@ -484,22 +484,20 @@ impl ServerState {
             multi_raft: None,
             #[cfg(feature = "tsdb")]
             tsdb_store: None,
+            // Keep field composition side-effect-free. Production startup
+            // installs the optional Kafka sink after constructing state.
             #[cfg(feature = "streaming")]
-            cdc: Some({
-                // Keep field composition side-effect-free. Production startup
-                // installs the optional Kafka sink after constructing state.
-                Arc::new(crate::server::cdc::CdcHub::new())
-            }),
+            cdc: Some(Arc::default()),
             #[cfg(feature = "wasm-udf")]
-            udf_registry: Arc::new(eg_wasm::UdfRegistry::new()),
+            udf_registry: Arc::default(),
             #[cfg(feature = "compute-dist")]
-            matviews: Arc::new(Mutex::new(crate::raft::pregel::MatViewStore::new())),
+            matviews: Arc::default(),
             #[cfg(feature = "federation")]
-            foreign_sources: Arc::new(DashMap::new()),
+            foreign_sources: Arc::default(),
             #[cfg(feature = "kv")]
             kv: None,
             #[cfg(feature = "lake")]
-            lake: Arc::new(crate::server::lake::LakeManager::new()),
+            lake: Arc::default(),
         }
     }
 
@@ -554,5 +552,37 @@ impl ServerState {
             roles: Vec::new(),
         });
         isolation
+    }
+}
+
+#[cfg(test)]
+mod construction_tests {
+    use super::{IsolationLayer, ServerState};
+
+    /// Pins the baseline `ServerState::new` composes: the admission limits and
+    /// transaction bounds, empty registries, and a CDC hub under `streaming`.
+    #[test]
+    fn new_composes_documented_limits_and_empty_registries() {
+        let state = ServerState::new("secret", IsolationLayer::new());
+        assert_eq!(state.auth_secret, "secret");
+        assert_eq!(state.max_in_flight.available_permits(), 16);
+        assert_eq!(state.read_admission.available_permits(), 16);
+        assert_eq!(state.per_graph_inflight_limit, 8);
+        assert_eq!(
+            (
+                state.txn_ttl_secs,
+                state.txn_max_per_graph,
+                state.txn_max_per_agent
+            ),
+            (300, 256, 256)
+        );
+        assert!(state.per_graph_inflight.is_empty() && state.open_txns.is_empty());
+        assert!(state.persist_dir.is_none() && state.persistence.is_none());
+        #[cfg(feature = "streaming")]
+        assert!(state.cdc.is_some());
+        #[cfg(feature = "federation")]
+        assert!(state.foreign_sources.is_empty());
+        #[cfg(feature = "blob")]
+        assert_eq!(state.blob_cursor_ttl_secs, 300);
     }
 }

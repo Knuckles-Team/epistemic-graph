@@ -1325,24 +1325,24 @@ impl WireSession {
         Self {
             state,
             graph: parking_lot::Mutex::new(default_graph),
-            startup_resolved: std::sync::atomic::AtomicBool::new(false),
-            actor: parking_lot::Mutex::new(None),
-            authority: parking_lot::Mutex::new(None),
-            attempt_nonce: parking_lot::Mutex::new(None),
-            txn: parking_lot::Mutex::new(None),
-            graph_txn: parking_lot::Mutex::new(GraphTxnBuffer::default()),
-            txn_graph: parking_lot::Mutex::new(None),
-            txn_failed: parking_lot::Mutex::new(false),
-            copy: parking_lot::Mutex::new(None),
+            startup_resolved: Default::default(),
+            actor: Default::default(),
+            authority: Default::default(),
+            attempt_nonce: Default::default(),
+            txn: Default::default(),
+            graph_txn: Default::default(),
+            txn_graph: Default::default(),
+            txn_failed: Default::default(),
+            copy: Default::default(),
             #[cfg(feature = "query")]
-            xmodal: parking_lot::Mutex::new(XmodalStaged::default()),
+            xmodal: Default::default(),
             txn_isolation: parking_lot::Mutex::new(crate::server::txn::IsolationLevel::Snapshot),
-            txn_begin_version: parking_lot::Mutex::new(None),
-            session_isolation_default: parking_lot::Mutex::new(None),
-            pending_isolation: parking_lot::Mutex::new(None),
-            serializable_predicate_reads: parking_lot::Mutex::new(Vec::new()),
-            txn_replay_log: parking_lot::Mutex::new(Vec::new()),
-            recovered_intents: std::sync::atomic::AtomicBool::new(false),
+            txn_begin_version: Default::default(),
+            session_isolation_default: Default::default(),
+            pending_isolation: Default::default(),
+            serializable_predicate_reads: Default::default(),
+            txn_replay_log: Default::default(),
+            recovered_intents: Default::default(),
         }
     }
 
@@ -5376,6 +5376,37 @@ mod ne_004_ne_005_tests {
             WireOutcome::Rows(result) => result.rows.len(),
             other => panic!("expected a row set, got {other:?}"),
         }
+    }
+
+    /// Pins the state a freshly constructed session starts in: its default graph,
+    /// no actor or transaction, snapshot isolation, and every flag/buffer cleared.
+    #[test]
+    fn new_session_starts_unbound_on_its_default_graph() {
+        let state = Arc::new(RwLock::new(ServerState::new_for_test(
+            SECRET,
+            test_isolation(&[AGENT]),
+        )));
+        let session = WireSession::new(state, "g-default".to_string());
+        assert_eq!(session.current_graph(), "g-default");
+        assert!(!session.in_txn() && session.actor().is_none());
+        assert!(session.authority.lock().is_none() && session.attempt_nonce.lock().is_none());
+        assert!(session.txn_graph.lock().is_none() && session.copy.lock().is_none());
+        assert!(!*session.txn_failed.lock());
+        assert!(!session
+            .startup_resolved
+            .load(std::sync::atomic::Ordering::SeqCst));
+        assert!(!session
+            .recovered_intents
+            .load(std::sync::atomic::Ordering::SeqCst));
+        assert_eq!(
+            *session.txn_isolation.lock(),
+            crate::server::txn::IsolationLevel::Snapshot
+        );
+        assert!(session.txn_begin_version.lock().is_none());
+        assert!(session.session_isolation_default.lock().is_none());
+        assert!(session.pending_isolation.lock().is_none());
+        assert!(session.serializable_predicate_reads.lock().is_empty());
+        assert!(session.txn_replay_log.lock().is_empty());
     }
 
     /// NE-004, DoD item 1: a mixed graph+table transaction commits
