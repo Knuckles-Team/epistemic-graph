@@ -2843,6 +2843,11 @@ ex:alice a ex:Person ; ex:name "Alice" ; ex:age "30"^^xsd:integer ; ex:knows ex:
 ex:bob   a ex:Person ; ex:name "Bob"   ; ex:age "25"^^xsd:integer .
 ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:alice .
 "#;
+        view_of_turtle(ttl)
+    }
+
+    /// A snapshot of graph `g` loaded from a Turtle document.
+    fn view_of_turtle(ttl: &str) -> GraphView {
         let core = eg_core::graph::GraphCore::new();
         let mut iris = IriStore::default();
         load_triples(&core, &mut iris, "g", parse_turtle(ttl).unwrap()).unwrap();
@@ -3657,8 +3662,24 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
         assert!(filtered_names(&view, "isLiteral(?p)").is_empty());
         assert_eq!(filtered_names(&view, "isNumeric(?age)"), everyone);
         assert!(filtered_names(&view, "isNumeric(?name)").is_empty());
-        assert!(filtered_names(&view, "sameTerm(?name, ?name) && isURI(?age)").is_empty());
+        assert_eq!(filtered_names(&view, "isURI(?p)"), everyone);
         assert!(filtered_names(&view, r#"UCASE(?name)"#).is_empty());
+    }
+
+    /// `isBlank` accepts a blank-node subject and `isIRI` rejects it.
+    #[test]
+    fn filter_is_blank_matches_a_blank_node_subject() {
+        let view = view_of_turtle(
+            r#"
+@prefix ex: <http://example.org/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+ex:alice a ex:Person ; ex:name "Alice" ; ex:age "30"^^xsd:integer .
+[] a ex:Person ; ex:name "Anon" ; ex:age "20"^^xsd:integer .
+"#,
+        );
+        assert_eq!(filtered_names(&view, "isBlank(?p)"), vec!["Anon"]);
+        assert_eq!(filtered_names(&view, "isIRI(?p)"), vec!["Alice"]);
+        assert!(filtered_names(&view, "isLiteral(?p)").is_empty());
     }
 
     // ── CONCEPT:EG-KG.ontology.minus — MINUS ──────────────────────────────────────────────────
@@ -3695,10 +3716,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
 @prefix ex: <http://example.org/> .
 ex:alice ex:knows ex:bob ; ex:likes ex:carol .
 "#;
-        let core = eg_core::graph::GraphCore::new();
-        let mut iris = IriStore::default();
-        load_triples(&core, &mut iris, "g", parse_turtle(ttl).unwrap()).unwrap();
-        let view = core.analysis_snapshot();
+        let view = view_of_turtle(ttl);
         let res = select(
             &view,
             r#"
@@ -3835,10 +3853,7 @@ ex:a ex:dept "Eng"   ; ex:name "Zoe" ; ex:rank "2"^^xsd:integer .
 ex:b ex:dept "Eng"   ; ex:name "Amy" ; ex:rank "1"^^xsd:integer .
 ex:c ex:dept "Sales" ; ex:name "Bob" ; ex:rank "1"^^xsd:integer .
 "#;
-        let core = eg_core::graph::GraphCore::new();
-        let mut iris = IriStore::default();
-        load_triples(&core, &mut iris, "g", parse_turtle(ttl).unwrap()).unwrap();
-        core.analysis_snapshot()
+        view_of_turtle(ttl)
     }
 
     fn ordered_col(view: &GraphView, q: &str, col: &str) -> Vec<String> {
@@ -4330,10 +4345,7 @@ ex:gA    geo:asWKT "POINT(1 1)"^^geo:wktLiteral .
 ex:cityB geo:hasGeometry ex:gB .
 ex:gB    geo:asWKT "POINT(5 5)"^^geo:wktLiteral .
 "#;
-        let core = eg_core::graph::GraphCore::new();
-        let mut iris = IriStore::default();
-        load_triples(&core, &mut iris, "g", parse_turtle(ttl).unwrap()).unwrap();
-        core.analysis_snapshot()
+        view_of_turtle(ttl)
     }
 
     /// EG-261: the `?feature geo:hasGeometry ?g . ?g geo:asWKT ?wkt` resolution pattern
@@ -4378,10 +4390,7 @@ ex:big   geo:asWKT "POLYGON((0 0, 10 0, 10 10, 0 10, 0 0))"^^geo:wktLiteral .
 ex:inner geo:asWKT "POLYGON((2 2, 4 2, 4 4, 2 4, 2 2))"^^geo:wktLiteral .
 ex:edge  geo:asWKT "POLYGON((0 0, 5 0, 5 5, 0 5, 0 0))"^^geo:wktLiteral .
 "#;
-        let core = eg_core::graph::GraphCore::new();
-        let mut iris = IriStore::default();
-        load_triples(&core, &mut iris, "g", parse_turtle(ttl).unwrap()).unwrap();
-        core.analysis_snapshot()
+        view_of_turtle(ttl)
     }
 
     /// EG-155: a full SPARQL `FILTER(geof:rcc8ntpp(?pw, ?bw))` query end-to-end — the new
