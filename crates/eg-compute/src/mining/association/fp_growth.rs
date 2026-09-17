@@ -62,13 +62,8 @@ pub fn fpgrowth(transactions: &[Vec<ItemId>], min_count: usize) -> Vec<FrequentI
 
     let mut out: Vec<FrequentItemset> = Vec::new();
     fp_mine(&projected, &[], min_count, n, &mut out);
-    // Determinism: sort by length then items so the result set is stable across
-    // the (recursion-order-dependent) discovery sequence.
-    out.sort_by(|a, b| {
-        a.items
-            .len()
-            .cmp(&b.items.len())
-            .then(a.items.cmp(&b.items))
+    super::super::math::sort_by_length_then_items(&mut out, |itemset: &FrequentItemset| {
+        &itemset.items
     });
     out
 }

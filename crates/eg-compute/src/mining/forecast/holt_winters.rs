@@ -1,6 +1,6 @@
 //! Additive Holt-Winters forecasting.
 
-use super::{linear_regression, mean, residual_std, z_score, Forecast};
+use super::{linear_regression, mean, residual_std, widening_bounds, Forecast};
 
 // ─────────────────────────── Holt-Winters / ETS ───────────────────────────
 
@@ -21,7 +21,7 @@ pub fn holt_winters(
     let mut state = initialise_state(series, period);
     let resid = smooth(series, period, alpha, beta, gamma, &mut state);
     let point = forecast_points(&state, n, period, horizon);
-    let (lower, upper) = confidence_bounds(&point, &resid, state.start_t, confidence);
+    let (lower, upper) = widening_bounds(&point, residual_std(&resid, state.start_t), confidence);
     Forecast {
         values: point,
         lower,
@@ -146,22 +146,4 @@ fn forecast_points(state: &HoltState, n: usize, period: usize, horizon: usize) -
         point.push(state.level + h as f64 * state.trend + seasonal_h);
     }
     point
-}
-
-fn confidence_bounds(
-    point: &[f64],
-    resid: &[f64],
-    warmup: usize,
-    confidence: f64,
-) -> (Vec<f64>, Vec<f64>) {
-    let sigma = residual_std(resid, warmup);
-    let z = z_score(confidence);
-    let mut lower = Vec::with_capacity(point.len());
-    let mut upper = Vec::with_capacity(point.len());
-    for (h, &f) in point.iter().enumerate() {
-        let margin = z * sigma * ((h + 1) as f64).sqrt();
-        lower.push(f - margin);
-        upper.push(f + margin);
-    }
-    (lower, upper)
 }

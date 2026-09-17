@@ -1,6 +1,8 @@
 //! ARIMA forecasting and its least-squares fitting kernels.
 
-use super::{difference, flat_forecast, integrate_forecast, mean, residual_std, z_score, Forecast};
+use super::{
+    difference, flat_forecast, integrate_forecast, mean, residual_std, widening_bounds, Forecast,
+};
 
 // ─────────────────────────── ARIMA ───────────────────────────
 
@@ -47,15 +49,7 @@ pub fn arima(
     }
 
     let point = integrate_forecast(&diff_forecast, series, d);
-    let sigma = residual_std(&resid, p.max(q));
-    let z = z_score(confidence);
-    let mut lower = Vec::with_capacity(horizon);
-    let mut upper = Vec::with_capacity(horizon);
-    for (h, &f) in point.iter().enumerate() {
-        let margin = z * sigma * ((h + 1) as f64).sqrt();
-        lower.push(f - margin);
-        upper.push(f + margin);
-    }
+    let (lower, upper) = widening_bounds(&point, residual_std(&resid, p.max(q)), confidence);
     Forecast {
         values: point,
         lower,

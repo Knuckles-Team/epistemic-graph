@@ -89,12 +89,7 @@ pub fn prefixspan(sequences: &[Vec<ItemId>], min_count: usize) -> Vec<Sequential
     let projected: Vec<&[ItemId]> = sequences.iter().map(|s| s.as_slice()).collect();
     let mut out = Vec::new();
     prefixspan_rec(&projected, &[], min_count, n, &mut out);
-    out.sort_by(|a, b| {
-        a.items
-            .len()
-            .cmp(&b.items.len())
-            .then(a.items.cmp(&b.items))
-    });
+    super::math::sort_by_length_then_items(&mut out, |pattern: &SequentialPattern| &pattern.items);
     out
 }
 

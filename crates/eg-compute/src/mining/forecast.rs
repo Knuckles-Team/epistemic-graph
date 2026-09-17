@@ -190,15 +190,7 @@ pub fn stl_forecast(series: &[f64], period: usize, horizon: usize, confidence: f
         };
         point.push(last_trend + h as f64 * slope + seasonal_h);
     }
-    let sigma = std_dev(&decomp.residual);
-    let z = z_score(confidence);
-    let mut lower = Vec::with_capacity(horizon);
-    let mut upper = Vec::with_capacity(horizon);
-    for (h, &f) in point.iter().enumerate() {
-        let margin = z * sigma * ((h + 1) as f64).sqrt();
-        lower.push(f - margin);
-        upper.push(f + margin);
-    }
+    let (lower, upper) = widening_bounds(&point, std_dev(&decomp.residual), confidence);
     Forecast {
         values: point,
         lower,
@@ -265,14 +257,8 @@ fn fill_edges(v: &mut [f64]) {
 
 /// A flat forecast at `last` (used by degenerate/too-short-series fallbacks).
 fn flat_forecast(last: f64, horizon: usize, sigma: f64, confidence: f64) -> Forecast {
-    let z = z_score(confidence);
     let values = vec![last; horizon];
-    let lower = (0..horizon)
-        .map(|h| last - z * sigma * ((h + 1) as f64).sqrt())
-        .collect();
-    let upper = (0..horizon)
-        .map(|h| last + z * sigma * ((h + 1) as f64).sqrt())
-        .collect();
+    let (lower, upper) = widening_bounds(&values, sigma, confidence);
     Forecast {
         values,
         lower,
@@ -372,6 +358,21 @@ fn residual_std(resid: &[f64], warmup: usize) -> f64 {
         return 0.0;
     }
     std_dev(&resid[warmup..])
+}
+
+/// The approximate confidence band around a forecast: `point ± z·sigma·√h` for
+/// the `h`-th step ahead, so the band widens with the forecast horizon. Shared
+/// by every engine; each supplies its own residual `sigma`.
+fn widening_bounds(point: &[f64], sigma: f64, confidence: f64) -> (Vec<f64>, Vec<f64>) {
+    let z = z_score(confidence);
+    let mut lower = Vec::with_capacity(point.len());
+    let mut upper = Vec::with_capacity(point.len());
+    for (h, &f) in point.iter().enumerate() {
+        let margin = z * sigma * ((h + 1) as f64).sqrt();
+        lower.push(f - margin);
+        upper.push(f + margin);
+    }
+    (lower, upper)
 }
 
 /// The z-multiplier for a two-sided `confidence` level (e.g. `0.95` → `1.96`),

@@ -1,4 +1,15 @@
-//! Small numerical helpers shared by the mining classifiers and clusterers.
+//! Small numerical helpers shared by the mining classifiers and clusterers, and
+//! the result ordering the pattern miners share.
+
+/// Order mined patterns by length, then lexicographically by their items, so a
+/// result set is stable however the (recursion-order-dependent) discovery
+/// happened to find it.
+pub(super) fn sort_by_length_then_items<P, T: Ord>(patterns: &mut [P], items: impl Fn(&P) -> &[T]) {
+    patterns.sort_by(|a, b| {
+        let (a, b) = (items(a), items(b));
+        a.len().cmp(&b.len()).then(a.cmp(b))
+    });
+}
 
 /// Log N(x | mean, diag(var)) for a diagonal-covariance Gaussian.
 pub(super) fn log_gaussian_diag(x: &[f64], mean: &[f64], var: &[f64]) -> f64 {
