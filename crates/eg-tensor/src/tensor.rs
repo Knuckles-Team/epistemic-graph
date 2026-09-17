@@ -213,9 +213,11 @@ impl Tensor {
             ));
         }
         let src = self.data.to_f64();
-        let strides = self.strides();
-        let axis_len = self.shape[axis];
-        let axis_stride = strides[axis];
+        let lane = ReduceLane {
+            len: self.shape[axis],
+            stride: self.strides()[axis],
+            kind,
+        };
         let out_shape: Vec<usize> = self
             .shape
             .iter()
@@ -227,42 +229,13 @@ impl Tensor {
         let out_strides = strides_including_removed(&self.shape, axis);
 
         let mut out = vec![0.0f64; out_n];
-        // For each output cell, walk the `axis_len` elements along `axis`.
-        let out_dims: Vec<usize> = out_shape.clone();
-        let mut coord = vec![0usize; out_dims.len()];
+        // For each output cell, walk the `lane.len` elements along `axis`.
+        let mut coord = vec![0usize; out_shape.len()];
         for slot in out.iter_mut() {
             // Base flat index in the SOURCE for this output coordinate (axis index 0).
-            let mut base = 0usize;
-            for (k, &c) in coord.iter().enumerate() {
-                base += c * out_strides[k];
-            }
-            let mut acc = match kind {
-                ReduceKind::Sum | ReduceKind::Mean => 0.0,
-                ReduceKind::Max => f64::NEG_INFINITY,
-                ReduceKind::Min => f64::INFINITY,
-            };
-            for a in 0..axis_len {
-                let x = src[base + a * axis_stride];
-                acc = match kind {
-                    ReduceKind::Sum | ReduceKind::Mean => acc + x,
-                    ReduceKind::Max => acc.max(x),
-                    ReduceKind::Min => acc.min(x),
-                };
-            }
-            if let ReduceKind::Mean = kind {
-                if axis_len > 0 {
-                    acc /= axis_len as f64;
-                }
-            }
-            *slot = acc;
-            // Increment the output coordinate (C-order).
-            for d in (0..out_dims.len()).rev() {
-                coord[d] += 1;
-                if coord[d] < out_dims[d] {
-                    break;
-                }
-                coord[d] = 0;
-            }
+            let base: usize = coord.iter().zip(&out_strides).map(|(&c, &s)| c * s).sum();
+            *slot = lane.fold(&src, base);
+            advance_c_order(&mut coord, &out_shape);
         }
         Tensor::new(out_shape, Buffer::from_f64(self.dtype, &out))
     }
@@ -310,6 +283,60 @@ fn strides(shape: &[usize]) -> Vec<usize> {
     s
 }
 
+/// The run of source elements one output cell of [`Tensor::reduce`] folds: `len`
+/// elements `stride` apart along the reduced axis, combined with `kind`.
+struct ReduceLane {
+    len: usize,
+    stride: usize,
+    kind: ReduceKind,
+}
+
+impl ReduceLane {
+    /// Fold the lane starting at flat source index `base` (a mean over an empty lane
+    /// stays at the additive identity).
+    fn fold(&self, src: &[f64], base: usize) -> f64 {
+        let acc = (0..self.len)
+            .map(|a| src[base + a * self.stride])
+            .fold(reduce_identity(self.kind), |acc, x| {
+                reduce_step(self.kind, acc, x)
+            });
+        match self.kind {
+            ReduceKind::Mean if self.len > 0 => acc / self.len as f64,
+            ReduceKind::Sum | ReduceKind::Mean | ReduceKind::Max | ReduceKind::Min => acc,
+        }
+    }
+}
+
+/// The accumulator's starting value for `kind`.
+fn reduce_identity(kind: ReduceKind) -> f64 {
+    match kind {
+        ReduceKind::Sum | ReduceKind::Mean => 0.0,
+        ReduceKind::Max => f64::NEG_INFINITY,
+        ReduceKind::Min => f64::INFINITY,
+    }
+}
+
+/// Fold one element `x` into `acc` under `kind`.
+fn reduce_step(kind: ReduceKind, acc: f64, x: f64) -> f64 {
+    match kind {
+        ReduceKind::Sum | ReduceKind::Mean => acc + x,
+        ReduceKind::Max => acc.max(x),
+        ReduceKind::Min => acc.min(x),
+    }
+}
+
+/// Advance `coord` to the next C-order (row-major) coordinate within `dims`,
+/// wrapping to all zeros after the last one.
+fn advance_c_order(coord: &mut [usize], dims: &[usize]) {
+    for d in (0..dims.len()).rev() {
+        coord[d] += 1;
+        if coord[d] < dims[d] {
+            break;
+        }
+        coord[d] = 0;
+    }
+}
+
 /// The subset of the SOURCE strides that correspond to the axes that SURVIVE a
 /// reduction over `axis` — indexed in output-coordinate order. Lets a reduce map an
 /// output coordinate to its base flat offset in the source.
@@ -340,13 +367,7 @@ fn gather<T: Copy>(
             src += (ranges[d].0 + coord[d]) * src_strides[d];
         }
         out.push(data[src]);
-        for d in (0..ndim).rev() {
-            coord[d] += 1;
-            if coord[d] < out_shape[d] {
-                break;
-            }
-            coord[d] = 0;
-        }
+        advance_c_order(&mut coord, out_shape);
     }
     out
 }
@@ -427,6 +448,48 @@ mod tests {
         let s = t.reduce(1, ReduceKind::Sum).unwrap();
         assert_eq!(s.shape, vec![2, 2]);
         assert_eq!(s.data, Buffer::I64(vec![2, 4, 10, 12]));
+    }
+
+    #[test]
+    fn reduce_3d_outer_axes_and_every_kind() {
+        // shape [2,2,2], values 0..8 row-major: src(i,j,k) = 4i + 2j + k.
+        let t = Tensor::new(vec![2, 2, 2], Buffer::F64((0..8).map(f64::from).collect())).unwrap();
+        // max over axis 2: (i,j) -> 4i + 2j + 1.
+        let max2 = t.reduce(2, ReduceKind::Max).unwrap();
+        assert_eq!(max2.shape, vec![2, 2]);
+        assert_eq!(max2.data, Buffer::F64(vec![1.0, 3.0, 5.0, 7.0]));
+        // min over axis 2: (i,j) -> 4i + 2j.
+        let min2 = t.reduce(2, ReduceKind::Min).unwrap();
+        assert_eq!(min2.data, Buffer::F64(vec![0.0, 2.0, 4.0, 6.0]));
+        // mean over axis 0: (j,k) -> 2j + k + 2.
+        let mean0 = t.reduce(0, ReduceKind::Mean).unwrap();
+        assert_eq!(mean0.shape, vec![2, 2]);
+        assert_eq!(mean0.data, Buffer::F64(vec![2.0, 3.0, 4.0, 5.0]));
+        // sum over axis 0: (j,k) -> 2(2j + k) + 4.
+        let sum0 = t.reduce(0, ReduceKind::Sum).unwrap();
+        assert_eq!(sum0.data, Buffer::F64(vec![4.0, 6.0, 8.0, 10.0]));
+    }
+
+    #[test]
+    fn reduce_over_an_empty_axis_yields_each_kinds_identity() {
+        let t = Tensor::new(vec![2, 0], Buffer::F64(Vec::new())).unwrap();
+        let reduced = |kind| t.reduce(1, kind).unwrap();
+        assert_eq!(reduced(ReduceKind::Sum).data, Buffer::F64(vec![0.0, 0.0]));
+        // Mean over zero elements stays at the additive identity (no 0/0).
+        assert_eq!(reduced(ReduceKind::Mean).data, Buffer::F64(vec![0.0, 0.0]));
+        assert_eq!(
+            reduced(ReduceKind::Max).data,
+            Buffer::F64(vec![f64::NEG_INFINITY; 2])
+        );
+        assert_eq!(
+            reduced(ReduceKind::Min).data,
+            Buffer::F64(vec![f64::INFINITY; 2])
+        );
+        // A 1-D tensor reduces to a rank-0 scalar.
+        let v = Tensor::new(vec![3], Buffer::F64(vec![2.0, -1.0, 5.0])).unwrap();
+        let s = v.reduce(0, ReduceKind::Max).unwrap();
+        assert!(s.shape.is_empty());
+        assert_eq!(s.data, Buffer::F64(vec![5.0]));
     }
 
     #[test]

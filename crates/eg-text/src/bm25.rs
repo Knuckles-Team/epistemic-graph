@@ -169,45 +169,74 @@ pub fn bm25_snippet(query: &str, doc: &str, maxlen: usize) -> String {
     if spans.is_empty() {
         return String::new();
     }
+    let is_query_term =
+        |&(s, e): &(usize, usize)| q_terms.contains(&doc[s..e].to_ascii_lowercase());
 
     // The first token that is a query term anchors the window.
-    let anchor = spans
-        .iter()
-        .position(|s| q_terms.contains(&doc[s.0..s.1].to_ascii_lowercase()));
-
-    let (lo_byte, hi_byte, truncated_left, truncated_right) = match anchor {
-        Some(a) => {
-            // Grow a token window [lo, hi] outward from the anchor while it fits maxlen:
-            // extend forward first (trailing context), then backward.
-            let mut lo = a;
-            let mut hi = a;
-            let fits = |lo: usize, hi: usize| spans[hi].1 - spans[lo].0 <= maxlen;
-            while hi + 1 < spans.len() && fits(lo, hi + 1) {
-                hi += 1;
-            }
-            while lo > 0 && fits(lo - 1, hi) {
-                lo -= 1;
-            }
-            (spans[lo].0, spans[hi].1, lo > 0, hi + 1 < spans.len())
-        }
-        None => {
-            // No match: return the head of the doc up to maxlen, token-boundary snapped.
-            let mut hi = 0usize;
-            while hi + 1 < spans.len() && spans[hi + 1].1 <= maxlen {
-                hi += 1;
-            }
-            (0usize, spans[hi].1, false, hi + 1 < spans.len())
-        }
+    let window = match spans.iter().position(&is_query_term) {
+        Some(anchor) => anchored_window(&spans, anchor, maxlen),
+        None => head_window(&spans, maxlen),
     };
+    render_snippet(doc, &spans, &window, is_query_term)
+}
 
-    // Rebuild the window, wrapping each query-term token span in <b>…</b>.
+/// The byte range of `doc` a snippet shows, and whether it cuts tokens off either end.
+struct SnippetWindow {
+    start: usize,
+    end: usize,
+    truncated_left: bool,
+    truncated_right: bool,
+}
+
+/// Grow a token window [lo, hi] outward from the anchor token while it fits `maxlen`:
+/// extend forward first (trailing context), then backward.
+fn anchored_window(spans: &[(usize, usize)], anchor: usize, maxlen: usize) -> SnippetWindow {
+    let fits = |lo: usize, hi: usize| spans[hi].1 - spans[lo].0 <= maxlen;
+    let (mut lo, mut hi) = (anchor, anchor);
+    while hi + 1 < spans.len() && fits(lo, hi + 1) {
+        hi += 1;
+    }
+    while lo > 0 && fits(lo - 1, hi) {
+        lo -= 1;
+    }
+    SnippetWindow {
+        start: spans[lo].0,
+        end: spans[hi].1,
+        truncated_left: lo > 0,
+        truncated_right: hi + 1 < spans.len(),
+    }
+}
+
+/// No match: the head of the doc up to `maxlen`, snapped to a token boundary.
+fn head_window(spans: &[(usize, usize)], maxlen: usize) -> SnippetWindow {
+    let mut hi = 0usize;
+    while hi + 1 < spans.len() && spans[hi + 1].1 <= maxlen {
+        hi += 1;
+    }
+    SnippetWindow {
+        start: 0,
+        end: spans[hi].1,
+        truncated_left: false,
+        truncated_right: hi + 1 < spans.len(),
+    }
+}
+
+/// Rebuild the window, wrapping each query-term token span in <b>…</b> and marking
+/// truncation with `…`.
+fn render_snippet(
+    doc: &str,
+    spans: &[(usize, usize)],
+    window: &SnippetWindow,
+    is_query_term: impl Fn(&(usize, usize)) -> bool,
+) -> String {
     let mut out = String::new();
-    if truncated_left {
+    if window.truncated_left {
         out.push('…');
     }
-    let mut cursor = lo_byte;
-    for &(s, e) in spans.iter().filter(|&&(s, e)| s >= lo_byte && e <= hi_byte) {
-        if q_terms.contains(&doc[s..e].to_ascii_lowercase()) {
+    let mut cursor = window.start;
+    let in_window = |&&(s, e): &&(usize, usize)| s >= window.start && e <= window.end;
+    for &(s, e) in spans.iter().filter(in_window) {
+        if is_query_term(&(s, e)) {
             out.push_str(&doc[cursor..s]);
             out.push_str("<b>");
             out.push_str(&doc[s..e]);
@@ -215,8 +244,8 @@ pub fn bm25_snippet(query: &str, doc: &str, maxlen: usize) -> String {
             cursor = e;
         }
     }
-    out.push_str(&doc[cursor..hi_byte]);
-    if truncated_right {
+    out.push_str(&doc[cursor..window.end]);
+    if window.truncated_right {
         out.push('…');
     }
     out
@@ -367,4 +396,45 @@ mod tests {
         assert_eq!(bm25_score("", "some document text"), 0.0);
         assert_eq!(bm25_snippet("q", "", 50), "");
     }
+
+    /// Exact snippet text across window shapes: anchor at the head, in the middle
+    /// with truncation on both sides, at the tail, no match (head, fitting or
+    /// truncated, or starting with separators), a `maxlen` smaller than any token
+    /// (clamped to 1), repeated and mixed-case terms, and multi-byte text.
+    #[test]
+    fn snippet_text_is_pinned_across_window_shapes() {
+        let cases: [(&str, &str, usize); 11] = [
+            ("alpha", "alpha beta gamma delta", 11),
+            ("gamma", "alpha beta gamma delta epsilon zeta", 12),
+            ("zeta", "alpha beta gamma delta epsilon zeta", 12),
+            ("none", "alpha beta gamma", 100),
+            ("none", "alpha beta gamma delta", 11),
+            ("beta", "alpha beta gamma", 0),
+            ("ab", "ab AB xx Ab yy ab", 12),
+            ("café", "le café noir, café crème", 14),
+            ("x", "   x   ", 3),
+            ("gamma delta", "alpha, beta; gamma -- delta!", 40),
+            ("none", "  lead space", 100),
+        ];
+        let actual: Vec<String> = cases
+            .iter()
+            .map(|&(query, doc, maxlen)| bm25_snippet(query, doc, maxlen))
+            .collect();
+        assert_eq!(actual, SNIPPET_GOLDEN, "actual snippets: {actual:#?}");
+    }
+
+    const SNIPPET_GOLDEN: [&str; 11] = [
+        "<b>alpha</b> beta…",
+        "…<b>gamma</b> delta…",
+        "…epsilon <b>zeta</b>",
+        "alpha beta gamma",
+        "alpha beta…",
+        "…<b>beta</b>…",
+        "<b>ab</b> <b>AB</b> xx <b>Ab</b>…",
+        "le <b>café</b> noir…",
+        "<b>x</b>",
+        "alpha, beta; <b>gamma</b> -- <b>delta</b>",
+        // No match keeps the head from byte 0, leading separators included.
+        "  lead space",
+    ];
 }
