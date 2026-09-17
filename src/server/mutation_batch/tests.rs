@@ -520,36 +520,100 @@ const CLASSIFICATION_GOLDEN: &[(&str, &str)] = &[
 /// hand-maintained table: a second table would drift, and a hash over the file
 /// would fail on a comment. Arms accumulate `Method::Name` tokens until the arm's
 /// `DurabilityDomain::Name` is reached; a wildcard arm names no method and is
-/// recorded as `_`.
+/// recorded as `_`. The classifier is three functions -- `owner_domain` delegates
+/// its tail to `service_owner_domain` and `domain_for` falls back to
+/// `graph_domain` -- so all three are read, in the order the dispatch reaches
+/// them. A `MethodWriteFamily::Name` in an arm contributes that family's own
+/// variants, read from `families.rs`, in declaration order.
 fn classification_map_from_source() -> Vec<(String, String)> {
     let source = include_str!("canonical.rs");
-    let start = source
-        .find("pub(crate) fn domain_for")
-        .expect("canonical.rs declares domain_for");
-    let body = &source[start..];
-    let end = body.find("\n}\n").expect("domain_for has a closing brace");
-    let mut pending: Vec<String> = Vec::new();
     let mut map: Vec<(String, String)> = Vec::new();
-    for line in body[..end].lines() {
-        let line = line.trim();
-        if line.starts_with("//") {
-            continue;
-        }
-        for token in line.match_indices("Method::") {
-            pending.push(identifier_after(line, token.0 + "Method::".len()));
-        }
-        if let Some(at) = line.find("DurabilityDomain::") {
-            let domain = identifier_after(line, at + "DurabilityDomain::".len());
-            if pending.is_empty() {
-                map.push(("_".to_string(), domain));
-            } else {
-                for method in pending.drain(..) {
-                    map.push((method, domain.clone()));
-                }
-            }
-        }
+    for function in [
+        "fn owner_domain",
+        "fn service_owner_domain",
+        "fn graph_domain",
+    ] {
+        map.extend(classified_arms(function_body(source, function)));
     }
     map
+}
+
+/// The body text of `function` (from its declaration to the closing brace in
+/// column 0).
+fn function_body<'a>(source: &'a str, function: &str) -> &'a str {
+    let start = source
+        .find(function)
+        .unwrap_or_else(|| panic!("canonical.rs declares {function}"));
+    let body = &source[start..];
+    let end = body
+        .find("\n}\n")
+        .unwrap_or_else(|| panic!("{function} has a closing brace"));
+    &body[..end]
+}
+
+/// The `(method, domain)` pairs one classifier body states, in arm order.
+fn classified_arms(body: &str) -> Vec<(String, String)> {
+    let mut pending: Vec<String> = Vec::new();
+    let mut map: Vec<(String, String)> = Vec::new();
+    for line in code_lines(body) {
+        pending.extend(named_methods(line));
+        let Some(domain) = named_domain(line) else {
+            continue;
+        };
+        if pending.is_empty() {
+            map.push(("_".to_string(), domain));
+            continue;
+        }
+        map.extend(pending.drain(..).map(|method| (method, domain.clone())));
+    }
+    map
+}
+
+/// The trimmed, non-comment lines of a body.
+fn code_lines(body: &str) -> impl Iterator<Item = &str> {
+    body.lines()
+        .map(str::trim)
+        .filter(|line| !line.starts_with("//"))
+}
+
+/// The methods one line names, directly or through a write family.
+fn named_methods(line: &str) -> Vec<String> {
+    let mut named: Vec<String> = Vec::new();
+    for token in line.match_indices("Method::") {
+        named.push(identifier_after(line, token.0 + "Method::".len()));
+    }
+    for token in line.match_indices("MethodWriteFamily::") {
+        let family = identifier_after(line, token.0 + "MethodWriteFamily::".len());
+        named.extend(family_variants(&family));
+    }
+    named
+}
+
+/// The durability domain one arm line states, if it states one.
+fn named_domain(line: &str) -> Option<String> {
+    let at = line.find("DurabilityDomain::")?;
+    Some(identifier_after(line, at + "DurabilityDomain::".len()))
+}
+
+/// The variants of one `MethodWriteFamily`, read from the family declaration
+/// next to the enum, so a family edit is visible to this golden too.
+fn family_variants(family: &str) -> Vec<String> {
+    let source = include_str!("../../../crates/eg-types/src/protocol/method/families.rs");
+    let mut pending: Vec<String> = Vec::new();
+    for line in code_lines(function_body(source, "fn write_family")) {
+        for token in line.match_indices("Self::") {
+            pending.push(identifier_after(line, token.0 + "Self::".len()));
+        }
+        let Some(at) = line.find("MethodWriteFamily::") else {
+            continue;
+        };
+        let named = identifier_after(line, at + "MethodWriteFamily::".len());
+        let variants = std::mem::take(&mut pending);
+        if named == family {
+            return variants;
+        }
+    }
+    panic!("families.rs declares no {family} arm")
 }
 
 fn identifier_after(line: &str, at: usize) -> String {

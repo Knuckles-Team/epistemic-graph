@@ -12,6 +12,9 @@ use eg_types::contract::RecordBytes;
 
 const SECRET: &str = "sql-source-served-secret";
 const WRITER: &str = "bob";
+/// The tenant `auth::request_context_policy()` expects under `cfg(test)`; the
+/// served envelope is refused before the handler if its claim differs.
+const TENANT: &str = "tenant-shared";
 
 struct Served {
     fixture: Fixture,
@@ -20,7 +23,7 @@ struct Served {
 
 impl Served {
     fn new() -> Self {
-        let fixture = Fixture::new();
+        let fixture = Fixture::for_tenant(TENANT);
         fixture.grant_insert(WRITER);
         let mut state = ServerState::new_for_test(SECRET, ServerState::test_isolation(WRITER));
         state.persist_dir = Some(fixture.directory.to_str().unwrap().into());
@@ -41,7 +44,7 @@ impl Served {
         let context = RequestContextClaims {
             principal: WRITER.into(),
             agent_id: WRITER.into(),
-            tenant: "tenant-a".into(),
+            tenant: TENANT.into(),
             audience: "epistemic-graph-test".into(),
             policy_version: "policy-test".into(),
             scopes: attempt

@@ -13,8 +13,16 @@ pub(super) struct Fixture {
 
 impl Fixture {
     pub(super) fn new() -> Self {
+        Self::for_tenant("tenant-a")
+    }
+
+    /// A fixture whose owner, ACL and table store belong to `tenant`. The served
+    /// path derives its tenant scope from the verified envelope's own tenant
+    /// claim, so an end-to-end test must build the catalog under the tenant the
+    /// deployment's request-context policy expects, not the direct-call default.
+    pub(super) fn for_tenant(tenant: &str) -> Self {
         let directory = crate::server::sql_tables::test_persist_dir();
-        let owner = authority("alice", "tenant-a", "owner", true);
+        let owner = authority("alice", tenant, "owner", true);
         let schema = TableSchema::new(
             "issues",
             vec![
