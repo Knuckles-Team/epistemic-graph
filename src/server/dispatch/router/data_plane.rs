@@ -94,7 +94,6 @@ pub(super) async fn dispatch_transaction_methods(
 /// store, the KV namespace and SQLite file import/export.
 ///
 /// Hands a method it does not own back as `ControlFlow::Continue`.
-
 pub(super) async fn dispatch_store_methods(
     ctx: DispatchCtx<'_>,
     method: Method,
@@ -163,7 +162,6 @@ pub(super) async fn dispatch_store_methods(
 /// triggers and live CEP standing queries.
 ///
 /// Hands a method it does not own back as `ControlFlow::Continue`.
-
 #[cfg(feature = "blob")]
 async fn dispatch_store_methods_arm_0(ctx: DispatchCtx<'_>, method: Method) -> Response {
     #[allow(unused_variables)]
@@ -352,7 +350,6 @@ pub(super) async fn dispatch_streaming_methods(
 /// read-side subscription plane above.
 ///
 /// Hands a method it does not own back as `ControlFlow::Continue`.
-
 #[cfg(feature = "streaming")]
 async fn dispatch_streaming_methods_arm_0(ctx: DispatchCtx<'_>, method: Method) -> Response {
     #[allow(unused_variables)]
@@ -663,7 +660,6 @@ pub(super) async fn dispatch_change_envelope_methods(
 /// assumes a single `req.graph`.
 ///
 /// Hands a method it does not own back as `ControlFlow::Continue`.
-
 pub(super) async fn dispatch_method_scoped_graph_methods(
     ctx: DispatchCtx<'_>,
     method: Method,
