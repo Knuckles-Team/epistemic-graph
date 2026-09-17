@@ -2453,7 +2453,11 @@ components:
         RE-MEASURED 2026-09-12 (F5/F6 follow-up) with `arch-lint check --format json`
         (0.5.0, same tool/version as the 2026-09-04 baseline), attributed against this
         component's CURRENT owned_source_roots/test_roots (post path-canonicalization).
-        Supersedes the stale 2026-09-04/5523859a figure of 285.
+        Supersedes the stale 2026-09-04/5523859a figure of 285. The top_files paths are
+        as of measured_at_head: `src/server/persistence/shard_migrate.rs` has since been
+        split into the `shard_migrate/` module (`inplace.rs`, `payload.rs`, `readiness.rs`,
+        `swap.rs`, `tests.rs`, `tests/`), so its 82 is not re-attributed to those files
+        until the next re-measurement.
     wiring_decision_refs:
       - "D-EG-005"
       - "D-EG-009"
@@ -4506,7 +4510,10 @@ wiring_decisions:
         present a replay of the stale 942-file report as post-change gate evidence. AL001
         contributes zero because it is explicitly disabled; the other seven were selected by
         arch-lint's recommended default, not by `preset = "minimal"` (the CLI ignores preset for
-        rule selection).
+        rule selection). File paths below are as of the named head:
+        `src/server/persistence/shard_migrate.rs` has since been split into the
+        `shard_migrate/` module (`inplace.rs`, `payload.rs`, `readiness.rs`, `swap.rs`,
+        `tests.rs`, `tests/`), and its count is not re-attributed until a new receipt.
 
     context_classification:
       classifier: scripts/check_rust_arch_lint.py

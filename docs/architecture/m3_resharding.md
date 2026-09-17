@@ -55,7 +55,10 @@ repository-scoped and does not assert a live deployment or 1M certification.
 ### 1. Offline K-shard migration tool (`CONCEPT:EG-KG.sharding.atomic-shard-swap`)
 
 **Files:**
-- `src/server/persistence/shard_migrate.rs` — the engine.
+- `src/server/persistence/shard_migrate.rs` — the engine, with its children in
+  `src/server/persistence/shard_migrate/`: `payload.rs` (graph-scoped payload
+  replacement), `inplace.rs` (immutable snapshots and in-place migration), `readiness.rs`
+  (digest-bound readiness manifests) and `swap.rs` (preflight and resumable installation).
 - `src/bin/migrate_shards.rs` — the `migrate-shards` CLI (`[[bin]]` gated
   `required-features = ["redb", "server"]` in `Cargo.toml`).
 - Shared layout helpers live in server-independent `src/redb_layout.rs`; routing and
@@ -101,12 +104,13 @@ migrate-shards --persist-dir "${GRAPH_SERVICE_PERSIST_DIR:?}" --shards 4 --dest-
 **Round-trip proof.** `retired_k1_layout_migrates_to_canonical_k1` proves the retired
 file is readable only by the offline tool and becomes `graph-0.redb` before startup.
 `roundtrip_k1_to_k4_preserves_all_graphs`
-(`src/server/persistence/shard_migrate.rs`, `#[tokio::test]`): seeds 7 graphs (each 2 nodes +
-1 edge) through a real K=1 `RedbBackend`, migrates K=1→K=4, reopens at K=4
+(`src/server/persistence/shard_migrate/tests/layout.rs`, `#[tokio::test]`): seeds 7 graphs
+(each 2 nodes + 1 edge) through a real K=1 `RedbBackend`, migrates K=1→K=4, reopens at K=4
 (`shard_count() == 4`), and asserts every graph reads back with its exact nodes/edges AND the
 graph-tagged node proves no cross-graph mixing. Also `in_place_migration_swaps_and_backs_up`
-(verifies the file swap + backup dir), `migration_discovery_rejects_mixed_and_sparse_layouts`,
-and `refuses_existing_destination` (clobber guard).
+(`shard_migrate/tests/recovery.rs`; verifies the file swap + backup dir), and
+`migration_discovery_rejects_mixed_and_sparse_layouts` and `refuses_existing_destination`
+(`shard_migrate/tests/layout.rs`; clobber guard).
 
 ### 2. Tenant catalog core (`CONCEPT:EG-KG.sharding.empty-catalog-routing`)
 
