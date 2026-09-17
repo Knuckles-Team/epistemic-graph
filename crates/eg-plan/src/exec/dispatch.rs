@@ -37,7 +37,7 @@ pub(crate) fn is_epistemic_op(op: &Op) -> bool {
 /// Grouped by theme into the tier functions below purely to keep each match's own arm
 /// count under the complexity cap — [`Op`] itself, and every arm's behavior, is
 /// unchanged; each tier is exactly the arms that theme always had.
-pub(super) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
+pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
     match op {
         Op::Scan { .. }
         | Op::Filter { .. }

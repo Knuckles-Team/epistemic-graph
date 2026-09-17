@@ -1107,7 +1107,6 @@ impl ModalityCardinality {
             _ => in_card,
         }
     }
-
 }
 
 #[cfg(feature = "query")]

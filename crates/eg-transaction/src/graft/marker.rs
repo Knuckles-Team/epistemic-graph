@@ -32,12 +32,14 @@ pub(super) fn batch_keys_match(
         GRAFT_MARKER,
         record.batch.idempotency_key(),
     )?;
-    Ok(record.batch.batch_id == GraftIntent::batch_id(&intent.destination)
-        && record.batch.idempotency_key() == record.batch.batch_id.as_str()
-        && record.batch.envelope == expected_envelope
-        && record.batch.placement_epoch == GRAFT_FENCE
-        && record.batch.fencing_token == Some(GRAFT_FENCE)
-        && record.batch.version_expectation == scope_expectation(identity, intent.version))
+    Ok(
+        record.batch.batch_id == GraftIntent::batch_id(&intent.destination)
+            && record.batch.idempotency_key() == record.batch.batch_id.as_str()
+            && record.batch.envelope == expected_envelope
+            && record.batch.placement_epoch == GRAFT_FENCE
+            && record.batch.fencing_token == Some(GRAFT_FENCE)
+            && record.batch.version_expectation == scope_expectation(identity, intent.version),
+    )
 }
 
 /// The batch carries exactly one operation, in the marker's fixed shape.

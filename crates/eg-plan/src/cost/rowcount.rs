@@ -49,7 +49,9 @@ pub(super) fn asof_static_rows_out(in_card: f64, n: f64) -> f64 {
 #[cfg(feature = "owl")]
 pub(super) fn reason_static_rows_out(in_card: f64, n: f64) -> f64 {
     if in_card > 0.0 {
-        in_card * ModalityCardinality::REASON_MEMBERSHIP_SEL * ModalityCardinality::REASON_CONF_RETENTION
+        in_card
+            * ModalityCardinality::REASON_MEMBERSHIP_SEL
+            * ModalityCardinality::REASON_CONF_RETENTION
     } else {
         n * ModalityCardinality::REASON_MEMBERSHIP_SEL
     }
