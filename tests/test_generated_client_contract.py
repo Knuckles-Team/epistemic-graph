@@ -94,30 +94,43 @@ def _generated_payload_target(node: ast.AST) -> tuple[str, str] | None:
     return None
 
 
+def _field_from_statement(statement: ast.stmt) -> tuple[str, bool] | None:
+    """``(wire key, is required)`` for one class-body statement, or ``None`` if it
+    isn't a model field (not an annotated assignment, or the ``model_config`` line)."""
+    if not isinstance(statement, ast.AnnAssign):
+        return None
+    target = statement.target
+    if not isinstance(target, ast.Name) or target.id == "model_config":
+        return None
+    # A field whose wire key is a Python keyword is emitted under a trailing-underscore
+    # name bound by `Field(alias=...)`; the WIRE key is what a caller's params dict
+    # actually carries, so compare on that.
+    return _wire_field(target.id, statement.value)
+
+
+def _request_class_fields(node: ast.ClassDef) -> tuple[set[str], set[str]]:
+    """(all field names, required field names) for one generated ``*Request`` class."""
+    every: set[str] = set()
+    required: set[str] = set()
+    for statement in node.body:
+        field = _field_from_statement(statement)
+        if field is None:
+            continue
+        name, mandatory = field
+        every.add(name)
+        if mandatory:
+            required.add(name)
+    return every, required
+
+
 def _model_fields(trees: dict[str, ast.Module]) -> dict[str, tuple[set[str], set[str]]]:
     """``ClassName`` -> (all field names, required field names)."""
-    models: dict[str, tuple[set[str], set[str]]] = {}
-    for tree in trees.values():
-        for node in tree.body:
-            if not isinstance(node, ast.ClassDef) or not node.name.endswith("Request"):
-                continue
-            every: set[str] = set()
-            required: set[str] = set()
-            for statement in node.body:
-                if not isinstance(statement, ast.AnnAssign):
-                    continue
-                target = statement.target
-                if not isinstance(target, ast.Name) or target.id == "model_config":
-                    continue
-                # A field whose wire key is a Python keyword is emitted under a
-                # trailing-underscore name bound by `Field(alias=...)`; the WIRE key is
-                # what a caller's params dict actually carries, so compare on that.
-                name, mandatory = _wire_field(target.id, statement.value)
-                every.add(name)
-                if mandatory:
-                    required.add(name)
-            models[node.name] = (every, required)
-    return models
+    return {
+        node.name: _request_class_fields(node)
+        for tree in trees.values()
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name.endswith("Request")
+    }
 
 
 def _wire_field(name: str, value: ast.expr | None) -> tuple[str, bool]:
@@ -155,6 +168,33 @@ def _literal_string_keys(mapping: ast.Dict) -> set[str] | None:
             return None
         keys.add(key.value)
     return keys
+
+
+def _literal_request_dict_failure(
+    node: ast.AST,
+    models: dict[str, tuple[set[str], set[str]]],
+    by_send: dict[str, str],
+) -> str | None:
+    """The mismatch message for one ``self._send.<attr>(..., {...})`` call whose
+    second argument is a literal dict that doesn't match its generated model's
+    fields, or ``None`` if the call isn't statically checkable or matches."""
+    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+        return None
+    model = models.get(by_send.get(node.func.attr, ""))
+    if model is None or len(node.args) < 2 or not isinstance(node.args[1], ast.Dict):
+        return None
+    keys = _literal_string_keys(node.args[1])
+    if keys is None:
+        return None  # a non-literal key: not statically comparable
+    every, required = model
+    unknown = keys - every
+    missing = required - keys
+    if not unknown and not missing:
+        return None
+    return (
+        f"line {node.lineno} {node.func.attr}: "
+        f"unknown={sorted(unknown)} missing={sorted(missing)}"
+    )
 
 
 class GeneratedClientContract(unittest.TestCase):
@@ -213,30 +253,13 @@ class GeneratedClientContract(unittest.TestCase):
             for d in self.descriptors
             if "python" in d["consumer_profiles"]
         }
-        failures: list[str] = []
-        for node in ast.walk(ast.parse(_CLIENT.read_text(encoding="utf-8"))):
-            if not isinstance(node, ast.Call) or not isinstance(
-                node.func, ast.Attribute
-            ):
-                continue
-            model = models.get(by_send.get(node.func.attr, ""))
-            if (
-                model is None
-                or len(node.args) < 2
-                or not isinstance(node.args[1], ast.Dict)
-            ):
-                continue
-            keys = _literal_string_keys(node.args[1])
-            if keys is None:
-                continue  # a non-literal key: not statically comparable
-            every, required = model
-            unknown = keys - every
-            missing = required - keys
-            if unknown or missing:
-                failures.append(
-                    f"line {node.lineno} {node.func.attr}: "
-                    f"unknown={sorted(unknown)} missing={sorted(missing)}"
-                )
+        tree = ast.parse(_CLIENT.read_text(encoding="utf-8"))
+        failures = [
+            failure
+            for node in ast.walk(tree)
+            if (failure := _literal_request_dict_failure(node, models, by_send))
+            is not None
+        ]
         self.assertEqual(failures, [], "\n".join(failures))
 
     def test_concrete_generated_results_are_not_unwrapped_as_opaque(self) -> None:

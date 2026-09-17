@@ -18,6 +18,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 import pytest
 
@@ -54,13 +55,15 @@ CAMPAIGNS = (
 )
 
 
-@pytest.mark.timeout(4800)
-def test_exact_release_campaigns_are_serial_and_complete(tmp_path: Path) -> None:
-    if os.environ.get("EPISTEMIC_GRAPH_EXACT_CERTIFICATION", "").strip() != "1":
-        pytest.skip(
-            "exact-artifact release certification was not requested "
-            "(set EPISTEMIC_GRAPH_EXACT_CERTIFICATION=1 to opt in)"
-        )
+class _ExactCertificationEnv(NamedTuple):
+    binary: str
+    digest: str
+    performance_evidence: str
+    performance_digest: str
+
+
+def _required_exact_certification_env() -> _ExactCertificationEnv:
+    """The four env vars exact certification requires, asserting each is set."""
     binary = str(os.environ.get("EPISTEMIC_GRAPH_TEST_BINARY", "") or "").strip()
     digest = str(os.environ.get("EPISTEMIC_GRAPH_TEST_BINARY_SHA256", "") or "").strip()
     performance_evidence = str(
@@ -80,44 +83,67 @@ def test_exact_release_campaigns_are_serial_and_complete(tmp_path: Path) -> None
         "EPISTEMIC_GRAPH_PERFORMANCE_EVIDENCE_SHA256 is required for exact "
         "certification"
     )
+    return _ExactCertificationEnv(
+        binary, digest, performance_evidence, performance_digest
+    )
+
+
+def _run_exact_campaign(
+    name: str,
+    harness: Path,
+    expected_summary: dict[str, object],
+    env: _ExactCertificationEnv,
+    tmp_path: Path,
+) -> None:
+    evidence_path = tmp_path / f"exact-{name}.json"
+    command = [
+        sys.executable,
+        str(harness),
+        "--binary",
+        env.binary,
+        "--binary-sha256",
+        env.digest,
+        "--output",
+        str(evidence_path),
+    ]
+    if name == "multimodal":
+        command.extend(
+            (
+                "--performance-evidence",
+                env.performance_evidence,
+                "--performance-evidence-sha256",
+                env.performance_digest,
+            )
+        )
+    completed = subprocess.run(
+        command,
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=1100,
+    )
+    assert completed.returncode == 0, f"{name} exact certification failed"
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    assert evidence["binary"]["sha256"] == env.digest
+    for key, expected in expected_summary.items():
+        assert evidence["summary"][key] == expected
+    if name == "multimodal":
+        assert evidence["binary"]["sealed_copy_verified"] is True
+        assert evidence["performance"]["report_sha256"] == env.performance_digest
+        assert all(
+            row["component_tck_not_applicable"] == 0 for row in evidence["matrix"]
+        )
+
+
+@pytest.mark.timeout(4800)
+def test_exact_release_campaigns_are_serial_and_complete(tmp_path: Path) -> None:
+    if os.environ.get("EPISTEMIC_GRAPH_EXACT_CERTIFICATION", "").strip() != "1":
+        pytest.skip(
+            "exact-artifact release certification was not requested "
+            "(set EPISTEMIC_GRAPH_EXACT_CERTIFICATION=1 to opt in)"
+        )
+    env = _required_exact_certification_env()
 
     for name, harness, expected_summary in CAMPAIGNS:
-        evidence_path = tmp_path / f"exact-{name}.json"
-        command = [
-            sys.executable,
-            str(harness),
-            "--binary",
-            binary,
-            "--binary-sha256",
-            digest,
-            "--output",
-            str(evidence_path),
-        ]
-        if name == "multimodal":
-            command.extend(
-                (
-                    "--performance-evidence",
-                    performance_evidence,
-                    "--performance-evidence-sha256",
-                    performance_digest,
-                )
-            )
-        completed = subprocess.run(
-            command,
-            cwd=ROOT,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=1100,
-        )
-        assert completed.returncode == 0, f"{name} exact certification failed"
-        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
-        assert evidence["binary"]["sha256"] == digest
-        for key, expected in expected_summary.items():
-            assert evidence["summary"][key] == expected
-        if name == "multimodal":
-            assert evidence["binary"]["sealed_copy_verified"] is True
-            assert evidence["performance"]["report_sha256"] == performance_digest
-            assert all(
-                row["component_tck_not_applicable"] == 0 for row in evidence["matrix"]
-            )
+        _run_exact_campaign(name, harness, expected_summary, env, tmp_path)

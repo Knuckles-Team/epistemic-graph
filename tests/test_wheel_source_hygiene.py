@@ -26,22 +26,40 @@ REPO = Path(__file__).resolve().parents[1]
 EXPECTED_EXCLUDES = {"**/__pycache__/**", "**/*.pyc", "**/*.pyo"}
 
 
+def _imported_module_names(node: ast.AST) -> list[str] | None:
+    """The module names one ``import``/``from`` statement binds, or ``None``
+    if `node` is not an import statement."""
+    if isinstance(node, ast.Import):
+        return [alias.name for alias in node.names]
+    if isinstance(node, ast.ImportFrom):
+        return [node.module or ""]
+    return None
+
+
+def _numpy_import_findings(path: Path) -> list[str]:
+    """``file:line`` locations in `path` that import ``numpy`` or a
+    ``numpy.*`` submodule."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    findings = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Import, ast.ImportFrom)):
+            continue
+        names = _imported_module_names(node)
+        assert names is not None
+        if any(name == "numpy" or name.startswith("numpy.") for name in names):
+            findings.append(f"{path.relative_to(REPO)}:{node.lineno}")
+    return findings
+
+
 def test_shipped_python_surface_has_no_numpy_runtime_imports() -> None:
     """The native kernel is the only numeric runtime; Python source stays
     stdlib-only."""
 
-    findings: list[str] = []
-    for path in sorted((REPO / "epistemic_graph").rglob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                names = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom):
-                names = [node.module or ""]
-            else:
-                continue
-            if any(name == "numpy" or name.startswith("numpy.") for name in names):
-                findings.append(f"{path.relative_to(REPO)}:{node.lineno}")
+    findings = [
+        finding
+        for path in sorted((REPO / "epistemic_graph").rglob("*.py"))
+        for finding in _numpy_import_findings(path)
+    ]
     assert not findings, "NumPy runtime imports in shipped source: " + ", ".join(
         findings
     )
@@ -119,16 +137,17 @@ def _fixture_pyproject(root_config: dict[str, object], root: Path) -> None:
     )
 
 
-def test_maturin_excludes_seeded_bytecode_and_composes_complete_wheel(
-    tmp_path: Path,
-) -> None:
-    """Exercise Maturin selection, then the real fold/privacy/completeness gates."""
-
+def _skip_unless_maturin_and_cargo_available() -> None:
     if shutil.which("maturin") is None or shutil.which("cargo") is None:
         pytest.skip("Maturin and Cargo are required for the source-selection fixture")
 
-    root_config = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
-    fixture = tmp_path / "fixture"
+
+def _seed_fixture_crate(
+    fixture: Path, root_config: dict[str, object]
+) -> dict[Path, bytes]:
+    """Seed the fixture Python package + pyproject + a minimal Cargo bin crate.
+    Returns the pre-build byte snapshot used to prove Maturin leaves fixture
+    sources untouched."""
     fixture.mkdir()
     before = _seed_python_package(fixture)
     _fixture_pyproject(root_config, fixture)
@@ -140,8 +159,10 @@ def test_maturin_excludes_seeded_bytecode_and_composes_complete_wheel(
     source = fixture / "src" / "main.rs"
     source.parent.mkdir()
     source.write_text("fn main() {}\n", encoding="utf-8")
+    return before
 
-    dist = fixture / "dist"
+
+def _build_server_wheel(fixture: Path, dist: Path) -> Path:
     environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
     subprocess.run(
         [
@@ -161,21 +182,31 @@ def test_maturin_excludes_seeded_bytecode_and_composes_complete_wheel(
     )
     server_wheels = sorted(dist.glob("epistemic_graph-*.whl"))
     assert len(server_wheels) == 1
-    server_wheel = server_wheels[0]
+    return server_wheels[0]
 
+
+def _has_bytecode_cache_entry(names: list[str]) -> bool:
+    return any(
+        "__pycache__" in name or name.endswith((".pyc", ".pyo")) for name in names
+    )
+
+
+def _assert_built_wheel_is_clean_and_complete(server_wheel: Path) -> None:
     with zipfile.ZipFile(server_wheel) as archive:
         names = archive.namelist()
     assert "epistemic_graph/__init__.py" in names
     assert "epistemic_graph/client.py" in names
     assert any(name.endswith("/epistemic-graph-server") for name in names), names
-    assert not any(
-        "__pycache__" in name or name.endswith((".pyc", ".pyo")) for name in names
-    )
+    assert not _has_bytecode_cache_entry(names)
 
+
+def _inject_numeric_wheel(dist: Path, server_wheel: Path) -> None:
     numeric_wheel = dist / "numeric-0-py3-none-any.whl"
     _recorded_numeric_wheel(numeric_wheel)
     inject(server_wheel, numeric_wheel)
 
+
+def _assert_injected_wheel_is_clean_and_complete(server_wheel: Path) -> None:
     with zipfile.ZipFile(server_wheel) as archive:
         names = archive.namelist()
         server_entries = [
@@ -186,13 +217,35 @@ def test_maturin_excludes_seeded_bytecode_and_composes_complete_wheel(
         assert "epistemic_graph/numeric.abi3.so" in names
         assert "epistemic_graph/client.py" in names
         assert server_entries and (server_entries[0].external_attr >> 16) & 0o100
-        assert not any(
-            "__pycache__" in name or name.endswith((".pyc", ".pyo")) for name in names
-        )
+        assert not _has_bytecode_cache_entry(names)
 
+
+def _assert_release_composition_gates_pass(
+    server_wheel: Path, fixture: Path, before: dict[Path, bytes]
+) -> None:
     # Release composition normalizes Maturin's SBOM path references before the
     # privacy gate; this also proves the rewritten archive keeps a valid RECORD.
     assert normalize_wheel(server_wheel, environ={}, checkout=fixture) >= 0
     assert check_wheel(server_wheel) == []
     assert not audit_wheel(server_wheel, environ={}).findings
     assert {path: path.read_bytes() for path in before} == before
+
+
+def test_maturin_excludes_seeded_bytecode_and_composes_complete_wheel(
+    tmp_path: Path,
+) -> None:
+    """Exercise Maturin selection, then the real fold/privacy/completeness gates."""
+    _skip_unless_maturin_and_cargo_available()
+
+    root_config = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
+    fixture = tmp_path / "fixture"
+    before = _seed_fixture_crate(fixture, root_config)
+
+    dist = fixture / "dist"
+    server_wheel = _build_server_wheel(fixture, dist)
+    _assert_built_wheel_is_clean_and_complete(server_wheel)
+
+    _inject_numeric_wheel(dist, server_wheel)
+    _assert_injected_wheel_is_clean_and_complete(server_wheel)
+
+    _assert_release_composition_gates_pass(server_wheel, fixture, before)

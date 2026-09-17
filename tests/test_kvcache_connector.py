@@ -429,40 +429,52 @@ class _SharedTransport:
 
     def request(self, method, url, *, body=None, headers=None):
         path = urlsplit(url).path
-        eng = self._engine
         if path == "/kv/stats":
-            return _Resp(
-                200,
-                json.dumps(
-                    {
-                        "unique_blocks": len(eng.blocks),
-                        "get_hits": eng.get_hits,
-                        "get_misses": eng.get_misses,
-                        "dedup_hits": eng.dedup_hits,
-                    }
-                ).encode(),
-            )
+            return self._stats_response()
         if path.startswith("/kv/") and path.endswith("/exists"):
-            key = unquote(path[len("/kv/") : -len("/exists")])
-            return _Resp(
-                200, json.dumps({"hash": key, "exists": key in eng.blocks}).encode()
-            )
+            return self._exists_response(path)
         if path.startswith("/kv/"):
-            key = unquote(path[len("/kv/") :])
-            if method == "PUT":
-                new = key not in eng.blocks
-                if not new:
-                    eng.dedup_hits += 1
-                eng.blocks[key] = bytes(body or b"")
-                return _Resp(201 if new else 200)
-            if method == "HEAD":
-                return _Resp(200 if key in eng.blocks else 404)
-            if method == "GET":
-                if key in eng.blocks:
-                    eng.get_hits += 1
-                    return _Resp(200, eng.blocks[key])
-                eng.get_misses += 1
-                return _Resp(404)
+            return self._block_response(method, path, body)
+        return _Resp(404)
+
+    def _stats_response(self) -> _Resp:
+        eng = self._engine
+        return _Resp(
+            200,
+            json.dumps(
+                {
+                    "unique_blocks": len(eng.blocks),
+                    "get_hits": eng.get_hits,
+                    "get_misses": eng.get_misses,
+                    "dedup_hits": eng.dedup_hits,
+                }
+            ).encode(),
+        )
+
+    def _exists_response(self, path: str) -> _Resp:
+        key = unquote(path[len("/kv/") : -len("/exists")])
+        return _Resp(
+            200,
+            json.dumps({"hash": key, "exists": key in self._engine.blocks}).encode(),
+        )
+
+    def _block_response(self, method: str, path: str, body: bytes | None) -> _Resp:
+        key = unquote(path[len("/kv/") :])
+        eng = self._engine
+        if method == "PUT":
+            new = key not in eng.blocks
+            if not new:
+                eng.dedup_hits += 1
+            eng.blocks[key] = bytes(body or b"")
+            return _Resp(201 if new else 200)
+        if method == "HEAD":
+            return _Resp(200 if key in eng.blocks else 404)
+        if method == "GET":
+            if key in eng.blocks:
+                eng.get_hits += 1
+                return _Resp(200, eng.blocks[key])
+            eng.get_misses += 1
+            return _Resp(404)
         return _Resp(404)
 
     def close(self) -> None:  # pragma: no cover - trivial

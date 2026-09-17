@@ -140,6 +140,21 @@ def _is_excused(line: str) -> str | None:
     return None
 
 
+def _line_violations(
+    path: Path, lineno: int, line: str
+) -> list[tuple[Path, int, str, str]]:
+    """Every (file, line_number, token, line_text) violation on one line, or
+    ``[]`` if the line is excused or carries no version-suffixed token."""
+    if _is_excused(line) is not None:
+        return []
+    return [
+        (path, lineno, match.group(0), line.strip()[:160])
+        for regex in (ID_RE, TBL_RE)
+        for match in regex.finditer(line)
+        if match.group(0) not in ALLOWLIST
+    ]
+
+
 def find_violations(root: Path) -> list[tuple[Path, int, str, str]]:
     """Returns a list of (file, line_number, token, line_text) violations."""
     violations: list[tuple[Path, int, str, str]] = []
@@ -149,14 +164,7 @@ def find_violations(root: Path) -> list[tuple[Path, int, str, str]]:
         except (UnicodeDecodeError, OSError):
             continue
         for lineno, line in enumerate(text.splitlines(), start=1):
-            if _is_excused(line) is not None:
-                continue
-            for regex in (ID_RE, TBL_RE):
-                for match in regex.finditer(line):
-                    token = match.group(0)
-                    if token in ALLOWLIST:
-                        continue
-                    violations.append((path, lineno, token, line.strip()[:160]))
+            violations.extend(_line_violations(path, lineno, line))
     return violations
 
 

@@ -523,8 +523,7 @@ def _tracked_or_walked_rs_files(root: Path) -> list[Path]:
     return list(root.rglob("*.rs"))
 
 
-def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
-    root = Path(__file__).parents[1] / "crates" / "eg-types" / "src"
+def _assert_f32_schema_locations_unchanged(root: Path) -> None:
     declared = Counter(
         (path.relative_to(root).as_posix(), line.strip())
         for path in _tracked_or_walked_rs_files(root)
@@ -625,6 +624,9 @@ def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
             ("wire_query_core.rs", "RankMmr { lambda: f32, k: usize },"),
         ]
     )
+
+
+def _assert_method_carriers_unchanged(root: Path) -> None:
     method_carriers = Counter(
         (path.relative_to(root).as_posix(), line.strip())
         for path in _tracked_or_walked_rs_files(root)
@@ -640,6 +642,8 @@ def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
         ]
     )
 
+
+def _assert_direct_method_bodies_have_two_f32_fields() -> None:
     direct_cases: dict[str, dict[str, Any]] = {
         "CloseChannel": {
             "channel_id": "c",
@@ -661,6 +665,51 @@ def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
         assert body.count(b"\xca") == 2
         assert body.count(b"\xcb") == 0
 
+
+_PLAN_METHODS = (
+    "UnifiedQuery",
+    "ExplainPlan",
+    "ExplainProvenance",
+    "ExplainPolicy",
+    "PlanMatViewDefine",
+    "TxnPlanWriteback",
+    "TxnUnifiedQuery",
+    "MineCluster",
+    "MineAnomaly",
+    "MineClassifyFit",
+    "MineClassifyPredict",
+    "MineReduce",
+)
+
+
+def _declared_plan_bearing_methods(root: Path) -> set[str]:
+    """Method variants under ``protocol/method/`` declaring a ``plan:`` field.
+
+    The Method enum is assembled from typed chunks under `protocol/method/`;
+    scan those source files rather than the facade module, which no longer
+    contains the enum body after the module split.
+    """
+    protocol_root = root / "protocol" / "method"
+    protocol_lines = [
+        line
+        for path in _tracked_or_walked_rs_files(protocol_root)
+        for line in path.read_text(encoding="utf-8").splitlines()
+    ]
+    current_variant = ""
+    declared: set[str] = set()
+    for line in protocol_lines:
+        variant = re.fullmatch(r"    ([A-Za-z][A-Za-z0-9_]*) \{", line)
+        if variant:
+            current_variant = variant.group(1)
+        if re.search(r"\bplan: (?:crate::wire::Plan|Option<crate::wire::Plan>),", line):
+            assert current_variant
+            declared.add(current_variant)
+    return declared
+
+
+def _assert_plan_bearing_methods_and_bodies(root: Path) -> None:
+    assert _declared_plan_bearing_methods(root) == set(_PLAN_METHODS)
+
     plan = {
         "ops": [
             {"SpatialScan": {"layer": "l", "bbox": [0.0, 0.0, 1.0, 1.0]}},
@@ -674,45 +723,13 @@ def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
             },
         ]
     }
-    plan_methods = (
-        "UnifiedQuery",
-        "ExplainPlan",
-        "ExplainProvenance",
-        "ExplainPolicy",
-        "PlanMatViewDefine",
-        "TxnPlanWriteback",
-        "TxnUnifiedQuery",
-        "MineCluster",
-        "MineAnomaly",
-        "MineClassifyFit",
-        "MineClassifyPredict",
-        "MineReduce",
-    )
-    # The Method enum is assembled from typed chunks under
-    # `protocol/method/`; scan those source files rather than the facade
-    # module, which no longer contains the enum body after the module split.
-    protocol_root = root / "protocol" / "method"
-    protocol_lines = [
-        line
-        for path in _tracked_or_walked_rs_files(protocol_root)
-        for line in path.read_text(encoding="utf-8").splitlines()
-    ]
-    current_variant = ""
-    declared_plan_methods: set[str] = set()
-    for line in protocol_lines:
-        variant = re.fullmatch(r"    ([A-Za-z][A-Za-z0-9_]*) \{", line)
-        if variant:
-            current_variant = variant.group(1)
-        if re.search(r"\bplan: (?:crate::wire::Plan|Option<crate::wire::Plan>),", line):
-            assert current_variant
-            declared_plan_methods.add(current_variant)
-    assert declared_plan_methods == set(plan_methods)
-
-    for method in plan_methods:
+    for method in _PLAN_METHODS:
         plan_body = _canonical_method_body(method, {"plan": plan})
         assert plan_body.count(b"\xca") == 5, method
         assert plan_body.count(b"\xcb") == 4, method
 
+
+def _assert_knowledge_stream_body_has_one_f32() -> None:
     knowledge_body = _canonical_method_body(
         "KnowledgeStream",
         {
@@ -730,6 +747,8 @@ def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
     )
     assert knowledge_body.count(b"\xca") == 2
 
+
+def _assert_served_modality_body_has_one_f32() -> None:
     modality_body = _canonical_method_body(
         "ServedModality",
         {
@@ -749,6 +768,8 @@ def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
     )
     assert modality_body.count(b"\xca") == 1
 
+
+def _assert_nested_change_envelope_body_has_two_f32() -> None:
     nested_body = _canonical_method_body(
         "ApplyChangeEnvelope",
         {
@@ -770,6 +791,17 @@ def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
         },
     )
     assert nested_body.count(b"\xca") == 2
+
+
+def test_signer_preserves_every_current_rust_f32_schema_location() -> None:
+    root = Path(__file__).parents[1] / "crates" / "eg-types" / "src"
+    _assert_f32_schema_locations_unchanged(root)
+    _assert_method_carriers_unchanged(root)
+    _assert_direct_method_bodies_have_two_f32_fields()
+    _assert_plan_bearing_methods_and_bodies(root)
+    _assert_knowledge_stream_body_has_one_f32()
+    _assert_served_modality_body_has_one_f32()
+    _assert_nested_change_envelope_body_has_two_f32()
 
 
 @pytest.mark.parametrize(
