@@ -223,21 +223,53 @@ for authority in scripts/rust_module_tree.py scripts/rust_lexer.py scripts/kiss_
     "missing staged $authority module-closure authority"
 done
 
+# A cargo TARGET root's `mod x;` declarations resolve relative to the
+# directory the root itself sits in, not a subdirectory named after the
+# root -- e.g. `crates/<c>/tests/foo.rs` resolves `mod support;` against
+# `crates/<c>/tests/support.rs` / `tests/support/mod.rs`, exactly as rustc
+# does for an integration-test binary (see rust_module_tree.py's
+# `_root_module_dir` / `crate_root` docstring). `lib.rs`/`main.rs`/`mod.rs`
+# already get this via their filename; every other *.rs file that is
+# itself a cargo target -- one sitting directly in a crate's `tests/`,
+# `examples/`, `benches/`, or `src/bin/` directory -- needs `crate_root`
+# passed explicitly, or the walker instead treats it as an ordinary module
+# file that owns a same-named child directory, fails to find the sibling
+# module, and reports the whole file's closure as broken (fails closed) on
+# any staged change to it.
+is_cargo_target_root() {
+  local path="$1" base dir dirname
+  base="$(basename -- "$path")"
+  case "$base" in
+    lib.rs|main.rs|mod.rs) return 1 ;;
+  esac
+  dir="$(dirname -- "$path")"
+  dirname="$(basename -- "$dir")"
+  case "$dirname" in
+    tests|examples|benches|bin) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 validate_module_closure() {
   local path="$1"
-  scanner_cmd python3 -I - "$STAGED_ROOT" "$path" <<'PY'
+  local crate_root=0
+  is_cargo_target_root "$path" && crate_root=1
+  scanner_cmd python3 -I - "$STAGED_ROOT" "$path" "$crate_root" <<'PY'
 import sys
 from pathlib import Path
 
 root = Path(sys.argv[1]).resolve()
 relative = sys.argv[2]
+crate_root = sys.argv[3] == "1"
 scripts = root / "scripts"
 sys.path.insert(0, str(scripts))
 
 try:
     from rust_module_tree import read_module_paths
 
-    paths = read_module_paths(relative, root_dir=root, include_tests=True)
+    paths = read_module_paths(
+        relative, root_dir=root, include_tests=True, crate_root=crate_root
+    )
 except (ImportError, OSError, SystemExit, UnicodeError) as exc:
     print(f"staged Rust module closure failed for {relative}: {exc}", file=sys.stderr)
     raise SystemExit(2)
