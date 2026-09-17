@@ -77,6 +77,8 @@ use tokio::sync::{oneshot, Notify};
 
 use super::{EgRaft, GroupId, NodeId, TypeConfig};
 
+mod heartbeat_flush;
+
 /// A transport failure → `Unreachable` so openraft backs off and retries (correct
 /// for connection refused / a peer that is down — the failover-survival path).
 fn unreachable<E: std::error::Error + 'static>(e: &E) -> RPCError<TypeConfig> {
@@ -869,103 +871,6 @@ impl HeartbeatCoalescer {
                     io::ErrorKind::BrokenPipe,
                     "raft heartbeat coalescer stopped",
                 ))
-            }
-        }
-    }
-
-    /// Run the bounded coalescing worker used by a live [`super::multi::MultiRaft`].
-    /// Each wake gets one short window, then every peer is drained into at most one
-    /// bounded batch and sent through the shared [`PeerPool`].
-    pub(crate) async fn run(self: Arc<Self>, pool: Arc<PeerPool>) {
-        loop {
-            self.wake.notified().await;
-            if self.stopping.load(Ordering::Acquire) {
-                break;
-            }
-            tokio::select! {
-                _ = tokio::time::sleep(HEARTBEAT_COALESCE_WINDOW) => {}
-                _ = self.wake.notified() => {}
-            }
-            if self.stopping.load(Ordering::Acquire) {
-                break;
-            }
-            self.flush_pending(&pool).await;
-        }
-        self.fail_pending("raft heartbeat coalescer stopped");
-    }
-
-    /// Stop the worker and release every caller waiting on a queued heartbeat.
-    pub(crate) fn stop(&self) {
-        self.stopping.store(true, Ordering::Release);
-        self.wake.notify_waiters();
-        self.fail_pending("raft heartbeat coalescer stopped");
-    }
-
-    fn take_pending(&self) -> Vec<(String, Vec<PendingHeartbeat>)> {
-        let mut pending = self.pending.lock().unwrap();
-        pending.drain().collect()
-    }
-
-    fn drain_pending(&self) -> Vec<(String, Vec<PendingHeartbeat>)> {
-        let drained = self.take_pending();
-        let folded: u64 = drained.iter().map(|(_, v)| v.len() as u64).sum();
-        if folded > 0 {
-            self.coalesced.fetch_add(folded, Ordering::Relaxed);
-            self.flushes.fetch_add(1, Ordering::Relaxed);
-        }
-        drained
-    }
-
-    async fn flush_pending(&self, pool: &PeerPool) {
-        // Flush peers concurrently: one unavailable destination must not hold the
-        // heartbeat cadence of every other peer behind the transport timeout.
-        let jobs = self
-            .drain_pending()
-            .into_iter()
-            .map(|(addr, pending)| async move {
-                let batch: Vec<GroupRpc> = pending.iter().map(|item| item.rpc.clone()).collect();
-                let result = Self::send_batch(pool, &addr, batch).await;
-                match result {
-                    Ok(replies) if replies.len() == pending.len() => {
-                        for (item, reply) in pending.into_iter().zip(replies) {
-                            if let Some(done) = item.completion {
-                                let _ = done.send(Ok(reply));
-                            }
-                        }
-                    }
-                    Ok(replies) => {
-                        let error = format!(
-                            "raft heartbeat batch reply count mismatch: expected {}, got {}",
-                            pending.len(),
-                            replies.len()
-                        );
-                        for item in pending {
-                            if let Some(done) = item.completion {
-                                let _ = done.send(Err(error.clone()));
-                            }
-                        }
-                    }
-                    Err(error) => {
-                        let error = format!("raft heartbeat batch failed: {error}");
-                        for item in pending {
-                            if let Some(done) = item.completion {
-                                let _ = done.send(Err(error.clone()));
-                            }
-                        }
-                    }
-                }
-            });
-        futures::future::join_all(jobs).await;
-    }
-
-    fn fail_pending(&self, error: &str) {
-        // These requests never reached a peer, so shutdown/failure cleanup must
-        // not report them as emitted/coalesced frames in the live metrics.
-        for (_, pending) in self.take_pending() {
-            for item in pending {
-                if let Some(done) = item.completion {
-                    let _ = done.send(Err(error.to_string()));
-                }
             }
         }
     }
