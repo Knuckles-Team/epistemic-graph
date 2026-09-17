@@ -3825,6 +3825,7 @@ components:
       - "tests/served_spatial_completeness.rs"
       - "tests/served_tensor_writeback.rs"
       - "tests/sql_catalog_sharing.rs"
+      - "tests/synthetic"
       - "tests/test_arch_lint_policy.py"
       - "tests/test_architecture_gate_source_universe.py"
       - "tests/test_auth_enforcement.py"
