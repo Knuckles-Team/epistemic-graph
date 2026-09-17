@@ -211,9 +211,20 @@ fn socket_mode_refuses_garbage_and_out_of_range() {
     );
 }
 
+/// A unique path under `base`, named for `label`. `base` is a parameter (not
+/// always `std::env::temp_dir()`) because `sockaddr_un` caps `sun_path` at
+/// 108 bytes on Linux: build hosts set a long, deeply nested `TMPDIR` for
+/// lane isolation, and a UDS test's path built under that `TMPDIR` -- doubly
+/// so once a test adds an extra component, such as a missing parent
+/// directory -- can exceed the limit, so `bind` fails before reaching the
+/// condition the test means to exercise. UDS tests pass a short, fixed base
+/// (`/tmp`) that stays well under the limit regardless of `TMPDIR`; the TLS
+/// tests, which only ever pass this to `create_dir`/file paths opened
+/// directly (never through a `UnixListener::bind`), keep using
+/// `std::env::temp_dir()`.
 #[cfg(any(unix, feature = "server-tls"))]
-fn unique_socket_path(label: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(format!(
+fn unique_socket_path(base: &std::path::Path, label: &str) -> std::path::PathBuf {
+    base.join(format!(
         "epistemic-graph-{label}-{}-{}.sock",
         std::process::id(),
         std::time::SystemTime::now()
@@ -223,26 +234,9 @@ fn unique_socket_path(label: &str) -> std::path::PathBuf {
     ))
 }
 
-/// A short, test-owned UDS path, used either directly as a socket file or as
-/// a base a test joins a further (missing) component onto. `sockaddr_un`
-/// caps `sun_path` at 108 bytes on Linux; build hosts set a long, deeply
-/// nested `TMPDIR` for lane isolation, and `unique_socket_path` under that
-/// `TMPDIR` can itself approach the limit, or exceed it once a test adds an
-/// extra path component (e.g. a missing parent directory), so `bind` can
-/// fail with `EINVAL` before reaching the condition the test means to
-/// exercise. Anchoring at `/tmp` directly (not `std::env::temp_dir()`) keeps
-/// the whole path well under the limit regardless of `TMPDIR`.
+/// Short, fixed base for a UDS test's socket path -- see `unique_socket_path`.
 #[cfg(unix)]
-fn short_socket_path(label: &str) -> std::path::PathBuf {
-    std::path::PathBuf::from("/tmp").join(format!(
-        "eg-uds-{label}-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock")
-            .as_nanos()
-    ))
-}
+const UDS_TEST_BASE: &str = "/tmp";
 
 #[cfg(unix)]
 fn uds_test_state() -> Arc<RwLock<ServerState>> {
@@ -257,7 +251,7 @@ fn uds_test_state() -> Arc<RwLock<ServerState>> {
 async fn uds_setup_keeps_current_thread_responsive_and_shutdown_cancels_accept() {
     use std::os::unix::fs::PermissionsExt;
 
-    let path = short_socket_path("responsive");
+    let path = unique_socket_path(std::path::Path::new(UDS_TEST_BASE), "responsive");
     std::fs::write(&path, b"stale socket placeholder").expect("write stale path");
     let socket_path = path.to_string_lossy().into_owned();
     let coord = ShutdownCoordinator::new();
@@ -307,7 +301,7 @@ async fn uds_setup_keeps_current_thread_responsive_and_shutdown_cancels_accept()
 #[cfg(unix)]
 #[tokio::test(flavor = "current_thread")]
 async fn uds_setup_propagates_bind_errors_without_entering_accept_loop() {
-    let missing_parent = short_socket_path("missing-parent");
+    let missing_parent = unique_socket_path(std::path::Path::new(UDS_TEST_BASE), "missing-parent");
     let socket_path = missing_parent.join("graph.sock");
     let socket_path_text = socket_path.to_string_lossy().into_owned();
     let error = tokio::time::timeout(
@@ -331,7 +325,7 @@ async fn uds_setup_propagates_bind_errors_without_entering_accept_loop() {
 fn tls_prepare_keeps_a_current_thread_runtime_responsive() {
     use crate::test_rendezvous::{join_bounded, meet};
 
-    let root = unique_socket_path("tls-offload");
+    let root = unique_socket_path(&std::env::temp_dir(), "tls-offload");
     std::fs::create_dir(&root).expect("create TLS test directory");
     let cert_path = root.join("certificate.pipe");
     let key_path = root.join("private-key.pem");
@@ -415,7 +409,7 @@ fn tls_prepare_keeps_a_current_thread_runtime_responsive() {
 #[cfg(feature = "server-tls")]
 #[tokio::test(flavor = "current_thread")]
 async fn tls_prepare_keeps_missing_material_errors_private() {
-    let missing = unique_socket_path("private-tls-error");
+    let missing = unique_socket_path(&std::env::temp_dir(), "private-tls-error");
     let missing_text = missing.to_string_lossy().into_owned();
     let error = match prepare_tcp_tls(TcpTlsConfig {
         cert_path: missing_text.clone(),
