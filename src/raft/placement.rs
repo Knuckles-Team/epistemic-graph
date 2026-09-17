@@ -107,6 +107,11 @@ use super::GroupId;
 use crate::protocol::Method;
 use crate::server::ServerState;
 
+mod move_journal;
+
+pub(crate) use move_journal::PlacementFence;
+pub use move_journal::{MoveStage, PartitionMoveJournal};
+
 /// The control graph every placement entry is durably stored in as one node per
 /// virtual partition (CONCEPT:EG-KG.sharding.placement-catalog). An ordinary graph — created
 /// on first write via the SAME registry auto-create every Raft-applied graph
@@ -216,193 +221,6 @@ pub(crate) struct EpochAllocation {
     pub(crate) floor: u64,
     pub(crate) allocated: u64,
     pub(crate) seed_if_absent: bool,
-}
-
-/// Crash-recovery stages for an online partition move.  Every transition is stored
-/// in [`PLACEMENT_GRAPH`] through Raft before the next side effect begins.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MoveStage {
-    Planned,
-    Moving,
-    Transferring,
-    ReadyForCutover,
-    CutoverCommitted,
-    Aborting,
-    Completed,
-    Aborted,
-}
-
-impl MoveStage {
-    pub fn terminal(self) -> bool {
-        matches!(self, Self::Completed | Self::Aborted)
-    }
-}
-
-/// Durable move intent and progress.  `graphs` is immutable after planning;
-/// `completed_graphs` advances only after each graph passes the durable-presence
-/// barrier.  A restart can therefore resume without a caller-supplied remainder.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PartitionMoveJournal {
-    pub move_id: String,
-    pub key: PartitionKey,
-    pub source: GroupId,
-    pub target: GroupId,
-    pub original_epoch: u64,
-    pub graphs: Vec<String>,
-    pub completed_graphs: Vec<String>,
-    pub stage: MoveStage,
-}
-
-impl PartitionMoveJournal {
-    pub fn new(
-        entry: &PlacementEntry,
-        target: GroupId,
-        mut graphs: Vec<String>,
-    ) -> Result<Self, String> {
-        if entry.group == target || !matches!(entry.state, PartitionState::Active) {
-            return Err(
-                "partition move requires an active source and a distinct target".to_string(),
-            );
-        }
-        if graphs.len() > MAX_PARTITION_MOVE_GRAPHS
-            || graphs
-                .iter()
-                .try_fold(0usize, |total, graph| total.checked_add(graph.len()))
-                .is_none_or(|total| total > MAX_PARTITION_MOVE_GRAPH_BYTES)
-        {
-            return Err("partition move graph inventory exceeds the limit".to_string());
-        }
-        graphs.sort();
-        graphs.dedup();
-        if graphs
-            .iter()
-            .any(|graph| graph.is_empty() || graph.len() > 4_096)
-        {
-            return Err("partition move graph inventory is invalid".to_string());
-        }
-        use sha2::{Digest, Sha256};
-        let mut digest = Sha256::new();
-        digest.update(b"epistemic-graph/partition-move/v1\0");
-        digest.update(entry.key.tenant.as_bytes());
-        digest.update(entry.key.range_start.to_be_bytes());
-        digest.update(entry.key.range_end.to_be_bytes());
-        digest.update(entry.epoch.to_be_bytes());
-        digest.update(target.to_be_bytes());
-        for graph in &graphs {
-            digest.update((graph.len() as u64).to_be_bytes());
-            digest.update(graph.as_bytes());
-        }
-        let move_id = hex::encode(digest.finalize());
-        Ok(Self {
-            move_id,
-            key: entry.key.clone(),
-            source: entry.group,
-            target,
-            original_epoch: entry.epoch,
-            graphs,
-            completed_graphs: Vec::new(),
-            stage: MoveStage::Planned,
-        })
-    }
-
-    fn node_id(&self) -> String {
-        format!("{MOVE_JOURNAL_NODE_PREFIX}{}", self.move_id)
-    }
-
-    pub fn validate(&self) -> bool {
-        use sha2::{Digest, Sha256};
-        let sorted_unique = |values: &[String]| values.windows(2).all(|pair| pair[0] < pair[1]);
-        let mut digest = Sha256::new();
-        digest.update(b"epistemic-graph/partition-move/v1\0");
-        digest.update(self.key.tenant.as_bytes());
-        digest.update(self.key.range_start.to_be_bytes());
-        digest.update(self.key.range_end.to_be_bytes());
-        digest.update(self.original_epoch.to_be_bytes());
-        digest.update(self.target.to_be_bytes());
-        for graph in &self.graphs {
-            digest.update((graph.len() as u64).to_be_bytes());
-            digest.update(graph.as_bytes());
-        }
-        let progress_matches_stage = match self.stage {
-            MoveStage::Planned | MoveStage::Moving => self.completed_graphs.is_empty(),
-            MoveStage::ReadyForCutover | MoveStage::CutoverCommitted | MoveStage::Completed => {
-                self.completed_graphs == self.graphs
-            }
-            MoveStage::Transferring | MoveStage::Aborting | MoveStage::Aborted => true,
-        };
-        self.move_id == hex::encode(digest.finalize())
-            && self.key.range_start <= self.key.range_end
-            && self.source != self.target
-            && self.graphs.len() <= MAX_PARTITION_MOVE_GRAPHS
-            && self
-                .graphs
-                .iter()
-                .try_fold(0usize, |total, graph| total.checked_add(graph.len()))
-                .is_some_and(|total| total <= MAX_PARTITION_MOVE_GRAPH_BYTES)
-            && self
-                .graphs
-                .iter()
-                .all(|graph| !graph.is_empty() && graph.len() <= 4_096)
-            && sorted_unique(&self.graphs)
-            && sorted_unique(&self.completed_graphs)
-            && self
-                .completed_graphs
-                .iter()
-                .all(|graph| self.graphs.binary_search(graph).is_ok())
-            && progress_matches_stage
-    }
-
-    /// Whether `next` is a monotonic update of this exact durable move. This
-    /// rejects a stale driver regressing an abort/cutover or dropping completed
-    /// graph evidence. An aborted move may be explicitly retried from `Planned`;
-    /// its deterministic id is stable because abort does not bump the route epoch.
-    pub(crate) fn permits_successor(&self, next: &Self) -> bool {
-        if !next.validate()
-            || self.move_id != next.move_id
-            || self.key != next.key
-            || self.source != next.source
-            || self.target != next.target
-            || self.original_epoch != next.original_epoch
-            || self.graphs != next.graphs
-        {
-            return false;
-        }
-        let retry = self.stage == MoveStage::Aborted && next.stage == MoveStage::Planned;
-        if !retry
-            && self
-                .completed_graphs
-                .iter()
-                .any(|graph| next.completed_graphs.binary_search(graph).is_err())
-        {
-            return false;
-        }
-        retry
-            || matches!(
-                (self.stage, next.stage),
-                (MoveStage::Planned, MoveStage::Planned)
-                    | (MoveStage::Planned, MoveStage::Moving)
-                    | (MoveStage::Planned, MoveStage::Transferring)
-                    | (MoveStage::Planned, MoveStage::Aborting)
-                    | (MoveStage::Moving, MoveStage::Moving)
-                    | (MoveStage::Moving, MoveStage::Transferring)
-                    | (MoveStage::Moving, MoveStage::Aborting)
-                    | (MoveStage::Transferring, MoveStage::Transferring)
-                    | (MoveStage::Transferring, MoveStage::ReadyForCutover)
-                    | (MoveStage::Transferring, MoveStage::Aborting)
-                    | (MoveStage::ReadyForCutover, MoveStage::ReadyForCutover)
-                    | (MoveStage::ReadyForCutover, MoveStage::CutoverCommitted)
-                    | (MoveStage::ReadyForCutover, MoveStage::Aborting)
-                    | (MoveStage::CutoverCommitted, MoveStage::CutoverCommitted)
-                    | (MoveStage::CutoverCommitted, MoveStage::Completed)
-                    | (MoveStage::Aborting, MoveStage::Aborting)
-                    | (MoveStage::Aborting, MoveStage::CutoverCommitted)
-                    | (MoveStage::Aborting, MoveStage::Aborted)
-                    | (MoveStage::Completed, MoveStage::Completed)
-                    | (MoveStage::Aborted, MoveStage::Aborted)
-            )
-    }
 }
 
 /// The authoritative routing answer for one graph/partition.
@@ -836,67 +654,8 @@ impl PlacementCatalog {
             .into_iter()
             .filter(|journal| !journal.stage.terminal())
             .collect();
-        let mut claimed = std::collections::HashSet::new();
-        for journal in &active {
-            let key = (
-                journal.key.tenant.as_str(),
-                journal.key.range_start,
-                journal.key.range_end,
-            );
-            if !claimed.insert(key) {
-                return Err("multiple active move journals claim one partition".to_string());
-            }
-            let entry = entries
-                .iter()
-                .find(|entry| entry.key == journal.key)
-                .ok_or_else(|| "active move journal has no placement entry".to_string())?;
-            let active_source = entry.group == journal.source
-                && entry.epoch == journal.original_epoch
-                && entry.state == PartitionState::Active;
-            let moving_source = entry.group == journal.source
-                && entry.epoch == journal.original_epoch
-                && entry.state
-                    == (PartitionState::Moving {
-                        target: journal.target,
-                    });
-            let active_target = entry.group == journal.target
-                && entry.epoch > journal.original_epoch
-                && entry.state == PartitionState::Active;
-            // These are the only stage/placement combinations a crash can leave.
-            // In particular, a transferring journal cannot legitimately be behind
-            // an already-committed cutover: ReadyForCutover is persisted first.
-            let consistent = match journal.stage {
-                MoveStage::Planned => active_source || moving_source,
-                MoveStage::Moving | MoveStage::Transferring => moving_source,
-                MoveStage::ReadyForCutover => moving_source || active_target,
-                MoveStage::CutoverCommitted => active_target,
-                // An abort can race the irreversible fence. Recovery recognizes
-                // the target route and rolls forward rather than attempting rollback.
-                MoveStage::Aborting => active_source || moving_source || active_target,
-                MoveStage::Completed | MoveStage::Aborted => false,
-            };
-            if !consistent {
-                return Err("move journal and placement fence disagree".to_string());
-            }
-        }
-        for entry in entries {
-            if let PartitionState::Moving { target } = entry.state {
-                let drivers = active
-                    .iter()
-                    .filter(|journal| {
-                        journal.key == entry.key
-                            && journal.source == entry.group
-                            && journal.target == target
-                            && journal.original_epoch == entry.epoch
-                    })
-                    .count();
-                if drivers != 1 {
-                    return Err(
-                        "moving partition has no unique durable recovery journal".to_string()
-                    );
-                }
-            }
-        }
+        move_journal::validate_active_journals(&entries, &active)?;
+        move_journal::validate_moving_partitions(&entries, &active)?;
         Ok(active)
     }
 
