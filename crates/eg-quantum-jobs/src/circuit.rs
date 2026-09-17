@@ -258,4 +258,73 @@ mod tests {
             .count();
         assert_eq!(h_count, 3, "every candidate is its own component");
     }
+
+    /// A compact `(gate, targets, controls)` view of every gate instruction.
+    fn gate_shapes(program: &QuantumProgram) -> Vec<(GateKind, Vec<u32>, Vec<u32>)> {
+        program
+            .instructions
+            .iter()
+            .filter_map(|i| match i {
+                Instruction::Gate(g) => Some((
+                    g.gate.clone(),
+                    g.qubits.clone(),
+                    g.controls.iter().map(|c| c.qubit).collect(),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn ghz_program_instruction_sequence_is_pinned() {
+        // Forest keeps (0,1), (1,2), (3,4) and drops the cycle edge (2,0). Component
+        // roots are the union-find representatives 2, 4 and the singleton 5.
+        let program = induced_subgraph_ghz_program(6, &[(0, 1), (1, 2), (3, 4), (2, 0)]);
+        assert_eq!(
+            gate_shapes(&program),
+            vec![
+                (GateKind::H, vec![2], vec![]),
+                (GateKind::H, vec![4], vec![]),
+                (GateKind::H, vec![5], vec![]),
+                (GateKind::X, vec![1], vec![2]),
+                (GateKind::X, vec![0], vec![1]),
+                (GateKind::X, vec![3], vec![4]),
+            ]
+        );
+        assert!(program.instructions.iter().all(|i| match i {
+            Instruction::Gate(g) =>
+                g.params.is_empty() && g.controls.iter().all(|c| c.state == ControlState::One),
+            _ => true,
+        }));
+        let measured: Vec<(u32, String, u32)> = program
+            .instructions
+            .iter()
+            .filter_map(|i| match i {
+                Instruction::Measure {
+                    qubit,
+                    classical_bit,
+                } => Some((*qubit, classical_bit.register.clone(), classical_bit.index)),
+                _ => None,
+            })
+            .collect();
+        let expected: Vec<(u32, String, u32)> = (0..6)
+            .map(|q| (q, OUTCOME_REGISTER.to_string(), q))
+            .collect();
+        assert_eq!(measured, expected);
+        assert_eq!(program.instructions.len(), 12);
+        assert_eq!(
+            program.classical_registers,
+            vec![ClassicalRegister {
+                name: OUTCOME_REGISTER.to_string(),
+                n_bits: 6,
+            }]
+        );
+        assert_eq!(
+            program.metadata.name.as_deref(),
+            Some("eg-quantum-jobs.induced_subgraph_ghz")
+        );
+        assert_eq!(program.metadata.source.as_deref(), Some("eg-quantum-jobs"));
+        assert_eq!(program.ir_version, IR_VERSION);
+        assert!(program.parameters.is_empty());
+    }
 }

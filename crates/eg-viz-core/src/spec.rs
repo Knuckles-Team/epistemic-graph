@@ -457,6 +457,52 @@ mod tests {
     }
 
     #[test]
+    fn every_structural_error_is_reported_in_declaration_order() {
+        let mut spec = sample();
+        spec.version = 0;
+        spec.scales = vec![ScaleSpec::new("x", ScaleKind::Linear)];
+        spec.marks.push(
+            MarkSpec::new(MarkKind::Scatter, "  ").with_encodings(Encodings {
+                x: Some(EncodingSpec::field("a").with_scale("missing-x")),
+                y: None,
+                color: Some(EncodingSpec::field("b").with_scale("missing-color")),
+                size: Some(EncodingSpec::field("c").with_scale("x")),
+                shape: Some(EncodingSpec::field("d").with_scale("missing-shape")),
+            }),
+        );
+        let mut facet = FacetSpec::new(" ");
+        facet.columns = 0;
+        spec.facet = Some(facet);
+
+        let errors = spec.validate().unwrap_err();
+        assert_eq!(
+            errors,
+            vec![
+                "unsupported ViewSpec version 0 (expected 1)".to_string(),
+                "mark[0] channel `y` references undeclared scale `y`".to_string(),
+                "mark[1] has an empty data_ref".to_string(),
+                "mark[1] channel `x` references undeclared scale `missing-x`".to_string(),
+                "mark[1] channel `color` references undeclared scale `missing-color`".to_string(),
+                "mark[1] channel `shape` references undeclared scale `missing-shape`".to_string(),
+                "facet.by must be non-empty".to_string(),
+                "facet.columns must be positive".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_blank_facet_is_the_only_error_reported_when_marks_are_valid() {
+        let mut spec = sample();
+        spec.facet = Some(FacetSpec::new(""));
+        assert_eq!(
+            spec.validate().unwrap_err(),
+            vec!["facet.by must be non-empty".to_string()]
+        );
+        spec.facet = None;
+        assert!(spec.validate().is_ok());
+    }
+
+    #[test]
     fn unknown_mark_kind_fails_deserialize_rather_than_defaulting() {
         let bad = r#"{"version":1,"marks":[{"kind":"pie","data_ref":"x"}]}"#;
         assert!(serde_json::from_str::<ViewSpec>(bad).is_err());

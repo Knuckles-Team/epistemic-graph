@@ -580,3 +580,153 @@ mod tableau_tests {
         assert_eq!(tab.r, after_h.r);
     }
 }
+
+#[cfg(test)]
+mod apply_gate_tests {
+    use super::*;
+    use eg_quantum_core::ir::{GateInstruction, ParamValue};
+
+    /// A 3-qubit state on which every Clifford primitive is observable in the raw
+    /// tableau bits (unlike `|000>`, where e.g. `Z` or `CZ` leave it unchanged).
+    fn scrambled() -> Tableau {
+        let mut tab = Tableau::zero_state(3);
+        let mut evolution = tab.clifford();
+        evolution.h(0);
+        evolution.s(1);
+        evolution.h(2);
+        evolution.cnot(2, 1);
+        tab
+    }
+
+    fn instruction(
+        gate: GateKind,
+        qubits: &[u32],
+        controls: &[(u32, ControlState)],
+        params: Vec<ParamValue>,
+    ) -> GateInstruction {
+        GateInstruction {
+            gate,
+            qubits: qubits.to_vec(),
+            controls: controls
+                .iter()
+                .map(|&(qubit, state)| ControlQubit { qubit, state })
+                .collect(),
+            params,
+        }
+    }
+
+    fn via_dispatch(g: &GateInstruction) -> Tableau {
+        let mut tab = scrambled();
+        apply_clifford_gate(&mut tab, g).expect("Clifford gate must apply");
+        tab
+    }
+
+    fn via_primitive(apply: impl FnOnce(&mut CliffordEvolution<'_>)) -> Tableau {
+        let mut tab = scrambled();
+        apply(&mut tab.clifford());
+        tab
+    }
+
+    fn assert_same(label: &str, got: &Tableau, want: &Tableau) {
+        assert_eq!(got.x, want.x, "{label}: x bits");
+        assert_eq!(got.z, want.z, "{label}: z bits");
+        assert_eq!(got.r, want.r, "{label}: phase bits");
+    }
+
+    #[test]
+    fn uncontrolled_clifford_gates_dispatch_to_their_primitive() {
+        let one = |gate: GateKind| instruction(gate, &[1], &[], vec![]);
+        assert_same("id", &via_dispatch(&one(GateKind::Id)), &scrambled());
+        assert_same(
+            "x",
+            &via_dispatch(&one(GateKind::X)),
+            &via_primitive(|e| e.x_gate(1)),
+        );
+        assert_same(
+            "y",
+            &via_dispatch(&one(GateKind::Y)),
+            &via_primitive(|e| e.y_gate(1)),
+        );
+        assert_same(
+            "z",
+            &via_dispatch(&one(GateKind::Z)),
+            &via_primitive(|e| e.z_gate(1)),
+        );
+        assert_same(
+            "h",
+            &via_dispatch(&one(GateKind::H)),
+            &via_primitive(|e| e.h(1)),
+        );
+        assert_same(
+            "s",
+            &via_dispatch(&one(GateKind::S)),
+            &via_primitive(|e| e.s(1)),
+        );
+        assert_same(
+            "sdg",
+            &via_dispatch(&one(GateKind::Sdg)),
+            &via_primitive(|e| e.sdg(1)),
+        );
+        let swap = instruction(GateKind::Swap, &[0, 2], &[], vec![]);
+        assert_same(
+            "swap",
+            &via_dispatch(&swap),
+            &via_primitive(|e| e.swap(0, 2)),
+        );
+    }
+
+    #[test]
+    fn single_controlled_paulis_dispatch_with_control_polarity() {
+        let positive = |gate: GateKind| instruction(gate, &[2], &[(0, ControlState::One)], vec![]);
+        assert_same(
+            "cx",
+            &via_dispatch(&positive(GateKind::X)),
+            &via_primitive(|e| e.cnot(0, 2)),
+        );
+        assert_same(
+            "cy",
+            &via_dispatch(&positive(GateKind::Y)),
+            &via_primitive(|e| e.cy(0, 2)),
+        );
+        assert_same(
+            "cz",
+            &via_dispatch(&positive(GateKind::Z)),
+            &via_primitive(|e| e.cz(0, 2)),
+        );
+        let negative = instruction(GateKind::X, &[2], &[(0, ControlState::Zero)], vec![]);
+        let sandwiched = via_primitive(|e| {
+            e.x_gate(0);
+            e.cnot(0, 2);
+            e.x_gate(0);
+        });
+        assert_same("negative cx", &via_dispatch(&negative), &sandwiched);
+    }
+
+    #[test]
+    fn non_clifford_shapes_are_rejected_without_touching_the_tableau() {
+        let rejected = [
+            instruction(GateKind::T, &[0], &[], vec![]),
+            instruction(GateKind::Tdg, &[0], &[], vec![]),
+            instruction(GateKind::Rx, &[0], &[], vec![ParamValue::Literal(0.5)]),
+            instruction(GateKind::X, &[0], &[], vec![ParamValue::Literal(0.5)]),
+            instruction(GateKind::Custom("u".to_string()), &[0], &[], vec![]),
+            instruction(GateKind::H, &[2], &[(0, ControlState::One)], vec![]),
+            instruction(GateKind::Swap, &[1, 2], &[(0, ControlState::One)], vec![]),
+            instruction(
+                GateKind::X,
+                &[2],
+                &[(0, ControlState::One), (1, ControlState::One)],
+                vec![],
+            ),
+        ];
+        for g in rejected {
+            let mut tab = scrambled();
+            let err = apply_clifford_gate(&mut tab, &g).expect_err("must reject");
+            assert!(
+                matches!(&err, SimError::NotClifford(boxed) if **boxed == g),
+                "unexpected error for {g:?}: {err:?}"
+            );
+            assert_same("rejected", &tab, &scrambled());
+        }
+    }
+}

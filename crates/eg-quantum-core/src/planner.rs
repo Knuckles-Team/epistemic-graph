@@ -286,3 +286,222 @@ fn rule_engine_pick(
         reason: "no registered backend among Estimate::preferred fits the circuit under the current constraints".to_string(),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::BackendCapabilities;
+    use crate::estimate::EntanglingConnectivity;
+
+    /// A 3-qubit non-Clifford, noiseless estimate with nothing preferred or forbidden;
+    /// each test overrides the facts it exercises.
+    fn plain_estimate() -> Estimate {
+        Estimate {
+            n_qubits: 3,
+            depth: 2,
+            is_clifford: false,
+            has_non_clifford_noise: false,
+            requires_density_matrix: false,
+            mem_bytes_sv: 128,
+            mem_bytes_dm: 1024,
+            entangling_connectivity: EntanglingConnectivity::Dense,
+            preferred: vec![],
+            forbidden: vec![],
+            est_time_ms: 0,
+        }
+    }
+
+    /// A registered backend of `family` that supports density matrices and has no
+    /// qubit ceilings, so only the rule under test decides whether it is picked.
+    fn registered(id: &str, family: BackendFamily) -> BackendDescriptor {
+        BackendDescriptor {
+            id: BackendId(id.to_string()),
+            family,
+            capabilities: BackendCapabilities {
+                supports_density_matrix: true,
+                supports_distributed: false,
+                supports_noise: true,
+                supports_gpu: false,
+                supports_mps: false,
+                supports_stabilizer: false,
+                is_exact_capable: true,
+                max_qubits_statevector: None,
+                max_qubits_density_matrix: None,
+                requires_hardware: family == BackendFamily::Hardware,
+            },
+        }
+    }
+
+    fn rules(audit: &[AuditEntry]) -> Vec<PlannerRule> {
+        audit.iter().map(|e| e.rule).collect()
+    }
+
+    #[test]
+    fn preferred_family_picks_carry_the_family_rule_label() {
+        let cases = [
+            (BackendFamily::Trajectory, false, PlannerRule::R2Noise),
+            (BackendFamily::DensityMatrixCpu, true, PlannerRule::R2Noise),
+            (BackendFamily::DensityMatrixGpu, true, PlannerRule::R2Noise),
+            (BackendFamily::QuestFfi, true, PlannerRule::R2Noise),
+            (BackendFamily::QuestFfi, false, PlannerRule::R4Placement),
+            (
+                BackendFamily::MatrixProductState,
+                false,
+                PlannerRule::R3Structure,
+            ),
+            (
+                BackendFamily::StatevectorCpu,
+                false,
+                PlannerRule::R4Placement,
+            ),
+            (
+                BackendFamily::StatevectorGpu,
+                false,
+                PlannerRule::R4Placement,
+            ),
+        ];
+        for (family, requires_density_matrix, want) in cases {
+            let estimate = Estimate {
+                requires_density_matrix,
+                preferred: vec![family],
+                ..plain_estimate()
+            };
+            let available = [registered("only", family)];
+            let decision = select_backend(&estimate, &available, &PlannerOptions::default())
+                .expect("the registered family is preferred");
+            assert_eq!(
+                decision.rule, want,
+                "{family:?} dm={requires_density_matrix}"
+            );
+            assert_eq!(
+                rules(&decision.audit),
+                vec![PlannerRule::R0HardConstraint, want]
+            );
+            assert_eq!(
+                decision.audit[1].note,
+                format!("selected 'only' from preferred family {family:?}")
+            );
+        }
+    }
+
+    #[test]
+    fn r0_filters_hardware_and_non_density_matrix_backends_before_ranking() {
+        let estimate = Estimate {
+            requires_density_matrix: true,
+            preferred: vec![
+                BackendFamily::StatevectorCpu,
+                BackendFamily::Hardware,
+                BackendFamily::QuestFfi,
+            ],
+            ..plain_estimate()
+        };
+        let mut no_dm = registered("sv-cpu", BackendFamily::StatevectorCpu);
+        no_dm.capabilities.supports_density_matrix = false;
+        let available = [
+            no_dm,
+            registered("qpu", BackendFamily::Hardware),
+            registered("quest", BackendFamily::QuestFfi),
+        ];
+        let decision = select_backend(&estimate, &available, &PlannerOptions::default())
+            .expect("quest survives R0");
+        assert_eq!(decision.chosen, BackendId("quest".to_string()));
+        assert_eq!(decision.rule, PlannerRule::R2Noise);
+        assert_eq!(
+            decision.audit[0].note,
+            "want_hardware=false, requires_density_matrix=true, memory-forbidden families=[] -> 1 candidate(s) remain"
+        );
+    }
+
+    #[test]
+    fn want_hardware_takes_the_first_hardware_candidate() {
+        let available = [
+            registered("sv", BackendFamily::StatevectorCpu),
+            registered("qpu-a", BackendFamily::Hardware),
+            registered("qpu-b", BackendFamily::Hardware),
+        ];
+        let opts = PlannerOptions {
+            want_hardware: true,
+            backend_id_override: None,
+        };
+        let decision = select_backend(&plain_estimate(), &available, &opts).expect("hardware");
+        assert_eq!(decision.chosen, BackendId("qpu-a".to_string()));
+        assert_eq!(decision.rule, PlannerRule::R0HardConstraint);
+        assert_eq!(
+            rules(&decision.audit),
+            vec![PlannerRule::R0HardConstraint, PlannerRule::R0HardConstraint]
+        );
+    }
+
+    #[test]
+    fn clifford_fast_path_picks_stabilizer_and_otherwise_falls_through() {
+        let clifford = Estimate {
+            is_clifford: true,
+            preferred: vec![BackendFamily::Stabilizer],
+            ..plain_estimate()
+        };
+        let with_stabilizer = [
+            registered("sv", BackendFamily::StatevectorCpu),
+            registered("stab", BackendFamily::Stabilizer),
+        ];
+        let decision = select_backend(&clifford, &with_stabilizer, &PlannerOptions::default())
+            .expect("stabilizer");
+        assert_eq!(decision.chosen, BackendId("stab".to_string()));
+        assert_eq!(
+            rules(&decision.audit),
+            vec![
+                PlannerRule::R0HardConstraint,
+                PlannerRule::R1CliffordStabilizer
+            ]
+        );
+
+        let sv_only = [registered("sv", BackendFamily::StatevectorCpu)];
+        assert_eq!(
+            select_backend(&clifford, &sv_only, &PlannerOptions::default()),
+            Err(PlannerError::NoBackendAvailable {
+                reason: "no registered backend among Estimate::preferred fits the circuit under the current constraints".to_string(),
+            })
+        );
+        let hardware_only = [registered("qpu", BackendFamily::Hardware)];
+        assert_eq!(
+            select_backend(&clifford, &hardware_only, &PlannerOptions::default()),
+            Err(PlannerError::NoBackendAvailable {
+                reason: "no registered backend survives R0 hard constraints (hardware/density-matrix/memory-bound)".to_string(),
+            })
+        );
+        let override_opts = PlannerOptions {
+            want_hardware: false,
+            backend_id_override: Some(BackendId("sv".to_string())),
+        };
+        let decision = select_backend(&clifford, &sv_only, &override_opts).expect("override");
+        assert_eq!(
+            rules(&decision.audit),
+            vec![
+                PlannerRule::R0HardConstraint,
+                PlannerRule::R1CliffordStabilizer,
+                PlannerRule::R4Placement,
+                PlannerRule::R5Override,
+            ]
+        );
+    }
+
+    #[test]
+    fn preferred_walk_never_retries_stabilizer_outside_r1() {
+        let noisy_clifford = Estimate {
+            is_clifford: true,
+            has_non_clifford_noise: true,
+            preferred: vec![BackendFamily::Stabilizer, BackendFamily::StatevectorCpu],
+            ..plain_estimate()
+        };
+        let available = [
+            registered("stab", BackendFamily::Stabilizer),
+            registered("sv", BackendFamily::StatevectorCpu),
+        ];
+        let decision = select_backend(&noisy_clifford, &available, &PlannerOptions::default())
+            .expect("statevector");
+        assert_eq!(decision.chosen, BackendId("sv".to_string()));
+        assert_eq!(
+            rules(&decision.audit),
+            vec![PlannerRule::R0HardConstraint, PlannerRule::R4Placement]
+        );
+    }
+}

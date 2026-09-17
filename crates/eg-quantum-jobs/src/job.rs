@@ -597,3 +597,54 @@ pub fn join_quantum_result_rows(
     }
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn counts(entries: &[(&str, u64)]) -> Outcome {
+        Outcome::Counts(
+            entries
+                .iter()
+                .map(|&(bits, count)| (bits.to_string(), count))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn consistency_scores_measure_agreement_with_each_component_majority() {
+        // Components {0,1} and {2}. A 1-1 tie inside {0,1} resolves to majority 1.
+        let outcome = counts(&[("000", 3), ("110", 1), ("011", 2)]);
+        let scores = consistency_scores(&outcome, 3, &[(0, 1)]).expect("valid counts");
+        assert_eq!(scores, vec![4.0 / 6.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn consistency_scores_treat_every_non_one_character_as_zero() {
+        // "1x" reads as [1, 0]: a 1-1 tie, majority 1, so only qubit 0 agrees.
+        let outcome = counts(&[("1x", 1), ("11", 1)]);
+        let scores = consistency_scores(&outcome, 2, &[(0, 1)]).expect("valid counts");
+        assert_eq!(scores, vec![1.0, 0.5]);
+    }
+
+    #[test]
+    fn consistency_scores_reject_malformed_outcomes() {
+        let expectation = Outcome::ExpectationValue {
+            value: 1.0,
+            stderr: None,
+        };
+        assert!(matches!(
+            consistency_scores(&expectation, 1, &[]),
+            Err(NumericError::Shape(msg)) if msg == "consistency_scores requires Outcome::Counts"
+        ));
+        assert!(matches!(
+            consistency_scores(&counts(&[("0", 0)]), 1, &[]),
+            Err(NumericError::Shape(msg)) if msg == "consistency_scores: zero total shots"
+        ));
+        assert!(matches!(
+            consistency_scores(&counts(&[("01", 1)]), 3, &[]),
+            Err(NumericError::Shape(msg))
+                if msg == "consistency_scores: outcome bitstring '01' has 2 bits, expected 3"
+        ));
+    }
+}

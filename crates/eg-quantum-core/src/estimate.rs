@@ -307,3 +307,213 @@ pub fn estimate(program: &QuantumProgram, opts: &EstimateOptions) -> Estimate {
         est_time_ms: estimate_time_ms(n_qubits, depth),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ir::{
+        ControlQubit, ControlState, GateInstruction, GateKind, ParamValue, IR_VERSION,
+    };
+
+    fn gate(kind: GateKind, qubits: &[u32], controls: &[u32]) -> Instruction {
+        Instruction::Gate(GateInstruction {
+            gate: kind,
+            qubits: qubits.to_vec(),
+            controls: controls
+                .iter()
+                .map(|&qubit| ControlQubit {
+                    qubit,
+                    state: ControlState::One,
+                })
+                .collect(),
+            params: vec![],
+        })
+    }
+
+    fn rotation(qubit: u32) -> Instruction {
+        Instruction::Gate(GateInstruction {
+            gate: GateKind::Rx,
+            qubits: vec![qubit],
+            controls: vec![],
+            params: vec![ParamValue::Literal(0.3)],
+        })
+    }
+
+    fn program(n_qubits: u32, instructions: Vec<Instruction>) -> QuantumProgram {
+        QuantumProgram {
+            ir_version: IR_VERSION,
+            n_qubits,
+            classical_registers: vec![],
+            parameters: vec![],
+            instructions,
+            metadata: Default::default(),
+        }
+    }
+
+    /// A 2-qubit Clifford Bell circuit: `H(0); CX(0, 1)`.
+    fn bell_program() -> QuantumProgram {
+        program(
+            2,
+            vec![gate(GateKind::H, &[0], &[]), gate(GateKind::X, &[1], &[0])],
+        )
+    }
+
+    /// A 3-qubit non-Clifford circuit with one long-range pair: `Rx(0); CX(0, 2)`.
+    fn long_range_program() -> QuantumProgram {
+        program(3, vec![rotation(0), gate(GateKind::X, &[2], &[0])])
+    }
+
+    #[test]
+    fn connectivity_of_single_qubit_only_and_empty_programs_is_product() {
+        assert_eq!(
+            classify_entangling_connectivity(&program(3, vec![])),
+            EntanglingConnectivity::Product
+        );
+        let single = program(3, vec![gate(GateKind::H, &[0], &[]), rotation(2)]);
+        assert_eq!(
+            classify_entangling_connectivity(&single),
+            EntanglingConnectivity::Product
+        );
+        // A control on the gate's own target deduplicates to one touched qubit.
+        let self_controlled = program(2, vec![gate(GateKind::X, &[1], &[1])]);
+        assert_eq!(
+            classify_entangling_connectivity(&self_controlled),
+            EntanglingConnectivity::Product
+        );
+    }
+
+    #[test]
+    fn connectivity_of_adjacent_pairs_is_a_nearest_neighbor_chain() {
+        let chain = program(
+            4,
+            vec![
+                gate(GateKind::X, &[1], &[0]),
+                gate(GateKind::Swap, &[2, 1], &[]),
+                gate(GateKind::Z, &[2], &[3]),
+                gate(GateKind::X, &[1], &[0]),
+            ],
+        );
+        assert_eq!(
+            classify_entangling_connectivity(&chain),
+            EntanglingConnectivity::NearestNeighborChain
+        );
+    }
+
+    #[test]
+    fn connectivity_of_a_long_range_pair_or_a_wide_gate_is_dense() {
+        assert_eq!(
+            classify_entangling_connectivity(&long_range_program()),
+            EntanglingConnectivity::Dense
+        );
+        let toffoli = program(3, vec![gate(GateKind::X, &[2], &[0, 1])]);
+        assert_eq!(
+            classify_entangling_connectivity(&toffoli),
+            EntanglingConnectivity::Dense
+        );
+    }
+
+    #[test]
+    fn estimate_rankings_for_clifford_and_noiseless_structures() {
+        let bell = bell_program();
+        let est = estimate(&bell, &EstimateOptions::default());
+        assert_eq!(est.preferred, vec![BackendFamily::Stabilizer]);
+        assert!(est.forbidden.is_empty());
+        assert!(!est.requires_density_matrix);
+
+        let chain = program(3, vec![rotation(0), gate(GateKind::X, &[1], &[0])]);
+        let est = estimate(&chain, &EstimateOptions::default());
+        assert_eq!(
+            est.preferred,
+            vec![
+                BackendFamily::MatrixProductState,
+                BackendFamily::StatevectorGpu,
+                BackendFamily::StatevectorCpu,
+                BackendFamily::QuestFfi,
+            ]
+        );
+
+        let dense = long_range_program();
+        let est = estimate(&dense, &EstimateOptions::default());
+        assert_eq!(
+            est.preferred,
+            vec![
+                BackendFamily::StatevectorGpu,
+                BackendFamily::StatevectorCpu,
+                BackendFamily::QuestFfi,
+            ]
+        );
+        assert_eq!(est.est_time_ms, 0);
+        assert_eq!(est.mem_bytes_sv, 128);
+        assert_eq!(est.mem_bytes_dm, 1024);
+    }
+
+    #[test]
+    fn estimate_rankings_for_noise_requests() {
+        let bell = bell_program();
+
+        let sampled = EstimateOptions {
+            noise: Some(NoiseRequest::declared("depolarizing")),
+            shots: Some(100),
+            ..Default::default()
+        };
+        let est = estimate(&bell, &sampled);
+        assert!(est.has_non_clifford_noise);
+        assert!(!est.requires_density_matrix);
+        assert_eq!(est.preferred, vec![BackendFamily::Trajectory]);
+
+        let exact_clifford_noise = EstimateOptions {
+            noise: Some(NoiseRequest::clifford_preserving("pauli")),
+            ..Default::default()
+        };
+        let est = estimate(&bell, &exact_clifford_noise);
+        assert!(!est.has_non_clifford_noise);
+        assert!(est.requires_density_matrix);
+        assert_eq!(
+            est.preferred,
+            vec![
+                BackendFamily::Stabilizer,
+                BackendFamily::DensityMatrixCpu,
+                BackendFamily::DensityMatrixGpu,
+                BackendFamily::QuestFfi,
+            ]
+        );
+    }
+
+    #[test]
+    fn estimate_forbids_families_over_the_memory_bound() {
+        let dense = long_range_program();
+
+        let sv_only = EstimateOptions {
+            memory_bound_bytes: Some(127),
+            ..Default::default()
+        };
+        let est = estimate(&dense, &sv_only);
+        assert_eq!(
+            est.forbidden,
+            vec![BackendFamily::StatevectorCpu, BackendFamily::StatevectorGpu]
+        );
+
+        let dm_requested = EstimateOptions {
+            want_exact_density_matrix: true,
+            memory_bound_bytes: Some(128),
+            ..Default::default()
+        };
+        let est = estimate(&dense, &dm_requested);
+        assert!(est.requires_density_matrix);
+        assert_eq!(
+            est.forbidden,
+            vec![
+                BackendFamily::DensityMatrixCpu,
+                BackendFamily::DensityMatrixGpu
+            ]
+        );
+        assert_eq!(
+            est.preferred,
+            vec![
+                BackendFamily::StatevectorGpu,
+                BackendFamily::StatevectorCpu,
+                BackendFamily::QuestFfi,
+            ]
+        );
+    }
+}

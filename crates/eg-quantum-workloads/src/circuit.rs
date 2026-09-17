@@ -346,4 +346,28 @@ mod tests {
         // inequality against a NON-exhaustive grid search.
         assert!(p2.expected_cut >= p1.expected_cut - 1e-6);
     }
+
+    #[test]
+    fn two_layer_search_result_is_pinned() {
+        let edges = vec![(0, 1, 1.0), (1, 2, 0.5)];
+        let optimized = optimize_qaoa_params(3, &edges, 2, 4);
+        assert_eq!(optimized.evaluations, 1 + 2 * (4 * 4 + 4 + 4));
+        assert_eq!(
+            format!("{:?}", optimized.bindings),
+            r#"{"cost_angle_0": 0.7853981633974483, "cost_angle_1": 1.5707963267948966, "mixer_angle_0": 2.356194490192345, "mixer_angle_1": 2.748893571891069}"#
+        );
+        assert_eq!(format!("{:?}", optimized.expected_cut), "1.378791260736239");
+    }
+
+    #[test]
+    fn zero_layers_evaluates_only_the_initial_bindings() {
+        let edges = vec![(0, 1, 1.0)];
+        let optimized = optimize_qaoa_params(2, &edges, 0, 5);
+        assert_eq!(optimized.evaluations, 1);
+        assert!(optimized.bindings.is_empty());
+        assert_eq!(
+            format!("{:?}", optimized.expected_cut),
+            "0.5000000000000002"
+        );
+    }
 }

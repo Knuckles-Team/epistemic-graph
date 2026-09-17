@@ -574,4 +574,73 @@ mod tests {
         assert!(expansion.nodes.len() <= MAX_EXPAND_NODES);
         assert_eq!(expansion.nodes.len(), 200);
     }
+
+    fn tiny_params() -> DemoParams {
+        DemoParams {
+            node_count: 24,
+            edge_count: 30,
+            seed: 11,
+            top_clusters: 3,
+            sub_clusters_per_top: 2,
+        }
+    }
+
+    #[test]
+    fn built_graph_is_pinned_for_fixed_params() {
+        let g = DemoGraph::build(tiny_params());
+        let edges: Vec<(u32, u32, u8)> =
+            g.edges.iter().map(|e| (e.src, e.dst, e.type_idx)).collect();
+        assert_eq!(
+            format!("{:?}", g.node_type_idx),
+            "[4, 5, 0, 3, 5, 1, 2, 2, 1, 0, 3, 0, 5, 5, 2, 3, 2, 1, 1, 0, 3, 3, 1, 0]"
+        );
+        assert_eq!(
+            format!("{:?}", g.top_cluster_of),
+            "[2, 1, 2, 1, 0, 0, 1, 0, 0, 1, 0, 1, 2, 0, 2, 1, 1, 2, 0, 2, 1, 2, 0, 1]"
+        );
+        assert_eq!(
+            format!("{:?}", g.sub_cluster_of),
+            "[1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1]"
+        );
+        assert_eq!(format!("{:?}", &g.pos[..4]), "[(0.09539063, 0.43280712), (0.6831968, 0.90483904), (0.9955129, 0.50461406), (0.33021402, 0.84177506)]");
+        assert_eq!(format!("{edges:?}"), "[(9, 10, 3), (6, 16, 1), (15, 9, 1), (1, 12, 0), (12, 13, 0), (21, 17, 0), (20, 9, 1), (23, 2, 1), (11, 23, 1), (11, 20, 0), (9, 20, 3), (6, 3, 2), (0, 12, 0), (14, 13, 1), (12, 6, 1), (11, 9, 2), (22, 23, 2), (12, 16, 3), (22, 13, 0), (12, 19, 3), (8, 3, 2), (15, 3, 2), (23, 1, 0), (8, 9, 0), (12, 0, 2), (4, 5, 2), (14, 21, 3), (7, 22, 0), (1, 20, 3), (18, 8, 0)]");
+    }
+
+    #[test]
+    fn single_node_and_empty_graphs_build_without_panicking() {
+        let single = DemoGraph::build(DemoParams {
+            node_count: 1,
+            edge_count: 3,
+            ..tiny_params()
+        });
+        let edges: Vec<(u32, u32)> = single.edges.iter().map(|e| (e.src, e.dst)).collect();
+        assert_eq!(edges, vec![(0, 0), (0, 0), (0, 0)]);
+        let empty = DemoGraph::build(DemoParams {
+            node_count: 0,
+            ..tiny_params()
+        });
+        assert_eq!(empty.edge_count(), 0);
+    }
+
+    #[test]
+    fn cluster_levels_are_pinned_for_fixed_params() {
+        let g = DemoGraph::build(tiny_params());
+        assert_eq!(
+            format!("{:?}", g.clusters(0, None)),
+            r#"ClusterLevel { level: 0, parent_cluster_id: None, clusters: [ClusterSummary { id: 1, label: "cluster-0", node_count: 8, edge_count: 4, centroid: Some((0.5867047, 0.516786)), top_node_types: ["Organization", "Concept", "Document", "Event"] }, ClusterSummary { id: 2, label: "cluster-1", node_count: 9, edge_count: 11, centroid: Some((0.45789745, 0.46685365)), top_node_types: ["Person", "Event", "Document", "Concept"] }, ClusterSummary { id: 3, label: "cluster-2", node_count: 7, edge_count: 5, centroid: Some((0.3059836, 0.49513996)), top_node_types: ["Person", "Organization", "Document", "Event", "Location", "Concept"] }], inter_cluster_edges: [InterClusterEdge { src_idx: 0, dst_idx: 1, weight: 3.0 }, InterClusterEdge { src_idx: 1, dst_idx: 0, weight: 1.0 }, InterClusterEdge { src_idx: 1, dst_idx: 2, weight: 2.0 }, InterClusterEdge { src_idx: 2, dst_idx: 0, weight: 2.0 }, InterClusterEdge { src_idx: 2, dst_idx: 1, weight: 2.0 }] }"#
+        );
+        let top = g.top_cluster_id(1);
+        assert_eq!(
+            format!("{:?}", g.clusters(1, Some(top))),
+            r#"ClusterLevel { level: 1, parent_cluster_id: Some(2), clusters: [ClusterSummary { id: 6, label: "cluster-1-0", node_count: 7, edge_count: 7, centroid: Some((0.5011478, 0.52413076)), top_node_types: ["Event", "Person", "Document", "Concept"] }, ClusterSummary { id: 7, label: "cluster-1-1", node_count: 2, edge_count: 0, centroid: Some((0.3065213, 0.2663837)), top_node_types: ["Person", "Document"] }], inter_cluster_edges: [InterClusterEdge { src_idx: 0, dst_idx: 1, weight: 1.0 }, InterClusterEdge { src_idx: 1, dst_idx: 0, weight: 3.0 }] }"#
+        );
+        let sub = g.sub_cluster_id(1, 0);
+        let wrong_kind = g.clusters(1, Some(sub));
+        assert_eq!(wrong_kind.level, 1);
+        assert_eq!(wrong_kind.parent_cluster_id, Some(sub));
+        assert!(wrong_kind.clusters.is_empty() && wrong_kind.inter_cluster_edges.is_empty());
+        let no_parent = g.clusters(2, None);
+        assert_eq!(no_parent.level, 2);
+        assert!(no_parent.clusters.is_empty());
+    }
 }

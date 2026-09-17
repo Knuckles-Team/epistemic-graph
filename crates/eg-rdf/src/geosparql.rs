@@ -357,4 +357,79 @@ mod tests {
     // The full `FILTER(geof:rcc8ntpp(...))` SPARQL query is exercised end-to-end in the
     // `sparql` test module (`eg155_sparql_filter_rcc8ntpp_full_query`), alongside the
     // sibling EG-261 `sfWithin` query, where the graph-loading test helpers live.
+
+    /// Every relation name `eval_relation` dispatches, in the order the truth table
+    /// below reports them.
+    const RELATION_NAMES: [&str; 24] = [
+        "sfWithin",
+        "sfContains",
+        "sfIntersects",
+        "sfEquals",
+        "sfDisjoint",
+        "sfTouches",
+        "sfCrosses",
+        "sfOverlaps",
+        "rcc8eq",
+        "rcc8dc",
+        "rcc8ec",
+        "rcc8po",
+        "rcc8tpp",
+        "rcc8ntpp",
+        "rcc8tppi",
+        "rcc8ntppi",
+        "ehEquals",
+        "ehDisjoint",
+        "ehMeet",
+        "ehOverlap",
+        "ehCoveredBy",
+        "ehInside",
+        "ehCovers",
+        "ehContains",
+    ];
+
+    fn truth_row(a: &str, b: &str) -> String {
+        RELATION_NAMES
+            .iter()
+            .map(|name| match eval_relation(name, a, b) {
+                Some(true) => 'T',
+                Some(false) => 'F',
+                None => '-',
+            })
+            .collect()
+    }
+
+    /// Pins the full dispatch table: each (operand pair) row lists the result of all 24
+    /// relation names, so a name routed to the wrong predicate or with swapped operands
+    /// changes a character.
+    #[test]
+    fn relation_dispatch_truth_table_is_pinned() {
+        let corner = "POLYGON((0 0, 5 0, 5 5, 0 5, 0 0))";
+        let interior = "POLYGON((2 2, 4 2, 4 4, 2 4, 2 2))";
+        let abut = "POLYGON((10 0, 12 0, 12 10, 10 10, 10 0))";
+        let overlap = "POLYGON((5 5, 15 5, 15 15, 5 15, 5 5))";
+        let line = "LINESTRING(-1 5, 11 5)";
+        let rows = [
+            truth_row(corner, BIG),
+            truth_row(BIG, corner),
+            truth_row(interior, BIG),
+            truth_row(BIG, interior),
+            truth_row(BIG, abut),
+            truth_row(BIG, overlap),
+            truth_row(BIG, BIG),
+            truth_row(line, BIG),
+        ];
+        assert_eq!(
+            format!("{rows:?}"),
+            r#"["TFTFFFFFFFFFTFFFFFFFTFFF", "FTTFFFFFFFFFFFTFFFFFFFTF", "TFTFFFFFFFFFFTFFFFFFFTFF", "FTTFFFFFFFFFFFFTFFFFFFFT", "FFTFFTFFFFTFFFFFFFTFFFFF", "FFTFFFFTFFFTFFFFFFFTFFFF", "TFTTFTFFTFTFFFFFTFTFFFFF", "FFTFFFTFFFFFFFFFFFFFFFFF"]"#
+        );
+    }
+
+    #[test]
+    fn unknown_names_and_unparseable_operands_fail_safe() {
+        assert_eq!(eval_relation("sfWithin", "NOTGEOM(1 2)", BIG), None);
+        assert_eq!(eval_relation("sfWithin", BIG, "NOTGEOM(1 2)"), None);
+        assert_eq!(eval_relation("SFWITHIN", BIG, BIG), None);
+        assert_eq!(eval_relation("", BIG, BIG), None);
+        assert_eq!(truth_row(BIG, "<unterminated POINT(1 1)"), "-".repeat(24));
+    }
 }
