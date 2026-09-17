@@ -86,35 +86,16 @@ pub fn belief_distribution(bg: &BeliefGraph, seed: &str, policy: &AuthorityPolic
     let mut visiting: HashSet<String> = HashSet::new();
     // Prime child means via the exact same recursion `belief_of` uses, so the successes/
     // failures mass computed below matches what produced `propagate_confidence`'s number.
-    let base = prior_of(bg, seed);
-    let k = policy.prior_strength.max(0.0);
-    let prior_dist = Distribution::Beta {
-        alpha: 1.0 + base * k,
-        beta: 1.0 + (1.0 - base) * k,
+    let prior_dist = beta_prior(prior_of(bg, seed), policy);
+    let Some(edges) = bg.in_edges.get(seed) else {
+        return prior_dist;
     };
-    match bg.in_edges.get(seed) {
-        Some(edges) if !edges.is_empty() => {
-            let mut successes = 0.0_f64;
-            let mut failures = 0.0_f64;
-            for (src, kind) in edges {
-                let source_belief = belief_of(bg, src, policy, &mut memo, &mut visiting);
-                let mass = policy.edge_mass(*kind, source_belief);
-                match kind {
-                    EdgeKind::Supports => successes += mass,
-                    EdgeKind::Contradicts | EdgeKind::Attacks => failures += mass,
-                }
-            }
-            if successes == 0.0 && failures == 0.0 {
-                prior_dist
-            } else {
-                let evidence = Evidence::Bernoulli {
-                    successes,
-                    failures,
-                };
-                bayesian_update(&prior_dist, &evidence).unwrap_or(prior_dist)
-            }
-        }
-        _ => prior_dist,
+    let evidence = edge_evidence(edges, policy, |src| {
+        belief_of(bg, src, policy, &mut memo, &mut visiting)
+    });
+    match evidence {
+        None => prior_dist,
+        Some(evidence) => bayesian_update(&prior_dist, &evidence).unwrap_or(prior_dist),
     }
 }
 
@@ -132,36 +113,13 @@ fn top_level_posterior(
     point_beliefs: &HashMap<String, f64>,
 ) -> Option<(Distribution, usize)> {
     let edges = bg.in_edges.get(id)?;
-    if edges.is_empty() {
-        return None;
-    }
-    let mut successes = 0.0_f64;
-    let mut failures = 0.0_f64;
-    for (src, kind) in edges {
-        let source_belief = point_beliefs
+    let evidence = edge_evidence(edges, policy, |src| {
+        point_beliefs
             .get(src)
             .copied()
-            .unwrap_or_else(|| prior_of(bg, src));
-        let mass = policy.edge_mass(*kind, source_belief);
-        match kind {
-            EdgeKind::Supports => successes += mass,
-            EdgeKind::Contradicts | EdgeKind::Attacks => failures += mass,
-        }
-    }
-    if successes == 0.0 && failures == 0.0 {
-        return None;
-    }
-    let base = prior_of(bg, id);
-    let k = policy.prior_strength.max(0.0);
-    let prior = Distribution::Beta {
-        alpha: 1.0 + base * k,
-        beta: 1.0 + (1.0 - base) * k,
-    };
-    let evidence = Evidence::Bernoulli {
-        successes,
-        failures,
-    };
-    bayesian_update(&prior, &evidence)
+            .unwrap_or_else(|| prior_of(bg, src))
+    })?;
+    bayesian_update(&beta_prior(prior_of(bg, id), policy), &evidence)
         .ok()
         .map(|posterior| (posterior, edges.len()))
 }
@@ -183,44 +141,70 @@ fn belief_of(
         return base;
     }
     visiting.insert(id.to_string());
-
-    let result = match bg.in_edges.get(id) {
-        Some(edges) if !edges.is_empty() => {
-            let mut successes = 0.0_f64;
-            let mut failures = 0.0_f64;
-            for (src, kind) in edges {
-                let source_belief = belief_of(bg, src, policy, memo, visiting);
-                let mass = policy.edge_mass(*kind, source_belief);
-                match kind {
-                    EdgeKind::Supports => successes += mass,
-                    EdgeKind::Contradicts | EdgeKind::Attacks => failures += mass,
-                }
-            }
-            if successes == 0.0 && failures == 0.0 {
-                // No effective evidence ⇒ the belief is exactly the stored prior.
-                base
-            } else {
-                let k = policy.prior_strength.max(0.0);
-                let prior = Distribution::Beta {
-                    alpha: 1.0 + base * k,
-                    beta: 1.0 + (1.0 - base) * k,
-                };
-                let evidence = Evidence::Bernoulli {
-                    successes,
-                    failures,
-                };
-                match bayesian_update(&prior, &evidence) {
-                    Ok(posterior) => posterior.mean(),
-                    Err(_) => base,
-                }
-            }
-        }
-        _ => base,
-    };
-
+    let result = posterior_belief(bg, id, base, policy, memo, visiting);
     visiting.remove(id);
     memo.insert(id.to_string(), result);
     result
+}
+
+/// `id`'s posterior mean given the recursively propagated beliefs of its premises.
+/// Exactly the stored prior `base` when `id` has no in-edges, none of them carries
+/// effective mass, or the conjugate update fails.
+fn posterior_belief(
+    bg: &BeliefGraph,
+    id: &str,
+    base: f64,
+    policy: &AuthorityPolicy,
+    memo: &mut HashMap<String, f64>,
+    visiting: &mut HashSet<String>,
+) -> f64 {
+    let Some(edges) = bg.in_edges.get(id) else {
+        return base;
+    };
+    let evidence = edge_evidence(edges, policy, |src| {
+        belief_of(bg, src, policy, memo, visiting)
+    });
+    match evidence {
+        None => base,
+        Some(evidence) => bayesian_update(&beta_prior(base, policy), &evidence)
+            .map_or(base, |posterior| posterior.mean()),
+    }
+}
+
+/// The `Beta` prior a node's stored confidence `base` seeds under `policy`.
+fn beta_prior(base: f64, policy: &AuthorityPolicy) -> Distribution {
+    let k = policy.prior_strength.max(0.0);
+    Distribution::Beta {
+        alpha: 1.0 + base * k,
+        beta: 1.0 + (1.0 - base) * k,
+    }
+}
+
+/// The Bernoulli evidence `edges` contribute: supports add their mass to the
+/// successes, contradictions and attacks to the failures, each edge weighted by
+/// its source's belief (`source_belief`, called once per edge, in order). `None`
+/// when no edge carries effective mass.
+fn edge_evidence(
+    edges: &[(String, EdgeKind)],
+    policy: &AuthorityPolicy,
+    mut source_belief: impl FnMut(&str) -> f64,
+) -> Option<Evidence> {
+    let mut successes = 0.0_f64;
+    let mut failures = 0.0_f64;
+    for (src, kind) in edges {
+        let mass = policy.edge_mass(*kind, source_belief(src));
+        match kind {
+            EdgeKind::Supports => successes += mass,
+            EdgeKind::Contradicts | EdgeKind::Attacks => failures += mass,
+        }
+    }
+    if successes == 0.0 && failures == 0.0 {
+        return None;
+    }
+    Some(Evidence::Bernoulli {
+        successes,
+        failures,
+    })
 }
 
 /// Build the justification tree for `seed` — the answer to `EXPLAIN BELIEF <id>`. The
@@ -359,6 +343,46 @@ mod tests {
         );
         let bs = propagate_confidence(&bg, "a", &AuthorityPolicy::default());
         assert!((0.0..=1.0).contains(&bs.confidence));
+    }
+
+    // The exact conjugate arithmetic, recursing through a premise: `f` supports `e`,
+    // `e` supports `claim`, `x` attacks `claim`. Default policy: reliability 1,
+    // attack multiplier 1.5, prior strength 2 (a Beta(1 + 2p, 1 + 2(1 - p)) prior).
+    #[test]
+    fn two_level_chain_matches_the_closed_form_posterior_mean() {
+        let bg = BeliefGraph::from_parts(
+            [("claim", 0.5), ("e", 0.9), ("f", 1.0), ("x", 0.8)],
+            [
+                ("f", "e", EdgeKind::Supports),
+                ("e", "claim", EdgeKind::Supports),
+                ("x", "claim", EdgeKind::Attacks),
+            ],
+        );
+        let p = AuthorityPolicy::default();
+        // e: Beta(2.8, 1.2) + 1 success (f = 1.0) => mean 3.8 / 5.0.
+        let e = 3.8 / 5.0;
+        // claim: Beta(2, 2) + e successes + 0.8 * 1.5 failures.
+        let expected = (2.0 + e) / (4.0 + e + 1.2);
+        let bs = propagate_confidence(&bg, "claim", &p);
+        assert!(
+            (bs.confidence - expected).abs() < 1e-12,
+            "got {}, expected {expected}",
+            bs.confidence
+        );
+        assert!((belief_distribution(&bg, "claim", &p).mean() - expected).abs() < 1e-12);
+    }
+
+    // In-edges that carry no effective mass (a zero-belief source) leave the belief
+    // at exactly the stored prior, not at the prior Beta's mean.
+    #[test]
+    fn zero_mass_evidence_is_exactly_prior() {
+        let bg = BeliefGraph::from_parts(
+            [("claim", 0.3), ("dead", 0.0)],
+            [("dead", "claim", EdgeKind::Supports)],
+        );
+        let bs = propagate_confidence(&bg, "claim", &AuthorityPolicy::default());
+        assert_eq!(bs.confidence, 0.3);
+        assert!(bs.calibration.is_none());
     }
 
     // No evidence ⇒ the belief is exactly the stored prior.

@@ -45,6 +45,9 @@ type JointAssignments = Vec<(Vec<usize>, f64)>;
 
 use eg_types::Distribution;
 
+mod linalg;
+use linalg::invert_matrix;
+
 /// Default credible-mass for a [`CausalEstimate::interval`] — mirrors
 /// `crate::propagate`'s `DEFAULT_CALIBRATION_LEVEL`.
 const DEFAULT_CAUSAL_LEVEL: f64 = 0.95;
@@ -390,60 +393,6 @@ fn matvec(a: &[Vec<f64>], x: &[f64]) -> Vec<f64> {
     a.iter()
         .map(|row| row.iter().zip(x.iter()).map(|(a, b)| a * b).sum())
         .collect()
-}
-
-/// Gauss-Jordan matrix inverse with partial pivoting, pure Rust (no `nalgebra` —
-/// this crate stays dependency-light; `k` here is the evidence-set size, always
-/// small in practice). Returns `None` if `m` is singular (within `1e-12`).
-fn invert_matrix(m: &[Vec<f64>]) -> Option<Vec<Vec<f64>>> {
-    let n = m.len();
-    if n == 0 {
-        return Some(Vec::new());
-    }
-    // Augmented [A | I].
-    let mut aug: Vec<Vec<f64>> = m
-        .iter()
-        .enumerate()
-        .map(|(i, row)| {
-            let mut r = row.clone();
-            r.resize(2 * n, 0.0);
-            r[n + i] = 1.0;
-            r
-        })
-        .collect();
-
-    for col in 0..n {
-        // Partial pivot: largest-magnitude entry in this column at/below `col`.
-        let pivot_row = (col..n).max_by(|&a, &b| {
-            aug[a][col]
-                .abs()
-                .partial_cmp(&aug[b][col].abs())
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })?;
-        if aug[pivot_row][col].abs() < 1e-12 {
-            return None; // singular
-        }
-        aug.swap(col, pivot_row);
-
-        let pivot = aug[col][col];
-        for v in aug[col].iter_mut() {
-            *v /= pivot;
-        }
-        let pivot_row_vals = aug[col].clone();
-        for (row, row_vals) in aug.iter_mut().enumerate() {
-            if row == col {
-                continue;
-            }
-            let factor = row_vals[col];
-            if factor != 0.0 {
-                for (v, pivot_v) in row_vals.iter_mut().zip(pivot_row_vals.iter()) {
-                    *v -= factor * pivot_v;
-                }
-            }
-        }
-    }
-
-    Some(aug.into_iter().map(|row| row[n..].to_vec()).collect())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1184,6 +1133,35 @@ mod tests {
     fn singular_matrix_returns_none() {
         let m = vec![vec![1.0, 2.0], vec![2.0, 4.0]];
         assert!(invert_matrix(&m).is_none());
+    }
+
+    #[test]
+    fn invert_empty_matrix_is_empty() {
+        assert_eq!(invert_matrix(&[]), Some(Vec::new()));
+    }
+
+    #[test]
+    fn invert_requires_row_pivoting_and_round_trips_to_identity() {
+        // A zero leading entry forces a row swap; A * A^-1 must be the identity.
+        let m = vec![
+            vec![0.0, 2.0, 1.0],
+            vec![1.0, 0.0, 0.0],
+            vec![3.0, 0.0, 1.0],
+        ];
+        let inv = invert_matrix(&m).unwrap();
+        for (i, row) in m.iter().enumerate() {
+            for j in 0..3 {
+                let product: f64 = row.iter().zip(inv.iter()).map(|(a, r)| a * r[j]).sum();
+                let expected = if i == j { 1.0 } else { 0.0 };
+                assert!(
+                    (product - expected).abs() < EPS,
+                    "(A*A^-1)[{i}][{j}] = {product}"
+                );
+            }
+        }
+        // A permutation matrix is its own inverse.
+        let swap = vec![vec![0.0, 1.0], vec![1.0, 0.0]];
+        assert_eq!(invert_matrix(&swap), Some(swap.clone()));
     }
 
     // ── Discrete (categorical CPT) SCM ───────────────────────────────────────
