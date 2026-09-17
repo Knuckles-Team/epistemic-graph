@@ -12,6 +12,7 @@
 //! intersects; distance = min over part-pairs), and a polygon-with-holes is "inside"
 //! only in its exterior AND outside every hole.
 
+use crate::algebra::signed_area;
 use crate::geometry::{
     point_on_segment, point_segment_distance, Geometry, LineString, Point, Polygon, Prim,
 };
@@ -86,21 +87,31 @@ fn prim_segments<'a>(prim: &Prim<'a>) -> Vec<(Point, Point)> {
     match prim {
         Prim::Point(_) => Vec::new(),
         Prim::Line(l) => l.segments().collect(),
-        Prim::Poly(pg) => {
-            let mut segs = Vec::new();
-            for ring in std::iter::once(&pg.exterior).chain(pg.interiors.iter()) {
-                let n = ring.points.len();
-                for i in 0..n.saturating_sub(1) {
-                    segs.push((ring.points[i], ring.points[i + 1]));
-                }
-                // implicit wrap edge if the ring isn't explicitly closed
-                if n >= 3 && ring.points[0] != ring.points[n - 1] {
-                    segs.push((ring.points[n - 1], ring.points[0]));
-                }
-            }
-            segs
+        Prim::Poly(pg) => sided_edges(pg)
+            .into_iter()
+            .map(|(p, q, _)| (p, q))
+            .collect(),
+    }
+}
+
+/// Every ring edge of a polygon (exterior, then each hole ring, each treated as closed)
+/// with whether the polygon's interior lies to the LEFT of it: an exterior ring's
+/// interior is on its left when counter-clockwise, a hole ring's when clockwise.
+fn sided_edges(pg: &Polygon) -> Vec<(Point, Point, bool)> {
+    let mut edges = Vec::new();
+    for (i, ring) in std::iter::once(&pg.exterior)
+        .chain(pg.interiors.iter())
+        .enumerate()
+    {
+        let left = (signed_area(&ring.points) > 0.0) == (i == 0);
+        let n = ring.points.len();
+        edges.extend(ring.points.windows(2).map(|w| (w[0], w[1], left)));
+        // implicit wrap edge if the ring isn't explicitly closed
+        if n >= 3 && ring.points[0] != ring.points[n - 1] {
+            edges.push((ring.points[n - 1], ring.points[0], left));
         }
     }
+    edges
 }
 
 /// Every vertex of a primitive (polygon = exterior + all hole rings).
@@ -414,8 +425,9 @@ fn lines_interiors_meet(a: &LineString, b: &LineString) -> bool {
     false
 }
 
-/// Does linestring `l`'s interior meet polygon `pg`'s interior — a vertex or segment
-/// midpoint strictly inside, or a segment properly crossing the boundary (passing through)?
+/// Does linestring `l`'s interior meet polygon `pg`'s interior — a vertex strictly inside,
+/// a piece of a segment (between the polygon vertices it touches) passing through the
+/// interior, or a segment properly crossing the boundary?
 fn line_enters_poly(l: &LineString, pg: &Polygon) -> bool {
     for p in &l.points {
         if strict_inside_poly(p, pg) {
@@ -424,8 +436,7 @@ fn line_enters_poly(l: &LineString, pg: &Polygon) -> bool {
     }
     let boundary = prim_segments(&Prim::Poly(pg));
     for (a, b) in l.segments() {
-        let mid = Point::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0);
-        if strict_inside_poly(&mid, pg) {
+        if segment_passes_through_interior(&a, &b, pg) {
             return true;
         }
         for (c, d) in &boundary {
@@ -437,37 +448,51 @@ fn line_enters_poly(l: &LineString, pg: &Polygon) -> bool {
     false
 }
 
-/// Do two polygons' interiors meet — a vertex of one strictly inside the other, or their
-/// boundaries properly crossing (partial areal overlap)?
+/// Do two polygons' interiors meet — their boundaries properly crossing (partial areal
+/// overlap), a boundary piece of one passing through the other's interior (which also
+/// covers a vertex strictly inside), or a shared boundary piece with both interiors on
+/// the same side of it (identical or coincident-edged polygons)?
 fn polys_interiors_meet(a: &Polygon, b: &Polygon) -> bool {
-    for v in poly_all_vertices(a) {
-        if strict_inside_poly(&v, b) {
-            return true;
-        }
-    }
-    for v in poly_all_vertices(b) {
-        if strict_inside_poly(&v, a) {
-            return true;
-        }
-    }
     let (sa, sb) = (prim_segments(&Prim::Poly(a)), prim_segments(&Prim::Poly(b)));
-    for (a1, a2) in &sa {
-        for (b1, b2) in &sb {
-            if seg_proper_cross(a1, a2, b1, b2) {
-                return true;
-            }
-        }
-    }
-    false
+    segments_meet(&sa, &sb, seg_proper_cross)
+        || sa
+            .iter()
+            .any(|(p, q)| segment_passes_through_interior(p, q, b))
+        || sb
+            .iter()
+            .any(|(p, q)| segment_passes_through_interior(p, q, a))
+        || boundaries_share_an_interior_side(a, b)
 }
 
-/// Every vertex of a polygon (exterior + all hole rings).
-fn poly_all_vertices(pg: &Polygon) -> Vec<Point> {
-    let mut v = pg.exterior.points.clone();
-    for h in &pg.interiors {
-        v.extend_from_slice(&h.points);
-    }
-    v
+/// Does segment `p→q`, cut at every vertex of `pg` lying on it, have a piece whose
+/// midpoint is strictly inside `pg`? Without a proper boundary crossing, each piece is
+/// wholly inside, wholly outside, or wholly on `pg`'s boundary, so its midpoint decides.
+fn segment_passes_through_interior(p: &Point, q: &Point, pg: &Polygon) -> bool {
+    let (dx, dy) = (q.x - p.x, q.y - p.y);
+    let along = |v: &Point| (v.x - p.x) * dx + (v.y - p.y) * dy;
+    let mut stops: Vec<Point> = prim_vertices(&Prim::Poly(pg))
+        .into_iter()
+        .filter(|v| point_on_segment(v, p, q))
+        .collect();
+    stops.extend([*p, *q]);
+    stops.sort_by(|u, v| along(u).total_cmp(&along(v)));
+    stops.windows(2).any(|w| {
+        let mid = Point::new((w[0].x + w[1].x) / 2.0, (w[0].y + w[1].y) / 2.0);
+        strict_inside_poly(&mid, pg)
+    })
+}
+
+/// Do `a` and `b` share a collinear boundary piece with BOTH interiors on the same side
+/// of it? (Opposite sides is boundary-only contact: adjacent polygons, or a polygon
+/// filling another's hole.)
+fn boundaries_share_an_interior_side(a: &Polygon, b: &Polygon) -> bool {
+    let edges_b = sided_edges(b);
+    sided_edges(a).iter().any(|&(p, q, a_left)| {
+        edges_b.iter().any(|&(c, d, b_left)| {
+            let same_direction = (q.x - p.x) * (d.x - c.x) + (q.y - p.y) * (d.y - c.y) > 0.0;
+            collinear_overlap(&p, &q, &c, &d) && (a_left == b_left) == same_direction
+        })
+    })
 }
 
 /// Do two linestrings share a collinear sub-segment of positive length (an areal-1D
@@ -747,6 +772,119 @@ mod tests {
         assert!(!touches(&a, &b));
         assert!(!contains(&a, &b));
         assert!(!equals(&a, &b));
+    }
+
+    /// A polygon's DE-9IM surface relation to `b`, as `[contains(a,b), within(a,b),
+    /// touches, overlaps, crosses, equals]`.
+    fn areal_relations(a: &Geometry, b: &Geometry) -> [bool; 6] {
+        [
+            contains(a, b),
+            within(a, b),
+            touches(a, b),
+            overlaps(a, b),
+            crosses(a, b),
+            equals(a, b),
+        ]
+    }
+
+    #[test]
+    fn identical_polygons_contain_each_other_and_do_not_touch() {
+        // Same ring, and the same ring in the opposite winding: no vertex is strictly
+        // inside the other and no edge properly crosses, but the interiors coincide.
+        let a = square();
+        let reversed = poly(&[(0.0, 0.0), (0.0, 4.0), (4.0, 4.0), (4.0, 0.0), (0.0, 0.0)]);
+        let equal = [true, true, false, false, false, true];
+        assert_eq!(areal_relations(&a, &square()), equal);
+        assert_eq!(areal_relations(&a, &reversed), equal);
+        assert_eq!(areal_relations(&reversed, &a), equal);
+    }
+
+    #[test]
+    fn coincident_edges_with_shared_interior_are_not_touches() {
+        let a = square(); // 0,0 → 4,4
+                          // Lower half: every vertex on `a`'s boundary, its top edge through `a`'s interior.
+        let half = poly(&[(0.0, 0.0), (4.0, 0.0), (4.0, 2.0), (0.0, 2.0), (0.0, 0.0)]);
+        assert_eq!(
+            areal_relations(&a, &half),
+            [true, false, false, false, false, false]
+        );
+        assert_eq!(
+            areal_relations(&half, &a),
+            [false, true, false, false, false, false]
+        );
+        // Inscribed triangle: all vertices on `a`'s corners, the diagonal inside.
+        let triangle = poly(&[(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 0.0)]);
+        assert_eq!(
+            areal_relations(&a, &triangle),
+            [true, false, false, false, false, false]
+        );
+        // A strip sharing two side lines and overlapping `a`'s upper half.
+        let strip = poly(&[(0.0, 2.0), (4.0, 2.0), (4.0, 6.0), (0.0, 6.0), (0.0, 2.0)]);
+        assert_eq!(
+            areal_relations(&a, &strip),
+            [false, false, false, true, false, false]
+        );
+    }
+
+    /// Mutation coverage for `polys_interiors_meet`'s boundary-through-interior check
+    /// (M1): `a`'s edge (0,2)→(4,2) enters `square()` exactly at the midpoints of its
+    /// left and right edges — not at a corner and not properly crossing (both
+    /// endpoints lie ON `square()`'s boundary, giving a zero orientation there rather
+    /// than a strict sign change either side) — and `a` shares no collinear edge with
+    /// `square()` at all. So the only way the two interiors are seen to meet is the
+    /// through-interior check on that one segment; drop it and `overlaps` misses this
+    /// case entirely.
+    #[test]
+    fn boundary_edge_through_interior_with_no_crossing_or_shared_side_overlaps() {
+        let a = poly(&[
+            (0.0, 2.0),
+            (4.0, 2.0),
+            (4.5, -3.0),
+            (-0.5, -3.0),
+            (-0.5, 2.0),
+            (0.0, 2.0),
+        ]);
+        let b = square();
+        assert_eq!(
+            areal_relations(&a, &b),
+            [false, false, false, true, false, false]
+        );
+    }
+
+    #[test]
+    fn shared_boundary_with_interiors_on_opposite_sides_still_touches() {
+        // A polygon exactly filling another's hole shares the whole hole ring, with the
+        // interiors on opposite sides of it (hole ring wound either way).
+        let outer = [(0.0, 0.0), (8.0, 0.0), (8.0, 8.0), (0.0, 8.0), (0.0, 0.0)];
+        let hole_ccw = [(2.0, 2.0), (6.0, 2.0), (6.0, 6.0), (2.0, 6.0), (2.0, 2.0)];
+        let mut hole_cw = hole_ccw;
+        hole_cw.reverse();
+        let ring = |pts: &[(f64, f64)]| {
+            LineString::new(pts.iter().map(|&(x, y)| Point::new(x, y)).collect())
+        };
+        let plug = poly(&hole_ccw);
+        for hole in [hole_ccw, hole_cw] {
+            let donut = Geometry::Polygon(Polygon::new(ring(&outer), vec![ring(&hole)]));
+            assert_eq!(
+                areal_relations(&donut, &plug),
+                [false, false, true, false, false, false]
+            );
+            let same_donut = Geometry::Polygon(Polygon::new(ring(&outer), vec![ring(&hole)]));
+            assert!(contains(&donut, &same_donut) && !touches(&donut, &same_donut));
+        }
+    }
+
+    #[test]
+    fn line_through_polygon_corners_crosses_its_interior() {
+        // The segment's own midpoint is outside the square and it only meets the
+        // boundary at two corners, yet it runs along the square's diagonal.
+        let diagonal = line(&[(-5.0, -5.0), (100.0, 100.0)]);
+        assert!(crosses(&diagonal, &square()));
+        assert!(!touches(&diagonal, &square()));
+        // Along an edge only: boundary contact, not an interior crossing.
+        let along_edge = line(&[(-5.0, 0.0), (100.0, 0.0)]);
+        assert!(touches(&along_edge, &square()));
+        assert!(!crosses(&along_edge, &square()));
     }
 
     #[test]
