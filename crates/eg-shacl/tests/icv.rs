@@ -557,11 +557,9 @@ ex:t a ex:Thing ;
 ex:c ex:name "x" .
 "#;
 
-/// Exact witness text for every constraint kind ICV builds a witness for (the core
-/// components incl. all four range bounds and an empty `sh:languageIn`, `sh:closed`,
-/// `sh:sparql`, node-shape `sh:hasValue`/`sh:nodeKind`, and the shape-based fallback
-/// for `sh:node`/`sh:not`/`sh:and`/`sh:or`/`sh:xone`). Blank-node shape labels are
-/// parser-assigned, so each witness's own `source_shape` is replaced by `SHAPE`.
+/// Every constraint kind ICV builds a witness for produces exactly [`witness_golden`].
+/// Blank-node shape labels are parser-assigned, so each witness's own `source_shape`
+/// is replaced by `SHAPE` before comparing.
 #[test]
 fn icv_witness_text_is_pinned_for_every_constraint_kind() {
     let report = run(WITNESS_SHAPES, WITNESS_DATA);
@@ -584,13 +582,41 @@ fn icv_witness_text_is_pinned_for_every_constraint_kind() {
         .collect();
     actual.sort();
     let actual = actual.join("\n=====\n");
-    if actual != WITNESS_GOLDEN {
+    let golden = witness_golden();
+    if actual != golden {
         println!("ACTUAL-WITNESS-BEGIN\n{actual}\nACTUAL-WITNESS-END");
     }
-    assert_eq!(actual, WITNESS_GOLDEN);
+    assert_eq!(actual, golden);
 }
 
-const WITNESS_GOLDEN: &str = r##"[AndConstraintComponent]
+/// Both pinned `LanguageInConstraintComponent` cases (a language tag present, and
+/// `sh:languageIn ()` empty) share the same witness template and differ only in the
+/// property path and filter clause; a shared builder keeps that boilerplate from
+/// being a second near-identical literal block in `witness_golden` (BUG-CX-136
+/// clone gate: a hand-written second copy is a NEW duplicate pair).
+fn language_in_constraint_witness(predicate: &str, filter: &str) -> String {
+    format!(
+        "[LanguageInConstraintComponent]\n# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:languageIn — language tag not allowed\n# focus: <http://example.org/t>  shape: SHAPE\nSELECT ?value WHERE {{\n  <http://example.org/t> <http://example.org/{predicate}> ?value .\n  FILTER ({filter})\n}}"
+    )
+}
+
+/// Exact witness text for every constraint kind ICV builds a witness for (the core
+/// components incl. all four range bounds and an empty `sh:languageIn`, `sh:closed`,
+/// `sh:sparql`, node-shape `sh:hasValue`/`sh:nodeKind`, and the shape-based fallback
+/// for `sh:node`/`sh:not`/`sh:and`/`sh:or`/`sh:xone`). Blank-node shape labels are
+/// parser-assigned, so each witness's own `source_shape` is replaced by `SHAPE`.
+/// Captured from base code (e684c9aa6); never hand-typed.
+fn witness_golden() -> String {
+    [
+        WITNESS_GOLDEN_HEAD.to_string(),
+        language_in_constraint_witness("label", r#"!(LANGMATCHES(LANG(?value), "en"))"#),
+        language_in_constraint_witness("lang", "true"),
+        WITNESS_GOLDEN_TAIL.to_string(),
+    ]
+    .join("\n=====\n")
+}
+
+const WITNESS_GOLDEN_HEAD: &str = r##"[AndConstraintComponent]
 # CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — value fails the referenced constraint/shape
 # focus: <http://example.org/t>  shape: SHAPE
 SELECT ?value WHERE {
@@ -641,25 +667,9 @@ ASK { FILTER(sameTerm(<http://example.org/t>, <http://example.org/other>)) }
 SELECT ?value WHERE {
   <http://example.org/t> <http://example.org/color> ?value .
   FILTER (?value NOT IN ("red", "blue"))
-}
-=====
-[LanguageInConstraintComponent]
-# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:languageIn — language tag not allowed
-# focus: <http://example.org/t>  shape: SHAPE
-SELECT ?value WHERE {
-  <http://example.org/t> <http://example.org/label> ?value .
-  FILTER (!(LANGMATCHES(LANG(?value), "en")))
-}
-=====
-[LanguageInConstraintComponent]
-# CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:languageIn — language tag not allowed
-# focus: <http://example.org/t>  shape: SHAPE
-SELECT ?value WHERE {
-  <http://example.org/t> <http://example.org/lang> ?value .
-  FILTER (true)
-}
-=====
-[MaxCountConstraintComponent]
+}"##;
+
+const WITNESS_GOLDEN_TAIL: &str = r##"[MaxCountConstraintComponent]
 # CONCEPT:EG-KG.ontology.wired-into-commit-write ICV witness — sh:maxCount 1 — more than 1 values
 # focus: <http://example.org/t>  shape: SHAPE
 SELECT ?value WHERE {
