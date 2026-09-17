@@ -20,7 +20,7 @@ from typing import Literal
 from pydantic import Field, field_validator, model_validator
 
 from . import vocabulary as vocab
-from ._model import Provenance, SyntheticModel, sorted_unique
+from ._model import ComponentFields, Provenance, SyntheticModel, sorted_unique
 
 GENERATOR = "assembly"
 GENERATOR_VERSION = 1
@@ -53,16 +53,9 @@ Distractor = Literal[
 ]
 
 
-class Candidate(SyntheticModel):
+class Candidate(ComponentFields):
     """The typed facts a solver may read. Summaries are never solver input."""
 
-    component_id: str = Field(min_length=1)
-    kind: Literal["tool", "skill", "model_profile"]
-    summary: str = Field(min_length=1)
-    classification: tuple[str, ...] = ()
-    declared_capabilities: tuple[str, ...] = ()
-    required_capabilities: tuple[str, ...] = ()
-    requires: tuple[str, ...] = ()
     cost_micros: int | None = Field(default=None, ge=0)
     p95_ms: int = Field(ge=0)
     supports_tools: bool | None = None

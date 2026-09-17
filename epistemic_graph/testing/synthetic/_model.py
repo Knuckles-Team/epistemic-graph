@@ -9,11 +9,29 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 EVIDENCE_LABEL: Literal["synthetic"] = "synthetic"
 
+ComponentKind = Literal["model_profile", "tool", "skill"]
+
 
 class SyntheticModel(BaseModel):
     """Immutable, closed and strictly typed: no coercion, no unknown fields."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+
+class ComponentFields(SyntheticModel):
+    """The identity and capability shape every synthetic component -- a tool,
+    skill or model profile -- carries, shared by the agent catalog
+    (``catalog.SyntheticComponent``) and the assembly candidate universe
+    (``assembly.Candidate``). Each subclass adds its own extra facts and
+    validators on top of this common base."""
+
+    component_id: str = Field(min_length=1)
+    kind: ComponentKind
+    summary: str = Field(min_length=1)
+    classification: tuple[str, ...] = ()
+    declared_capabilities: tuple[str, ...] = ()
+    required_capabilities: tuple[str, ...] = ()
+    requires: tuple[str, ...] = ()
 
 
 class Provenance(SyntheticModel):
