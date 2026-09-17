@@ -9,13 +9,16 @@ use eg_types::mutation_batch::MutationBatchStatus;
 use super::super::agent_library::{batch_id, validate_context};
 use super::*;
 
+/// A committed ledger record and the tenant scope it was read under.
+type StatusRecord = (Arc<OwnedStoreHandle<Owner>>, eg_types::MutationBatchRecord);
+
 /// The ledger record one caller operation committed, with the tenant scope it
 /// was read under, or `None` when that operation never committed.
 pub(in crate::server::persistence) fn ledger_status_record(
     store: &AgentLibraryStore,
     context: &AgentLibraryMutationContext,
     record_id: &str,
-) -> Result<Option<(Arc<OwnedStoreHandle<Owner>>, eg_types::MutationBatchRecord)>, String> {
+) -> Result<Option<StatusRecord>, String> {
     validate_context(store, context)?;
     eg_types::agent_library::validate_key(&context.tenant_id, record_id)?;
     let owner = store.scope_handle(&context.tenant_id)?;
