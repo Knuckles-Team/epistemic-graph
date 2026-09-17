@@ -12,7 +12,9 @@ use serde::{Deserialize, Serialize};
 mod gates;
 mod validation;
 
-pub use gates::{ControlQubit, ControlState, GateInstruction, GateKind, ParamValue};
+pub use gates::{
+    CliffordGenerator, ControlQubit, ControlState, GateInstruction, GateKind, ParamValue,
+};
 pub use validation::IrValidationError;
 
 /// Bump on any change that is not purely additive-and-ignorable by an older reader

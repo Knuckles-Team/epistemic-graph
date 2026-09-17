@@ -25,7 +25,9 @@
 use eg_quantum_core::backend::{
     BackendCapabilities, BackendError, BackendFamily, BackendId, RunOptions,
 };
-use eg_quantum_core::ir::{ControlQubit, ControlState, GateKind, Instruction, QuantumProgram};
+use eg_quantum_core::ir::{
+    CliffordGenerator, ControlQubit, ControlState, Instruction, QuantumProgram,
+};
 use eg_quantum_core::result::{Formalism, QuantumResult};
 use std::collections::BTreeMap;
 
@@ -349,62 +351,23 @@ fn not_clifford(g: &eg_quantum_core::ir::GateInstruction) -> SimError {
     SimError::NotClifford(Box::new(g.clone()))
 }
 
-/// A base gate kind's action on the tableau. `is_clifford()` has already rejected
-/// every non-Clifford instruction; the dispatch below still fails loudly rather than
-/// silently no-op if the IR's Clifford vocabulary ever grows without it being updated.
-#[derive(Clone, Copy)]
-enum TableauGate {
-    Id,
-    X,
-    Y,
-    Z,
-    H,
-    S,
-    Sdg,
-    Swap,
-    NonClifford,
-}
-
-/// Classify every IR gate kind once (exhaustively, so a new kind is a compile error
-/// here) for both the uncontrolled and the single-controlled dispatch.
-fn tableau_gate(kind: &GateKind) -> TableauGate {
-    match kind {
-        GateKind::Id => TableauGate::Id,
-        GateKind::X => TableauGate::X,
-        GateKind::Y => TableauGate::Y,
-        GateKind::Z => TableauGate::Z,
-        GateKind::H => TableauGate::H,
-        GateKind::S => TableauGate::S,
-        GateKind::Sdg => TableauGate::Sdg,
-        GateKind::Swap => TableauGate::Swap,
-        GateKind::T
-        | GateKind::Tdg
-        | GateKind::Rx
-        | GateKind::Ry
-        | GateKind::Rz
-        | GateKind::Rzz
-        | GateKind::Rxx
-        | GateKind::Ryy
-        | GateKind::Phase
-        | GateKind::Custom(_) => TableauGate::NonClifford,
-    }
-}
-
 /// Zero controls: the single-qubit Clifford generators plus `Swap`.
 fn apply_uncontrolled_clifford(
     tab: &mut Tableau,
     g: &eg_quantum_core::ir::GateInstruction,
 ) -> Result<(), SimError> {
-    match tableau_gate(&g.gate) {
-        TableauGate::Id => {}
-        TableauGate::X => tab.clifford().x_gate(g.qubits[0]),
-        TableauGate::Y => tab.clifford().y_gate(g.qubits[0]),
-        TableauGate::Z => tab.clifford().z_gate(g.qubits[0]),
-        TableauGate::H => tab.clifford().h(g.qubits[0]),
-        TableauGate::S => tab.clifford().s(g.qubits[0]),
-        TableauGate::Sdg => tab.clifford().sdg(g.qubits[0]),
-        TableauGate::Swap => tab.clifford().swap(g.qubits[0], g.qubits[1]),
-        TableauGate::NonClifford => return Err(not_clifford(g)),
+    // `is_clifford()` already rejected non-generators; still fail loudly rather than
+    // silently no-op if the generator set ever grows without this dispatch.
+    match g.gate.clifford_generator() {
+        Some(CliffordGenerator::Id) => {}
+        Some(CliffordGenerator::X) => tab.clifford().x_gate(g.qubits[0]),
+        Some(CliffordGenerator::Y) => tab.clifford().y_gate(g.qubits[0]),
+        Some(CliffordGenerator::Z) => tab.clifford().z_gate(g.qubits[0]),
+        Some(CliffordGenerator::H) => tab.clifford().h(g.qubits[0]),
+        Some(CliffordGenerator::S) => tab.clifford().s(g.qubits[0]),
+        Some(CliffordGenerator::Sdg) => tab.clifford().sdg(g.qubits[0]),
+        Some(CliffordGenerator::Swap) => tab.clifford().swap(g.qubits[0], g.qubits[1]),
+        None => return Err(not_clifford(g)),
     }
     Ok(())
 }
@@ -416,16 +379,18 @@ fn apply_single_controlled_clifford(
     state: ControlState,
     g: &eg_quantum_core::ir::GateInstruction,
 ) -> Result<(), SimError> {
-    let op = match tableau_gate(&g.gate) {
-        TableauGate::X => ControlledOperation::Cnot,
-        TableauGate::Y => ControlledOperation::Cy,
-        TableauGate::Z => ControlledOperation::Cz,
-        TableauGate::Id
-        | TableauGate::H
-        | TableauGate::S
-        | TableauGate::Sdg
-        | TableauGate::Swap
-        | TableauGate::NonClifford => return Err(not_clifford(g)),
+    let op = match g.gate.clifford_generator() {
+        Some(CliffordGenerator::X) => ControlledOperation::Cnot,
+        Some(CliffordGenerator::Y) => ControlledOperation::Cy,
+        Some(CliffordGenerator::Z) => ControlledOperation::Cz,
+        Some(
+            CliffordGenerator::Id
+            | CliffordGenerator::H
+            | CliffordGenerator::S
+            | CliffordGenerator::Sdg
+            | CliffordGenerator::Swap,
+        )
+        | None => return Err(not_clifford(g)),
     };
     apply_single_controlled(tab, ctrl, state, g.qubits[0], op);
     Ok(())
@@ -655,7 +620,7 @@ mod tableau_tests {
 #[cfg(test)]
 mod apply_gate_tests {
     use super::*;
-    use eg_quantum_core::ir::{GateInstruction, ParamValue};
+    use eg_quantum_core::ir::{GateInstruction, GateKind, ParamValue};
 
     /// A 3-qubit state on which every Clifford primitive is observable in the raw
     /// tableau bits (unlike `|000>`, where e.g. `Z` or `CZ` leave it unchanged).

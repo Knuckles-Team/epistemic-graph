@@ -75,31 +75,61 @@ pub enum GateKind {
     Custom(String),
 }
 
-impl GateKind {
-    /// Whether this base gate (with NO controls and NO parameters) belongs to the
-    /// single-qubit Clifford generator set. `GateInstruction::is_clifford` is the
-    /// call site that actually accounts for controls/params — do not call this alone
-    /// to decide Clifford-ness of a full instruction.
-    fn is_clifford_generator(&self) -> bool {
-        matches!(
-            self,
-            GateKind::Id
-                | GateKind::X
-                | GateKind::Y
-                | GateKind::Z
-                | GateKind::H
-                | GateKind::S
-                | GateKind::Sdg
-                | GateKind::Swap
-        )
-    }
+/// The Clifford generator set `{Id, X, Y, Z, H, S, Sdg, Swap}` — the base gates (with no
+/// controls and no parameters) a stabilizer tableau can apply. The one authority for
+/// that vocabulary: [`GateInstruction::is_clifford`] and the stabilizer backend's gate
+/// dispatch both read it through [`GateKind::clifford_generator`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CliffordGenerator {
+    Id,
+    X,
+    Y,
+    Z,
+    H,
+    S,
+    Sdg,
+    Swap,
+}
 
-    /// Whether this base gate, with exactly ONE positive or negative control, is
+impl GateKind {
+    /// This base gate as a Clifford generator, or `None` when it is not one. Every gate
+    /// kind is named, so a new kind must be classified here. `GateInstruction::is_clifford`
+    /// is the call site that actually accounts for controls/params — do not call this
+    /// alone to decide Clifford-ness of a full instruction.
+    pub fn clifford_generator(&self) -> Option<CliffordGenerator> {
+        match self {
+            GateKind::Id => Some(CliffordGenerator::Id),
+            GateKind::X => Some(CliffordGenerator::X),
+            GateKind::Y => Some(CliffordGenerator::Y),
+            GateKind::Z => Some(CliffordGenerator::Z),
+            GateKind::H => Some(CliffordGenerator::H),
+            GateKind::S => Some(CliffordGenerator::S),
+            GateKind::Sdg => Some(CliffordGenerator::Sdg),
+            GateKind::Swap => Some(CliffordGenerator::Swap),
+            GateKind::T
+            | GateKind::Tdg
+            | GateKind::Rx
+            | GateKind::Ry
+            | GateKind::Rz
+            | GateKind::Rzz
+            | GateKind::Rxx
+            | GateKind::Ryy
+            | GateKind::Phase
+            | GateKind::Custom(_) => None,
+        }
+    }
+}
+
+impl CliffordGenerator {
+    /// Whether this generator, with exactly ONE positive or negative control, is
     /// still Clifford. Only the controlled Paulis (CNOT/CY/CZ) qualify — a controlled
     /// `H`/`S`/`Sdg`/`Swap` (e.g. Fredkin) is NOT Clifford in general, and this
     /// function says so.
-    fn is_clifford_single_controlled(&self) -> bool {
-        matches!(self, GateKind::X | GateKind::Y | GateKind::Z)
+    pub fn is_clifford_single_controlled(self) -> bool {
+        matches!(
+            self,
+            CliffordGenerator::X | CliffordGenerator::Y | CliffordGenerator::Z
+        )
     }
 }
 
@@ -131,8 +161,11 @@ impl GateInstruction {
             return false;
         }
         match self.controls.len() {
-            0 => self.gate.is_clifford_generator(),
-            1 => self.gate.is_clifford_single_controlled(),
+            0 => self.gate.clifford_generator().is_some(),
+            1 => self
+                .gate
+                .clifford_generator()
+                .is_some_and(CliffordGenerator::is_clifford_single_controlled),
             _ => false,
         }
     }
