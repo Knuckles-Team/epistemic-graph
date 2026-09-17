@@ -601,10 +601,12 @@ mod tests {
         assert_eq!(xs_te.len(), 1);
     }
 
+    /// A linear system `(A, b)` and its exact solution `x`.
+    type LinearSystemCase = (Vec<Vec<f64>>, Vec<f64>, Vec<f64>);
+
     #[test]
     fn solve_linear_system_pivots_and_skips_singular_columns() {
-        // `(A, b, exact x)`.
-        let cases: [(Vec<Vec<f64>>, Vec<f64>, Vec<f64>); 2] = [
+        let cases: [LinearSystemCase; 2] = [
             // A zero leading pivot: only a row swap can solve it.
             (
                 vec![vec![0.0, 1.0], vec![1.0, 0.0]],
