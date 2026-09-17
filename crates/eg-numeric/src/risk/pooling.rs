@@ -14,26 +14,26 @@ use super::counts::Counts;
 use crate::detkernel::reduce::serial_sum;
 use crate::detkernel::{validate, Level, StatError, StatResult};
 use std::collections::BTreeMap;
+use std::ops::Deref;
 
-/// `successes` out of `trials` (zero trials allowed).
+/// `successes` out of `trials` (zero trials allowed). `Deref`s to [`Counts`]
+/// for `successes()`/`trials()`, defined once there.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct GroupCounts(Counts);
+
+impl Deref for GroupCounts {
+    type Target = Counts;
+
+    fn deref(&self) -> &Counts {
+        &self.0
+    }
+}
 
 impl GroupCounts {
     /// Validate `successes <= trials`.
     pub fn new(successes: u64, trials: u64) -> StatResult<Self> {
         let counts = Counts::checked(successes, trials)?;
         Ok(Self(counts))
-    }
-
-    /// Successes.
-    pub fn successes(self) -> u64 {
-        self.0.successes
-    }
-
-    /// Trials.
-    pub fn trials(self) -> u64 {
-        self.0.trials
     }
 
     fn checked_add(self, other: Self) -> StatResult<Self> {

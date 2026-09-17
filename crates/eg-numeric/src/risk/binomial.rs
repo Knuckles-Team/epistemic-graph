@@ -9,10 +9,20 @@
 use super::beta::{beta_quantile, regularized_incomplete_beta};
 use super::counts::Counts;
 use crate::detkernel::{validate, Level, StatResult};
+use std::ops::Deref;
 
 /// `successes` out of `trials`, with `1 <= trials` and `successes <= trials`.
+/// `Deref`s to [`Counts`] for `successes()`/`trials()`, defined once there.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct BinomialCounts(Counts);
+
+impl Deref for BinomialCounts {
+    type Target = Counts;
+
+    fn deref(&self) -> &Counts {
+        &self.0
+    }
+}
 
 impl BinomialCounts {
     /// Validate counts.
@@ -20,16 +30,6 @@ impl BinomialCounts {
         validate::parameter(trials >= 1, "trials", "trials >= 1")?;
         let counts = Counts::checked(successes, trials)?;
         Ok(Self(counts))
-    }
-
-    /// Successes.
-    pub fn successes(self) -> u64 {
-        self.0.successes
-    }
-
-    /// Trials.
-    pub fn trials(self) -> u64 {
-        self.0.trials
     }
 }
 
