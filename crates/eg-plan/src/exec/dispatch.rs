@@ -13,12 +13,11 @@ use super::*;
 pub(super) const UNSUPPORTED_MODALITY_OP: &str =
     "plan operator requires a modality feature not enabled in this build";
 
-/// The `epistemic` variant family, in one place — shared by [`apply`]'s routing arm and
-/// [`crate::optimizer`]'s reorder-exclusion check so the two lists of `Op::EvidenceFor`/
-/// `Contradicts`/`SupportedBy`/`BeliefAsOf`/`SourceReliability`/`ConfidenceOp`/
-/// `ExplainBelief` can't drift apart as separately copied literals (BUG-CX-136 clone
-/// gate: an identical literal list in two files is a real duplicate even when it
-/// originates from the same enum).
+/// Is `op` one of the 7 `epistemic` ops (`EvidenceFor`/`Contradicts`/`SupportedBy`/
+/// `BeliefAsOf`/`SourceReliability`/`ConfidenceOp`/`ExplainBelief`)? Used by
+/// [`crate::optimizer`]'s reorder-exclusion check, which — unlike [`apply`]'s own
+/// routing arm just below — is a plain boolean test, not an exhaustive match, so it can
+/// delegate here instead of listing the variants itself.
 #[cfg(feature = "epistemic")]
 pub(crate) fn is_epistemic_op(op: &Op) -> bool {
     matches!(
@@ -83,10 +82,19 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         // evidence for/against a claim, belief-confidence re-scoring and time-pinning, source
         // reliability, and justification-tree flattening. Gated behind `epistemic`; the
         // variants only exist when eg-types/epistemic is on (the tensor/geo/probabilistic
-        // gating precedent). The variant list itself lives once in `is_epistemic_op` above,
-        // shared with `optimizer::is_reorderable`'s exclusion check.
+        // gating precedent). Named explicitly (not routed through `is_epistemic_op` above,
+        // which a match guard can't use) because a guarded wildcard arm does not count
+        // toward exhaustiveness: under `--all-features` the trailing catch-all below is
+        // itself compiled out, so every variant here MUST be an unconditional pattern or
+        // the match stops being exhaustive.
         #[cfg(feature = "epistemic")]
-        _ if is_epistemic_op(op) => apply_epistemic(op, input, ctx),
+        Op::EvidenceFor { .. }
+        | Op::Contradicts { .. }
+        | Op::SupportedBy { .. }
+        | Op::BeliefAsOf { .. }
+        | Op::SourceReliability { .. }
+        | Op::ConfidenceOp {}
+        | Op::ExplainBelief { .. } => apply_epistemic(op, input, ctx),
 
         // SOURCE/FUSE (time-series, CONCEPT:EG-KG.query.multi-rate-sensor-stream /
         // native-time-series): multi-rate sensor fusion (ASOF-aligned or clock-resampled) and
