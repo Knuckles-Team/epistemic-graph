@@ -380,7 +380,8 @@ fn generate_edges(params: &DemoParams, top_cluster_of: &[u32]) -> Vec<Edge> {
 }
 
 /// Edge `e`'s destination: 80% of edges are biased toward `src`'s own top cluster,
-/// and a self-loop is redirected to the next node index.
+/// and when there is more than one node a self-loop is redirected to the next node
+/// index (a single-node graph keeps its self-loops).
 fn edge_destination(seed: u64, top_cluster_of: &[u32], src: u32, e: u64) -> u32 {
     let n = top_cluster_of.len() as u64;
     let want_intra = mix(seed, 0x7, e) % 100 < 80; // 80% intra-cluster bias
