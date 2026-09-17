@@ -121,7 +121,7 @@ mod tests {
     /// bounds, pre-epoch dates, and the day-count inverse used by `iso8601`.
     #[test]
     fn amz_date_timestamp_pins_calendar_validation_and_epoch_offsets() {
-        let cases: [((i64, i64, i64, i64, i64, i64), Option<i64>); 16] = [
+        let cases = [
             ((1970, 1, 1, 0, 0, 0), Some(0)),
             ((1969, 12, 31, 23, 59, 59), Some(-1)),
             ((2024, 2, 29, 0, 0, 0), Some(1_709_164_800)),

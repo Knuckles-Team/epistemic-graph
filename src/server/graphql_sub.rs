@@ -516,23 +516,23 @@ fn scan_code_byte(byte: u8, stack: &mut Vec<u8>) -> Result<Lexical, String> {
                 return Err("GraphQL syntax nesting exceeds the carrier limit".into());
             }
         }
-        b'}' | b')' | b']' => {
-            if stack.pop() != Some(opener_for(byte)) {
-                return Err("GraphQL delimiters are unbalanced".into());
-            }
-        }
+        b'}' | b')' | b']' => close_delimiter(byte, stack)?,
         _ => {}
     }
     Ok(Lexical::Code)
 }
 
-/// The opening delimiter a closing delimiter must match.
-fn opener_for(closer: u8) -> u8 {
-    match closer {
+/// Pop the innermost open delimiter, which must be the opener `closer` matches.
+fn close_delimiter(closer: u8, stack: &mut Vec<u8>) -> Result<(), String> {
+    let opener = match closer {
         b'}' => b'{',
         b')' => b'(',
         _ => b'[',
+    };
+    if stack.pop() != Some(opener) {
+        return Err("GraphQL delimiters are unbalanced".into());
     }
+    Ok(())
 }
 
 fn canonical_subscription(http: &HttpMessage) -> Result<CanonicalSubscription, String> {

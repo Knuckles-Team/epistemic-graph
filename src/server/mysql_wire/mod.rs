@@ -812,12 +812,12 @@ mod tests {
 
         let mut c = client_connect(&addr).await;
         let ok = vec![0x00, 0, 0, 2, 0, 0, 0];
-        let replies: [(&[u8], (u8, Vec<u8>)); 4] = [
-            (&[COM_PING], (1, ok.clone())),
-            (b"\x02__commons__", (1, ok)),
-            (&[COM_FIELD_LIST], (1, vec![0xfe, 0, 0, 2, 0, 0, 0])),
+        let replies = [
+            (&[COM_PING][..], (1, ok.clone())),
+            (&b"\x02__commons__"[..], (1, ok)),
+            (&[COM_FIELD_LIST][..], (1, vec![0xfe, 0, 0, 2, 0, 0, 0])),
             (
-                &[0x7f, 1],
+                &[0x7f, 1][..],
                 (1, err_payload(1047, "08S01", "Unknown command 127")),
             ),
         ];
