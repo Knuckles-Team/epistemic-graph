@@ -3882,6 +3882,7 @@ components:
       - "tests/test_kiss_diff_scope.py"
       - "tests/test_kiss_hook_context.py"
       - "tests/test_kiss_staged.py"
+      - "tests/test_kvcache_config.py"
       - "tests/test_kvcache_connector.py"
       - "tests/test_lake_iceberg_delta_parity.py"
       - "tests/test_lazy_lifecycle_architecture.py"
