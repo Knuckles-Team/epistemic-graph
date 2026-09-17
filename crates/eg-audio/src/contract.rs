@@ -80,45 +80,64 @@ impl ModalityContract for AudioData {
     eg_modality::modality_contract_runtime_hooks!(AudioData, element_count, has_secondary_index);
 }
 
+/// Sample format, duration, and content address of a governed recording.
+fn stream_format_is_valid(audio: &AudioData) -> bool {
+    audio.sample_rate > 0
+        && audio.channels > 0
+        && audio.channels <= MAX_CHANNELS
+        && matches!(audio.bits_per_sample, 8 | 16)
+        && audio.duration_ms > 0
+        && eg_modality::content_address(&audio.blob_ref)
+}
+
+/// A bounded segment index of non-empty spans inside the recording, each with an
+/// opaque label reference (if any) rather than display text.
+fn segments_are_valid(audio: &AudioData) -> bool {
+    audio.segments.len() <= MAX_SEGMENTS
+        && audio.segments.iter().all(|segment| {
+            segment.end_ms > segment.start_ms
+                && segment.end_ms <= audio.duration_ms
+                && segment.label.as_deref().is_none_or(opaque)
+        })
+}
+
+/// A non-empty, bounded run of contiguous windows from 0 to the recording's end.
+fn feature_windows_tile_the_recording(audio: &AudioData) -> bool {
+    let windows = &audio.feature_windows;
+    !windows.is_empty()
+        && windows.len() <= MAX_FEATURE_WINDOWS
+        && windows.first().is_some_and(|window| window.start_ms == 0)
+        && windows
+            .last()
+            .is_some_and(|window| window.end_ms == audio.duration_ms)
+        && windows
+            .windows(2)
+            .all(|pair| pair[0].end_ms == pair[1].start_ms)
+}
+
+/// One window: a non-empty span inside the recording with finite, in-range
+/// statistics and an indexable temporal extent.
+fn feature_window_is_valid(window: &AudioFeatureWindow, duration_ms: u64) -> bool {
+    window.end_ms > window.start_ms
+        && window.end_ms <= duration_ms
+        && window.peak.is_finite()
+        && window.rms.is_finite()
+        && window.spectral_centroid_bin.is_finite()
+        && (0.0..=1.0).contains(&window.peak)
+        && (0.0..=1.0).contains(&window.rms)
+        && (0.0..=7.0).contains(&window.spectral_centroid_bin)
+        && temporal_buckets(window.start_ms, window.end_ms).is_ok()
+}
+
 impl GovernedModality for AudioData {
     fn validate_governed_payload(&self) -> bool {
-        self.sample_rate > 0
-            && self.channels > 0
-            && self.channels <= MAX_CHANNELS
-            && matches!(self.bits_per_sample, 8 | 16)
-            && self.duration_ms > 0
-            && eg_modality::content_address(&self.blob_ref)
-            && self.segments.len() <= MAX_SEGMENTS
-            && self.segments.iter().all(|segment| {
-                segment.end_ms > segment.start_ms
-                    && segment.end_ms <= self.duration_ms
-                    && segment.label.as_deref().is_none_or(opaque)
-            })
-            && !self.feature_windows.is_empty()
-            && self.feature_windows.len() <= MAX_FEATURE_WINDOWS
+        stream_format_is_valid(self)
+            && segments_are_valid(self)
+            && feature_windows_tile_the_recording(self)
             && self
                 .feature_windows
-                .first()
-                .is_some_and(|window| window.start_ms == 0)
-            && self
-                .feature_windows
-                .last()
-                .is_some_and(|window| window.end_ms == self.duration_ms)
-            && self
-                .feature_windows
-                .windows(2)
-                .all(|pair| pair[0].end_ms == pair[1].start_ms)
-            && self.feature_windows.iter().all(|window| {
-                window.end_ms > window.start_ms
-                    && window.end_ms <= self.duration_ms
-                    && window.peak.is_finite()
-                    && window.rms.is_finite()
-                    && window.spectral_centroid_bin.is_finite()
-                    && (0.0..=1.0).contains(&window.peak)
-                    && (0.0..=1.0).contains(&window.rms)
-                    && (0.0..=7.0).contains(&window.spectral_centroid_bin)
-                    && temporal_buckets(window.start_ms, window.end_ms).is_ok()
-            })
+                .iter()
+                .all(|window| feature_window_is_valid(window, self.duration_ms))
     }
 
     fn native_index_keys(&self) -> Vec<NativeIndexKey> {
@@ -223,6 +242,76 @@ mod extra_coverage {
         let mut unsafe_value = valid;
         unsafe_value.segments[0].label = Some("raw-display-label".to_string());
         assert!(!GovernedModality::validate_governed_payload(&unsafe_value));
+    }
+
+    /// Every clause of the governed-payload check rejects on its own: each mutation
+    /// breaks exactly one clause of an otherwise valid sample.
+    #[test]
+    fn governed_audio_rejects_each_invalid_clause() {
+        type Mutation = (&'static str, fn(&mut AudioData));
+        let mutations: [Mutation; 20] = [
+            ("zero sample rate", |a| a.sample_rate = 0),
+            ("zero channels", |a| a.channels = 0),
+            ("too many channels", |a| a.channels = MAX_CHANNELS + 1),
+            ("24-bit samples", |a| a.bits_per_sample = 24),
+            ("zero duration", |a| a.duration_ms = 0),
+            ("non-content-address blob", |a| a.blob_ref = "h".to_string()),
+            ("empty segment", |a| {
+                a.segments[0].end_ms = a.segments[0].start_ms
+            }),
+            ("segment past duration", |a| a.segments[0].end_ms = 5001),
+            ("no feature windows", |a| a.feature_windows.clear()),
+            ("first window not at zero", |a| {
+                a.feature_windows[0].start_ms = 1
+            }),
+            ("last window short of duration", |a| {
+                a.feature_windows[0].end_ms = 4999
+            }),
+            ("gap between windows", |a| {
+                a.feature_windows[0].end_ms = 2000;
+                let mut next = a.feature_windows[0].clone();
+                next.start_ms = 2001;
+                next.end_ms = 5000;
+                a.feature_windows.push(next);
+            }),
+            ("non-finite peak", |a| a.feature_windows[0].peak = f32::NAN),
+            ("non-finite rms", |a| {
+                a.feature_windows[0].rms = f32::INFINITY
+            }),
+            ("non-finite centroid", |a| {
+                a.feature_windows[0].spectral_centroid_bin = f32::NAN
+            }),
+            ("peak above one", |a| a.feature_windows[0].peak = 1.5),
+            ("negative rms", |a| a.feature_windows[0].rms = -0.1),
+            ("centroid above seven", |a| {
+                a.feature_windows[0].spectral_centroid_bin = 7.5
+            }),
+            ("window too broad to index", |a| {
+                a.duration_ms = 1_000_000_000_000_000;
+                a.feature_windows[0].end_ms = 1_000_000_000_000_000;
+            }),
+            ("raw segment label", |a| {
+                a.segments[0].label = Some("raw-display-label".to_string())
+            }),
+        ];
+        for (clause, mutate) in mutations {
+            let mut value = AudioData::conformance_sample();
+            mutate(&mut value);
+            assert!(
+                !GovernedModality::validate_governed_payload(&value),
+                "{clause} must be rejected"
+            );
+        }
+
+        // Contiguous windows that tile the recording, and an unlabeled segment, pass.
+        let mut tiled = AudioData::conformance_sample();
+        tiled.feature_windows[0].end_ms = 2000;
+        let mut next = tiled.feature_windows[0].clone();
+        next.start_ms = 2000;
+        next.end_ms = 5000;
+        tiled.feature_windows.push(next);
+        tiled.segments[0].label = None;
+        assert!(GovernedModality::validate_governed_payload(&tiled));
     }
 }
 

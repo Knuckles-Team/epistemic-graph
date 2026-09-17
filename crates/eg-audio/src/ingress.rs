@@ -341,46 +341,62 @@ pub fn validate_frame(
         return Err(IngressError::Expired);
     }
     match &frame.payload {
-        FramePayload::Inline(bytes) => {
-            if bytes.is_empty() && !frame.discontinuity {
-                return Err(IngressError::MalformedFrame {
-                    reason: "empty payload on a non-discontinuity frame",
-                });
-            }
-            if bytes.len() as u64 > u64::from(limits.max_payload_bytes) {
-                return Err(IngressError::ResourceExhausted {
-                    limit: "max_payload_bytes",
-                });
-            }
-            if !is_valid_digest(&frame.payload_digest) {
-                return Err(IngressError::MalformedFrame {
-                    reason: "payload_digest is not a 64-char lowercase hex sha256",
-                });
-            }
-            if hex_digest(bytes) != frame.payload_digest {
-                return Err(IngressError::MalformedFrame {
-                    reason: "payload_digest does not match payload bytes",
-                });
-            }
-            if frame.codec == Codec::Pcm16Le && !bytes.is_empty() {
-                let channels = u64::from(frame.channel_layout.max(1));
-                let expected = u64::from(frame.sample_count)
-                    .checked_mul(channels)
-                    .and_then(|v| v.checked_mul(2))
-                    .ok_or(IngressError::MalformedFrame {
-                        reason: "sample_count/channel_layout overflow",
-                    })?;
-                if expected != bytes.len() as u64 {
-                    return Err(IngressError::MalformedFrame {
-                        reason: "sample_count does not match pcm16 payload length",
-                    });
-                }
-            }
-        }
+        FramePayload::Inline(bytes) => validate_inline_payload(frame, bytes, limits),
         FramePayload::ChunkRef(_) => {
             // Bytes were already validated at CAS-commit time; nothing to
             // re-check here beyond generation fencing above.
+            Ok(())
         }
+    }
+}
+
+/// Bounds, digest integrity, and pcm16 length consistency of an inline payload, in
+/// that order (the first violation wins).
+fn validate_inline_payload(
+    frame: &AudioFrame,
+    bytes: &[u8],
+    limits: &FrameLimits,
+) -> Result<(), IngressError> {
+    if bytes.is_empty() && !frame.discontinuity {
+        return Err(IngressError::MalformedFrame {
+            reason: "empty payload on a non-discontinuity frame",
+        });
+    }
+    if bytes.len() as u64 > u64::from(limits.max_payload_bytes) {
+        return Err(IngressError::ResourceExhausted {
+            limit: "max_payload_bytes",
+        });
+    }
+    if !is_valid_digest(&frame.payload_digest) {
+        return Err(IngressError::MalformedFrame {
+            reason: "payload_digest is not a 64-char lowercase hex sha256",
+        });
+    }
+    if hex_digest(bytes) != frame.payload_digest {
+        return Err(IngressError::MalformedFrame {
+            reason: "payload_digest does not match payload bytes",
+        });
+    }
+    if frame.codec == Codec::Pcm16Le && !bytes.is_empty() {
+        validate_pcm16_length(frame, bytes.len() as u64)?;
+    }
+    Ok(())
+}
+
+/// A pcm16 payload holds exactly `sample_count * channels * 2` bytes (a zero
+/// channel layout counts as mono).
+fn validate_pcm16_length(frame: &AudioFrame, payload_len: u64) -> Result<(), IngressError> {
+    let channels = u64::from(frame.channel_layout.max(1));
+    let expected = u64::from(frame.sample_count)
+        .checked_mul(channels)
+        .and_then(|v| v.checked_mul(2))
+        .ok_or(IngressError::MalformedFrame {
+            reason: "sample_count/channel_layout overflow",
+        })?;
+    if expected != payload_len {
+        return Err(IngressError::MalformedFrame {
+            reason: "sample_count does not match pcm16 payload length",
+        });
     }
     Ok(())
 }
@@ -730,6 +746,57 @@ mod validate_frame_tests {
             Err(IngressError::MalformedFrame {
                 reason: "empty payload on a non-discontinuity frame"
             })
+        );
+    }
+
+    #[test]
+    fn accepts_an_empty_payload_on_a_discontinuity_frame() {
+        let limits = limits();
+        let mut frame = pcm_frame(1, 0, &[]);
+        frame.discontinuity = true;
+        frame.sample_count = 7; // not checked for an empty pcm payload
+        assert_eq!(validate_frame(&frame, &limits, StreamGeneration(1)), Ok(()));
+    }
+
+    #[test]
+    fn pcm_length_check_scales_by_channel_layout_and_skips_other_codecs() {
+        let limits = limits();
+        // 4 i16 samples = 8 bytes = 2 stereo frames.
+        let mut stereo = pcm_frame(1, 0, &[1, 2, 3, 4]);
+        stereo.channel_layout = 2;
+        assert_eq!(
+            validate_frame(&stereo, &limits, StreamGeneration(1)),
+            Err(IngressError::MalformedFrame {
+                reason: "sample_count does not match pcm16 payload length"
+            })
+        );
+        stereo.sample_count = 2;
+        assert_eq!(
+            validate_frame(&stereo, &limits, StreamGeneration(1)),
+            Ok(())
+        );
+        // A zero channel layout is treated as mono.
+        let mut unset = pcm_frame(1, 0, &[1, 2, 3, 4]);
+        unset.channel_layout = 0;
+        assert_eq!(validate_frame(&unset, &limits, StreamGeneration(1)), Ok(()));
+        // Opus payloads carry no pcm16 length invariant.
+        let mut opus = pcm_frame(1, 0, &[1, 2, 3, 4]);
+        opus.codec = Codec::Opus;
+        opus.sample_count = 960;
+        assert_eq!(validate_frame(&opus, &limits, StreamGeneration(1)), Ok(()));
+    }
+
+    #[test]
+    fn chunk_ref_payload_is_only_generation_fenced() {
+        let limits = limits();
+        let mut frame = pcm_frame(1, 0, &[1, 2]);
+        frame.payload = FramePayload::ChunkRef(id("chunk-1"));
+        frame.payload_digest = "not-checked".to_string();
+        frame.sample_count = 999;
+        assert_eq!(validate_frame(&frame, &limits, StreamGeneration(1)), Ok(()));
+        assert_eq!(
+            validate_frame(&frame, &limits, StreamGeneration(2)),
+            Err(IngressError::Expired)
         );
     }
 }
