@@ -796,7 +796,7 @@ raft = [
 # `algorithms`); this adds the cross-shard superstep coordinator on top.
 compute-dist = ["raft", "eg-types/compute-dist"]
 # Non-blocking cross-shard commit (CONCEPT:EG-082) — Paxos-Commit-lite. ADDITIVE: the
-# default cross-shard path stays classic 2PC (`src/raft/cross_shard_txn.rs`), which
+# default cross-shard path stays classic 2PC (`src/raft/cross_shard_txn/`), which
 # holds its sole durable COMMIT decision in the coordinator's private redb and so
 # inherits 2PC's ONE blocking window (a coordinator crash between decision and apply
 # leaves participants in-doubt until IT recovers). This feature adds a SECOND commit

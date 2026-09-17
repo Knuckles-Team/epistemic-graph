@@ -9,7 +9,7 @@ one is **feature-gated into the opt-in `full-extras` layer** — the heavy deps 
 |---------|---------|--------|--------------|
 | Cross-region async read-replica tier | `CONCEPT:EG-KG.sharding.follower-pull-loop` | `src/server/replica.rs` | `federation-search` |
 | Capacity guardrails (breaker/quota/backpressure) | `CONCEPT:EG-KG.coordination.circuit-breaker` | `src/server/replica.rs` | `federation-search` |
-| Full Calvin deterministic-ordering commit | `CONCEPT:EG-KG.txn.calvin-deterministic-ordering` | `src/raft/cross_shard_txn.rs` | `calvin` (⇒ `nonblocking`) |
+| Full Calvin deterministic-ordering commit | `CONCEPT:EG-KG.txn.calvin-deterministic-ordering` | `src/raft/cross_shard_txn/` | `calvin` (⇒ `nonblocking`) |
 | ROS2 bridge over rosbridge-WebSocket | `CONCEPT:EG-KG.domains.robotics-gpu-distribution` | `src/server/ros2_bridge.rs` | `ros2-bridge` |
 | GPU distance/tensor dispatch seam | `CONCEPT:EG-KG.compute.gpu-distance-seam` | `crates/eg-ann/src/distance.rs`, `crates/eg-tensor/src/gpu.rs` | `gpu` |
 | Real CUDA distance/tensor backend | `CONCEPT:EG-KG.backend.real-cuda-tensor-backend` | same | `gpu-cuda` |
