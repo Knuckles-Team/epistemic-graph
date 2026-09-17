@@ -39,6 +39,9 @@ use spargebra::{Query, SparqlParser};
 
 use crate::mapping::cell_lexical;
 
+mod bool_builtins;
+use bool_builtins::{eval_bool_str_relation, term_type_test};
+
 /// One solution: variable name → bound term (in our node-id / literal lexical form).
 pub type Solution = HashMap<String, Binding>;
 
@@ -1970,6 +1973,10 @@ fn eval_term_bool_literal(ctx: &Ctx, e: &Expression, sol: &Solution) -> Option<B
 
 /// Boolean SPARQL built-ins (CONCEPT:EG-KG.ontology.rich-filter): `REGEX`, `CONTAINS`/`STRSTARTS`/`STRENDS`,
 /// `LANGMATCHES`, and the `isIRI`/`isBlank`/`isLiteral`/`isNumeric` type tests.
+///
+/// `Function` has far more variants than the boolean built-ins, so this dispatch
+/// ends in a catch-all by nature. The four unary term-type tests are looked up with
+/// `bool_builtins::term_type_test` from that catch-all; every other variant yields `None`.
 fn eval_bool_function(
     ctx: &Ctx,
     f: &Function,
@@ -1978,35 +1985,11 @@ fn eval_bool_function(
 ) -> Option<bool> {
     use spargebra::algebra::Function as F;
     match f {
-        F::Contains => {
-            Some(expr_str(ctx, args.first()?, sol)?.contains(&expr_str(ctx, args.get(1)?, sol)?))
-        }
-        F::StrStarts => {
-            Some(expr_str(ctx, args.first()?, sol)?.starts_with(&expr_str(ctx, args.get(1)?, sol)?))
-        }
-        F::StrEnds => {
-            Some(expr_str(ctx, args.first()?, sol)?.ends_with(&expr_str(ctx, args.get(1)?, sol)?))
-        }
+        F::Contains => eval_bool_str_relation(ctx, args, sol, |text, part| text.contains(part)),
+        F::StrStarts => eval_bool_str_relation(ctx, args, sol, |text, part| text.starts_with(part)),
+        F::StrEnds => eval_bool_str_relation(ctx, args, sol, |text, part| text.ends_with(part)),
         F::LangMatches => eval_bool_langmatches(ctx, args, sol),
         F::Regex => eval_bool_regex(ctx, args, sol),
-        F::IsNumeric => Some(term_test(ctx, args.first()?, sol, |b| {
-            term_lexical(b).parse::<f64>().is_ok()
-        })),
-        F::IsIri => Some(term_test(
-            ctx,
-            args.first()?,
-            sol,
-            |b| matches!(b, Binding::Node(s) if s.starts_with('<')),
-        )),
-        F::IsBlank => Some(term_test(
-            ctx,
-            args.first()?,
-            sol,
-            |b| matches!(b, Binding::Node(s) if s.starts_with("_:")),
-        )),
-        F::IsLiteral => Some(term_test(ctx, args.first()?, sol, |b| {
-            matches!(b, Binding::Literal(_))
-        })),
         // RDF-star (CONCEPT:EG-KG.ontology.concept-5): isTRIPLE tests whether the term is a quoted triple.
         #[cfg(feature = "sparql-star")]
         F::IsTriple => Some(term_test(ctx, args.first()?, sol, is_quoted)),
@@ -2017,7 +2000,10 @@ fn eval_bool_function(
         F::Custom(iri) if iri.as_str().starts_with(crate::geosparql::GEOF_NS) => {
             eval_bool_geof(ctx, iri.as_str(), args, sol)
         }
-        _ => None,
+        _ => {
+            let test = term_type_test(f)?;
+            Some(term_test(ctx, args.first()?, sol, test))
+        }
     }
 }
 
@@ -3637,6 +3623,42 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
             vec!["Bob"]
         );
         assert_eq!(filtered_names(&view, "STRLEN(?name) = 3"), vec!["Bob"]);
+    }
+
+    /// The boolean built-ins in FILTER position: the string relations, LANGMATCHES,
+    /// and the unary term-type tests, plus an unsupported function (which yields no
+    /// boolean, so the FILTER drops every row).
+    #[test]
+    fn filter_boolean_builtins() {
+        let view = loaded_view();
+        let everyone = vec!["Alice", "Bob", "Carol"];
+        assert_eq!(
+            filtered_names(&view, r#"STRSTARTS(?name, "Ca")"#),
+            vec!["Carol"]
+        );
+        assert_eq!(
+            filtered_names(&view, r#"STRENDS(?name, "ob")"#),
+            vec!["Bob"]
+        );
+        assert_eq!(
+            filtered_names(&view, r#"CONTAINS(?name, "o")"#),
+            vec!["Bob", "Carol"]
+        );
+        assert_eq!(
+            filtered_names(&view, r#"LANGMATCHES("en-US", "en")"#),
+            everyone
+        );
+        assert_eq!(filtered_names(&view, r#"LANGMATCHES("en", "*")"#), everyone);
+        assert!(filtered_names(&view, r#"LANGMATCHES("fr", "en")"#).is_empty());
+        assert_eq!(filtered_names(&view, "isIRI(?p)"), everyone);
+        assert!(filtered_names(&view, "isIRI(?name)").is_empty());
+        assert!(filtered_names(&view, "isBlank(?p)").is_empty());
+        assert_eq!(filtered_names(&view, "isLiteral(?name)"), everyone);
+        assert!(filtered_names(&view, "isLiteral(?p)").is_empty());
+        assert_eq!(filtered_names(&view, "isNumeric(?age)"), everyone);
+        assert!(filtered_names(&view, "isNumeric(?name)").is_empty());
+        assert!(filtered_names(&view, "sameTerm(?name, ?name) && isURI(?age)").is_empty());
+        assert!(filtered_names(&view, r#"UCASE(?name)"#).is_empty());
     }
 
     // ── CONCEPT:EG-KG.ontology.minus — MINUS ──────────────────────────────────────────────────
