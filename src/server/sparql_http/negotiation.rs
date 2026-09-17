@@ -1,5 +1,9 @@
 //! SPARQL result media negotiation and RDF graph serialization.
 
+use eg_rdf::sparql::{QueryOutcome, SparqlResult};
+
+use super::{boolean_body, results_csv, results_tsv, results_xml, select_json};
+
 /// Candidate SELECT/ASK output media types, DEFAULT (SPARQL-results JSON) first.
 pub(super) const SELECT_FORMS: &[&str] = &[
     "application/sparql-results+json",
@@ -40,6 +44,42 @@ pub(super) fn serialize_graph(
         #[cfg(feature = "rdf-xml")]
         "application/rdf+xml" => eg_rdf::mapping::to_rdfxml(triples),
         _ => eg_rdf::mapping::to_ntriples(triples),
+    }
+}
+
+/// Serialize a query outcome in the negotiated media type: solutions and booleans
+/// as SPARQL results, a constructed graph as RDF.
+pub(super) fn render_query_outcome(
+    outcome: QueryOutcome,
+    accept: &str,
+    fmt_override: Option<&str>,
+) -> (&'static str, &'static str, String) {
+    match outcome {
+        QueryOutcome::Solutions(r) => {
+            let ct = choose_ct(accept, fmt_override, SELECT_FORMS);
+            ("200 OK", ct, solutions_body(ct, &r))
+        }
+        QueryOutcome::Boolean(b) => {
+            let ct = choose_ct(accept, fmt_override, SELECT_FORMS);
+            ("200 OK", ct, boolean_body(ct, b))
+        }
+        QueryOutcome::Graph(triples) => {
+            let ct = choose_ct(accept, fmt_override, GRAPH_FORMS);
+            match serialize_graph(ct, &triples) {
+                Ok(body) => ("200 OK", ct, body),
+                Err(e) => ("500 Internal Server Error", "text/plain", e),
+            }
+        }
+    }
+}
+
+/// A SELECT solution table in the negotiated results format (JSON by default).
+fn solutions_body(ct: &str, r: &SparqlResult) -> String {
+    match ct {
+        "application/sparql-results+xml" => results_xml(r),
+        "text/csv" => results_csv(r),
+        "text/tab-separated-values" => results_tsv(r),
+        _ => select_json(r),
     }
 }
 

@@ -26,7 +26,8 @@
 use std::sync::Arc;
 
 use eg_tsdb::promql::{
-    parse, Evaluator, LabelMatcher, Labels, RangeSeries, SeriesSource, Value, METRIC_NAME,
+    parse, Evaluator, Expr, LabelMatcher, Labels, PromqlError, RangeSeries, SeriesSource, Value,
+    METRIC_NAME,
 };
 use eg_tsdb::store::SeriesStore;
 
@@ -156,6 +157,9 @@ fn split_top_commas(s: &str) -> Vec<String> {
 
 // ───────────────────────────── HTTP entry ─────────────────────────────
 
+/// An HTTP reply: `(status, content_type, body)`.
+type Reply = (&'static str, &'static str, String);
+
 /// Route + execute a Prometheus HTTP API request. Returns `(status, content_type,
 /// body)`. `method` is the request method, `path`/`query` the split target, `body` the
 /// (form-encoded, for POST) request body.
@@ -165,116 +169,123 @@ pub async fn handle(
     path: &str,
     query: &str,
     body: &str,
-) -> (&'static str, &'static str, String) {
+) -> Reply {
     // Merge query-string + (POST form) body params (both percent-decoded).
     let mut params = parse_form(query);
     if method == "POST" {
         params.extend(parse_form(body));
     }
     let store = state.series_store();
-    let get = |k: &str| {
-        params
-            .iter()
-            .find(|(pk, _)| pk == k)
-            .map(|(_, v)| v.clone())
-    };
-
-    if path == "/api/v1/labels" {
-        let src = StoreSource { store };
-        let names = tokio::task::spawn_blocking(move || src.label_names())
-            .await
-            .unwrap_or_default();
-        return ok_json(&json_string_array("data", &names));
-    }
     if let Some(name) = path
         .strip_prefix("/api/v1/label/")
         .and_then(|r| r.strip_suffix("/values"))
     {
         let name = name.to_string();
-        let src = StoreSource { store };
-        let vals = tokio::task::spawn_blocking(move || src.label_values(&name))
-            .await
-            .unwrap_or_default();
-        return ok_json(&json_string_array("data", &vals));
+        return label_listing(store, move |src| src.label_values(&name)).await;
     }
-    if path == "/api/v1/query" {
-        let Some(q) = get("query") else {
-            return error_json("400 Bad Request", "bad_data", "missing 'query' parameter");
-        };
-        let t = match get("time") {
-            Some(ts) => match parse_time_ns(&ts) {
-                Ok(v) => v,
-                Err(e) => return error_json("400 Bad Request", "bad_data", &e),
-            },
-            None => now_ns(),
-        };
-        return run_instant(store, &q, t).await;
-    }
-    if path == "/api/v1/query_range" {
-        let Some(q) = get("query") else {
-            return error_json("400 Bad Request", "bad_data", "missing 'query' parameter");
-        };
-        let (start, end, step) = match (get("start"), get("end"), get("step")) {
-            (Some(s), Some(e), Some(st)) => {
-                match (parse_time_ns(&s), parse_time_ns(&e), parse_step_ns(&st)) {
-                    (Ok(s), Ok(e), Ok(st)) => (s, e, st),
-                    _ => {
-                        return error_json("400 Bad Request", "bad_data", "invalid start/end/step")
-                    }
-                }
-            }
-            _ => {
-                return error_json(
-                    "400 Bad Request",
-                    "bad_data",
-                    "query_range requires start, end, step",
-                )
-            }
-        };
-        return run_range(store, &q, start, end, step).await;
-    }
-    error_json("404 Not Found", "not_found", "unknown PromQL endpoint")
-}
-
-async fn run_instant(
-    store: Arc<SeriesStore>,
-    q: &str,
-    t: i64,
-) -> (&'static str, &'static str, String) {
-    let q = q.to_string();
-    let res = tokio::task::spawn_blocking(move || {
-        let ast = parse(&q)?;
-        let src = StoreSource { store };
-        Evaluator::new(&src).eval_instant(&ast, t)
-    })
-    .await;
-    match res {
-        Ok(Ok(v)) => ok_json(&instant_data(&v, t)),
-        Ok(Err(e)) => error_json("400 Bad Request", "bad_data", &e.to_string()),
-        Err(e) => error_json(
-            "500 Internal Server Error",
-            "internal",
-            &format!("eval task failed: {e}"),
-        ),
+    match path {
+        "/api/v1/labels" => label_listing(store, |src| src.label_names()).await,
+        "/api/v1/query" => instant_query(store, &params).await,
+        "/api/v1/query_range" => range_query(store, &params).await,
+        _ => error_json("404 Not Found", "not_found", "unknown PromQL endpoint"),
     }
 }
 
-async fn run_range(
+/// The first value of form parameter `key`, if present.
+fn param(params: &[(String, String)], key: &str) -> Option<String> {
+    params
+        .iter()
+        .find(|(pk, _)| pk == key)
+        .map(|(_, v)| v.clone())
+}
+
+/// A label listing (`/labels` or `/label/<n>/values`), computed off the async runtime.
+async fn label_listing<F>(store: Arc<SeriesStore>, list: F) -> Reply
+where
+    F: FnOnce(&StoreSource) -> Vec<String> + Send + 'static,
+{
+    let src = StoreSource { store };
+    let names = tokio::task::spawn_blocking(move || list(&src))
+        .await
+        .unwrap_or_default();
+    ok_json(&json_string_array("data", &names))
+}
+
+/// `/api/v1/query`: evaluate `query` at `time` (default: now).
+async fn instant_query(store: Arc<SeriesStore>, params: &[(String, String)]) -> Reply {
+    let Some(q) = param(params, "query") else {
+        return missing_query();
+    };
+    let t = match param(params, "time")
+        .map(|ts| parse_time_ns(&ts))
+        .transpose()
+    {
+        Ok(t) => t.unwrap_or_else(now_ns),
+        Err(e) => return error_json("400 Bad Request", "bad_data", &e),
+    };
+    evaluate(
+        store,
+        q,
+        move |evaluator, ast| evaluator.eval_instant(ast, t),
+        move |value| instant_data(value, t),
+    )
+    .await
+}
+
+/// `/api/v1/query_range`: evaluate `query` over `[start, end]` every `step`.
+async fn range_query(store: Arc<SeriesStore>, params: &[(String, String)]) -> Reply {
+    let Some(q) = param(params, "query") else {
+        return missing_query();
+    };
+    let (Some(s), Some(e), Some(st)) = (
+        param(params, "start"),
+        param(params, "end"),
+        param(params, "step"),
+    ) else {
+        return error_json(
+            "400 Bad Request",
+            "bad_data",
+            "query_range requires start, end, step",
+        );
+    };
+    let (Ok(start), Ok(end), Ok(step)) = (parse_time_ns(&s), parse_time_ns(&e), parse_step_ns(&st))
+    else {
+        return error_json("400 Bad Request", "bad_data", "invalid start/end/step");
+    };
+    evaluate(
+        store,
+        q,
+        move |evaluator, ast| evaluator.eval_range(ast, start, end, step),
+        |series| matrix_data(series),
+    )
+    .await
+}
+
+fn missing_query() -> Reply {
+    error_json("400 Bad Request", "bad_data", "missing 'query' parameter")
+}
+
+/// Parse and evaluate `q` on the blocking pool, rendering a success with `render`;
+/// a parse/evaluation error is `400 bad_data`, a failed task `500 internal`.
+async fn evaluate<T, Eval, Render>(
     store: Arc<SeriesStore>,
-    q: &str,
-    start: i64,
-    end: i64,
-    step: i64,
-) -> (&'static str, &'static str, String) {
-    let q = q.to_string();
+    q: String,
+    eval: Eval,
+    render: Render,
+) -> Reply
+where
+    T: Send + 'static,
+    Eval: FnOnce(&Evaluator<'_>, &Expr) -> Result<T, PromqlError> + Send + 'static,
+    Render: FnOnce(&T) -> serde_json::Value,
+{
     let res = tokio::task::spawn_blocking(move || {
         let ast = parse(&q)?;
         let src = StoreSource { store };
-        Evaluator::new(&src).eval_range(&ast, start, end, step)
+        eval(&Evaluator::new(&src), &ast)
     })
     .await;
     match res {
-        Ok(Ok(series)) => ok_json(&matrix_data(&series)),
+        Ok(Ok(value)) => ok_json(&render(&value)),
         Ok(Err(e)) => error_json("400 Bad Request", "bad_data", &e.to_string()),
         Err(e) => error_json(
             "500 Internal Server Error",
@@ -515,6 +526,128 @@ mod tests {
         assert_eq!(parse_step_ns("15").unwrap(), 15 * 1_000_000_000);
         assert_eq!(parse_step_ns("1m").unwrap(), 60 * 1_000_000_000);
         assert!(parse_step_ns("0").is_err());
+    }
+
+    /// Pins every route and refusal of the Prometheus HTTP entry point over an empty
+    /// store: label listings, parameter merging, time/step validation, parse errors,
+    /// instant and range evaluation, and the unknown-endpoint 404.
+    #[tokio::test]
+    async fn eg172_handle_pins_routes_and_refusals() {
+        let state = Arc::new(ObsState::in_memory(1024).unwrap());
+        let bad = |error: &str| serde_json::json!({"status": "error", "errorType": "bad_data", "error": error});
+        let cases: [(&str, &str, &str, &str, &str, serde_json::Value); 12] = [
+            (
+                "GET",
+                "/api/v1/labels",
+                "",
+                "",
+                "200 OK",
+                serde_json::json!({"status": "success", "data": []}),
+            ),
+            (
+                "GET",
+                "/api/v1/label/job/values",
+                "",
+                "",
+                "200 OK",
+                serde_json::json!({"status": "success", "data": []}),
+            ),
+            (
+                "GET",
+                "/api/v1/query",
+                "time=1",
+                "",
+                "400 Bad Request",
+                bad("missing 'query' parameter"),
+            ),
+            (
+                "POST",
+                "/api/v1/query",
+                "query=2",
+                "time=soon",
+                "400 Bad Request",
+                bad("cannot parse time 'soon' (expected unix seconds)"),
+            ),
+            (
+                "GET",
+                "/api/v1/query",
+                "query=1%2B1&time=100",
+                "query=9",
+                "200 OK",
+                serde_json::json!({"status": "success", "data": {"resultType": "scalar", "result": [100.0, "2"]}}),
+            ),
+            (
+                "POST",
+                "/api/v1/query",
+                "",
+                "query=3&time=5",
+                "200 OK",
+                serde_json::json!({"status": "success", "data": {"resultType": "scalar", "result": [5.0, "3"]}}),
+            ),
+            (
+                "GET",
+                "/api/v1/query",
+                "query=sum(&time=1",
+                "",
+                "400 Bad Request",
+                serde_json::Value::Null,
+            ),
+            (
+                "GET",
+                "/api/v1/query_range",
+                "query=1&start=0&end=10",
+                "",
+                "400 Bad Request",
+                bad("query_range requires start, end, step"),
+            ),
+            (
+                "GET",
+                "/api/v1/query_range",
+                "query=1&start=0&end=10&step=0",
+                "",
+                "400 Bad Request",
+                bad("invalid start/end/step"),
+            ),
+            (
+                "GET",
+                "/api/v1/query_range",
+                "query=1&start=10&end=0&step=5",
+                "",
+                "400 Bad Request",
+                bad("end must be >= start"),
+            ),
+            (
+                "GET",
+                "/api/v1/query_range",
+                "query=1%2B1&start=0&end=10&step=5s",
+                "",
+                "200 OK",
+                serde_json::json!({"status": "success", "data": {"resultType": "matrix", "result": [{"metric": {}, "values": [[0.0, "2"], [5.0, "2"], [10.0, "2"]]}]}}),
+            ),
+            (
+                "GET",
+                "/api/v1/series",
+                "",
+                "",
+                "404 Not Found",
+                serde_json::json!({"status": "error", "errorType": "not_found", "error": "unknown PromQL endpoint"}),
+            ),
+        ];
+        for (method, path, query, body, status, expected) in cases {
+            let (got_status, content_type, got_body) =
+                handle(&state, method, path, query, body).await;
+            assert_eq!(
+                (got_status, content_type),
+                (status, "application/json"),
+                "{method} {path}?{query}"
+            );
+            let got: serde_json::Value = serde_json::from_str(&got_body).unwrap();
+            if expected.is_null() {
+                assert_eq!(got["errorType"], "bad_data", "{got_body}");
+            } else {
+                assert_eq!(got, expected, "{method} {path}?{query}");
+            }
+        }
     }
 
     #[test]

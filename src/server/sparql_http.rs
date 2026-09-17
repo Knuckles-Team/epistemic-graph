@@ -43,9 +43,9 @@ mod update_plan;
 use graph_store::handle_graph_store;
 #[cfg(test)]
 use graph_store::{export_graph, gsp_default_graph, gsp_target, parse_rdf_body};
+use negotiation::{choose_ct, render_query_outcome, serialize_graph, GRAPH_FORMS};
 #[cfg(test)]
-use negotiation::negotiate;
-use negotiation::{choose_ct, serialize_graph, GRAPH_FORMS, SELECT_FORMS};
+use negotiation::{negotiate, SELECT_FORMS};
 pub(crate) use update_plan::{
     plan_update, update_graphs, update_uses_variable_graph, PlannedGraphUpdate,
 };
@@ -325,7 +325,6 @@ async fn handle_nl(
 }
 
 /// Execute a query over an off-lock dataset snapshot of every registry graph.
-#[allow(clippy::too_many_arguments)]
 async fn run_query(
     state: &Arc<RwLock<ServerState>>,
     query: &str,
@@ -366,23 +365,8 @@ async fn run_query(
         );
     }
     // Gather cores under a brief read lock, then snapshot off-lock.
-    let (default_core, named_cores) = {
-        let s = state.read().await;
-        let default_core = s
-            .registry
-            .get(default_graph)
-            .map(|e| e.core.clone())
-            .unwrap_or_else(|| Arc::new(GraphCore::new()));
-        let named: Vec<(String, Arc<GraphCore>)> = s
-            .registry
-            .list()
-            .into_iter()
-            .filter_map(|(name, _)| s.registry.get(&name).map(|e| (name, e.core.clone())))
-            .collect();
-        (default_core, named)
-    };
+    let (default_core, named_cores) = registry_cores(state, default_graph).await;
     let query = query.to_string();
-    let accept = accept.to_string();
     let outcome = tokio::task::spawn_blocking(move || {
         let default_view = default_core.analysis_snapshot();
         let named_views: Vec<(String, eg_core::graph::GraphView)> = named_cores
@@ -397,28 +381,7 @@ async fn run_query(
     .await;
 
     match outcome {
-        Ok(Ok(QueryOutcome::Solutions(r))) => {
-            let ct = choose_ct(&accept, fmt_override, SELECT_FORMS);
-            let body = match ct {
-                "application/sparql-results+xml" => results_xml(&r),
-                "text/csv" => results_csv(&r),
-                "text/tab-separated-values" => results_tsv(&r),
-                _ => select_json(&r),
-            };
-            ("200 OK", ct, body)
-        }
-        Ok(Ok(QueryOutcome::Boolean(b))) => {
-            let ct = choose_ct(&accept, fmt_override, SELECT_FORMS);
-            ("200 OK", ct, boolean_body(ct, b))
-        }
-        Ok(Ok(QueryOutcome::Graph(triples))) => {
-            let ct = choose_ct(&accept, fmt_override, GRAPH_FORMS);
-            let ser = serialize_graph(ct, &triples);
-            match ser {
-                Ok(body) => ("200 OK", ct, body),
-                Err(e) => ("500 Internal Server Error", "text/plain", e),
-            }
-        }
+        Ok(Ok(outcome)) => render_query_outcome(outcome, accept, fmt_override),
         Ok(Err(e)) => (
             "400 Bad Request",
             "text/plain",
@@ -430,6 +393,27 @@ async fn run_query(
             format!("compute task failed: {e}"),
         ),
     }
+}
+
+/// The default graph's core (an empty graph if absent) and every registry graph's
+/// core by name, gathered under one brief read lock.
+async fn registry_cores(
+    state: &Arc<RwLock<ServerState>>,
+    default_graph: &str,
+) -> (Arc<GraphCore>, Vec<(String, Arc<GraphCore>)>) {
+    let s = state.read().await;
+    let default_core = s
+        .registry
+        .get(default_graph)
+        .map(|e| e.core.clone())
+        .unwrap_or_else(|| Arc::new(GraphCore::new()));
+    let named: Vec<(String, Arc<GraphCore>)> = s
+        .registry
+        .list()
+        .into_iter()
+        .filter_map(|(name, _)| s.registry.get(&name).map(|e| (name, e.core.clone())))
+        .collect();
+    (default_core, named)
 }
 
 /// Evaluate a parsed dataset query, binding the outbound `SERVICE` client when the
@@ -917,6 +901,92 @@ mod tests {
         assert!(!update_uses_variable_graph(
             "INSERT DATA { GRAPH <urn:g> { <urn:s> <urn:p> <urn:o> } }"
         ));
+    }
+
+    /// `run_query` as a caller holding the configured static bearer token.
+    async fn authorized_query(
+        state: &Arc<RwLock<ServerState>>,
+        query: &str,
+        accept: &str,
+        fmt_override: Option<&str>,
+    ) -> (&'static str, &'static str, String) {
+        let bearer = crate::server::auth::BearerCredential::Static("s3cret".to_string());
+        let header = "Bearer s3cret";
+        run_query(
+            state,
+            query,
+            "no-such-graph",
+            accept,
+            fmt_override,
+            Some(&bearer),
+            header,
+        )
+        .await
+    }
+
+    /// Pins the read leg end to end: the bearer gate, content negotiation for each
+    /// outcome shape, the result bodies, and the SPARQL-error mapping.
+    #[tokio::test]
+    async fn run_query_pins_bearer_gate_negotiation_and_errors() {
+        let state = Arc::new(RwLock::new(ServerState::new_for_test(
+            "test",
+            crate::isolation::IsolationLayer::new(),
+        )));
+        let bearer = crate::server::auth::BearerCredential::Static("s3cret".to_string());
+        let select = "SELECT ?s WHERE { ?s ?p ?o }";
+        let ask = "ASK { ?s ?p ?o }";
+        for (credential, header) in [(None, "Bearer s3cret"), (Some(&bearer), "Bearer nope")] {
+            let (status, ct, body) =
+                run_query(&state, select, "__commons__", "", None, credential, header).await;
+            assert_eq!((status, ct), ("403 Forbidden", "text/plain"));
+            assert!(body.starts_with("ACCESS_DENIED: SPARQL SELECT/CONSTRUCT/ASK over HTTP"));
+        }
+        const JSON: &str = "application/sparql-results+json";
+        const XML: &str = "application/sparql-results+xml";
+        let cases: [(&str, &str, Option<&str>, &str, &str); 8] = [
+            (select, "", None, "200 OK", JSON),
+            (select, XML, None, "200 OK", XML),
+            (select, "text/csv", None, "200 OK", "text/csv"),
+            (
+                select,
+                "",
+                Some("tsv"),
+                "200 OK",
+                "text/tab-separated-values",
+            ),
+            (ask, "text/csv", None, "200 OK", "text/csv"),
+            (ask, "", None, "200 OK", JSON),
+            (
+                "CONSTRUCT { ?s ?p ?o } WHERE { ?s ?p ?o }",
+                "text/turtle",
+                None,
+                "200 OK",
+                "text/turtle",
+            ),
+            ("SELECT WHERE {", "", None, "400 Bad Request", "text/plain"),
+        ];
+        for (query, accept, fmt, status, ct) in cases {
+            let (got_status, got_ct, _) = authorized_query(&state, query, accept, fmt).await;
+            assert_eq!(
+                (got_status, got_ct),
+                (status, ct),
+                "{query} / {accept} / {fmt:?}"
+            );
+        }
+        assert_eq!(
+            authorized_query(&state, ask, "text/csv", None).await.2,
+            "false"
+        );
+        assert_eq!(
+            authorized_query(&state, ask, "", None).await.2,
+            "{\"head\":{},\"boolean\":false}"
+        );
+        assert_eq!(
+            authorized_query(&state, select, "", None).await.2,
+            "{\"head\":{\"vars\":[\"s\"]},\"results\":{\"bindings\":[]}}"
+        );
+        let error = authorized_query(&state, "SELECT WHERE {", "", None).await.2;
+        assert!(error.starts_with("SPARQL error: "), "{error}");
     }
 
     #[test]

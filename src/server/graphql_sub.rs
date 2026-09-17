@@ -461,52 +461,78 @@ fn subscription_policy() -> eg_graphql::GraphQlPolicy {
 /// quoted strings and comments are ignored; mismatched syntax remains the parser's job.
 fn preflight_query_shape(query: &str) -> Result<(), String> {
     let mut stack = Vec::new();
-    let mut quoted = false;
-    let mut escaped = false;
-    let mut comment = false;
+    let mut lexical = Lexical::Code;
     for byte in query.bytes() {
-        if comment {
-            if byte == b'\n' || byte == b'\r' {
-                comment = false;
-            }
-            continue;
-        }
-        if quoted {
-            if escaped {
-                escaped = false;
-            } else if byte == b'\\' {
-                escaped = true;
-            } else if byte == b'"' {
-                quoted = false;
-            }
-            continue;
-        }
-        match byte {
-            b'#' => comment = true,
-            b'"' => quoted = true,
-            b'{' | b'(' | b'[' => {
-                stack.push(byte);
-                if stack.len() > MAX_SYNTAX_NESTING {
-                    return Err("GraphQL syntax nesting exceeds the carrier limit".into());
-                }
-            }
-            b'}' | b')' | b']' => {
-                let expected = match byte {
-                    b'}' => b'{',
-                    b')' => b'(',
-                    _ => b'[',
-                };
-                if stack.pop() != Some(expected) {
-                    return Err("GraphQL delimiters are unbalanced".into());
-                }
-            }
-            _ => {}
-        }
+        lexical = match lexical {
+            Lexical::Code => scan_code_byte(byte, &mut stack)?,
+            Lexical::Comment => comment_next(byte),
+            Lexical::Quoted => quoted_next(byte),
+            Lexical::Escaped => Lexical::Quoted,
+        };
     }
-    if quoted || !stack.is_empty() {
+    if matches!(lexical, Lexical::Quoted | Lexical::Escaped) || !stack.is_empty() {
         return Err("GraphQL syntax is incomplete".into());
     }
     Ok(())
+}
+
+/// Where the preflight delimiter scan currently is: ordinary syntax, a `#` line
+/// comment, a quoted string, or a quoted string right after a backslash.
+#[derive(Clone, Copy)]
+enum Lexical {
+    Code,
+    Comment,
+    Quoted,
+    Escaped,
+}
+
+/// A line comment ends at the first CR or LF.
+fn comment_next(byte: u8) -> Lexical {
+    if byte == b'\n' || byte == b'\r' {
+        Lexical::Code
+    } else {
+        Lexical::Comment
+    }
+}
+
+/// Inside a string, a backslash escapes the next byte and an unescaped quote closes it.
+fn quoted_next(byte: u8) -> Lexical {
+    match byte {
+        b'\\' => Lexical::Escaped,
+        b'"' => Lexical::Code,
+        _ => Lexical::Quoted,
+    }
+}
+
+/// Track one byte of ordinary syntax: open a comment or string, or push/pop a
+/// delimiter, failing on excess nesting or a closer that does not match.
+fn scan_code_byte(byte: u8, stack: &mut Vec<u8>) -> Result<Lexical, String> {
+    match byte {
+        b'#' => return Ok(Lexical::Comment),
+        b'"' => return Ok(Lexical::Quoted),
+        b'{' | b'(' | b'[' => {
+            stack.push(byte);
+            if stack.len() > MAX_SYNTAX_NESTING {
+                return Err("GraphQL syntax nesting exceeds the carrier limit".into());
+            }
+        }
+        b'}' | b')' | b']' => {
+            if stack.pop() != Some(opener_for(byte)) {
+                return Err("GraphQL delimiters are unbalanced".into());
+            }
+        }
+        _ => {}
+    }
+    Ok(Lexical::Code)
+}
+
+/// The opening delimiter a closing delimiter must match.
+fn opener_for(closer: u8) -> u8 {
+    match closer {
+        b'}' => b'{',
+        b')' => b'(',
+        _ => b'[',
+    }
 }
 
 fn canonical_subscription(http: &HttpMessage) -> Result<CanonicalSubscription, String> {
@@ -848,6 +874,46 @@ mod tests {
         assert!(parse_form("graph=a&graph=b&query=x").is_err());
         assert!(parse_form("graph=a&query=%GG").is_err());
         assert!(parse_form("graph=a&query=%F0%28%8C%28").is_err());
+    }
+
+    /// Pins the preflight delimiter scan's verdict (and exact message) for strings,
+    /// escapes, comments, mismatches, truncation and the nesting bound.
+    #[test]
+    fn preflight_query_shape_pins_lexical_verdicts() {
+        const UNBALANCED: &str = "GraphQL delimiters are unbalanced";
+        const INCOMPLETE: &str = "GraphQL syntax is incomplete";
+        const TOO_DEEP: &str = "GraphQL syntax nesting exceeds the carrier limit";
+        let at_limit = format!(
+            "{}{}",
+            "[".repeat(MAX_SYNTAX_NESTING),
+            "]".repeat(MAX_SYNTAX_NESTING)
+        );
+        let over_limit = "(".repeat(MAX_SYNTAX_NESTING + 1);
+        let cases: [(&str, Result<(), &str>); 16] = [
+            ("", Ok(())),
+            ("{ a(x: [1]) }", Ok(())),
+            ("{ a(s: \"}])\") }", Ok(())),
+            ("{ a(s: \"\\\"}\") }", Ok(())),
+            ("{ a # }])\n }", Ok(())),
+            ("{ a # }])\r }", Ok(())),
+            ("{ a } # trailing {", Ok(())),
+            (at_limit.as_str(), Ok(())),
+            (over_limit.as_str(), Err(TOO_DEEP)),
+            ("{ a )", Err(UNBALANCED)),
+            ("}", Err(UNBALANCED)),
+            ("[ a }", Err(UNBALANCED)),
+            ("{ a", Err(INCOMPLETE)),
+            ("{ a(s: \"open) }", Err(INCOMPLETE)),
+            ("{ a(s: \"\\", Err(INCOMPLETE)),
+            ("{ a # }\n", Err(INCOMPLETE)),
+        ];
+        for (query, expected) in cases {
+            assert_eq!(
+                preflight_query_shape(query),
+                expected.map_err(str::to_string),
+                "{query:?}"
+            );
+        }
     }
 
     #[test]

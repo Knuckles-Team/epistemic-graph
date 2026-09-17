@@ -50,6 +50,9 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+mod claims;
+use claims::validate_context_claims;
+
 type HmacSha256 = Hmac<Sha256>;
 
 /// Prefix for the externally verified request-context envelope.
@@ -672,101 +675,6 @@ fn decode_envelope(req: &Request) -> Result<Envelope, String> {
         .ok_or_else(|| "Authentication failed".to_string())?;
     let json = hex::decode(hex_json).map_err(|_| "Authentication failed".to_string())?;
     serde_json::from_slice(&json).map_err(|_| "Authentication failed".to_string())
-}
-
-fn validate_unique_claims(label: &str, values: &[String]) -> Result<(), String> {
-    let mut seen = HashSet::new();
-    for value in values {
-        if value.trim().is_empty() {
-            return Err(format!("request context contains an empty {label}"));
-        }
-        if !seen.insert(value.as_str()) {
-            return Err(format!(
-                "request context contains duplicate {label} '{value}'"
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn validate_context_claims(
-    req: &Request,
-    claims: &RequestContextClaims,
-    policy: &RequestContextPolicy,
-) -> Result<(), String> {
-    for (name, value) in [
-        ("principal", claims.principal.as_str()),
-        ("tenant", claims.tenant.as_str()),
-        ("audience", claims.audience.as_str()),
-        ("agent_id", claims.agent_id.as_str()),
-        ("policy_version", claims.policy_version.as_str()),
-    ] {
-        if value.trim().is_empty() {
-            return Err(format!("request context {name} must not be empty"));
-        }
-    }
-    validate_unique_claims("role", &claims.roles)?;
-    validate_unique_claims("scope", &claims.scopes)?;
-    validate_unique_claims("delegation subject", &claims.delegation)?;
-
-    if let Some(asserted_agent) = req.agent_id.as_deref() {
-        if asserted_agent != claims.agent_id {
-            return Err("request agent_id does not match verified context".to_string());
-        }
-    }
-    if claims.principal == claims.agent_id {
-        if !claims.delegation.is_empty() {
-            return Err("non-delegated context must have an empty delegation chain".to_string());
-        }
-    } else if claims.delegation.first().map(String::as_str) != Some(claims.principal.as_str())
-        || claims.delegation.last().map(String::as_str) != Some(claims.agent_id.as_str())
-        || claims.delegation.len() < 2
-    {
-        return Err("delegation chain must run from principal to effective agent".to_string());
-    }
-
-    if claims.audience != policy.expected_audience {
-        return Err("request context audience does not match deployment".to_string());
-    }
-    if claims.tenant != policy.expected_tenant {
-        return Err("request context tenant does not match graph tenant".to_string());
-    }
-    if claims.policy_version != policy.expected_policy_version {
-        return Err("request context policy version is not active".to_string());
-    }
-
-    // ── ADR-3 / W1.9: node-bound envelopes ──────────────────────────────
-    // A present claim is ALWAYS exact-matched against this node's own
-    // identity, in every posture -- only an ABSENT claim's handling varies
-    // by `EPISTEMIC_GRAPH_REQUIRE_NODE_BINDING`. Checked here (inside the
-    // same pre-dispatch claims check `verify_envelope_v2_with` runs BEFORE
-    // its nonce/replay lookup) so a captured envelope replayed against a
-    // DIFFERENT node fails fast, at zero consensus/replication cost, before
-    // ever touching the replay ledger.
-    match claims.node.as_deref() {
-        Some(claimed) if claimed.trim().is_empty() => {
-            return Err("request context node claim must not be empty when present".to_string());
-        }
-        Some(claimed) => {
-            if claimed != node_identity() {
-                return Err(format!(
-                    "NODE_MISMATCH: request context is bound to node '{claimed}', \
-                     which does not match this node's identity"
-                ));
-            }
-        }
-        None => match require_node_binding_mode() {
-            NodeBindingMode::Off => {}
-            NodeBindingMode::Warn => warn_absent_node_claim_once(&claims.principal),
-            NodeBindingMode::On => {
-                return Err("NODE_MISMATCH: request context is missing the required \
-                     node-binding claim (EPISTEMIC_GRAPH_REQUIRE_NODE_BINDING=on)"
-                    .to_string());
-            }
-        },
-    }
-
-    Ok(())
 }
 
 /// Parse a boolean-ish deployment flag from the environment. Unset or any
@@ -2141,6 +2049,120 @@ mod tests {
         let context =
             verify_envelope_v2_with(SECRET, &req, &verified_policy(), &memory_replay()).unwrap();
         assert_eq!(context.agent_id(), "agent:planner");
+    }
+
+    /// Pins the exact refusal (and its precedence) for every non-node claim check:
+    /// empty identity fields, empty/duplicate list entries, the request agent
+    /// assertion, both delegation-chain shapes, and the deployment binding.
+    #[test]
+    fn context_claim_refusals_are_exact_and_ordered() {
+        type Mutation = fn(&mut RequestContextClaims);
+        let _mode = node_binding_mode(NodeBindingMode::Off);
+        let request = ping_request(602, "tenant-a-graph", String::new());
+        let policy = verified_policy();
+        let cases: [(Mutation, Option<&str>); 17] = [
+            (|_| {}, None),
+            (
+                |c| c.principal = " ".into(),
+                Some("request context principal must not be empty"),
+            ),
+            (
+                |c| c.tenant = String::new(),
+                Some("request context tenant must not be empty"),
+            ),
+            (
+                |c| c.audience = "\t".into(),
+                Some("request context audience must not be empty"),
+            ),
+            (
+                |c| c.agent_id = String::new(),
+                Some("request context agent_id must not be empty"),
+            ),
+            (
+                |c| c.policy_version = String::new(),
+                Some("request context policy_version must not be empty"),
+            ),
+            (
+                |c| c.roles = vec!["a".into(), "a".into()],
+                Some("request context contains duplicate role 'a'"),
+            ),
+            (
+                |c| c.scopes = vec![" ".into()],
+                Some("request context contains an empty scope"),
+            ),
+            (
+                |c| {
+                    c.delegation = vec!["x".into(), "x".into()];
+                    c.tenant = "tenant-b".into();
+                },
+                Some("request context contains duplicate delegation subject 'x'"),
+            ),
+            (
+                |c| c.delegation = vec!["agent:planner".into()],
+                Some("non-delegated context must have an empty delegation chain"),
+            ),
+            (
+                |c| c.principal = "user:alice".into(),
+                Some("delegation chain must run from principal to effective agent"),
+            ),
+            (
+                |c| {
+                    c.principal = "user:alice".into();
+                    c.delegation = vec!["user:alice".into()];
+                },
+                Some("delegation chain must run from principal to effective agent"),
+            ),
+            (
+                |c| {
+                    c.principal = "user:alice".into();
+                    c.delegation = vec!["user:bob".into(), "agent:planner".into()];
+                },
+                Some("delegation chain must run from principal to effective agent"),
+            ),
+            (
+                |c| {
+                    c.principal = "user:alice".into();
+                    c.delegation = vec!["user:alice".into(), "svc".into(), "agent:planner".into()];
+                },
+                None,
+            ),
+            (
+                |c| c.audience = "other".into(),
+                Some("request context audience does not match deployment"),
+            ),
+            (
+                |c| c.tenant = "tenant-b".into(),
+                Some("request context tenant does not match graph tenant"),
+            ),
+            (
+                |c| c.policy_version = "policy-6".into(),
+                Some("request context policy version is not active"),
+            ),
+        ];
+        for (index, (mutate, expected)) in cases.into_iter().enumerate() {
+            let mut claims = verified_claims();
+            mutate(&mut claims);
+            assert_eq!(
+                validate_context_claims(&request, &claims, &policy)
+                    .err()
+                    .as_deref(),
+                expected,
+                "case {index}"
+            );
+        }
+
+        let mut claims = verified_claims();
+        claims.principal = "user:alice".into();
+        claims.delegation = vec!["user:alice".into(), "agent:planner".into()];
+        validate_context_claims(&request, &claims, &policy).expect("valid delegation chain");
+        let mut asserting = ping_request(603, "tenant-a-graph", String::new());
+        asserting.agent_id = Some("agent:other".into());
+        assert_eq!(
+            validate_context_claims(&asserting, &claims, &policy).unwrap_err(),
+            "request agent_id does not match verified context"
+        );
+        asserting.agent_id = Some("agent:planner".into());
+        validate_context_claims(&asserting, &claims, &policy).expect("matching agent assertion");
     }
 
     #[test]

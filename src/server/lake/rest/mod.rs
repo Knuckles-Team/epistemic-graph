@@ -199,16 +199,15 @@ enum IcebergScope {
 
 fn operation_scope(method: &str, segs: &[&str]) -> Option<IcebergScope> {
     match (method, segs) {
-        ("GET", ["v1", "config"]) => None,
-        ("GET", ["v1", "namespaces"]) => Some(IcebergScope::Read),
-        ("GET", ["v1", "namespaces", _ns]) => Some(IcebergScope::Read),
-        ("GET", ["v1", "namespaces", _ns, "tables"]) => Some(IcebergScope::Read),
-        ("POST", ["v1", "namespaces", _ns, "tables"]) => Some(IcebergScope::Write),
-        ("GET", ["v1", "namespaces", _ns, "tables", _table]) => Some(IcebergScope::Read),
-        ("HEAD", ["v1", "namespaces", _ns, "tables", _table]) => Some(IcebergScope::Read),
-        ("POST", ["v1", "namespaces", _ns, "tables", _table]) => Some(IcebergScope::Write),
-        ("DELETE", ["v1", "namespaces", _ns, "tables", _table]) => Some(IcebergScope::Write),
-        ("POST", ["v1", "tables", "rename"]) => Some(IcebergScope::Write),
+        ("GET", ["v1", "namespaces"])
+        | ("GET", ["v1", "namespaces", _])
+        | ("GET", ["v1", "namespaces", _, "tables"])
+        | ("GET" | "HEAD", ["v1", "namespaces", _, "tables", _]) => Some(IcebergScope::Read),
+        ("POST", ["v1", "namespaces", _, "tables"])
+        | ("POST" | "DELETE", ["v1", "namespaces", _, "tables", _])
+        | ("POST", ["v1", "tables", "rename"]) => Some(IcebergScope::Write),
+        // `GET /v1/config` (static capability advertisement) and every unmatched
+        // (method, path) pair carry no scope to gate -- see the enum doc above.
         _ => None,
     }
 }
@@ -769,6 +768,35 @@ mod tests {
         req: &HttpMessage,
     ) -> (&'static str, String) {
         handle(lake, store, req, None)
+    }
+
+    /// Pins the route -> required-scope table `scope_authorized` gates on.
+    #[test]
+    fn operation_scope_classifies_every_catalog_route() {
+        let read = Some(IcebergScope::Read);
+        let write = Some(IcebergScope::Write);
+        let cases: [(&str, &[&str], Option<IcebergScope>); 17] = [
+            ("GET", &["v1", "config"], None),
+            ("GET", &["v1", "namespaces"], read),
+            ("GET", &["v1", "namespaces", "ns"], read),
+            ("GET", &["v1", "namespaces", "ns", "tables"], read),
+            ("POST", &["v1", "namespaces", "ns", "tables"], write),
+            ("GET", &["v1", "namespaces", "ns", "tables", "t"], read),
+            ("HEAD", &["v1", "namespaces", "ns", "tables", "t"], read),
+            ("POST", &["v1", "namespaces", "ns", "tables", "t"], write),
+            ("DELETE", &["v1", "namespaces", "ns", "tables", "t"], write),
+            ("POST", &["v1", "tables", "rename"], write),
+            ("POST", &["v1", "config"], None),
+            ("HEAD", &["v1", "namespaces"], None),
+            ("DELETE", &["v1", "namespaces", "ns"], None),
+            ("PUT", &["v1", "namespaces", "ns", "tables", "t"], None),
+            ("GET", &["v1", "tables", "rename"], None),
+            ("GET", &["v2", "namespaces"], None),
+            ("GET", &[], None),
+        ];
+        for (method, segs, expected) in cases {
+            assert_eq!(operation_scope(method, segs), expected, "{method} {segs:?}");
+        }
     }
 
     #[test]

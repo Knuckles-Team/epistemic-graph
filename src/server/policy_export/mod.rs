@@ -348,7 +348,27 @@ pub fn generate_bundle(
                 .to_string(),
         );
     }
-    if input.graphs.is_empty() {
+    validate_bundle_graphs(&input.graphs)?;
+    let markings = marking_policy_entries(&input.marking_names)?;
+    validate_bundle_caller(caller)?;
+
+    let generated_from = compute_epoch(tenant, &input.graphs, &markings);
+
+    Ok(PolicyBundle {
+        version: POLICY_BUNDLE_FORMAT_VERSION.to_string(),
+        generated_from,
+        governs: GOVERNS.iter().map(|s| s.to_string()).collect(),
+        tenant: tenant.to_string(),
+        graphs: input.graphs.clone(),
+        caller: caller.clone(),
+        markings,
+        renderings: Renderings::default(),
+    })
+}
+
+/// A bundle governs a non-empty set of distinct, non-blank graphs (compared trimmed).
+fn validate_bundle_graphs(graphs: &[String]) -> Result<(), String> {
+    if graphs.is_empty() {
         return Err(
             "policy bundle generation requires at least one graph -- an empty `graphs` \
              list would be indistinguishable from an unscoped bundle a consumer could \
@@ -357,36 +377,30 @@ pub fn generate_bundle(
         );
     }
     let mut seen_graphs = BTreeSet::new();
-    for graph in &input.graphs {
+    for graph in graphs {
         let graph = graph.trim();
         if graph.is_empty() {
             return Err("policy bundle generation rejects an empty graph name".to_string());
         }
-        if !seen_graphs.insert(graph.to_string()) {
+        if !seen_graphs.insert(graph) {
             return Err(format!(
                 "policy bundle generation rejects duplicate graph '{graph}'"
             ));
         }
     }
+    Ok(())
+}
 
+/// One `RequiresRole` predicate per marking, keyed by its trimmed name. Every name
+/// must be a non-empty opaque identifier, and no name may repeat.
+fn marking_policy_entries(
+    defs: &[MarkingDef],
+) -> Result<BTreeMap<String, MarkingPolicyEntry>, String> {
     let mut markings = BTreeMap::new();
-    let mut seen_marking_names = BTreeSet::new();
-    for def in &input.marking_names {
+    for def in defs {
         let name = def.name.trim();
-        if name.is_empty() {
-            return Err("policy bundle generation rejects an empty marking name".to_string());
-        }
-        if !name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | ':'))
-        {
-            return Err(format!(
-                "policy bundle generation rejects marking name '{name}': must be an opaque \
-                 identifier (ASCII alphanumeric, '_', '-', '.', ':' only) so it stays \
-                 mechanically derivable, never free text"
-            ));
-        }
-        if !seen_marking_names.insert(name.to_string()) {
+        validate_marking_name(name)?;
+        if markings.contains_key(name) {
             return Err(format!(
                 "policy bundle generation rejects duplicate marking name '{name}'"
             ));
@@ -405,7 +419,29 @@ pub fn generate_bundle(
             },
         );
     }
+    Ok(markings)
+}
 
+/// A marking name is a non-empty opaque identifier, never free text.
+fn validate_marking_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("policy bundle generation rejects an empty marking name".to_string());
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | ':'))
+    {
+        return Err(format!(
+            "policy bundle generation rejects marking name '{name}': must be an opaque \
+             identifier (ASCII alphanumeric, '_', '-', '.', ':' only) so it stays \
+             mechanically derivable, never free text"
+        ));
+    }
+    Ok(())
+}
+
+/// A bundle names exactly one verified subject, and none of its roles is blank.
+fn validate_bundle_caller(caller: &BundleCaller) -> Result<(), String> {
     if caller.subject.trim().is_empty() {
         return Err(
             "policy bundle generation rejects an empty caller subject -- a bundle always \
@@ -413,27 +449,17 @@ pub fn generate_bundle(
                 .to_string(),
         );
     }
-    for role in &caller.effective_roles {
-        if role.trim().is_empty() {
-            return Err(format!(
-                "policy bundle generation rejects an empty role string for caller '{}'",
-                caller.subject
-            ));
-        }
+    if caller
+        .effective_roles
+        .iter()
+        .any(|role| role.trim().is_empty())
+    {
+        return Err(format!(
+            "policy bundle generation rejects an empty role string for caller '{}'",
+            caller.subject
+        ));
     }
-
-    let generated_from = compute_epoch(tenant, &input.graphs, &markings);
-
-    Ok(PolicyBundle {
-        version: POLICY_BUNDLE_FORMAT_VERSION.to_string(),
-        generated_from,
-        governs: GOVERNS.iter().map(|s| s.to_string()).collect(),
-        tenant: tenant.to_string(),
-        graphs: input.graphs.clone(),
-        caller: caller.clone(),
-        markings,
-        renderings: Renderings::default(),
-    })
+    Ok(())
 }
 
 /// Deterministic `sha256` content hash over the bundle-defining inputs
@@ -708,6 +734,12 @@ mod tests {
         )
     }
 
+    /// Assert `generate_bundle` refuses `input` for `caller` with a message naming `reason`.
+    fn assert_refused(caller: &BundleCaller, input: &GenerateBundleInput, reason: &str) {
+        let error = generate_bundle(caller, input).expect_err("malformed input must be refused");
+        assert!(error.contains(reason), "expected {reason:?}, got {error:?}");
+    }
+
     fn input_with_one_marking() -> GenerateBundleInput {
         GenerateBundleInput {
             tenant: "tenant-a".to_string(),
@@ -765,48 +797,100 @@ mod tests {
 
         let mut empty_tenant = input_with_one_marking();
         empty_tenant.tenant = "   ".to_string();
-        assert!(generate_bundle(&caller, &empty_tenant).is_err());
+        assert_refused(&caller, &empty_tenant, "requires a non-empty tenant");
 
         let mut empty_graphs = input_with_one_marking();
         empty_graphs.graphs.clear();
-        assert!(generate_bundle(&caller, &empty_graphs).is_err());
+        assert_refused(&caller, &empty_graphs, "requires at least one graph");
 
         let mut dup_graphs = input_with_one_marking();
         dup_graphs.graphs.push(dup_graphs.graphs[0].clone());
-        assert!(generate_bundle(&caller, &dup_graphs).is_err());
+        assert_refused(
+            &caller,
+            &dup_graphs,
+            "rejects duplicate graph 'tenant:tenant-a'",
+        );
+
+        let mut trimmed_dup_graph = input_with_one_marking();
+        trimmed_dup_graph.graphs.push(" __commons__ ".to_string());
+        assert_refused(
+            &caller,
+            &trimmed_dup_graph,
+            "rejects duplicate graph '__commons__'",
+        );
+
+        let mut blank_graph = input_with_one_marking();
+        blank_graph.graphs.insert(0, "  ".to_string());
+        // Graphs are checked before the caller: a blank subject does not mask it.
+        let blank_subject = BundleCaller {
+            subject: " ".to_string(),
+            effective_roles: Vec::new(),
+        };
+        assert_refused(&blank_subject, &blank_graph, "rejects an empty graph name");
 
         let mut empty_marking_name = input_with_one_marking();
         empty_marking_name.marking_names.push(MarkingDef {
             name: String::new(),
             requires_audit: false,
         });
-        assert!(generate_bundle(&caller, &empty_marking_name).is_err());
+        assert_refused(
+            &caller,
+            &empty_marking_name,
+            "rejects an empty marking name",
+        );
 
         let mut bad_charset = input_with_one_marking();
         bad_charset.marking_names.push(MarkingDef {
             name: "not a valid name!".to_string(),
             requires_audit: false,
         });
-        assert!(generate_bundle(&caller, &bad_charset).is_err());
+        assert_refused(
+            &caller,
+            &bad_charset,
+            "rejects marking name 'not a valid name!'",
+        );
 
         let mut dup_marking = input_with_one_marking();
         dup_marking.marking_names.push(MarkingDef {
             name: "confidential".to_string(),
             requires_audit: false,
         });
-        assert!(generate_bundle(&caller, &dup_marking).is_err());
+        assert_refused(
+            &caller,
+            &dup_marking,
+            "rejects duplicate marking name 'confidential'",
+        );
+
+        let mut trimmed_dup_marking = input_with_one_marking();
+        trimmed_dup_marking.marking_names.push(MarkingDef {
+            name: " confidential ".to_string(),
+            requires_audit: false,
+        });
+        assert_refused(
+            &caller,
+            &trimmed_dup_marking,
+            "rejects duplicate marking name 'confidential'",
+        );
 
         let empty_subject = BundleCaller {
             subject: "   ".to_string(),
             effective_roles: vec!["kg:read".to_string()],
         };
-        assert!(generate_bundle(&empty_subject, &input_with_one_marking()).is_err());
+        assert_refused(
+            &empty_subject,
+            &input_with_one_marking(),
+            "rejects an empty caller subject",
+        );
 
         let empty_role = BundleCaller {
             subject: "svc:planner".to_string(),
             effective_roles: vec!["kg:read".to_string(), String::new()],
         };
-        assert!(generate_bundle(&empty_role, &input_with_one_marking()).is_err());
+        assert_refused(
+            &empty_role,
+            &input_with_one_marking(),
+            "rejects an empty role string for caller 'svc:planner'",
+        );
     }
 
     /// W07 negative test (also the lane's own acceptance gate 4): a Marking

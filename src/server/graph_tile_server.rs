@@ -232,78 +232,107 @@ pub async fn serve(
             let level: u32 = parse_param(&params, "level").unwrap_or(0);
             let parent: Option<u64> = parse_param(&params, "parent");
             let graph = resolve_source(state, &params).await;
-            let response = graph.clusters(level, parent);
-            match encode_cluster_level(&response) {
-                Ok(bytes) => write_fixed_body(stream, "200 OK", &bytes).await,
-                Err(err) => {
-                    write_json_error(stream, "500 Internal Server Error", &err.to_string()).await
-                }
-            }
+            write_encoded_tile(stream, encode_cluster_level(&graph.clusters(level, parent))).await;
         }
-        GraphTileRoute::Expand => {
-            let Some(cluster_id) = parse_param::<u64>(&params, "cluster_id") else {
-                write_json_error(
-                    stream,
-                    "400 Bad Request",
-                    "missing required query param `cluster_id`",
-                )
-                .await;
-                return;
-            };
-            let graph = resolve_source(state, &params).await;
-            let response = graph.expand(cluster_id);
-            match encode_cluster_expansion(&response) {
-                Ok(bytes) => write_fixed_body(stream, "200 OK", &bytes).await,
-                Err(err) => {
-                    write_json_error(stream, "500 Internal Server Error", &err.to_string()).await
-                }
-            }
-        }
-        GraphTileRoute::Stream => {
-            let level: u32 = parse_param(&params, "level").unwrap_or(0);
-            let top_k: usize = parse_param(&params, "top_k")
-                .unwrap_or(3usize)
-                .min(MAX_STREAM_TOP_K);
-            let graph = resolve_source(state, &params).await;
-
-            if write_chunked_head(stream, "200 OK").await.is_err() {
-                return;
-            }
-            let mut frames_sent = 0u32;
-
-            let level_response = graph.clusters(level, None);
-            let mut ranked: Vec<_> = level_response.clusters.iter().collect();
-            ranked.sort_by_key(|c| std::cmp::Reverse(c.node_count));
-            let top_ids: Vec<u64> = ranked.iter().take(top_k).map(|c| c.id).collect();
-
-            if let Ok(bytes) = encode_cluster_level(&level_response) {
-                let mut framed = Vec::with_capacity(bytes.len() + 4);
-                write_frame(&mut framed, &bytes);
-                if write_chunk(stream, &framed).await.is_err() {
-                    return;
-                }
-                frames_sent += 1;
-            }
-
-            for cluster_id in top_ids {
-                let expansion = graph.expand(cluster_id);
-                if let Ok(bytes) = encode_cluster_expansion(&expansion) {
-                    let mut framed = Vec::with_capacity(bytes.len() + 4);
-                    write_frame(&mut framed, &bytes);
-                    if write_chunk(stream, &framed).await.is_err() {
-                        return;
-                    }
-                    frames_sent += 1;
-                }
-            }
-
-            let mut end_frame = Vec::new();
-            write_stream_end(&mut end_frame, frames_sent);
-            if write_chunk(stream, &end_frame).await.is_ok() {
-                end_chunked(stream).await;
-            }
-        }
+        GraphTileRoute::Expand => serve_expand(stream, state, &params).await,
+        GraphTileRoute::Stream => serve_stream(stream, state, &params).await,
     }
+}
+
+/// `GET /graph_tile/expand?cluster_id=`: one cluster-expansion tile; the
+/// cluster id is required.
+async fn serve_expand(
+    stream: &mut TcpStream,
+    state: Option<&Arc<RwLock<ServerState>>>,
+    params: &HashMap<String, String>,
+) {
+    let Some(cluster_id) = parse_param::<u64>(params, "cluster_id") else {
+        write_json_error(
+            stream,
+            "400 Bad Request",
+            "missing required query param `cluster_id`",
+        )
+        .await;
+        return;
+    };
+    let graph = resolve_source(state, params).await;
+    write_encoded_tile(stream, encode_cluster_expansion(&graph.expand(cluster_id))).await;
+}
+
+/// A single encoded tile as a fixed-length `200`, or its encode error as a `500`.
+async fn write_encoded_tile<E: std::fmt::Display>(
+    stream: &mut TcpStream,
+    encoded: Result<Vec<u8>, E>,
+) {
+    match encoded {
+        Ok(bytes) => write_fixed_body(stream, "200 OK", &bytes).await,
+        Err(err) => write_json_error(stream, "500 Internal Server Error", &err.to_string()).await,
+    }
+}
+
+/// `GET /graph_tile/stream?level=&top_k=`: a chunked stream of the level tile,
+/// then the expansions of its `top_k` largest clusters, then a `StreamEnd`
+/// sentinel carrying the number of tile frames sent. A socket write failure
+/// abandons the stream.
+async fn serve_stream(
+    stream: &mut TcpStream,
+    state: Option<&Arc<RwLock<ServerState>>>,
+    params: &HashMap<String, String>,
+) {
+    let level: u32 = parse_param(params, "level").unwrap_or(0);
+    let top_k: usize = parse_param(params, "top_k")
+        .unwrap_or(3usize)
+        .min(MAX_STREAM_TOP_K);
+    let graph = resolve_source(state, params).await;
+
+    if write_chunked_head(stream, "200 OK").await.is_err() {
+        return;
+    }
+    let Ok(frames_sent) = stream_cluster_frames(stream, graph.as_ref(), level, top_k).await else {
+        return;
+    };
+    let mut end_frame = Vec::new();
+    write_stream_end(&mut end_frame, frames_sent);
+    if write_chunk(stream, &end_frame).await.is_ok() {
+        end_chunked(stream).await;
+    }
+}
+
+/// Stream the level tile and the expansions of its `top_k` largest clusters,
+/// returning how many tile frames were written.
+async fn stream_cluster_frames(
+    stream: &mut TcpStream,
+    graph: &(dyn GraphSource + Send + Sync),
+    level: u32,
+    top_k: usize,
+) -> std::io::Result<u32> {
+    let level_response = graph.clusters(level, None);
+    let mut ranked: Vec<_> = level_response.clusters.iter().collect();
+    ranked.sort_by_key(|c| std::cmp::Reverse(c.node_count));
+    let top_ids: Vec<u64> = ranked.iter().take(top_k).map(|c| c.id).collect();
+
+    let mut frames_sent =
+        u32::from(write_tile_frame(stream, encode_cluster_level(&level_response)).await?);
+    for cluster_id in top_ids {
+        let expansion = encode_cluster_expansion(&graph.expand(cluster_id));
+        frames_sent += u32::from(write_tile_frame(stream, expansion).await?);
+    }
+    Ok(frames_sent)
+}
+
+/// Length-prefix one encoded tile and send it as a chunk. A tile that failed to
+/// encode is skipped (`Ok(false)`), never a broken stream.
+async fn write_tile_frame<E>(
+    stream: &mut TcpStream,
+    encoded: Result<Vec<u8>, E>,
+) -> std::io::Result<bool> {
+    let Ok(bytes) = encoded else {
+        return Ok(false);
+    };
+    let mut framed = Vec::with_capacity(bytes.len() + 4);
+    write_frame(&mut framed, &bytes);
+    write_chunk(stream, &framed).await?;
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -338,6 +367,70 @@ mod tests {
             clamped.node_count,
             eg_viz_graph_tiles::demo::MAX_DEMO_NODE_COUNT
         );
+    }
+
+    /// Everything `serve` writes for one request, read from the client end of a
+    /// loopback connection.
+    async fn served_response(method: &str, target: &str) -> Vec<u8> {
+        use tokio::io::AsyncReadExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut client = TcpStream::connect(listener.local_addr().unwrap())
+            .await
+            .unwrap();
+        let (mut server, _) = listener.accept().await.unwrap();
+        serve(&mut server, method, target, None).await;
+        drop(server);
+        let mut response = Vec::new();
+        client.read_to_end(&mut response).await.unwrap();
+        response
+    }
+
+    /// Pins the exact fixed-length responses: the method gate, the unknown-route
+    /// 404, the missing-`cluster_id` 400, and an honest empty level tile.
+    #[tokio::test]
+    async fn serve_pins_fixed_length_responses() {
+        let fixed = |status: &str, content_type: &str, body: &[u8]| {
+            let mut response = format!(
+                "HTTP/1.1 {status}\r\ncontent-type: {content_type}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                body.len()
+            )
+            .into_bytes();
+            response.extend_from_slice(body);
+            response
+        };
+        let octets = GRAPH_TILE_CONTENT_TYPE;
+        let missing = br#"{"error":"missing required query param `cluster_id`"}"#;
+        let empty_level =
+            encode_cluster_level(&RealClusterSource::empty().clusters(2, None)).unwrap();
+        let cases = [
+            (
+                "POST",
+                "/graph_tile/clusters",
+                fixed("405 Method Not Allowed", octets, b"GET only"),
+            ),
+            (
+                "GET",
+                "/graph_tile/nope",
+                fixed("404 Not Found", octets, b"not found"),
+            ),
+            (
+                "GET",
+                "/graph_tile/expand?level=1",
+                fixed("400 Bad Request", "application/json", missing),
+            ),
+            (
+                "GET",
+                "/graph_tile/clusters?level=2",
+                fixed("200 OK", octets, &empty_level),
+            ),
+        ];
+        for (method, target, expected) in cases {
+            assert_eq!(
+                served_response(method, target).await,
+                expected,
+                "{method} {target}"
+            );
+        }
     }
 
     fn test_state() -> Arc<RwLock<ServerState>> {

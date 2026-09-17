@@ -252,25 +252,8 @@ fn resolve_tile(
     engine: &VizEngineState,
     params: &HashMap<String, String>,
 ) -> Result<Vec<u8>, String> {
-    let dataset_ref = params
-        .get("dataset_ref")
-        .ok_or_else(|| "missing required query param `dataset_ref`".to_string())?;
-    let x_col = params.get("x").map(String::as_str).unwrap_or("x");
-    let y_col = params.get("y").map(String::as_str).unwrap_or("y");
-    let width_px: u32 = parse_param(params, "width_px")
-        .ok_or_else(|| "missing or invalid required query param `width_px`".to_string())?;
-    if width_px == 0 {
-        return Err("`width_px` must be positive".to_string());
-    }
-    let viewport: Option<(f64, f64)> = match (
-        parse_param::<f64>(params, "x0"),
-        parse_param::<f64>(params, "x1"),
-    ) {
-        (Some(x0), Some(x1)) if x0.is_finite() && x1.is_finite() && x0 < x1 => Some((x0, x1)),
-        (None, None) => None,
-        _ => return Err("`x0`/`x1` must both be provided, finite, and x0 < x1".to_string()),
-    };
-
+    let request = parse_tile_request(params)?;
+    let dataset_ref = request.dataset_ref;
     let store = engine.store.read();
     if store.content_fingerprint(dataset_ref).is_none() {
         return Ok(encode_unavailable());
@@ -285,31 +268,79 @@ fn resolve_tile(
     }
 
     let xs_full = store
-        .materialize_f64(dataset_ref, x_col)
+        .materialize_f64(dataset_ref, request.x_col)
         .map_err(|e| e.to_string())?;
     let ys_full = store
-        .materialize_f64(dataset_ref, y_col)
+        .materialize_f64(dataset_ref, request.y_col)
         .map_err(|e| e.to_string())?;
-
-    let mut xs: Vec<f64> = Vec::with_capacity(xs_full.len());
-    let mut ys: Vec<f64> = Vec::with_capacity(ys_full.len());
-    for (&x, &y) in xs_full.iter().zip(&ys_full) {
-        if !x.is_finite() || !y.is_finite() {
-            continue;
-        }
-        if let Some((x0, x1)) = viewport {
-            if x < x0 || x > x1 {
-                continue;
-            }
-        }
-        xs.push(x);
-        ys.push(y);
-    }
-
+    let (xs, ys) = visible_rows(&xs_full, &ys_full, request.viewport);
     if xs.is_empty() {
         return Ok(encode_unavailable());
     }
 
+    let (tier, points, exact) = level_of_detail(&xs, &ys, request.width_px);
+    Ok(encode_tile(
+        TileStatus::Ok,
+        tier,
+        exact,
+        point_domain(&points),
+        &points,
+    ))
+}
+
+/// A validated `GET /tile` request.
+struct TileRequest<'a> {
+    dataset_ref: &'a str,
+    x_col: &'a str,
+    y_col: &'a str,
+    width_px: u32,
+    /// `Some((x0, x1))` for a pan/zoom re-request; `None` for the whole column range.
+    viewport: Option<(f64, f64)>,
+}
+
+/// Validate a `GET /tile` query: `dataset_ref` and a positive `width_px` are
+/// required; `x`/`y` default to the `x`/`y` columns; `x0`/`x1` come as a finite,
+/// increasing pair or not at all.
+fn parse_tile_request(params: &HashMap<String, String>) -> Result<TileRequest<'_>, String> {
+    let dataset_ref = params
+        .get("dataset_ref")
+        .ok_or_else(|| "missing required query param `dataset_ref`".to_string())?;
+    let width_px: u32 = parse_param(params, "width_px")
+        .ok_or_else(|| "missing or invalid required query param `width_px`".to_string())?;
+    if width_px == 0 {
+        return Err("`width_px` must be positive".to_string());
+    }
+    let viewport = match (
+        parse_param::<f64>(params, "x0"),
+        parse_param::<f64>(params, "x1"),
+    ) {
+        (Some(x0), Some(x1)) if x0.is_finite() && x1.is_finite() && x0 < x1 => Some((x0, x1)),
+        (None, None) => None,
+        _ => return Err("`x0`/`x1` must both be provided, finite, and x0 < x1".to_string()),
+    };
+    Ok(TileRequest {
+        dataset_ref,
+        x_col: params.get("x").map(String::as_str).unwrap_or("x"),
+        y_col: params.get("y").map(String::as_str).unwrap_or("y"),
+        width_px,
+        viewport,
+    })
+}
+
+/// The rows whose `x` and `y` are both finite and whose `x` lies inside the
+/// (inclusive) viewport, if one was requested.
+fn visible_rows(xs: &[f64], ys: &[f64], viewport: Option<(f64, f64)>) -> (Vec<f64>, Vec<f64>) {
+    let in_view = |x: f64| viewport.is_none_or(|(x0, x1)| x >= x0 && x <= x1);
+    xs.iter()
+        .zip(ys)
+        .filter(|&(&x, &y)| x.is_finite() && y.is_finite() && in_view(x))
+        .map(|(&x, &y)| (x, y))
+        .unzip()
+}
+
+/// Pick the LOD tier for `xs.len()` rows at a frame budget derived from `width_px`,
+/// returning the tier, the points to send, and whether they are the exact rows.
+fn level_of_detail(xs: &[f64], ys: &[f64], width_px: u32) -> (LodTier, Vec<(f64, f64)>, bool) {
     let budget = FrameBudget::new(
         (width_px as u64).saturating_mul(2),
         (width_px as u64).saturating_mul(8),
@@ -321,27 +352,22 @@ fn resolve_tile(
         budget,
         out_of_core: false,
     });
-
-    let (points, exact): (Vec<(f64, f64)>, bool) = match decision.tier {
+    match decision.tier {
         LodTier::Direct => {
-            let pts = xs.iter().zip(&ys).map(|(&x, &y)| (x, y)).collect();
-            (pts, true)
+            let pts = xs.iter().zip(ys).map(|(&x, &y)| (x, y)).collect();
+            (decision.tier, pts, true)
         }
-        _ => (lttb_reduce(&xs, &ys, width_px as usize), false),
-    };
+        _ => (decision.tier, lttb_reduce(xs, ys, width_px as usize), false),
+    }
+}
 
+/// `(x_min, x_max, y_min, y_max)` over the points sent.
+fn point_domain(points: &[(f64, f64)]) -> (f64, f64, f64, f64) {
     let x_min = points.iter().map(|p| p.0).fold(f64::INFINITY, f64::min);
     let x_max = points.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max);
     let y_min = points.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
     let y_max = points.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
-
-    Ok(encode_tile(
-        TileStatus::Ok,
-        decision.tier,
-        exact,
-        (x_min, x_max, y_min, y_max),
-        &points,
-    ))
+    (x_min, x_max, y_min, y_max)
 }
 
 /// Encode the fixed 48-byte header + interleaved `f32` `(x,y)` payload — see
@@ -421,6 +447,11 @@ mod tests {
             .collect()
     }
 
+    /// Resolve a tile that must not be refused.
+    fn tile(engine: &VizEngineState, pairs: &[(&str, &str)]) -> Vec<u8> {
+        resolve_tile(engine, &params(pairs)).unwrap()
+    }
+
     fn engine_with(dataset_ref: &str, xs: Vec<f64>, ys: Vec<f64>) -> VizEngineState {
         let engine = VizEngineState::new(None);
         *engine.store.write() = test_store_with(dataset_ref, xs, ys);
@@ -450,11 +481,10 @@ mod tests {
     #[test]
     fn unknown_dataset_returns_unavailable_not_an_error() {
         let engine = VizEngineState::new(None);
-        let bytes = resolve_tile(
+        let bytes = tile(
             &engine,
-            &params(&[("dataset_ref", "ds:missing"), ("width_px", "800")]),
-        )
-        .unwrap();
+            &[("dataset_ref", "ds:missing"), ("width_px", "800")],
+        );
         let (status, ..) = decode_header(&bytes);
         assert_eq!(status, TileStatus::Unavailable as u8);
         assert_eq!(
@@ -469,11 +499,7 @@ mod tests {
         let xs: Vec<f64> = (0..50).map(|i| i as f64).collect();
         let ys: Vec<f64> = (0..50).map(|i| (i as f64).sin()).collect();
         let engine = engine_with("ds:1", xs, ys);
-        let bytes = resolve_tile(
-            &engine,
-            &params(&[("dataset_ref", "ds:1"), ("width_px", "800")]),
-        )
-        .unwrap();
+        let bytes = tile(&engine, &[("dataset_ref", "ds:1"), ("width_px", "800")]);
         let (status, tier, exact, _mark, count, _domain) = decode_header(&bytes);
         assert_eq!(status, TileStatus::Ok as u8);
         assert_eq!(tier, LodTier::Direct as u8);
@@ -488,11 +514,7 @@ mod tests {
         let xs: Vec<f64> = (0..n).map(|i| i as f64).collect();
         let ys: Vec<f64> = (0..n).map(|i| (i as f64 * 0.001).sin()).collect();
         let engine = engine_with("ds:1", xs, ys);
-        let bytes = resolve_tile(
-            &engine,
-            &params(&[("dataset_ref", "ds:1"), ("width_px", "400")]),
-        )
-        .unwrap();
+        let bytes = tile(&engine, &[("dataset_ref", "ds:1"), ("width_px", "400")]);
         let (status, tier, exact, _mark, count, _domain) = decode_header(&bytes);
         assert_eq!(status, TileStatus::Ok as u8);
         assert_eq!(tier, LodTier::Decimate as u8);
@@ -511,27 +533,22 @@ mod tests {
         let ys: Vec<f64> = vec![1.0; n as usize];
         let engine = engine_with("ds:1", xs, ys);
         // Full series -> Decimate.
-        let full = resolve_tile(
-            &engine,
-            &params(&[("dataset_ref", "ds:1"), ("width_px", "400")]),
-        )
-        .unwrap();
+        let full = tile(&engine, &[("dataset_ref", "ds:1"), ("width_px", "400")]);
         let (_, full_tier, ..) = decode_header(&full);
         assert_eq!(full_tier, LodTier::Decimate as u8);
 
         // A narrow viewport (100 rows) at the SAME width_px -> Direct, exact --
         // pan/zoom re-requesting a viewport gets a genuinely different tier,
         // never the full series re-sent.
-        let narrow = resolve_tile(
+        let narrow = tile(
             &engine,
-            &params(&[
+            &[
                 ("dataset_ref", "ds:1"),
                 ("width_px", "400"),
                 ("x0", "0"),
                 ("x1", "99"),
-            ]),
-        )
-        .unwrap();
+            ],
+        );
         let (status, narrow_tier, exact, _mark, count, _domain) = decode_header(&narrow);
         assert_eq!(status, TileStatus::Ok as u8);
         assert_eq!(narrow_tier, LodTier::Direct as u8);
@@ -544,16 +561,15 @@ mod tests {
         let xs: Vec<f64> = (0..1000).map(|i| i as f64).collect();
         let ys: Vec<f64> = vec![1.0; 1000];
         let engine = engine_with("ds:1", xs, ys);
-        let bytes = resolve_tile(
+        let bytes = tile(
             &engine,
-            &params(&[
+            &[
                 ("dataset_ref", "ds:1"),
                 ("width_px", "400"),
                 ("x0", "5000"),
                 ("x1", "6000"),
-            ]),
-        )
-        .unwrap();
+            ],
+        );
         let (status, ..) = decode_header(&bytes);
         assert_eq!(status, TileStatus::Unavailable as u8);
     }
@@ -563,11 +579,7 @@ mod tests {
         let xs = vec![1.0, 2.0, 3.0, 4.0];
         let ys = vec![1.0, f64::NAN, f64::INFINITY, 4.0];
         let engine = engine_with("ds:1", xs, ys);
-        let bytes = resolve_tile(
-            &engine,
-            &params(&[("dataset_ref", "ds:1"), ("width_px", "800")]),
-        )
-        .unwrap();
+        let bytes = tile(&engine, &[("dataset_ref", "ds:1"), ("width_px", "800")]);
         let (status, _tier, _exact, _mark, count, _domain) = decode_header(&bytes);
         assert_eq!(status, TileStatus::Ok as u8);
         assert_eq!(count, 2, "only rows 0 and 3 are fully finite on both axes");
@@ -585,6 +597,89 @@ mod tests {
         let engine = engine_with("ds:1", vec![1.0], vec![1.0]);
         let err = resolve_tile(&engine, &params(&[("dataset_ref", "ds:1")])).unwrap_err();
         assert!(err.contains("width_px"));
+    }
+
+    /// Pins the request refusals (exact messages) and an exact Direct tile: header
+    /// domain and the interleaved `f32` point payload, viewport bounds inclusive.
+    #[test]
+    fn tile_refusals_and_direct_payload_are_pinned() {
+        let engine = engine_with("ds:1", vec![0.0, 1.0, 2.0, 3.0], vec![5.0, -1.0, 7.5, 2.0]);
+        const VIEWPORT: &str = "`x0`/`x1` must both be provided, finite, and x0 < x1";
+        let refusals: [(&[(&str, &str)], &str); 7] = [
+            (
+                &[("dataset_ref", "ds:1"), ("width_px", "0")],
+                "`width_px` must be positive",
+            ),
+            (
+                &[("dataset_ref", "ds:1"), ("width_px", "-3")],
+                "missing or invalid required query param `width_px`",
+            ),
+            (
+                &[("dataset_ref", "ds:1"), ("width_px", "8"), ("x0", "1")],
+                VIEWPORT,
+            ),
+            (
+                &[("dataset_ref", "ds:1"), ("width_px", "8"), ("x1", "1")],
+                VIEWPORT,
+            ),
+            (
+                &[
+                    ("dataset_ref", "ds:1"),
+                    ("width_px", "8"),
+                    ("x0", "2"),
+                    ("x1", "2"),
+                ],
+                VIEWPORT,
+            ),
+            (
+                &[
+                    ("dataset_ref", "ds:1"),
+                    ("width_px", "8"),
+                    ("x0", "NaN"),
+                    ("x1", "2"),
+                ],
+                VIEWPORT,
+            ),
+            (
+                &[("width_px", "0")],
+                "missing required query param `dataset_ref`",
+            ),
+        ];
+        for (pairs, message) in refusals {
+            assert_eq!(
+                resolve_tile(&engine, &params(pairs)).unwrap_err(),
+                message,
+                "{pairs:?}"
+            );
+        }
+
+        let bytes = tile(
+            &engine,
+            &[
+                ("dataset_ref", "ds:1"),
+                ("width_px", "800"),
+                ("x0", "1"),
+                ("x1", "2"),
+            ],
+        );
+        let (status, tier, exact, mark, count, domain) = decode_header(&bytes);
+        assert_eq!(bytes[0], TILE_PROTOCOL_VERSION);
+        assert_eq!(
+            (status, tier, exact, mark, count),
+            (
+                TileStatus::Ok as u8,
+                LodTier::Direct as u8,
+                1,
+                MarkKind::Line as u8,
+                2
+            )
+        );
+        assert_eq!(domain, (1.0, 2.0, -1.0, 7.5));
+        let payload: Vec<u8> = [1.0f32, -1.0, 2.0, 7.5]
+            .iter()
+            .flat_map(|v| v.to_le_bytes())
+            .collect();
+        assert_eq!(&bytes[48..], &payload[..]);
     }
 
     #[test]

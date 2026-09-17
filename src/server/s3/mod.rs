@@ -55,12 +55,14 @@ use tokio::sync::RwLock;
 
 /// What an S3 request addresses (service / bucket / object / multipart
 /// upload) and the verbs each address answers.
+mod calendar;
 mod route;
 
 use crate::server::blob::store::{ChunkStore, RedbChunkStore};
 use crate::server::http1::{self, RequestLimits};
 use crate::server::kv::KvStore;
 use crate::server::ServerState;
+use calendar::{iso8601, valid_amz_date};
 
 /// Env var: when set (and built `--features s3-api`) the S3 REST listener binds
 /// this address (documented loopback default `127.0.0.1:9000`, the MinIO default).
@@ -615,87 +617,6 @@ fn hmac_bytes(key: &[u8], value: &[u8]) -> Option<Vec<u8>> {
     Some(mac.finalize().into_bytes().to_vec())
 }
 
-fn parse_amz_date(value: &str, scope_date: &str) -> Option<(i64, i64, i64, i64, i64, i64)> {
-    if value.len() != 16
-        || !value.ends_with('Z')
-        || value.get(0..8) != Some(scope_date)
-        || value.as_bytes().get(8) != Some(&b'T')
-    {
-        return None;
-    }
-    let number = |range: std::ops::Range<usize>| value.get(range)?.parse::<i64>().ok();
-    let (year, month, day, hour, minute, second) = match (
-        number(0..4),
-        number(4..6),
-        number(6..8),
-        number(9..11),
-        number(11..13),
-        number(13..15),
-    ) {
-        (Some(y), Some(m), Some(d), Some(h), Some(mi), Some(s)) => (y, m, d, h, mi, s),
-        _ => return None,
-    };
-    Some((year, month, day, hour, minute, second))
-}
-
-fn amz_date_timestamp(parts: (i64, i64, i64, i64, i64, i64)) -> Option<i64> {
-    let (year, month, day, hour, minute, second) = parts;
-    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-    let month_days = [
-        31,
-        if leap { 29 } else { 28 },
-        31,
-        30,
-        31,
-        30,
-        31,
-        31,
-        30,
-        31,
-        30,
-        31,
-    ];
-    if !(1..=12).contains(&month)
-        || day < 1
-        || day > month_days[(month - 1) as usize]
-        || hour > 23
-        || minute > 59
-        || second > 59
-    {
-        return None;
-    }
-    // Howard Hinnant's civil-date conversion, yielding days from Unix epoch.
-    let adjusted_year = year - if month <= 2 { 1 } else { 0 };
-    let era = if adjusted_year >= 0 {
-        adjusted_year
-    } else {
-        adjusted_year - 399
-    } / 400;
-    let yoe = adjusted_year - era * 400;
-    let shifted_month = month + if month > 2 { -3 } else { 9 };
-    let doy = (153 * shifted_month + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
-    Some(
-        days.saturating_mul(86_400)
-            .saturating_add(hour * 3_600 + minute * 60 + second),
-    )
-}
-
-fn valid_amz_date(value: &str, scope_date: &str) -> bool {
-    let Some(parts) = parse_amz_date(value, scope_date) else {
-        return false;
-    };
-    let Some(timestamp) = amz_date_timestamp(parts) else {
-        return false;
-    };
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs() as i64)
-        .unwrap_or(0);
-    now.abs_diff(timestamp) <= 900
-}
-
 fn parse_sigv4_authorization(header: &str) -> Option<(&str, &str, &str)> {
     let fields = header.strip_prefix("AWS4-HMAC-SHA256 ")?;
     let mut parsed_fields = HashMap::with_capacity(3);
@@ -961,27 +882,6 @@ fn split_bucket_key(path: &str) -> (String, String) {
         Some((b, k)) => (b.to_string(), k.to_string()),
         None => (trimmed.to_string(), String::new()),
     }
-}
-
-/// Format epoch-ms as an ISO-8601 UTC instant (S3 `LastModified` shape). Minimal
-/// hand-rolled formatter (no chrono — the Pi contract).
-fn iso8601(ms: u64) -> String {
-    // Days since epoch → civil date via Howard Hinnant's algorithm.
-    let secs = ms / 1000;
-    let days = (secs / 86_400) as i64;
-    let rem = secs % 86_400;
-    let (h, mi, s) = (rem / 3600, (rem % 3600) / 60, rem % 60);
-    let z = days + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    format!("{y:04}-{m:02}-{d:02}T{h:02}:{mi:02}:{s:02}.000Z")
 }
 
 /// Route + execute one S3 request → an [`S3Response`]. Pure (sync) so it is fully
@@ -1574,8 +1474,8 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64;
-        // Epoch seconds -> civil Y/M/D H:M:S (Howard Hinnant's algorithm; the
-        // exact inverse of `valid_amz_date`'s forward conversion above).
+        // Epoch seconds -> civil Y/M/D H:M:S (the exact inverse of
+        // `valid_amz_date`'s forward conversion above).
         let days = now.div_euclid(86_400);
         let secs_of_day = now.rem_euclid(86_400);
         let (hour, minute, second) = (
@@ -1583,16 +1483,7 @@ mod tests {
             (secs_of_day % 3600) / 60,
             secs_of_day % 60,
         );
-        let z = days + 719_468;
-        let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-        let doe = z - era * 146_097;
-        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
-        let y = yoe + era * 400;
-        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-        let mp = (5 * doy + 2) / 153;
-        let d = doy - (153 * mp + 2) / 5 + 1;
-        let m = if mp < 10 { mp + 3 } else { mp - 9 };
-        let y = if m <= 2 { y + 1 } else { y };
+        let (y, m, d) = calendar::civil_from_days(days);
         let amz_date = format!("{y:04}{m:02}{d:02}T{hour:02}{minute:02}{second:02}Z");
         let date_stamp = format!("{y:04}{m:02}{d:02}");
         let region = "us-east-1";
