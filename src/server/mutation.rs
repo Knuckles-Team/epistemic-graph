@@ -150,18 +150,26 @@ use commit_replay::{
     compile_batch_and_encode_result, DurableBatchAttempt, DurableBatchTarget,
 };
 
+// Each conditional-commit entry point is re-exported exactly where its callers
+// are compiled: the Mine*/GraphLearn*/ML gateways (whose tests are gated on
+// `mining`), and the query (SQL/Cypher/GraphQL, incl. Bolt) and RDF gateways.
 #[cfg(any(
     feature = "mining",
     feature = "graphlearn",
     feature = "ml-pipeline",
-    feature = "modality-serving",
-    test
+    feature = "modality-serving"
 ))]
 pub use conditional::commit_conditional_mutation;
-pub use conditional::{
-    commit_conditional_mutation_async, is_query_gateway_method, is_query_native_coordinator,
-    is_rdf_gateway_method,
-};
+#[cfg(any(
+    feature = "query",
+    feature = "cypher",
+    feature = "graphql",
+    feature = "rdf"
+))]
+pub use conditional::commit_conditional_mutation_async;
+#[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
+pub use conditional::is_query_native_coordinator;
+pub use conditional::{is_query_gateway_method, is_rdf_gateway_method};
 
 #[cfg(test)]
 mod tests {

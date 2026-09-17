@@ -7,23 +7,29 @@
 //! [`result_from_submit`].  The native command log and outbox remain the sole
 //! admission/result authority.
 
+#[cfg(feature = "redb")]
 use std::collections::BTreeMap;
 #[cfg(feature = "redb")]
 use std::sync::Arc;
 
+#[cfg(feature = "redb")]
 use eg_types::agent_library::AgentLibraryEntry;
 #[cfg(feature = "redb")]
 use eg_types::delegation::AgentLibraryEntryRef;
+#[cfg(feature = "redb")]
 use eg_types::delegation::{KgDelegateDecision, KgDelegateRequest, KgDelegateResult};
 use eg_types::epistemic_operations::RequestContext;
 #[cfg(feature = "redb")]
 use eg_types::mutation_batch::MutationBatchStatus;
+#[cfg(feature = "redb")]
 use eg_types::native_control::{
     NativeControlSchemaVersion, SubmitWorkItemRequest, SubmitWorkItemResult,
 };
+#[cfg(feature = "redb")]
 use eg_types::protocol::Method;
 #[cfg(feature = "redb")]
 use eg_types::protocol::{Response, ResultPayload};
+#[cfg(feature = "redb")]
 use serde_json::json;
 
 use crate::server::auth::VerifiedRequestContext;
@@ -37,12 +43,16 @@ use crate::graph::GraphCore;
 #[cfg(feature = "redb")]
 use crate::server::persistence::agent_library::AgentLibraryStore;
 
+// The whole kg-delegate admission adapter commits through the redb-backed
+// native WorkItem path, so it is compiled only with `redb`.
+#[cfg(feature = "redb")]
 #[path = "delegation/admission.rs"]
 mod admission;
 #[cfg(feature = "redb")]
 #[path = "delegation/validation.rs"]
 mod validation;
 
+#[cfg(feature = "redb")]
 pub(crate) use admission::*;
 #[cfg(all(test, feature = "redb", feature = "raft"))]
 pub(crate) use validation::provenance_refs;

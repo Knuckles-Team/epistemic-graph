@@ -12,6 +12,12 @@ use super::request_boundary::{decode_ast_files, AstInputLimits};
 use super::request_boundary::{decode_screen_observation, dispatch, preflight_request_msgpack};
 use super::*;
 mod dispatch_helpers;
+#[cfg(any(
+    feature = "query",
+    feature = "cypher",
+    feature = "graphql",
+    feature = "rdf"
+))]
 mod gateway;
 mod graph_access;
 mod graph_dispatch;
@@ -21,6 +27,12 @@ mod native_routes;
 mod pipeline;
 mod work_governance;
 use dispatch_helpers::*;
+#[cfg(any(
+    feature = "query",
+    feature = "cypher",
+    feature = "graphql",
+    feature = "rdf"
+))]
 use gateway::*;
 use graph_access::*;
 use graph_dispatch::dispatch_graph_op_inner;

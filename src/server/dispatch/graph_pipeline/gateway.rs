@@ -5,12 +5,6 @@ use super::*;
 /// values: identity and authz captures are borrowed, the `Arc` handles are
 /// cloned per stage because the mutation gateway moves them into an async apply
 /// closure. Same shape as `crate::server::mutation::MutationCtx`.
-#[cfg(any(
-    feature = "query",
-    feature = "cypher",
-    feature = "graphql",
-    feature = "rdf"
-))]
 pub(super) struct GatewayRouteCtx<'a> {
     pub(super) state: &'a Arc<RwLock<ServerState>>,
     pub(super) req_id: u64,

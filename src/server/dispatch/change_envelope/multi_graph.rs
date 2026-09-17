@@ -1,4 +1,5 @@
 use super::*;
+#[cfg(feature = "redb")]
 use eg_types::result_contract::transactions as txn_results;
 
 /// Apply a batched cross-graph write (CONCEPT:EG-KG.storage.multi-graph-batch-write).
