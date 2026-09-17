@@ -158,61 +158,58 @@ impl<'a> HierarchicalRetriever<'a> {
     /// bounded provenance drill-down → de-duplicated, relevance-ordered multi-level
     /// context. See the module docs for the three steps.
     pub fn retrieve(&self, query: &[f32], params: RetrievalParams) -> HierResult {
-        // (a) Retrieve at the summary / abstraction level. If the tier is absent the
-        // allow-filter returns nothing, so fall back to an unrestricted search — the
-        // retriever degrades to flat rather than returning empty.
-        let is_summary = |id: &str| self.is_summary(id);
-        let mut summaries = self.ann.search(query, params.k, Some(&is_summary));
-        if summaries.is_empty() {
-            summaries = self.ann.search(query, params.k, None);
-        }
-
-        // (b) Drill down each summary's provenance subtree, then (c) merge the
-        // supporting leaves across summaries keeping the best score per id (this is
-        // the de-dup that flat top-k cannot do — a leaf shared by two summaries is
-        // counted ONCE, not twice).
+        // (a) Summary-level retrieval.
+        let summaries = self.retrieve_summaries(query, params.k);
+        // (b) Bounded provenance drill-down + de-duplicated leaf merge.
         let summary_ids: HashSet<String> = summaries.iter().map(|s| s.id.clone()).collect();
-        let mut best: Vec<Scored> = Vec::new();
-        let mut pos: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-        for s in &summaries {
-            for cand in self.drill(query, &s.id, params.drill_depth, params.drill_breadth) {
-                // A retrieved summary is context in its own right, never a "leaf".
-                if summary_ids.contains(&cand.id) {
-                    continue;
-                }
-                match pos.get(&cand.id) {
-                    Some(&i) => {
-                        if cand.score > best[i].score {
-                            best[i].score = cand.score;
-                        }
-                    }
-                    None => {
-                        pos.insert(cand.id.clone(), best.len());
-                        best.push(cand);
-                    }
-                }
-            }
-        }
-        truncate_highest_scored(&mut best, params.leaf_budget);
-        let leaves = best;
-
-        // (c) The flattened relevance-ordered context: summaries then their chosen
-        // supporting leaves, de-duplicated (a summary that also surfaced as a child
-        // stays a summary). Summaries lead — they are the abstraction a reader wants
-        // first — and leaves follow in relevance order.
-        let mut seen: HashSet<String> = HashSet::new();
-        let mut context: Vec<Scored> = Vec::new();
-        for s in summaries.iter().chain(leaves.iter()) {
-            if seen.insert(s.id.clone()) {
-                context.push(s.clone());
-            }
-        }
+        let leaves = self.merge_drilled_leaves(query, &summaries, &summary_ids, params);
+        // (c) Flattened, de-duplicated, relevance-ordered context.
+        let context = flatten_context(&summaries, &leaves);
 
         HierResult {
             summaries,
             leaves,
             context,
         }
+    }
+
+    /// Step (a): retrieve at the summary / abstraction level. If the tier is absent the
+    /// allow-filter returns nothing, so fall back to an unrestricted search — the
+    /// retriever degrades to flat rather than returning empty.
+    fn retrieve_summaries(&self, query: &[f32], k: usize) -> Vec<Scored> {
+        let is_summary = |id: &str| self.is_summary(id);
+        let summaries = self.ann.search(query, k, Some(&is_summary));
+        if summaries.is_empty() {
+            self.ann.search(query, k, None)
+        } else {
+            summaries
+        }
+    }
+
+    /// Step (b): drill down each summary's provenance subtree, then merge the
+    /// supporting leaves across summaries keeping the best score per id (this is the
+    /// de-dup that flat top-k cannot do — a leaf shared by two summaries is counted
+    /// ONCE, not twice).
+    fn merge_drilled_leaves(
+        &self,
+        query: &[f32],
+        summaries: &[Scored],
+        summary_ids: &HashSet<String>,
+        params: RetrievalParams,
+    ) -> Vec<Scored> {
+        let mut best: Vec<Scored> = Vec::new();
+        let mut pos: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for s in summaries {
+            for cand in self.drill(query, &s.id, params.drill_depth, params.drill_breadth) {
+                // A retrieved summary is context in its own right, never a "leaf".
+                if summary_ids.contains(&cand.id) {
+                    continue;
+                }
+                merge_scored_candidate(&mut best, &mut pos, cand);
+            }
+        }
+        truncate_highest_scored(&mut best, params.leaf_budget);
+        best
     }
 
     /// Bounded provenance drill-down from one summary (CONCEPT:EG-KG.retrieval.bounded-drill step b): a BFS
@@ -264,6 +261,42 @@ impl<'a> HierarchicalRetriever<'a> {
             None => 0.0,
         }
     }
+}
+
+/// Insert `cand` into `best` keyed by id, keeping the higher of the two scores when
+/// the id is already present — the merge step of [`HierarchicalRetriever::retrieve`]'s
+/// leaf de-dup.
+fn merge_scored_candidate(
+    best: &mut Vec<Scored>,
+    pos: &mut std::collections::HashMap<String, usize>,
+    cand: Scored,
+) {
+    match pos.get(&cand.id) {
+        Some(&i) => {
+            if cand.score > best[i].score {
+                best[i].score = cand.score;
+            }
+        }
+        None => {
+            pos.insert(cand.id.clone(), best.len());
+            best.push(cand);
+        }
+    }
+}
+
+/// The flattened relevance-ordered context: summaries then their chosen supporting
+/// leaves, de-duplicated (a summary that also surfaced as a child stays a summary).
+/// Summaries lead — they are the abstraction a reader wants first — and leaves follow
+/// in relevance order.
+fn flatten_context(summaries: &[Scored], leaves: &[Scored]) -> Vec<Scored> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut context: Vec<Scored> = Vec::new();
+    for s in summaries.iter().chain(leaves.iter()) {
+        if seen.insert(s.id.clone()) {
+            context.push(s.clone());
+        }
+    }
+    context
 }
 
 /// Keep the exact highest-scoring prefix under a deterministic total order:

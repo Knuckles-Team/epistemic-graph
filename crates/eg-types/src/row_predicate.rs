@@ -66,46 +66,69 @@ impl RowPredicate {
             RowPredicate::And(preds) => preds.iter().all(|p| p.eval(row)),
             RowPredicate::Or(preds) => preds.iter().any(|p| p.eval(row)),
             RowPredicate::Not(inner) => !inner.eval(row),
-            RowPredicate::Cmp { col, op, value } => {
-                let current = row.get(col).unwrap_or(&Value::Null);
-                // SQL three-valued logic: any comparison touching NULL is unknown → false.
-                if current.is_null() || value.is_null() {
-                    return false;
-                }
-                match json_cmp(current, value) {
-                    Some(ord) => match op {
-                        CmpOp::Eq => ord == Ordering::Equal,
-                        CmpOp::Ne => ord != Ordering::Equal,
-                        CmpOp::Lt => ord == Ordering::Less,
-                        CmpOp::Le => ord != Ordering::Greater,
-                        CmpOp::Gt => ord == Ordering::Greater,
-                        CmpOp::Ge => ord != Ordering::Less,
-                    },
-                    None => false,
-                }
-            }
-            RowPredicate::In { col, values } => {
-                let current = row.get(col).unwrap_or(&Value::Null);
-                if current.is_null() {
-                    return false;
-                }
-                values
-                    .iter()
-                    .any(|v| !v.is_null() && json_cmp(current, v) == Some(Ordering::Equal))
-            }
-            RowPredicate::Between { col, low, high } => {
-                let current = row.get(col).unwrap_or(&Value::Null);
-                if current.is_null() || low.is_null() || high.is_null() {
-                    return false;
-                }
-                let ge_low = matches!(json_cmp(current, low), Some(o) if o != Ordering::Less);
-                let le_high = matches!(json_cmp(current, high), Some(o) if o != Ordering::Greater);
-                ge_low && le_high
-            }
+            RowPredicate::Cmp { col, op, value } => eval_cmp(row, col, *op, value),
+            RowPredicate::In { col, values } => eval_in(row, col, values),
+            RowPredicate::Between { col, low, high } => eval_between(row, col, low, high),
             RowPredicate::IsNull { col } => row.get(col).map(Value::is_null).unwrap_or(true),
             RowPredicate::IsNotNull { col } => row.get(col).map(|v| !v.is_null()).unwrap_or(false),
         }
     }
+}
+
+/// `Cmp`: SQL three-valued logic — any comparison touching `NULL` is unknown → `false`;
+/// otherwise the six [`CmpOp`] arms read off the [`Ordering`] `json_cmp` returns.
+fn eval_cmp(row: &serde_json::Map<String, Value>, col: &str, op: CmpOp, value: &Value) -> bool {
+    let current = row.get(col).unwrap_or(&Value::Null);
+    if current.is_null() || value.is_null() {
+        return false;
+    }
+    match json_cmp(current, value) {
+        Some(ord) => cmp_op_matches(op, ord),
+        None => false,
+    }
+}
+
+/// Whether `ord` (the comparison of the row's current value against the predicate's
+/// value) satisfies `op`. Kept as an exhaustive match over the owned [`CmpOp`] enum —
+/// a new operator must fail to compile here, not silently fall through.
+fn cmp_op_matches(op: CmpOp, ord: Ordering) -> bool {
+    match op {
+        CmpOp::Eq => ord == Ordering::Equal,
+        CmpOp::Ne => ord != Ordering::Equal,
+        CmpOp::Lt => ord == Ordering::Less,
+        CmpOp::Le => ord != Ordering::Greater,
+        CmpOp::Gt => ord == Ordering::Greater,
+        CmpOp::Ge => ord != Ordering::Less,
+    }
+}
+
+/// `In`: `NULL IN (...)` is unknown → `false`; a `NULL` member never matches (SQL
+/// `IN` skips unknown-comparable members rather than making the whole test unknown).
+fn eval_in(row: &serde_json::Map<String, Value>, col: &str, values: &[Value]) -> bool {
+    let current = row.get(col).unwrap_or(&Value::Null);
+    if current.is_null() {
+        return false;
+    }
+    values
+        .iter()
+        .any(|v| !v.is_null() && json_cmp(current, v) == Some(Ordering::Equal))
+}
+
+/// `Between`: `col BETWEEN low AND high`, inclusive both ends; `NULL` anywhere is
+/// unknown → `false`.
+fn eval_between(
+    row: &serde_json::Map<String, Value>,
+    col: &str,
+    low: &Value,
+    high: &Value,
+) -> bool {
+    let current = row.get(col).unwrap_or(&Value::Null);
+    if current.is_null() || low.is_null() || high.is_null() {
+        return false;
+    }
+    let ge_low = matches!(json_cmp(current, low), Some(o) if o != Ordering::Less);
+    let le_high = matches!(json_cmp(current, high), Some(o) if o != Ordering::Greater);
+    ge_low && le_high
 }
 
 /// Order two JSON values: two numbers compare numerically; otherwise both are

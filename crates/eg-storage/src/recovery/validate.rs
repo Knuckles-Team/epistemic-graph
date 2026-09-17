@@ -16,7 +16,7 @@ use crate::tables::{
     REPLAY_NONCES, REPLAY_OPERATIONS, SCOPE_BINDINGS, STORE_ROOT, VERSIONS,
 };
 use crate::StorageKernel;
-use eg_types::{MutationBatchRecord, MutationBatchStatus};
+use eg_types::{MutationBatchRecord, MutationBatchStatus, MutationOutboxRecord};
 use redb::{ReadTransaction, ReadableDatabase, ReadableTable, TableHandle};
 
 pub use eg_types::storage_wire::RecoveryStoreCounts;
@@ -204,23 +204,19 @@ fn validate_batches(
     let operations = rtx
         .open_table(REPLAY_OPERATIONS)
         .map_err(|error| error.to_string())?;
-    let key_tables = BatchKeyTables {
-        maintenance: &maintenance,
-        operations: &operations,
+    let ctx = BatchValidationContext {
+        tables,
+        root,
+        key_tables: BatchKeyTables {
+            maintenance: &maintenance,
+            operations: &operations,
+        },
     };
     for row in table.iter().map_err(|error| error.to_string())? {
         let (key, value) = row.map_err(|error| error.to_string())?;
         let (identity_key, batch_id) = key.value();
         let record = decode_batch_record(value.value())?;
-        validate_batch_row(
-            tables,
-            root,
-            &key_tables,
-            identity_key,
-            batch_id,
-            record,
-            counts,
-        )?;
+        validate_batch_row(&ctx, identity_key, batch_id, record, counts)?;
     }
     Ok(())
 }
@@ -232,24 +228,31 @@ struct BatchKeyTables<'t> {
     operations: &'t redb::ReadOnlyTable<(&'static str, &'static str), &'static [u8]>,
 }
 
+/// The read-only tables + expected incarnation every row in one `validate_batches`
+/// pass is checked against — grouped so `validate_batch_row` takes one reference
+/// instead of threading each table through separately (clippy `too_many_arguments`).
+struct BatchValidationContext<'t> {
+    tables: &'t ValidationTables,
+    root: &'t StoreIncarnation,
+    key_tables: BatchKeyTables<'t>,
+}
+
 fn validate_batch_row(
-    tables: &ValidationTables,
-    root: &StoreIncarnation,
-    key_tables: &BatchKeyTables<'_>,
+    ctx: &BatchValidationContext<'_>,
     identity_key: &str,
     batch_id: &str,
     record: MutationBatchRecord,
     counts: &mut RecoveryStoreCounts,
 ) -> Result<(), String> {
-    let binding = read_binding_in(&tables.bindings, root, identity_key)?;
+    let binding = read_binding_in(&ctx.tables.bindings, ctx.root, identity_key)?;
     if record.identity != binding.identity || record.batch.batch_id != batch_id {
         return Err("mutation batch key does not bind its receipt identity".to_string());
     }
-    let linked_batch_id = linked_batch_id(&record, identity_key, key_tables)?;
+    let linked_batch_id = linked_batch_id(&record, identity_key, &ctx.key_tables)?;
     if linked_batch_id != batch_id {
         return Err("mutation receipt key row points elsewhere".to_string());
     }
-    if read_class_in(&tables.classes, identity_key, batch_id)?.identity != binding.identity {
+    if read_class_in(&ctx.tables.classes, identity_key, batch_id)?.identity != binding.identity {
         return Err("mutation batch class row is not bound to its receipt".to_string());
     }
     increment_batch_status(&record.status, counts)?;
@@ -493,27 +496,42 @@ fn validate_outbox(
         receipt
             .validate()
             .map_err(|error| format!("mutation outbox row is invalid: {error}"))?;
-        let sequence_matches = match (parent.committed_version.target(), receipt.commit_sequence) {
-            (Some(target), Some(sequence)) => target == sequence,
-            // ControlPlane/Lifecycle parents intentionally have no typed
-            // version. Their authoritative sequence is still preserved in the
-            // outbox row and is validated by the outbox/index recovery path.
-            _ => true,
-        };
-        let bound = parent.status == MutationBatchStatus::Committed
-            && receipt.identity == parent.identity
-            && receipt.batch_id == batch_id
-            && receipt.ordinal == ordinal
-            && receipt.committed_version == parent.committed_version
-            && receipt.created_at_ms == parent.batch.created_at_ms
-            && sequence_matches
-            && parent.batch.outbox.get(ordinal as usize) == Some(&receipt.intent);
-        if !bound {
+        if !outbox_row_is_bound(&receipt, &parent, batch_id, ordinal) {
             return Err("mutation outbox row is not exactly bound to its parent".to_string());
         }
         increment(&mut counts.outbox, "outbox count")?;
     }
     Ok(())
+}
+
+/// An outbox row is exactly bound to its parent mutation batch when the parent is
+/// committed, receipt/parent agree on identity/batch/ordinal/version/timestamp and
+/// (where both sides carry one) committed sequence, and the parent's own outbox slot
+/// at `ordinal` holds this receipt's intent.
+fn outbox_row_is_bound(
+    receipt: &MutationOutboxRecord,
+    parent: &MutationBatchRecord,
+    batch_id: &str,
+    ordinal: u32,
+) -> bool {
+    parent.status == MutationBatchStatus::Committed
+        && receipt.identity == parent.identity
+        && receipt.batch_id == batch_id
+        && receipt.ordinal == ordinal
+        && receipt.committed_version == parent.committed_version
+        && receipt.created_at_ms == parent.batch.created_at_ms
+        && outbox_sequence_matches(parent, receipt)
+        && parent.batch.outbox.get(ordinal as usize) == Some(&receipt.intent)
+}
+
+/// `ControlPlane`/`Lifecycle` parents intentionally have no typed version; their
+/// authoritative sequence is still preserved in the outbox row and is validated by the
+/// outbox/index recovery path, so the two are only compared when both are present.
+fn outbox_sequence_matches(parent: &MutationBatchRecord, receipt: &MutationOutboxRecord) -> bool {
+    match (parent.committed_version.target(), receipt.commit_sequence) {
+        (Some(target), Some(sequence)) => target == sequence,
+        _ => true,
+    }
 }
 
 fn validate_private(

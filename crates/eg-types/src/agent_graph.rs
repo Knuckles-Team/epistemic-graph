@@ -38,6 +38,9 @@ use crate::agent_component::{AgentComponentKind, ComponentDependency};
 use crate::agent_library::AgentLibraryLifecycle;
 use crate::agent_template::validate_definition_texts;
 
+mod edges;
+mod nodes;
+
 /// Advanced to 2 by the pre-freeze contract review, which changed both halves
 /// of a graph's identity: a decision node and an edge condition now pin a
 /// [`ComponentDependency`] instead of naming a bare string (so `shape_digest`'s
@@ -273,77 +276,14 @@ impl AgentGraphShape {
             .collect()
     }
 
-    /// Every structural rule, in one place.
+    /// Every structural rule, in one place. The node and edge checks live in the
+    /// [`nodes`] and [`edges`] submodules purely to keep this file under its own KISS
+    /// aggregate caps; behaviour is unchanged from the single function this used to be.
     pub fn validate(&self) -> Result<(), String> {
-        if self.nodes.is_empty() || self.nodes.len() > MAX_NODES {
-            return Err("agent graph has an invalid node count".to_string());
-        }
-        if self.edges.len() > MAX_EDGES {
-            return Err("agent graph has an invalid edge count".to_string());
-        }
-        if self.max_iterations == 0 || self.max_iterations > MAX_ITERATIONS_CEILING {
-            return Err("agent graph max_iterations is out of range".to_string());
-        }
-
-        let mut by_id: BTreeMap<&str, &AgentGraphNode> = BTreeMap::new();
-        for node in &self.nodes {
-            validate_text("node_id", &node.node_id)?;
-            node.validate()?;
-            if by_id.insert(node.node_id.as_str(), node).is_some() {
-                return Err(format!(
-                    "agent graph node '{}' is declared twice",
-                    node.node_id
-                ));
-            }
-        }
-
-        if !by_id.contains_key(self.entry_node.as_str()) {
-            return Err(format!(
-                "agent graph entry_node '{}' is not a declared node",
-                self.entry_node
-            ));
-        }
-
-        let mut seen_edges = BTreeSet::new();
-        for edge in &self.edges {
-            let Some(from) = by_id.get(edge.from.as_str()) else {
-                return Err(format!(
-                    "agent graph edge leaves undeclared node '{}'",
-                    edge.from
-                ));
-            };
-            if !by_id.contains_key(edge.to.as_str()) {
-                return Err(format!(
-                    "agent graph edge enters undeclared node '{}'",
-                    edge.to
-                ));
-            }
-            if !seen_edges.insert((edge.from.as_str(), edge.to.as_str())) {
-                return Err(format!(
-                    "agent graph declares edge '{}' -> '{}' twice",
-                    edge.from, edge.to
-                ));
-            }
-            if matches!(from.kind, AgentGraphNodeKind::End) {
-                return Err(format!(
-                    "agent graph end node '{}' cannot have an outgoing edge",
-                    edge.from
-                ));
-            }
-            if let Some(condition) = &edge.condition {
-                validate_dependency("condition", condition, AgentComponentKind::Predicate)?;
-                if !matches!(from.kind, AgentGraphNodeKind::Decision { .. }) {
-                    return Err(format!(
-                        "agent graph edge '{}' -> '{}' is conditional but leaves a {} node, \
-                         not a decision node",
-                        edge.from,
-                        edge.to,
-                        from.kind.label()
-                    ));
-                }
-            }
-        }
-
+        nodes::validate_counts(self)?;
+        let by_id = nodes::index_nodes_by_id(self)?;
+        nodes::validate_entry_node(self, &by_id)?;
+        edges::validate_edges(self, &by_id)?;
         self.validate_reachability_and_termination(&by_id)?;
         self.validate_data_flow(&by_id)?;
         Ok(())

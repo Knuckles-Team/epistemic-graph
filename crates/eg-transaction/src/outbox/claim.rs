@@ -31,8 +31,15 @@ use crate::outbox::{
 use crate::tables::{OUTBOX_CLAIM_CURSORS, OUTBOX_DELIVERIES, OUTBOX_FAIRNESS};
 use eg_storage::{
     ledger_scope_key, MutationOwnerAuthority, OwnedStoreHandle, OwnerDomain, ScopedRead,
+    ScopedTableMut,
 };
 use eg_types::{MutationOutboxLease, MutationScopeIdentity, MUTATION_BATCH_VERSION};
+
+mod support;
+use support::{
+    decrement_inflight, increment_inflight, mark_resolved_if_prefix_intact, try_dead_letter,
+    validate_existing_delivery,
+};
 
 const EXPIRY_CURSOR_PREFIX: &str = "\u{1}kernel-outbox-expiry/";
 const PRUNE_CURSOR_PREFIX: &str = "\u{1}kernel-outbox-prune/";
@@ -366,36 +373,28 @@ fn install_leases<D: OwnerDomain>(
             .map(|value| decode_row::<OutboxDelivery>(value.value()))
             .transpose()?;
         if let Some(existing) = &current {
-            validate_stamp(&existing.identity, identity)?;
-            validate_delivery_key(existing, consumer, position)?;
-            validate_delivery_state(existing, acked_through)?;
+            validate_existing_delivery(existing, identity, consumer, position, acked_through)?;
         }
         if current.as_ref().is_some_and(OutboxDelivery::resolved) {
-            if prefix_intact {
-                resolved_through = Some(position.clone());
-            }
+            mark_resolved_if_prefix_intact(prefix_intact, &mut resolved_through, position);
             continue;
         }
+        // Expiry is normally swept explicitly, but a claim may be the first
+        // operation after a worker disappears; the two `expired` branches below keep
+        // the durable in-flight counter aligned with the row resolved here too.
         let expired = current.as_ref().is_some_and(|existing| {
             existing.lease_until_ms != 0 && !existing.leased_at(budget.now_ms())
         });
-        if let Some(dead) = dead_letter(current.as_ref(), identity, consumer, position, budget) {
-            if expired {
-                // Expiry is normally swept explicitly, but a claim may be the
-                // first operation after a worker disappears. Keep the durable
-                // counter aligned with the row we resolve here as well.
-                state.inflight = state.inflight.checked_sub(1).ok_or_else(|| {
-                    "CORRUPT_OUTBOX_FAIRNESS: dead-lettered lease is absent from counter"
-                        .to_string()
-                })?;
-            }
-            deliveries.insert(key, encode_row(&dead, "outbox delivery row")?.as_slice())?;
-            state.dead_lettered = state.dead_lettered.checked_add(1).ok_or_else(|| {
-                "CORRUPT_OUTBOX_FAIRNESS: dead-letter counter overflow".to_string()
-            })?;
-            if prefix_intact {
-                resolved_through = Some(position.clone());
-            }
+        if try_dead_letter(
+            &mut deliveries,
+            key,
+            current.as_ref(),
+            at,
+            position,
+            expired,
+            state,
+        )? {
+            mark_resolved_if_prefix_intact(prefix_intact, &mut resolved_through, position);
             continue;
         }
         prefix_intact = false;
@@ -415,10 +414,7 @@ fn install_leases<D: OwnerDomain>(
             // in-flight row, not two. `outbox_expire` normally performs this
             // decrement, but claim must remain correct when it is the first
             // sweep after a worker disappears.
-            state.inflight = state.inflight.checked_sub(1).ok_or_else(|| {
-                "CORRUPT_OUTBOX_FAIRNESS: retried lease is absent from in-flight counter"
-                    .to_string()
-            })?;
+            decrement_inflight(state, "retried lease is absent from in-flight counter")?;
         }
         let record = read_outbox_row_in_write(write, scope, position)?;
         let delivery = next_lease(current, identity, consumer, position, budget);
@@ -426,10 +422,7 @@ fn install_leases<D: OwnerDomain>(
             key,
             encode_row(&delivery, "outbox delivery row")?.as_slice(),
         )?;
-        state.inflight = state
-            .inflight
-            .checked_add(1)
-            .ok_or_else(|| "CORRUPT_OUTBOX_FAIRNESS: in-flight counter overflow".to_string())?;
+        increment_inflight(state)?;
         claimed.push(MutationOutboxLease {
             record,
             consumer: delivery.consumer,

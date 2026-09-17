@@ -115,92 +115,144 @@ pub fn lex(src: &str) -> Result<Vec<Token>, LexError> {
     let mut i = 0;
     let mut out = Vec::new();
     while i < bytes.len() {
-        let c = bytes[i];
-        // Whitespace.
-        if c.is_ascii_whitespace() {
+        if bytes[i].is_ascii_whitespace() {
             i += 1;
             continue;
         }
-        let start = i;
-        match c {
-            b'|' if peek(bytes, i + 1) == Some(b'>') => {
-                out.push(tok(Tok::Pipe, start, i + 2));
-                i += 2;
-            }
-            b'(' => simple(&mut out, &mut i, Tok::LParen),
-            b')' => simple(&mut out, &mut i, Tok::RParen),
-            b'{' => simple(&mut out, &mut i, Tok::LBrace),
-            b'}' => simple(&mut out, &mut i, Tok::RBrace),
-            b'[' => simple(&mut out, &mut i, Tok::LBracket),
-            b']' => simple(&mut out, &mut i, Tok::RBracket),
-            b':' => simple(&mut out, &mut i, Tok::Colon),
-            b',' => simple(&mut out, &mut i, Tok::Comma),
-            b'>' => simple(&mut out, &mut i, Tok::Gt),
-            // `<` is either an angle-bracketed IRI (`<http://ex/Device>` — CONCEPT:EG-KG.query.reason-iri-parses-angle)
-            // or the comparison `<` (`year < 2022`). Try the IRI form first; it only
-            // matches a whitespace-free `<...>` run whose interior carries a `:` (a scheme),
-            // which a numeric comparison never does, so the two never collide.
-            b'<' => match lex_iri(bytes, i) {
-                Some((iri, next)) => {
-                    out.push(tok(Tok::Iri(iri), start, next));
-                    i = next;
-                }
-                None => simple(&mut out, &mut i, Tok::Lt),
-            },
-            b'~' => simple(&mut out, &mut i, Tok::Tilde),
-            b'@' => simple(&mut out, &mut i, Tok::At),
-            b'=' => {
-                // `=` or `==` both mean equality.
-                let len = if peek(bytes, i + 1) == Some(b'=') {
-                    2
-                } else {
-                    1
-                };
-                out.push(tok(Tok::Eq, start, i + len));
-                i += len;
-            }
-            b'-' if peek(bytes, i + 1) == Some(b'>') => {
-                out.push(tok(Tok::Arrow, start, i + 2));
-                i += 2;
-            }
-            b'-' => simple(&mut out, &mut i, Tok::Dash),
-            b'.' if peek(bytes, i + 1) == Some(b'.') => {
-                out.push(tok(Tok::DotDot, start, i + 2));
-                i += 2;
-            }
-            b'\'' | b'"' => {
-                let (s, next) = lex_string(bytes, i, c)?;
-                out.push(tok(Tok::Str(s), start, next));
-                i = next;
-            }
-            b'0'..=b'9' => {
-                let (n, next) = lex_number(src, bytes, i)?;
-                out.push(tok(Tok::Num(n), start, next));
-                i = next;
-            }
-            // Leading `-` followed by a digit is a negative number (e.g. a vector
-            // component); a lone `-` was already handled above. A `.` starting a
-            // number (e.g. `.5`) is also accepted.
-            b'.' if peek(bytes, i + 1).is_some_and(|d| d.is_ascii_digit()) => {
-                let (n, next) = lex_number(src, bytes, i)?;
-                out.push(tok(Tok::Num(n), start, next));
-                i = next;
-            }
-            _ if is_ident_start(c) => {
-                let next = scan_while(bytes, i, is_ident_continue);
-                let word = src[i..next].to_string();
-                out.push(tok(Tok::Ident(word), start, next));
-                i = next;
-            }
-            _ => {
-                return Err(LexError {
-                    msg: format!("unexpected character `{}`", c as char),
-                    at: start,
-                });
-            }
-        }
+        lex_one(src, bytes, &mut i, &mut out)?;
     }
     Ok(out)
+}
+
+/// Lex exactly one non-whitespace token starting at `*i`, pushing it to `out` and
+/// advancing `*i` past it (or returning the [`LexError`] at `*i`).
+fn lex_one(src: &str, bytes: &[u8], i: &mut usize, out: &mut Vec<Token>) -> Result<(), LexError> {
+    let start = *i;
+    let c = bytes[*i];
+    if let Some(kind) = single_char_punct(c) {
+        simple(out, i, kind);
+        return Ok(());
+    }
+    if let Some((kind, len)) = two_char_lookahead(bytes, *i, c) {
+        out.push(tok(kind, start, start + len));
+        *i += len;
+        return Ok(());
+    }
+    // `<` is either an angle-bracketed IRI (`<http://ex/Device>` — CONCEPT:EG-KG.query.reason-iri-parses-angle)
+    // or the comparison `<` (`year < 2022`). Try the IRI form first; it only
+    // matches a whitespace-free `<...>` run whose interior carries a `:` (a scheme),
+    // which a numeric comparison never does, so the two never collide.
+    if c == b'<' {
+        match lex_iri(bytes, *i) {
+            Some((iri, next)) => {
+                out.push(tok(Tok::Iri(iri), start, next));
+                *i = next;
+            }
+            None => simple(out, i, Tok::Lt),
+        }
+        return Ok(());
+    }
+    // A lone `-` (the `->` arrow was already handled by `two_char_lookahead`).
+    if c == b'-' {
+        simple(out, i, Tok::Dash);
+        return Ok(());
+    }
+    lex_value_token(src, bytes, i, out)
+}
+
+/// The single-byte punctuation tokens with no lookahead: brackets/braces/parens plus
+/// the remaining single-char symbols.
+fn single_char_punct(c: u8) -> Option<Tok> {
+    bracket_punct(c).or_else(|| symbol_punct(c))
+}
+
+fn bracket_punct(c: u8) -> Option<Tok> {
+    Some(match c {
+        b'(' => Tok::LParen,
+        b')' => Tok::RParen,
+        b'{' => Tok::LBrace,
+        b'}' => Tok::RBrace,
+        b'[' => Tok::LBracket,
+        b']' => Tok::RBracket,
+        _ => return None,
+    })
+}
+
+fn symbol_punct(c: u8) -> Option<Tok> {
+    Some(match c {
+        b':' => Tok::Colon,
+        b',' => Tok::Comma,
+        b'>' => Tok::Gt,
+        b'~' => Tok::Tilde,
+        b'@' => Tok::At,
+        _ => return None,
+    })
+}
+
+/// A byte whose token depends on whether the NEXT byte extends it: `|>` (pipe), `=`/`==`
+/// (eq), `->` (arrow), `..` (dotdot). Returns the resolved token and its length (1 or 2
+/// bytes) when `c` starts one of these; `None` otherwise (including a lone `=`, which
+/// always resolves here since it is never ambiguous with anything else).
+fn two_char_lookahead(bytes: &[u8], i: usize, c: u8) -> Option<(Tok, usize)> {
+    match c {
+        b'|' if peek(bytes, i + 1) == Some(b'>') => Some((Tok::Pipe, 2)),
+        b'=' => Some((
+            Tok::Eq,
+            if peek(bytes, i + 1) == Some(b'=') {
+                2
+            } else {
+                1
+            },
+        )),
+        b'-' if peek(bytes, i + 1) == Some(b'>') => Some((Tok::Arrow, 2)),
+        b'.' if peek(bytes, i + 1) == Some(b'.') => Some((Tok::DotDot, 2)),
+        _ => None,
+    }
+}
+
+/// The value-bearing tokens: quoted strings, numbers (leading digit or `.digit`), and
+/// identifiers/keywords — or the lexing error for anything else.
+fn lex_value_token(
+    src: &str,
+    bytes: &[u8],
+    i: &mut usize,
+    out: &mut Vec<Token>,
+) -> Result<(), LexError> {
+    let start = *i;
+    let c = bytes[*i];
+    match c {
+        b'\'' | b'"' => {
+            let (s, next) = lex_string(bytes, *i, c)?;
+            out.push(tok(Tok::Str(s), start, next));
+            *i = next;
+        }
+        b'0'..=b'9' => {
+            let (n, next) = lex_number(src, bytes, *i)?;
+            out.push(tok(Tok::Num(n), start, next));
+            *i = next;
+        }
+        // Leading `-` followed by a digit is a negative number (e.g. a vector
+        // component); a lone `-` is handled by `lex_one` before this is reached. A `.`
+        // starting a number (e.g. `.5`) is also accepted.
+        b'.' if peek(bytes, *i + 1).is_some_and(|d| d.is_ascii_digit()) => {
+            let (n, next) = lex_number(src, bytes, *i)?;
+            out.push(tok(Tok::Num(n), start, next));
+            *i = next;
+        }
+        _ if is_ident_start(c) => {
+            let next = scan_while(bytes, *i, is_ident_continue);
+            let word = src[*i..next].to_string();
+            out.push(tok(Tok::Ident(word), start, next));
+            *i = next;
+        }
+        _ => {
+            return Err(LexError {
+                msg: format!("unexpected character `{}`", c as char),
+                at: start,
+            });
+        }
+    }
+    Ok(())
 }
 
 fn tok(kind: Tok, start: usize, end: usize) -> Token {

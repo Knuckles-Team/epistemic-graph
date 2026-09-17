@@ -319,8 +319,16 @@ pub(crate) const RETIRED_SHARD_LEDGER_TABLES: &[&str] = &[
     "mutation_projection_cursor",
 ];
 
-/// Redb key type for one graph-shard table, or `None` when the name is not one.
+/// Redb key type for one graph-shard table, or `None` when the name is not one. Split
+/// into the two tiers below purely to keep each match's own arm count under the
+/// complexity cap; the name → shape mapping itself is unchanged.
 pub(crate) fn key_type(name: &str) -> Option<&'static str> {
+    key_type_scalar_or_narrow_tuple(name).or_else(|| key_type_wide_tuple(name))
+}
+
+/// Bare `&str` keys, and the narrower tuple shapes (up to three scalars, one of them
+/// possibly wide).
+fn key_type_scalar_or_narrow_tuple(name: &str) -> Option<&'static str> {
     match name {
         "semantic_store"
         | "graph_meta"
@@ -341,6 +349,13 @@ pub(crate) fn key_type(name: &str) -> Option<&'static str> {
         "resource_reservation_attempts" | "development_lane_work_item_index" => {
             Some("(&str,&str,u64)")
         }
+        _ => None,
+    }
+}
+
+/// The two most common composite shapes: `(&str,&str,&str)` and `(&str,&str)`.
+fn key_type_wide_tuple(name: &str) -> Option<&'static str> {
+    match name {
         "resource_reservation_tenant_index"
         | "resource_anti_affinity"
         | "content_versions"

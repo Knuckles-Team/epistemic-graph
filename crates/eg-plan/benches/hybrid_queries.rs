@@ -613,11 +613,6 @@ fn run_filter_pushdown_ablation() -> bool {
     if std::env::var("EG_BENCH_ABLATION").is_err() {
         return false;
     }
-    use std::time::Instant;
-    let med = |mut v: Vec<f64>| -> f64 {
-        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        v[v.len() / 2]
-    };
     eprintln!("\n== filter-pushdown ablation (p50 interleaved iters, ms) ==");
     eprintln!(
         "{:>10}  {:>18}  {:>12}  {:>12}  {:>9}  {:>12}",
@@ -625,97 +620,117 @@ fn run_filter_pushdown_ablation() -> bool {
     );
     for n in scale_rungs() {
         // Fewer iterations at scale so a 1M rung stays bounded (each execute is seconds).
-        let iters = if n >= 500_000 { 7 } else { 25 };
+        let iters = ablation_iters(n);
         let (view, semantic, _) = build_dataset(n, DIM, DATA_SEED);
         let ctx = PlanCtx::new(&view, &semantic);
         // Build the HNSW index ONCE, off the clock.
         let _ = semantic.semantic_search(&query_vec(DIM, QUERY_SEED), 1);
 
-        // The narrower each variant filters on (categorical `Eq` vs numeric-range `GtNum`);
-        // the RANGE one is the case column stats newly push. Each is timed as its two PHYSICAL
-        // orderings so the ablation measures the reorder's real cost regardless of the pick.
-        let variants: [(&str, Plan); 2] = [
-            ("selective_filter", selective_filter_plan()),
-            ("selective_range", selective_range_plan(n)),
-        ];
-        for (name, rank_first) in variants {
-            // The filter-first physical ordering: swap the (Rank, Filter) pair to Filter-first.
-            let filter_first = Plan::new(vec![
-                rank_first.ops[0].clone(), // Scan
-                rank_first.ops[2].clone(), // Filter
-                rank_first.ops[1].clone(), // Rank
-                rank_first.ops[3].clone(), // Limit
-            ]);
-            // What the cost optimizer WOULD pick — now driven by the REAL data distribution
-            // (column histogram) for the range variant, not the fixed 0.33 heuristic.
-            let opt_picks = if matches!(
-                optimize(&rank_first, &ctx).ops.get(1),
-                Some(Op::Filter { .. })
-            ) {
-                "filter_first"
-            } else {
-                "rank_first"
-            };
-
-            // Untimed warm passes, then INTERLEAVE the two so ambient drift hits both equally.
-            for _ in 0..3 {
-                let _ = execute_ops(&rank_first.ops, &ctx).unwrap();
-                let _ = execute_ops(&filter_first.ops, &ctx).unwrap();
-            }
-            let mut rf = Vec::with_capacity(iters);
-            let mut ff = Vec::with_capacity(iters);
-            for _ in 0..iters {
-                let t = Instant::now();
-                let _ = black_box(execute_ops(&rank_first.ops, &ctx).unwrap());
-                rf.push(t.elapsed().as_secs_f64() * 1e3);
-                let t = Instant::now();
-                let _ = black_box(execute_ops(&filter_first.ops, &ctx).unwrap());
-                ff.push(t.elapsed().as_secs_f64() * 1e3);
-            }
-            let (rf, ff) = (med(rf), med(ff));
-            eprintln!(
-                "{n:>10}  {name:>18}  {rf:>12.2}  {ff:>12.2}  {:>8.2}x  {opt_picks:>12}",
-                rf / ff
-            );
-        }
-
-        // The 3-op GLOBAL CHAIN case (Track H): naive left-to-right vs whatever
-        // `optimize()`'s exhaustive `GlobalChainCost` search actually picks — NOT a
-        // hand-forced swap like the two variants above, since this reorder can move either
-        // `Filter` past the `Rank` OR past each other (a 3-element permutation, not a pair).
-        // The "rank_first"/"filter_first" header columns are repurposed here as
-        // naive/optimized.
-        {
-            let naive = crossmodal_chain_plan(n);
-            let opt = optimize(&naive, &ctx);
-            let opt_picks = if opt.ops == naive.ops {
-                "unchanged"
-            } else {
-                "reordered"
-            };
-            for _ in 0..3 {
-                let _ = execute_ops(&naive.ops, &ctx).unwrap();
-                let _ = execute_ops(&opt.ops, &ctx).unwrap();
-            }
-            let mut nv = Vec::with_capacity(iters);
-            let mut ov = Vec::with_capacity(iters);
-            for _ in 0..iters {
-                let t = Instant::now();
-                let _ = black_box(execute_ops(&naive.ops, &ctx).unwrap());
-                nv.push(t.elapsed().as_secs_f64() * 1e3);
-                let t = Instant::now();
-                let _ = black_box(execute_ops(&opt.ops, &ctx).unwrap());
-                ov.push(t.elapsed().as_secs_f64() * 1e3);
-            }
-            let (nv, ov) = (med(nv), med(ov));
-            eprintln!(
-                "{n:>10}  {:>18}  {nv:>12.2}  {ov:>12.2}  {:>8.2}x  {opt_picks:>12}",
-                "crossmodal_chain",
-                nv / ov
-            );
-        }
+        run_pairwise_ablation_variants(n, &ctx, iters);
+        run_crossmodal_chain_ablation(n, &ctx, iters);
     }
     true
+}
+
+/// Fewer iterations at scale so a 1M rung stays bounded (each `execute` is seconds).
+fn ablation_iters(n: usize) -> usize {
+    if n >= 500_000 {
+        7
+    } else {
+        25
+    }
+}
+
+fn ablation_median(mut v: Vec<f64>) -> f64 {
+    v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    v[v.len() / 2]
+}
+
+/// The narrower each variant filters on (categorical `Eq` vs numeric-range `GtNum`); the
+/// RANGE one is the case column stats newly push. Each is timed as its two PHYSICAL
+/// orderings so the ablation measures the reorder's real cost regardless of the pick.
+fn run_pairwise_ablation_variants(n: usize, ctx: &PlanCtx, iters: usize) {
+    use std::time::Instant;
+    let variants: [(&str, Plan); 2] = [
+        ("selective_filter", selective_filter_plan()),
+        ("selective_range", selective_range_plan(n)),
+    ];
+    for (name, rank_first) in variants {
+        // The filter-first physical ordering: swap the (Rank, Filter) pair to Filter-first.
+        let filter_first = Plan::new(vec![
+            rank_first.ops[0].clone(), // Scan
+            rank_first.ops[2].clone(), // Filter
+            rank_first.ops[1].clone(), // Rank
+            rank_first.ops[3].clone(), // Limit
+        ]);
+        // What the cost optimizer WOULD pick — now driven by the REAL data distribution
+        // (column histogram) for the range variant, not the fixed 0.33 heuristic.
+        let opt_picks = if matches!(
+            optimize(&rank_first, ctx).ops.get(1),
+            Some(Op::Filter { .. })
+        ) {
+            "filter_first"
+        } else {
+            "rank_first"
+        };
+
+        // Untimed warm passes, then INTERLEAVE the two so ambient drift hits both equally.
+        for _ in 0..3 {
+            let _ = execute_ops(&rank_first.ops, ctx).unwrap();
+            let _ = execute_ops(&filter_first.ops, ctx).unwrap();
+        }
+        let mut rf = Vec::with_capacity(iters);
+        let mut ff = Vec::with_capacity(iters);
+        for _ in 0..iters {
+            let t = Instant::now();
+            let _ = black_box(execute_ops(&rank_first.ops, ctx).unwrap());
+            rf.push(t.elapsed().as_secs_f64() * 1e3);
+            let t = Instant::now();
+            let _ = black_box(execute_ops(&filter_first.ops, ctx).unwrap());
+            ff.push(t.elapsed().as_secs_f64() * 1e3);
+        }
+        let (rf, ff) = (ablation_median(rf), ablation_median(ff));
+        eprintln!(
+            "{n:>10}  {name:>18}  {rf:>12.2}  {ff:>12.2}  {:>8.2}x  {opt_picks:>12}",
+            rf / ff
+        );
+    }
+}
+
+/// The 3-op GLOBAL CHAIN case (Track H): naive left-to-right vs whatever `optimize()`'s
+/// exhaustive `GlobalChainCost` search actually picks — NOT a hand-forced swap like the
+/// pairwise variants, since this reorder can move either `Filter` past the `Rank` OR past
+/// each other (a 3-element permutation, not a pair). The "rank_first"/"filter_first"
+/// header columns are repurposed here as naive/optimized.
+fn run_crossmodal_chain_ablation(n: usize, ctx: &PlanCtx, iters: usize) {
+    use std::time::Instant;
+    let naive = crossmodal_chain_plan(n);
+    let opt = optimize(&naive, ctx);
+    let opt_picks = if opt.ops == naive.ops {
+        "unchanged"
+    } else {
+        "reordered"
+    };
+    for _ in 0..3 {
+        let _ = execute_ops(&naive.ops, ctx).unwrap();
+        let _ = execute_ops(&opt.ops, ctx).unwrap();
+    }
+    let mut nv = Vec::with_capacity(iters);
+    let mut ov = Vec::with_capacity(iters);
+    for _ in 0..iters {
+        let t = Instant::now();
+        let _ = black_box(execute_ops(&naive.ops, ctx).unwrap());
+        nv.push(t.elapsed().as_secs_f64() * 1e3);
+        let t = Instant::now();
+        let _ = black_box(execute_ops(&opt.ops, ctx).unwrap());
+        ov.push(t.elapsed().as_secs_f64() * 1e3);
+    }
+    let (nv, ov) = (ablation_median(nv), ablation_median(ov));
+    eprintln!(
+        "{n:>10}  {:>18}  {nv:>12.2}  {ov:>12.2}  {:>8.2}x  {opt_picks:>12}",
+        "crossmodal_chain",
+        nv / ov
+    );
 }
 
 /// Allocation-light synthetic hierarchy for isolating LeanRAG's bounded child

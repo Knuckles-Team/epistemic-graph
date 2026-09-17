@@ -165,39 +165,48 @@ fn signature_candidate_bands(hash: u64, maximum_distance: u8) -> Vec<NativeIndex
     let mut keys = Vec::new();
     for band in 0..4u8 {
         let value = ((hash >> (u32::from(band) * 16)) & 0xffff) as u16;
-        keys.push(NativeIndexKey::SignatureBand { band, value });
-        if radius >= 1 {
-            for first in 0..16 {
-                keys.push(NativeIndexKey::SignatureBand {
-                    band,
-                    value: value ^ (1u16 << first),
-                });
-            }
-        }
-        if radius >= 2 {
-            for first in 0..16 {
-                for second in first + 1..16 {
-                    keys.push(NativeIndexKey::SignatureBand {
-                        band,
-                        value: value ^ (1u16 << first) ^ (1u16 << second),
-                    });
-                }
-            }
-        }
-        if radius >= 3 {
-            for first in 0..16 {
-                for second in first + 1..16 {
-                    for third in second + 1..16 {
-                        keys.push(NativeIndexKey::SignatureBand {
-                            band,
-                            value: value ^ (1u16 << first) ^ (1u16 << second) ^ (1u16 << third),
-                        });
-                    }
-                }
-            }
-        }
+        push_band_probes(&mut keys, band, value, radius);
     }
     keys
+}
+
+/// Every 16-bit posting key within `radius` flipped bits of `value` in `band`,
+/// exact value included. One shared combinatorial walk replaces what would
+/// otherwise be a separate hand-unrolled loop nest per radius tier.
+fn push_band_probes(keys: &mut Vec<NativeIndexKey>, band: u8, value: u16, radius: u8) {
+    keys.push(NativeIndexKey::SignatureBand { band, value });
+    for bits in 1..=radius {
+        push_bit_flip_combinations(keys, band, value, 0, bits, 0);
+    }
+}
+
+/// Push one key per way to flip exactly `remaining` more bits at or after
+/// `start`, XORed into `flipped` so far, into `value`.
+fn push_bit_flip_combinations(
+    keys: &mut Vec<NativeIndexKey>,
+    band: u8,
+    value: u16,
+    start: u8,
+    remaining: u8,
+    flipped: u16,
+) {
+    if remaining == 0 {
+        keys.push(NativeIndexKey::SignatureBand {
+            band,
+            value: value ^ flipped,
+        });
+        return;
+    }
+    for bit in start..16 {
+        push_bit_flip_combinations(
+            keys,
+            band,
+            value,
+            bit + 1,
+            remaining - 1,
+            flipped ^ (1u16 << bit),
+        );
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

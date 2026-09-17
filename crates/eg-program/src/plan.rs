@@ -166,7 +166,18 @@ pub struct PlanStep {
 
 impl PlanStep {
     fn validate(&self) -> Result<(), ProgramError> {
-        if self.input_refs.is_empty()
+        if self.has_shape_violation() || self.has_reference_violation() {
+            return Err(ProgramError::InvalidPlan);
+        }
+        if self.executor != expected_executor(self.kind) {
+            return Err(ProgramError::InvalidPlan);
+        }
+        Ok(())
+    }
+
+    /// Size/budget checks: refs present and within bound, budget in range.
+    fn has_shape_violation(&self) -> bool {
+        self.input_refs.is_empty()
             || self.output_refs.is_empty()
             || self.input_refs.len() > MAX_PLAN_REFS
             || self.output_refs.len() > MAX_PLAN_REFS
@@ -174,28 +185,31 @@ impl PlanStep {
             || self.modalities.is_empty()
             || self.max_operations == 0
             || self.max_operations > crate::MAX_TRAINING_STEPS
-            || !unique(&self.input_refs)
+    }
+
+    /// Reference-identity checks: no repeats within a list, no overlap across lists.
+    fn has_reference_violation(&self) -> bool {
+        !unique(&self.input_refs)
             || !unique(&self.output_refs)
             || !unique(&self.depends_on)
             || !disjoint(&self.input_refs, &self.output_refs)
-        {
-            return Err(ProgramError::InvalidPlan);
-        }
-        let expected_executor = match self.kind {
-            PlanStepKind::QuerySimilarity => PlanExecutor::GraphSimilarity,
-            PlanStepKind::ProposeInstruction
-            | PlanStepKind::CompareToolUse
-            | PlanStepKind::ProposeRules
-            | PlanStepKind::ReflectOnTrace
-            | PlanStepKind::ParetoReflect => PlanExecutor::ModelTransport,
-            PlanStepKind::ComposePrograms => PlanExecutor::NativeKernel,
-            PlanStepKind::TrainWeights => PlanExecutor::Trainer,
-            PlanStepKind::EvaluateCandidates => PlanExecutor::Evaluator,
-        };
-        if self.executor != expected_executor {
-            return Err(ProgramError::InvalidPlan);
-        }
-        Ok(())
+    }
+}
+
+/// The single [`PlanExecutor`] every [`PlanStepKind`] is governed to run on. Kept as
+/// an exhaustive match (never a `_` arm): a new [`PlanStepKind`] with no chosen
+/// executor must fail to compile here, not silently default.
+fn expected_executor(kind: PlanStepKind) -> PlanExecutor {
+    match kind {
+        PlanStepKind::QuerySimilarity => PlanExecutor::GraphSimilarity,
+        PlanStepKind::ProposeInstruction
+        | PlanStepKind::CompareToolUse
+        | PlanStepKind::ProposeRules
+        | PlanStepKind::ReflectOnTrace
+        | PlanStepKind::ParetoReflect => PlanExecutor::ModelTransport,
+        PlanStepKind::ComposePrograms => PlanExecutor::NativeKernel,
+        PlanStepKind::TrainWeights => PlanExecutor::Trainer,
+        PlanStepKind::EvaluateCandidates => PlanExecutor::Evaluator,
     }
 }
 

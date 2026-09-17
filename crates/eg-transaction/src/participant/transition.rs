@@ -123,67 +123,130 @@ fn validate_state_step(
     }
 }
 
+/// Which of the three legal parent steps `current -> replacement` shapes as, dispatched
+/// on variant and `pending_finalization` alone; each shape's own field-level equality
+/// checks live in its own helper below purely to keep this dispatcher under the
+/// complexity cap. The transition rules themselves are unchanged.
 fn validate_parent_step(
     current: &ConsensusTransactionParentState,
     replacement: &ConsensusTransactionParentState,
 ) -> bool {
     match (current, replacement) {
         (
-            ConsensusTransactionParentState::Prepared {
-                sealed_parent_authority,
-            },
+            ConsensusTransactionParentState::Prepared { .. },
             ConsensusTransactionParentState::Decided {
-                sealed_parent_authority: next_parent_authority,
                 pending_finalization: None,
                 ..
             },
-        ) => sealed_parent_authority == next_parent_authority,
+        ) => validate_prepared_to_decided(current, replacement),
         (
             ConsensusTransactionParentState::Decided {
-                sealed_parent_authority,
-                parent_authority_sha256,
-                decision,
-                sealed_decision_certificate,
-                decision_certificate_sha256,
                 pending_finalization: None,
+                ..
             },
             ConsensusTransactionParentState::Decided {
-                decision: next_decision,
-                sealed_parent_authority: next_parent_authority,
-                parent_authority_sha256: next_parent_authority_sha256,
-                sealed_decision_certificate: next_certificate,
-                decision_certificate_sha256: next_certificate_sha256,
                 pending_finalization: Some(_),
-            },
-        ) => {
-            decision == next_decision
-                && sealed_parent_authority == next_parent_authority
-                && parent_authority_sha256 == next_parent_authority_sha256
-                && sealed_decision_certificate == next_certificate
-                && decision_certificate_sha256 == next_certificate_sha256
-        }
-        (
-            ConsensusTransactionParentState::Decided {
-                decision,
-                decision_certificate_sha256,
-                pending_finalization: Some(pending),
                 ..
             },
-            ConsensusTransactionParentState::Finalized {
-                decision: next_decision,
-                sealed_terminal_proof,
-                terminal_proof_sha256,
-                retention_fence,
+        ) => validate_decided_to_pending_finalization(current, replacement),
+        (
+            ConsensusTransactionParentState::Decided {
+                pending_finalization: Some(_),
+                ..
             },
-        ) => {
-            decision == next_decision
-                && !decision_certificate_sha256.iter().all(|byte| *byte == 0)
-                && pending.sealed_terminal_proof.as_slice() == sealed_terminal_proof.as_slice()
-                && pending.terminal_proof_sha256 == *terminal_proof_sha256
-                && pending.retention_fence == *retention_fence
-        }
+            ConsensusTransactionParentState::Finalized { .. },
+        ) => validate_decided_to_finalized(current, replacement),
         _ => false,
     }
+}
+
+/// `Prepared -> Decided` (the first decision): the sealed parent authority is carried
+/// forward exactly.
+fn validate_prepared_to_decided(
+    current: &ConsensusTransactionParentState,
+    replacement: &ConsensusTransactionParentState,
+) -> bool {
+    let (
+        ConsensusTransactionParentState::Prepared {
+            sealed_parent_authority,
+        },
+        ConsensusTransactionParentState::Decided {
+            sealed_parent_authority: next_parent_authority,
+            pending_finalization: None,
+            ..
+        },
+    ) = (current, replacement)
+    else {
+        unreachable!("validate_prepared_to_decided routed a non prepared->decided pair here");
+    };
+    sealed_parent_authority == next_parent_authority
+}
+
+/// `Decided -> Decided` (finalization begins pending): every already-decided field is
+/// carried forward exactly; only `pending_finalization` moves from `None` to `Some`.
+fn validate_decided_to_pending_finalization(
+    current: &ConsensusTransactionParentState,
+    replacement: &ConsensusTransactionParentState,
+) -> bool {
+    let (
+        ConsensusTransactionParentState::Decided {
+            sealed_parent_authority,
+            parent_authority_sha256,
+            decision,
+            sealed_decision_certificate,
+            decision_certificate_sha256,
+            pending_finalization: None,
+        },
+        ConsensusTransactionParentState::Decided {
+            decision: next_decision,
+            sealed_parent_authority: next_parent_authority,
+            parent_authority_sha256: next_parent_authority_sha256,
+            sealed_decision_certificate: next_certificate,
+            decision_certificate_sha256: next_certificate_sha256,
+            pending_finalization: Some(_),
+        },
+    ) = (current, replacement)
+    else {
+        unreachable!(
+            "validate_decided_to_pending_finalization routed a non decided->decided pair here"
+        );
+    };
+    decision == next_decision
+        && sealed_parent_authority == next_parent_authority
+        && parent_authority_sha256 == next_parent_authority_sha256
+        && sealed_decision_certificate == next_certificate
+        && decision_certificate_sha256 == next_certificate_sha256
+}
+
+/// `Decided -> Finalized`: the decision and the already-computed pending-finalization
+/// proof are carried forward exactly, and the parent's decision-certificate digest is
+/// non-zero (a zero digest means it was never sealed).
+fn validate_decided_to_finalized(
+    current: &ConsensusTransactionParentState,
+    replacement: &ConsensusTransactionParentState,
+) -> bool {
+    let (
+        ConsensusTransactionParentState::Decided {
+            decision,
+            decision_certificate_sha256,
+            pending_finalization: Some(pending),
+            ..
+        },
+        ConsensusTransactionParentState::Finalized {
+            decision: next_decision,
+            sealed_terminal_proof,
+            terminal_proof_sha256,
+            retention_fence,
+        },
+    ) = (current, replacement)
+    else {
+        unreachable!("validate_decided_to_finalized routed a non decided->finalized pair here");
+    };
+    decision == next_decision
+        && !decision_certificate_sha256.iter().all(|byte| *byte == 0)
+        && pending.sealed_terminal_proof.as_slice() == sealed_terminal_proof.as_slice()
+        && pending.terminal_proof_sha256 == *terminal_proof_sha256
+        && pending.retention_fence == *retention_fence
 }
 
 fn validate_participant_step(

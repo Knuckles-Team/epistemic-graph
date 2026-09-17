@@ -307,62 +307,94 @@ impl ConsensusTransactionRecord {
     /// storage; successful AEAD open plus the stored digest is its boundary.
     pub fn authenticate(&self, cipher: &dyn SealedPayloadOpener) -> Result<(), String> {
         self.validate()?;
-        let authenticate = |sealed: &[u8], what: &str| -> Result<(), String> {
-            let plaintext = cipher
-                .unseal(sealed)
-                .map_err(|_| format!("consensus transaction {what} authentication failed"))?;
-            validate_blob(&plaintext, what)
-        };
         match self {
-            Self::Parent { state, .. } => match state {
-                ConsensusTransactionParentState::Prepared {
-                    sealed_parent_authority,
-                } => authenticate(sealed_parent_authority, "parent authority"),
-                ConsensusTransactionParentState::Decided {
-                    sealed_parent_authority,
-                    sealed_decision_certificate,
-                    pending_finalization,
-                    ..
-                } => {
-                    authenticate(sealed_parent_authority, "parent authority")?;
-                    authenticate(sealed_decision_certificate, "decision certificate")?;
-                    if let Some(pending) = pending_finalization {
-                        authenticate(
-                            &pending.sealed_terminal_proof,
-                            "pending parent terminal proof",
-                        )?;
-                    }
-                    Ok(())
-                }
-                ConsensusTransactionParentState::Finalized {
-                    sealed_terminal_proof,
-                    ..
-                } => authenticate(sealed_terminal_proof, "parent terminal proof"),
-            },
-            Self::Participant { state, .. } => match state {
-                ConsensusTransactionParticipantState::Prepared { sealed_plan } => {
-                    authenticate(sealed_plan, "participant plan")
-                }
-                ConsensusTransactionParticipantState::Resolved {
-                    sealed_plan,
-                    sealed_terminal_proof,
-                    ..
-                } => {
-                    authenticate(sealed_plan, "participant plan")?;
-                    authenticate(sealed_terminal_proof, "participant terminal proof")
-                }
-                ConsensusTransactionParticipantState::Collected {
-                    sealed_terminal_proof,
-                    sealed_parent_terminal_proof,
-                    ..
-                } => {
-                    authenticate(
-                        sealed_terminal_proof,
-                        "collected participant terminal proof",
-                    )?;
-                    authenticate(sealed_parent_terminal_proof, "parent terminal proof")
-                }
-            },
+            Self::Parent { state, .. } => authenticate_parent_state(cipher, state),
+            Self::Participant { state, .. } => authenticate_participant_state(cipher, state),
+        }
+    }
+}
+
+/// AEAD-open one sealed field and validate the recovered plaintext's shape.
+/// Certificate bodies stay opaque to storage; this open plus the stored digest is its
+/// authentication boundary.
+fn authenticate_sealed(
+    cipher: &dyn SealedPayloadOpener,
+    sealed: &[u8],
+    what: &str,
+) -> Result<(), String> {
+    let plaintext = cipher
+        .unseal(sealed)
+        .map_err(|_| format!("consensus transaction {what} authentication failed"))?;
+    validate_blob(&plaintext, what)
+}
+
+/// Arm body for [`ConsensusTransactionRecord::authenticate`]'s `Parent` case, kept as
+/// its own exhaustive match over [`ConsensusTransactionParentState`].
+fn authenticate_parent_state(
+    cipher: &dyn SealedPayloadOpener,
+    state: &ConsensusTransactionParentState,
+) -> Result<(), String> {
+    match state {
+        ConsensusTransactionParentState::Prepared {
+            sealed_parent_authority,
+        } => authenticate_sealed(cipher, sealed_parent_authority, "parent authority"),
+        ConsensusTransactionParentState::Decided {
+            sealed_parent_authority,
+            sealed_decision_certificate,
+            pending_finalization,
+            ..
+        } => {
+            authenticate_sealed(cipher, sealed_parent_authority, "parent authority")?;
+            authenticate_sealed(cipher, sealed_decision_certificate, "decision certificate")?;
+            if let Some(pending) = pending_finalization {
+                authenticate_sealed(
+                    cipher,
+                    &pending.sealed_terminal_proof,
+                    "pending parent terminal proof",
+                )?;
+            }
+            Ok(())
+        }
+        ConsensusTransactionParentState::Finalized {
+            sealed_terminal_proof,
+            ..
+        } => authenticate_sealed(cipher, sealed_terminal_proof, "parent terminal proof"),
+    }
+}
+
+/// Arm body for [`ConsensusTransactionRecord::authenticate`]'s `Participant` case, kept
+/// as its own exhaustive match over [`ConsensusTransactionParticipantState`].
+fn authenticate_participant_state(
+    cipher: &dyn SealedPayloadOpener,
+    state: &ConsensusTransactionParticipantState,
+) -> Result<(), String> {
+    match state {
+        ConsensusTransactionParticipantState::Prepared { sealed_plan } => {
+            authenticate_sealed(cipher, sealed_plan, "participant plan")
+        }
+        ConsensusTransactionParticipantState::Resolved {
+            sealed_plan,
+            sealed_terminal_proof,
+            ..
+        } => {
+            authenticate_sealed(cipher, sealed_plan, "participant plan")?;
+            authenticate_sealed(cipher, sealed_terminal_proof, "participant terminal proof")
+        }
+        ConsensusTransactionParticipantState::Collected {
+            sealed_terminal_proof,
+            sealed_parent_terminal_proof,
+            ..
+        } => {
+            authenticate_sealed(
+                cipher,
+                sealed_terminal_proof,
+                "collected participant terminal proof",
+            )?;
+            authenticate_sealed(
+                cipher,
+                sealed_parent_terminal_proof,
+                "parent terminal proof",
+            )
         }
     }
 }

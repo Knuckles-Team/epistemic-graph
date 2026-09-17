@@ -443,28 +443,13 @@ fn validate_reservation_record(
     record: &eg_types::MutationBatchRecord,
 ) -> Result<(), String> {
     let batch_id = reservation_batch_id(source_digest, destination_digest);
-    if record.status != MutationBatchStatus::Committed
-        || record.identity != *identity
-        || record.batch.schema_version != MUTATION_BATCH_VERSION
-        || record.batch.identity != *identity
-        || record.batch.batch_id != batch_id
-        || record.batch.idempotency_key() != batch_id.as_str()
-        || record.batch.envelope
-            != MutationEnvelope::maintenance_for_scope(
-                identity,
-                record.batch.serving_principal(),
-                GRAFT_RESERVATION,
-                record.batch.idempotency_key(),
-            )?
-        || record.committed_version.target() != Some(1)
-        || record.batch.placement_epoch != GRAFT_FENCE
-        || record.batch.fencing_token != Some(GRAFT_FENCE)
-        || record.batch.version_expectation != scope_expectation(identity, 0)
-        || record.batch.operations.len() != 1
-        || !record.batch.outbox.is_empty()
-        || record.batch.authoritative_state.is_some()
-        || record.batch.created_at_ms != 0
-    {
+    let expected_envelope = MutationEnvelope::maintenance_for_scope(
+        identity,
+        record.batch.serving_principal(),
+        GRAFT_RESERVATION,
+        record.batch.idempotency_key(),
+    )?;
+    if !reservation_receipt_matches(identity, record, &batch_id, &expected_envelope) {
         return Err(
             "graft destination reservation is not an exact committed reservation".to_string(),
         );
@@ -475,15 +460,79 @@ fn validate_reservation_record(
     let Method::ApplyMutation { event_type, query } = &operation.method else {
         return Err("graft destination reservation lost its operation".to_string());
     };
-    if operation.ordinal != 0
-        || operation.surface != MutationSurface::Other
-        || operation.domain != scope_domain(identity)
-        || event_type != GRAFT_RESERVATION
-        || query != &reservation_query(source_digest, destination_digest)
-    {
+    if !reservation_operation_matches(
+        identity,
+        operation,
+        event_type,
+        query,
+        source_digest,
+        destination_digest,
+    ) {
         return Err("graft destination reservation does not name this graft".to_string());
     }
     Ok(())
+}
+
+/// The receipt is a committed reservation for exactly this `batch_id`, fenced and
+/// envelope-shaped as a fresh kernel reservation would be. Split into identity and
+/// shape halves purely to keep each check under the complexity cap.
+fn reservation_receipt_matches(
+    identity: &MutationScopeIdentity,
+    record: &eg_types::MutationBatchRecord,
+    batch_id: &str,
+    expected_envelope: &MutationEnvelope,
+) -> bool {
+    reservation_receipt_identity_matches(identity, record, batch_id, expected_envelope)
+        && reservation_receipt_shape_matches(identity, record)
+}
+
+/// The receipt is committed under exactly this identity and batch/idempotency key,
+/// with the exact envelope a fresh kernel reservation would carry.
+fn reservation_receipt_identity_matches(
+    identity: &MutationScopeIdentity,
+    record: &eg_types::MutationBatchRecord,
+    batch_id: &str,
+    expected_envelope: &MutationEnvelope,
+) -> bool {
+    record.status == MutationBatchStatus::Committed
+        && record.identity == *identity
+        && record.batch.schema_version == MUTATION_BATCH_VERSION
+        && record.batch.identity == *identity
+        && record.batch.batch_id.as_str() == batch_id
+        && record.batch.idempotency_key() == batch_id
+        && record.batch.envelope == *expected_envelope
+}
+
+/// The receipt has exactly the fencing, version expectation, and single-operation
+/// shape a fresh kernel reservation would carry.
+fn reservation_receipt_shape_matches(
+    identity: &MutationScopeIdentity,
+    record: &eg_types::MutationBatchRecord,
+) -> bool {
+    record.committed_version.target() == Some(1)
+        && record.batch.placement_epoch == GRAFT_FENCE
+        && record.batch.fencing_token == Some(GRAFT_FENCE)
+        && record.batch.version_expectation == scope_expectation(identity, 0)
+        && record.batch.operations.len() == 1
+        && record.batch.outbox.is_empty()
+        && record.batch.authoritative_state.is_none()
+        && record.batch.created_at_ms == 0
+}
+
+/// The batch's sole operation names exactly this source/destination graft.
+fn reservation_operation_matches(
+    identity: &MutationScopeIdentity,
+    operation: &MutationOperation,
+    event_type: &str,
+    query: &str,
+    source_digest: &str,
+    destination_digest: &str,
+) -> bool {
+    operation.ordinal == 0
+        && operation.surface == MutationSurface::Other
+        && operation.domain == scope_domain(identity)
+        && event_type == GRAFT_RESERVATION
+        && query == reservation_query(source_digest, destination_digest)
 }
 
 pub(super) fn validate_reservation_state<D: OwnerDomain>(

@@ -26,6 +26,9 @@
 
 use crate::algebra::Op;
 
+#[cfg(feature = "query")]
+mod rowcount;
+
 /// Catalog-ish statistics the cost model reasons over. In a real engine these come
 /// from histograms / the property index / embedding-store size; this increment
 /// derives them from the snapshot (see [`Stats::estimate`]) and lets a test drive
@@ -943,8 +946,7 @@ impl ModalityCardinality {
             }
             // Graph BFS: one edge visit per fan-out edge across the hop range.
             Op::Traverse { min, max, .. } => {
-                let d = self.stats.avg_out_degree.max(0.0) * Self::REL_SEL;
-                let edges = (*min..=*max).map(|h| d.powi(h as i32)).sum::<f64>();
+                let edges = rowcount::traverse_edge_expansion(self, *min, *max);
                 (
                     in_card * edges * Self::COST_TRAVERSE_PER_EDGE,
                     in_card * edges,
@@ -1077,43 +1079,20 @@ impl ModalityCardinality {
             Op::Filter { preds } => in_card * self.filter_selectivity(preds),
             // TRAVERSE: degree histogram × path length, deduped, capped at the graph size.
             Op::Traverse { min, max, .. } => {
-                if in_card <= 0.0 {
-                    return 0.0;
-                }
-                let d = self.stats.avg_out_degree.max(0.0) * Self::REL_SEL;
-                let expansion = (*min..=*max).map(|h| d.powi(h as i32)).sum::<f64>();
-                (in_card * expansion * Self::DEDUP_DAMP).min(n.max(in_card))
+                rowcount::traverse_static_rows_out(self, in_card, *min, *max, n)
             }
             // RANK: a rerank preserves the candidate set MINUS rows with no embedding
             // (recall coverage); as a SOURCE (empty input) it is a top-k over the index.
-            Op::Rank { .. } | Op::RankEmbed { .. } => {
-                if in_card > 0.0 {
-                    in_card * self.embed_coverage()
-                } else {
-                    (self.stats.embedding_count as f64).min(DEFAULT_TOP_K as f64)
-                }
-            }
+            Op::Rank { .. } | Op::RankEmbed { .. } => rowcount::rank_static_rows_out(self, in_card),
             // ASOF: bi-temporal range selectivity (most facts live). As a SOURCE, over the
             // whole graph.
-            Op::AsOf { .. } => {
-                if in_card > 0.0 {
-                    in_card * Self::TEMPORAL_SEL
-                } else {
-                    n * Self::TEMPORAL_SEL
-                }
-            }
+            Op::AsOf { .. } => rowcount::asof_static_rows_out(in_card, n),
             // LIMIT caps the row count.
             Op::Limit { k } => in_card.min(*k as f64),
             // REASON: OWL-inferred membership × confidence retention (a FILTER mid-pipeline);
             // as a SOURCE (empty input) an inferred-closure fraction of the graph.
             #[cfg(feature = "owl")]
-            Op::Reason { .. } => {
-                if in_card > 0.0 {
-                    in_card * Self::REASON_MEMBERSHIP_SEL * Self::REASON_CONF_RETENTION
-                } else {
-                    n * Self::REASON_MEMBERSHIP_SEL
-                }
-            }
+            Op::Reason { .. } => rowcount::reason_static_rows_out(in_card, n),
             // FUSE (RRF): the union of the branch rankings — bounded by the seed.
             #[cfg(feature = "text")]
             Op::FuseRrf { .. } => in_card.max(1.0),
@@ -1128,6 +1107,7 @@ impl ModalityCardinality {
             _ => in_card,
         }
     }
+
 }
 
 #[cfg(feature = "query")]

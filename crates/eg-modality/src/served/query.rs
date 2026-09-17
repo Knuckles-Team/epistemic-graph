@@ -203,16 +203,8 @@ where
         query: &'a ServedQuery,
     ) -> Box<dyn Iterator<Item = &'a OccurrenceId> + 'a> {
         match (query.modality, query.segment_kind) {
-            (Some(modality), _) => match (self.modality_index.get(&modality), &query.after) {
-                (Some(ids), Some(after)) => Box::new(ids.range((Excluded(after), Unbounded))),
-                (Some(ids), None) => Box::new(ids.iter()),
-                (None, _) => Box::new(std::iter::empty()),
-            },
-            (None, Some(kind)) => match (self.segment_index.get(&kind), &query.after) {
-                (Some(ids), Some(after)) => Box::new(ids.range((Excluded(after), Unbounded))),
-                (Some(ids), None) => Box::new(ids.iter()),
-                (None, _) => Box::new(std::iter::empty()),
-            },
+            (Some(modality), _) => Self::ids_from(self.modality_index.get(&modality), &query.after),
+            (None, Some(kind)) => Self::ids_from(self.segment_index.get(&kind), &query.after),
             (None, None) => match &query.after {
                 Some(after) => Box::new(
                     self.records
@@ -221,6 +213,20 @@ where
                 ),
                 None => Box::new(self.records.keys()),
             },
+        }
+    }
+
+    /// The shared "posting-set narrowed by cursor" shape both the modality and the
+    /// segment secondary index use: every id after `after` when one is given, else
+    /// every id, else nothing when the index has no entry at all.
+    fn ids_from<'a>(
+        ids: Option<&'a BTreeSet<OccurrenceId>>,
+        after: &'a Option<OccurrenceId>,
+    ) -> Box<dyn Iterator<Item = &'a OccurrenceId> + 'a> {
+        match (ids, after) {
+            (Some(ids), Some(after)) => Box::new(ids.range((Excluded(after), Unbounded))),
+            (Some(ids), None) => Box::new(ids.iter()),
+            (None, _) => Box::new(std::iter::empty()),
         }
     }
 

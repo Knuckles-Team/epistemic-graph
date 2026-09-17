@@ -479,26 +479,56 @@ fn finalize_buckets(
 }
 
 /// A short op name for `UnsupportedOp` messages (avoids leaning on `Debug`, which pulls
-/// full nested payloads).
+/// full nested payloads). Grouped into the theme helpers below purely to keep this
+/// match's own arm count under the complexity cap; the mapping itself is unchanged.
 fn op_name(op: &Op) -> &'static str {
     // The `_` arm is reachable only under feature sets that add more `Op` variants
     // (owl/text/federation/…); under a bare `query` build the listed arms are total.
     #[allow(unreachable_patterns)]
     match op {
+        Op::Scan { .. } | Op::Filter { .. } | Op::Traverse { .. } => scan_filter_traverse_name(op),
+        Op::Rank { .. }
+        | Op::RankEmbed { .. }
+        | Op::RankNodeDistance { .. }
+        | Op::RankMentions { .. }
+        | Op::RankMmr { .. } => rank_op_name(op),
+        Op::AsOf { .. }
+        | Op::Window { .. }
+        | Op::WindowAgg { .. }
+        | Op::Foreign { .. }
+        | Op::Limit { .. } => temporal_and_limit_op_name(op),
+        _ => "unsupported-op",
+    }
+}
+
+fn scan_filter_traverse_name(op: &Op) -> &'static str {
+    match op {
         Op::Scan { .. } => "Scan",
         Op::Filter { .. } => "Filter",
         Op::Traverse { .. } => "Traverse",
+        _ => unreachable!("op_name routed a non scan/filter/traverse Op here"),
+    }
+}
+
+fn rank_op_name(op: &Op) -> &'static str {
+    match op {
         Op::Rank { .. } => "Rank",
         Op::RankEmbed { .. } => "RankEmbed",
         Op::RankNodeDistance { .. } => "RankNodeDistance",
         Op::RankMentions { .. } => "RankMentions",
         Op::RankMmr { .. } => "RankMmr",
+        _ => unreachable!("op_name routed a non ranking Op here"),
+    }
+}
+
+fn temporal_and_limit_op_name(op: &Op) -> &'static str {
+    match op {
         Op::AsOf { .. } => "AsOf",
         Op::Window { .. } => "Window",
         Op::WindowAgg { .. } => "WindowAgg",
         Op::Foreign { .. } => "Foreign",
         Op::Limit { .. } => "Limit",
-        _ => "unsupported-op",
+        _ => unreachable!("op_name routed a non temporal/limit Op here"),
     }
 }
 

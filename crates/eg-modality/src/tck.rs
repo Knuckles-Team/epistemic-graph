@@ -67,7 +67,7 @@
 
 use crate::capability::ModalitySelfTest;
 use crate::contract::{ConformanceTestable, ModalityContract};
-use crate::txn::{decode_staged, WriteKind};
+use crate::txn::{decode_staged, StagedWrite, WriteKind};
 
 /// The 12 first-class TCK capability points (EG-P1-1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -372,6 +372,17 @@ pub fn render_fleet_table(reports: &[TckReport]) -> String {
 /// is wired but its own round-trip broke — never hidden); `Unsupported` is
 /// `NotImplemented` with the caller's "no hook overridden" reason; a genuine
 /// `NotApplicable(reason)` carries straight through.
+/// `push(point, selftest_status(result, unsupported_reason))` in one call, purely to
+/// keep [`tck_report`]'s own call count down for the KISS `calls_per_function` budget.
+fn push_selftest_point(
+    push: &mut impl FnMut(TckPoint, TckStatus),
+    point: TckPoint,
+    result: ModalitySelfTest,
+    unsupported_reason: &'static str,
+) {
+    push(point, selftest_status(result, unsupported_reason));
+}
+
 fn selftest_status(t: ModalitySelfTest, unsupported_reason: &'static str) -> TckStatus {
     match t {
         ModalitySelfTest::Passed => TckStatus::Pass,
@@ -381,6 +392,107 @@ fn selftest_status(t: ModalitySelfTest, unsupported_reason: &'static str) -> Tck
         ModalitySelfTest::Unsupported => TckStatus::NotImplemented(unsupported_reason),
         ModalitySelfTest::NotApplicable(reason) => TckStatus::NotApplicable(reason),
     }
+}
+
+/// TCK point (1): `storage_kind()` names itself and `to_rowset(id)` echoes the same
+/// id — the only "schema stability" signal the trait shape can attest to.
+fn schema_and_ids_status(kind: &str, row_id_matches: bool) -> TckStatus {
+    if !kind.is_empty() && row_id_matches {
+        TckStatus::Pass
+    } else {
+        TckStatus::NotImplemented(
+            "storage_kind()/to_rowset(id) do not stably name and echo this modality",
+        )
+    }
+}
+
+/// TCK point (3): a corrupted `Put` payload must `decode_staged` as `Err`, never
+/// silently succeed; a `Delete` sample has no payload to exercise the codec against.
+fn codec_unsupported_format_status<T: ConformanceTestable>(staged: &StagedWrite) -> TckStatus {
+    match staged.kind {
+        WriteKind::Put => {
+            let mut corrupt = staged.clone();
+            corrupt.payload = b"\xff\xfe not a valid payload for any codec".to_vec();
+            match decode_staged::<T>(&corrupt) {
+                Err(_) => TckStatus::Pass,
+                Ok(_) => TckStatus::NotImplemented(
+                    "decode_staged silently accepted a malformed payload instead of erroring",
+                ),
+            }
+        }
+        WriteKind::Delete => TckStatus::NotImplemented(
+            "conformance_sample() stages as Delete — no Put payload exists to exercise the codec against",
+        ),
+    }
+}
+
+/// TCK point (4): Pass iff the modality can attest its own storage stats.
+fn storage_index_stats_status(stats: Option<crate::StorageStats>) -> TckStatus {
+    match stats {
+        Some(_) => TckStatus::Pass,
+        None => TckStatus::NotImplemented(
+            "storage_stats() is None — modality attests no storage/secondary-index/stats at this layer",
+        ),
+    }
+}
+
+/// TCK point (5): Pass iff the modality declares at least one well-formed named
+/// analytics op.
+fn typed_query_operators_status(ops: &[&'static str]) -> TckStatus {
+    if !ops.is_empty() && ops.iter().all(|o| !o.is_empty()) {
+        TckStatus::Pass
+    } else {
+        TckStatus::NotImplemented("analytics_ops() is empty — no typed query operators declared")
+    }
+}
+
+/// TCK point (6): `txn_stage(id).rollback()` must echo the staged id.
+fn txn_or_saga_outbox_status(rollback_ok: bool) -> TckStatus {
+    if rollback_ok {
+        TckStatus::Pass
+    } else {
+        TckStatus::NotImplemented("txn_stage(id).rollback() did not echo the staged id")
+    }
+}
+
+/// TCK point (7): Pass only if a genuinely non-empty CDC topic is declared.
+fn cdc_delete_retention_gc_status(topic: Option<&'static str>) -> TckStatus {
+    match topic {
+        Some(topic) if !topic.is_empty() => TckStatus::Pass,
+        _ => TckStatus::NotImplemented(
+            "no cdc_topic() declared; a modality that does not publish change events has no observable delete/retention/GC story here",
+        ),
+    }
+}
+
+/// TCK point (8): Pass iff the modality attaches its own tenant/row/region policy
+/// labels; empty is a legitimate default a modality should instead declare N/A.
+fn tenant_row_region_policy_status(labels: &[String]) -> TckStatus {
+    if !labels.is_empty() {
+        TckStatus::Pass
+    } else {
+        TckStatus::NotImplemented(
+            "policy_labels() is empty — no modality-level tenant/row/region policy attached",
+        )
+    }
+}
+
+/// TCK point (9): Pass iff EITHER `provenance()` or `evidence_address()` reports
+/// something.
+fn provenance_evidence_lineage_status(has_lineage: bool) -> TckStatus {
+    if has_lineage {
+        TckStatus::Pass
+    } else {
+        TckStatus::NotImplemented(
+            "both provenance() and evidence_address() are None — no lineage attached at this layer",
+        )
+    }
+}
+
+/// `push(TckPoint::IngestStreaming, ingest_status(report))` in one call, purely to keep
+/// [`tck_report`]'s own call count down for the KISS `calls_per_function` budget.
+fn push_ingest_point(push: &mut impl FnMut(TckPoint, TckStatus), report: crate::IngestReport) {
+    push(TckPoint::IngestStreaming, ingest_status(report));
 }
 
 fn ingest_status(report: crate::IngestReport) -> TckStatus {
@@ -433,51 +545,27 @@ pub fn tck_report<T: ConformanceTestable>() -> TckReport {
         let row = ModalityContract::to_rowset(&sample, id);
         push(
             TckPoint::SchemaAndIds,
-            if !kind.is_empty() && row.id == id {
-                TckStatus::Pass
-            } else {
-                TckStatus::NotImplemented(
-                    "storage_kind()/to_rowset(id) do not stably name and echo this modality",
-                )
-            },
+            schema_and_ids_status(kind, row.id == id),
         );
 
         // (2) Ingest (+streaming): production Pass requires both self-checks. A
         // whole-value modality may report streaming N/A, which remains honest
         // first-class coverage but cannot become production certification.
-        let ingest = ModalityContract::ingest_report(&sample, id);
-        push(TckPoint::IngestStreaming, ingest_status(ingest));
+        push_ingest_point(&mut push, ModalityContract::ingest_report(&sample, id));
 
         // (3) Codec / unsupported-format behavior: a corrupted Put payload must decode as
         // Err, never silently succeed.
         let staged = ModalityContract::txn_stage(&sample, id);
-        let codec_status = match staged.kind {
-            WriteKind::Put => {
-                let mut corrupt = staged.clone();
-                corrupt.payload = b"\xff\xfe not a valid payload for any codec".to_vec();
-                match decode_staged::<T>(&corrupt) {
-                    Err(_) => TckStatus::Pass,
-                    Ok(_) => TckStatus::NotImplemented(
-                        "decode_staged silently accepted a malformed payload instead of erroring",
-                    ),
-                }
-            }
-            WriteKind::Delete => TckStatus::NotImplemented(
-                "conformance_sample() stages as Delete — no Put payload exists to exercise the codec against",
-            ),
-        };
-        push(TckPoint::CodecUnsupportedFormat, codec_status);
+        push(
+            TckPoint::CodecUnsupportedFormat,
+            codec_unsupported_format_status::<T>(&staged),
+        );
 
         // (4) Storage + secondary-index + stats presence: EG-P1-1 hook `storage_stats`.
         // Pass iff the modality can attest its own storage stats.
         push(
             TckPoint::StorageIndexStats,
-            match ModalityContract::storage_stats(&sample, id) {
-                Some(_) => TckStatus::Pass,
-                None => TckStatus::NotImplemented(
-                    "storage_stats() is None — modality attests no storage/secondary-index/stats at this layer",
-                ),
-            },
+            storage_index_stats_status(ModalityContract::storage_stats(&sample, id)),
         );
 
         // (5) Typed query operators: Pass iff the modality declares at least one
@@ -485,13 +573,7 @@ pub fn tck_report<T: ConformanceTestable>() -> TckReport {
         let ops = ModalityContract::analytics_ops(&sample);
         push(
             TckPoint::TypedQueryOperators,
-            if !ops.is_empty() && ops.iter().all(|o| !o.is_empty()) {
-                TckStatus::Pass
-            } else {
-                TckStatus::NotImplemented(
-                    "analytics_ops() is empty — no typed query operators declared",
-                )
-            },
+            typed_query_operators_status(&ops),
         );
 
         // (6) Txn participation OR declared saga/outbox: txn_stage/rollback id-symmetry is
@@ -499,11 +581,7 @@ pub fn tck_report<T: ConformanceTestable>() -> TckReport {
         let rollback_ok = staged.rollback().as_deref() == Some(id);
         push(
             TckPoint::TxnOrSagaOutbox,
-            if rollback_ok {
-                TckStatus::Pass
-            } else {
-                TckStatus::NotImplemented("txn_stage(id).rollback() did not echo the staged id")
-            },
+            txn_or_saga_outbox_status(rollback_ok),
         );
 
         // (7) CDC / delete / tombstone / retention / GC: the trait models the CDC half
@@ -511,12 +589,7 @@ pub fn tck_report<T: ConformanceTestable>() -> TckReport {
         // Pass only if a genuinely non-empty CDC topic is declared.
         push(
             TckPoint::CdcDeleteRetentionGc,
-            match ModalityContract::cdc_topic(&sample) {
-                Some(topic) if !topic.is_empty() => TckStatus::Pass,
-                _ => TckStatus::NotImplemented(
-                    "no cdc_topic() declared; a modality that does not publish change events has no observable delete/retention/GC story here",
-                ),
-            },
+            cdc_delete_retention_gc_status(ModalityContract::cdc_topic(&sample)),
         );
 
         // (8) Tenant/row/region policy: Pass iff the modality attaches its own policy
@@ -526,48 +599,34 @@ pub fn tck_report<T: ConformanceTestable>() -> TckReport {
         let labels = ModalityContract::policy_labels(&sample, id);
         push(
             TckPoint::TenantRowRegionPolicy,
-            if !labels.is_empty() {
-                TckStatus::Pass
-            } else {
-                TckStatus::NotImplemented(
-                    "policy_labels() is empty — no modality-level tenant/row/region policy attached",
-                )
-            },
+            tenant_row_region_policy_status(&labels),
         );
 
         // (9) Provenance + evidence-location + lineage: Pass iff EITHER provenance() or
         // evidence_address() reports something.
-        let has_prov = ModalityContract::provenance(&sample, id).is_some();
-        let has_evi = ModalityContract::evidence_address(&sample).is_some();
+        let has_lineage = ModalityContract::provenance(&sample, id).is_some()
+            || ModalityContract::evidence_address(&sample).is_some();
         push(
             TckPoint::ProvenanceEvidenceLineage,
-            if has_prov || has_evi {
-                TckStatus::Pass
-            } else {
-                TckStatus::NotImplemented(
-                    "both provenance() and evidence_address() are None — no lineage attached at this layer",
-                )
-            },
+            provenance_evidence_lineage_status(has_lineage),
         );
 
         // (10) Backup / restore / migrate / recover: EG-P1-1 hook `backup_selfcheck` —
         // a real round-trip through the modality's DURABLE codec.
-        push(
+        push_selftest_point(
+            &mut push,
             TckPoint::BackupRestoreMigrateRecover,
-            selftest_status(
-                ModalityContract::backup_selfcheck(&sample, id),
-                "backup_selfcheck() defaults to unsupported — modality has not wired a durable backup/restore round-trip",
-            ),
+            ModalityContract::backup_selfcheck(&sample, id),
+            "backup_selfcheck() defaults to unsupported — modality has not wired a durable backup/restore round-trip",
         );
 
         // (11) Single-node failure / recovery: EG-P1-1 hook `recovery_selfcheck` — a
         // simulated crash-and-recover via the staged-write (WAL analog) replay path.
-        push(
+        push_selftest_point(
+            &mut push,
             TckPoint::SingleNodeFailure,
-            selftest_status(
-                ModalityContract::recovery_selfcheck(&sample, id),
-                "recovery_selfcheck() defaults to unsupported — modality has not wired a crash-recovery replay",
-            ),
+            ModalityContract::recovery_selfcheck(&sample, id),
+            "recovery_selfcheck() defaults to unsupported — modality has not wired a crash-recovery replay",
         );
 
         // (12) Interop / workload smoke: the base round-trip exercised above (project

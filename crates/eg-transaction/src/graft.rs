@@ -213,6 +213,7 @@ mod copy;
 #[cfg(test)]
 pub(crate) use copy::grafted_table_names;
 use copy::{copy_all, restore_fence, retire_source};
+mod marker;
 
 /// The reserved batch-id prefix a graft marker carries.
 ///
@@ -770,32 +771,10 @@ impl Marker {
         let Method::ApplyMutation { event_type, query } = &operation.method else {
             return Err("graft marker batch lost its operation".to_string());
         };
-        if record.status != MutationBatchStatus::Committed
-            || record.identity != *identity
-            || record.batch.schema_version != MUTATION_BATCH_VERSION
-            || record.batch.identity != *identity
-            || record.batch.batch_id != GraftIntent::batch_id(&intent.destination)
-            || record.batch.idempotency_key() != record.batch.batch_id.as_str()
-            || record.batch.envelope
-                != MutationEnvelope::maintenance_for_scope(
-                    identity,
-                    record.batch.serving_principal(),
-                    GRAFT_MARKER,
-                    record.batch.idempotency_key(),
-                )?
-            || record.batch.placement_epoch != GRAFT_FENCE
-            || record.batch.fencing_token != Some(GRAFT_FENCE)
-            || record.batch.version_expectation != scope_expectation(identity, intent.version)
-            || operation.ordinal != 0
-            || record.batch.operations.len() != 1
-            || operation.surface != MutationSurface::Other
-            || operation.domain != scope_domain(identity)
-            || event_type != GRAFT_MARKER
-            || query != &intent.encode()
-            || !record.batch.outbox.is_empty()
-            || record.batch.authoritative_state.is_some()
-            || record.batch.created_at_ms != 0
-            || intent.version.checked_add(1) != Some(committed)
+        if !marker::receipt_identity_matches(identity, record)
+            || !marker::batch_keys_match(identity, record, &intent)?
+            || !marker::operation_shape_matches(identity, operation, record)
+            || !marker::marker_content_matches(&intent, committed, event_type, query, record)
         {
             return Err("graft marker receipt is not an exact kernel marker".to_string());
         }

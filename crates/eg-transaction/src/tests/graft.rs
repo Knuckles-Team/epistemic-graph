@@ -764,6 +764,30 @@ fn resume_rejects_a_noncanonical_or_corrupt_marker_receipt() {
     );
 }
 
+/// A source fence row damaged one of two ways for
+/// `phase_b_requires_the_exact_source_fence_as_well_as_its_version`'s "lowered" and
+/// "wrong-identity" cases (its "missing" case removes the row instead and never calls
+/// this). "wrong-identity" stamps a foreign identity at the real fence value; "lowered"
+/// keeps the real identity but drops both the placement epoch and the fencing token
+/// below the durable maximum (`crate::graft::GRAFT_FENCE`) they must equal.
+fn damaged_source_fence(identity: &MutationScopeIdentity, damage: &str) -> ScopeFence {
+    let stamped_identity = if damage == "wrong-identity" {
+        native_identity("tenant-a", "incarnation:graft:foreign-fence")
+    } else {
+        identity.clone()
+    };
+    let fence = if damage == "lowered" {
+        0
+    } else {
+        crate::graft::GRAFT_FENCE
+    };
+    ScopeFence {
+        identity: stamped_identity,
+        placement_epoch: fence,
+        fencing_token: fence,
+    }
+}
+
 #[test]
 fn phase_b_requires_the_exact_source_fence_as_well_as_its_version() {
     for damage in ["missing", "lowered", "wrong-identity"] {
@@ -791,24 +815,7 @@ fn phase_b_requires_the_exact_source_fence_as_well_as_its_version() {
         if damage == "missing" {
             fences.remove(scope.as_str()).unwrap();
         } else {
-            let stamped_identity = if damage == "wrong-identity" {
-                native_identity("tenant-a", "incarnation:graft:foreign-fence")
-            } else {
-                identity.clone()
-            };
-            let value = ScopeFence {
-                identity: stamped_identity,
-                placement_epoch: if damage == "lowered" {
-                    0
-                } else {
-                    crate::graft::GRAFT_FENCE
-                },
-                fencing_token: if damage == "lowered" {
-                    0
-                } else {
-                    crate::graft::GRAFT_FENCE
-                },
-            };
+            let value = damaged_source_fence(&identity, damage);
             let bytes = encode_bounded(&value, "damaged source fence").unwrap();
             fences.insert(scope.as_str(), bytes.as_slice()).unwrap();
         }

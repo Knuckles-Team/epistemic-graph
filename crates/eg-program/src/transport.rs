@@ -59,7 +59,18 @@ pub struct ModelCallRequest {
 
 impl ModelCallRequest {
     pub fn validate(&self) -> Result<(), ProgramError> {
-        if self.inputs.is_empty()
+        if self.has_resource_limit_violation() {
+            return Err(ProgramError::ResourceLimit);
+        }
+        if self.has_duplicate_refs() || self.has_invalid_namespace_ref() {
+            return Err(ProgramError::InvalidProgram);
+        }
+        Ok(())
+    }
+
+    /// Input/output counts and per-input evidence bounds are within their caps.
+    fn has_resource_limit_violation(&self) -> bool {
+        self.inputs.is_empty()
             || self.inputs.len() > MAX_MODEL_INPUTS
             || self.output_schema_refs.is_empty()
             || self.output_schema_refs.len() > MAX_MODEL_OUTPUTS
@@ -69,11 +80,12 @@ impl ModelCallRequest {
                 input.evidence_locus_refs.is_empty()
                     || input.evidence_locus_refs.len() > crate::MAX_EVIDENCE_PER_EXAMPLE
             })
-        {
-            return Err(ProgramError::ResourceLimit);
-        }
-        if self
-            .inputs
+    }
+
+    /// No repeated content/output-schema/evidence ref, and every input shares one
+    /// access policy.
+    fn has_duplicate_refs(&self) -> bool {
+        self.inputs
             .iter()
             .map(|input| &input.content_ref)
             .collect::<BTreeSet<_>>()
@@ -97,17 +109,17 @@ impl ModelCallRequest {
                 .inputs
                 .iter()
                 .any(|input| input.access_policy_ref != self.inputs[0].access_policy_ref)
-            || self.program_ref.namespace() != "program"
+    }
+
+    /// Every governed ref names the namespace its slot requires.
+    fn has_invalid_namespace_ref(&self) -> bool {
+        self.program_ref.namespace() != "program"
             || self.program_revision_ref.namespace() != "program_revision"
             || self
                 .tool_policy_ref
                 .as_ref()
                 .is_some_and(|reference| reference.namespace() != "tool_policy")
             || self.model_profile_ref.namespace() != "model_profile"
-        {
-            return Err(ProgramError::InvalidProgram);
-        }
-        Ok(())
     }
 
     /// Validate the request against the durable revision row that will govern
