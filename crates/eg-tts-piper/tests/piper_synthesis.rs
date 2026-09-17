@@ -16,7 +16,7 @@ use eg_audio::tts::{
 };
 use eg_tts_piper::{
     resolve_voice_paths, segment_phrases, synthesize_streaming, verify_voice_digests,
-    CancellationToken, LoadedVoice, SynthesizeRequest,
+    CancellationToken, LoadedVoice, SynthesizeRequest, SynthesizedChunk,
 };
 use support::{sha256_hex_bytes, FixtureConfig};
 
@@ -218,6 +218,15 @@ const MANY_SMALL_CHUNKS: u32 = 250;
 /// stream's channel capacity of 4, so a consumer that stops reading leaves the
 /// producer blocked on a full channel.
 fn many_small_chunks_stream(tag: &str, cancel: CancellationToken) -> eg_tts_piper::ChunkStream {
+    many_small_chunks_stream_capped(tag, cancel, limits().max_chunks)
+}
+
+/// [`many_small_chunks_stream`] with `max_chunks` set to `max_chunks`.
+fn many_small_chunks_stream_capped(
+    tag: &str,
+    cancel: CancellationToken,
+    max_chunks: u32,
+) -> eg_tts_piper::ChunkStream {
     // A long single phrase, with a tiny max_chunk_decoded_bytes, so it splits into
     // many audio-byte chunks within ONE phrase — cancellation is checked between
     // every sub-chunk, not just between phrases.
@@ -240,6 +249,7 @@ fn many_small_chunks_stream(tag: &str, cancel: CancellationToken) -> eg_tts_pipe
     // so this fixture's Tile graph produces 4 * 2000 = 8000 samples; 32 samples per
     // chunk (max_chunk_decoded_bytes=64, 2 bytes/sample) -> 250 chunks total.
     tight_limits.max_chunk_decoded_bytes = 64;
+    tight_limits.max_chunks = max_chunks;
 
     synthesize_streaming(
         voice,
@@ -302,6 +312,46 @@ fn cancellation_stops_streaming_before_all_chunks_are_produced() {
         received < MANY_SMALL_CHUNKS,
         "cancellation must stop synthesis before all {MANY_SMALL_CHUNKS} chunks are produced, got {received}"
     );
+}
+
+/// Every chunk's stream metadata over one phrase of [`MANY_SMALL_CHUNKS`] 32-sample
+/// chunks: contiguous `sequence`, accumulated `sample_offset`, a `rendition_ref` and
+/// digest per chunk, and `is_final` only on the last. Capped below the chunk count,
+/// exactly `max_chunks` chunks arrive, then `ResourceExhausted`, then the stream ends.
+#[test]
+fn chunk_metadata_is_contiguous_and_max_chunks_is_exact() {
+    require_onnx!();
+    let items: Vec<_> = many_small_chunks_stream("metadata", CancellationToken::new()).collect();
+    assert_eq!(items.len(), MANY_SMALL_CHUNKS as usize);
+    for (i, item) in items.iter().enumerate() {
+        let SynthesizedChunk { chunk, pcm } = item.as_ref().expect("every item is a chunk");
+        assert_eq!(chunk.sequence.0, i as u64, "sequence of chunk {i}");
+        assert_eq!(chunk.sample_offset, 32 * i as u64, "offset of chunk {i}");
+        assert_eq!(chunk.sample_count, 32);
+        assert_eq!(chunk.phrase_index, 0);
+        assert_eq!(chunk.rendition_ref.as_str(), format!("chunk-{i}"));
+        assert_eq!(chunk.rendition_digest, sha256_hex_bytes(pcm));
+        assert_eq!(
+            chunk.is_final,
+            i + 1 == MANY_SMALL_CHUNKS as usize,
+            "is_final of chunk {i}"
+        );
+    }
+
+    let capped: Vec<_> =
+        many_small_chunks_stream_capped("metadata-capped", CancellationToken::new(), 10).collect();
+    assert_eq!(capped.len(), 11);
+    for (i, item) in capped[..10].iter().enumerate() {
+        let chunk = &item.as_ref().expect("the first 10 items are chunks").chunk;
+        assert_eq!(chunk.sequence.0, i as u64);
+        assert!(!chunk.is_final);
+    }
+    assert!(matches!(
+        capped[10],
+        Err(TtsError::ResourceExhausted {
+            limit: "max_chunks"
+        })
+    ));
 }
 
 /// The `ChunkStream` drop deadlock, with real chunks. The consumer reads one chunk
