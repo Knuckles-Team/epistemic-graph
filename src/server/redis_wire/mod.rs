@@ -1900,28 +1900,28 @@ fn cmd_get(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, Stri
     Ok(Resp::Bulk(store.get(&redis_key(args, cmd, 1)?)?))
 }
 
-fn cmd_del_exec(store: &RedisStore, args: &[Vec<u8>]) -> Result<Resp, String> {
+/// `DEL`/`EXISTS`: apply a multi-key counting store operation to every key argument.
+fn cmd_count_keys(
+    args: &[Vec<u8>],
+    count: impl FnOnce(&[&str]) -> Result<i64, String>,
+) -> Result<Resp, String> {
     let keys = redis_keys_from_args(args)?;
     let refs: Vec<&str> = keys.iter().map(|s| s.as_str()).collect();
-    Ok(Resp::Int(store.del(&refs)?))
-}
-
-fn cmd_exists(store: &RedisStore, args: &[Vec<u8>]) -> Result<Resp, String> {
-    let keys = redis_keys_from_args(args)?;
-    let refs: Vec<&str> = keys.iter().map(|s| s.as_str()).collect();
-    Ok(Resp::Int(store.exists(&refs)?))
+    Ok(Resp::Int(count(&refs)?))
 }
 
 fn cmd_ttl(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
     Ok(Resp::Int(store.ttl(&redis_key(args, cmd, 1)?)?))
 }
 
-fn cmd_incr(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
-    Ok(Resp::Int(store.incr_by(&redis_key(args, cmd, 1)?, 1)?))
-}
-
-fn cmd_decr(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
-    Ok(Resp::Int(store.incr_by(&redis_key(args, cmd, 1)?, -1)?))
+/// `INCR`/`DECR`: add `delta` to the integer at the key.
+fn cmd_incr_by(
+    store: &RedisStore,
+    cmd: &str,
+    args: &[Vec<u8>],
+    delta: i64,
+) -> Result<Resp, String> {
+    Ok(Resp::Int(store.incr_by(&redis_key(args, cmd, 1)?, delta)?))
 }
 
 fn cmd_llen(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, String> {
@@ -1934,43 +1934,65 @@ fn cmd_type(store: &RedisStore, cmd: &str, args: &[Vec<u8>]) -> Result<Resp, Str
     ))
 }
 
+/// A data-command handler: `(store, upper-cased command, args, RESP protocol version)`.
+type DataCommand = fn(&RedisStore, &str, &[Vec<u8>], u8) -> Result<Resp, String>;
+
+/// Every data command, in one table: [`execute_data`] dispatches through it and
+/// [`is_known_command`] recognizes exactly its names (plus the non-data verbs listed there).
+const DATA_COMMANDS: &[(&str, DataCommand)] = &[
+    ("SET", |store, cmd, args, _| cmd_set(store, cmd, args)),
+    ("GET", |store, cmd, args, _| cmd_get(store, cmd, args)),
+    ("DEL", |store, _, args, _| {
+        cmd_count_keys(args, |keys| store.del(keys))
+    }),
+    ("EXISTS", |store, _, args, _| {
+        cmd_count_keys(args, |keys| store.exists(keys))
+    }),
+    ("EXPIRE", |store, cmd, args, _| cmd_expire(store, cmd, args)),
+    ("TTL", |store, cmd, args, _| cmd_ttl(store, cmd, args)),
+    ("INCR", |store, cmd, args, _| {
+        cmd_incr_by(store, cmd, args, 1)
+    }),
+    ("DECR", |store, cmd, args, _| {
+        cmd_incr_by(store, cmd, args, -1)
+    }),
+    ("MGET", |store, _, args, _| cmd_mget(store, args)),
+    ("MSET", |store, _, args, _| cmd_mset(store, args)),
+    ("HSET", |store, cmd, args, _| cmd_hset(store, cmd, args)),
+    ("HGET", |store, cmd, args, _| cmd_hget(store, cmd, args)),
+    ("HGETALL", |store, cmd, args, _| {
+        cmd_hgetall(store, cmd, args)
+    }),
+    ("HDEL", |store, cmd, args, _| cmd_hdel(store, cmd, args)),
+    ("LPUSH", |store, cmd, args, _| cmd_push(store, cmd, args)),
+    ("RPUSH", |store, cmd, args, _| cmd_push(store, cmd, args)),
+    ("LRANGE", |store, cmd, args, _| cmd_lrange(store, cmd, args)),
+    ("LLEN", |store, cmd, args, _| cmd_llen(store, cmd, args)),
+    ("SADD", |store, cmd, args, _| cmd_sadd(store, cmd, args)),
+    ("SMEMBERS", |store, cmd, args, _| {
+        cmd_smembers(store, cmd, args)
+    }),
+    ("SREM", |store, cmd, args, _| cmd_srem(store, cmd, args)),
+    ("ZADD", |store, cmd, args, _| cmd_zadd(store, cmd, args)),
+    ("ZRANGE", cmd_zrange),
+    ("ZSCORE", |store, cmd, args, _| cmd_zscore(store, cmd, args)),
+    ("SCAN", |store, _, args, _| cmd_scan(store, args)),
+    ("TYPE", |store, cmd, args, _| cmd_type(store, cmd, args)),
+];
+
 fn execute_data(
     store: &RedisStore,
     cmd: &str,
     args: &[Vec<u8>],
     proto: u8,
 ) -> Result<Resp, String> {
-    match cmd {
-        "SET" => cmd_set(store, cmd, args),
-        "GET" => cmd_get(store, cmd, args),
-        "DEL" => cmd_del_exec(store, args),
-        "EXISTS" => cmd_exists(store, args),
-        "EXPIRE" => cmd_expire(store, cmd, args),
-        "TTL" => cmd_ttl(store, cmd, args),
-        "INCR" => cmd_incr(store, cmd, args),
-        "DECR" => cmd_decr(store, cmd, args),
-        "MGET" => cmd_mget(store, args),
-        "MSET" => cmd_mset(store, args),
-        "HSET" => cmd_hset(store, cmd, args),
-        "HGET" => cmd_hget(store, cmd, args),
-        "HGETALL" => cmd_hgetall(store, cmd, args),
-        "HDEL" => cmd_hdel(store, cmd, args),
-        "LPUSH" | "RPUSH" => cmd_push(store, cmd, args),
-        "LRANGE" => cmd_lrange(store, cmd, args),
-        "LLEN" => cmd_llen(store, cmd, args),
-        "SADD" => cmd_sadd(store, cmd, args),
-        "SMEMBERS" => cmd_smembers(store, cmd, args),
-        "SREM" => cmd_srem(store, cmd, args),
-        "ZADD" => cmd_zadd(store, cmd, args),
-        "ZRANGE" => cmd_zrange(store, cmd, args, proto),
-        "ZSCORE" => cmd_zscore(store, cmd, args),
-        "SCAN" => cmd_scan(store, args),
-        "TYPE" => cmd_type(store, cmd, args),
-        other => Err(format!(
+    let Some((_, handler)) = DATA_COMMANDS.iter().find(|(name, _)| *name == cmd) else {
+        return Err(format!(
             "ERR unknown command '{}'",
-            other.to_ascii_lowercase()
-        )),
-    }
+            cmd.to_ascii_lowercase()
+        ));
+    };
+    handler(store, cmd, args, proto)
 }
 
 fn parse_num<T: std::str::FromStr>(arg: Option<&Vec<u8>>) -> Result<T, String> {
@@ -1990,39 +2012,14 @@ fn is_multi_control(cmd: &str) -> bool {
 /// Is `cmd` a command this shim recognizes? Used at queue time so an unknown
 /// command taints the transaction and `EXEC` returns `EXECABORT` (Redis semantics).
 fn is_known_command(cmd: &str) -> bool {
-    matches!(
-        cmd,
-        "PING"
-            | "ECHO"
-            | "SET"
-            | "GET"
-            | "DEL"
-            | "EXISTS"
-            | "EXPIRE"
-            | "TTL"
-            | "INCR"
-            | "DECR"
-            | "MGET"
-            | "MSET"
-            | "HSET"
-            | "HGET"
-            | "HGETALL"
-            | "HDEL"
-            | "LPUSH"
-            | "RPUSH"
-            | "LRANGE"
-            | "LLEN"
-            | "SADD"
-            | "SMEMBERS"
-            | "SREM"
-            | "ZADD"
-            | "ZRANGE"
-            | "ZSCORE"
-            | "SCAN"
-            | "TYPE"
-            | "PUBLISH"
-    )
+    NON_DATA_KNOWN_COMMANDS
+        .into_iter()
+        .chain(DATA_COMMANDS.iter().map(|(name, _)| *name))
+        .any(|name| name == cmd)
 }
+
+/// Queueable verbs that [`execute_data`] does not serve itself.
+const NON_DATA_KNOWN_COMMANDS: [&str; 3] = ["PING", "ECHO", "PUBLISH"];
 
 /// Commands permitted while a RESP2 connection is in subscriber mode. Everything
 /// else is refused with the exact Redis error until the client unsubscribes.
@@ -2870,6 +2867,54 @@ mod tests {
         );
     }
 
+    /// Pins the recognized-command set and data dispatch: every data verb reaches a
+    /// handler (never the unknown-command fallback), the non-data verbs `MULTI`
+    /// queueing accepts are known but not data commands, and nothing else is known.
+    #[test]
+    fn known_command_set_and_data_dispatch_are_pinned() {
+        const DATA: [&str; 26] = [
+            "SET", "GET", "DEL", "EXISTS", "EXPIRE", "TTL", "INCR", "DECR", "MGET", "MSET", "HSET",
+            "HGET", "HGETALL", "HDEL", "LPUSH", "RPUSH", "LRANGE", "LLEN", "SADD", "SMEMBERS",
+            "SREM", "ZADD", "ZRANGE", "ZSCORE", "SCAN", "TYPE",
+        ];
+        let store = mem_store();
+        let unknown = |cmd: &str| {
+            Err(format!(
+                "ERR unknown command '{}'",
+                cmd.to_ascii_lowercase()
+            ))
+        };
+        for cmd in DATA {
+            assert!(is_known_command(cmd), "{cmd}");
+            let reply = execute_data(&store, cmd, &a(&[cmd]), 3);
+            assert_ne!(reply, unknown(cmd), "{cmd} must dispatch to its handler");
+        }
+        for cmd in ["PING", "ECHO", "PUBLISH"] {
+            assert!(is_known_command(cmd), "{cmd}");
+            assert_eq!(execute_data(&store, cmd, &a(&[cmd]), 3), unknown(cmd));
+        }
+        for cmd in [
+            "SELECT",
+            "COMMAND",
+            "CONFIG",
+            "CLIENT",
+            "AUTH",
+            "HELLO",
+            "QUIT",
+            "MULTI",
+            "EXEC",
+            "DISCARD",
+            "RESET",
+            "SUBSCRIBE",
+            "FLUSHALL",
+            "get",
+            "",
+        ] {
+            assert!(!is_known_command(cmd), "{cmd}");
+            assert_eq!(execute_data(&store, cmd, &a(&[cmd]), 2), unknown(cmd));
+        }
+    }
+
     // CXA-EG-03 characterization: `execute_data` (CCN 90) arms not already
     // exercised above -- MGET/MSET/HDEL/RPUSH/SCAN, the unknown-command
     // fallback, SET's EX/PX/XX option parsing, ZADD's odd-arg-count error,
@@ -3189,36 +3234,8 @@ mod tests {
 
     #[tokio::test]
     async fn eg174_listener_roundtrip_over_tcp() {
-        let probe = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = probe.local_addr().unwrap().to_string();
-        drop(probe);
-        let serve_addr = addr.clone();
-        tokio::spawn(async move {
-            let _ = serve_listener(&serve_addr, mem_store(), TEST_SECRET.to_string()).await;
-        });
-        // GOC-70: bounded-retry connect instead of a fixed pre-connect sleep —
-        // a flat 150ms wait assumes the listener bound within an arbitrary
-        // window, not guaranteed on a contended/low-core host. 1s budget
-        // (50 * 20ms), matching the already-correct pattern in
-        // tests/mysql_roundtrip.rs::spawn_listener.
-        let mut s = {
-            let mut last_err = None;
-            let mut connected = None;
-            for _ in 0..50 {
-                match TcpStream::connect(&addr).await {
-                    Ok(stream) => {
-                        connected = Some(stream);
-                        break;
-                    }
-                    Err(e) => {
-                        last_err = Some(e);
-                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-                    }
-                }
-            }
-            connected
-                .unwrap_or_else(|| panic!("connect to {addr} after bounded retry: {last_err:?}"))
-        };
+        let addr = spawn_listener().await;
+        let mut s = TcpStream::connect(&addr).await.unwrap();
         authenticate(&mut s).await;
         // PING (inline).
         s.write_all(b"PING\r\n").await.unwrap();
@@ -3256,8 +3273,9 @@ mod tests {
         tokio::spawn(async move {
             let _ = serve_listener(&serve_addr, mem_store(), TEST_SECRET.to_string()).await;
         });
-        // GOC-70: see eg174_listener_roundtrip_over_tcp's comment above — bounded
-        // retry instead of a fixed sleep, same 1s budget.
+        // GOC-70: bounded-retry readiness probe instead of a fixed pre-connect
+        // sleep -- a flat wait assumes the listener bound within an arbitrary
+        // window, not guaranteed on a contended/low-core host. 1s budget (50 * 20ms).
         for _ in 0..50 {
             if TcpStream::connect(&addr).await.is_ok() {
                 break;

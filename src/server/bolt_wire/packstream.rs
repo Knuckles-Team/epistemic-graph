@@ -105,63 +105,76 @@ impl PackValue {
 pub fn encode(v: &PackValue, out: &mut Vec<u8>) {
     match v {
         PackValue::Null => out.push(M_NULL),
-        PackValue::Bool(false) => out.push(M_FALSE),
-        PackValue::Bool(true) => out.push(M_TRUE),
+        PackValue::Bool(b) => out.push(bool_marker(*b)),
         PackValue::Int(i) => encode_int(*i, out),
         PackValue::Float(f) => {
             out.push(M_FLOAT64);
             out.extend_from_slice(&f.to_be_bytes());
         }
-        PackValue::String(s) => {
-            let b = s.as_bytes();
-            encode_len_header(b.len(), 0x80, M_STRING8, M_STRING16, M_STRING32, out);
-            out.extend_from_slice(b);
-        }
+        PackValue::String(s) => encode_str(s, out),
         PackValue::Bytes(b) => {
             // Bytes has NO tiny form — always an 8/16/32 marker.
-            let n = b.len();
-            if n <= u8::MAX as usize {
-                out.push(M_BYTES8);
-                out.push(n as u8);
-            } else if n <= u16::MAX as usize {
-                out.push(M_BYTES16);
-                out.extend_from_slice(&(n as u16).to_be_bytes());
-            } else {
-                out.push(M_BYTES32);
-                out.extend_from_slice(&(n as u32).to_be_bytes());
-            }
+            encode_sized_len(b.len(), M_BYTES8, M_BYTES16, M_BYTES32, out);
             out.extend_from_slice(b);
         }
         PackValue::List(items) => {
             encode_len_header(items.len(), 0x90, M_LIST8, M_LIST16, M_LIST32, out);
-            for it in items {
-                encode(it, out);
-            }
+            encode_all(items, out);
         }
-        PackValue::Map(pairs) => {
-            encode_len_header(pairs.len(), 0xA0, M_MAP8, M_MAP16, M_MAP32, out);
-            for (k, val) in pairs {
-                encode(&PackValue::String(k.clone()), out);
-                encode(val, out);
-            }
-        }
+        PackValue::Map(pairs) => encode_map(pairs, out),
         PackValue::Structure { tag, fields } => {
-            let n = fields.len();
-            if n <= 0x0F {
-                out.push(0xB0 | (n as u8));
-            } else if n <= u8::MAX as usize {
-                out.push(M_STRUCT8);
-                out.push(n as u8);
-            } else {
-                out.push(M_STRUCT16);
-                out.extend_from_slice(&(n as u16).to_be_bytes());
-            }
-            out.push(*tag);
-            for f in fields {
-                encode(f, out);
-            }
+            encode_struct_header(fields.len(), *tag, out);
+            encode_all(fields, out);
         }
     }
+}
+
+/// The single-byte marker for a boolean.
+fn bool_marker(b: bool) -> u8 {
+    if b {
+        M_TRUE
+    } else {
+        M_FALSE
+    }
+}
+
+/// Encode a UTF-8 string (a `String` value or a `Map` key): length header, then bytes.
+fn encode_str(s: &str, out: &mut Vec<u8>) {
+    let b = s.as_bytes();
+    encode_len_header(b.len(), 0x80, M_STRING8, M_STRING16, M_STRING32, out);
+    out.extend_from_slice(b);
+}
+
+/// Encode a `Map`: length header, then each key (as a string) followed by its value.
+fn encode_map(pairs: &[(String, PackValue)], out: &mut Vec<u8>) {
+    encode_len_header(pairs.len(), 0xA0, M_MAP8, M_MAP16, M_MAP32, out);
+    for (k, val) in pairs {
+        encode_str(k, out);
+        encode(val, out);
+    }
+}
+
+/// Encode every value of a `List` body or `Structure` field list, in order.
+fn encode_all(values: &[PackValue], out: &mut Vec<u8>) {
+    for value in values {
+        encode(value, out);
+    }
+}
+
+/// Emit a `Structure` header: tiny marker (`0xB0 | n`) for `n <= 15`, else the
+/// 8/16-bit marker + big-endian field count, followed by the tag byte. Structures
+/// have no 32-bit form.
+fn encode_struct_header(n: usize, tag: u8, out: &mut Vec<u8>) {
+    if n <= 0x0F {
+        out.push(0xB0 | (n as u8));
+    } else if n <= u8::MAX as usize {
+        out.push(M_STRUCT8);
+        out.push(n as u8);
+    } else {
+        out.push(M_STRUCT16);
+        out.extend_from_slice(&(n as u16).to_be_bytes());
+    }
+    out.push(tag);
 }
 
 /// Encode an integer with the smallest PackStream width (TINY_INT `-16..=127`, then
@@ -189,7 +202,14 @@ fn encode_int(i: i64, out: &mut Vec<u8>) {
 fn encode_len_header(len: usize, tiny_base: u8, m8: u8, m16: u8, m32: u8, out: &mut Vec<u8>) {
     if len <= 0x0F {
         out.push(tiny_base | (len as u8));
-    } else if len <= u8::MAX as usize {
+    } else {
+        encode_sized_len(len, m8, m16, m32, out);
+    }
+}
+
+/// Emit the smallest 8/16/32-bit marker + big-endian length for `len` (no tiny form).
+fn encode_sized_len(len: usize, m8: u8, m16: u8, m32: u8, out: &mut Vec<u8>) {
+    if len <= u8::MAX as usize {
         out.push(m8);
         out.push(len as u8);
     } else if len <= u16::MAX as usize {
@@ -568,6 +588,55 @@ mod tests {
             ],
         };
         roundtrip(run);
+    }
+
+    /// Pins the exact marker + length-header bytes `encode` emits for every value
+    /// kind at each width boundary, so the wire bytes cannot drift under refactoring.
+    #[test]
+    fn bolt_packstream_encode_pins_exact_header_bytes() {
+        let structure = |n: usize| PackValue::Structure {
+            tag: 0x4E,
+            fields: vec![PackValue::Null; n],
+        };
+        let cases: Vec<(PackValue, Vec<u8>)> = vec![
+            (PackValue::Null, vec![0xC0]),
+            (PackValue::Bool(false), vec![0xC2]),
+            (PackValue::Bool(true), vec![0xC3]),
+            (
+                PackValue::Float(1.0),
+                vec![0xC1, 0x3F, 0xF0, 0, 0, 0, 0, 0, 0],
+            ),
+            (PackValue::String("x".repeat(15)), vec![0x8F]),
+            (PackValue::String("x".repeat(16)), vec![0xD0, 16]),
+            (PackValue::String("x".repeat(256)), vec![0xD1, 0x01, 0x00]),
+            (
+                PackValue::String("x".repeat(65_536)),
+                vec![0xD2, 0, 1, 0, 0],
+            ),
+            (PackValue::Bytes(vec![]), vec![0xCC, 0]),
+            (PackValue::Bytes(vec![9; 256]), vec![0xCD, 0x01, 0x00]),
+            (PackValue::Bytes(vec![9; 65_536]), vec![0xCE, 0, 1, 0, 0]),
+            (PackValue::List(vec![PackValue::Null; 15]), vec![0x9F]),
+            (PackValue::List(vec![PackValue::Null; 16]), vec![0xD4, 16]),
+            (
+                PackValue::List(vec![PackValue::Null; 256]),
+                vec![0xD5, 0x01, 0x00],
+            ),
+            (PackValue::Map(vec![]), vec![0xA0]),
+            (
+                PackValue::map(vec![("k", PackValue::Int(1))]),
+                vec![0xA1, 0x81, b'k', 0x01],
+            ),
+            (structure(0), vec![0xB0, 0x4E]),
+            (structure(15), vec![0xBF, 0x4E]),
+            (structure(16), vec![0xDC, 16, 0x4E]),
+            (structure(256), vec![0xDD, 0x01, 0x00, 0x4E]),
+        ];
+        for (value, prefix) in cases {
+            let bytes = encode_to_vec(&value);
+            assert_eq!(&bytes[..prefix.len()], &prefix[..], "header for {value:?}");
+            assert_eq!(decode(&bytes).expect("decode"), value);
+        }
     }
 
     #[test]

@@ -258,58 +258,48 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     // ── connection phase: send Handshake v10 with a fresh 20-byte scramble ──────
-    let mut seed = [0u8; 20];
-    {
-        let mut rng = rand::thread_rng();
-        // Keep scramble bytes in 1..=0x7e (never NUL, printable-ish) — the classic
-        // server behavior, and NUL would truncate the auth-plugin-data string.
-        for b in seed.iter_mut() {
-            *b = rng.gen_range(1..=0x7e);
-        }
-    }
+    let seed = fresh_scramble();
     let caps = server_capabilities();
     write_packet(s, 0, &build_handshake(conn_id, &seed, caps, SERVER_VERSION)).await?;
+    if authenticate_connection(s, &session, &secret, &seed).await? {
+        serve_commands(s, &session).await?;
+    }
+    Ok(())
+}
 
-    // ── read the Handshake Response ─────────────────────────────────────────────
+/// A fresh 20-byte auth scramble.
+fn fresh_scramble() -> [u8; 20] {
+    let mut seed = [0u8; 20];
+    let mut rng = rand::thread_rng();
+    // Keep scramble bytes in 1..=0x7e (never NUL, printable-ish) — the classic
+    // server behavior, and NUL would truncate the auth-plugin-data string.
+    for b in seed.iter_mut() {
+        *b = rng.gen_range(1..=0x7e);
+    }
+    seed
+}
+
+/// Read the Handshake Response, authenticate it, and latch the connection's startup
+/// identity. Answers OK and returns `true` once the connection may run commands;
+/// otherwise the ERR frame has been sent and the connection must close.
+async fn authenticate_connection<S>(
+    s: &mut S,
+    session: &WireSession,
+    secret: &str,
+    seed: &[u8; 20],
+) -> std::io::Result<bool>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     let (rseq, payload) = read_message(s).await?;
-    let resp = match parse_handshake_response(&payload) {
-        Some(r) => r,
-        None => {
-            write_packet(
-                s,
-                rseq.wrapping_add(1),
-                &build_err(1043, "08S01", "Bad handshake (protocol 4.1 required)"),
-            )
-            .await?;
-            return Ok(());
+    let reply_seq = rseq.wrapping_add(1);
+    let resp = match accept_handshake_response(&payload, secret, seed) {
+        Ok(resp) => resp,
+        Err(refusal) => {
+            write_packet(s, reply_seq, &refusal).await?;
+            return Ok(false);
         }
     };
-    if resp.capabilities & CLIENT_DEPRECATE_EOF == 0 {
-        write_packet(
-            s,
-            rseq.wrapping_add(1),
-            &build_err(
-                1043,
-                "08S01",
-                "current MySQL result-set framing requires CLIENT_DEPRECATE_EOF",
-            ),
-        )
-        .await?;
-        return Ok(());
-    }
-
-    // ── authenticate (CONCEPT:EG-KG.query.concept-13) ─────────────────────────────────────────
-    let authed = auth::verify_login(&secret, &resp.username, &resp.auth_response, &seed);
-    if !authed {
-        write_packet(
-            s,
-            rseq.wrapping_add(1),
-            &build_err(1045, "28000", "authentication failed"),
-        )
-        .await?;
-        return Ok(());
-    }
-
     // Latch the connection's startup identity: the authenticated `user` → the ACL actor
     // (only under an authenticating mode), and the connect `database` → the target graph
     // (the SAME rules pgwire's first-query latch uses).
@@ -318,74 +308,111 @@ where
         .bind_authenticated_sql_actor("mysql-wire", &resp.username)
         .await
     {
-        write_packet(s, rseq.wrapping_add(1), &wire_err_to_packet(&error)).await?;
-        return Ok(());
+        write_packet(s, reply_seq, &wire_err_to_packet(&error)).await?;
+        return Ok(false);
     }
-    write_packet(
-        s,
-        rseq.wrapping_add(1),
-        &build_ok(0, 0, SERVER_STATUS_AUTOCOMMIT, ""),
-    )
-    .await?;
+    write_packet(s, reply_seq, &build_ok(0, 0, SERVER_STATUS_AUTOCOMMIT, "")).await?;
+    Ok(true)
+}
 
-    // ── command phase ───────────────────────────────────────────────────────────
-    loop {
-        let (cmd_seq, payload) = match read_message(s).await {
-            Ok(v) => v,
-            Err(_) => break, // client closed the socket
+/// Validate a Handshake Response: protocol 4.1, the current result-set framing
+/// (`CLIENT_DEPRECATE_EOF`), and the native-password login
+/// (CONCEPT:EG-KG.query.concept-13). `Err` carries the ERR packet to send.
+fn accept_handshake_response(
+    payload: &[u8],
+    secret: &str,
+    seed: &[u8; 20],
+) -> Result<packets::HandshakeResponse, Vec<u8>> {
+    let resp = parse_handshake_response(payload)
+        .ok_or_else(|| build_err(1043, "08S01", "Bad handshake (protocol 4.1 required)"))?;
+    if resp.capabilities & CLIENT_DEPRECATE_EOF == 0 {
+        return Err(build_err(
+            1043,
+            "08S01",
+            "current MySQL result-set framing requires CLIENT_DEPRECATE_EOF",
+        ));
+    }
+    if !auth::verify_login(secret, &resp.username, &resp.auth_response, seed) {
+        return Err(build_err(1045, "28000", "authentication failed"));
+    }
+    Ok(resp)
+}
+
+/// The command phase: answer commands until the client quits, sends an empty
+/// packet, or closes the socket.
+async fn serve_commands<S>(s: &mut S, session: &WireSession) -> std::io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    // A read error means the client closed the socket.
+    while let Ok((cmd_seq, payload)) = read_message(s).await {
+        let Some((&cmd, arg)) = payload.split_first() else {
+            break;
         };
-        if payload.is_empty() {
+        if !answer_command(s, session, cmd, arg, cmd_seq.wrapping_add(1)).await? {
             break;
         }
-        let cmd = payload[0];
-        let arg = &payload[1..];
-        let next = cmd_seq.wrapping_add(1);
-        match cmd {
-            COM_QUIT => break,
-            COM_PING => {
-                write_packet(s, next, &build_ok(0, 0, status_flags(&session), "")).await?;
+    }
+    Ok(())
+}
+
+/// Answer one command packet starting at sequence `next`. `Ok(false)` is `COM_QUIT`.
+async fn answer_command<S>(
+    s: &mut S,
+    session: &WireSession,
+    cmd: u8,
+    arg: &[u8],
+    next: u8,
+) -> std::io::Result<bool>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let reply = match cmd {
+        COM_QUIT => return Ok(false),
+        COM_PING => build_ok(0, 0, status_flags(session), ""),
+        COM_INIT_DB => {
+            // Map the MySQL "database" to the engine graph via the shared session.
+            let db = String::from_utf8_lossy(arg);
+            let stmt = format!("SET graph = '{}'", db.replace('\'', "''"));
+            match session.execute(&stmt).await {
+                Ok(_) => build_ok(0, 0, status_flags(session), ""),
+                Err(e) => wire_err_to_packet(&e),
             }
-            COM_INIT_DB => {
-                // Map the MySQL "database" to the engine graph via the shared session.
-                let db = String::from_utf8_lossy(arg);
-                let stmt = format!("SET graph = '{}'", db.replace('\'', "''"));
-                match session.execute(&stmt).await {
-                    Ok(_) => {
-                        write_packet(s, next, &build_ok(0, 0, status_flags(&session), "")).await?;
-                    }
-                    Err(e) => {
-                        write_packet(s, next, &wire_err_to_packet(&e)).await?;
-                    }
-                }
+        }
+        COM_QUERY => {
+            answer_query(s, session, arg, next).await?;
+            return Ok(true);
+        }
+        // Minimal: report an empty field list with the negotiated current
+        // result-set terminator.
+        COM_FIELD_LIST => build_resultset_end(status_flags(session)),
+        other => build_err(1047, "08S01", &format!("Unknown command {other}")),
+    };
+    write_packet(s, next, &reply).await?;
+    Ok(true)
+}
+
+/// `COM_QUERY`: execute the statement and frame its outcome (or error).
+async fn answer_query<S>(
+    s: &mut S,
+    session: &WireSession,
+    arg: &[u8],
+    next: u8,
+) -> std::io::Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    let sql = String::from_utf8_lossy(arg).into_owned();
+    match session.execute(&sql).await {
+        Ok(outcome) => {
+            let status = status_flags(session);
+            let mut seq = next;
+            for p in encode_outcome(outcome, status) {
+                seq = write_packet(s, seq, &p).await?;
             }
-            COM_QUERY => {
-                let sql = String::from_utf8_lossy(arg).into_owned();
-                match session.execute(&sql).await {
-                    Ok(outcome) => {
-                        let status = status_flags(&session);
-                        let mut seq = next;
-                        for p in encode_outcome(outcome, status) {
-                            seq = write_packet(s, seq, &p).await?;
-                        }
-                    }
-                    Err(e) => {
-                        write_packet(s, next, &wire_err_to_packet(&e)).await?;
-                    }
-                }
-            }
-            COM_FIELD_LIST => {
-                // Minimal: report an empty field list with the negotiated current
-                // result-set terminator.
-                write_packet(s, next, &build_resultset_end(status_flags(&session))).await?;
-            }
-            other => {
-                write_packet(
-                    s,
-                    next,
-                    &build_err(1047, "08S01", &format!("Unknown command {other}")),
-                )
-                .await?;
-            }
+        }
+        Err(e) => {
+            write_packet(s, next, &wire_err_to_packet(&e)).await?;
         }
     }
     Ok(())
@@ -543,28 +570,53 @@ mod tests {
     /// A hand-built MySQL client: complete the mandatory native-password handshake
     /// and return the connected stream ready for the command phase.
     async fn client_connect(addr: &str) -> TcpStream {
-        let mut stream = TcpStream::connect(addr).await.unwrap();
-        let (seq, hs) = read_message(&mut stream).await.unwrap();
-        assert_eq!(hs[0], 10, "server sends Handshake v10");
-        let version_end = hs[1..].iter().position(|byte| *byte == 0).unwrap() + 1;
-        let part1 = version_end + 1 + 4;
-        let part2 = part1 + 8 + 1 + 2 + 1 + 2 + 2 + 1 + 10;
-        let mut seed = [0u8; 20];
-        seed[..8].copy_from_slice(&hs[part1..part1 + 8]);
-        seed[8..].copy_from_slice(&hs[part2..part2 + 12]);
-        let password = derive_mysql_password("test", "tester");
-        let scramble = auth::native_password_scramble(&password, &seed);
         let caps = CLIENT_PROTOCOL_41
             | CLIENT_SECURE_CONNECTION
             | CLIENT_PLUGIN_AUTH
             | CLIENT_DEPRECATE_EOF;
+        let (stream, reply) = client_handshake(addr, caps, "test").await;
+        assert_eq!(reply, (2, vec![0x00, 0, 0, 2, 0, 0, 0]), "auth OK");
+        stream
+    }
+
+    /// Connect, read the server Handshake v10, and answer it as user `tester` with
+    /// `caps` and a native-password scramble of `password`. Returns the stream and the
+    /// server's `(sequence id, payload)` reply to the handshake response.
+    async fn client_handshake(addr: &str, caps: u32, password: &str) -> (TcpStream, (u8, Vec<u8>)) {
+        let mut stream = TcpStream::connect(addr).await.unwrap();
+        let (seq, hs) = read_message(&mut stream).await.unwrap();
+        let seed = handshake_scramble(&hs);
+        let password = derive_mysql_password(password, "tester");
+        let scramble = auth::native_password_scramble(&password, &seed);
         let resp = packets::build_handshake_response(caps, "tester", &scramble, None);
         write_packet(&mut stream, seq.wrapping_add(1), &resp)
             .await
             .unwrap();
-        let (_seq, ok) = read_message(&mut stream).await.unwrap();
-        assert_eq!(ok[0], 0x00, "auth OK");
-        stream
+        let reply = read_message(&mut stream).await.unwrap();
+        (stream, reply)
+    }
+
+    /// The 20-byte auth scramble a Handshake v10 carries in two parts, around the
+    /// capability, charset, status and reserved fields.
+    fn handshake_scramble(handshake: &[u8]) -> [u8; 20] {
+        assert_eq!(handshake[0], 10, "server sends Handshake v10");
+        let version_end = 1 + handshake[1..].iter().position(|byte| *byte == 0).unwrap();
+        let first_part = version_end + 1 + 4;
+        let second_part = first_part + 8 + 1 + 2 + 1 + 2 + 2 + 1 + 10;
+        let mut scramble = [0u8; 20];
+        scramble[..8].copy_from_slice(&handshake[first_part..first_part + 8]);
+        scramble[8..].copy_from_slice(&handshake[second_part..second_part + 12]);
+        scramble
+    }
+
+    /// The exact ERR payload the server frames for `(code, sqlstate, message)`.
+    fn err_payload(code: u16, sqlstate: &str, message: &str) -> Vec<u8> {
+        let mut payload = vec![0xff];
+        payload.extend_from_slice(&code.to_le_bytes());
+        payload.push(b'#');
+        payload.extend_from_slice(sqlstate.as_bytes());
+        payload.extend_from_slice(message.as_bytes());
+        payload
     }
 
     /// Send a `COM_QUERY` and return the decoded outcome: either the affected-row count
@@ -726,5 +778,63 @@ mod tests {
 
         // Clean up this authenticated owner's user-table catalog so a re-run is idempotent.
         let _ = client_query(&mut c, "DROP TABLE eg076_items").await;
+    }
+
+    /// Pins the connection driver's exact frames: each handshake refusal, then the
+    /// PING / INIT_DB / FIELD_LIST / unknown-command replies (with their sequence
+    /// ids), and that QUIT and an empty packet both end the connection.
+    #[tokio::test]
+    async fn mysql_wire_connection_phase_and_command_replies_are_pinned() {
+        let addr = spawn_listener(seeded_state()).await;
+        let current = CLIENT_PROTOCOL_41 | CLIENT_SECURE_CONNECTION | CLIENT_PLUGIN_AUTH;
+
+        let (_, wrong_password) =
+            client_handshake(&addr, current | CLIENT_DEPRECATE_EOF, "not-the-secret").await;
+        assert_eq!(
+            wrong_password,
+            (2, err_payload(1045, "28000", "authentication failed"))
+        );
+        let (_, legacy_eof) = client_handshake(&addr, current, "test").await;
+        let framing = "current MySQL result-set framing requires CLIENT_DEPRECATE_EOF";
+        assert_eq!(legacy_eof, (2, err_payload(1043, "08S01", framing)));
+        let mut garbage = TcpStream::connect(&addr).await.unwrap();
+        let (seq, _) = read_message(&mut garbage).await.unwrap();
+        write_packet(&mut garbage, seq.wrapping_add(1), &[0x01])
+            .await
+            .unwrap();
+        assert_eq!(
+            read_message(&mut garbage).await.unwrap(),
+            (
+                2,
+                err_payload(1043, "08S01", "Bad handshake (protocol 4.1 required)")
+            )
+        );
+
+        let mut c = client_connect(&addr).await;
+        let ok = vec![0x00, 0, 0, 2, 0, 0, 0];
+        let replies: [(&[u8], (u8, Vec<u8>)); 4] = [
+            (&[COM_PING], (1, ok.clone())),
+            (b"\x02__commons__", (1, ok)),
+            (&[COM_FIELD_LIST], (1, vec![0xfe, 0, 0, 2, 0, 0, 0])),
+            (
+                &[0x7f, 1],
+                (1, err_payload(1047, "08S01", "Unknown command 127")),
+            ),
+        ];
+        for (command, expected) in replies {
+            write_packet(&mut c, 0, command).await.unwrap();
+            assert_eq!(read_message(&mut c).await.unwrap(), expected, "{command:?}");
+        }
+        write_packet(&mut c, 0, &[COM_QUIT]).await.unwrap();
+        assert!(
+            read_message(&mut c).await.is_err(),
+            "QUIT closes the connection"
+        );
+        let mut empty = client_connect(&addr).await;
+        write_packet(&mut empty, 0, &[]).await.unwrap();
+        assert!(
+            read_message(&mut empty).await.is_err(),
+            "an empty packet closes it"
+        );
     }
 }

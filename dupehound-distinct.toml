@@ -67,16 +67,6 @@ reviewed_on = "2026-09-10"
 reason = """Base64 alphabet decoders that differ in their final two symbols: URL-safe (-, _) versus standard (+, /), feeding a strict and a lenient decoder respectively. A shared helper would have to live in a crate both can reach; the root crate depends on eg-graphql only optionally behind the graphql feature, so sharing would force eg-graphql and its dependencies into every redb-only build and break the documented Pi-tier build weight."""
 
 [[pair]]
-left_file = "src/server/http1.rs"
-left_name = "is_token_byte"
-left_digest = "sha256:832bb2c70bbd077384c8388b368d4b0d0895971b2394cab6a2fa4a4b1910747a"
-right_file = "src/server/redis_wire/mod.rs"
-right_name = "is_known_command"
-right_digest = "sha256:b81121ba4905d5b2fcc6d21e02317c3942687fab10c78847917ca8986ca9acf9"
-reviewed_on = "2026-09-10"
-reason = """The RFC 7230 tchar byte set versus the set of Redis verbs this shim recognizes. They take different argument types (u8 versus &str) and answer unrelated questions; they collide only because the scanner normalizes the literal set away, leaving two matches! arms of the same shape."""
-
-[[pair]]
 left_file = "src/server/persistence/online_reshard.rs"
 left_name = "clear_resource_rows"
 left_digest = "sha256:1a0509df966d2ca7f7a7acb55afc3eb002e5364bfb4189bcc530e217fb324681"
