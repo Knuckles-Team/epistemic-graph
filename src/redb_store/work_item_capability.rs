@@ -8,7 +8,7 @@
 //! metadata is never consulted for a caller that does not currently own a
 //! live lease.
 
-use super::{decode_durable, property_f64, property_string, property_u64, DurableCrypto, NODES};
+use super::{decode_durable, property_string, DurableCrypto, NODES};
 use crate::epistemic_operations_ext::{
     WorkItemClaimCapabilityDecision, WorkItemClaimCapabilityMintRequest,
     WorkItemClaimCapabilityRequestSchemaVersion, WorkItemClaimCapabilityResult,
@@ -22,6 +22,9 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use super::shard::ShardWrite;
+
+mod lease;
+use lease::{read_live_lease, record_matches_live};
 
 /// Private tables are intentionally disjoint from WorkItem/status/list
 /// projections, MutationBatch/outbox rows, and CDC/audit records.
@@ -932,90 +935,6 @@ pub(crate) fn verify_claim_capability(
         valid: true,
         capability: None,
     })
-}
-
-fn read_live_lease(
-    nodes: &CapabilityRows<'_>,
-    native_work_items: &CapabilityRows<'_>,
-    graph: &str,
-    work_item_id: &str,
-    authority: &AuthenticatedAuthority,
-    crypto: DurableCrypto<'_>,
-) -> Result<LiveLease, Refusal> {
-    let row = nodes
-        .get((graph, work_item_id))
-        .map_err(|_| Refusal::NotFound)?
-        .ok_or(Refusal::NotFound)?;
-    let bytes = crypto.unseal(row.value()).map_err(|_| Refusal::Malformed)?;
-    let props: serde_json::Map<String, serde_json::Value> =
-        decode_durable(&bytes).map_err(|_| Refusal::Malformed)?;
-    if property_string(&props, "node_type") != "WorkItem" {
-        return Err(Refusal::NotFound);
-    }
-    if !native_claim_exists(native_work_items, graph, work_item_id, crypto)? {
-        // A generic NODES row is not a native WorkItem authority, even when it
-        // happens to contain a complete plausible lease tuple.
-        return Err(Refusal::Stale);
-    }
-    if property_string(&props, "tenant") != authority.tenant {
-        return Err(Refusal::Unauthorized);
-    }
-    let status = property_string(&props, "status");
-    if !matches!(status, "leased" | "running") {
-        return Err(Refusal::Stale);
-    }
-    if property_string(&props, "lease_owner") != authority.agent_id {
-        return Err(Refusal::Unauthorized);
-    }
-    let expiry_s = property_f64(&props, "lease_expires_at");
-    if !expiry_s.is_finite() || expiry_s <= 0.0 {
-        return Err(Refusal::Malformed);
-    }
-    let expires_at_ms = (expiry_s * 1000.0).floor() as u64;
-    if expires_at_ms <= authority.now_ms {
-        return Err(Refusal::Expired);
-    }
-    let attempt = property_u64(&props, "attempt");
-    let lease_epoch = property_u64(&props, "lease_epoch");
-    let fencing_token = property_u64(&props, "fencing_token");
-    let work_item_fence = property_string(&props, "work_item_fence").to_string();
-    if attempt == 0 || lease_epoch == 0 || fencing_token == 0 || work_item_fence.is_empty() {
-        return Err(Refusal::Stale);
-    }
-    Ok(LiveLease {
-        tenant: authority.tenant.clone(),
-        agent_id: authority.agent_id.clone(),
-        attempt,
-        lease_epoch,
-        fencing_token,
-        work_item_fence,
-        expires_at_ms,
-    })
-}
-
-fn record_matches_live(
-    record: &CapabilityRecord,
-    graph: &str,
-    work_item_id: &str,
-    authority: &AuthenticatedAuthority,
-    live: &LiveLease,
-) -> bool {
-    record.schema_version == 1
-        && record.graph == graph
-        && record.tenant == authority.tenant
-        && record.audience == authority.audience
-        && record.work_item_id == work_item_id
-        && record.principal == authority.principal
-        && record.agent_id == authority.agent_id
-        && record.session == authority.session
-        && record.attempt == live.attempt
-        && record.lease_epoch == live.lease_epoch
-        && record.fencing_token == live.fencing_token
-        && record.work_item_fence == live.work_item_fence
-        && record.authority_epoch == authority.authority_epoch
-        && record.incarnation_id == authority.incarnation_id
-        && record.expires_at_ms == live.expires_at_ms
-        && record.expires_at_ms > authority.now_ms
 }
 
 fn request_digest(
@@ -2094,6 +2013,42 @@ mod tests {
             replay_after_restart.capability,
             Some(capability.clone()),
             "the changed lease must not replay a stale capability"
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn mint_refusal_names_the_failed_live_lease_check() {
+        let path = temp_path("lease-refusals");
+        let shard = open(&path);
+        seed_work_item(&shard, "wi-1");
+        let owner = authority(10_000);
+        let decision =
+            |item: &str, caller: &AuthenticatedAuthority| mint(&shard, item, caller).decision;
+        assert_eq!(
+            decision("unknown-work-item", &owner),
+            WorkItemClaimCapabilityDecision::NotFound
+        );
+        let mut wrong_tenant = owner.clone();
+        wrong_tenant.tenant = "tenant-b".to_string();
+        assert_eq!(
+            decision("wi-1", &wrong_tenant),
+            WorkItemClaimCapabilityDecision::Unauthorized
+        );
+        let mut wrong_owner = owner.clone();
+        wrong_owner.agent_id = "worker-b".to_string();
+        assert_eq!(
+            decision("wi-1", &wrong_owner),
+            WorkItemClaimCapabilityDecision::Unauthorized
+        );
+        assert_eq!(
+            decision("wi-1", &authority(110_000)),
+            WorkItemClaimCapabilityDecision::Expired
+        );
+        commit_native_result(&shard, "wi-1", 1, 1, 10_001, "terminal", "succeeded", false);
+        assert_eq!(
+            decision("wi-1", &owner),
+            WorkItemClaimCapabilityDecision::Stale
         );
         let _ = std::fs::remove_file(path);
     }

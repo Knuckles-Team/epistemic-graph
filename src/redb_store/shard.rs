@@ -55,15 +55,15 @@ use eg_transaction::{
 };
 #[cfg(feature = "server")]
 use eg_transaction::{GraftDestination, GraftSource, GraftedScope, OwnerPayloadTransfer};
-use eg_types::mutation_batch::{
-    authority_scope_for, DurabilityDomain, MutationScope, COMPILED_BATCH_INCARNATION,
-};
-use eg_types::protocol::Method;
+use eg_types::mutation_batch::COMPILED_BATCH_INCARNATION;
 use eg_types::{
-    MutationBatch, MutationBatchRecord, MutationEnvelope, MutationOperation, MutationOutboxLease,
-    MutationProjectionCursor, MutationScopeIdentity, MutationSurface, VersionExpectation,
-    MUTATION_BATCH_VERSION,
+    MutationBatch, MutationBatchRecord, MutationOutboxLease, MutationProjectionCursor,
+    MutationScopeIdentity,
 };
+
+mod batch;
+pub(crate) use batch::bind_caller_batch;
+use batch::drain_batch;
 
 /// Physical store identity of every graph shard file.
 ///
@@ -607,25 +607,10 @@ impl Shard {
             return Err("graft source scope is not bound".to_string());
         }
         let source_handle = source.graph(graph_fname)?;
-        let source_digest = hex::encode(source.kernel().owner_authority_digest()?);
-        let destination_storage_digest = self.kernel.owner_authority_digest()?;
-        if self.mutations().owner_authority_digest()? != destination_storage_digest {
-            return Err(
-                "graft destination mutation and storage kernels use different authorities"
-                    .to_string(),
-            );
-        }
-        let destination_digest = hex::encode(destination_storage_digest);
-        let source_marker = source
-            .mutations()
-            .graft_source_marker(source_handle.as_ref())?;
-        if let Some(marker) = &source_marker {
-            if marker.source != source_digest || marker.destination != destination_digest {
-                return Err(
-                    "graft source carries a marker for a different authority or destination"
-                        .to_string(),
-                );
-            }
+        if source_graft_marker(self, source, &source_handle)?
+            == SourceGraftMarker::ForAnotherDestination
+        {
+            return Err(FOREIGN_GRAFT_MARKER.to_string());
         }
         let destination_handle = self.graph(graph_fname)?;
         if !self.graft_destination_reserved(graph_fname)? {
@@ -708,9 +693,7 @@ impl Shard {
             return Ok(());
         }
         let destination_handle = self.graph(graph_fname)?;
-        let destination =
-            GraftDestination::new(self.mutations(), self.kernel(), destination_handle.as_ref())
-                .with_owner_payload(&crate::redb_store::GraphShardRetirement);
+        let destination = retiring_graft_destination(self, &destination_handle);
         let source_digest = hex::encode(source.kernel().owner_authority_digest()?);
         // `graft_destination_reserved` is intentionally broad because import
         // selection only needs to know whether the owner-only path may apply.
@@ -872,49 +855,25 @@ impl Shard {
         // proof.  The recovery API authenticates the destination marker and
         // proves source binding absence directly from the source kernel.
         if !source_bound {
-            let destination_handle = self.graph(graph_fname)?;
-            let destination =
-                GraftDestination::new(self.mutations(), self.kernel(), destination_handle.as_ref());
-            let recovered =
-                self.mutations
-                    .graft_recover(source.kernel(), &source_identity, &destination)?;
-            source.forget_graph(graph_fname, &source_identity)?;
-            return Ok(recovered);
+            return recover_retired_graft(self, source, graph_fname, &source_identity);
         }
         let source_handle = source.graph(graph_fname)?;
         // Prove that the source can be opened before creating or rebinding a
         // destination handle.  A corrupt/missing source must fail without
         // leaving a newly bound destination behind for a later retry.
-        let source_digest = hex::encode(source.kernel().owner_authority_digest()?);
-        let destination_storage_digest = self.kernel.owner_authority_digest()?;
-        if self.mutations().owner_authority_digest()? != destination_storage_digest {
-            return Err(
-                "graft destination mutation and storage kernels use different authorities"
-                    .to_string(),
-            );
-        }
-        let destination_digest = hex::encode(destination_storage_digest);
-        let source_marker = source
-            .mutations()
-            .graft_source_marker(source_handle.as_ref())?;
-        if let Some(marker) = &source_marker {
-            if marker.source != source_digest || marker.destination != destination_digest {
-                let error =
-                    "graft source carries a marker for a different authority or destination";
-                self.cleanup_wrong_target_reservation(
-                    source,
-                    graph_fname,
-                    &source_handle,
-                    &source_identity,
-                )?;
-                return Err(error.to_string());
-            }
+        let source_marker = source_graft_marker(self, source, &source_handle)?;
+        if source_marker == SourceGraftMarker::ForAnotherDestination {
+            self.cleanup_wrong_target_reservation(
+                source,
+                graph_fname,
+                &source_handle,
+                &source_identity,
+            )?;
+            return Err(FOREIGN_GRAFT_MARKER.to_string());
         }
         let destination_handle = self.graph(graph_fname)?;
-        let destination =
-            GraftDestination::new(self.mutations(), self.kernel(), destination_handle.as_ref())
-                .with_owner_payload(&crate::redb_store::GraphShardRetirement);
-        if source_marker.is_none() {
+        let destination = retiring_graft_destination(self, &destination_handle);
+        if source_marker == SourceGraftMarker::Absent {
             self.reserve_graft_destination(source, graph_fname)?;
         }
         // Phase A is part of the storage move's cutover contract.  Establish
@@ -1028,6 +987,94 @@ impl Shard {
     }
 }
 
+#[cfg(feature = "server")]
+const FOREIGN_GRAFT_MARKER: &str =
+    "graft source carries a marker for a different authority or destination";
+
+/// What the source's durable graft marker says about this destination.
+#[cfg(feature = "server")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SourceGraftMarker {
+    /// No graft has begun from the source.
+    Absent,
+    /// A graft to exactly this (source authority, destination authority) began.
+    ForThisDestination,
+    /// A graft to another authority or destination began.
+    ForAnotherDestination,
+}
+
+/// Classify the source's graft marker against this destination.
+///
+/// The destination's mutation and storage kernels must first prove one
+/// authority, since the marker binds the destination by that digest.
+#[cfg(feature = "server")]
+fn source_graft_marker(
+    destination: &Shard,
+    source: &Shard,
+    source_handle: &ShardHandle,
+) -> Result<SourceGraftMarker, String> {
+    let source_digest = hex::encode(source.kernel().owner_authority_digest()?);
+    let destination_storage_digest = destination.kernel.owner_authority_digest()?;
+    if destination.mutations().owner_authority_digest()? != destination_storage_digest {
+        return Err(
+            "graft destination mutation and storage kernels use different authorities".to_string(),
+        );
+    }
+    let destination_digest = hex::encode(destination_storage_digest);
+    Ok(
+        match source
+            .mutations()
+            .graft_source_marker(source_handle.as_ref())?
+        {
+            None => SourceGraftMarker::Absent,
+            Some(marker)
+                if marker.source == source_digest && marker.destination == destination_digest =>
+            {
+                SourceGraftMarker::ForThisDestination
+            }
+            Some(_) => SourceGraftMarker::ForAnotherDestination,
+        },
+    )
+}
+
+/// The graft destination over `handle` that may retire staged owner rows.
+#[cfg(feature = "server")]
+fn retiring_graft_destination<'a>(
+    shard: &'a Shard,
+    handle: &'a ShardHandle,
+) -> GraftDestination<'a, GraphShardOwner> {
+    GraftDestination::new(shard.mutations(), shard.kernel(), handle.as_ref())
+        .with_owner_payload(&crate::redb_store::GraphShardRetirement)
+}
+
+/// Finish a graft whose Phase C already retired the source binding.
+///
+/// `graph()` is never called on the source here: binding the old name again
+/// would resurrect the retired scope. The recovery API authenticates the
+/// destination marker and proves the source binding absent from the source
+/// kernel directly.
+#[cfg(feature = "server")]
+fn recover_retired_graft(
+    destination: &Shard,
+    source: &Shard,
+    graph_fname: &str,
+    source_identity: &MutationScopeIdentity,
+) -> Result<GraftedScope, String> {
+    let destination_handle = destination.graph(graph_fname)?;
+    let graft_destination = GraftDestination::new(
+        destination.mutations(),
+        destination.kernel(),
+        destination_handle.as_ref(),
+    );
+    let recovered = destination.mutations.graft_recover(
+        source.kernel(),
+        source_identity,
+        &graft_destination,
+    )?;
+    source.forget_graph(graph_fname, source_identity)?;
+    Ok(recovered)
+}
+
 /// Authenticate and bind ONE serving scope on a kernel-owned store, generic
 /// over the store's owner domain. The proof bytes are the composition root's;
 /// the caller supplies only the identity and picks the layout through `D`.
@@ -1074,92 +1121,6 @@ pub(crate) fn open_kernel_owned_store<D: OwnerDomain>(
     Ok((kernel, mutations, bound))
 }
 
-/// The spelling of one component of a maintenance claim key.
-///
-/// A physical shard key is a STORAGE name: `redb_store::sanitize` represents
-/// every byte outside `[A-Za-z0-9-_.]` as a `~xx` escape (or the whole name as
-/// a bounded `~h<sha256>` key), and an operation id composed from one inherits
-/// the same escapes. The canonical identifier alphabet that `IdempotencyKey`
-/// enforces deliberately excludes `~`
-/// (`eg_types::contract::identifiers::validate_canonical_id`), so embedding
-/// either part verbatim made the drain batch id unconstructible: `admit_drain`
-/// / `admit_maintenance` on a graph whose logical name carries punctuation
-/// failed closed with "idempotency key must use the canonical ASCII identifier
-/// alphabet", and such a graph could not be drained, purged or checkpointed at
-/// all.
-///
-/// An escaped part therefore travels hex-spelled, the same device the
-/// maintenance envelope's SUBJECT already uses for exactly this reason
-/// (`ResourceId::from_physical_graph_key`). `~` is the ONLY character
-/// `sanitize` can emit that the canonical alphabet rejects, so a part without
-/// one is already canonical and keeps its readable spelling -- no existing
-/// drain id changes.
-fn canonical_claim_part(value: &str) -> std::borrow::Cow<'_, str> {
-    if !value.contains('~') {
-        return std::borrow::Cow::Borrowed(value);
-    }
-    let mut spelled = String::with_capacity("hex:".len() + value.len() * 2);
-    spelled.push_str("hex:");
-    for byte in value.bytes() {
-        use std::fmt::Write as _;
-        write!(&mut spelled, "{byte:02x}").expect("writing to String cannot fail");
-    }
-    std::borrow::Cow::Owned(spelled)
-}
-
-/// The shard's own batch for one scope of one drain, at that scope's in-lock
-/// version.
-///
-/// `drain_id` is unique per ATTEMPT, deliberately. The coalesced path has no
-/// replay requirement -- before the cutover it carried no batch identity at all,
-/// no idempotency row and no receipt -- and exactly-once for a replicated entry
-/// is already carried by the Raft applied index, which is persisted after the
-/// effect lands and never regresses. Deriving the id from `(raft_group, index)`
-/// instead would manufacture a conflicting replay out of a path that never
-/// needed one: re-admitting the same id at a moved version fails the ledger's
-/// whole-batch identity comparison rather than replaying.
-fn drain_batch(
-    owner: &OwnedStoreHandle<GraphShardOwner>,
-    drain_id: &str,
-    scope_name: &str,
-    version: u64,
-) -> Result<MutationBatch, String> {
-    let batch_id = format!(
-        "shard_drain/{}:{}",
-        canonical_claim_part(scope_name),
-        canonical_claim_part(drain_id)
-    );
-    let identity = owner.identity().clone();
-    let batch = MutationBatch {
-        schema_version: MUTATION_BATCH_VERSION,
-        batch_id: batch_id.clone(),
-        envelope: MutationEnvelope::maintenance_for_scope(
-            &identity,
-            owner.principal(),
-            "shard-drain",
-            &batch_id,
-        )?,
-        identity,
-        placement_epoch: 0,
-        version_expectation: VersionExpectation::Graph(version),
-        fencing_token: None,
-        authoritative_state: None,
-        operations: vec![MutationOperation {
-            ordinal: 0,
-            surface: MutationSurface::Other,
-            domain: DurabilityDomain::GraphRows,
-            method: Method::ApplyMutation {
-                event_type: "shard_drain".to_string(),
-                query: batch_id,
-            },
-        }],
-        outbox: Vec::new(),
-        created_at_ms: 0,
-    };
-    batch.validate()?;
-    Ok(batch)
-}
-
 /// What one committed caller batch produced.
 ///
 /// `replayed` is the kernel's answer, not a pre-check the shard ran first: an
@@ -1169,132 +1130,6 @@ fn drain_batch(
 pub(crate) struct CommittedBatch {
     pub(crate) record: MutationBatchRecord,
     pub(crate) replayed: bool,
-}
-
-/// Rebind one compiled batch onto the shard scope that will commit it.
-///
-/// RF-RULING-004 application note 2: a graph-shard mutation scope is
-/// `(reserved shard tenant, graph name, graph incarnation)`, derived from the
-/// durable name alone. Application note 1: the verified caller survives in the
-/// authority context and outbox `actor` header, while the operation envelope's
-/// serving principal becomes the store's. This is the ONE place a batch crosses from the request boundary
-/// into the shard, so it is the one place both rewrites happen.
-pub(crate) fn bind_caller_batch(
-    owner: &OwnedStoreHandle<GraphShardOwner>,
-    graph_fname: &str,
-    batch: &MutationBatch,
-) -> Result<MutationBatch, String> {
-    if batch.identity.tenant().as_str() == GRAPH_SHARD_TENANT {
-        return Err(format!(
-            "'{GRAPH_SHARD_TENANT}' is the graph shard's reserved scope tenant and cannot be a caller tenant"
-        ));
-    }
-    // Prove the request-boundary facts while the original caller identity is
-    // still present. Rebinding first would let a batch compiled for graph A be
-    // admitted to graph B: the later route check would observe only the newly
-    // stamped shard identity. The authority scope is derived from the same
-    // identity by the compiler, so compare both its structured value and its
-    // tenant before changing either field.
-    batch.validate()?;
-    let operation = batch
-        .envelope
-        .operation()
-        .ok_or_else(|| "a caller batch must carry an operation envelope".to_string())?;
-    let MutationScope::Graph { graph } = batch.identity.scope() else {
-        return Err("a caller batch must carry a graph scope identity".to_string());
-    };
-    if crate::redb_store::sanitize(graph.as_str()) != graph_fname {
-        return Err(format!(
-            "caller mutation scope graph '{}' does not match requested graph '{}'",
-            graph.as_str(),
-            graph_fname
-        ));
-    }
-    let expected_authority_scope = authority_scope_for(&batch.identity)?;
-    if operation.authority.authority_scope != expected_authority_scope {
-        return Err(
-            "caller mutation authority scope does not match mutation scope identity".into(),
-        );
-    }
-    if operation.authority.tenant.as_str() != batch.identity.tenant().as_str() {
-        return Err(
-            "caller mutation authority tenant does not match mutation scope identity".into(),
-        );
-    }
-    if batch
-        .outbox
-        .iter()
-        .any(|intent| intent.topic == eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC)
-    {
-        use sha2::{Digest, Sha256};
-
-        let caller_graph = batch
-            .identity
-            .scope()
-            .graph_name()
-            .ok_or_else(|| "caller terminal batch identity is not graph-scoped".to_string())?;
-        let mut caller_scope_digest = Sha256::new();
-        caller_scope_digest.update(batch.identity.tenant().as_str().as_bytes());
-        caller_scope_digest.update([0]);
-        caller_scope_digest.update(caller_graph.as_str().as_bytes());
-        let caller_scope_digest = hex::encode(caller_scope_digest.finalize());
-        for intent in &batch.outbox {
-            if intent.topic == eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC
-                && intent.headers.get("scope_sha256").map(String::as_str)
-                    != Some(caller_scope_digest.as_str())
-            {
-                return Err(
-                    "terminal run-event outbox header 'scope_sha256' is not bound to caller mutation scope"
-                        .to_string(),
-                );
-            }
-        }
-    }
-
-    let mut bound = batch.clone();
-    bound.identity = graph_scope_identity(graph_fname)?;
-    // A terminal RunEvent is admitted under the shard's canonical scope, not
-    // the caller tenant that was present while the batch was compiled. Bind
-    // its scope header at this same boundary so the durable preflight checks
-    // the identity that will actually own the outbox row. The caller's actor
-    // header remains untouched and continues to carry request attribution.
-    if bound
-        .outbox
-        .iter()
-        .any(|intent| intent.topic == eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC)
-    {
-        use sha2::{Digest, Sha256};
-
-        let graph = bound
-            .identity
-            .scope()
-            .graph_name()
-            .ok_or_else(|| "bound terminal batch identity is not graph-scoped".to_string())?;
-        let mut scope_digest = Sha256::new();
-        scope_digest.update(bound.identity.tenant().as_str().as_bytes());
-        scope_digest.update([0]);
-        scope_digest.update(graph.as_str().as_bytes());
-        let scope_digest = hex::encode(scope_digest.finalize());
-        for intent in &mut bound.outbox {
-            if intent.topic == eg_types::outcome_bundle::RUN_EVENT_OUTBOX_TOPIC {
-                intent
-                    .headers
-                    .insert("scope_sha256".to_string(), scope_digest.clone());
-            }
-        }
-    }
-    let schema_digest = bound
-        .envelope
-        .operation()
-        .ok_or_else(|| "a caller batch must carry an operation envelope".to_string())?
-        .method_schema_digest;
-    let MutationEnvelope::Operation(operation) = &mut bound.envelope else {
-        return Err("a caller batch must carry an operation envelope".to_string());
-    };
-    operation.serving_principal = owner.principal().to_string();
-    bound.reseal_envelope(schema_digest)?;
-    bound.validate()?;
-    Ok(bound)
 }
 
 /// The owner-row writes of one admitted scope group, addressable by graph.
@@ -1383,6 +1218,11 @@ impl<'g> ShardWrite<'g> {
 mod tests {
     use super::*;
     use crate::redb_store::{GRAPH_META, NODES, RAFT_LOG};
+    use eg_types::mutation_batch::{authority_scope_for, DurabilityDomain};
+    use eg_types::protocol::Method;
+    use eg_types::{
+        MutationOperation, MutationSurface, VersionExpectation, MUTATION_BATCH_VERSION,
+    };
     use redb::ReadableTable;
 
     fn temp_path(tag: &str) -> std::path::PathBuf {
