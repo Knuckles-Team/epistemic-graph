@@ -594,6 +594,11 @@ fn validate_manifest_shards(dir: &Path, manifest: &BackupManifest) -> Result<Vec
     {
         return Err("backup shard-file count does not match the manifest".to_string());
     }
+    // The bundle's own completeness, re-derived from the shard FILES rather than
+    // trusted from the manifest: every declared owner table present, every ledger row
+    // resolving its scope binding, and the same census the backup recorded. This is
+    // where the row-dimension cross-check that used to live in the restore path went —
+    // measured from the artifact instead of self-reported by the copy that produced it.
     if shard_census(&shard_files)? != manifest.shard_counts {
         return Err("bundle shard totals do not match the manifest".to_string());
     }
@@ -607,6 +612,15 @@ fn validate_manifest_admin_store(dir: &Path, manifest: &BackupManifest) -> Resul
     if admin_metadata.file_type().is_symlink() || !admin_metadata.is_file() {
         return Err("backup bundle omits the admin mutation coordinator store".to_string());
     }
+    // SEC-FINDING-V1-INCARNATION-BREAKS-RESTORE-20260903, resolved: this bundle
+    // may have been renamed here from a different private staging path than the
+    // one it was written at, and it must be validated WITHOUT mutating it —
+    // its bytes are exactly what the `portable_file_digests` check in
+    // `validate_manifest_file_digests` re-hashes and compares against the
+    // manifest. `open_read_only` derives the store's physical identity from
+    // `(dev, ino)` only (never the path, so a rename doesn't change it) and never
+    // opens a write transaction against the file, so validating it here cannot
+    // perturb the digest check that follows.
     let admin = eg_storage::open_read_only(
         &admin_path,
         crate::server::persistence::redb_backend::admin_mutations_private_integrity(),
@@ -704,8 +718,12 @@ fn restore_graph_shards(
     if migration.source_shards != manifest.shard_count {
         return Err("restored graph totals do not match the backup manifest".to_string());
     }
-    // Read the rebuilt owner files back so the restore's completeness claim is measured
-    // from the artifact, including graph scopes that remain stable across re-sharding.
+    // The restore's own output, measured: every target shard is a recoverable owner
+    // file, and it carries exactly the graph scopes the bundle declared. A row total
+    // cannot be compared across a re-shard (the routing moves rows between files), but
+    // a SCOPE cannot be created or destroyed by re-routing one, so this is the
+    // completeness claim that survives a K change — and it is read back from the
+    // rebuilt files rather than reported by the migration about itself.
     let restored_counts = shard_census(&crate::redb_layout::discover_current_shards(persist_dir)?)?;
     if restored_counts.len() != target_shards
         || graph_scopes(&restored_counts) != manifest.graph_scopes()
@@ -726,8 +744,12 @@ fn restore_admin_store(
         return Err("restore target already contains an admin mutation store".to_string());
     }
     std::fs::copy(&admin_source, &admin_target).map_err(|error| error.to_string())?;
-    // Copying creates a new inode, so adoption must re-anchor the physical root before
-    // the restored coordinator store is opened and counted.
+    // SEC-FINDING-V1-INCARNATION-BREAKS-RESTORE-20260903: the `std::fs::copy` above
+    // always allocates a NEW inode, so the copy's incarnation can never match the one
+    // the bundle was stamped with and every ordinary open fails closed. A restore is
+    // an INTENDED substitution and needs the kernel's explicit staged adoption, which
+    // re-anchors the physical root and every scope binding to the new inode after
+    // proving the image is byte-identical to what it validated.
     let restored_admin = adopt_bundled_store(
         &admin_target,
         ADMIN_MUTATIONS_FILE,
@@ -746,6 +768,9 @@ fn restore_bundled_stores(
     persist_dir: &Path,
     manifest: &BackupManifest,
 ) -> Result<Vec<String>, String> {
+    // Restore every non-shard durable store the bundle carried. Without this an engine
+    // rebuilt from a bundle comes up with no RBAC/identity state at all — the failure
+    // this whole scope declaration exists to make impossible.
     let mut restored_stores = Vec::new();
     for name in manifest.bundled_stores.keys() {
         let target = persist_dir.join(name);
@@ -753,8 +778,11 @@ fn restore_bundled_stores(
             return Err("restore target already contains a bundled durable store".to_string());
         }
         std::fs::copy(bundle_dir.join(name), &target).map_err(|error| error.to_string())?;
-        // The durable-store registry supplies the authority for the copied inode; a
-        // plain bundled file returns None and is deliberately left unadopted.
+        // A copied file is a NEW inode, so a kernel-owned bundled store carries an
+        // incarnation that no longer describes it and its owner's ordinary `open`
+        // fails closed (what BUG-PE-054's reopen assertion caught). Adoption belongs
+        // here, at the restore boundary. The expected authority is DECLARED by
+        // `durable_stores::bundled_store_authority` — the kernel no longer infers it.
         adopt_bundled_store(&target, name, None)
             .map_err(|error| format!("restore adopt {name}: {error}"))?;
         restored_stores.push(name.clone());
