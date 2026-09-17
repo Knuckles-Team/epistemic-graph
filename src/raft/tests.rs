@@ -582,7 +582,9 @@ async fn cluster_members_reports_topology_and_tracks_leader_failover() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// Wait until any node reports a current leader; returns its id.
+/// Wait until a node confirms ITSELF as the default group's leader and return
+/// it. Another member's view can still name a deposed (or dead) leader for a
+/// moment after an election, so only a self-confirmed leader is reported.
 async fn wait_for_leader(
     nodes: &BTreeMap<NodeId, StartedNode>,
     timeout: Duration,
@@ -590,8 +592,8 @@ async fn wait_for_leader(
     let start = std::time::Instant::now();
     while start.elapsed() < timeout {
         for n in nodes.values() {
-            if let Some(l) = n.handle.raft.current_leader().await {
-                return Some(l);
+            if n.handle.raft.current_leader().await == Some(n.handle.node_id) {
+                return Some(n.handle.node_id);
             }
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -599,24 +601,18 @@ async fn wait_for_leader(
     None
 }
 
-/// Wait until a leader OTHER than `excluded` is reported by a surviving node.
+/// [`wait_for_leader`] after `excluded` was removed from `nodes`: the new,
+/// self-confirmed leader, which can never be the removed node.
 async fn wait_for_leader_excluding(
     nodes: &BTreeMap<NodeId, StartedNode>,
     excluded: NodeId,
     timeout: Duration,
 ) -> Option<NodeId> {
-    let start = std::time::Instant::now();
-    while start.elapsed() < timeout {
-        for n in nodes.values() {
-            if let Some(l) = n.handle.raft.current_leader().await {
-                if l != excluded {
-                    return Some(l);
-                }
-            }
-        }
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    }
-    None
+    assert!(
+        !nodes.contains_key(&excluded),
+        "the excluded leader must already be removed from the live nodes"
+    );
+    wait_for_leader(nodes, timeout).await
 }
 
 /// Poll an async predicate until it is true or the timeout elapses.
