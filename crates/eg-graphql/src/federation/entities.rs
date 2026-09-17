@@ -74,7 +74,12 @@ pub(super) fn resolve_entities(
         };
         match lookup_entity(view, fed, typename, obj)? {
             Some((id, val)) => {
-                let fields = flatten_typed(&rf.selections, frags, vars, typename)?;
+                let ctx = TypedCtx {
+                    frags,
+                    vars,
+                    typename,
+                };
+                let fields = flatten_typed(&rf.selections, &ctx)?;
                 let mut resolved = crate::resolver::resolve_selection(view, &id, &val, &fields)?;
                 // Force `__typename` to the representation's declared type (a node may
                 // carry several labels; the federation answer is the requested one).
@@ -157,19 +162,26 @@ fn json_id(v: &Value) -> Option<String> {
     }
 }
 
+/// The read-only context every `flatten_typed_*` step threads through:
+/// fragments, GraphQL variables, and the representation's concrete typename.
+/// Bundled into one struct instead of three repeated positional parameters —
+/// jscpd flagged the sibling steps' signatures as near-duplicates of each
+/// other when each repeated `frags`/`vars`/`typename` individually; bundling
+/// them shortens every signature to what's actually distinct about that step.
+struct TypedCtx<'a> {
+    frags: &'a HashMap<&'a str, &'a Fragment>,
+    vars: &'a Variables,
+    typename: &'a str,
+}
+
 /// Flatten a raw selection set for a CONCRETE entity type (CONCEPT:EG-KG.query.apollo-federation-subgraph): like the
 /// resolver's `flatten_selections` but type-condition aware — an inline fragment
 /// `... on T { … }` (or a named fragment `on T`) is included only when `T` matches
 /// `typename` (or is unconditional). Keeps `__typename` as a selectable field.
-fn flatten_typed(
-    items: &[RawSelection],
-    frags: &HashMap<&str, &Fragment>,
-    vars: &Variables,
-    typename: &str,
-) -> Result<Vec<Field>, String> {
+fn flatten_typed(items: &[RawSelection], ctx: &TypedCtx) -> Result<Vec<Field>, String> {
     let mut out = Vec::new();
     for item in items {
-        flatten_typed_item(item, frags, vars, typename, &mut out)?;
+        flatten_typed_item(item, ctx, &mut out)?;
     }
     Ok(out)
 }
@@ -180,50 +192,50 @@ fn flatten_typed(
 /// behaviour, same order as before.
 fn flatten_typed_item(
     item: &RawSelection,
-    frags: &HashMap<&str, &Fragment>,
-    vars: &Variables,
-    typename: &str,
+    ctx: &TypedCtx,
     out: &mut Vec<Field>,
 ) -> Result<(), String> {
     match item {
-        RawSelection::Field(rf) => flatten_typed_field(rf, frags, vars, typename, out),
+        RawSelection::Field(rf) => flatten_typed_field(rf, ctx, out),
         RawSelection::Spread { name, directives } => {
-            flatten_typed_spread(name, directives, frags, vars, typename, out)
+            flatten_typed_spread(name, directives, ctx, out)
         }
         RawSelection::Inline {
             type_cond,
             directives,
             selections,
-        } => flatten_typed_inline(
-            type_cond.as_deref(),
-            directives,
-            selections,
-            frags,
-            vars,
-            typename,
-            out,
-        ),
+        } => flatten_typed_inline(type_cond.as_deref(), directives, selections, ctx, out),
     }
 }
 
-/// [`flatten_typed_item`]'s `RawSelection::Field` arm.
-fn flatten_typed_field(
-    rf: &RawField,
-    frags: &HashMap<&str, &Fragment>,
-    vars: &Variables,
-    typename: &str,
-    out: &mut Vec<Field>,
+/// Run `body` iff the selection item's own `@skip`/`@include` directives let
+/// it through; a filtered-out item is silently `Ok(())`. Factors the guard
+/// every `flatten_typed_*` arm below needs out of each arm's own body: jscpd
+/// flagged the guard-plus-trailing-signature as a near-duplicate between
+/// sibling arms when each repeated the `if !should_include(...) { return
+/// Ok(()); }` check inline.
+fn flatten_typed_if_included(
+    directives: &[Directive],
+    ctx: &TypedCtx,
+    body: impl FnOnce() -> Result<(), String>,
 ) -> Result<(), String> {
-    if !crate::resolver::should_include(&rf.directives, vars)? {
+    if !crate::resolver::should_include(directives, ctx.vars)? {
         return Ok(());
     }
-    out.push(Field {
-        alias: rf.alias.clone(),
-        name: rf.name.clone(),
-        args: crate::resolver::subst_args(&rf.args, vars),
-        selection: flatten_typed(&rf.selections, frags, vars, typename)?,
-    });
-    Ok(())
+    body()
+}
+
+/// [`flatten_typed_item`]'s `RawSelection::Field` arm.
+fn flatten_typed_field(rf: &RawField, ctx: &TypedCtx, out: &mut Vec<Field>) -> Result<(), String> {
+    flatten_typed_if_included(&rf.directives, ctx, || {
+        out.push(Field {
+            alias: rf.alias.clone(),
+            name: rf.name.clone(),
+            args: crate::resolver::subst_args(&rf.args, ctx.vars),
+            selection: flatten_typed(&rf.selections, ctx)?,
+        });
+        Ok(())
+    })
 }
 
 /// [`flatten_typed_item`]'s `RawSelection::Spread` arm: expand a named fragment
@@ -231,21 +243,17 @@ fn flatten_typed_field(
 fn flatten_typed_spread(
     name: &str,
     directives: &[Directive],
-    frags: &HashMap<&str, &Fragment>,
-    vars: &Variables,
-    typename: &str,
+    ctx: &TypedCtx,
     out: &mut Vec<Field>,
 ) -> Result<(), String> {
-    if !crate::resolver::should_include(directives, vars)? {
-        return Ok(());
-    }
-    let frag = frags
-        .get(name)
-        .ok_or_else(|| format!("GraphQL: unknown fragment `...{name}`"))?;
-    if frag.type_cond.is_empty() || frag.type_cond == typename {
-        out.extend(flatten_typed(&frag.selections, frags, vars, typename)?);
-    }
-    Ok(())
+    flatten_typed_if_included(directives, ctx, || {
+        let frag = ctx
+            .frags
+            .get(name)
+            .ok_or_else(|| format!("GraphQL: unknown fragment `...{name}`"))?;
+        let type_cond = (!frag.type_cond.is_empty()).then_some(frag.type_cond.as_str());
+        flatten_typed_if_matching(type_cond, &frag.selections, ctx, out)
+    })
 }
 
 /// [`flatten_typed_item`]'s `RawSelection::Inline` arm: expand an inline
@@ -254,16 +262,27 @@ fn flatten_typed_inline(
     type_cond: Option<&str>,
     directives: &[Directive],
     selections: &[RawSelection],
-    frags: &HashMap<&str, &Fragment>,
-    vars: &Variables,
-    typename: &str,
+    ctx: &TypedCtx,
     out: &mut Vec<Field>,
 ) -> Result<(), String> {
-    if !crate::resolver::should_include(directives, vars)? {
-        return Ok(());
-    }
-    if type_cond.is_none_or(|tc| tc == typename) {
-        out.extend(flatten_typed(selections, frags, vars, typename)?);
+    flatten_typed_if_included(directives, ctx, || {
+        flatten_typed_if_matching(type_cond, selections, ctx, out)
+    })
+}
+
+/// Extend `out` with `selections`' flattening iff `type_cond` matches
+/// `ctx.typename` (or is unconditional/`None`). Shared tail of
+/// [`flatten_typed_spread`] and [`flatten_typed_inline`] (a spread's
+/// `type_cond` is its fragment's, empty meaning unconditional; an inline
+/// fragment's is already `Option<&str>`).
+fn flatten_typed_if_matching(
+    type_cond: Option<&str>,
+    selections: &[RawSelection],
+    ctx: &TypedCtx,
+    out: &mut Vec<Field>,
+) -> Result<(), String> {
+    if type_cond.is_none_or(|tc| tc == ctx.typename) {
+        out.extend(flatten_typed(selections, ctx)?);
     }
     Ok(())
 }

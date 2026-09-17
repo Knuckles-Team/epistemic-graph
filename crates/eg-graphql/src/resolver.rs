@@ -145,19 +145,36 @@ pub(crate) fn flatten_selections(
     active: &mut HashSet<String>,
 ) -> Result<Vec<Field>, String> {
     let mut expanded_fields = 0usize;
-    flatten_selections_bounded(items, frags, vars, active, &mut expanded_fields)
+    let mut ctx = BoundedCtx {
+        frags,
+        vars,
+        active,
+        expanded_fields: &mut expanded_fields,
+    };
+    flatten_selections_bounded(items, &mut ctx)
+}
+
+/// The mutable walk state every `flatten_bounded_*` step threads through:
+/// fragments, GraphQL variables, the fragment-cycle guard set, and the
+/// expanded-field-count bound. Bundled into one struct instead of four
+/// repeated positional parameters — jscpd flagged the sibling steps'
+/// signatures as near-duplicates of each other when each repeated
+/// `frags`/`vars`/`active`/`expanded_fields` individually; bundling them
+/// shortens every signature to what's actually distinct about that step.
+struct BoundedCtx<'a> {
+    frags: &'a HashMap<&'a str, &'a Fragment>,
+    vars: &'a Variables,
+    active: &'a mut HashSet<String>,
+    expanded_fields: &'a mut usize,
 }
 
 fn flatten_selections_bounded(
     items: &[RawSelection],
-    frags: &HashMap<&str, &Fragment>,
-    vars: &Variables,
-    active: &mut HashSet<String>,
-    expanded_fields: &mut usize,
+    ctx: &mut BoundedCtx,
 ) -> Result<Vec<Field>, String> {
     let mut out = Vec::new();
     for item in items {
-        flatten_bounded_item(item, frags, vars, active, expanded_fields, &mut out)?;
+        flatten_bounded_item(item, ctx, &mut out)?;
     }
     Ok(out)
 }
@@ -168,73 +185,77 @@ fn flatten_selections_bounded(
 /// behaviour, same order, same bounds as before.
 fn flatten_bounded_item(
     item: &RawSelection,
-    frags: &HashMap<&str, &Fragment>,
-    vars: &Variables,
-    active: &mut HashSet<String>,
-    expanded_fields: &mut usize,
+    ctx: &mut BoundedCtx,
     out: &mut Vec<Field>,
 ) -> Result<(), String> {
     match item {
-        RawSelection::Field(rf) => {
-            flatten_bounded_field(rf, frags, vars, active, expanded_fields, out)
-        }
+        RawSelection::Field(rf) => flatten_bounded_field(rf, ctx, out),
         RawSelection::Spread { name, directives } => {
-            flatten_bounded_spread(name, directives, frags, vars, active, expanded_fields, out)
+            flatten_bounded_spread(name, directives, ctx, out)
         }
         RawSelection::Inline {
             type_cond: _,
             directives,
             selections,
-        } => {
-            // Type conditions are accepted but not enforced (the resolver inlines
-            // unconditionally — a node's type is known only at scan time).
-            if !should_include(directives, vars)? {
-                return Ok(());
-            }
-            out.extend(flatten_selections_bounded(
-                selections,
-                frags,
-                vars,
-                active,
-                expanded_fields,
-            )?);
-            Ok(())
-        }
+        } => flatten_bounded_inline(directives, selections, ctx, out),
     }
+}
+
+/// Run `body` iff the selection item's own `@skip`/`@include` directives let
+/// it through; a filtered-out item is silently `Ok(())`. Factors the guard
+/// every `flatten_bounded_*` arm below needs out of each arm's own body
+/// (jscpd: the guard-plus-trailing-signature was a near-duplicate between
+/// sibling arms when each repeated it inline).
+fn flatten_bounded_if_included<'a>(
+    directives: &[Directive],
+    ctx: &mut BoundedCtx<'a>,
+    out: &mut Vec<Field>,
+    body: impl FnOnce(&mut BoundedCtx<'a>, &mut Vec<Field>) -> Result<(), String>,
+) -> Result<(), String> {
+    if !should_include(directives, ctx.vars)? {
+        return Ok(());
+    }
+    body(ctx, out)
+}
+
+/// [`flatten_bounded_item`]'s `RawSelection::Inline` arm: type conditions are
+/// accepted but not enforced (the resolver inlines unconditionally — a node's
+/// type is known only at scan time), still bounded by the same expansion caps
+/// as every other arm.
+fn flatten_bounded_inline(
+    directives: &[Directive],
+    selections: &[RawSelection],
+    ctx: &mut BoundedCtx,
+    out: &mut Vec<Field>,
+) -> Result<(), String> {
+    flatten_bounded_if_included(directives, ctx, out, |ctx, out| {
+        out.extend(flatten_selections_bounded(selections, ctx)?);
+        Ok(())
+    })
 }
 
 /// [`flatten_bounded_item`]'s `RawSelection::Field` arm: enforce the expanded-
 /// field-count bound, then recurse into the field's own selection set.
 fn flatten_bounded_field(
     rf: &RawField,
-    frags: &HashMap<&str, &Fragment>,
-    vars: &Variables,
-    active: &mut HashSet<String>,
-    expanded_fields: &mut usize,
+    ctx: &mut BoundedCtx,
     out: &mut Vec<Field>,
 ) -> Result<(), String> {
-    if !should_include(&rf.directives, vars)? {
-        return Ok(());
-    }
-    *expanded_fields = expanded_fields.saturating_add(1);
-    if *expanded_fields > MAX_DESUGARED_FIELDS {
-        return Err(format!(
-            "GraphQL: expanded field count exceeds {MAX_DESUGARED_FIELDS}"
-        ));
-    }
-    out.push(Field {
-        alias: rf.alias.clone(),
-        name: rf.name.clone(),
-        args: subst_args(&rf.args, vars),
-        selection: flatten_selections_bounded(
-            &rf.selections,
-            frags,
-            vars,
-            active,
-            expanded_fields,
-        )?,
-    });
-    Ok(())
+    flatten_bounded_if_included(&rf.directives, ctx, out, |ctx, out| {
+        *ctx.expanded_fields = ctx.expanded_fields.saturating_add(1);
+        if *ctx.expanded_fields > MAX_DESUGARED_FIELDS {
+            return Err(format!(
+                "GraphQL: expanded field count exceeds {MAX_DESUGARED_FIELDS}"
+            ));
+        }
+        out.push(Field {
+            alias: rf.alias.clone(),
+            name: rf.name.clone(),
+            args: subst_args(&rf.args, ctx.vars),
+            selection: flatten_selections_bounded(&rf.selections, ctx)?,
+        });
+        Ok(())
+    })
 }
 
 /// [`flatten_bounded_item`]'s `RawSelection::Spread` arm: enforce the fragment-
@@ -242,29 +263,38 @@ fn flatten_bounded_field(
 fn flatten_bounded_spread(
     name: &str,
     directives: &[Directive],
-    frags: &HashMap<&str, &Fragment>,
-    vars: &Variables,
-    active: &mut HashSet<String>,
-    expanded_fields: &mut usize,
+    ctx: &mut BoundedCtx,
     out: &mut Vec<Field>,
 ) -> Result<(), String> {
-    if !should_include(directives, vars)? {
-        return Ok(());
-    }
-    let frag = frags
+    flatten_bounded_if_included(directives, ctx, out, |ctx, out| {
+        flatten_bounded_spread_body(name, ctx, out)
+    })
+}
+
+/// [`flatten_bounded_spread`]'s post-guard body: enforce the fragment-cycle
+/// and expansion-depth bounds, then recurse into the fragment's body. Split
+/// out of the closure passed to [`flatten_bounded_if_included`] so the
+/// closure itself stays trivial and this keeps its own complexity budget.
+fn flatten_bounded_spread_body(
+    name: &str,
+    ctx: &mut BoundedCtx,
+    out: &mut Vec<Field>,
+) -> Result<(), String> {
+    let frag = ctx
+        .frags
         .get(name)
         .ok_or_else(|| format!("GraphQL: unknown fragment `...{name}`"))?;
-    if !active.insert(name.to_string()) {
+    if !ctx.active.insert(name.to_string()) {
         return Err(format!("GraphQL: fragment cycle through `{name}`"));
     }
-    if active.len() > MAX_FRAGMENT_EXPANSION_DEPTH {
-        active.remove(name);
+    if ctx.active.len() > MAX_FRAGMENT_EXPANSION_DEPTH {
+        ctx.active.remove(name);
         return Err(format!(
             "GraphQL: fragment expansion depth exceeds {MAX_FRAGMENT_EXPANSION_DEPTH}"
         ));
     }
-    let inner = flatten_selections_bounded(&frag.selections, frags, vars, active, expanded_fields)?;
-    active.remove(name);
+    let inner = flatten_selections_bounded(&frag.selections, ctx)?;
+    ctx.active.remove(name);
     out.extend(inner);
     Ok(())
 }
