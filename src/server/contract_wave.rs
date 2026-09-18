@@ -29,6 +29,25 @@ pub(crate) fn not_yet_served(req_id: u64, surface: &'static str) -> Response {
     )
 }
 
+/// The test module every contract-wave stub gets, regardless of which shape
+/// declared it: pin its refusal by name. Factored out of `contract_wave_stub`'s
+/// two arms rather than repeated in each -- the two arms differ only in the
+/// generated function's signature, and this block does not vary with that at
+/// all, so leaving it inline in both was the one piece of the macro that was
+/// really copy-pasted rather than templated.
+macro_rules! contract_wave_stub_test {
+    ($test:ident, $surface:literal) => {
+        #[cfg(test)]
+        mod $test {
+            /// Deleted by the package that lands this handler (wave rule R6).
+            #[tokio::test]
+            async fn the_declared_surface_refuses_until_its_handler_lands() {
+                crate::server::contract_wave::assert_refuses_by_name($surface);
+            }
+        }
+    };
+}
+
 /// Declare one contract-wave stub and the test that pins its refusal.
 ///
 /// Two shapes, because two exist: an authenticated surface takes the server
@@ -48,14 +67,7 @@ macro_rules! contract_wave_stub {
             crate::server::contract_wave::not_yet_served(req_id, $surface)
         }
 
-        #[cfg(test)]
-        mod $test {
-            /// Deleted by the package that lands this handler (wave rule R6).
-            #[tokio::test]
-            async fn the_declared_surface_refuses_until_its_handler_lands() {
-                crate::server::contract_wave::assert_refuses_by_name($surface);
-            }
-        }
+        contract_wave_stub_test!($test, $surface);
     };
     (
         $(#[$stub_meta:meta])*
@@ -69,18 +81,12 @@ macro_rules! contract_wave_stub {
             crate::server::contract_wave::not_yet_served(req_id, $surface)
         }
 
-        #[cfg(test)]
-        mod $test {
-            /// Deleted by the package that lands this handler (wave rule R6).
-            #[tokio::test]
-            async fn the_declared_surface_refuses_until_its_handler_lands() {
-                crate::server::contract_wave::assert_refuses_by_name($surface);
-            }
-        }
+        contract_wave_stub_test!($test, $surface);
     };
 }
 
 pub(crate) use contract_wave_stub;
+pub(crate) use contract_wave_stub_test;
 
 /// Assert that `surface` has a refusal body naming it, and nothing else.
 ///
