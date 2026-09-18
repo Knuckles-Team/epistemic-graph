@@ -22,8 +22,12 @@ use object_store::path::Path as ObjPath;
 use object_store::{ObjectStore, ObjectStoreExt};
 use tokio::runtime::Runtime;
 
-use super::store::{BlobManifest, ChunkStore, RedbChunkStore, SweepStats};
+use super::store::{
+    BlobManifest, ChunkStore, HolderChange, HolderOutcome, HolderReconcile, ReconcileStats,
+    RedbChunkStore, SweepRequest, SweepStats,
+};
 use crate::mutation_batch::MutationBatch;
+use std::collections::BTreeSet;
 
 /// Object-store-backed CAS. Chunk bytes live in S3/MinIO keyed by their digest;
 /// the manifests + refcounts live in a local redb sidecar (reusing
@@ -57,7 +61,7 @@ impl S3ChunkStore {
         Ok(Self {
             store: Box::new(store),
             prefix,
-            sidecar: RedbChunkStore::open(persist_dir)?,
+            sidecar: RedbChunkStore::open_external_chunk_sidecar(persist_dir)?,
             rt,
         })
     }
@@ -66,6 +70,21 @@ impl S3ChunkStore {
         // Sharded prefix keeps the object listing tractable: cas/chunks/ab/cd/<digest>.
         let (a, b) = (&digest[0..2], &digest[2..4]);
         ObjPath::from(format!("{}/{}/{}/{}", self.prefix, a, b, digest))
+    }
+
+    /// Delete the chunk objects a sidecar sweep plan reclaims; an object that is
+    /// already gone counts as deleted. Returns how many were planned.
+    fn delete_chunk_objects(&self, digests: &BTreeSet<String>) -> Result<u64, String> {
+        for digest in digests {
+            let path = self.chunk_path(digest);
+            self.rt.block_on(async {
+                match self.store.delete(&path).await {
+                    Ok(_) | Err(object_store::Error::NotFound { .. }) => Ok(()),
+                    Err(error) => Err(error.to_string()),
+                }
+            })?;
+        }
+        Ok(digests.len() as u64)
     }
 }
 
@@ -140,24 +159,16 @@ impl ChunkStore for S3ChunkStore {
     }
 
     fn sweep(&self) -> Result<SweepStats, String> {
-        // Determine which chunks the sidecar GC would orphan, delete those objects
-        // from S3, then let the sidecar drop the manifests/refcounts. We compute the
-        // orphan object set BEFORE the sidecar sweep removes the manifests.
-        let orphans = self.sidecar.orphan_chunks_preview()?;
-        for digest in &orphans {
-            let path = self.chunk_path(digest);
-            self.rt.block_on(async {
-                match self.store.delete(&path).await {
-                    Ok(_) | Err(object_store::Error::NotFound { .. }) => Ok(()),
-                    Err(e) => Err(e.to_string()),
-                }
-            })?;
-        }
-        // The sidecar sweep reclaims manifests + refcounts. Its `chunks_reclaimed`
-        // counts sidecar chunk rows (there are none in S3 mode), so report the S3
-        // object deletions instead.
+        // Delete the objects the sidecar plan reclaims BEFORE the sidecar sweep
+        // drops the manifests that name them. The sidecar sweep decides again at
+        // its own (later) instant, so it can only reclaim more rows, which leaves
+        // an unreferenced object behind rather than a manifest without its bytes.
+        let request = SweepRequest::default();
+        let now = crate::server::dispatch::authoritative_now_ms();
+        let deleted =
+            self.delete_chunk_objects(&self.sidecar.sweep_preview_chunks(&request, now)?)?;
         let mut stats = self.sidecar.sweep()?;
-        stats.chunks_reclaimed = orphans.len() as u64;
+        stats.chunks_reclaimed = deleted;
         Ok(stats)
     }
 
@@ -175,69 +186,18 @@ impl ChunkStore for S3ChunkStore {
         self.sidecar.mutation_version(tenant, graph)
     }
 
-    fn commit_cursor_batch(
-        &self,
-        batch: &MutationBatch,
-        cursor: u64,
-        committed_at_ms: u64,
-    ) -> Result<u64, String> {
-        self.sidecar
-            .commit_cursor_batch(batch, cursor, committed_at_ms)
-    }
-
-    fn put_chunk_batch(
-        &self,
-        bytes: &[u8],
-        batch: &MutationBatch,
-        committed_at_ms: u64,
-    ) -> Result<(String, bool), String> {
-        // Content-addressed PUT is intrinsically retry-idempotent. The sidecar's
-        // terminal batch/outbox record is the authority: a crash after PUT but
-        // before sidecar commit retries the same digest, then commits once.
-        let result = self.put_chunk(bytes)?;
-        self.sidecar
-            .record_native_batch_result(batch, result, committed_at_ms)
-    }
-
-    fn put_manifest_batch(
-        &self,
-        blob_digest: &str,
-        manifest: &BlobManifest,
-        batch: &MutationBatch,
-        committed_at_ms: u64,
-    ) -> Result<String, String> {
-        self.sidecar
-            .put_manifest_batch(blob_digest, manifest, batch, committed_at_ms)
-    }
-
-    fn adjust_ref_batch(
-        &self,
-        blob_digest: &str,
-        delta: i64,
-        batch: &MutationBatch,
-        committed_at_ms: u64,
-    ) -> Result<u64, String> {
-        self.sidecar
-            .adjust_ref_batch(blob_digest, delta, batch, committed_at_ms)
-    }
-
     fn sweep_batch(
         &self,
+        request: &SweepRequest,
         batch: &MutationBatch,
         committed_at_ms: u64,
     ) -> Result<SweepStats, String> {
-        let orphans = self.sidecar.orphan_chunks_preview()?;
-        for digest in &orphans {
-            let path = self.chunk_path(digest);
-            self.rt.block_on(async {
-                match self.store.delete(&path).await {
-                    Ok(_) | Err(object_store::Error::NotFound { .. }) => Ok(()),
-                    Err(error) => Err(error.to_string()),
-                }
-            })?;
-        }
+        let planned = self
+            .sidecar
+            .sweep_preview_chunks(request, committed_at_ms)?;
+        let deleted = self.delete_chunk_objects(&planned)?;
         self.sidecar
-            .sweep_batch_with_external_chunks(batch, committed_at_ms, orphans.len() as u64)
+            .sweep_batch_with_external_chunks(request, batch, committed_at_ms, deleted)
     }
 
     fn begin_upload_batch(
@@ -279,5 +239,28 @@ impl ChunkStore for S3ChunkStore {
     ) -> Result<String, String> {
         self.sidecar
             .commit_upload_batch(cursor, batch, committed_at_ms)
+    }
+
+    fn upload_cursor_high_water(&self) -> Result<u64, String> {
+        self.sidecar.upload_cursor_high_water()
+    }
+
+    fn holder_batch(
+        &self,
+        change: &HolderChange,
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<HolderOutcome, String> {
+        self.sidecar.holder_batch(change, batch, committed_at_ms)
+    }
+
+    fn reconcile_holders_batch(
+        &self,
+        request: &HolderReconcile,
+        batch: &MutationBatch,
+        committed_at_ms: u64,
+    ) -> Result<ReconcileStats, String> {
+        self.sidecar
+            .reconcile_holders_batch(request, batch, committed_at_ms)
     }
 }

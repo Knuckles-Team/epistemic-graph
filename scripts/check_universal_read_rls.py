@@ -270,7 +270,11 @@ def main() -> None:
     jobs = read_module_tree("src/server/handlers/jobs.rs", root_dir=ROOT)
     blob_handler = read("src/server/handlers/blob.rs")
     blob_state = read("src/server/blob/mod.rs")
-    blob_store = read("src/server/blob/store.rs")
+    # `store.rs` split into holders/gc/manifest/policy/uploads/format submodules
+    # (PB4, blob CAS hardening): walk the declared tree, as `jobs` already does
+    # above, so the owner-scope field the split moved into `store/manifest.rs`
+    # is still seen.
+    blob_store = read_module_tree("src/server/blob/store.rs", root_dir=ROOT)
     kv = read("src/server/kv.rs")
     channels = read("src/channels.rs")
     sqlite_file = read("src/server/handlers/sqlite_file.rs")

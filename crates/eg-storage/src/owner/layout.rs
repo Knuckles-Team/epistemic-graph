@@ -1,6 +1,5 @@
-use crate::owner::contract::{expected_owner_table_contract, ledger_table_contract};
-use crate::owner::registry::owner_table_names;
-use crate::physical::manifest::hash_table_contract;
+use crate::owner::contract::expected_table_contracts;
+use crate::physical::manifest::{hash_table_contract, TableContract};
 use eg_types::mutation_batch::DurabilityDomain;
 use eg_types::MutationScopeIdentity;
 use serde::{Deserialize, Serialize};
@@ -127,17 +126,23 @@ impl OwnerLayout {
     }
 
     pub(crate) fn digest(self) -> [u8; 32] {
-        let mut hasher = Sha256::new();
-        hasher.update(OWNER_LAYOUT_DOMAIN);
-        hasher.update(self.canonical_name().as_bytes());
-        for table in crate::tables::ledger_table_names() {
-            hash_table_contract(&mut hasher, &ledger_table_contract(table));
-        }
-        for table in owner_table_names(self) {
-            hash_table_contract(&mut hasher, &expected_owner_table_contract(table, self));
-        }
-        hasher.finalize().into()
+        layout_digest_over(self, &expected_table_contracts(self))
     }
+}
+
+/// The layout digest over an explicit contract list, ledger tables first.
+///
+/// [`OwnerLayout::digest`] is this over the compiled contracts; a persisted
+/// manifest's own contract list gives the digest that file was written under,
+/// which is how a predecessor file is told apart from a corrupt one.
+pub(crate) fn layout_digest_over(layout: OwnerLayout, contracts: &[TableContract]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(OWNER_LAYOUT_DOMAIN);
+    hasher.update(layout.canonical_name().as_bytes());
+    for contract in contracts {
+        hash_table_contract(&mut hasher, contract);
+    }
+    hasher.finalize().into()
 }
 
 pub(crate) fn layout_domain_tag() -> &'static [u8] {

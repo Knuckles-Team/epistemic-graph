@@ -145,6 +145,38 @@ async fn resolve_cursors(
     }
 }
 
+/// Reserve a never-used cursor id and compile the durable `BlobBegin` batch
+/// against it, in one place so `handle_blob_begin` sees ONE fallible step
+/// rather than three.
+///
+/// BUG A2 (2026-08-12): `BlobBegin`'s `Method` payload carries no upload
+/// identity of its own (it is the call that MINTS one), so the durable
+/// idempotency key must use the freshly allocated cursor id, never `req_id`.
+/// See `compile_blob_batch_at`'s doc for the full mechanism.
+fn prepare_begin_upload(
+    cursors: &BlobCursors,
+    authority: &CarrierAuthority,
+    method: &Method,
+    attempt_nonce: Option<Nonce>,
+) -> Result<(u64, MutationBatch, u64), String> {
+    let proposed = cursors.allocate_upload_id()?;
+    let expected = cursors.store.mutation_version(
+        authority.tenant_scope(),
+        &authority.namespace("blob-cas", "control"),
+    )?;
+    let now = crate::server::dispatch::authoritative_now_ms();
+    let (batch, now) = compile_blob_batch_at_with_nonce(
+        cursors.store.as_ref(),
+        proposed,
+        authority,
+        method,
+        expected,
+        now,
+        attempt_nonce,
+    )?;
+    Ok((proposed, batch, now))
+}
+
 async fn handle_blob_begin(
     cursors: &BlobCursors,
     req_id: u64,
@@ -158,31 +190,11 @@ async fn handle_blob_begin(
     } else {
         chunk_size
     };
-    // BUG A2 (2026-08-12): `BlobBegin`'s `Method` payload carries no upload
-    // identity of its own (it is the call that MINTS one), so the durable
-    // idempotency key must use the freshly allocated cursor id, never `req_id`.
-    // See `compile_blob_batch_at`'s doc for the full mechanism.
-    let proposed = cursors.allocate_upload_id();
-    let expected = match cursors.store.mutation_version(
-        authority.tenant_scope(),
-        &authority.namespace("blob-cas", "control"),
-    ) {
-        Ok(version) => version,
-        Err(error) => return Ok(Response::err(req_id, error)),
-    };
-    let now = crate::server::dispatch::authoritative_now_ms();
-    let (batch, now) = match compile_blob_batch_at_with_nonce(
-        cursors.store.as_ref(),
-        proposed,
-        authority,
-        method,
-        expected,
-        now,
-        attempt_nonce,
-    ) {
-        Ok(value) => value,
-        Err(error) => return Ok(Response::err(req_id, error)),
-    };
+    let (proposed, batch, now) =
+        match prepare_begin_upload(cursors, authority, method, attempt_nonce) {
+            Ok(prepared) => prepared,
+            Err(error) => return Ok(Response::err(req_id, error)),
+        };
     let store = cursors.store.clone();
     let owner_scope = authority.owner_scope().to_string();
     let committed = run_blocking(req_id, move || {
@@ -365,7 +377,7 @@ async fn handle_blob_ref(
         attempt_nonce,
         method,
         digest,
-        1,
+        store::HolderChange::owner_acquire,
     )
     .await
 }
@@ -385,9 +397,36 @@ async fn handle_blob_unref(
         attempt_nonce,
         method,
         digest,
-        -1,
+        store::HolderChange::owner_release,
     )
     .await
+}
+
+/// Validate ownership, resolve the caller's named holder change, and compile
+/// the durable batch for it — one fallible step for `handle_blob_ref_op`
+/// instead of three.
+///
+/// The caller's reference is held under its own owner scope, so a retry or a
+/// replay of the same reference is one holder row, never a second count.
+fn prepare_blob_ref_op(
+    cursors: &BlobCursors,
+    req_id: u64,
+    authority: &CarrierAuthority,
+    attempt_nonce: Option<Nonce>,
+    method: &Method,
+    digest: &str,
+    change: fn(&str, &str) -> Result<store::HolderChange, String>,
+) -> Result<(store::HolderChange, MutationBatch, u64), String> {
+    ensure_blob_owner(cursors, digest, authority.owner_scope())?;
+    let change = change(digest, authority.owner_scope())?;
+    let (batch, now) = compile_blob_batch_with_nonce(
+        cursors.store.as_ref(),
+        req_id,
+        authority,
+        method,
+        attempt_nonce,
+    )?;
+    Ok((change, batch, now))
 }
 
 async fn handle_blob_ref_op<M>(
@@ -397,28 +436,29 @@ async fn handle_blob_ref_op<M>(
     attempt_nonce: Option<Nonce>,
     method: &Method,
     digest: String,
-    delta: i64,
+    change: fn(&str, &str) -> Result<store::HolderChange, String>,
 ) -> Result<Response, Method>
 where
     M: eg_types::result_contract::MethodResult<Body = u64>,
     M::Encoding: eg_types::result_contract::EncodeScalar<u64>,
 {
-    if let Err(error) = ensure_blob_owner(cursors, &digest, authority.owner_scope()) {
-        return Ok(Response::err(req_id, error));
-    }
-    let (batch, now) = match compile_blob_batch_with_nonce(
-        cursors.store.as_ref(),
+    let (change, batch, now) = match prepare_blob_ref_op(
+        cursors,
         req_id,
         authority,
-        method,
         attempt_nonce,
+        method,
+        &digest,
+        change,
     ) {
-        Ok(value) => value,
+        Ok(prepared) => prepared,
         Err(error) => return Ok(Response::err(req_id, error)),
     };
     let store = cursors.store.clone();
     ref_op::<M, _>(req_id, move || {
-        store.adjust_ref_batch(&digest, delta, &batch, now)
+        store
+            .holder_batch(&change, &batch, now)
+            .map(|outcome| outcome.holders)
     })
     .await
 }
@@ -444,7 +484,8 @@ async fn handle_blob_gc(
         Err(error) => return Ok(Response::err(req_id, error)),
     };
     let store = cursors.store.clone();
-    let swept = run_blocking(req_id, move || store.sweep_batch(&batch, now)).await;
+    let request = store::SweepRequest::new(store::GcOwnerScope::AllOwners, cursors.retention());
+    let swept = run_blocking(req_id, move || store.sweep_batch(&request, &batch, now)).await;
     match swept {
         Ok(Ok(stats)) => Ok(Response::ok(
             req_id,

@@ -113,6 +113,14 @@ const BLOB_CHUNKS: TableDefinition<'static, &str, &[u8]> = TableDefinition::new(
 const BLOB_OBJECTS: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("cas_blobs");
 const BLOB_REFS: TableDefinition<'static, &str, u64> = TableDefinition::new("cas_refcount");
 const BLOB_UPLOADS: TableDefinition<'static, u64, &[u8]> = TableDefinition::new("cas_uploads");
+// Holder-scoped blob references: one row per (digest, holder), the only rows
+// `cas_refcount` counts. Retention records each manifest's latest commit time
+// for the GC grace period; counters hold the never-reused upload cursor
+// high-water mark.
+const BLOB_HOLDERS: TableDefinition<'static, (&str, &str), &[u8]> =
+    TableDefinition::new("cas_holders");
+const BLOB_RETENTION: TableDefinition<'static, &str, u64> = TableDefinition::new("cas_retention");
+const BLOB_COUNTERS: TableDefinition<'static, &str, u64> = TableDefinition::new("cas_counters");
 pub const SEMANTIC_BINDINGS: TableDefinition<'static, (&str, &str, u64), &[u8]> =
     TableDefinition::new("semantic_bindings");
 pub const SEMANTIC_HEADS: TableDefinition<'static, (&str, &str), u64> =
@@ -277,6 +285,9 @@ macro_rules! visit_owner_tables {
                 $visit!(BLOB_OBJECTS);
                 $visit!(BLOB_REFS);
                 $visit!(BLOB_UPLOADS);
+                $visit!(BLOB_HOLDERS);
+                $visit!(BLOB_RETENTION);
+                $visit!(BLOB_COUNTERS);
             }
             OwnerLayout::SemanticIndex => {
                 $visit!(SEMANTIC_BINDINGS);
@@ -494,7 +505,15 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
             "__sql_property_graphs__",
             "__sql_property_graph_seq__",
         ],
-        OwnerLayout::Blob => &["cas_chunks", "cas_blobs", "cas_refcount", "cas_uploads"],
+        OwnerLayout::Blob => &[
+            "cas_chunks",
+            "cas_blobs",
+            "cas_refcount",
+            "cas_uploads",
+            "cas_holders",
+            "cas_retention",
+            "cas_counters",
+        ],
         OwnerLayout::SemanticIndex => &[
             "semantic_bindings",
             "semantic_binding_heads",

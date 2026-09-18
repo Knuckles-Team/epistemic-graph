@@ -42,6 +42,9 @@ pub use owner::grant::{AuthenticatedScopeGrant, ScopeGrantVerifier};
 pub use owner::handle::OwnedStoreHandle;
 pub use owner::identity::PhysicalStoreIdentity;
 pub use owner::layout::OwnerLayout;
+pub use owner::persisted_layout::{
+    create_predecessor_owner_file, refuse_known_predecessor, LayoutPredecessor,
+};
 pub use owner::registry::{
     declared_table_names, owner_table_names, AGENT_COMPONENT_HEADS, AGENT_COMPONENT_REVISIONS,
     AGENT_GRAPH_HEADS, AGENT_GRAPH_REVISIONS, AGENT_LIBRARY_HEADS, AGENT_LIBRARY_REVISIONS,

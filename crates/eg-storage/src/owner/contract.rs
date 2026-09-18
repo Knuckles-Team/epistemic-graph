@@ -182,12 +182,16 @@ fn domain_owner_key_type(name: &str) -> Option<&'static str> {
         // One arm, not four: every RF-ADR-008 layer's head table is keyed the
         // same `(tenant, id)` way, and four identical arms were four branches
         // saying one thing.
+        // `cas_holders` shares the shape: one row per (blob digest, holder).
         "agent_library_heads"
         | "agent_graph_heads"
         | "agent_component_heads"
-        | "agent_template_heads" => Some("(&str,&str)"),
+        | "agent_template_heads"
+        | "cas_holders" => Some("(&str,&str)"),
         "eg_kvcache_cold" => Some("&[u8]"),
-        "cas_chunks" | "cas_refcount" | "cas_blobs" => Some("&str"),
+        "cas_chunks" | "cas_refcount" | "cas_blobs" | "cas_retention" | "cas_counters" => {
+            Some("&str")
+        }
         "rbac"
         | "path_index"
         | "statechart_defs"
@@ -254,6 +258,8 @@ fn value_type_id(name: &str) -> &'static str {
         "ledger_versions"
         | "analytics_job_scheduler_meta"
         | "cas_refcount"
+        | "cas_retention"
+        | "cas_counters"
         | "verified_request_replay"
         | "semantic_binding_heads" => "u64",
         "agent_library_heads"
@@ -299,6 +305,7 @@ fn value_type_id(name: &str) -> &'static str {
         | "cas_chunks"
         | "cas_blobs"
         | "cas_uploads"
+        | "cas_holders"
         | "semantic_bindings"
         | "semantic_stage_transitions"
         | "semantic_binding_state_transitions"
@@ -392,6 +399,8 @@ fn ledger_and_job_codec(name: &str) -> Option<&'static str> {
         | "analytics_job_by_deadline"
         | "analytics_job_cancellation_reconcile"
         | "cas_refcount"
+        | "cas_retention"
+        | "cas_counters"
         | "verified_request_replay"
         | "semantic_binding_heads"
         | "agent_library_heads"
@@ -424,32 +433,45 @@ fn semantic_codec(name: &str) -> Option<&'static str> {
     })
 }
 
+/// Every name in `names` maps to `codec`, nothing else does. A shared shape
+/// for the several `logical_codec_id` helpers whose whole table collapses to
+/// one output literal (`mutation_family_codec` below), so growing one of
+/// them doesn't reduce to the same "match a set, else None" control flow
+/// `semantic_codec` already has under a different name (dupehound).
+fn one_codec_for(name: &str, names: &[&str], codec: &'static str) -> Option<&'static str> {
+    names.contains(&name).then_some(codec)
+}
+
 /// `logical_codec_id`'s mutation-store/outbox/statechart/series family.
 fn mutation_family_codec(name: &str) -> Option<&'static str> {
-    Some(match name {
-        "mutation_store_root"
-        | "mutation_scope_bindings"
-        | "mutation_owner_manifest"
-        | "ledger_batches"
-        | "ledger_fences"
-        | "ledger_outbox"
-        | "mutation_outbox_deliveries"
-        | "mutation_outbox_cursors"
-        | "mutation_outbox_claim_cursors"
-        | "mutation_outbox_fairness"
-        | "mutation_replay_operations"
-        | "mutation_classes"
-        | "analytics_jobs"
-        | "job_intents"
-        | "analytics_job_knowledge_batches"
-        | "statechart_defs"
-        | "statechart_instances"
-        | "series_meta"
-        | "series_projection_state"
-        | "cas_blobs"
-        | "cas_uploads" => "msgpack-v1",
-        _ => return None,
-    })
+    one_codec_for(
+        name,
+        &[
+            "mutation_store_root",
+            "mutation_scope_bindings",
+            "mutation_owner_manifest",
+            "ledger_batches",
+            "ledger_fences",
+            "ledger_outbox",
+            "mutation_outbox_deliveries",
+            "mutation_outbox_cursors",
+            "mutation_outbox_claim_cursors",
+            "mutation_outbox_fairness",
+            "mutation_replay_operations",
+            "mutation_classes",
+            "analytics_jobs",
+            "job_intents",
+            "analytics_job_knowledge_batches",
+            "statechart_defs",
+            "statechart_instances",
+            "series_meta",
+            "series_projection_state",
+            "cas_blobs",
+            "cas_uploads",
+            "cas_holders",
+        ],
+        "msgpack-v1",
+    )
 }
 
 fn table_capabilities(name: &str) -> u16 {
@@ -520,7 +542,10 @@ fn index_and_scalar_capabilities(name: &str) -> Option<u16> {
         | "node_info"
         | "node_info_meta"
         | "cluster_hierarchy"
-        | "cas_uploads" => CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE,
+        | "cas_uploads"
+        | "cas_holders"
+        | "cas_retention"
+        | "cas_counters" => CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE,
         _ => return None,
     })
 }

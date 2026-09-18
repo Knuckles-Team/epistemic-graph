@@ -30,7 +30,10 @@ fn owner_layout_registry_has_frozen_cardinality() {
     assert_eq!(owner_table_names(OwnerLayout::Statechart).len(), 2);
     assert_eq!(owner_table_names(OwnerLayout::TimeSeries).len(), 3);
     assert_eq!(owner_table_names(OwnerLayout::Kv).len(), 2);
-    assert_eq!(owner_table_names(OwnerLayout::Blob).len(), 4);
+    // Seven: the four pre-existing CAS tables plus the holder rows, manifest
+    // retention and upload cursor high-water mark PB4 added (`cas_holders`,
+    // `cas_retention`, `cas_counters`).
+    assert_eq!(owner_table_names(OwnerLayout::Blob).len(), 7);
     // Seventeen: the checkpoint-head pointer is a separate durable registry
     // table alongside the existing generation checkpoint rows.
     let semantic_tables = owner_table_names(OwnerLayout::SemanticIndex);
@@ -125,7 +128,11 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
     // each. All six are `DomainService`, reached only through the store's own
     // admitted owner write, so `shared` is still the same two blob tables:
     // 126 = 120 + 6, service 124 = 118 + 6.
-    assert_eq!((names.len(), service, shared), (126, 124, 2));
+    // 126 -> 129: the Blob layout's holder rows, manifest retention and upload
+    // cursor high-water (`cas_holders`, `cas_retention`, `cas_counters`). All
+    // three are `DomainService` rows written through the blob store's admitted
+    // owner write, so `shared` stays the two CAS tables: service 127 = 124 + 3.
+    assert_eq!((names.len(), service, shared), (129, 127, 2));
 }
 
 #[test]
@@ -539,6 +546,33 @@ fn signed_blob_layout_uses_domain_services_and_shared_cas_authority() {
             CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE,
             OwnerTableAccess::DomainService,
         ),
+        (
+            "cas_holders",
+            "(&str,&str)",
+            "&[u8]",
+            TableScope::StorePrivate,
+            "msgpack-v1",
+            CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE,
+            OwnerTableAccess::DomainService,
+        ),
+        (
+            "cas_retention",
+            "&str",
+            "u64",
+            TableScope::StorePrivate,
+            "redb-scalar-v1",
+            CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE,
+            OwnerTableAccess::DomainService,
+        ),
+        (
+            "cas_counters",
+            "&str",
+            "u64",
+            TableScope::StorePrivate,
+            "redb-scalar-v1",
+            CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE,
+            OwnerTableAccess::DomainService,
+        ),
     ] {
         let table = owner_contract(OwnerLayout::Blob, name);
         assert_eq!(
@@ -751,7 +785,9 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     // Every one of them is a durable mutation table, so a plain (non-mutation)
     // recovery must refuse a file carrying its marker exactly as it refuses
     // `agent_library`'s.
-    assert_eq!(names.len(), 144);
+    // 144 -> 147: the Blob layout's holder rows, manifest retention and upload
+    // cursor high-water mark (`cas_holders`, `cas_retention`, `cas_counters`).
+    assert_eq!(names.len(), 147);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();

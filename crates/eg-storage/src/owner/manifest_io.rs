@@ -55,6 +55,18 @@ pub(crate) fn read_manifest<T>(table: &T) -> Result<OwnerManifest, String>
 where
     T: redb::ReadableTable<&'static str, &'static [u8]>,
 {
+    let manifest = read_manifest_slot(table)?;
+    manifest.validate()?;
+    Ok(manifest)
+}
+
+/// Decode the single manifest row WITHOUT validating it against this build's
+/// layouts, so a predecessor file can be identified rather than refused as a
+/// generic mismatch. Callers that serve the store use [`read_manifest`].
+pub(crate) fn read_manifest_slot<T>(table: &T) -> Result<OwnerManifest, String>
+where
+    T: redb::ReadableTable<&'static str, &'static [u8]>,
+{
     let mut rows = table.iter().map_err(|error| error.to_string())?;
     let Some(first) = rows.next() else {
         return Err("mutation owner manifest is missing".to_string());
@@ -69,9 +81,7 @@ where
     {
         return Err("mutation store must contain exactly one owner manifest".to_string());
     }
-    let manifest: OwnerManifest = decode_ledger_record(value.value())?;
-    manifest.validate()?;
-    Ok(manifest)
+    decode_ledger_record(value.value())
 }
 
 pub(crate) fn write_new_manifest(

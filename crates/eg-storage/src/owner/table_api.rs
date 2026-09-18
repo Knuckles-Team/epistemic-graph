@@ -63,6 +63,9 @@ declared_owner_tables!(
     SeriesProjectionRows: TimeSeriesOwner => (String, Vec<u8>, "series_projection_state"),
     BlobRows: BlobOwner => (String, Vec<u8>, "cas_blobs"),
     BlobUploadRows: BlobOwner => (u64, Vec<u8>, "cas_uploads"),
+    BlobHolderRows: BlobOwner => ((String, String), Vec<u8>, "cas_holders"),
+    BlobRetentionRows: BlobOwner => (String, u64, "cas_retention"),
+    BlobCounterRows: BlobOwner => (String, u64, "cas_counters"),
     SemanticBindingRows: SemanticIndexOwner => ((String, String, u64), Vec<u8>, "semantic_bindings"),
     SemanticBindingHeadRows: SemanticIndexOwner => ((String, String), u64, "semantic_binding_heads"),
     SemanticStageRows: SemanticIndexOwner => ((String, String, String), Vec<u8>, "semantic_stage_transitions"),
@@ -125,6 +128,9 @@ pub(crate) fn owner_table_access(table: &str) -> OwnerTableAccess {
         | "series_projection_state"
         | "cas_blobs"
         | "cas_uploads"
+        | "cas_holders"
+        | "cas_retention"
+        | "cas_counters"
         | "semantic_bindings"
         | "semantic_binding_heads"
         | "semantic_stage_transitions"
