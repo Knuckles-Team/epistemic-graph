@@ -17,6 +17,7 @@ from ._model import Provenance
 from ._rng import SeededStream
 from .graph_corpus import (
     EPISODE_TYPE,
+    ONTOLOGY_NODE_IDS,
     ONTOLOGY_TURTLE,
     AnalyticsFixture,
     CorpusEdge,
@@ -112,6 +113,14 @@ def _analytics_fixture(
         CorpusEdge(source_id=spoke, target_id=hub_id, relationship="REPORTS_TO")
         for spoke in spoke_ids
     )
+    # `total_other_nodes` must be the FULL count of every other node the served
+    # engine will hold once the corpus is ingested -- not only the explicitly
+    # planted core/analytics nodes. `ingest_memory_corpus` also stages
+    # `ONTOLOGY_TURTLE` as an OWL axiom, which the server lowers to two more
+    # graph nodes (see `ONTOLOGY_NODE_IDS`'s docstring in `graph_corpus.py`);
+    # omitting them here understates the denominator and the oracle's
+    # `expected_hub_centrality`/`expected_spoke_centrality` silently diverge
+    # from what `Op::DegreeCentrality` actually returns against the real graph.
     total_nodes = total_other_nodes + len(nodes)
     denom = total_nodes - 1
     return (
@@ -168,7 +177,9 @@ def generate_memory_corpus(seed: int) -> MemoryCorpus:
     )
 
     analytics_nodes, analytics_edges, analytics = _analytics_fixture(
-        salt, stream.child("analytics"), len(core_nodes)
+        salt,
+        stream.child("analytics"),
+        len(core_nodes) + len(ONTOLOGY_NODE_IDS),
     )
     series = _series_fixture(salt, stream.child("series"))
 

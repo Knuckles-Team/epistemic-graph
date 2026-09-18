@@ -25,12 +25,25 @@ GENERATOR_VERSION = 1
 
 QUERY_VECTOR: tuple[float, float, float] = (1.0, 0.0, 0.0)
 QUERY_TEXT = "kubernetes deployment rollout failure"
+EPISODE_CLASS_IRI = "<http://mem/Episode>"
 MEMORY_CLASS_IRI = "<http://mem/Memory>"
 EPISODE_TYPE = "Episode"
 ONTOLOGY_TURTLE = (
     "@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n"
-    "<http://mem/Episode> rdfs:subClassOf <http://mem/Memory> .\n"
+    f"{EPISODE_CLASS_IRI} rdfs:subClassOf {MEMORY_CLASS_IRI} .\n"
 )
+# `ingest_memory_corpus` stages this ONE triple through the server's OWL-axiom
+# path, which parses it and lowers it to plain graph mutations at stage time
+# (`stage_axiom` in `src/server/handlers/txn/staging.rs`; the actual node/edge
+# construction is `lower_one_triple` in `crates/eg-rdf/src/mapping/lowering.rs`).
+# A triple with a resource (non-literal) object turns BOTH its subject and
+# object IRI into a graph node via `AddNode` -- only a literal object skips
+# that -- plus one `AddEdge` between them. So this single `rdfs:subClassOf`
+# triple adds exactly these two nodes to the SAME topology graph the corpus's
+# own planted nodes land in; anything that counts "every node in the graph"
+# (e.g. the analytics oracle's degree-centrality denominator below) must
+# count them too, or it silently diverges from what the server actually holds.
+ONTOLOGY_NODE_IDS: tuple[str, ...] = (EPISODE_CLASS_IRI, MEMORY_CLASS_IRI)
 
 
 class CorpusNode(SyntheticModel):

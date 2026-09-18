@@ -11,6 +11,7 @@ import pytest
 
 from epistemic_graph.testing.synthetic.graph_corpus import (
     EPISODE_TYPE,
+    ONTOLOGY_NODE_IDS,
     QUERY_TEXT,
     QUERY_VECTOR,
 )
@@ -129,7 +130,12 @@ def test_analytics_fan_in_and_centrality_are_exact(corpus) -> None:
     for spoke in spokes:
         assert out_degree.get(spoke, 0) == 1 and in_degree.get(spoke, 0) == 0
 
-    denom = len(corpus.nodes) - 1
+    # The served graph also holds the two class nodes the OWL axiom's
+    # `rdfs:subClassOf` triple lowers to (`ONTOLOGY_NODE_IDS`; see its
+    # docstring in `graph_corpus.py`) -- `corpus.nodes` alone (the explicitly
+    # planted property-graph nodes) undercounts the real graph by exactly that
+    # many.
+    denom = len(corpus.nodes) + len(ONTOLOGY_NODE_IDS) - 1
     assert corpus.analytics.expected_hub_centrality == len(spokes) / denom
     assert corpus.analytics.expected_spoke_centrality == 1 / denom
     assert (
