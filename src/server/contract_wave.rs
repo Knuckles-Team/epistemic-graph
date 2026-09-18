@@ -35,6 +35,18 @@ pub(crate) fn not_yet_served(req_id: u64, surface: &'static str) -> Response {
 /// generated function's signature, and this block does not vary with that at
 /// all, so leaving it inline in both was the one piece of the macro that was
 /// really copy-pasted rather than templated.
+///
+/// `#[macro_export]`, invoked from `contract_wave_stub!` via `$crate::`, not
+/// left as a bare name: `contract_wave_stub!` expands at each stub's own
+/// module (fourteen of them, none of them this one), and a `macro_rules!`
+/// macro brought into scope by a plain `pub(crate) use` is only visible to a
+/// NESTED invocation from the scope where the OUTER macro was itself
+/// DEFINED, not from wherever it gets invoked. `$crate::name!` is the
+/// portable way to reach another macro from inside one, mirroring how this
+/// same file already reaches a plain function (`crate::server::contract_wave
+/// ::not_yet_served`) from inside `contract_wave_stub!` by absolute path
+/// rather than a bare name.
+#[macro_export]
 macro_rules! contract_wave_stub_test {
     ($test:ident, $surface:literal) => {
         #[cfg(test)]
@@ -67,7 +79,7 @@ macro_rules! contract_wave_stub {
             crate::server::contract_wave::not_yet_served(req_id, $surface)
         }
 
-        contract_wave_stub_test!($test, $surface);
+        $crate::contract_wave_stub_test!($test, $surface);
     };
     (
         $(#[$stub_meta:meta])*
@@ -81,12 +93,11 @@ macro_rules! contract_wave_stub {
             crate::server::contract_wave::not_yet_served(req_id, $surface)
         }
 
-        contract_wave_stub_test!($test, $surface);
+        $crate::contract_wave_stub_test!($test, $surface);
     };
 }
 
 pub(crate) use contract_wave_stub;
-pub(crate) use contract_wave_stub_test;
 
 /// Assert that `surface` has a refusal body naming it, and nothing else.
 ///
