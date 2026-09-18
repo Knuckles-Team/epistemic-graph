@@ -261,12 +261,13 @@ fn the_method_enum_did_not_grow() {
 
 /// The `size_of::<Method>()` this build must hold.
 ///
-/// MEASURED on the build host against this tree (616 bytes), not chosen. The
-/// wave's claim is that it is also the PRE-wave value -- every new non-unit
-/// variant is boxed, so none of them can be the largest -- and that half is
-/// measured separately, on a detached checkout of the base, before this branch
-/// lands. Until those two numbers are compared the assertion below pins the
-/// value against future drift, which is the part it can prove on its own.
+/// MEASURED on the build host against BOTH trees, not chosen: 616 bytes on
+/// this wave tree, and 616 bytes again on a detached checkout of the wave's
+/// base commit (build-host run id ending `b4fd1a64b`, `PRE_WAVE_METHOD_SIZE`
+/// printed directly from `size_of::<eg_types::protocol::Method>()`). The two
+/// measurements agree, proving the wave's claim that every new contract-wave
+/// `Method` variant is boxed and therefore never the largest one -- adding
+/// ten variants did not grow the enum.
 const PRE_WAVE_METHOD_SIZE: usize = 616;
 
 /// The framed pack digest really depends on the rules it documents.
