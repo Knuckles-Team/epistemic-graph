@@ -153,7 +153,18 @@ pub struct OutboxHeadView {
     pub age_ms: u64,
 }
 
-/// One consumer's standing on one outbox.
+/// One consumer's standing on one outbox -- the fields that mean the same
+/// thing regardless of WHICH durable outbox backs the view. Shared by
+/// [`MutationOutboxStatusView`] (this generic outbox) and
+/// [`crate::result_contract::ingestion::SemanticOutboxStatus`] (the
+/// semantic-index stage queue's own outbox), which otherwise built an
+/// identical 13-field struct independently; each view keeps its own
+/// system-specific fields (a schema version and the head-of-queue detail
+/// here, claim counters there) beside this rather than inside it, and this
+/// type is neither `#[serde(flatten)]`ed nor a wire-visible name of its
+/// own's alternative -- it is a genuinely nested field, precisely so both
+/// containers can keep `#[serde(deny_unknown_fields)]`, which `flatten`
+/// cannot coexist with.
 ///
 /// Several counters carry an explicit `_is_lower_bound` flag rather than being
 /// silently approximate: a saturated index can only be scanned so far, and an
@@ -162,8 +173,7 @@ pub struct OutboxHeadView {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct MutationOutboxStatusView {
-    pub schema_version: u16,
+pub struct OutboxConsumerStatus {
     pub consumer: String,
     #[serde(default)]
     pub topic: Option<String>,
@@ -180,6 +190,15 @@ pub struct MutationOutboxStatusView {
     pub lag_versions: u64,
     pub saturated: bool,
     pub index_complete: bool,
+}
+
+/// One consumer's standing on the generic mutation outbox.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct MutationOutboxStatusView {
+    pub schema_version: u16,
+    pub status: OutboxConsumerStatus,
     #[serde(default)]
     pub head: Option<OutboxHeadView>,
 }

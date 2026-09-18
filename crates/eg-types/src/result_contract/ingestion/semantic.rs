@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::mutation_outbox::OutboxConsumerStatus;
 use crate::semantic_index::SemanticDigest;
 
 /// Durable receipt returned by the semantic-index owner for a committed mutation.
@@ -39,25 +40,14 @@ pub struct SemanticSqlSourceReconciliationAdmission {
     pub source_bytes_seen: u64,
 }
 
-/// Wire view of the outbox status returned by the semantic stage queue.
+/// Wire view of the outbox status returned by the semantic stage queue. The
+/// fields every outbox-status view shares live in
+/// [`OutboxConsumerStatus`]; `consecutive_claims`/`total_claims` are this
+/// queue's own.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SemanticOutboxStatus {
-    pub consumer: String,
-    pub topic: Option<String>,
-    pub live: bool,
-    pub capacity: u32,
-    pub inflight: u32,
-    pub inflight_is_lower_bound: bool,
-    pub pending: u64,
-    pub pending_is_lower_bound: bool,
-    pub delivered: u64,
-    pub dead_lettered: u64,
-    pub oldest_pending_age_ms: u64,
-    pub lag_rows: u64,
-    pub lag_versions: u64,
-    pub saturated: bool,
+    pub status: OutboxConsumerStatus,
     pub consecutive_claims: u32,
     pub total_claims: u64,
-    pub index_complete: bool,
 }

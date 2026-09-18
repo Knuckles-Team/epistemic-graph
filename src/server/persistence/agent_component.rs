@@ -377,6 +377,69 @@ impl RevisionLayer for ComponentLayer {
 /// not have to name the library store to reach the graph surface.
 pub type AgentComponentStoreRef = Arc<AgentLibraryStore>;
 
+/// A minimal, valid `AgentComponentDraft` for `tenant_id`/`component_id`:
+/// every RF-020 contract field a caller doesn't override gets its "nothing
+/// declared" value (empty classification/dependency/capability lists, no
+/// attributes, `Opaque` facts, `Native` provenance). Every fixture builder in
+/// this module starts from this and overrides only what it actually varies,
+/// so the next mandatory `AgentComponentDraft` field is a one-line change
+/// here instead of a same-line change at every call site -- precisely the
+/// growth that pushed these builders' shared boilerplate over the clone
+/// gate's detection floor once already.
+#[cfg(test)]
+fn test_component_draft(
+    tenant_id: &str,
+    component_id: &str,
+) -> eg_types::agent_component::AgentComponentDraft {
+    eg_types::agent_component::AgentComponentDraft {
+        component_id: component_id.to_string(),
+        kind: eg_types::agent_component::AgentComponentKind::Tool,
+        version: "1.0.0".to_string(),
+        content_digest: format!("sha256:{}", "1".repeat(64)),
+        content_ref: None,
+        facts: eg_types::agent_component::AgentComponentFacts::Opaque,
+        provenance: eg_types::agent_component::ComponentProvenance::Native,
+        summary: format!("test component {component_id}"),
+        classification: Vec::new(),
+        requires: Vec::new(),
+        provides: Vec::new(),
+        declared_capabilities: Vec::new(),
+        required_capabilities: Vec::new(),
+        declared_required_capabilities: Vec::new(),
+        attributes: Default::default(),
+        tenant_id: tenant_id.to_string(),
+        actor_scope: "action-scope:a".to_string(),
+        purpose_id: "agent-component:publish".to_string(),
+        policy_digest: super::agent_library::current_agent_library_policy_digest().unwrap(),
+        source_revision: "rev-1".to_string(),
+        source_revision_digest: format!("sha256:{}", "8".repeat(64)),
+    }
+}
+
+/// The `AgentComponentFacts::Tool` shape every fixture in this module wants:
+/// `effect` varies, every selection/hint field stays at "not declared". A
+/// free function rather than inlining the 10 neutral fields at each of this
+/// module's two `Tool`-kind fixture builders, for the same reason
+/// `test_component_draft` exists.
+#[cfg(test)]
+fn test_tool_facts(
+    effect: eg_types::agent_component::ToolEffect,
+) -> eg_types::agent_component::AgentComponentFacts {
+    eg_types::agent_component::AgentComponentFacts::Tool {
+        effect,
+        required_scopes: Vec::new(),
+        input_schema_digest: None,
+        output_schema_digest: None,
+        read_only_hint: None,
+        destructive_hint: None,
+        idempotent_hint: None,
+        open_world_hint: None,
+        modalities: Default::default(),
+        cost: None,
+        latency_declared: None,
+    }
+}
+
 /// Publish one L1 component and return the pin that resolves it.
 ///
 /// Shared by every test module that has to build an agent, a template instance
@@ -396,8 +459,7 @@ pub(crate) fn seed_component_for_test(
     nonce_index: u8,
 ) -> eg_types::agent_component::ComponentDependency {
     use eg_types::agent_component::{
-        AgentComponentDraft, AgentComponentFacts, AgentComponentKind, ComponentProvenance,
-        PromptMode, ToolEffect,
+        AgentComponentDraft, AgentComponentFacts, AgentComponentKind, PromptMode, ToolEffect,
     };
     let definition_digest = match store
         .current_component(tenant_id, component_id)
@@ -411,19 +473,7 @@ pub(crate) fn seed_component_for_test(
                     token_estimate: 128,
                     variables: Vec::new(),
                 },
-                AgentComponentKind::Tool => AgentComponentFacts::Tool {
-                    effect: ToolEffect::Read,
-                    required_scopes: Vec::new(),
-                    input_schema_digest: None,
-                    output_schema_digest: None,
-                    read_only_hint: None,
-                    destructive_hint: None,
-                    idempotent_hint: None,
-                    open_world_hint: None,
-                    modalities: Default::default(),
-                    cost: None,
-                    latency_declared: None,
-                },
+                AgentComponentKind::Tool => test_tool_facts(ToolEffect::Read),
                 AgentComponentKind::Toolset => AgentComponentFacts::Toolset {
                     transport: eg_types::agent_component::ToolsetTransport::Function,
                 },
@@ -468,27 +518,13 @@ pub(crate) fn seed_component_for_test(
                     },
                     evaluation_receipt_digest: None,
                     component: AgentComponentDraft {
-                        component_id: component_id.to_string(),
                         kind,
-                        version: "1.0.0".to_string(),
-                        content_digest: format!("sha256:{}", "1".repeat(64)),
-                        content_ref: None,
                         facts,
-                        provenance: ComponentProvenance::Native,
                         summary: format!("seeded {component_id}"),
-                        classification: Vec::new(),
-                        requires: Vec::new(),
-                        provides: Vec::new(),
-                        declared_capabilities: Vec::new(),
-                        required_capabilities: Vec::new(),
-                        declared_required_capabilities: Vec::new(),
-                        attributes: Default::default(),
-                        tenant_id: tenant_id.to_string(),
                         actor_scope: "action-scope:component-seed".to_string(),
-                        purpose_id: "agent-component:publish".to_string(),
                         policy_digest,
                         source_revision: "component-seed:1".to_string(),
-                        source_revision_digest: format!("sha256:{}", "8".repeat(64)),
+                        ..test_component_draft(tenant_id, component_id)
                     },
                 })
                 .expect("the fixture's component publishes")
@@ -548,8 +584,8 @@ mod tests {
     use super::super::agent_fixtures::mutation_context;
     use super::*;
     use eg_types::agent_component::{
-        AgentComponentDraft, AgentComponentFacts, AgentComponentKind, AgentComponentSearchRequest,
-        ComponentDependency, ComponentProvenance, ToolEffect,
+        AgentComponentDraft, AgentComponentKind, AgentComponentSearchRequest, ComponentDependency,
+        ComponentProvenance, ToolEffect,
     };
 
     fn digest(byte: char) -> String {
@@ -571,31 +607,12 @@ mod tests {
     /// MCP server cannot itself be provenanced to one.
     fn mcp_server_draft(tenant_id: &str) -> AgentComponentDraft {
         AgentComponentDraft {
-            component_id: MCP_SERVER_ID.to_string(),
             kind: AgentComponentKind::McpServer,
-            version: "1.0.0".to_string(),
-            content_digest: digest('1'),
-            content_ref: None,
-            facts: AgentComponentFacts::Opaque,
-            provenance: ComponentProvenance::Native,
             summary: "the search mcp server".to_string(),
             // Deliberately unclassified: every task-constrained search in this
             // module asserts on which TOOLS it finds, and a seeded server that
             // matched a task would change those answers.
-            classification: Vec::new(),
-            requires: Vec::new(),
-            provides: Vec::new(),
-            declared_capabilities: Vec::new(),
-            required_capabilities: Vec::new(),
-            declared_required_capabilities: Vec::new(),
-            attributes: Default::default(),
-            tenant_id: tenant_id.to_string(),
-            actor_scope: "action-scope:a".to_string(),
-            purpose_id: "agent-component:publish".to_string(),
-            policy_digest: super::super::agent_library::current_agent_library_policy_digest()
-                .unwrap(),
-            source_revision: "rev-1".to_string(),
-            source_revision_digest: digest('8'),
+            ..super::test_component_draft(tenant_id, MCP_SERVER_ID)
         }
     }
 
@@ -636,24 +653,7 @@ mod tests {
         effect: ToolEffect,
     ) -> AgentComponentDraft {
         AgentComponentDraft {
-            component_id: component_id.to_string(),
-            kind: AgentComponentKind::Tool,
-            version: "1.0.0".to_string(),
-            content_digest: digest('1'),
-            content_ref: None,
-            facts: AgentComponentFacts::Tool {
-                effect,
-                required_scopes: Vec::new(),
-                input_schema_digest: None,
-                output_schema_digest: None,
-                read_only_hint: None,
-                destructive_hint: None,
-                idempotent_hint: None,
-                open_world_hint: None,
-                modalities: Default::default(),
-                cost: None,
-                latency_declared: None,
-            },
+            facts: super::test_tool_facts(effect),
             provenance: ComponentProvenance::McpServer {
                 server: ComponentDependency {
                     component_id: MCP_SERVER_ID.to_string(),
@@ -664,19 +664,7 @@ mod tests {
             },
             summary: format!("tool {component_id}"),
             classification: vec![capability.to_string()],
-            requires: Vec::new(),
-            provides: Vec::new(),
-            declared_capabilities: Vec::new(),
-            required_capabilities: Vec::new(),
-            declared_required_capabilities: Vec::new(),
-            attributes: Default::default(),
-            tenant_id: tenant_id.to_string(),
-            actor_scope: "action-scope:a".to_string(),
-            purpose_id: "agent-component:publish".to_string(),
-            policy_digest: super::super::agent_library::current_agent_library_policy_digest()
-                .unwrap(),
-            source_revision: "rev-1".to_string(),
-            source_revision_digest: digest('8'),
+            ..super::test_component_draft(tenant_id, component_id)
         }
     }
 
@@ -694,6 +682,30 @@ mod tests {
         let (dir, store) = super::super::agent_fixtures::open_agent_store();
         seed_mcp_server(&store, "tenant-a", SEED_NONCE);
         (dir, store)
+    }
+
+    /// Publish one `tenant-b` tool component per `(component_id, capability)`
+    /// pair in `tools`, each with a distinct nonce and idempotency key. Every
+    /// isolation/paging test that seeds a second tenant to prove it does not
+    /// leak shares this loop; only the tool list varies per caller.
+    fn seed_tenant_b_tools(store: &AgentLibraryStore, tools: &[(&str, &str)]) {
+        for (index, (id, capability)) in tools.iter().enumerate() {
+            let nonce = u8::try_from(index + 100).unwrap();
+            store
+                .publish_component(AgentComponentPublishRequest {
+                    context: context_for(
+                        "tenant-b",
+                        store,
+                        &format!("tenant-b-key-{index}"),
+                        nonce,
+                        0,
+                        "agent-component:publish",
+                    ),
+                    evaluation_receipt_digest: None,
+                    component: tool_for("tenant-b", id, capability, ToolEffect::Read),
+                })
+                .unwrap();
+        }
     }
 
     #[test]
