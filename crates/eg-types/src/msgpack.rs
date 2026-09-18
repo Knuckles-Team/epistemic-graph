@@ -186,8 +186,14 @@ fn scan_value(
             let count = length(input, cursor, 4)?;
             scan_map(input, cursor, count, depth, remaining_items, max_depth)
         }
-        // 0xc1 is reserved and every defined marker is covered above.
-        _ => Err(MsgpackValidationError),
+        // 0xc1 is reserved and every OTHER marker byte is covered above, so it is
+        // named explicitly instead of behind `_`: this match is exhaustive over
+        // the full `u8` range (rustc proves the range patterns above plus this
+        // literal cover all 256 values), which is what lets a future marker
+        // byte -- there is no such thing; MessagePack's marker space is fixed --
+        // or, more realistically, a typo'd/removed range above, fail to compile
+        // instead of silently falling through here.
+        0xc1 => Err(MsgpackValidationError),
     }
 }
 

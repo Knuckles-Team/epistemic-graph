@@ -354,7 +354,20 @@ fn logical_codec_id(name: &str) -> &'static str {
             _ => "msgpack-v1",
         };
     }
-    match name {
+    ledger_and_job_codec(name)
+        .or_else(|| semantic_codec(name))
+        .or_else(|| mutation_family_codec(name))
+        .unwrap_or_else(|| {
+            graph_shard::logical_codec(name)
+                .unwrap_or_else(|| unreachable!("table outside closed owner manifest: {name}"))
+        })
+}
+
+/// `logical_codec_id`'s ledger/analytics-job/misc-scalar tables -- matches
+/// over table names (`&str`, not a closed enum), so the fallthrough below is
+/// a real "not this group" result, not a discarded default.
+fn ledger_and_job_codec(name: &str) -> Option<&'static str> {
+    Some(match name {
         "ledger_private_payloads" => "authenticated-sealed-bytes-v1",
         "eg_ann" | "eg_kvcache_cold" | "cold_graphs" => "raw-bytes-v1",
         "path_index" | "viz_provenance" | "tenant_catalog" | "node_info" | "node_info_meta"
@@ -385,6 +398,13 @@ fn logical_codec_id(name: &str) -> &'static str {
         | "agent_graph_heads"
         | "agent_component_heads"
         | "agent_template_heads" => "redb-scalar-v1",
+        _ => return None,
+    })
+}
+
+/// `logical_codec_id`'s semantic-index tables.
+fn semantic_codec(name: &str) -> Option<&'static str> {
+    Some(match name {
         "semantic_bindings"
         | "semantic_stage_transitions"
         | "semantic_binding_state_transitions"
@@ -400,6 +420,13 @@ fn logical_codec_id(name: &str) -> &'static str {
         | "semantic_lexical_manifests"
         | "semantic_ann_manifests"
         | "semantic_vectors" => "semantic-index-bytes-v1",
+        _ => return None,
+    })
+}
+
+/// `logical_codec_id`'s mutation-store/outbox/statechart/series family.
+fn mutation_family_codec(name: &str) -> Option<&'static str> {
+    Some(match name {
         "mutation_store_root"
         | "mutation_scope_bindings"
         | "mutation_owner_manifest"
@@ -421,16 +448,29 @@ fn logical_codec_id(name: &str) -> &'static str {
         | "series_projection_state"
         | "cas_blobs"
         | "cas_uploads" => "msgpack-v1",
-        name => graph_shard::logical_codec(name)
-            .unwrap_or_else(|| unreachable!("table outside closed owner manifest: {name}")),
-    }
+        _ => return None,
+    })
 }
 
 fn table_capabilities(name: &str) -> u16 {
     if name.starts_with("__sql_") {
         return CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE;
     }
-    match name {
+    ledger_and_job_capabilities(name)
+        .or_else(|| index_and_scalar_capabilities(name))
+        .or_else(|| mutation_and_semantic_capabilities(name))
+        .or_else(|| agent_capabilities(name))
+        .unwrap_or_else(|| {
+            graph_shard::capabilities(name)
+                .unwrap_or_else(|| unreachable!("table outside closed owner manifest: {name}"))
+        })
+}
+
+/// `table_capabilities`'s ledger/analytics-job core tables -- matches over
+/// table names (`&str`, not a closed enum), so the fallthrough below is a
+/// real "not this group" result, not a discarded default.
+fn ledger_and_job_capabilities(name: &str) -> Option<u16> {
+    Some(match name {
         "mutation_store_root" | "mutation_owner_manifest" => CAP_READ | CAP_INSERT | CAP_UPDATE,
         "ledger_maintenance"
         | "ledger_outbox"
@@ -445,6 +485,13 @@ fn table_capabilities(name: &str) -> u16 {
         | "job_intents"
         | "analytics_job_scheduler_meta"
         | "statechart_instances" => CAP_READ | CAP_INSERT | CAP_UPDATE,
+        _ => return None,
+    })
+}
+
+/// `table_capabilities`'s index/scalar (CAS-capable and plain) tables.
+fn index_and_scalar_capabilities(name: &str) -> Option<u16> {
+    Some(match name {
         "ledger_private_payloads"
         | "mutation_outbox_topic_index"
         | "analytics_job_ready_by_priority"
@@ -474,6 +521,13 @@ fn table_capabilities(name: &str) -> u16 {
         | "node_info_meta"
         | "cluster_hierarchy"
         | "cas_uploads" => CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE,
+        _ => return None,
+    })
+}
+
+/// `table_capabilities`'s mutation-outbox/semantic-pipeline family.
+fn mutation_and_semantic_capabilities(name: &str) -> Option<u16> {
+    Some(match name {
         "mutation_scope_bindings"
         | "ledger_batches"
         | "mutation_outbox_consumers"
@@ -496,6 +550,13 @@ fn table_capabilities(name: &str) -> u16 {
         | "semantic_authorization_receipts"
         | "semantic_generation_checkpoints"
         | "semantic_generation_checkpoint_heads" => CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE,
+        _ => return None,
+    })
+}
+
+/// `table_capabilities`'s append-only agent-library family.
+fn agent_capabilities(name: &str) -> Option<u16> {
+    Some(match name {
         // Append-only: a retained revision row is never updated or deleted,
         // which is what makes a tombstone a later revision rather than an edit.
         "agent_library" | "agent_graph" | "agent_component" | "agent_template" => {
@@ -505,9 +566,8 @@ fn table_capabilities(name: &str) -> u16 {
         | "agent_graph_heads"
         | "agent_component_heads"
         | "agent_template_heads" => CAP_READ | CAP_INSERT | CAP_UPDATE,
-        name => graph_shard::capabilities(name)
-            .unwrap_or_else(|| unreachable!("table outside closed owner manifest: {name}")),
-    }
+        _ => return None,
+    })
 }
 
 /// The graph shard classifies its tables' scope per table rather than per
