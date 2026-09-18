@@ -982,10 +982,7 @@ mod placement_admin_wire_rpc {
         let mut nodes: BTreeMap<NodeId, StartedNode> = BTreeMap::new();
         for i in 1..=3u64 {
             let dir = dirs[(i - 1) as usize].clone();
-            let backend: Arc<dyn PersistenceBackend> = Arc::new(
-                RedbBackend::open_with_shards(dir.clone(), 4096, 2).expect("open fresh K=2 layout"),
-            );
-            let state = make_state_with_backend(&dir, backend).await;
+            let state = open_sharded_node_state(&dir, 2).await;
             register_admin_agent(&state).await;
             let started = node::start(cluster_cfg_with_groups(i, &ports, 2), state.clone())
                 .await
@@ -3124,12 +3121,24 @@ async fn map_group_leaders(
     map
 }
 
-/// Open node `i`'s durable backend (`n_groups` durable shards, K == N, ADR-2 —
+/// Open a durable K == `n_groups` sharded backend under `dir` and build its
+/// `ServerState` — the common setup a K==N sharded-cluster node needs before
+/// `node::start`, shared with `placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster_body`'s
+/// own node loop (its K=2 ring) so the two do not carry independent copies.
 /// `open_with_shards` forces K == N because `resolve_shard_count()` returns 1 under
-/// `cfg(test)`, the raft env var being unset in tests) and run it through production
-/// `node::start`. Split out of [`start_sharded_cluster`] so all 3 nodes can be started
-/// CONCURRENTLY (see there for why serial startup is not just slower but a real
-/// correctness gap).
+/// `cfg(test)` (the raft env var is unset in tests).
+async fn open_sharded_node_state(dir: &str, n_groups: u64) -> Arc<RwLock<ServerState>> {
+    let backend: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open_with_shards(dir.to_string(), 4096, n_groups as usize)
+            .expect("open K==N sharded redb"),
+    );
+    assert_eq!(backend.as_redb().unwrap().shard_count(), n_groups as usize);
+    make_state_with_backend(dir, backend).await
+}
+
+/// Open node `i`'s durable state and run it through production `node::start`. Split
+/// out of [`start_sharded_cluster`] so all 3 nodes can be started CONCURRENTLY (see
+/// there for why serial startup is not just slower but a real correctness gap).
 async fn start_one_sharded_node(
     root: &std::path::Path,
     ports: &[u16],
@@ -3139,12 +3148,7 @@ async fn start_one_sharded_node(
     let dir = root.join(format!("node{i}"));
     std::fs::create_dir_all(&dir).unwrap();
     let dir = dir.to_string_lossy().to_string();
-    let backend: Arc<dyn PersistenceBackend> = Arc::new(
-        RedbBackend::open_with_shards(dir.clone(), 4096, n_groups as usize)
-            .expect("open K==N sharded redb"),
-    );
-    assert_eq!(backend.as_redb().unwrap().shard_count(), n_groups as usize);
-    let state = make_state_with_backend(&dir, backend).await;
+    let state = open_sharded_node_state(&dir, n_groups).await;
     node::start(cluster_cfg_with_groups(i, ports, n_groups), state)
         .await
         .expect("start raft node")
