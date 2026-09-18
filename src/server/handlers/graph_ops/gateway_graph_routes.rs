@@ -97,7 +97,10 @@ fn is_import(method: &Method) -> bool {
 #[cfg(any(feature = "shacl", feature = "reasoning"))]
 fn is_policy(method: &Method) -> bool {
     #[cfg(feature = "shacl")]
-    if matches!(method, Method::IcvConfigure { .. }) {
+    if matches!(
+        method,
+        Method::IcvConfigure { .. } | Method::GraphSchema { .. }
+    ) {
         return true;
     }
     #[cfg(feature = "reasoning")]
@@ -639,6 +642,25 @@ async fn try_handle_policy(
             })
             .await
         }
+        #[cfg(feature = "shacl")]
+        Method::GraphSchema { op } => {
+            crate::server::graph_schema::handle_gateway(ctx, plan, method, op).await
+        }
+        _ => return try_handle_reasoning_policy(ctx, plan, method).await,
+    };
+    Some(response)
+}
+
+/// The reasoning half of the policy route: rule programs, which are governed
+/// by a different subsystem from the SHACL shapes and schema sources above and
+/// share nothing with them but the commit gateway.
+#[cfg(any(feature = "shacl", feature = "reasoning"))]
+async fn try_handle_reasoning_policy(
+    ctx: &MutationCtx<'_>,
+    plan: &MutationPlan,
+    method: &Method,
+) -> Option<Response> {
+    let response = match method {
         #[cfg(feature = "reasoning")]
         Method::RunDatalogReasoning {
             subclass_relations,

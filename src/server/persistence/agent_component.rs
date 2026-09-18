@@ -251,6 +251,23 @@ fn scan_component_search_page(
     })
 }
 
+/// [`ComponentLayer::verb`]'s dispatch, kept as a free function so the
+/// trivial two-arm shape every other `RevisionLayer` implementor's `verb`
+/// has doesn't show as a regression on the trait method itself now that
+/// `AgentComponentMutationKind` carries two more variants than the trait's
+/// other implementors' own kind types do.
+fn component_verb(kind: AgentComponentMutationKind) -> RevisionVerb {
+    match kind {
+        AgentComponentMutationKind::Publish => RevisionVerb::Publish,
+        AgentComponentMutationKind::Retire => RevisionVerb::Retire,
+        // A pack entry that vanished from its connector's current pack
+        // (Withdraw, reversible) or returned in a later import
+        // (Republish) -- see `AgentComponentMutationKind`'s own doc.
+        AgentComponentMutationKind::Withdraw => RevisionVerb::Withdraw,
+        AgentComponentMutationKind::Republish => RevisionVerb::Republish,
+    }
+}
+
 /// The component layer of the shared revision protocol.
 pub(super) struct ComponentLayer;
 
@@ -300,10 +317,7 @@ impl RevisionLayer for ComponentLayer {
     }
 
     fn verb(kind: AgentComponentMutationKind) -> RevisionVerb {
-        match kind {
-            AgentComponentMutationKind::Publish => RevisionVerb::Publish,
-            AgentComponentMutationKind::Retire => RevisionVerb::Retire,
-        }
+        component_verb(kind)
     }
 
     fn encode_outbox_event(
@@ -400,6 +414,15 @@ pub(crate) fn seed_component_for_test(
                 AgentComponentKind::Tool => AgentComponentFacts::Tool {
                     effect: ToolEffect::Read,
                     required_scopes: Vec::new(),
+                    input_schema_digest: None,
+                    output_schema_digest: None,
+                    read_only_hint: None,
+                    destructive_hint: None,
+                    idempotent_hint: None,
+                    open_world_hint: None,
+                    modalities: Default::default(),
+                    cost: None,
+                    latency_declared: None,
                 },
                 AgentComponentKind::Toolset => AgentComponentFacts::Toolset {
                     transport: eg_types::agent_component::ToolsetTransport::Function,
@@ -412,6 +435,10 @@ pub(crate) fn seed_component_for_test(
                     supports_tools: true,
                     supports_structured_output: true,
                     supports_vision: false,
+                    modalities: Default::default(),
+                    cost: None,
+                    latency_declared: None,
+                    latency_observed_ref: None,
                 },
                 _ => AgentComponentFacts::Opaque,
             };
@@ -439,6 +466,7 @@ pub(crate) fn seed_component_for_test(
                         trace_id: None,
                         created_at_ms: 5,
                     },
+                    evaluation_receipt_digest: None,
                     component: AgentComponentDraft {
                         component_id: component_id.to_string(),
                         kind,
@@ -451,6 +479,9 @@ pub(crate) fn seed_component_for_test(
                         classification: Vec::new(),
                         requires: Vec::new(),
                         provides: Vec::new(),
+                        declared_capabilities: Vec::new(),
+                        required_capabilities: Vec::new(),
+                        declared_required_capabilities: Vec::new(),
                         attributes: Default::default(),
                         tenant_id: tenant_id.to_string(),
                         actor_scope: "action-scope:component-seed".to_string(),
@@ -554,6 +585,9 @@ mod tests {
             classification: Vec::new(),
             requires: Vec::new(),
             provides: Vec::new(),
+            declared_capabilities: Vec::new(),
+            required_capabilities: Vec::new(),
+            declared_required_capabilities: Vec::new(),
             attributes: Default::default(),
             tenant_id: tenant_id.to_string(),
             actor_scope: "action-scope:a".to_string(),
@@ -585,6 +619,7 @@ mod tests {
                     0,
                     "agent-component:publish",
                 ),
+                evaluation_receipt_digest: None,
                 component: mcp_server_draft(tenant_id),
             })
             .expect("the fixture mcp server seeds");
@@ -609,6 +644,15 @@ mod tests {
             facts: AgentComponentFacts::Tool {
                 effect,
                 required_scopes: Vec::new(),
+                input_schema_digest: None,
+                output_schema_digest: None,
+                read_only_hint: None,
+                destructive_hint: None,
+                idempotent_hint: None,
+                open_world_hint: None,
+                modalities: Default::default(),
+                cost: None,
+                latency_declared: None,
             },
             provenance: ComponentProvenance::McpServer {
                 server: ComponentDependency {
@@ -622,6 +666,9 @@ mod tests {
             classification: vec![capability.to_string()],
             requires: Vec::new(),
             provides: Vec::new(),
+            declared_capabilities: Vec::new(),
+            required_capabilities: Vec::new(),
+            declared_required_capabilities: Vec::new(),
             attributes: Default::default(),
             tenant_id: tenant_id.to_string(),
             actor_scope: "action-scope:a".to_string(),
@@ -655,6 +702,7 @@ mod tests {
         let published = store
             .publish_component(AgentComponentPublishRequest {
                 context: context(&store, "key-1", 1, 0, "agent-component:publish"),
+                evaluation_receipt_digest: None,
                 component: tool(
                     "tool:web-search",
                     "eg:capability/retrieval/web-search",
@@ -678,6 +726,7 @@ mod tests {
         let first = store
             .publish_component(AgentComponentPublishRequest {
                 context: context(&store, "key-1", 1, 0, "agent-component:publish"),
+                evaluation_receipt_digest: None,
                 component: tool(
                     "tool:a",
                     "eg:capability/retrieval/web-search",
@@ -690,6 +739,7 @@ mod tests {
         let replayed = store
             .publish_component(AgentComponentPublishRequest {
                 context: retry,
+                evaluation_receipt_digest: None,
                 component: tool(
                     "tool:a",
                     "eg:capability/retrieval/web-search",
@@ -755,6 +805,7 @@ mod tests {
         store
             .publish_component(AgentComponentPublishRequest {
                 context: context(&store, "key-1", 1, 0, "agent-component:publish"),
+                evaluation_receipt_digest: None,
                 component: tool(
                     "same-id",
                     "eg:capability/retrieval/web-search",
@@ -779,6 +830,7 @@ mod tests {
             store
                 .publish_component(AgentComponentPublishRequest {
                     context: context(&store, "key-1", 1, 0, "agent-component:publish"),
+                    evaluation_receipt_digest: None,
                     component: tool(
                         "tool:a",
                         "eg:capability/retrieval/web-search",
@@ -818,6 +870,7 @@ mod tests {
         let error = store
             .publish_component(AgentComponentPublishRequest {
                 context: context(&store, "key-1", 1, 0, "agent-component:publish"),
+                evaluation_receipt_digest: None,
                 component: orphan,
             })
             .expect_err("an unresolvable provenance pin must be refused");
@@ -852,6 +905,7 @@ mod tests {
         let error = store
             .publish_component(AgentComponentPublishRequest {
                 context: context(&store, "key-1", 1, 0, "agent-component:publish"),
+                evaluation_receipt_digest: None,
                 component: stale,
             })
             .expect_err("a digest no server revision carries must be refused");
@@ -889,6 +943,7 @@ mod tests {
         let error = store
             .publish_component(AgentComponentPublishRequest {
                 context: context(&store, "key-1", 1, 0, "agent-component:publish"),
+                evaluation_receipt_digest: None,
                 component: mislabelled,
             })
             .expect_err("a provenance naming a non-server must be refused");
@@ -931,6 +986,7 @@ mod tests {
                         0,
                         "agent-component:publish",
                     ),
+                    evaluation_receipt_digest: None,
                     component: tool(id, capability, *effect),
                 })
                 .unwrap();
@@ -1078,6 +1134,7 @@ mod tests {
         store
             .publish_component(AgentComponentPublishRequest {
                 context: context(&store, "key-1", 1, 0, "agent-component:publish"),
+                evaluation_receipt_digest: None,
                 component: tool(
                     "tool:web",
                     "eg:capability/retrieval/web-search",

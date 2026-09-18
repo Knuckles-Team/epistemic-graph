@@ -5,4 +5,5 @@
 //! (the same precedent as eg-query's `dev-scope-grant`). Production builds never
 //! enable it.
 
+pub mod contract_wave;
 pub mod sql_source;

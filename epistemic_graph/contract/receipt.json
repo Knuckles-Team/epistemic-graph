@@ -1,21 +1,23 @@
 {
   "artifact_digests": {
-    "contract/methods.json": "4f52e3c03c1037977c012059d48a6968a2184aede9ee21ccaf0c41d8cb447eed",
-    "contract/schemas/method.request.json": "882133f2afa51b999ad3af11ed0b7191b98b7464e23969a83a9bd70751f19516",
+    "contract/fixtures/connector_pack_digest_vectors.json": "31a46f23cb6810869338c0b34c0bb2567ca196005a3f4edb4f162115d059845a",
+    "contract/fixtures/decision_digest_vectors.json": "b2cb368964340e05b58f65d8d226343d08cf48f0912fe7b560d619d19b2641c8",
+    "contract/methods.json": "a0fc6ce1588c6db641da208813330b72cd78a972053d797df2af9f5f641f09a6",
+    "contract/schemas/method.request.json": "9a7cfd8cfe07f18ac6a1da3dbc647bbe5535781a67101cb578c4649a652e3ad3",
     "contract/schemas/result.cluster.json": "daa015c68e2a0e7780d0e24bfecc1c9ce7bd3288c6c05fc974098a022e03a8d4",
-    "contract/schemas/result.compute.json": "c1ba1544c6611818120f91b13a64dd6f45c8a4fdb6bad8b9cebc7fb3c61a3351",
-    "contract/schemas/result.coordination.json": "5d3a4c9f90a91c5843a76e9486beab8514bb70967807b1f966561be8e4e78400",
+    "contract/schemas/result.compute.json": "2522ca588ef3e4ea8af402faa167dee281cb33e5df901d5124404ec5bc0504db",
+    "contract/schemas/result.coordination.json": "3aae05c614507d229c1021e2fdb802d5de9049f3c4465e64c48f4a1f3189c3a2",
     "contract/schemas/result.graph.json": "71d2305b12cdc37b83f1e04559e86a553040adec483e8cdc8e8202a1af2f2cbe",
     "contract/schemas/result.ingestion.json": "7621f1ee96abd6a69da48adffca7fe3df8091f3c147a2d244ea861a3af6216f3",
     "contract/schemas/result.messaging.json": "eaa28f229255ef4b26195218eac9f34ecf2c35b196f1784baefef1aa7179aa3e",
     "contract/schemas/result.payload.json": "1bd5261c36024a16810f262e65449f3cf81de819c1d8189abd68a75133cae8c8",
-    "contract/schemas/result.query.json": "b0a1bcbbc71a64949247d3a64b6c0a106f1c5ba4a2626345ae34890fb7f2cc76",
-    "contract/schemas/result.reasoning.json": "8fd557235e519a9013be36e38d485b856c9a5e83e0a30bd5d5a8335a46a7ac1f",
+    "contract/schemas/result.query.json": "c79bf826a0a31f0287366b5fbe83403e0872163a3a4a6468d9485d2f6fb6a77f",
+    "contract/schemas/result.reasoning.json": "204c5001a08e1379f46f224a4fa85c1f196dac2759b66b49798e7cd0ed0efe52",
     "contract/schemas/result.security.json": "af85883a336f9b8d93f2fba7e6f0b47cccd1697deeb9fb92c7565cf58417267c",
-    "contract/schemas/result.storage.json": "6c0ad1a0b2475b2b25951596909c79dc8c1d9f6123864127c69addf12ac6b149",
-    "contract/schemas/result.transactions.json": "838fd317479843c0085bd8367ccbf310e0f2c0c7fcb10bcc3ee78db9fefe3cb5",
-    "crates/eg-capabilities/generated/method_catalog.rs": "26d8715009965eb9677b08780ea6f00922ef9097f21422dad896a34b87064ce5",
-    "docs/capabilities.generated.md": "ddcc97c9972f8de978942563ee1b359cc02ec06d5082c38e2172df5615180916",
+    "contract/schemas/result.storage.json": "34d73f74ad4688a8f71c49f4319cb75e5bd01303cd0bade2376c3b1eb936dce7",
+    "contract/schemas/result.transactions.json": "a3a0f04f4725712818b155f24185a0d0b9e8b77099d6b91b31c70278b52aa8be",
+    "crates/eg-capabilities/generated/method_catalog.rs": "2ce26cca3dda10e17c45294ba8090a1706f05d111dc71940daa74224c385c903",
+    "docs/capabilities.generated.md": "5fac0f5563d116c9da022abb2c3415fd8b54a350998baf8086666d671acbbb70",
     "epistemic_graph/contract/__init__.py": "0484338d63b99278f479a60dca4830f54a5e81d8fe98b6720e808d4c008c7be7",
     "epistemic_graph/generated/__init__.py": "343cbcc05371a8c857773586243687ccaa469a04212ce7a665151d9d71f8fd5e",
     "epistemic_graph/generated/_ids.py": "0d7cc454f3064ccf1a3ca65e80983cf91293bf34d5422d1f481a881849a0a09f",
@@ -32,8 +34,8 @@
     "epistemic_graph/generated/storage.py": "3f9649aa1b5e8f48b11c0ce640a19044412fd983ef14b7642f802fdefd2944e5",
     "epistemic_graph/generated/transactions.py": "0bf478adf1635161340242db05401621756deb4ccb0bce6736fe8e64c8253047"
   },
-  "cargo_lock_sha256": "fad4000a4c22b133cbbc8f6210d8d49bbf3b20de617c54ca4a4532681b336626",
-  "contract_digest": "29ea87f5974eb0e87e456916adef09aaa8dbdb1abd77c0a62b68aac80c52da2f",
+  "cargo_lock_sha256": "5e9a689d4babd423ac3074e5f096b8eb6e7bfa37281697f89577cea721f23587",
+  "contract_digest": "5d5cafc62ad8affa121c742200bc5adbd6cdca6ce2916f20e97ee82ce970c609",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -52,7 +54,7 @@
       {
         "file": "crates/eg-types/src/agent_component.rs",
         "scope": "",
-        "value": "2"
+        "value": "3"
       }
     ],
     "AGENT_GRAPH_ENTRY_SCHEMA_VERSION": [
@@ -160,6 +162,20 @@
         "value": "\"epistemic-graph:mutation-batch-compiler:v1\""
       }
     ],
+    "COMPONENT_CONTENT_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/agent_component/content.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "CONNECTOR_PACK_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/connector_pack.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
     "CONSENSUS_TRANSACTION_SCHEMA_VERSION": [
       {
         "file": "crates/eg-transaction/src/participant/mod.rs",
@@ -170,6 +186,27 @@
     "CONSENSUS_TXN_SCHEMA_VERSION": [
       {
         "file": "src/server/handlers/txn/consensus.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "DECISION_JOB_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/decision.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "DECISION_POLICY_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/decision.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "DECISION_RECORD_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/decision.rs",
         "scope": "",
         "value": "1"
       }
@@ -216,6 +253,13 @@
         "value": "2"
       }
     ],
+    "GRAPH_SCHEMA_RESULT_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/graph_schema.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
     "GRAPH_SNAPSHOT_SCHEMA_VERSION": [
       {
         "file": "crates/eg-core/src/graph/snapshot.rs",
@@ -258,6 +302,13 @@
         "value": "1"
       }
     ],
+    "MUTATION_OUTBOX_VIEW_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/mutation_outbox.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
     "NATIVE_CONTROL_SCHEMA_VERSION": [
       {
         "file": "crates/eg-types/src/native_control.rs",
@@ -270,6 +321,13 @@
         "file": "src/server/persistence/node_info_store.rs",
         "scope": "",
         "value": "\"node-info:v1\""
+      }
+    ],
+    "PACK_IMPORT_RECORD_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/connector_pack.rs",
+        "scope": "",
+        "value": "1"
       }
     ],
     "PATH_SCOPE_INCARNATION": [
@@ -388,6 +446,21 @@
         "file": "src/performance_probe.rs",
         "scope": "",
         "value": "\"1\""
+      },
+      {
+        "file": "src/server/persistence/agent_component.rs",
+        "scope": "impl RevisionLayer for ComponentLayer",
+        "value": "AGENT_COMPONENT_SCHEMA_VERSION"
+      },
+      {
+        "file": "src/server/persistence/agent_graph.rs",
+        "scope": "impl RevisionLayer for GraphLayer",
+        "value": "AGENT_GRAPH_ENTRY_SCHEMA_VERSION"
+      },
+      {
+        "file": "src/server/persistence/agent_template.rs",
+        "scope": "impl RevisionLayer for TemplateLayer",
+        "value": "AGENT_TEMPLATE_SCHEMA_VERSION"
       }
     ],
     "SECONDARY_INDEX_SCHEMA_VERSION": [
@@ -395,6 +468,20 @@
         "file": "crates/eg-query/src/tables/index.rs",
         "scope": "",
         "value": "1"
+      }
+    ],
+    "SOLVE_RESULT_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/solve/request.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
+    "STATISTICAL_DECISION_RECORD_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/decision.rs",
+        "scope": "",
+        "value": "2"
       }
     ],
     "STORAGE_KERNEL_SCHEMA_VERSION": [
@@ -413,14 +500,14 @@
     ]
   },
   "generator": "eg-capabilities/gen_contract",
-  "internal_only_methods": 19,
-  "method_count": 415,
+  "internal_only_methods": 29,
+  "method_count": 425,
   "python_client_methods": 396,
   "result_classification": {
     "declared_dynamic": 12,
     "mixed": 1,
-    "schematized": 402,
+    "schematized": 412,
     "unclassified": 0
   },
-  "source_tree_oid": "bd11aff850b2bb625620ed1028ff3133cfa4244b5f1d850edfc69d0a1ea6f2e7"
+  "source_tree_oid": "94eb381ed0c17256578a6e2a1279643b6495c5c2f85e6e229874e17f4f1a8792"
 }

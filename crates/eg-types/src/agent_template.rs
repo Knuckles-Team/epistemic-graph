@@ -220,6 +220,7 @@ impl AgentTemplateEntry {
         if self.schema_version != AGENT_TEMPLATE_SCHEMA_VERSION {
             return Err("agent template entry schema version is unsupported".to_string());
         }
+        crate::agent_library::refuse_withdrawn("agent template", self.lifecycle)?;
         self.as_draft().validate()?;
         if self.entry_revision == 0 {
             return Err("agent template entry revision must start at one".to_string());
@@ -761,9 +762,12 @@ impl AgentTemplateOutboxEvent {
             return Err("agent template outbox schema version is unsupported".to_string());
         }
         self.template.validate()?;
+        crate::agent_library::refuse_withdrawn("agent template", self.template.lifecycle)?;
         let expected = match self.template.lifecycle {
             AgentLibraryLifecycle::Published => AgentTemplateMutationKind::Publish,
-            AgentLibraryLifecycle::Retired => AgentTemplateMutationKind::Retire,
+            AgentLibraryLifecycle::Retired | AgentLibraryLifecycle::Withdrawn => {
+                AgentTemplateMutationKind::Retire
+            }
         };
         if self.kind != expected {
             return Err(

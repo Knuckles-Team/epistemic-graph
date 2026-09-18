@@ -1926,6 +1926,15 @@ mod tests {
         ("TxnMaterializeBelief", "ephemeral OCC staging; named Commit receipt and cross-modal MutationBatch own authority"),
         ("Commit", "named control-plane receipt coordinates graph/cross-modal/2PC child MutationBatches"),
         ("Rollback", "replicated removal of encrypted OCC staging authority"),
+        // ── RF-ADR-009 / RF-ADR-010: the decision and connector-pack surfaces ──
+        // Each commits through the agent-library owner's own eg-transaction
+        // write, not a `(ctx, plan, method, apply)` graph mutation, and each
+        // has process-local ordering only (see `plan::LOCAL_ONLY_METHODS`).
+        ("ConnectorPack", "native MutationBatch in agent_library.redb: pack head, members, component revisions, body holders, import record, receipt and outbox in one WTX; local-only authority"),
+        ("DecisionCommit", "native MutationBatch in agent_library.redb: one DecisionRecord component revision, receipt and outbox in one WTX after re-derivation and catalog compare-and-set; local-only authority"),
+        ("DecisionFit", "native MutationBatch in jobs.redb: decision job row and receipt; the draft artifact is an engine-held Blob CAS body; local-only authority"),
+        ("DecisionEval", "native MutationBatch in jobs.redb: evaluation job row and receipt; local-only authority"),
+        ("MutationOutbox", "owner-local outbox ledger rewind: bounded eg-transaction transactions with a durable control cursor; local-only authority"),
         ("ClaimWorkItem", "dedicated engine-native MutationBatch lease transition in mutation_batch.rs/redb_store.rs"),
         ("KgDelegate", "authenticated Agent Library admission lowers to the native WorkItem command-log transaction"),
         ("SubmitWorkItem", "dedicated engine-native atomic WorkItem command-log admission in mutation_batch.rs/redb_store.rs"),
@@ -2214,14 +2223,10 @@ mod tests {
         covered.insert("ServedModality");
         covered.insert("Shutdown");
         covered.insert("KgDelegate");
-        // RF-020. Self-routes in router.rs's `dispatch_agent_library_methods`
-        // and commits into its own `agent_library.redb` through
-        // `eg-transaction`, so it never reaches a `NativeMutationCommand` or
-        // the gateway -- covered here for the same reason `KgDelegate` is.
-        covered.insert("AgentLibrary");
-        covered.insert("AgentGraph");
-        covered.insert("AgentComponent");
-        covered.insert("AgentTemplate");
+        // RF-020's four agent layers are no longer inserted here: X7 gave them
+        // the typed `LOCAL_ONLY_METHODS` classification they always had in
+        // substance, so `plan::LOCAL_ONLY_METHODS` above already covers them
+        // and a second, silent insert would hide a future regression in it.
         // RF-019. Self-routes in router.rs and commits into its own semantic
         // owner through `eg-transaction`, so it never reaches a
         // `NativeMutationCommand` or the gateway -- same reason as the four

@@ -1632,6 +1632,7 @@ mod tests {
         let error = store
             .publish_component(eg_types::agent_component::AgentComponentPublishRequest {
                 context,
+                evaluation_receipt_digest: None,
                 component: eg_types::agent_component::AgentComponentDraft {
                     component_id: "skill:depends".to_string(),
                     kind: eg_types::agent_component::AgentComponentKind::Skill,
@@ -1648,6 +1649,9 @@ mod tests {
                         definition_digest: digest('9'),
                     }],
                     provides: Vec::new(),
+                    declared_capabilities: Vec::new(),
+                    required_capabilities: Vec::new(),
+                    declared_required_capabilities: Vec::new(),
                     attributes: Default::default(),
                     tenant_id: "tenant-a".to_string(),
                     actor_scope: "action-scope:seed".to_string(),

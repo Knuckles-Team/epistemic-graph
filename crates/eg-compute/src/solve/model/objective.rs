@@ -10,33 +10,18 @@
 //! possible change in all later ones together. The arithmetic is checked
 //! `i128`; a model whose multipliers do not fit is refused.
 
-use serde::{Deserialize, Serialize};
-
 use super::error::ModelError;
 use super::spec::{Coefficient, ObjectiveLevelSpec};
 use crate::solve::scalar::Scalar;
 
+// `LevelValue`/`ObjectiveValue` are wire types; the definitions live in
+// `eg_types::solve::objective` (re-exported by `crate::solve`) so there is
+// exactly one copy. Only the scalarisation algorithm below is this crate's.
+pub use eg_types::solve::objective::{LevelValue, ObjectiveValue};
+
 /// Largest total `Σ|w|` of the scalar objective. Leaves headroom in `i128`
 /// for the bound denominator and dual multipliers.
 pub const MAX_SCALAR_MAGNITUDE: i128 = 1 << 100;
-
-/// Value of one objective level under an assignment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct LevelValue {
-    /// Sum of the known coefficients of the selected variables.
-    pub known: Scalar,
-    /// How many selected variables have an unknown coefficient at this level.
-    pub unknown_selected: u32,
-}
-
-/// Every level's value plus the exact scalarised objective.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ObjectiveValue {
-    pub levels: Vec<LevelValue>,
-    pub scalar: Scalar,
-}
 
 /// Scalar objective weight of every variable.
 pub(super) fn scalar_weights(

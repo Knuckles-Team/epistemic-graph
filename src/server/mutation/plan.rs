@@ -92,6 +92,11 @@ pub const GATEWAY_ROUTED: &[&str] = &[
     // `RunDatalogReasoning`/`reasoning` above. Its validated policy is graph
     // control state and therefore uses the same staged/durable gateway shape.
     "IcvConfigure",
+    // X9. Same shape and same reason as `IcvConfigure` directly above: a keyed
+    // schema source is graph control state, staged and committed through the
+    // one gateway so it is ordered, audited and CDC-emitted with every other
+    // write to that graph.
+    "GraphSchema",
     "PruneByLifecycle",
     "BatchUpdate",
     "ClearLedger",
@@ -248,6 +253,18 @@ fn graph_control_method_name(m: &Method) -> Option<&'static str> {
         Method::RunDatalogReasoning { .. } => Some("RunDatalogReasoning"),
         #[cfg(feature = "shacl")]
         Method::IcvConfigure { .. } => Some("IcvConfigure"),
+        _ => None,
+    }
+}
+
+/// Resolve the X9 schema-source method. Its own resolver rather than an arm on
+/// [`graph_control_method_name`], because it is the only gateway-routed method
+/// that is ALSO local-only: the two lists it belongs to are different, and a
+/// reader looking for why should find it named.
+fn graph_schema_method_name(m: &Method) -> Option<&'static str> {
+    match m {
+        #[cfg(feature = "shacl")]
+        Method::GraphSchema { .. } => Some("GraphSchema"),
         _ => None,
     }
 }
@@ -499,6 +516,7 @@ const METHOD_NAME_RESOLVERS: &[fn(&Method) -> Option<&'static str>] = &[
     embedding_edge_method_name,
     graph_maintenance_method_name,
     graph_control_method_name,
+    graph_schema_method_name,
     lifecycle_ledger_method_name,
     broker_control_method_name,
     broker_queue_method_name,
@@ -517,6 +535,7 @@ const METHOD_NAME_RESOLVERS: &[fn(&Method) -> Option<&'static str>] = &[
     rdf_method_name,
     modality_method_name,
     cluster_admin_method_name,
+    native_local_only_method_name,
 ];
 
 /// Extract a `Method` variant's name as a `&'static str`, covering exactly
@@ -597,12 +616,51 @@ pub const CONSENSUS_FANOUT_METHODS: &[&str] = &["MultiGraphBatchUpdate", "ApplyC
 /// test, not a silent `CLUSTER_MUTATION_UNAVAILABLE` at request time.
 pub const SELF_ROUTED_ADMIN_METHODS: &[&str] = &["RaftAddLearner", "RaftChangeMembership"];
 
-/// Mutating methods whose authority has no replicated ordering yet. The SQL
-/// source owner serializes the source cursor, grant snapshot and receipt under
-/// a process-local authority lock, so replicas cannot apply it identically.
-/// These are refused in clustered mode rather than proposed as a native
-/// command that does not exist or applied on one node only.
-pub const LOCAL_ONLY_METHODS: &[&str] = &["SqlSourceBatch"];
+/// Mutating methods whose authority has no replicated ordering yet.
+///
+/// The SQL source owner serializes the source cursor, grant snapshot and
+/// receipt under a process-local authority lock, so replicas cannot apply it
+/// identically. The agent-library family (X7) and the decision, pack and
+/// outbox surfaces built on it commit through the SAME process-local owner, so
+/// they share that limitation exactly. Before this list named them, a clustered
+/// agent publish fell through to a generic refusal that said nothing about why.
+///
+/// These are refused in clustered mode with [`LOCAL_ONLY_CLUSTER_REFUSAL`]
+/// rather than proposed as a native command that does not exist, or applied on
+/// one node only.
+pub const LOCAL_ONLY_METHODS: &[&str] = &[
+    "AgentComponent",
+    "AgentGraph",
+    "AgentLibrary",
+    "AgentTemplate",
+    "ConnectorPack",
+    "DecisionCommit",
+    "DecisionEval",
+    "DecisionFit",
+    "GraphSchema",
+    "MutationOutbox",
+    "SqlSourceBatch",
+];
+
+/// The nine local-only names that are NOT gateway-routed.
+///
+/// `GraphSchema` is deliberately absent: it resolves through
+/// [`graph_control_method_name`] because it IS gateway-routed, and naming it
+/// twice would make `method_variant_name` depend on resolver order.
+fn native_local_only_method_name(m: &Method) -> Option<&'static str> {
+    match m {
+        Method::AgentComponent { .. } => Some("AgentComponent"),
+        Method::AgentGraph { .. } => Some("AgentGraph"),
+        Method::AgentLibrary { .. } => Some("AgentLibrary"),
+        Method::AgentTemplate { .. } => Some("AgentTemplate"),
+        Method::ConnectorPack { .. } => Some("ConnectorPack"),
+        Method::DecisionCommit { .. } => Some("DecisionCommit"),
+        Method::DecisionEval { .. } => Some("DecisionEval"),
+        Method::DecisionFit { .. } => Some("DecisionFit"),
+        Method::MutationOutbox { .. } => Some("MutationOutbox"),
+        _ => None,
+    }
+}
 
 /// The typed clustered-mode refusal for [`LOCAL_ONLY_METHODS`].
 #[cfg(feature = "raft")]

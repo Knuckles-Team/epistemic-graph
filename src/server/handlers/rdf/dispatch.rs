@@ -300,17 +300,37 @@ async fn try_handle_validation(
             )
         }
         #[cfg(feature = "shacl")]
+        Method::GraphSchemaList => Some(
+            crate::server::graph_schema::handle_list(req_id, graph_name, core).await,
+        ),
+        #[cfg(feature = "shacl")]
         Method::IcvConfigure { .. } => unreachable!(
             "IcvConfigure is mutation::GATEWAY_ROUTED; dispatch_graph_op must route it through try_handle_gateway before it ever reaches this fallback handler"
         ),
+        _ => try_handle_shex_validation(req_id, graph_name, read_authority, core, method).await,
+    }
+}
+
+/// The ShEx half of the validation route. Its own handler because ShEx is a
+/// separate schema language behind its own feature, and the two halves share
+/// nothing but the projected core they read.
+#[cfg(any(feature = "shacl", feature = "shex"))]
+async fn try_handle_shex_validation(
+    req_id: u64,
+    graph_name: &str,
+    read_authority: Option<&GraphReadAuthority>,
+    core: &Arc<GraphCore>,
+    method: &Method,
+) -> Option<Response> {
+    match method {
         #[cfg(feature = "shex")]
         Method::ShexValidate {
             schema,
             data_graph,
             shape_map,
         } => {
-            let authority =
-                read_authority.expect("ShexValidate must carry the universal served-read authority");
+            let authority = read_authority
+                .expect("ShexValidate must carry the universal served-read authority");
             let projected = authority.project_core(core);
             Some(
                 super::validation::handle_shex_validate(

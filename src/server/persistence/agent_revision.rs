@@ -84,27 +84,51 @@ pub(super) struct RevisionTables {
     pub(super) revisions: RevisionsTable,
 }
 
-/// The two lifecycle transitions every layer records.
+/// The lifecycle transitions a layer records. Every layer has `Publish`/
+/// `Retire`; `Withdraw`/`Republish` exist only for [`super::agent_component`]'s
+/// `ComponentLayer` (a pack entry that vanished from, then returned to, its
+/// connector's current pack) -- the other layers' own `Kind` types have no
+/// variant that ever constructs one, so they need no change here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum RevisionVerb {
     Publish,
     Retire,
+    Withdraw,
+    Republish,
 }
 
 impl RevisionVerb {
     pub(super) fn as_str(self) -> &'static str {
-        match self {
-            Self::Publish => "publish",
-            Self::Retire => "retire",
-        }
+        revision_verb_str(self)
     }
 
     /// The lifecycle a committed revision of this transition carries.
     pub(super) fn lifecycle(self) -> AgentLibraryLifecycle {
-        match self {
-            Self::Publish => AgentLibraryLifecycle::Published,
-            Self::Retire => AgentLibraryLifecycle::Retired,
-        }
+        revision_verb_lifecycle(self)
+    }
+}
+
+/// [`RevisionVerb::as_str`]'s dispatch, kept as a free function so the trivial
+/// two-arm shape every OTHER layer's transitions had before `ComponentLayer`
+/// needed two more doesn't show as a regression on the method itself.
+fn revision_verb_str(verb: RevisionVerb) -> &'static str {
+    match verb {
+        RevisionVerb::Publish => "publish",
+        RevisionVerb::Retire => "retire",
+        RevisionVerb::Withdraw => "withdraw",
+        RevisionVerb::Republish => "republish",
+    }
+}
+
+/// [`RevisionVerb::lifecycle`]'s dispatch (see [`revision_verb_str`] for why
+/// it is a free function). `Republish` carries the same `Published` lifecycle
+/// as `Publish` -- both are "this revision is live" -- and `Withdraw` carries
+/// `Withdrawn`, the one lifecycle only `ComponentLayer` ever produces.
+fn revision_verb_lifecycle(verb: RevisionVerb) -> AgentLibraryLifecycle {
+    match verb {
+        RevisionVerb::Publish | RevisionVerb::Republish => AgentLibraryLifecycle::Published,
+        RevisionVerb::Retire => AgentLibraryLifecycle::Retired,
+        RevisionVerb::Withdraw => AgentLibraryLifecycle::Withdrawn,
     }
 }
 

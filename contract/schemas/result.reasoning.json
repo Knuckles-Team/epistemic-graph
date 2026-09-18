@@ -1,6 +1,13 @@
 {
   "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
   "$defs": {
+    "BoundedVec_GraphSchemaSourceView_32": {
+      "items": {
+        "$ref": "#/$defs/GraphSchemaSourceView"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
     "DatalogReasoningResult": {
       "description": "Result of `Method::RunDatalogReasoning`: every inferred triple, each a string map\n(`subject`, `predicate`, `object`, `inference_type`), and their count.",
       "properties": {
@@ -22,6 +29,121 @@
       "required": [
         "inferred_count",
         "inferred_triples"
+      ],
+      "type": "object"
+    },
+    "GraphSchemaCommitted": {
+      "additionalProperties": false,
+      "description": "What one attach or detach committed.",
+      "properties": {
+        "changed": {
+          "description": "False when the request was a no-op against the current set.",
+          "type": "boolean"
+        },
+        "composed_digest": {
+          "type": "string"
+        },
+        "graph": {
+          "type": "string"
+        },
+        "graph_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "graph",
+        "composed_digest",
+        "graph_version",
+        "changed"
+      ],
+      "type": "object"
+    },
+    "GraphSchemaSourceView": {
+      "additionalProperties": false,
+      "description": "One attached source, without its documents.",
+      "properties": {
+        "attached_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ontology_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ontology_sha256": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "origin": {
+          "$ref": "#/$defs/SchemaSourceOriginView"
+        },
+        "shapes_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "shapes_sha256": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_id",
+        "origin",
+        "shapes_bytes",
+        "ontology_bytes",
+        "attached_at_ms"
+      ],
+      "type": "object"
+    },
+    "GraphSchemaSourcesView": {
+      "additionalProperties": false,
+      "description": "The graph's whole schema-source set.",
+      "properties": {
+        "composed_digest": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "graph": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sources": {
+          "$ref": "#/$defs/BoundedVec_GraphSchemaSourceView_32"
+        }
+      },
+      "required": [
+        "schema_version",
+        "graph",
+        "sources"
       ],
       "type": "object"
     },
@@ -254,6 +376,86 @@
       ],
       "type": "object"
     },
+    "SchemaSourceOriginView": {
+      "description": "Who attached one source.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The pre-X9 integrity policy, lifted into a keyed source.",
+          "properties": {
+            "origin": {
+              "const": "operator",
+              "type": "string"
+            }
+          },
+          "required": [
+            "origin"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "origin": {
+              "const": "admin",
+              "type": "string"
+            }
+          },
+          "required": [
+            "origin",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "connector": {
+              "type": "string"
+            },
+            "origin": {
+              "const": "pack",
+              "type": "string"
+            },
+            "record_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "origin",
+            "connector",
+            "record_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "mapping": {
+              "type": "string"
+            },
+            "origin": {
+              "const": "ingestion",
+              "type": "string"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "origin",
+            "mapping",
+            "revision"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "ShaclSeverity": {
       "description": "SHACL result severity -- `sh:Violation` / `sh:Warning` / `sh:Info`.",
       "enum": [
@@ -421,6 +623,30 @@
           "encoding": "Raw",
           "schema": {
             "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GraphSchema": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/GraphSchemaCommitted"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GraphSchemaList": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/GraphSchemaSourcesView"
           }
         }
       },

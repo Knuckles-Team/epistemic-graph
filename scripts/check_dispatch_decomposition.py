@@ -43,6 +43,7 @@ EXPECTED_PATHS = {
     "src/server/dispatch/router/control_plane.rs",
     "src/server/dispatch/router/data_plane.rs",
     "src/server/dispatch/router/data_plane_arms.rs",
+    "src/server/dispatch/router/decision_plane.rs",
     "src/server/dispatch/router/graph_lifecycle.rs",
     "src/server/dispatch/router/identity_access.rs",
     "src/server/dispatch/router/lifecycle.rs",
@@ -124,6 +125,9 @@ ROUTE_OWNERS = {
     "dispatch_identity_and_access_methods": (
         "src/server/dispatch/router/identity_access.rs"
     ),
+    "dispatch_decision_plane_methods": ("src/server/dispatch/router/decision_plane.rs"),
+    "dispatch_decision_methods": "src/server/dispatch/router/decision_plane.rs",
+    "dispatch_catalog_admin_methods": ("src/server/dispatch/router/decision_plane.rs"),
     "route_change_envelope_ops": "src/server/dispatch/change_envelope.rs",
     "route_graph_op_method": "src/server/dispatch/graph_pipeline/native_routes.rs",
     # `dispatch_op_workitem_mutation` was split in two during the decomposition
@@ -146,6 +150,9 @@ ROUTE_CALLERS = {
     "dispatch_graph_lifecycle_methods": "src/server/dispatch/router.rs",
     "dispatch_channel_methods": "src/server/dispatch/router.rs",
     "dispatch_identity_and_access_methods": "src/server/dispatch/router.rs",
+    "dispatch_decision_plane_methods": "src/server/dispatch/router.rs",
+    "dispatch_decision_methods": ("src/server/dispatch/router/decision_plane.rs"),
+    "dispatch_catalog_admin_methods": ("src/server/dispatch/router/decision_plane.rs"),
     "route_change_envelope_ops": "src/server/dispatch/graph_pipeline/native_routes.rs",
     "route_graph_op_method": "src/server/dispatch/graph_pipeline/graph_dispatch.rs",
     "dispatch_op_workitem_claim_capability": (
@@ -174,13 +181,20 @@ CFG_FINGERPRINT = "2e141e590f2b06b59db3a4605b39812ad46fcc8cc0386138cd814092aa3ab
 # preflight resolver `preflight_sql_source_msgpack`, and
 # `clustered_route_admission` (the non-local placement admission match, split
 # out of `check_cluster_placement_before_consensus` when it gained LocalOnly).
-PRODUCTION_FUNCTION_COUNT = 358
+# 358 -> 361 production / 443 -> 446 compiler functions: the 2.27.x contract
+# wave's decision plane adds exactly three route functions, all in the new
+# `router/decision_plane.rs` -- `dispatch_decision_plane_methods` (the link
+# `router.rs` chains) and the two groups it chains,
+# `dispatch_decision_methods` and `dispatch_catalog_admin_methods`. Every arm
+# calls a handler OUTSIDE this module tree, so no other function moves and the
+# test/assertion inventories are unchanged.
+PRODUCTION_FUNCTION_COUNT = 361
 PRODUCTION_FUNCTION_DIGEST = (
-    "4758f3845a069de9fea7c8f491a35c40784b4cfda551174d372f884d69031be8"
+    "4cd67c77f9cd164dd79d6a87ddf553b94ccceea3bce3f69ad29db01c94c4b055"
 )
-COMPILER_FUNCTION_COUNT = 443
+COMPILER_FUNCTION_COUNT = 446
 COMPILER_FUNCTION_DIGEST = (
-    "f21c0e7073edcc73a4e2e6dc1fcc7effce4f0ea10a47272b6a558a96f9c27d19"
+    "00e4d3df71226c12b3f37c1b3460d5395e53327b6891b0542c6956be63e018d0"
 )
 TEST_FUNCTION_COUNT = 52
 TEST_FUNCTION_DIGEST = (

@@ -736,8 +736,13 @@ def require_modality_mutation_governance() -> None:
 
 
 def require_modality_audit_and_replication() -> None:
-
-    audit = read("src/audit.rs")
+    # The whole module tree, not just the top file: the reserved-marker check
+    # this function pins moved into src/audit/control_lines.rs (2.27.x contract
+    # wave, decomposing audit_line for cccc's call-complexity cap), and a
+    # single-file `read` would go blind to it the moment that happened, the
+    # same way `require_modality_transport_path` above already reads
+    # src/server/dispatch.rs as a tree rather than one file.
+    audit = read_module_tree("src/audit.rs", root_dir=ROOT)
     require(
         'event_type == "authoritative_state_operation"' in audit
         and "AUTHORITATIVE_STATE_MUTATION" in audit,

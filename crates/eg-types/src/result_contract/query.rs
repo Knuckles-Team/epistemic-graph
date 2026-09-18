@@ -2,6 +2,7 @@
 
 use super::Dynamic;
 use crate::change_envelope::{ChangeCursor, ChangeEnvelopeRecord, ContentVersion};
+use crate::decision::DecisionBatch;
 use crate::epistemic_operations::EvidenceBundle;
 #[cfg(feature = "knowledge-batch")]
 use crate::knowledge_stream::KnowledgeStreamBatch;
@@ -64,4 +65,5 @@ method_results! {
     NlQuery(NlQuery) => Raw<Vec<(String, Option<f32>)>>;
     TxnUnifiedQuery(TxnUnifiedQuery) => Raw<Vec<(String, Option<f32>)>>;
     TxnUnifiedQueryText(TxnUnifiedQueryText) => Raw<Vec<(String, Option<f32>)>>;
+    Decide(Decide) => Raw<DecisionBatch>;
 }

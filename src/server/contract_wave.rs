@@ -1,0 +1,173 @@
+//! Contract-wave stubs.
+//!
+//! Every method or op the 2.27.x contract declares before its handler lands
+//! answers `METHOD_NOT_YET_SERVED`. The promotion commit deletes this module,
+//! and a remaining caller then fails to compile -- which is the point: the
+//! proof that every declared surface is served is a compile error, not a
+//! checklist.
+//!
+//! The stubs are generated from one macro rather than written out ten times.
+//! Ten hand-written functions with the same body are ten structural clones the
+//! duplication gates would (correctly) refuse, and a package replacing one of
+//! them replaces the macro invocation with a real function of the same
+//! signature, which is exactly the rule the wave's R6 states.
+
+use crate::protocol::Response;
+
+/// The code every not-yet-served surface refuses with.
+pub(crate) const METHOD_NOT_YET_SERVED: &str = "METHOD_NOT_YET_SERVED";
+
+/// The one refusal body. `surface` is the method, or `Method.op`, the caller
+/// asked for.
+pub(crate) fn not_yet_served(req_id: u64, surface: &'static str) -> Response {
+    Response::err(
+        req_id,
+        format!(
+            "{METHOD_NOT_YET_SERVED}: {surface} is declared by the contract but its handler has \
+             not landed"
+        ),
+    )
+}
+
+/// Declare one contract-wave stub and the test that pins its refusal.
+///
+/// Two shapes, because two exist: an authenticated surface takes the server
+/// state and the verified context, and a pure-compute one takes neither.
+macro_rules! contract_wave_stub {
+    (
+        $(#[$stub_meta:meta])*
+        $name:ident($request:ty) refuses $surface:literal, tested by $test:ident
+    ) => {
+        $(#[$stub_meta])*
+        pub(crate) async fn $name(
+            _state: &std::sync::Arc<tokio::sync::RwLock<crate::server::state::ServerState>>,
+            req_id: u64,
+            _verified: &crate::server::auth::VerifiedRequestContext,
+            _request: $request,
+        ) -> crate::protocol::Response {
+            crate::server::contract_wave::not_yet_served(req_id, $surface)
+        }
+
+        #[cfg(test)]
+        mod $test {
+            /// Deleted by the package that lands this handler (wave rule R6).
+            #[tokio::test]
+            async fn the_declared_surface_refuses_until_its_handler_lands() {
+                crate::server::contract_wave::assert_refuses_by_name($surface);
+            }
+        }
+    };
+    (
+        $(#[$stub_meta:meta])*
+        pure $name:ident($request:ty) refuses $surface:literal, tested by $test:ident
+    ) => {
+        $(#[$stub_meta])*
+        pub(crate) async fn $name(
+            req_id: u64,
+            _request: $request,
+        ) -> crate::protocol::Response {
+            crate::server::contract_wave::not_yet_served(req_id, $surface)
+        }
+
+        #[cfg(test)]
+        mod $test {
+            /// Deleted by the package that lands this handler (wave rule R6).
+            #[tokio::test]
+            async fn the_declared_surface_refuses_until_its_handler_lands() {
+                crate::server::contract_wave::assert_refuses_by_name($surface);
+            }
+        }
+    };
+}
+
+pub(crate) use contract_wave_stub;
+
+/// Assert that `surface` has a refusal body naming it, and nothing else.
+///
+/// Deliberately not a call into the stub: what a package must not silently
+/// change is the CODE and the surface name a caller branches on, and those are
+/// properties of [`not_yet_served`] rather than of any one handler.
+#[cfg(test)]
+pub(crate) fn assert_refuses_by_name(surface: &'static str) {
+    let response = not_yet_served(7, surface);
+    let error = response
+        .error
+        .expect("a stub answers an error, never a result");
+    assert!(
+        error.starts_with(&format!("{METHOD_NOT_YET_SERVED}: {surface} ")),
+        "{surface} must refuse under {METHOD_NOT_YET_SERVED}, got {error}"
+    );
+    assert_eq!(response.id, 7, "a refusal answers the request it refused");
+}
+
+#[cfg(test)]
+mod dispatch_reachability_tests {
+    use std::sync::Arc;
+
+    use tokio::sync::RwLock;
+
+    use super::*;
+    use crate::protocol::{Method, Request};
+    use crate::server::auth::{
+        compute_verified_envelope_token, dispatch_test_on_heap, VerifiedEnvelopeParams,
+    };
+    use crate::server::state::ServerState;
+    use eg_types::acl::RequestContextClaims;
+    use eg_types::test_support::contract_wave::contract_wave_samples;
+
+    const SECRET: &str = "contract-wave-dispatch-secret";
+    const CALLER: &str = "wave-admin";
+    /// The tenant `auth::request_context_policy()` expects under `cfg(test)`.
+    const TENANT: &str = "tenant-shared";
+
+    fn signed(method: Method) -> Request {
+        let mut request = Request {
+            id: 11,
+            graph: "__commons__".to_string(),
+            auth_token: String::new(),
+            agent_id: Some(CALLER.to_string()),
+            method,
+        };
+        let context = RequestContextClaims {
+            principal: CALLER.into(),
+            agent_id: CALLER.into(),
+            tenant: TENANT.into(),
+            audience: "epistemic-graph-test".into(),
+            policy_version: "policy-test".into(),
+            scopes: vec!["kg:admin".to_string()],
+            ..RequestContextClaims::default()
+        };
+        request.auth_token = compute_verified_envelope_token(
+            SECRET,
+            &request,
+            &VerifiedEnvelopeParams {
+                context: &context,
+                timestamp: crate::server::dispatch::authoritative_now_ms() / 1000,
+                nonce: &"05".repeat(32),
+                idempotency_key: "contract-wave-probe",
+            },
+        );
+        request
+    }
+
+    /// Every declared surface is REACHABLE: dispatch routes it to a handler
+    /// that refuses by name, rather than answering "unknown method" or
+    /// "not available in this build".
+    #[tokio::test]
+    async fn every_declared_surface_reaches_its_stub() {
+        let state = Arc::new(RwLock::new(ServerState::new_for_test(
+            SECRET,
+            ServerState::test_isolation(CALLER),
+        )));
+        for (surface, method) in contract_wave_samples() {
+            let response = dispatch_test_on_heap(&state, signed(method)).await;
+            let error = response
+                .error
+                .unwrap_or_else(|| panic!("{surface} answered a result before its handler landed"));
+            assert!(
+                error.contains(METHOD_NOT_YET_SERVED),
+                "{surface} must reach its contract-wave stub, got {error}"
+            );
+        }
+    }
+}

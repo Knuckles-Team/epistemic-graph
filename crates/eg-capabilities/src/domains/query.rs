@@ -2,7 +2,7 @@
 
 use crate::{DurabilityDomain, Stability, TxnParticipation};
 
-use super::{make_policy, spec, PolicyFlags, PolicyRow, PYTHON};
+use super::{make_policy, spec, PolicyFlags, PolicyRow, NO_CONSUMER, PYTHON};
 
 pub(crate) const ROWS: &[PolicyRow] = &[
     ("GetContextView", spec(make_policy(false, DurabilityDomain::None, "node:read", PolicyFlags { idempotent: true, audited: false, emits_cdc: false }, TxnParticipation::Snapshot), PYTHON, Stability::Stable), ""),
@@ -34,4 +34,5 @@ pub(crate) const ROWS: &[PolicyRow] = &[
     ("NlQuery", spec(make_policy(false, DurabilityDomain::None, "query:nl", PolicyFlags { idempotent: false, audited: false, emits_cdc: false }, TxnParticipation::Snapshot), PYTHON, Stability::Stable), ""),
     ("TxnUnifiedQuery", spec(make_policy(false, DurabilityDomain::None, "txn:read", PolicyFlags { idempotent: true, audited: false, emits_cdc: false }, TxnParticipation::Saga), PYTHON, Stability::Stable), ""),
     ("TxnUnifiedQueryText", spec(make_policy(false, DurabilityDomain::None, "txn:read", PolicyFlags { idempotent: true, audited: false, emits_cdc: false }, TxnParticipation::Saga), PYTHON, Stability::Stable), ""),
+    ("Decide", spec(make_policy(false, DurabilityDomain::None, "query:decide", PolicyFlags { idempotent: true, audited: false, emits_cdc: false }, TxnParticipation::Snapshot), NO_CONSUMER, Stability::Internal), "RF-ADR-010 DL-2. Evaluate-only: scores library or RLS-filtered graph candidates under a pinned feature schema and head and answers a batch of records; it commits none of them"),
 ];

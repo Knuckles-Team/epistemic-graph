@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 415,
+  "method_count": 425,
   "methods": [
     {
       "consumer_profiles": [
@@ -6585,6 +6585,43 @@
       "stability": "stable"
     },
     {
+      "consumer_profiles": [],
+      "domain": "compute",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
+      "id": "Solve",
+      "note": "pure compute: a bounded 0-1 integer programme with an independently verifiable certificate. Reads no store, no clock and no float, so it participates in no transaction",
+      "policy": {
+        "audited": false,
+        "authz_action": "compute:solve",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "None"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/Solve"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/Solve",
+        "selected_by": null
+      },
+      "stability": "internal"
+    },
+    {
       "consumer_profiles": [
         "python"
       ],
@@ -8207,6 +8244,102 @@
         "selected_by": "op"
       },
       "stability": "stable"
+    },
+    {
+      "consumer_profiles": [],
+      "domain": "coordination",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "ANALYTICS_JOB_SCOPE_INCARNATION"
+      ],
+      "id": "DecisionFit",
+      "note": "runtime-conditional like AnalyticsJob: status is a read; submit commits a native MutationBatch in jobs.redb carrying the decision job row and its receipt, while the fitted draft is an engine-held Blob CAS body. Local-only authority, refused in clustered mode",
+      "policy": {
+        "audited": false,
+        "authz_action": "admin:decision-fit",
+        "durability_domain": "JobsRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/DecisionFit"
+      },
+      "result_schema": {
+        "bodies": {
+          "status": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "submit": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/DecisionFit",
+        "selected_by": "op"
+      },
+      "stability": "internal"
+    },
+    {
+      "consumer_profiles": [],
+      "domain": "coordination",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "ANALYTICS_JOB_SCOPE_INCARNATION"
+      ],
+      "id": "DecisionEval",
+      "note": "runtime-conditional like AnalyticsJob: status is a read; submit commits a native MutationBatch in jobs.redb carrying the evaluation job row and its receipt. Local-only authority, refused in clustered mode",
+      "policy": {
+        "audited": false,
+        "authz_action": "admin:decision-eval",
+        "durability_domain": "JobsRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/DecisionEval"
+      },
+      "result_schema": {
+        "bodies": {
+          "status": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "submit": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/DecisionEval",
+        "selected_by": "op"
+      },
+      "stability": "internal"
     },
     {
       "consumer_profiles": [
@@ -14590,6 +14723,43 @@
       "stability": "stable"
     },
     {
+      "consumer_profiles": [],
+      "domain": "query",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
+      "id": "Decide",
+      "note": "RF-ADR-010 DL-2. Evaluate-only: scores library or RLS-filtered graph candidates under a pinned feature schema and head and answers a batch of records; it commits none of them",
+      "policy": {
+        "audited": false,
+        "authz_action": "query:decide",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/Decide"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.query.json#/methods/Decide",
+        "selected_by": null
+      },
+      "stability": "internal"
+    },
+    {
       "consumer_profiles": [
         "python"
       ],
@@ -14992,6 +15162,88 @@
         "selected_by": null
       },
       "stability": "stable"
+    },
+    {
+      "consumer_profiles": [],
+      "domain": "reasoning",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "GraphSchema",
+      "note": "X9. Gateway-routed exactly like IcvConfigure: every op attaches, replaces or detaches one keyed schema source through the graph commit kernel, so it is audited and emits CDC. Local-only in 2.27.x until its Raft catalog record lands",
+      "policy": {
+        "audited": true,
+        "authz_action": "security:admin",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": true,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/GraphSchema"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.reasoning.json#/methods/GraphSchema",
+        "selected_by": null
+      },
+      "stability": "internal"
+    },
+    {
+      "consumer_profiles": [],
+      "domain": "reasoning",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
+      "id": "GraphSchemaList",
+      "note": "X9. Reads the request graph's schema-source set and its composed digest; a separate method rather than an op because a read op inside a gateway-routed method would need a runtime-conditional gateway plan",
+      "policy": {
+        "audited": false,
+        "authz_action": "security:admin",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/GraphSchemaList"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.reasoning.json#/methods/GraphSchemaList",
+        "selected_by": null
+      },
+      "stability": "internal"
     },
     {
       "consumer_profiles": [],
@@ -15718,6 +15970,10 @@
       },
       "result_schema": {
         "bodies": {
+          "content": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
           "current": {
             "dynamic": null,
             "encoding": "Raw"
@@ -15814,6 +16070,155 @@
         "selected_by": "op"
       },
       "stability": "stable"
+    },
+    {
+      "consumer_profiles": [],
+      "domain": "storage",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
+      "id": "AgentAssemble",
+      "note": "RF-ADR-010 A1. Reads ONE tenant-bound agent_library.redb snapshot and proves an agent graph against it; commits nothing. The record it answers with is durable only if the caller then sends DecisionCommit",
+      "policy": {
+        "audited": false,
+        "authz_action": "agent:assemble-read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/AgentAssemble"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/AgentAssemble",
+        "selected_by": null
+      },
+      "stability": "internal"
+    },
+    {
+      "consumer_profiles": [],
+      "domain": "storage",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "RBAC_SCOPE_INCARNATION",
+        "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
+      ],
+      "id": "DecisionCommit",
+      "note": "native MutationBatch in agent_library.redb: one DecisionRecord component revision, its receipt and outbox in one WTX after re-derivation and a catalog compare-and-set; local-only authority, refused in clustered mode",
+      "policy": {
+        "audited": false,
+        "authz_action": "agent:decision-write",
+        "durability_domain": "ControlRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/DecisionCommit"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/DecisionCommit",
+        "selected_by": null
+      },
+      "stability": "internal"
+    },
+    {
+      "consumer_profiles": [],
+      "domain": "storage",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "RBAC_SCOPE_INCARNATION",
+        "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
+      ],
+      "id": "ConnectorPack",
+      "note": "RF-ADR-009 A2. Runtime-conditional: status is an authenticated tenant-bound read snapshot, and its authz action is agent:pack-read; import commits the whole pack atomically, while bind/unbind/retire/reproject/reconcile_bodies and a mass-withdrawal import need admin:connector-pack. Pack head, members, component revisions, body holders, import record, receipt and outbox commit in one WTX; local-only authority, refused in clustered mode",
+      "policy": {
+        "audited": false,
+        "authz_action": "agent:pack-control",
+        "durability_domain": "ControlRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/ConnectorPack"
+      },
+      "result_schema": {
+        "bodies": {
+          "bind": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "import": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "reconcile_bodies": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "reproject": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "retire": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "status": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "unbind": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/ConnectorPack",
+        "selected_by": "op"
+      },
+      "stability": "internal"
     },
     {
       "consumer_profiles": [
@@ -17789,6 +18194,58 @@
         "selected_by": null
       },
       "stability": "stable"
+    },
+    {
+      "consumer_profiles": [],
+      "domain": "transactions",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "RBAC_SCOPE_INCARNATION",
+        "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
+      ],
+      "id": "MutationOutbox",
+      "note": "X10. Runtime-conditional: status and dead_letters are reads; rewind resets one consumer's durable cursor through bounded eg-transaction transactions, so it is a saga rather than one atomic write. Local-only authority, refused in clustered mode",
+      "policy": {
+        "audited": false,
+        "authz_action": "admin:outbox",
+        "durability_domain": "ControlRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Saga"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/MutationOutbox"
+      },
+      "result_schema": {
+        "bodies": {
+          "dead_letters": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "rewind": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "status": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.transactions.json#/methods/MutationOutbox",
+        "selected_by": "op"
+      },
+      "stability": "internal"
     }
   ]
 }

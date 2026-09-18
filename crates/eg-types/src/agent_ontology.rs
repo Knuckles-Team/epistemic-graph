@@ -297,6 +297,37 @@ const fn task(
 }
 
 /// Resolve one term, or `None` if it is not in the native vocabulary.
+/// The digest domain of the baked-in vocabulary.
+pub const AGENT_ONTOLOGY_DIGEST_DOMAIN: &str = "eg/agent-ontology/v1";
+
+/// One term, as the ontology digest sees it.
+#[derive(serde::Serialize)]
+struct OntologyTermView {
+    iri: &'static str,
+    label: &'static str,
+    broader: Option<&'static str>,
+    requires: &'static [&'static str],
+}
+
+/// The digest of the vocabulary this build reasons with.
+///
+/// A decision record pins it so a stored conclusion can be told apart from one
+/// the same request would reach today: a subsumption edge that was added or
+/// removed changes what "covers" means, and a record that did not name the
+/// vocabulary could not say which meaning it used.
+pub fn ontology_digest() -> String {
+    let view: Vec<OntologyTermView> = AGENT_ONTOLOGY
+        .iter()
+        .map(|term| OntologyTermView {
+            iri: term.iri,
+            label: term.label,
+            broader: term.broader,
+            requires: term.requires,
+        })
+        .collect();
+    crate::decision::digest::digest_text(AGENT_ONTOLOGY_DIGEST_DOMAIN, &view)
+}
+
 pub fn term(iri: &str) -> Option<&'static OntologyTerm> {
     AGENT_ONTOLOGY.iter().find(|entry| entry.iri == iri)
 }

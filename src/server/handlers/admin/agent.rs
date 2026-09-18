@@ -171,6 +171,9 @@ pub(crate) async fn handle_agent_component(
         } => component_history(&store, req_id, tenant_id, component_id),
         AgentComponentOp::Status { request } => component_status(&store, req_id, verified, request),
         AgentComponentOp::Search { request } => component_search(&store, req_id, request),
+        AgentComponentOp::Content { request } => {
+            super::component_content::handle_component_content(&store, req_id, verified, request)
+        }
     }
 }
 
@@ -274,6 +277,31 @@ fn component_history(
     }
 }
 
+/// The `bind_agent_library_context` purpose for a status read, named by the
+/// mutation kind it is reporting on. A pack member's withdrawal and its
+/// return are importer actions, not caller ones; the status read still has
+/// to name them so a new kind cannot inherit an unrelated purpose.
+///
+/// A free function rather than a match inline in `component_status`: the
+/// kind enum is exhaustive by design (RF-ADR-010), and every variant this
+/// module adds would otherwise read as `component_status` itself getting
+/// more complex, when the dispatch is the whole story.
+#[cfg(feature = "redb")]
+fn component_status_purpose(
+    kind: eg_types::agent_component::AgentComponentMutationKind,
+) -> &'static str {
+    match kind {
+        eg_types::agent_component::AgentComponentMutationKind::Publish => "agent-component:publish",
+        eg_types::agent_component::AgentComponentMutationKind::Retire => "agent-component:retire",
+        eg_types::agent_component::AgentComponentMutationKind::Withdraw => {
+            "agent-component:withdraw"
+        }
+        eg_types::agent_component::AgentComponentMutationKind::Republish => {
+            "agent-component:republish"
+        }
+    }
+}
+
 #[cfg(feature = "redb")]
 fn component_status(
     store: &crate::server::persistence::agent_library::AgentLibraryStore,
@@ -281,10 +309,7 @@ fn component_status(
     verified: &crate::server::auth::VerifiedRequestContext,
     mut request: eg_types::agent_component::AgentComponentStatusRequest,
 ) -> Response {
-    let purpose = match request.kind {
-        eg_types::agent_component::AgentComponentMutationKind::Publish => "agent-component:publish",
-        eg_types::agent_component::AgentComponentMutationKind::Retire => "agent-component:retire",
-    };
+    let purpose = component_status_purpose(request.kind);
     request.context = match bind_status_context(store, req_id, verified, request.context, purpose) {
         Ok(context) => context,
         Err(response) => return response,

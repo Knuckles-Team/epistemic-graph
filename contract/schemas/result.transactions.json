@@ -75,6 +75,13 @@
       ],
       "type": "object"
     },
+    "BoundedVec_OutboxDeadLetterView_256": {
+      "items": {
+        "$ref": "#/$defs/OutboxDeadLetterView"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
     "ChangeCursor": {
       "properties": {
         "expected_previous": {
@@ -455,6 +462,310 @@
       ],
       "type": "object"
     },
+    "MutationOutboxStatusView": {
+      "additionalProperties": false,
+      "description": "One consumer's standing on one outbox.\n\nSeveral counters carry an explicit `_is_lower_bound` flag rather than being\nsilently approximate: a saturated index can only be scanned so far, and an\noperator deciding whether to rewind needs to know that \"12\" might mean\n\"at least 12\".",
+      "properties": {
+        "capacity": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "consumer": {
+          "type": "string"
+        },
+        "dead_lettered": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "delivered": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "head": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OutboxHeadView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "index_complete": {
+          "type": "boolean"
+        },
+        "inflight": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "inflight_is_lower_bound": {
+          "type": "boolean"
+        },
+        "lag_rows": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lag_versions": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "live": {
+          "type": "boolean"
+        },
+        "oldest_pending_age_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pending": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pending_is_lower_bound": {
+          "type": "boolean"
+        },
+        "saturated": {
+          "type": "boolean"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "topic": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "consumer",
+        "live",
+        "capacity",
+        "inflight",
+        "inflight_is_lower_bound",
+        "pending",
+        "pending_is_lower_bound",
+        "delivered",
+        "dead_lettered",
+        "oldest_pending_age_ms",
+        "lag_rows",
+        "lag_versions",
+        "saturated",
+        "index_complete"
+      ],
+      "type": "object"
+    },
+    "OutboxDeadLetterPage": {
+      "additionalProperties": false,
+      "description": "One page of dead letters.",
+      "properties": {
+        "consumer": {
+          "type": "string"
+        },
+        "items": {
+          "$ref": "#/$defs/BoundedVec_OutboxDeadLetterView_256"
+        },
+        "next_after": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OutboxPositionView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "consumer",
+        "items"
+      ],
+      "type": "object"
+    },
+    "OutboxDeadLetterView": {
+      "additionalProperties": false,
+      "description": "One row the consumer gave up on.",
+      "properties": {
+        "attempt": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "event_schema": {
+          "type": "string"
+        },
+        "payload_digest": {
+          "description": "The payload's digest, never the payload: a dead-letter listing is an\noperational read and must not become a way to read another tenant's\nmutation content.",
+          "type": "string"
+        },
+        "position": {
+          "$ref": "#/$defs/OutboxPositionView"
+        },
+        "topic": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "position",
+        "topic",
+        "event_schema",
+        "attempt",
+        "payload_digest"
+      ],
+      "type": "object"
+    },
+    "OutboxHeadView": {
+      "additionalProperties": false,
+      "description": "The oldest undelivered row, when there is one.",
+      "properties": {
+        "age_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "attempt": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "leased": {
+          "type": "boolean"
+        },
+        "position": {
+          "$ref": "#/$defs/OutboxPositionView"
+        }
+      },
+      "required": [
+        "position",
+        "attempt",
+        "leased",
+        "age_ms"
+      ],
+      "type": "object"
+    },
+    "OutboxPositionView": {
+      "additionalProperties": false,
+      "description": "One position in an outbox, exactly as the kernel orders rows.",
+      "properties": {
+        "batch_id": {
+          "type": "string"
+        },
+        "created_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ordinal": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sequence",
+        "created_at_ms",
+        "batch_id",
+        "ordinal"
+      ],
+      "type": "object"
+    },
+    "OutboxRewindReceipt": {
+      "additionalProperties": false,
+      "description": "What a rewind did.",
+      "properties": {
+        "completed": {
+          "description": "False when the rewind ran out of its bounded transaction budget and\nmust be called again to finish.",
+          "type": "boolean"
+        },
+        "consumer": {
+          "type": "string"
+        },
+        "deleted_deliveries": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "to": {
+          "$ref": "#/$defs/RewindTarget"
+        }
+      },
+      "required": [
+        "schema_version",
+        "consumer",
+        "to",
+        "completed",
+        "deleted_deliveries"
+      ],
+      "type": "object"
+    },
+    "RewindTarget": {
+      "description": "Where a rewind puts the consumer's cursor.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Re-deliver everything the outbox still retains.",
+          "properties": {
+            "to": {
+              "const": "start",
+              "type": "string"
+            }
+          },
+          "required": [
+            "to"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "position": {
+              "$ref": "#/$defs/OutboxPositionView"
+            },
+            "to": {
+              "const": "at",
+              "type": "string"
+            }
+          },
+          "required": [
+            "to",
+            "position"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "SparqlUpdateReport": {
       "description": "What one SPARQL UPDATE changed, whichever path executed it.\n\n`ApplyMutation` has two executors: the per-graph gateway (one graph, the update\nruns against its staged image) and the coordinated SPARQL-HTTP saga (the\n`sparql_http_update_v1` event, which may create and rewrite several graphs). Both\nanswer with this one body; a per-graph update reports `updated_graphs: 1` and\n`created_graphs: 0`.",
       "properties": {
@@ -584,6 +895,32 @@
         }
       },
       "selected_by": null
+    },
+    "MutationOutbox": {
+      "bodies": {
+        "dead_letters": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/OutboxDeadLetterPage"
+          }
+        },
+        "rewind": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/OutboxRewindReceipt"
+          }
+        },
+        "status": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/MutationOutboxStatusView"
+          }
+        }
+      },
+      "selected_by": "op"
     },
     "Rollback": {
       "bodies": {

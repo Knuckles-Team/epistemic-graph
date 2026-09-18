@@ -177,6 +177,81 @@
       ],
       "type": "object"
     },
+    "BoundedVec_OpeEstimateView_8": {
+      "items": {
+        "$ref": "#/$defs/OpeEstimateView"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "CalibrationMethod": {
+      "description": "How the scores were calibrated, if at all.",
+      "enum": [
+        "temperature",
+        "vector",
+        "dirichlet",
+        "isotonic",
+        "none"
+      ],
+      "type": "string"
+    },
+    "CalibrationStatement": {
+      "additionalProperties": false,
+      "description": "The calibration behind a decision's probabilities.",
+      "properties": {
+        "alpha": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnitRationalWire"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "coverage_lower": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnitRationalWire"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "coverage_upper": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnitRationalWire"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "method": {
+          "$ref": "#/$defs/CalibrationMethod"
+        },
+        "n_calibration": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "synthetic": {
+          "description": "True when the calibration set was synthetic.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "method",
+        "n_calibration",
+        "synthetic"
+      ],
+      "type": "object"
+    },
     "CapacityAcquireResult": {
       "additionalProperties": false,
       "properties": {
@@ -829,6 +904,241 @@
         "updated_at_ms"
       ],
       "type": "object"
+    },
+    "DecisionEvalReceipt": {
+      "additionalProperties": false,
+      "description": "The receipt a head must carry before it may be published.",
+      "properties": {
+        "calibration": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CalibrationStatement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "estimates": {
+          "$ref": "#/$defs/BoundedVec_OpeEstimateView_8"
+        },
+        "head_digest": {
+          "type": "string"
+        },
+        "n_records": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "passed": {
+          "type": "boolean"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "receipt_digest": {
+          "type": "string"
+        },
+        "synthetic": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "receipt_digest",
+        "head_digest",
+        "policy_digest",
+        "n_records",
+        "estimates",
+        "passed",
+        "synthetic"
+      ],
+      "type": "object"
+    },
+    "DecisionJobKind": {
+      "description": "Which of the two jobs a row is.",
+      "enum": [
+        "fit",
+        "eval"
+      ],
+      "type": "string"
+    },
+    "DecisionJobOutput": {
+      "description": "What a finished job produced.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "draft_length": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "draft_sha256": {
+              "type": "string"
+            },
+            "head_digest": {
+              "type": "string"
+            },
+            "output": {
+              "const": "fit",
+              "type": "string"
+            },
+            "synthetic": {
+              "type": "boolean"
+            },
+            "training_records_digest": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "output",
+            "draft_sha256",
+            "draft_length",
+            "head_digest",
+            "training_records_digest",
+            "synthetic"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "output": {
+              "const": "eval",
+              "type": "string"
+            },
+            "receipt": {
+              "$ref": "#/$defs/DecisionEvalReceipt"
+            }
+          },
+          "required": [
+            "output",
+            "receipt"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DecisionJobRecord": {
+      "additionalProperties": false,
+      "description": "One durable decision-job row.",
+      "properties": {
+        "job_id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/DecisionJobKind"
+        },
+        "request_digest": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "state": {
+          "$ref": "#/$defs/DecisionJobState"
+        },
+        "submitted_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "job_id",
+        "kind",
+        "tenant_id",
+        "request_digest",
+        "submitted_at_ms",
+        "state"
+      ],
+      "type": "object"
+    },
+    "DecisionJobState": {
+      "description": "Where a job is.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "queued",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "running",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "output": {
+              "$ref": "#/$defs/DecisionJobOutput"
+            },
+            "state": {
+              "const": "succeeded",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "output"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "state": {
+              "const": "failed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "state": {
+              "const": "cancelled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "DelegationTarget": {
       "description": "What a delegation runs.\n\n# Why one delegation, not one per node\n\nA graph delegation admits exactly ONE work item. The child agent runs are\nthe executor's business, bounded by the graph's own composed ceiling.\n\nThe alternative -- admitting one work item per node -- was rejected because\n`max_tenant_in_flight` would then make a graph UNSCHEDULABLE whenever its\nnode count exceeded the tenant's limit: the parent would hold a slot while\nwaiting for children that cannot get one. That is a deadlock, not a\nthrottle.\n\nSo the two bounds govern two different things, and both are needed:\n\n* `max_tenant_in_flight` bounds how many DELEGATIONS a tenant may have in\n  flight;\n* `composed_work_ceiling` bounds what one delegation may do INTERNALLY.\n\nWithout the second, a graph would be a way to escape the first by fanning\nout. `MAX_COMPOSITION_WORK` is the global cap that makes the escape\nimpossible rather than merely discouraged.",
@@ -2893,6 +3203,84 @@
       ],
       "type": "string"
     },
+    "OpeEstimateView": {
+      "additionalProperties": false,
+      "description": "One estimator's interval on the candidate head's value.",
+      "properties": {
+        "effective_sample_size": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "estimator": {
+          "$ref": "#/$defs/OpeEstimatorKind"
+        },
+        "lower": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "unsupported_mass": {
+          "$ref": "#/$defs/UnitRationalWire",
+          "description": "Share of logged probability mass the candidate policy does not cover."
+        },
+        "upper": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "value": {
+          "$ref": "#/$defs/QuantisedValue"
+        }
+      },
+      "required": [
+        "estimator",
+        "value",
+        "lower",
+        "upper",
+        "effective_sample_size",
+        "unsupported_mass"
+      ],
+      "type": "object"
+    },
+    "OpeEstimatorKind": {
+      "description": "Which off-policy estimator an evaluation runs.",
+      "enum": [
+        "ips",
+        "clipped_ips",
+        "snips",
+        "switch",
+        "doubly_robust"
+      ],
+      "type": "string"
+    },
+    "QuantScaleTag": {
+      "description": "The fixed-point scale a [`QuantisedValue`] is read on. Mirrors\n`eg_numeric`'s `QuantScale`.",
+      "oneOf": [
+        {
+          "const": "pico",
+          "description": "`value / 10^12`.",
+          "type": "string"
+        },
+        {
+          "const": "q32",
+          "description": "`value / 2^32`.",
+          "type": "string"
+        }
+      ]
+    },
+    "QuantisedValue": {
+      "additionalProperties": false,
+      "description": "An exact fixed-point number: `value` read on `scale`.",
+      "properties": {
+        "scale": {
+          "$ref": "#/$defs/QuantScaleTag"
+        },
+        "value": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "scale",
+        "value"
+      ],
+      "type": "object"
+    },
     "ResourceCapacitySnapshot": {
       "additionalProperties": false,
       "properties": {
@@ -4695,6 +5083,27 @@
       ],
       "type": "object"
     },
+    "UnitRationalWire": {
+      "additionalProperties": false,
+      "description": "An exact rational in `[0, 1]`: `numerator / denominator`.\n\nValidated on the way in rather than at each use site, because it appears in\nsix different records and a per-site check is a check that one of them\neventually forgets.",
+      "properties": {
+        "denominator": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "numerator": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "numerator",
+        "denominator"
+      ],
+      "type": "object"
+    },
     "WorkItemCancelStatus": {
       "description": "The status a `CancelWorkItem` answers with.",
       "oneOf": [
@@ -5260,6 +5669,58 @@
         }
       },
       "selected_by": null
+    },
+    "DecisionEval": {
+      "bodies": {
+        "status": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/DecisionJobRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "submit": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/DecisionJobRecord"
+          }
+        }
+      },
+      "selected_by": "op"
+    },
+    "DecisionFit": {
+      "bodies": {
+        "status": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/DecisionJobRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "submit": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/DecisionJobRecord"
+          }
+        }
+      },
+      "selected_by": "op"
     },
     "DeferWorkItem": {
       "bodies": {

@@ -2,7 +2,7 @@
 
 use crate::{DurabilityDomain, Stability, TxnParticipation};
 
-use super::{make_policy, spec, PolicyFlags, PolicyRow, PYTHON};
+use super::{make_policy, spec, PolicyFlags, PolicyRow, NO_CONSUMER, PYTHON};
 
 pub(crate) const ROWS: &[PolicyRow] = &[
     ("BatchUpdate", spec(make_policy(true, DurabilityDomain::GraphRedb, "node:write", PolicyFlags { idempotent: false, audited: true, emits_cdc: false }, TxnParticipation::Atomic), PYTHON, Stability::Stable), ""),
@@ -25,4 +25,5 @@ pub(crate) const ROWS: &[PolicyRow] = &[
     ("TxnMaterializeBelief", spec(make_policy(true, DurabilityDomain::ControlRedb, "txn:write", PolicyFlags { idempotent: false, audited: false, emits_cdc: false }, TxnParticipation::Saga), PYTHON, Stability::Stable), "encrypted Raft-native cross-modal staging"),
     ("Commit", spec(make_policy(true, DurabilityDomain::ControlRedb, "txn:control", PolicyFlags { idempotent: true, audited: false, emits_cdc: false }, TxnParticipation::Saga), PYTHON, Stability::Stable), "named parent receipt plus atomic graph/cross-modal child batches"),
     ("Rollback", spec(make_policy(true, DurabilityDomain::ControlRedb, "txn:control", PolicyFlags { idempotent: false, audited: false, emits_cdc: false }, TxnParticipation::Saga), PYTHON, Stability::Stable), "encrypted Raft-native transaction staging removal"),
+    ("MutationOutbox", spec(make_policy(true, DurabilityDomain::ControlRedb, "admin:outbox", PolicyFlags { idempotent: true, audited: false, emits_cdc: false }, TxnParticipation::Saga), NO_CONSUMER, Stability::Internal), "X10. Runtime-conditional: status and dead_letters are reads; rewind resets one consumer's durable cursor through bounded eg-transaction transactions, so it is a saga rather than one atomic write. Local-only authority, refused in clustered mode"),
 ];

@@ -46,6 +46,14 @@ pub mod commit_descriptor;
 pub mod consensus;
 // RF-RULING-004 — bounded scalar/collection primitives shared by kernel DTOs.
 pub mod contract;
+// RF-ADR-009 — connector MCP pack import: index, entries, framed digests, ops,
+// results and the durable import record. Pure serde; the importer and its
+// validation rules live in the server.
+pub mod connector_pack;
+// RF-ADR-010 — the Decide layer's wire contract: assembly requests and records,
+// the decision policy, the statistical surface and the two admin jobs. Pure
+// data; every algorithm lives above this crate.
+pub mod decision;
 // CONCEPT:EG-KG.sharding.semantic-embedding-store-backed — the pinned embedding-space
 // identity (`EmbeddingSpaceRef`) + stamped-vector (`StampedVector`) currency shared
 // by BOTH `eg-core::compute::semantic` backends, plus their two dimensionality
@@ -89,6 +97,12 @@ pub mod messaging_wire;
 #[cfg(feature = "modality-serving")]
 pub mod modality;
 pub mod msgpack;
+// X9 — keyed schema sources (shapes + ontology) on one request graph, and the
+// composed digest that identifies the set in force.
+pub mod graph_schema;
+// X10 — the operator view of one owner's mutation outbox: standing, dead
+// letters and bounded re-delivery.
+pub mod mutation_outbox;
 // RF-RULING-004 — untrusted serialized mutation request/evidence DTOs only.
 // Executable admitted plans/tokens are private to the future eg-transaction kernel.
 pub mod mutation;
@@ -108,6 +122,10 @@ pub mod outcome_bundle;
 // RF-RULING-004 — mutation-kernel-owned outbox intent, delivery, and cursor DTOs.
 pub mod outbox;
 pub mod protocol;
+// The general bounded 0-1 integer programme (`Method::Solve`): model, config,
+// certificate and exact scalars. The search and the verifier live in
+// `eg-compute`, which re-exports these so there is one definition of each.
+pub mod solve;
 // CONCEPT:EG-KG.compute.quantum-agent-api — the agent-facing quantum control-plane
 // wire op (`QuantumOp`), gated `quantum`. Lives here (not in `eg-quantum-core`,
 // which sits ABOVE this crate in the DAG) for the SAME reason `jobs`/`statechart`

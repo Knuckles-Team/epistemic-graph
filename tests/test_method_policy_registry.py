@@ -66,7 +66,7 @@ def test_registry_is_unique_complete_and_domain_ordered() -> None:
 
     assert len(names) == len(set(names)) == EXPECTED_METHOD_POLICY_ROWS
     assert names[0] == "CreateGraph"
-    assert names[-1] == "Rollback"
+    assert names[-1] == "MutationOutbox"
     assert {"ParseFile", "ParseFiles"} <= set(names)
     assert (
         tuple(

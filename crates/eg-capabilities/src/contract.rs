@@ -19,6 +19,7 @@ mod python;
 mod python_render;
 mod results;
 mod schema;
+mod vectors;
 
 use results::{Catalog, ResultClass};
 
@@ -312,6 +313,7 @@ fn body_artifacts(catalog: &Catalog) -> Vec<Artifact> {
     });
     out.extend(schema::artifacts(catalog));
     out.extend(python::artifacts(catalog));
+    out.extend(vectors::artifacts());
     out
 }
 
@@ -390,7 +392,11 @@ pub fn write_all(root: &Path) -> std::io::Result<usize> {
 
 /// Directories whose every file is a generated artifact, so a file there that the
 /// generator no longer renders is drift -- a retired schema must not linger as if current.
-const GENERATED_DIRS: &[&str] = &["contract/schemas", "epistemic_graph/generated"];
+const GENERATED_DIRS: &[&str] = &[
+    "contract/fixtures",
+    "contract/schemas",
+    "epistemic_graph/generated",
+];
 
 /// Files under [`GENERATED_DIRS`] that no artifact renders.
 fn orphaned_files(root: &Path, artifacts: &[Artifact]) -> Vec<String> {

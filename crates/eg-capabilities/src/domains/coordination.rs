@@ -2,7 +2,7 @@
 
 use crate::{DurabilityDomain, Stability, TxnParticipation};
 
-use super::{make_policy, spec, PolicyFlags, PolicyRow, PYTHON};
+use super::{make_policy, spec, PolicyFlags, PolicyRow, NO_CONSUMER, PYTHON};
 
 pub(crate) const ROWS: &[PolicyRow] = &[
     ("ClaimNext", spec(make_policy(true, DurabilityDomain::GraphRedb, "node:write", PolicyFlags { idempotent: false, audited: true, emits_cdc: false }, TxnParticipation::Atomic), PYTHON, Stability::Stable), ""),
@@ -41,6 +41,8 @@ pub(crate) const ROWS: &[PolicyRow] = &[
     ("ResourceStatsPage", spec(make_policy(false, DurabilityDomain::None, "service:control", PolicyFlags { idempotent: true, audited: false, emits_cdc: false }, TxnParticipation::None), PYTHON, Stability::Stable), "bounded ACL-filtered keyset page; summary suppresses detail arrays"),
     #[cfg(feature = "jobs")]
     ("AnalyticsJob", spec(make_policy(true, DurabilityDomain::JobsRedb, "jobs:write", PolicyFlags { idempotent: false, audited: false, emits_cdc: false }, TxnParticipation::Atomic), PYTHON, Stability::Stable), "runtime-conditional: Status is a read; Submit/Cancel/Resume commit through the native jobs.redb MutationBatch gateway"),
+    ("DecisionFit", spec(make_policy(true, DurabilityDomain::JobsRedb, "admin:decision-fit", PolicyFlags { idempotent: true, audited: false, emits_cdc: false }, TxnParticipation::Atomic), NO_CONSUMER, Stability::Internal), "runtime-conditional like AnalyticsJob: status is a read; submit commits a native MutationBatch in jobs.redb carrying the decision job row and its receipt, while the fitted draft is an engine-held Blob CAS body. Local-only authority, refused in clustered mode"),
+    ("DecisionEval", spec(make_policy(true, DurabilityDomain::JobsRedb, "admin:decision-eval", PolicyFlags { idempotent: true, audited: false, emits_cdc: false }, TxnParticipation::Atomic), NO_CONSUMER, Stability::Internal), "runtime-conditional like AnalyticsJob: status is a read; submit commits a native MutationBatch in jobs.redb carrying the evaluation job row and its receipt. Local-only authority, refused in clustered mode"),
     #[cfg(feature = "statechart")]
     ("Statechart", spec(make_policy(true, DurabilityDomain::StatechartRedb, "statechart:write", PolicyFlags { idempotent: false, audited: false, emits_cdc: false }, TxnParticipation::Atomic), PYTHON, Stability::Stable), "runtime-conditional: GetState/List are reads; Define/Instantiate/SendEvent commit to the native statecharts.redb store (CONCEPT:INT-P2-2)"),
 ];

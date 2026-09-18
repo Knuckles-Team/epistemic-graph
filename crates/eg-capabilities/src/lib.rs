@@ -49,37 +49,58 @@ pub use descriptor::{
 
 use eg_types::protocol::{CypherMode, Method};
 
+/// The shape EVERY runtime-conditional native owner has: a snapshot read when
+/// its op reads, and one write in its own durable domain when its op writes.
+///
+/// Eight surfaces were each spelling this out, which is eight places for the
+/// read half to drift. What actually differs between them is the three values
+/// this takes, so those are what each caller now states.
+///
+/// `audited`/`emits_cdc` are false for all of them: a native owner's typed
+/// revision, action-provenance, replay and outbox rows ARE its audit and
+/// projection authority, and the generic graph classifiers do not apply to a
+/// self-routing surface.
+fn native_owner_policy(
+    mutates: bool,
+    durable: DurabilityDomain,
+    authz_action: &'static str,
+    committed: TxnParticipation,
+) -> MethodPolicy {
+    MethodPolicy {
+        mutates,
+        durability_domain: if mutates {
+            durable
+        } else {
+            DurabilityDomain::None
+        },
+        authz_action,
+        idempotent: true,
+        audited: false,
+        emits_cdc: false,
+        txn_participation: if mutates {
+            committed
+        } else {
+            TxnParticipation::Snapshot
+        },
+    }
+}
+
 fn agent_library_policy(op: &eg_types::agent_library::AgentLibraryOp) -> MethodPolicy {
     let mutates = matches!(
         op,
         eg_types::agent_library::AgentLibraryOp::Publish { .. }
             | eg_types::agent_library::AgentLibraryOp::Retire { .. }
     );
-    MethodPolicy {
+    native_owner_policy(
         mutates,
-        durability_domain: if mutates {
-            DurabilityDomain::ControlRedb
-        } else {
-            DurabilityDomain::None
-        },
-        authz_action: if mutates {
+        DurabilityDomain::ControlRedb,
+        if mutates {
             "agent:library-write"
         } else {
             "agent:library-read"
         },
-        idempotent: true,
-        // Agent Library is a native ControlRedb owner. Its typed revision,
-        // action-provenance, replay, and outbox rows are its RF-020 audit and
-        // projection authority; the generic graph audit/CdcHub classifiers do
-        // not apply to this self-routing native surface.
-        audited: false,
-        emits_cdc: false,
-        txn_participation: if mutates {
-            TxnParticipation::Atomic
-        } else {
-            TxnParticipation::Snapshot
-        },
-    }
+        TxnParticipation::Atomic,
+    )
 }
 
 /// An agent graph is published into the SAME ControlRedb owner as an agent
@@ -89,27 +110,16 @@ fn agent_library_policy(op: &eg_types::agent_library::AgentLibraryOp) -> MethodP
 /// who can publish an agent can also wire arbitrary agents together.
 fn agent_graph_policy(op: &eg_types::agent_graph::AgentGraphOp) -> MethodPolicy {
     let mutates = op.is_mutation();
-    MethodPolicy {
+    native_owner_policy(
         mutates,
-        durability_domain: if mutates {
-            DurabilityDomain::ControlRedb
-        } else {
-            DurabilityDomain::None
-        },
-        authz_action: if mutates {
+        DurabilityDomain::ControlRedb,
+        if mutates {
             "agent:graph-write"
         } else {
             "agent:graph-read"
         },
-        idempotent: true,
-        audited: false,
-        emits_cdc: false,
-        txn_participation: if mutates {
-            TxnParticipation::Atomic
-        } else {
-            TxnParticipation::Snapshot
-        },
-    }
+        TxnParticipation::Atomic,
+    )
 }
 
 /// Components take the same shape as the two layers above them, with their own
@@ -118,28 +128,16 @@ fn agent_graph_policy(op: &eg_types::agent_graph::AgentGraphOp) -> MethodPolicy 
 /// would mean anyone who can publish an agent can also introduce a new
 /// side-effecting tool for it to use.
 fn agent_component_policy(op: &eg_types::agent_component::AgentComponentOp) -> MethodPolicy {
-    let mutates = op.is_mutation();
-    MethodPolicy {
-        mutates,
-        durability_domain: if mutates {
-            DurabilityDomain::ControlRedb
-        } else {
-            DurabilityDomain::None
-        },
-        authz_action: if mutates {
-            "agent:component-write"
-        } else {
-            "agent:component-read"
-        },
-        idempotent: true,
-        audited: false,
-        emits_cdc: false,
-        txn_participation: if mutates {
-            TxnParticipation::Atomic
-        } else {
-            TxnParticipation::Snapshot
-        },
-    }
+    // The op owns the action mapping, because publishing a decision policy,
+    // head, feature schema, rubric or NL template is administrative while
+    // publishing a tool is not -- and that distinction is a property of the
+    // KIND, which only the op can see.
+    native_owner_policy(
+        op.is_mutation(),
+        DurabilityDomain::ControlRedb,
+        op.authz_action(),
+        TxnParticipation::Atomic,
+    )
 }
 
 /// The semantic index takes the same runtime-conditional shape as the four agent
@@ -151,24 +149,12 @@ fn agent_component_policy(op: &eg_types::agent_component::AgentComponentOp) -> M
 /// declaring a stage durable are four different grants, and one action would
 /// hand every holder the union.
 fn semantic_index_policy(op: &eg_types::semantic_index::SemanticIndexOp) -> MethodPolicy {
-    let mutates = op.is_mutation();
-    MethodPolicy {
-        mutates,
-        durability_domain: if mutates {
-            DurabilityDomain::SemanticIndexRedb
-        } else {
-            DurabilityDomain::None
-        },
-        authz_action: op.authz_action(),
-        idempotent: true,
-        audited: false,
-        emits_cdc: false,
-        txn_participation: if mutates {
-            TxnParticipation::Atomic
-        } else {
-            TxnParticipation::Snapshot
-        },
-    }
+    native_owner_policy(
+        op.is_mutation(),
+        DurabilityDomain::SemanticIndexRedb,
+        op.authz_action(),
+        TxnParticipation::Atomic,
+    )
 }
 
 /// Where (if anywhere) a mutation's effect survives a process/host crash.
@@ -433,51 +419,92 @@ fn served_modality_policy(op: &eg_types::modality::ServedModalityOp) -> MethodPo
 /// library write.
 fn agent_template_policy(op: &eg_types::agent_template::AgentTemplateOp) -> MethodPolicy {
     let mutates = op.is_mutation();
-    MethodPolicy {
+    native_owner_policy(
         mutates,
-        durability_domain: if mutates {
-            DurabilityDomain::ControlRedb
-        } else {
-            DurabilityDomain::None
-        },
-        authz_action: if mutates {
+        DurabilityDomain::ControlRedb,
+        if mutates {
             "agent:template-write"
         } else {
             "agent:template-read"
         },
-        idempotent: true,
-        audited: false,
-        emits_cdc: false,
-        txn_participation: if mutates {
-            TxnParticipation::Atomic
-        } else {
-            TxnParticipation::Snapshot
-        },
+        TxnParticipation::Atomic,
+    )
+}
+
+/// The connector pack's policy. Runtime-conditional in both axes: `status` is
+/// a read, and the authz action separates reading a connector's surface from
+/// publishing to it from administering what it may publish.
+fn connector_pack_policy(op: &eg_types::connector_pack::ConnectorPackOp) -> MethodPolicy {
+    native_owner_policy(
+        op.is_mutation(),
+        DurabilityDomain::ControlRedb,
+        op.authz_action(),
+        TxnParticipation::Atomic,
+    )
+}
+
+/// One decision job's policy: `submit` writes a `jobs.redb` row, `status`
+/// reads one. Both jobs share this shape and differ only in their action, so
+/// the caller passes the action rather than the shape being written twice.
+fn decision_job_policy(mutates: bool, authz_action: &'static str) -> MethodPolicy {
+    native_owner_policy(
+        mutates,
+        DurabilityDomain::JobsRedb,
+        authz_action,
+        TxnParticipation::Atomic,
+    )
+}
+
+/// The mutation outbox's policy. `rewind` resets a durable cursor through
+/// bounded transactions, so it is a saga rather than one atomic write.
+fn mutation_outbox_policy(op: &eg_types::mutation_outbox::MutationOutboxOp) -> MethodPolicy {
+    native_owner_policy(
+        op.is_mutation(),
+        DurabilityDomain::ControlRedb,
+        op.authz_action(),
+        // A rewind resets a durable cursor through bounded transactions, so it
+        // is a saga rather than one atomic write.
+        TxnParticipation::Saga,
+    )
+}
+
+/// The agent-hierarchy family: every surface whose read/write split and authz
+/// action live on its own op.
+fn agent_family_policy(method: &Method) -> Option<MethodPolicy> {
+    match method {
+        Method::AgentLibrary { op } => Some(agent_library_policy(op)),
+        Method::AgentGraph { op } => Some(agent_graph_policy(op)),
+        Method::AgentComponent { op } => Some(agent_component_policy(op)),
+        Method::AgentTemplate { op } => Some(agent_template_policy(op)),
+        Method::SemanticIndex { op } => Some(semantic_index_policy(op)),
+        Method::ConnectorPack { op } => Some(connector_pack_policy(op)),
+        _ => None,
+    }
+}
+
+/// The control family: the remaining runtime-conditional surfaces.
+fn control_family_policy(method: &Method) -> Option<MethodPolicy> {
+    match method {
+        Method::CypherQuery { mode, .. } => Some(cypher_policy(mode)),
+        #[cfg(feature = "modality-serving")]
+        Method::ServedModality { op } => Some(served_modality_policy(op)),
+        Method::DecisionFit { op } => {
+            Some(decision_job_policy(op.is_mutation(), "admin:decision-fit"))
+        }
+        Method::DecisionEval { op } => {
+            Some(decision_job_policy(op.is_mutation(), "admin:decision-eval"))
+        }
+        Method::MutationOutbox { op } => Some(mutation_outbox_policy(op)),
+        _ => None,
     }
 }
 
 fn policy_for_method(method: &Method) -> MethodPolicy {
-    if let Method::CypherQuery { mode, .. } = method {
-        return cypher_policy(mode);
+    if let Some(policy) = agent_family_policy(method) {
+        return policy;
     }
-    if let Method::AgentLibrary { op } = method {
-        return agent_library_policy(op);
-    }
-    if let Method::AgentGraph { op } = method {
-        return agent_graph_policy(op);
-    }
-    if let Method::AgentComponent { op } = method {
-        return agent_component_policy(op);
-    }
-    if let Method::AgentTemplate { op } = method {
-        return agent_template_policy(op);
-    }
-    if let Method::SemanticIndex { op } = method {
-        return semantic_index_policy(op);
-    }
-    #[cfg(feature = "modality-serving")]
-    if let Method::ServedModality { op } = method {
-        return served_modality_policy(op);
+    if let Some(policy) = control_family_policy(method) {
+        return policy;
     }
     let method_name: &'static str = method.into();
     method_policy_entries()

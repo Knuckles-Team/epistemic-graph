@@ -62,7 +62,12 @@ class MethodPolicyRow:
 # 414 -> 415: `SqlSourceBatch` (storage) admits typed SQL source rows through
 # the native SQL-catalog owner: rows, provider cursor, source epoch, terminal
 # result, replay receipt and outbox commit in one MutationBatch.
-EXPECTED_METHOD_POLICY_ROWS = 415
+# 415 -> 425: the 2.27.x contract wave's ten declared-but-not-yet-served
+# methods, every one `Internal` with no consumer until its handler lands --
+# `AgentAssemble`, `DecisionCommit`, `Decide`, `DecisionFit`, `DecisionEval`,
+# `Solve`, `ConnectorPack`, `GraphSchema`, `GraphSchemaList` and
+# `MutationOutbox`.
+EXPECTED_METHOD_POLICY_ROWS = 425
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",

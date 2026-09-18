@@ -49,6 +49,22 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::agent_library::AgentLibraryLifecycle;
 
 mod validation;
+pub mod content;
+pub mod facts;
+pub mod search;
+
+pub use content::{
+    AgentComponentContentRequest, AgentComponentContentResult, COMPONENT_CONTENT_SCHEMA_VERSION,
+    DEFAULT_COMPONENT_MEDIA_TYPE, MAX_COMPONENT_BODY_BYTES,
+};
+pub use facts::{
+    AgentComponentFacts, CostFacts, DeclaredLatency, FactQuality, ModalityFacts, ObservationRef,
+    PriceSource, PromptMode, ToolEffect, ToolsetTransport,
+};
+pub use search::{
+    decode_search_cursor, encode_search_cursor, AgentComponentSearchPage,
+    AgentComponentSearchRequest, AgentComponentStatusRequest,
+};
 
 /// Advanced to 2 by the pre-freeze contract review.
 /// [`ComponentProvenance::McpServer`] stopped naming its server by bare id and
@@ -58,11 +74,11 @@ mod validation;
 /// than a confusing digest mismatch on a row that re-derives to a different
 /// value for a reason nothing states -- the same reasoning
 /// `agent_library.rs:17-20` gives for its own bump.
-pub const AGENT_COMPONENT_SCHEMA_VERSION: u16 = 2;
+pub const AGENT_COMPONENT_SCHEMA_VERSION: u16 = 3;
 /// Format-identity constant (RF-ADR-006), advanced with the schema version:
 /// the digest covers a different shape, so it must be minted under a different
 /// domain or two different definitions could collide across the bump.
-pub const AGENT_COMPONENT_DIGEST_DOMAIN: &[u8] = b"au-eg/agent-component-definition/v2";
+pub const AGENT_COMPONENT_DIGEST_DOMAIN: &[u8] = b"au-eg/agent-component-definition/v3";
 /// Format-identity constant (RF-ADR-006) for the tenant binding inside an
 /// opaque search cursor. See [`encode_search_cursor`].
 pub const AGENT_COMPONENT_SEARCH_CURSOR_DOMAIN: &[u8] = b"au-eg/agent-component-search-cursor/v1";
@@ -86,11 +102,12 @@ const DIGEST_PREFIX: &str = "sha256:";
 
 /// What kind of part this is.
 ///
-/// Closed on purpose. Every kind here is referenced by name from
-/// [`crate::agent_library::AgentLibraryEntry`] or
+/// Closed on purpose. Every kind is either referenced from an agent slot —
+/// [`crate::agent_library::AgentLibraryEntry`],
 /// [`crate::agent_library::AgentRuntimeContract`] or
-/// [`crate::agent_graph`], so the set is the set of things an agent is
-/// actually built out of — not an open taxonomy.
+/// [`crate::agent_graph`] — or is catalog content an agent is VALIDATED or
+/// DECIDED against. Both belong to the same closed set for the same reason: a
+/// part nothing can name is a part nothing can reason about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -127,6 +144,23 @@ pub enum AgentComponentKind {
     /// Both slots pin a `ComponentDependency` of this kind, so republishing a
     /// predicate cannot re-route an already-approved graph.
     Predicate,
+    /// A SHACL shapes graph a component or request graph is validated against.
+    Shapes,
+    /// An A2A agent card: an external agent's own declaration of itself.
+    A2aAgentCard,
+    /// One durable decision record. Published by the engine only; a caller
+    /// that tries to publish one is refused by name.
+    DecisionRecord,
+    /// A decision policy body: what "better" means and when to abstain.
+    DecisionPolicy,
+    /// A fitted statistical decision head.
+    DecisionHead,
+    /// The feature schema a decision head is fitted and evaluated against.
+    FeatureSchema,
+    /// A scoring rubric a decision is judged by.
+    Rubric,
+    /// A natural-language template a decision surface renders with.
+    NlTemplate,
 }
 
 impl AgentComponentKind {
@@ -144,8 +178,61 @@ impl AgentComponentKind {
             Self::Schema => "schema",
             Self::OutputValidator => "output_validator",
             Self::Predicate => "predicate",
+            Self::Shapes => "shapes",
+            Self::A2aAgentCard => "a2a_agent_card",
+            Self::DecisionRecord => "decision_record",
+            Self::DecisionPolicy => "decision_policy",
+            Self::DecisionHead => "decision_head",
+            Self::FeatureSchema => "feature_schema",
+            Self::Rubric => "rubric",
+            Self::NlTemplate => "nl_template",
         }
     }
+
+    /// The authorization action publishing this kind needs.
+    ///
+    /// Curating the four statistical catalog kinds is a DIFFERENT privilege
+    /// from publishing a tool: a rubric or a fitted head decides what the
+    /// engine will do, so it is administrative even though it is still a
+    /// component. The mapping lives here, next to the kinds, so the capability
+    /// ledger and the access classifier read the same answer.
+    pub fn publish_authz_action(self) -> &'static str {
+        match self {
+            Self::DecisionPolicy => "admin:decision-policy",
+            Self::DecisionHead => "admin:decision-head",
+            Self::FeatureSchema | Self::Rubric | Self::NlTemplate => "admin:decision-catalog",
+            Self::ModelProfile
+            | Self::SystemPrompt
+            | Self::Tool
+            | Self::Toolset
+            | Self::McpServer
+            | Self::McpPrompt
+            | Self::McpResource
+            | Self::Skill
+            | Self::Ontology
+            | Self::Schema
+            | Self::OutputValidator
+            | Self::Predicate
+            | Self::Shapes
+            | Self::A2aAgentCard
+            | Self::DecisionRecord => "agent:component-write",
+        }
+    }
+}
+
+/// Component-id prefixes no caller may publish or retire.
+///
+/// An `mcp:` id belongs to a connector pack import and a `decision:` id to a
+/// committed decision record. Both are minted by the engine from content it
+/// validated, so a caller-supplied one could only be a forgery of the
+/// provenance the id itself asserts.
+pub const RESERVED_COMPONENT_ID_PREFIXES: &[&str] = &["mcp:", "decision:"];
+
+/// Whether `component_id` is engine-owned.
+pub fn is_reserved_component_id(component_id: &str) -> bool {
+    RESERVED_COMPONENT_ID_PREFIXES
+        .iter()
+        .any(|prefix| component_id.starts_with(prefix))
 }
 
 /// One pinned requirement of a component.
@@ -163,155 +250,6 @@ pub struct ComponentDependency {
     pub component_id: String,
     pub kind: AgentComponentKind,
     pub definition_digest: String,
-}
-
-/// How a prompt's text is resolved.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub enum PromptMode {
-    /// Fixed at publish time; `content_digest` pins the text itself.
-    Static,
-    /// Produced per run; `content_digest` can only pin the FUNCTION, so the
-    /// text the model saw must be bound again at resolution.
-    Dynamic,
-}
-
-/// Whether invoking a tool can change anything.
-///
-/// Not a hint. A read-only agent graph is one whose reachable tools are all
-/// [`ToolEffect::Read`], and that is a property worth being able to prove
-/// before a run rather than discover during one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub enum ToolEffect {
-    Read,
-    Write,
-}
-
-/// Kind-specific facts an optimizer needs in order to CHOOSE a component.
-///
-/// Typed for the kinds selection actually turns on, and
-/// [`AgentComponentFacts::Opaque`] for the rest. New facts go in
-/// `attributes` on the entry rather than as new variants, so extending the
-/// vocabulary does not break the wire.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "facts", rename_all = "snake_case")]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub enum AgentComponentFacts {
-    ModelProfile {
-        provider: String,
-        model_identity: String,
-        context_window_tokens: u32,
-        max_output_tokens: u32,
-        supports_tools: bool,
-        supports_structured_output: bool,
-        supports_vision: bool,
-    },
-    SystemPrompt {
-        prompt_mode: PromptMode,
-        /// Budgeting input: a graph's prompts have to fit its model's context.
-        token_estimate: u32,
-        /// Names a dynamic prompt expects to be given. Empty for a static one.
-        variables: Vec<String>,
-    },
-    Tool {
-        effect: ToolEffect,
-        /// Authz actions a caller must hold. An agent that cannot hold them
-        /// cannot be given this tool.
-        required_scopes: Vec<String>,
-    },
-    Toolset {
-        transport: ToolsetTransport,
-    },
-    /// Every other kind. Structure and dependencies still apply; there is just
-    /// nothing kind-specific that selection turns on.
-    Opaque,
-}
-
-/// Where a toolset's tools come from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub enum ToolsetTransport {
-    /// An MCP server.
-    Mcp,
-    /// In-process functions.
-    Function,
-    /// A skill pack.
-    Skill,
-}
-
-impl AgentComponentFacts {
-    /// The kind these facts are only valid for, or `None` for `Opaque`.
-    fn required_kind(&self) -> Option<AgentComponentKind> {
-        match self {
-            Self::ModelProfile { .. } => Some(AgentComponentKind::ModelProfile),
-            Self::SystemPrompt { .. } => Some(AgentComponentKind::SystemPrompt),
-            Self::Tool { .. } => Some(AgentComponentKind::Tool),
-            Self::Toolset { .. } => Some(AgentComponentKind::Toolset),
-            Self::Opaque => None,
-        }
-    }
-
-    fn label(&self) -> &'static str {
-        match self {
-            Self::ModelProfile { .. } => "model_profile",
-            Self::SystemPrompt { .. } => "system_prompt",
-            Self::Tool { .. } => "tool",
-            Self::Toolset { .. } => "toolset",
-            Self::Opaque => "opaque",
-        }
-    }
-
-    fn validate(&self) -> Result<(), String> {
-        match self {
-            Self::ModelProfile {
-                provider,
-                model_identity,
-                context_window_tokens,
-                max_output_tokens,
-                ..
-            } => {
-                validate_text("provider", provider)?;
-                validate_text("model_identity", model_identity)?;
-                if *context_window_tokens == 0 {
-                    return Err("agent component context_window_tokens must be non-zero".into());
-                }
-                if *max_output_tokens == 0 {
-                    return Err("agent component max_output_tokens must be non-zero".into());
-                }
-                // A model that cannot emit as much as its own window claims is
-                // a transcription error, and it would make every budget
-                // computed from these two numbers wrong.
-                if max_output_tokens > context_window_tokens {
-                    return Err(
-                        "agent component max_output_tokens exceeds its context window".into(),
-                    );
-                }
-                Ok(())
-            }
-            Self::SystemPrompt {
-                prompt_mode,
-                variables,
-                ..
-            } => {
-                if *prompt_mode == PromptMode::Static && !variables.is_empty() {
-                    return Err(
-                        "agent component static prompt cannot declare variables: nothing \
-                         resolves them"
-                            .into(),
-                    );
-                }
-                validate_names("variables", variables, MAX_VARIABLES)
-            }
-            Self::Tool {
-                required_scopes, ..
-            } => validate_names("required_scopes", required_scopes, MAX_SCOPES),
-            Self::Toolset { .. } | Self::Opaque => Ok(()),
-        }
-    }
 }
 
 /// Where a component was ingested FROM.
@@ -456,6 +394,21 @@ pub struct AgentComponentDraft {
     /// PROVIDES what a role needs.
     #[serde(default)]
     pub provides: Vec<String>,
+    /// Capability IRIs the publisher DECLARES this component provides, as
+    /// distinct from the curated `classification` above. A declaration is a
+    /// claim and is recorded as one, so a decision that leans on it is
+    /// classified by that claim.
+    #[serde(default)]
+    pub declared_capabilities: Vec<String>,
+    /// Capability IRIs this component NEEDS from whatever it is assembled
+    /// with. The assembly layer's coverage question is over this list.
+    #[serde(default)]
+    pub required_capabilities: Vec<String>,
+    /// The publisher's own statement of what it requires, kept beside the
+    /// curated `required_capabilities` for the same reason
+    /// `declared_capabilities` is kept beside `classification`.
+    #[serde(default)]
+    pub declared_required_capabilities: Vec<String>,
     /// Extension point. New facts belong here until they earn a typed field,
     /// so the vocabulary can grow without a wire break.
     #[serde(default)]
@@ -489,6 +442,12 @@ pub struct AgentComponentEntry {
     pub requires: Vec<ComponentDependency>,
     #[serde(default)]
     pub provides: Vec<String>,
+    #[serde(default)]
+    pub declared_capabilities: Vec<String>,
+    #[serde(default)]
+    pub required_capabilities: Vec<String>,
+    #[serde(default)]
+    pub declared_required_capabilities: Vec<String>,
     #[serde(default)]
     pub attributes: BTreeMap<String, String>,
     pub tenant_id: String,
@@ -547,6 +506,9 @@ impl AgentComponentEntry {
             classification: draft.classification,
             requires: draft.requires,
             provides: draft.provides,
+            declared_capabilities: draft.declared_capabilities,
+            required_capabilities: draft.required_capabilities,
+            declared_required_capabilities: draft.declared_required_capabilities,
             attributes: draft.attributes,
             tenant_id: draft.tenant_id,
             actor_scope: draft.actor_scope,
@@ -593,6 +555,16 @@ impl AgentComponentEntry {
         if !is_digest(&self.definition_digest) {
             return Err("agent component definition_digest is not a sha256 digest".to_string());
         }
+        // Only a connector pack's own members can be withdrawn: withdrawal is
+        // the pack importer saying "this entry is no longer served", and no
+        // other publisher has that authority over a component id.
+        if self.lifecycle == AgentLibraryLifecycle::Withdrawn
+            && !self.component_id.starts_with("mcp:")
+        {
+            return Err(
+                "WITHDRAWN_NOT_ALLOWED: only a connector pack member may be withdrawn".to_string(),
+            );
+        }
         if self.definition_digest != definition_digest(&self.as_draft()) {
             return Err("agent component definition_digest does not match its definition".into());
         }
@@ -612,6 +584,9 @@ impl AgentComponentEntry {
             classification: self.classification.clone(),
             requires: self.requires.clone(),
             provides: self.provides.clone(),
+            declared_capabilities: self.declared_capabilities.clone(),
+            required_capabilities: self.required_capabilities.clone(),
+            declared_required_capabilities: self.declared_required_capabilities.clone(),
             attributes: self.attributes.clone(),
             tenant_id: self.tenant_id.clone(),
             actor_scope: self.actor_scope.clone(),
@@ -641,6 +616,40 @@ impl AgentComponentDraft {
     }
 }
 
+/// The `requires` list's bounds, self-reference rule and uniqueness.
+fn validate_dependencies(draft: &AgentComponentDraft) -> Result<(), String> {
+    if draft.requires.len() > MAX_DEPENDENCIES {
+        return Err("agent component has too many dependencies".to_string());
+    }
+    let mut seen = BTreeSet::new();
+    for dependency in &draft.requires {
+        validate_text("dependency component_id", &dependency.component_id)?;
+        validate_digest(
+            "dependency definition_digest",
+            &dependency.definition_digest,
+        )?;
+        // Self-reference is the one cycle a single record CAN express, and it
+        // is unrepresentable in a valid one: a dependency pins a digest, and a
+        // component's own digest covers its dependencies, so pinning yourself
+        // is a hash preimage. Rejecting by id makes the intent explicit rather
+        // than relying on that.
+        if dependency.component_id == draft.component_id {
+            return Err(format!(
+                "agent component '{}' cannot require itself",
+                draft.component_id
+            ));
+        }
+        if !seen.insert((&dependency.component_id, dependency.kind)) {
+            return Err(format!(
+                "agent component requires '{}' ({}) twice",
+                dependency.component_id,
+                dependency.kind.as_str()
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn definition_digest(draft: &AgentComponentDraft) -> String {
     let mut hasher = Sha256::new();
     hasher.update(AGENT_COMPONENT_DIGEST_DOMAIN);
@@ -666,9 +675,7 @@ fn definition_digest(draft: &AgentComponentDraft) -> String {
         put_text(&mut hasher, dependency.kind.as_str());
         put_text(&mut hasher, &dependency.definition_digest);
     }
-    let mut provides = draft.provides.clone();
-    provides.sort();
-    put_names(&mut hasher, &provides);
+    put_capability_lists(&mut hasher, draft);
     hasher.update((draft.attributes.len() as u64).to_be_bytes());
     for (name, value) in &draft.attributes {
         put_text(&mut hasher, name);
@@ -694,6 +701,10 @@ fn put_facts(hasher: &mut Sha256, facts: &AgentComponentFacts) {
             supports_tools,
             supports_structured_output,
             supports_vision,
+            modalities,
+            cost,
+            latency_declared,
+            latency_observed_ref,
         } => {
             put_text(hasher, provider);
             put_text(hasher, model_identity);
@@ -704,6 +715,17 @@ fn put_facts(hasher: &mut Sha256, facts: &AgentComponentFacts) {
                 u8::from(*supports_structured_output),
                 u8::from(*supports_vision),
             ]);
+            put_selection_facts(hasher, modalities, cost.as_ref(), latency_declared.as_ref());
+            put_opt_text(
+                hasher,
+                latency_observed_ref
+                    .as_ref()
+                    .map(|r| r.evaluation_id.as_str()),
+            );
+            put_opt_text(
+                hasher,
+                latency_observed_ref.as_ref().map(|r| r.digest.as_str()),
+            );
         }
         AgentComponentFacts::SystemPrompt {
             prompt_mode,
@@ -723,6 +745,15 @@ fn put_facts(hasher: &mut Sha256, facts: &AgentComponentFacts) {
         AgentComponentFacts::Tool {
             effect,
             required_scopes,
+            input_schema_digest,
+            output_schema_digest,
+            read_only_hint,
+            destructive_hint,
+            idempotent_hint,
+            open_world_hint,
+            modalities,
+            cost,
+            latency_declared,
         } => {
             put_text(
                 hasher,
@@ -732,6 +763,13 @@ fn put_facts(hasher: &mut Sha256, facts: &AgentComponentFacts) {
                 },
             );
             put_names(hasher, required_scopes);
+            put_opt_text(hasher, input_schema_digest.as_deref());
+            put_opt_text(hasher, output_schema_digest.as_deref());
+            put_tristate(hasher, *read_only_hint);
+            put_tristate(hasher, *destructive_hint);
+            put_tristate(hasher, *idempotent_hint);
+            put_tristate(hasher, *open_world_hint);
+            put_selection_facts(hasher, modalities, cost.as_ref(), latency_declared.as_ref());
         }
         AgentComponentFacts::Toolset { transport } => put_text(
             hasher,
@@ -765,6 +803,95 @@ fn put_provenance(hasher: &mut Sha256, provenance: &ComponentProvenance) {
             put_text(hasher, &server.definition_digest);
             put_text(hasher, upstream_name);
         }
+    }
+}
+
+/// The four capability lists, each sorted, so two callers that declared the
+/// same capabilities in a different order have declared the SAME component.
+fn put_capability_lists(hasher: &mut Sha256, draft: &AgentComponentDraft) {
+    for names in [
+        &draft.provides,
+        &draft.declared_capabilities,
+        &draft.required_capabilities,
+        &draft.declared_required_capabilities,
+    ] {
+        let mut sorted = names.clone();
+        sorted.sort();
+        put_names(hasher, &sorted);
+    }
+}
+
+/// Absent, false and true are three distinct values in the digest, so an
+/// unknown hint can never hash the same as a declared `false`.
+fn put_tristate(hasher: &mut Sha256, value: Option<bool>) {
+    hasher.update([match value {
+        None => 0u8,
+        Some(false) => 1,
+        Some(true) => 2,
+    }]);
+}
+
+/// The three selection facts BOTH selectable kinds carry. One writer, so a
+/// model profile and a tool cannot digest the same declared cost differently.
+fn put_selection_facts(
+    hasher: &mut Sha256,
+    modalities: &ModalityFacts,
+    cost: Option<&CostFacts>,
+    latency: Option<&DeclaredLatency>,
+) {
+    put_names(hasher, &modalities.input);
+    put_names(hasher, &modalities.output);
+    match cost {
+        None => hasher.update([0u8]),
+        Some(cost) => {
+            hasher.update([1u8]);
+            put_text(hasher, &cost.currency);
+            for price in [
+                cost.per_call_micros,
+                cost.input_per_mtok_micros,
+                cost.output_per_mtok_micros,
+            ] {
+                hasher.update(price.unwrap_or_default().to_be_bytes());
+                hasher.update([u8::from(price.is_some())]);
+            }
+            put_price_source(hasher, &cost.price_source);
+            put_text(hasher, quality_token(cost.quality));
+        }
+    }
+    match latency {
+        None => hasher.update([0u8]),
+        Some(latency) => {
+            hasher.update([1u8]);
+            hasher.update(latency.p50_ms.to_be_bytes());
+            hasher.update(latency.p95_ms.to_be_bytes());
+        }
+    }
+}
+
+fn put_price_source(hasher: &mut Sha256, source: &PriceSource) {
+    match source {
+        PriceSource::Publisher => put_text(hasher, "publisher"),
+        PriceSource::ConnectorPack {
+            connector,
+            entry_digest,
+        } => {
+            put_text(hasher, "connector_pack");
+            put_text(hasher, connector);
+            put_text(hasher, entry_digest);
+        }
+        PriceSource::Operator { reference } => {
+            put_text(hasher, "operator");
+            put_text(hasher, reference);
+        }
+    }
+}
+
+fn quality_token(quality: FactQuality) -> &'static str {
+    match quality {
+        FactQuality::Measured => "measured",
+        FactQuality::Estimated => "estimated",
+        FactQuality::Declared => "declared",
+        FactQuality::Unavailable => "unavailable",
     }
 }
 
@@ -839,6 +966,11 @@ fn validate_text(field: &str, value: &str) -> Result<(), String> {
 pub enum AgentComponentMutationKind {
     Publish,
     Retire,
+    /// A pack entry that vanished from its connector's current pack. Unlike
+    /// `Retire` this is REVERSIBLE: the entry coming back republishes it.
+    Withdraw,
+    /// A withdrawn pack entry returning in a later import.
+    Republish,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -850,6 +982,12 @@ pub struct AgentComponentPublishRequest {
     /// its mutation context rather than growing a parallel copy of it.
     pub context: crate::agent_library::AgentLibraryMutationContext,
     pub component: AgentComponentDraft,
+    /// `sha256:<hex>` of the evaluation receipt that qualified this revision.
+    /// REQUIRED for [`AgentComponentKind::DecisionHead`]: a head decides what
+    /// the engine does, so publishing one without the receipt that measured it
+    /// is the one case where "we can evaluate it later" is not recoverable.
+    #[serde(default)]
+    pub evaluation_receipt_digest: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -859,174 +997,6 @@ pub struct AgentComponentRetireRequest {
     pub context: crate::agent_library::AgentLibraryMutationContext,
     pub component_id: String,
 }
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct AgentComponentStatusRequest {
-    pub context: crate::agent_library::AgentLibraryMutationContext,
-    pub component_id: String,
-    pub kind: AgentComponentMutationKind,
-}
-
-/// Find components by what they can do.
-///
-/// The wire form of *"what does an agent trying to do XYZ need?"*. Either
-/// `task` (resolved to capabilities through the native ontology) or explicit
-/// `capabilities` may be given; giving both intersects them.
-///
-/// # Why this is paginated
-///
-/// This is the capability-discovery query the whole component layer exists to
-/// serve, so it is the one read whose result set grows with the tenant rather
-/// than with the request. An unpaginated form has two failure modes and no
-/// recovery from either: the response size is bounded only by the corpus, and a
-/// tenant whose component count passes the scan bound is refused on EVERY
-/// search forever. [`AgentComponentSearchPage`] exists so neither is possible,
-/// and it is an object rather than a bare array because turning an array into
-/// an object later is a read-side wire break.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct AgentComponentSearchRequest {
-    pub tenant_id: String,
-    /// An ontology task term, e.g. `eg:task/research`.
-    #[serde(default)]
-    pub task: Option<String>,
-    /// Capability terms the component must satisfy by subsumption.
-    #[serde(default)]
-    pub capabilities: Vec<String>,
-    /// Restrict to these kinds. Empty means every kind.
-    #[serde(default)]
-    pub kinds: Vec<AgentComponentKind>,
-    /// When true, exclude anything side-effecting. The reason this is a
-    /// first-class filter rather than a caller-side one: assembling a
-    /// read-only agent is a common, security-relevant request, and a caller
-    /// that has to filter afterwards can forget to.
-    #[serde(default)]
-    pub read_only: bool,
-    /// How many entries this page may carry, at most
-    /// [`MAX_AGENT_COMPONENT_SEARCH_LIMIT`]. `None` requests the maximum.
-    #[serde(default)]
-    pub limit: Option<u32>,
-    /// Where to resume, from a previous page's
-    /// [`AgentComponentSearchPage::next_cursor`].
-    ///
-    /// OPAQUE: it is produced by the engine and only ever handed back
-    /// unmodified. It carries a binding to the tenant it was minted for, so one
-    /// tenant's cursor is refused by name against another's search rather than
-    /// silently resuming somewhere.
-    #[serde(default)]
-    pub cursor: Option<String>,
-}
-
-impl AgentComponentSearchRequest {
-    pub fn validate(&self) -> Result<(), String> {
-        validation::validate_search_request(self)
-    }
-
-    /// The page size this request asks for, defaulted and already bounded.
-    pub fn page_limit(&self) -> usize {
-        self.limit
-            .unwrap_or(MAX_AGENT_COMPONENT_SEARCH_LIMIT)
-            .min(MAX_AGENT_COMPONENT_SEARCH_LIMIT) as usize
-    }
-
-    /// The capabilities a component must satisfy to match.
-    pub fn required_capabilities(&self) -> Vec<String> {
-        let mut required: Vec<String> = self.capabilities.clone();
-        if let Some(task) = &self.task {
-            for capability in crate::agent_ontology::capabilities_for_task(task) {
-                if !required.iter().any(|existing| existing == capability) {
-                    required.push((*capability).to_string());
-                }
-            }
-        }
-        required
-    }
-
-    /// Whether one component answers this search.
-    pub fn matches(&self, component: &AgentComponentEntry) -> bool {
-        if component.lifecycle != AgentLibraryLifecycle::Published {
-            return false;
-        }
-        if !self.kinds.is_empty() && !self.kinds.contains(&component.kind) {
-            return false;
-        }
-        if self.read_only && component.is_side_effecting() {
-            return false;
-        }
-        // ANY, not ALL: a component is a part. A research agent needs
-        // retrieval AND summarization, and no single tool provides both --
-        // requiring every capability of a task would return nothing.
-        self.required_capabilities()
-            .iter()
-            .any(|required| component.satisfies_capability(required))
-    }
-}
-
-/// One page of a capability search.
-///
-/// An object, never a bare array: `next_cursor` has to live somewhere, and a
-/// read that starts life as a JSON array can only grow one by breaking every
-/// reader.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct AgentComponentSearchPage {
-    pub entries: Vec<AgentComponentEntry>,
-    /// `Some` when more of the tenant remains to be scanned. Hand it back
-    /// unmodified to continue; `None` means the corpus is exhausted.
-    ///
-    /// A page may be EMPTY and still carry a cursor: the engine bounds how much
-    /// it scans per page, so a sparse match over a large tenant makes progress
-    /// across several pages instead of doing unbounded work in one. A caller
-    /// therefore loops until `next_cursor` is `None`, not until a page is empty.
-    pub next_cursor: Option<String>,
-}
-
-/// Mint the opaque cursor that resumes a search after `component_id`.
-///
-/// The encoded form is a tenant-bound tag followed by the resume key. The tag
-/// is what stops a cursor from being transplanted: resumption uses the
-/// REQUEST's tenant for the scan prefix, so a foreign cursor could never reach
-/// another tenant's rows, but it could silently resume at a meaningless offset,
-/// and a named refusal is better than a quiet wrong answer.
-pub fn encode_search_cursor(tenant_id: &str, component_id: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(AGENT_COMPONENT_SEARCH_CURSOR_DOMAIN);
-    put_text(&mut hasher, tenant_id);
-    put_text(&mut hasher, component_id);
-    let tag = hasher.finalize();
-    format!(
-        "{}{}",
-        hex::encode(&tag[..SEARCH_CURSOR_TAG_BYTES]),
-        hex::encode(component_id.as_bytes())
-    )
-}
-
-/// Recover the resume key from an opaque cursor, or refuse it by name.
-pub fn decode_search_cursor(tenant_id: &str, cursor: &str) -> Result<String, String> {
-    const TAG_HEX: usize = SEARCH_CURSOR_TAG_BYTES * 2;
-    if cursor.len() <= TAG_HEX
-        || cursor.len() > MAX_AGENT_COMPONENT_SEARCH_CURSOR_BYTES
-        || !cursor.len().is_multiple_of(2)
-    {
-        return Err("agent component search cursor is malformed".to_string());
-    }
-    let raw = hex::decode(&cursor[TAG_HEX..])
-        .map_err(|_| "agent component search cursor is malformed".to_string())?;
-    let component_id = String::from_utf8(raw)
-        .map_err(|_| "agent component search cursor is malformed".to_string())?;
-    validate_text("cursor component_id", &component_id)
-        .map_err(|_| "agent component search cursor is malformed".to_string())?;
-    if encode_search_cursor(tenant_id, &component_id) != cursor {
-        return Err("agent component search cursor was not minted for this tenant".to_string());
-    }
-    Ok(component_id)
-}
-
-const SEARCH_CURSOR_TAG_BYTES: usize = 16;
 
 /// Typed component wire operations.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1057,6 +1027,10 @@ pub enum AgentComponentOp {
     Search {
         request: AgentComponentSearchRequest,
     },
+    /// Read one revision's engine-owned bytes back, digest-verified.
+    Content {
+        request: AgentComponentContentRequest,
+    },
 }
 
 impl AgentComponentOp {
@@ -1064,38 +1038,44 @@ impl AgentComponentOp {
         matches!(self, Self::Publish { .. } | Self::Retire { .. })
     }
 
-    pub fn tenant_id(&self) -> &str {
+    /// The authorization action this operation needs.
+    ///
+    /// Publishing is kind-dependent: the four statistical catalog kinds are
+    /// administrative (see [`AgentComponentKind::publish_authz_action`]), the
+    /// rest are ordinary component writes. Everything else here is a read.
+    pub fn authz_action(&self) -> &'static str {
         match self {
-            Self::Publish { request } => &request.context.tenant_id,
-            Self::Retire { request } => &request.context.tenant_id,
-            Self::Status { request } => &request.context.tenant_id,
-            Self::Search { request } => &request.tenant_id,
-            Self::Current { tenant_id, .. } | Self::History { tenant_id, .. } => tenant_id,
+            Self::Publish { request } => request.component.kind.publish_authz_action(),
+            Self::Retire { .. } => "agent:component-write",
+            Self::Current { .. }
+            | Self::History { .. }
+            | Self::Status { .. }
+            | Self::Search { .. }
+            | Self::Content { .. } => "agent:component-read",
         }
+    }
+
+    pub fn tenant_id(&self) -> &str {
+        component_op_tenant_id(self)
     }
 
     pub fn validate(&self) -> Result<(), String> {
         match self {
-            Self::Publish { request } => {
-                request.context.validate()?;
-                request.component.validate()?;
-                if request.context.tenant_id != request.component.tenant_id {
-                    return Err(
-                        "agent component publish context tenant does not match the component's"
-                            .to_string(),
-                    );
-                }
-                Ok(())
-            }
+            Self::Publish { request } => validate_publish(request),
             Self::Retire { request } => {
                 request.context.validate()?;
-                validate_text("component_id", &request.component_id)
+                validate_text("component_id", &request.component_id)?;
+                refuse_reserved_id(&request.component_id)
             }
             Self::Status { request } => {
                 request.context.validate()?;
                 validate_text("component_id", &request.component_id)
             }
             Self::Search { request } => request.validate(),
+            Self::Content { request } => {
+                validate_text("tenant_id", &request.tenant_id)?;
+                validate_text("component_id", &request.component_id)
+            }
             Self::Current {
                 tenant_id,
                 component_id,
@@ -1108,6 +1088,72 @@ impl AgentComponentOp {
                 validate_text("component_id", component_id)
             }
         }
+    }
+}
+
+/// Where each operation carries the tenant it names.
+///
+/// A free resolver rather than a method body, so the op's classifiers
+/// ([`AgentComponentOp::is_mutation`], [`AgentComponentOp::authz_action`],
+/// [`AgentComponentOp::tenant_id`]) each stay a one-line statement of WHICH
+/// walk they are -- the same shape the digest and validation walks in this file
+/// already have.
+fn component_op_tenant_id(op: &AgentComponentOp) -> &str {
+    match op {
+        AgentComponentOp::Publish { request } => &request.context.tenant_id,
+        AgentComponentOp::Retire { request } => &request.context.tenant_id,
+        AgentComponentOp::Status { request } => &request.context.tenant_id,
+        AgentComponentOp::Search { request } => &request.tenant_id,
+        AgentComponentOp::Content { request } => &request.tenant_id,
+        AgentComponentOp::Current { tenant_id, .. }
+        | AgentComponentOp::History { tenant_id, .. } => tenant_id,
+    }
+}
+
+/// Refuse an engine-owned component id by name.
+///
+/// `RESERVED_COMPONENT_ID` rather than a generic validation error, because the
+/// caller's mistake is a category error about who owns the id, and a message
+/// about "invalid characters" would send them looking in the wrong place.
+fn refuse_reserved_id(component_id: &str) -> Result<(), String> {
+    if is_reserved_component_id(component_id) {
+        return Err(format!(
+            "RESERVED_COMPONENT_ID: '{component_id}' is minted by the engine and cannot be \
+             published or retired by a caller"
+        ));
+    }
+    Ok(())
+}
+
+fn validate_publish(request: &AgentComponentPublishRequest) -> Result<(), String> {
+    request.context.validate()?;
+    request.component.validate()?;
+    if request.context.tenant_id != request.component.tenant_id {
+        return Err(
+            "agent component publish context tenant does not match the component's".to_string(),
+        );
+    }
+    refuse_reserved_id(&request.component.component_id)?;
+    if request.component.kind == AgentComponentKind::DecisionRecord {
+        return Err(
+            "FORBIDDEN_COMPONENT_KIND: a decision record is committed by DecisionCommit, never \
+             published directly"
+                .to_string(),
+        );
+    }
+    validate_receipt_digest(request)
+}
+
+fn validate_receipt_digest(request: &AgentComponentPublishRequest) -> Result<(), String> {
+    let head = request.component.kind == AgentComponentKind::DecisionHead;
+    match (&request.evaluation_receipt_digest, head) {
+        (None, true) => Err(
+            "EVALUATION_RECEIPT_REQUIRED: publishing a decision head needs the digest of the \
+             evaluation receipt that qualified it"
+                .to_string(),
+        ),
+        (Some(digest), _) => validate_digest("evaluation_receipt_digest", digest),
+        (None, false) => Ok(()),
     }
 }
 
@@ -1140,67 +1186,23 @@ impl AgentComponentOutboxEvent {
             return Err("agent component outbox schema version is unsupported".to_string());
         }
         self.component.validate()?;
-        let expected = match self.component.lifecycle {
-            AgentLibraryLifecycle::Published => AgentComponentMutationKind::Publish,
-            AgentLibraryLifecycle::Retired => AgentComponentMutationKind::Retire,
+        // Exhaustive, and deliberately not a `_` arm: a new lifecycle must be
+        // given an outbox kind here rather than silently inheriting one.
+        let allowed: &[AgentComponentMutationKind] = match self.component.lifecycle {
+            AgentLibraryLifecycle::Published => &[
+                AgentComponentMutationKind::Publish,
+                AgentComponentMutationKind::Republish,
+            ],
+            AgentLibraryLifecycle::Retired => &[AgentComponentMutationKind::Retire],
+            AgentLibraryLifecycle::Withdrawn => &[AgentComponentMutationKind::Withdraw],
         };
-        if self.kind != expected {
+        if !allowed.contains(&self.kind) {
             return Err(
                 "agent component outbox kind does not match the entry's lifecycle".to_string(),
             );
         }
         validate_text("performing_actor", &self.performing_actor)?;
         validate_text("action_actor_scope", &self.action_actor_scope)
-    }
-}
-
-impl AgentComponentEntry {
-    /// Whether this component answers a need for `required_capability`.
-    ///
-    /// Subsumption, not equality: a component classified
-    /// `eg:capability/retrieval/web-search` satisfies a need for
-    /// `eg:capability/retrieval`. The direction matters and is asymmetric --
-    /// see [`crate::agent_ontology::satisfies`].
-    pub fn satisfies_capability(&self, required_capability: &str) -> bool {
-        self.classification
-            .iter()
-            .any(|provided| crate::agent_ontology::satisfies(provided, required_capability))
-    }
-
-    /// Whether this component is usable for `task_iri` -- it satisfies at
-    /// least one capability that task requires.
-    ///
-    /// The native half of *"what does an agent trying to do XYZ need?"*: the
-    /// task resolves to capabilities through the baked-in ontology, and those
-    /// match components by subsumption. No model in the loop, and the answer
-    /// is reproducible.
-    pub fn is_applicable_to_task(&self, task_iri: &str) -> bool {
-        crate::agent_ontology::capabilities_for_task(task_iri)
-            .iter()
-            .any(|required| self.satisfies_capability(required))
-    }
-
-    /// Whether using this component can change anything.
-    ///
-    /// True when it is a write tool, or when it is classified anywhere under
-    /// `eg:capability/action`. Both are checked because the two facts come
-    /// from different places -- the typed [`ToolEffect`] is declared by the
-    /// ingest, the classification by whoever curated it -- and a component is
-    /// side-effecting if EITHER says so. Treating a disagreement as "safe"
-    /// would be the wrong default for the one property you cannot take back.
-    pub fn is_side_effecting(&self) -> bool {
-        let declared_write = matches!(
-            self.facts,
-            AgentComponentFacts::Tool {
-                effect: ToolEffect::Write,
-                ..
-            }
-        );
-        declared_write
-            || self
-                .classification
-                .iter()
-                .any(|term| crate::agent_ontology::is_a(term, "eg:capability/action"))
     }
 }
 
@@ -1228,6 +1230,9 @@ mod tests {
             classification: Vec::new(),
             requires: Vec::new(),
             provides: Vec::new(),
+            declared_capabilities: Vec::new(),
+            required_capabilities: Vec::new(),
+            declared_required_capabilities: Vec::new(),
             attributes: BTreeMap::new(),
             tenant_id: "tenant-a".into(),
             actor_scope: "agent-builder".into(),
@@ -1238,17 +1243,71 @@ mod tests {
         }
     }
 
-    fn model() -> AgentComponentDraft {
-        let mut source = draft("model:opus", AgentComponentKind::ModelProfile);
-        source.facts = AgentComponentFacts::ModelProfile {
+    /// Model facts with every selection field at its neutral value, so a test
+    /// states only the numbers it is about.
+    fn model_facts(window: u32, output: u32) -> AgentComponentFacts {
+        AgentComponentFacts::ModelProfile {
             provider: "anthropic".into(),
             model_identity: "claude-opus-5".into(),
-            context_window_tokens: 200_000,
-            max_output_tokens: 64_000,
+            context_window_tokens: window,
+            max_output_tokens: output,
             supports_tools: true,
             supports_structured_output: true,
             supports_vision: true,
-        };
+            modalities: ModalityFacts::default(),
+            cost: None,
+            latency_declared: None,
+            latency_observed_ref: None,
+        }
+    }
+
+    /// The selection facts a digest-coverage mutator overrides, one at a time.
+    #[derive(Default)]
+    struct ToolFactOverrides {
+        input_schema_digest: Option<String>,
+        read_only_hint: Option<bool>,
+        modalities: ModalityFacts,
+        cost: Option<CostFacts>,
+        latency_declared: Option<DeclaredLatency>,
+    }
+
+    /// The baseline tool facts with `overrides` applied.
+    fn tool_facts_with(overrides: ToolFactOverrides) -> AgentComponentFacts {
+        AgentComponentFacts::Tool {
+            effect: ToolEffect::Read,
+            required_scopes: vec!["scope:read".into()],
+            input_schema_digest: overrides.input_schema_digest,
+            output_schema_digest: None,
+            read_only_hint: overrides.read_only_hint,
+            destructive_hint: None,
+            idempotent_hint: None,
+            open_world_hint: None,
+            modalities: overrides.modalities,
+            cost: overrides.cost,
+            latency_declared: overrides.latency_declared,
+        }
+    }
+
+    /// Tool facts with every selection field at its neutral value.
+    fn tool_facts(effect: ToolEffect, required_scopes: Vec<String>) -> AgentComponentFacts {
+        AgentComponentFacts::Tool {
+            effect,
+            required_scopes,
+            input_schema_digest: None,
+            output_schema_digest: None,
+            read_only_hint: None,
+            destructive_hint: None,
+            idempotent_hint: None,
+            open_world_hint: None,
+            modalities: ModalityFacts::default(),
+            cost: None,
+            latency_declared: None,
+        }
+    }
+
+    fn model() -> AgentComponentDraft {
+        let mut source = draft("model:opus", AgentComponentKind::ModelProfile);
+        source.facts = model_facts(200_000, 64_000);
         source
     }
 
@@ -1265,15 +1324,7 @@ mod tests {
         // Otherwise a Tool could carry model facts, and every query that reads
         // facts by kind is wrong in a way nothing else detects.
         let mut mismatched = draft("tool:search", AgentComponentKind::Tool);
-        mismatched.facts = AgentComponentFacts::ModelProfile {
-            provider: "anthropic".into(),
-            model_identity: "claude-opus-5".into(),
-            context_window_tokens: 1_000,
-            max_output_tokens: 100,
-            supports_tools: true,
-            supports_structured_output: true,
-            supports_vision: false,
-        };
+        mismatched.facts = model_facts(1_000, 100);
         let error = mismatched.validate().expect_err("must be refused");
         assert!(error.contains("cannot carry"), "got: {error}");
     }
@@ -1297,15 +1348,7 @@ mod tests {
     #[test]
     fn a_model_that_cannot_emit_its_own_window_is_refused() {
         let mut broken = model();
-        broken.facts = AgentComponentFacts::ModelProfile {
-            provider: "anthropic".into(),
-            model_identity: "claude-opus-5".into(),
-            context_window_tokens: 1_000,
-            max_output_tokens: 2_000,
-            supports_tools: true,
-            supports_structured_output: true,
-            supports_vision: false,
-        };
+        broken.facts = model_facts(1_000, 2_000);
         let error = broken.validate().expect_err("must be refused");
         assert!(error.contains("exceeds its context window"), "got: {error}");
     }
@@ -1459,10 +1502,7 @@ mod tests {
 
     fn mcp_tool(component_id: &str, capability: &str, effect: ToolEffect) -> AgentComponentDraft {
         let mut source = draft(component_id, AgentComponentKind::Tool);
-        source.facts = AgentComponentFacts::Tool {
-            effect,
-            required_scopes: Vec::new(),
-        };
+        source.facts = tool_facts(effect, Vec::new());
         source.provenance = ComponentProvenance::McpServer {
             server: mcp_server_pin('a'),
             upstream_name: "search".into(),
@@ -1648,10 +1688,7 @@ mod tests {
     fn full_draft() -> AgentComponentDraft {
         let mut full = draft("tool:search", AgentComponentKind::Tool);
         full.content_ref = Some("cas:tool:search".into());
-        full.facts = AgentComponentFacts::Tool {
-            effect: ToolEffect::Read,
-            required_scopes: vec!["scope:read".into()],
-        };
+        full.facts = tool_facts(ToolEffect::Read, vec!["scope:read".into()]);
         full.provenance = ComponentProvenance::McpServer {
             server: mcp_server_pin('a'),
             upstream_name: "search".into(),
@@ -1686,6 +1723,9 @@ mod tests {
             classification: _,
             requires: _,
             provides: _,
+            declared_capabilities: _,
+            required_capabilities: _,
+            declared_required_capabilities: _,
             attributes: _,
             tenant_id: _,
             actor_scope: _,
@@ -1708,10 +1748,53 @@ mod tests {
             ("content_digest", |d| d.content_digest = digest('c')),
             ("content_ref", |d| d.content_ref = None),
             ("facts", |d| {
-                d.facts = AgentComponentFacts::Tool {
-                    effect: ToolEffect::Write,
-                    required_scopes: vec!["scope:read".into()],
-                }
+                d.facts = tool_facts(ToolEffect::Write, vec!["scope:read".into()])
+            }),
+            // The wave's new selection facts are digest inputs too: a cost or a
+            // hint that moved without moving the digest would let an approved
+            // revision be re-costed under the signature that approved it.
+            ("facts.input_schema_digest", |d| {
+                d.facts = tool_facts_with(ToolFactOverrides {
+                    input_schema_digest: Some(digest('d')),
+                    ..ToolFactOverrides::default()
+                })
+            }),
+            ("facts.read_only_hint", |d| {
+                d.facts = tool_facts_with(ToolFactOverrides {
+                    read_only_hint: Some(false),
+                    ..ToolFactOverrides::default()
+                })
+            }),
+            ("facts.modalities", |d| {
+                d.facts = tool_facts_with(ToolFactOverrides {
+                    modalities: ModalityFacts {
+                        input: vec!["eg:modality/text".into()],
+                        output: Vec::new(),
+                    },
+                    ..ToolFactOverrides::default()
+                })
+            }),
+            ("facts.cost", |d| {
+                d.facts = tool_facts_with(ToolFactOverrides {
+                    cost: Some(CostFacts {
+                        currency: "USD".into(),
+                        per_call_micros: Some(10),
+                        input_per_mtok_micros: None,
+                        output_per_mtok_micros: None,
+                        price_source: PriceSource::Publisher,
+                        quality: FactQuality::Declared,
+                    }),
+                    ..ToolFactOverrides::default()
+                })
+            }),
+            ("facts.latency_declared", |d| {
+                d.facts = tool_facts_with(ToolFactOverrides {
+                    latency_declared: Some(DeclaredLatency {
+                        p50_ms: 10,
+                        p95_ms: 20,
+                    }),
+                    ..ToolFactOverrides::default()
+                })
             }),
             ("provenance", |d| d.provenance = ComponentProvenance::Native),
             // The variant's OWN fields, not just the choice of variant: an
@@ -1758,6 +1841,15 @@ mod tests {
             }),
             ("provides", |d| {
                 d.provides = vec!["eg:capability/analysis/summarize".into()]
+            }),
+            ("declared_capabilities", |d| {
+                d.declared_capabilities = vec!["urn:vendor:summarize".into()]
+            }),
+            ("required_capabilities", |d| {
+                d.required_capabilities = vec!["eg:capability/action".into()]
+            }),
+            ("declared_required_capabilities", |d| {
+                d.declared_required_capabilities = vec!["urn:vendor:act".into()]
             }),
             ("attributes", |d| {
                 d.attributes = BTreeMap::from([("vendor".to_string(), "other".to_string())])

@@ -32,6 +32,17 @@ impl<T, const MAXIMUM: usize> BoundedVec<T, MAXIMUM> {
     }
 }
 
+/// The empty collection, which is inside every bound by construction.
+///
+/// Needed by `#[serde(default)]`: an absent bounded list decodes as empty
+/// rather than as a missing-field error, which is what every optional list on
+/// the wire means.
+impl<T, const MAXIMUM: usize> Default for BoundedVec<T, MAXIMUM> {
+    fn default() -> Self {
+        Self(Vec::new())
+    }
+}
+
 impl<'a, T, const MAXIMUM: usize> IntoIterator for &'a BoundedVec<T, MAXIMUM> {
     type Item = &'a T;
     type IntoIter = std::slice::Iter<'a, T>;

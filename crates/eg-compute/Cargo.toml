@@ -30,11 +30,18 @@ mining = ["eg-types/mining", "dep:eg-geo"]
 graphlearn = ["datascience", "eg-types/graphlearn"]
 reasoning = []
 # General bounded 0-1 integer programming with verifiable certificates (Decide
-# layer package A3): validated models with integer rows and a lexicographic
-# objective, a deterministic node-budgeted branch-and-bound, Lagrangian
-# leaf-bound certificates and an independent verifier. Integer-only and
-# dependency-free beyond the crate's existing serde/sha2/hex.
+# layer package A3): a deterministic node-budgeted branch-and-bound, Lagrangian
+# leaf-bound certificates and an independent verifier (`Method::Solve`). The
+# wire DTOs (validated models with integer rows and a lexicographic objective)
+# live in `eg-types::solve`; this gates the search and the certificate verifier.
 solve = []
+# RF-ADR-010 A2: `is_a` derivation, evidence classification and the task ->
+# capability closure the assembly layer reasons with. It builds and solves a
+# model, so it implies `solve`.
+decide = ["solve"]
+# The statistical half of the Decide layer: heads, calibration and the
+# off-policy estimators, which are eg-numeric kernels.
+decide-stats = ["decide", "dep:eg-numeric"]
 # GPU transitive-closure DISPATCH SEAM (CONCEPT:EG-KG.compute.reasoning-closure-gpu):
 # compiles the `ClosureBackend` trait + backend selection in `reasoning_closure`. The
 # pure-Rust CPU hash-join is ALWAYS the compiled-in fallback; this marker just opts a
@@ -86,6 +93,10 @@ eg-core = { path = "../eg-core" }
 # squared-vector metric. Optional with the mining domain so slim builds keep
 # the GIS leaf out of their dependency graph.
 eg-geo = { path = "../eg-geo", default-features = false, optional = true }
+# The exact numeric kernels the statistical decision surface is built on
+# (calibration, conformal prediction, off-policy estimators). Optional so a
+# build without `decide-stats` links none of it.
+eg-numeric = { path = "../eg-numeric", optional = true }
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 rmp-serde = "1.3"

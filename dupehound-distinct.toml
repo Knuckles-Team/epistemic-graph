@@ -149,12 +149,12 @@ reason = """The same join-compatibility algorithm over DIFFERENT solution types:
 [[pair]]
 left_file = "crates/eg-types/src/agent_component.rs"
 left_name = "as_str"
-left_digest = "sha256:a6a7d15bf3729714942568c3d87094416af1042166a186f747cf341a093fd71a"
+left_digest = "sha256:be6d52fc34c0da1bb7a7a98cbb50ed610d5bcdf5725ec4a78d695b650c3a8893"
 right_file = "crates/eg-program/src/contracts.rs"
 right_name = "as_str"
 right_digest = "sha256:ea62a72f6cc0604d3bf4c487bf89652cae9aae0a4751f2d6c47dc95d5abd4cea"
-reviewed_on = "2026-09-10"
-reason = """Two exhaustive match-to-&str renderings over unrelated enums: the agent component KIND vocabulary (model_profile, system_prompt, tool, toolset, mcp_server, mcp_prompt, mcp_resource, skill, ontology, schema, output_validator, predicate) versus a DSPy adapter kind (chat, json, xml, two_step, document, citations). Not one variant is shared and the two live in different crates serving different layers. Sharing the shape would require a common enum over two vocabularies that have nothing in common, which is an invented abstraction. Same family as the already-registered eg-modality served-error pair against this identical right-hand side -- every Rust enum with a string rendering has this body."""
+reviewed_on = "2026-09-17"
+reason = """Two exhaustive match-to-&str renderings over unrelated enums: the agent component KIND vocabulary (model_profile, system_prompt, tool, toolset, mcp_server, mcp_prompt, mcp_resource, skill, ontology, schema, output_validator, predicate, and since the 2.27.x contract wave shapes, a2a_agent_card, decision_record, decision_policy, decision_head, feature_schema, rubric, nl_template) versus a DSPy adapter kind (chat, json, xml, two_step, document, citations). Not one variant is shared and the two live in different crates serving different layers. Sharing the shape would require a common enum over two vocabularies that have nothing in common, which is an invented abstraction. Same family as the already-registered eg-modality served-error pair against this identical right-hand side -- every Rust enum with a string rendering has this body."""
 
 [[pair]]
 left_file = "crates/eg-program/src/commit/validation.rs"
@@ -185,3 +185,71 @@ right_name = "resource_request_matches_identity"
 right_digest = "sha256:e47c67fcc566a75c91435c0a8be7ab248f235f0e684cedd239c6f1c930a03ae7"
 reviewed_on = "2026-09-16"
 reason = """Same coincidental shape as the sibling entry above, against the same right-hand side: this is the OTHER half of the delegation-outcome identity check (result_ref, capability_digest, catalog_digest, policy_digest, model_digest, event_sequence, completeness, missing_refs) -- provenance/result fields, not the resource-reservation fencing fields on the right. No field in common, different subsystem, same idiom every exact-match comparator uses."""
+
+# ── 2.27.x contract wave (reviewed 2026-09-17) ────────────────────────────────
+
+[[pair]]
+left_file = "crates/eg-types/src/agent_component.rs"
+left_name = "as_str"
+left_digest = "sha256:be6d52fc34c0da1bb7a7a98cbb50ed610d5bcdf5725ec4a78d695b650c3a8893"
+right_file = "crates/eg-plan/src/result_stream.rs"
+right_name = "as_str"
+right_digest = "sha256:1c032ec0c0a8de05330f80ed651215a4dfc7561631515272cd31d5c12c4396e9"
+reviewed_on = "2026-09-17"
+reason = """Two exhaustive match-to-&str renderings over unrelated enums, the same family as the already-registered eg-modality and eg-program pairs. Left: the agent component KIND vocabulary (model_profile ... nl_template), which names what an agent is built out of. Right: the cross-modal result-stream MODALITY tag (graph, sql, rdf, vector, time_series, job, cross_modal), which names which executor produced a batch. Not one token is shared, and the two sit in different crates on opposite sides of the DAG. The pair appeared only because the contract wave grew the component vocabulary past the length at which the two bodies coincide structurally; sharing the shape would require a common enum over two vocabularies with nothing in common."""
+
+[[pair]]
+left_file = "crates/eg-types/src/connector_pack/digest.rs"
+left_name = "entry_kind_token"
+left_digest = "sha256:d5b18d6ce3ca24c90cf54229af6871f525930ac77a1d79e7b908194a831e2472"
+right_file = "crates/eg-plan/src/result_stream.rs"
+right_name = "as_str"
+right_digest = "sha256:1c032ec0c0a8de05330f80ed651215a4dfc7561631515272cd31d5c12c4396e9"
+reviewed_on = "2026-09-17"
+reason = """Same family, and deliberately NOT shared with the component-kind renderer beside it either. This one renders the connector PACK entry kind (mcp_server, tool, skill, prompt, ontology, shapes, model_profile, a2a_card, manifest) and its output is a DIGEST INPUT: the token is framed into `entry_digest`, so changing it changes every pack's identity. Folding it into a general enum-to-string helper would put the pack's wire identity at the mercy of an edit made for an unrelated enum. Right-hand side is the result-stream modality tag, an unrelated vocabulary in another crate."""
+
+[[pair]]
+left_file = "src/server/handlers/graph_ops/gateway_graph_routes.rs"
+left_name = "is_policy"
+left_digest = "sha256:897188b37ed10fa8681916ac28a8462d60ddfe87c52a8bb6531748df6341eb32"
+right_file = "src/server/handlers/query/dispatch.rs"
+right_name = "is_evidence_causal_method"
+right_digest = "sha256:7da863145cb96b62edd83781c616a058ed0d214540c1cf47fdd3f5fdf1cbf959"
+reviewed_on = "2026-09-17"
+reason = """Two route predicates over disjoint method sets, each with its OWN feature gating, which is the whole reason they are shaped alike: a predicate that must answer for two independently-compiled feature sets can only be written as one guarded `matches!` per feature. Left decides whether a method is a graph POLICY write (SHACL shapes, X9 schema sources, Datalog rules) and routes it to the commit gateway; right decides whether a method is an evidence/causal READ and routes it to the epistemic query path. They share no method, no feature and no destination. Merging them would produce a predicate whose answer means two different things depending on which caller asked."""
+
+[[pair]]
+left_file = "src/server/mutation/plan.rs"
+left_name = "native_local_only_method_name"
+left_digest = "sha256:c185c5145c4e0e6fb5ea7bc461c57243f523ee2dbc9fd40f2b87877a0a560291"
+right_file = "src/server/mutation/plan.rs"
+right_name = "scene_trajectory_method_name"
+right_digest = "sha256:d73bd821ad96a7918cbbbc464196e2c29c44ba3252410333701d1d124f1d19f3"
+reviewed_on = "2026-09-17"
+reason = """Two entries of `METHOD_NAME_RESOLVERS`, which is a deliberately SECTIONED table: the file's own comment says the resolvers follow the protocol's semantic sections rather than slicing one match by size, so that ownership and lookup order stay auditable. Every one of its twenty-five resolvers has this body by construction, and the structural match between any two of them carries no information. Consolidating them into one match is exactly the change the sectioning exists to prevent -- it would put the graph core's scene and trajectory methods and the local-only native owners in one place, where a reader could no longer tell which list a name belongs to."""
+
+[[pair]]
+left_file = "crates/eg-types/src/agent_component.rs"
+left_name = "create"
+left_digest = "sha256:55507782dc5ba053cbdb7ceddf7f33d6c3ed2c31e08737916d5950c6a415befc"
+right_file = "crates/eg-types/src/agent_library.rs"
+right_name = "create"
+right_digest = "sha256:4ab4df459269c853857dabfc8ae2bb188a794d05bc1a70eccaef7231d18b1ec1"
+reviewed_on = "2026-09-19"
+reason = """The RF-ADR-008 constructor shape, on the two record types whose fields the
+2.27.x contract wave grew enough to cross dupehound's similarity floor:
+draft.validate() -> revision==0 refusal -> update-before-create refusal ->
+definition_digest(&draft) -> struct literal copying every draft field across.
+Every one of the four layers (agent_component, agent_graph, agent_template,
+agent_library) has its own `create`, deliberately: the draft types
+(AgentComponentDraft vs AgentLibraryEntryDraft) share no field, the error text
+names the record ("agent component"/"agent library"), and the struct literal
+enumerates each layer's OWN fields (agent_component's now includes
+declared_capabilities/required_capabilities/declared_required_capabilities,
+which agent_library has no equivalent of). A shared helper would need a noun
+parameter, a draft trait spanning two unrelated field sets, and a generic
+struct-literal builder for records that intentionally do not share a schema --
+inventing an abstraction whose only member concept is "the four bytes were
+similar," the same reasoning already accepted for this file's other
+RF-ADR-008-shaped pairs above. Flagged to the coordinator for review per the
+lane rule on new clone-gate registrations; not yet ruled on."""

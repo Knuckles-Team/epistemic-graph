@@ -2,6 +2,7 @@
 
 use super::Dynamic;
 use crate::agent_component::AgentComponentCommittedResult;
+use crate::agent_component::AgentComponentContentResult;
 use crate::agent_component::AgentComponentEntry;
 use crate::agent_component::AgentComponentSearchPage;
 use crate::agent_graph::AgentGraphCommittedResult;
@@ -11,6 +12,12 @@ use crate::agent_library::AgentLibraryEntryDraft;
 use crate::agent_library::AgentLibraryWriteResult;
 use crate::agent_template::AgentTemplateCommittedResult;
 use crate::agent_template::AgentTemplateEntry;
+use crate::connector_pack::ConnectorPackStatus as ConnectorPackStatusBody;
+use crate::connector_pack::{
+    ConnectorPackBindingResult, PackBodyReconcileReport, PackImportReceipt, PackImportResult,
+    PackRetireResult,
+};
+use crate::decision::{AssemblyResult, DecisionCommitResult};
 #[cfg(feature = "query")]
 use crate::storage_wire::SqlSourceBatchResult;
 use crate::storage_wire::{BackupReceipt, RestoreReceipt, SqliteExportReport, SqliteImportReport};
@@ -79,6 +86,16 @@ method_results! {
     KvCas(KvCas) => Bool<bool>;
     #[cfg(feature = "query")]
     SqlSourceBatch(SqlSourceBatch) => Raw<SqlSourceBatchResult>;
+    AgentComponentContent(AgentComponent / "content") => Raw<AgentComponentContentResult>;
+    AgentAssemble(AgentAssemble) => Raw<AssemblyResult>;
+    DecisionCommit(DecisionCommit) => Raw<DecisionCommitResult>;
+    ConnectorPackStatus(ConnectorPack / "status") => Raw<ConnectorPackStatusBody>;
+    ConnectorPackImport(ConnectorPack / "import") => Raw<PackImportResult>;
+    ConnectorPackBind(ConnectorPack / "bind") => Raw<ConnectorPackBindingResult>;
+    ConnectorPackUnbind(ConnectorPack / "unbind") => Raw<ConnectorPackBindingResult>;
+    ConnectorPackRetire(ConnectorPack / "retire") => Raw<PackRetireResult>;
+    ConnectorPackReproject(ConnectorPack / "reproject") => Raw<PackImportReceipt>;
+    ConnectorPackReconcileBodies(ConnectorPack / "reconcile_bodies") => Raw<PackBodyReconcileReport>;
     ImportSqliteFile(ImportSqliteFile) => Json<SqliteImportReport>;
     ExportSqliteFile(ExportSqliteFile) => Json<SqliteExportReport>;
 }

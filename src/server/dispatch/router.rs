@@ -21,6 +21,7 @@ mod channels;
 mod control_plane;
 mod data_plane;
 mod data_plane_arms;
+mod decision_plane;
 mod graph_lifecycle;
 mod identity_access;
 mod lifecycle;
@@ -35,6 +36,8 @@ use control_plane::{
 };
 #[cfg(feature = "query")]
 use data_plane::dispatch_sql_source_methods;
+use decision_plane::dispatch_decision_plane_methods;
+
 use data_plane::{
     dispatch_change_envelope_methods, dispatch_governed_stream_write_methods,
     dispatch_method_scoped_graph_methods, dispatch_store_methods, dispatch_streaming_methods,
@@ -121,6 +124,7 @@ async fn dispatch_control_plane_methods(
     let method = dispatch_resource_cost_methods(ctx, method).await?;
     let method = dispatch_graph_lifecycle_methods(ctx, method).await?;
     let method = dispatch_agent_library_methods(ctx, method).await?;
+    let method = dispatch_decision_plane_methods(ctx, method).await?;
     let method = dispatch_cluster_admin_methods(ctx, method).await?;
     let method = dispatch_channel_methods(ctx, method).await?;
     let method = dispatch_identity_and_access_methods(ctx, method).await?;

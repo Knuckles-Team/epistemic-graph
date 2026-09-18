@@ -2737,6 +2737,7 @@ dependencies = [
  "eg-core",
  "eg-geo",
  "eg-modality",
+ "eg-numeric",
  "eg-types",
  "hex",
  "nalgebra",

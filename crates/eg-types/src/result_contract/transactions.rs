@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::change_envelope::ChangeEnvelopeCommit;
+use crate::mutation_outbox::{MutationOutboxStatusView, OutboxDeadLetterPage, OutboxRewindReceipt};
 
 /// What one SPARQL UPDATE changed, whichever path executed it.
 ///
@@ -156,4 +157,7 @@ method_results! {
     TxnMaterializeBelief(TxnMaterializeBelief) => Json<BeliefMaterialization>;
     Commit(Commit) => Json<CommitOutcome>;
     Rollback(Rollback) => Bool<bool>;
+    MutationOutboxStatus(MutationOutbox / "status") => Raw<MutationOutboxStatusView>;
+    MutationOutboxDeadLetters(MutationOutbox / "dead_letters") => Raw<OutboxDeadLetterPage>;
+    MutationOutboxRewind(MutationOutbox / "rewind") => Raw<OutboxRewindReceipt>;
 }

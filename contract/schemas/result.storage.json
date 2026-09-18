@@ -1,6 +1,200 @@
 {
   "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
   "$defs": {
+    "AbstainReason": {
+      "description": "Why the engine declined to answer.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A required capability no candidate covers.",
+          "properties": {
+            "iri": {
+              "type": "string"
+            },
+            "reason": {
+              "const": "uncovered_capability",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "iri"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A declared capability IRI that is not a native term.",
+          "properties": {
+            "iri": {
+              "type": "string"
+            },
+            "reason": {
+              "const": "unresolved_capability_iri",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "iri"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Free text no mapping resolved to a task.",
+          "properties": {
+            "reason": {
+              "const": "unmapped_task",
+              "type": "string"
+            },
+            "text_digest": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "text_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The constraints named cannot be satisfied together.",
+          "properties": {
+            "constraints": {
+              "$ref": "#/$defs/BoundedVec_string_64"
+            },
+            "reason": {
+              "const": "infeasible",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "constraints"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The search budget ran out above the accepted gap.",
+          "properties": {
+            "incumbent": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "lower_bound": {
+              "$ref": "#/$defs/Scalar"
+            },
+            "reason": {
+              "const": "budget_exhausted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "lower_bound"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A fact the objective needs is absent on a candidate.",
+          "properties": {
+            "component_id": {
+              "type": "string"
+            },
+            "field": {
+              "type": "string"
+            },
+            "reason": {
+              "const": "unknown_fact",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "component_id",
+            "field"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An external agent without its required observation.",
+          "properties": {
+            "component_id": {
+              "type": "string"
+            },
+            "reason": {
+              "const": "ineligible_external_agent",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "component_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The record itself would exceed the durable record bound.",
+          "properties": {
+            "bytes": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "reason": {
+              "const": "record_too_large",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "bytes"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The request tried to widen the pinned policy.",
+          "properties": {
+            "field": {
+              "type": "string"
+            },
+            "reason": {
+              "const": "policy_loosening",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "field"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Statistical: below the policy's support, coverage or risk floor. It\nnames no invisible data, by construction.",
+          "properties": {
+            "reason": {
+              "const": "insufficient_confidence",
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "AgentComponentCommittedResult": {
       "additionalProperties": false,
       "description": "What a committed component mutation returns.",
@@ -28,6 +222,56 @@
         "component",
         "batch_id",
         "committed_version"
+      ],
+      "type": "object"
+    },
+    "AgentComponentContentResult": {
+      "additionalProperties": false,
+      "description": "One component revision's bytes and the identity they were served under.",
+      "properties": {
+        "body": {
+          "description": "At most [`MAX_COMPONENT_BODY_BYTES`].",
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "component_id": {
+          "type": "string"
+        },
+        "content_digest": {
+          "description": "`sha256:<hex>`, verified by the engine against the bytes it is sending.",
+          "type": "string"
+        },
+        "definition_digest": {
+          "type": "string"
+        },
+        "entry_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "media_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "component_id",
+        "entry_revision",
+        "definition_digest",
+        "content_digest",
+        "media_type",
+        "body"
       ],
       "type": "object"
     },
@@ -70,6 +314,20 @@
           "minimum": 0,
           "type": "integer"
         },
+        "declared_capabilities": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "declared_required_capabilities": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "definition_digest": {
           "type": "string"
         },
@@ -102,6 +360,13 @@
         },
         "purpose_id": {
           "type": "string"
+        },
+        "required_capabilities": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "requires": {
           "default": [],
@@ -170,14 +435,55 @@
               "minimum": 0,
               "type": "integer"
             },
+            "cost": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/CostFacts"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
             "facts": {
               "const": "model_profile",
               "type": "string"
+            },
+            "latency_declared": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DeclaredLatency"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "latency_observed_ref": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ObservationRef"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "The evaluation that MEASURED this profile's latency, when one\nexists. A declared latency and a measured one are different claims\nand a selection that cannot tell them apart cannot say which it used."
             },
             "max_output_tokens": {
               "format": "uint32",
               "minimum": 0,
               "type": "integer"
+            },
+            "modalities": {
+              "$ref": "#/$defs/ModalityFacts",
+              "default": {
+                "input": [],
+                "output": []
+              }
             },
             "model_identity": {
               "type": "string"
@@ -240,12 +546,85 @@
         },
         {
           "properties": {
+            "cost": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/CostFacts"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "destructive_hint": {
+              "default": null,
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
             "effect": {
               "$ref": "#/$defs/ToolEffect"
             },
             "facts": {
               "const": "tool",
               "type": "string"
+            },
+            "idempotent_hint": {
+              "default": null,
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "input_schema_digest": {
+              "default": null,
+              "description": "`sha256:<hex>` of the served-and-serialized input schema section.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "latency_declared": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DeclaredLatency"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "modalities": {
+              "$ref": "#/$defs/ModalityFacts",
+              "default": {
+                "input": [],
+                "output": []
+              }
+            },
+            "open_world_hint": {
+              "default": null,
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "output_schema_digest": {
+              "default": null,
+              "description": "`None` means the tool declares no output schema.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "read_only_hint": {
+              "default": null,
+              "type": [
+                "boolean",
+                "null"
+              ]
             },
             "required_scopes": {
               "description": "Authz actions a caller must hold. An agent that cannot hold them\ncannot be given this tool.",
@@ -294,7 +673,7 @@
       ]
     },
     "AgentComponentKind": {
-      "description": "What kind of part this is.\n\nClosed on purpose. Every kind here is referenced by name from\n[`crate::agent_library::AgentLibraryEntry`] or\n[`crate::agent_library::AgentRuntimeContract`] or\n[`crate::agent_graph`], so the set is the set of things an agent is\nactually built out of — not an open taxonomy.",
+      "description": "What kind of part this is.\n\nClosed on purpose. Every kind is either referenced from an agent slot —\n[`crate::agent_library::AgentLibraryEntry`],\n[`crate::agent_library::AgentRuntimeContract`] or\n[`crate::agent_graph`] — or is catalog content an agent is VALIDATED or\nDECIDED against. Both belong to the same closed set for the same reason: a\npart nothing can name is a part nothing can reason about.",
       "oneOf": [
         {
           "const": "model_profile",
@@ -355,6 +734,46 @@
           "const": "predicate",
           "description": "A predicate behind a graph decision node or edge condition\n(`AgentGraphNodeKind::Decision::decision`, `AgentGraphEdge::condition`).\nBoth slots pin a `ComponentDependency` of this kind, so republishing a\npredicate cannot re-route an already-approved graph.",
           "type": "string"
+        },
+        {
+          "const": "shapes",
+          "description": "A SHACL shapes graph a component or request graph is validated against.",
+          "type": "string"
+        },
+        {
+          "const": "a2a_agent_card",
+          "description": "An A2A agent card: an external agent's own declaration of itself.",
+          "type": "string"
+        },
+        {
+          "const": "decision_record",
+          "description": "One durable decision record. Published by the engine only; a caller\nthat tries to publish one is refused by name.",
+          "type": "string"
+        },
+        {
+          "const": "decision_policy",
+          "description": "A decision policy body: what \"better\" means and when to abstain.",
+          "type": "string"
+        },
+        {
+          "const": "decision_head",
+          "description": "A fitted statistical decision head.",
+          "type": "string"
+        },
+        {
+          "const": "feature_schema",
+          "description": "The feature schema a decision head is fitted and evaluated against.",
+          "type": "string"
+        },
+        {
+          "const": "rubric",
+          "description": "A scoring rubric a decision is judged by.",
+          "type": "string"
+        },
+        {
+          "const": "nl_template",
+          "description": "A natural-language template a decision surface renders with.",
+          "type": "string"
         }
       ]
     },
@@ -408,6 +827,55 @@
         "graph",
         "batch_id",
         "committed_version"
+      ],
+      "type": "object"
+    },
+    "AgentGraphDraft": {
+      "additionalProperties": false,
+      "description": "Caller-supplied inputs for one composed graph.",
+      "properties": {
+        "actor_scope": {
+          "type": "string"
+        },
+        "graph_id": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "shape": {
+          "$ref": "#/$defs/AgentGraphShape"
+        },
+        "synthesis_evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComponentDependency"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Why this shape: the evidence an optimizer (or a human) composed it from.\n`None` for a hand-authored graph. RF-ADR-008 requires a SYNTHESIZED\nshape to carry it -- a shape without evidence is a guess, and the\npremise of a context engine is that the context is the justification."
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "graph_id",
+        "version",
+        "shape",
+        "tenant_id",
+        "actor_scope",
+        "purpose_id",
+        "policy_digest"
       ],
       "type": "object"
     },
@@ -530,6 +998,53 @@
         "definition_digest",
         "created_at_ms",
         "updated_at_ms"
+      ],
+      "type": "object"
+    },
+    "AgentGraphEntryRef": {
+      "additionalProperties": false,
+      "description": "One pinned agent GRAPH, as a delegation target (RF-ADR-008).\n\nMirrors [`AgentLibraryEntryRef`] exactly: both pin the record's\n`definition_digest`.\n\n# Why a delegation pins the RECORD digest and a composing parent does not\n\nA [`crate::agent_graph::AgentGraphNodeKind::Graph`] node deliberately pins\nthe child's `shape_digest` -- what a parent composes is the child's\nBEHAVIOUR, and the child's governance is re-checked live at every\nresolution, so pinning a stale copy of it would force a cascading republish\nof an entire tree for a change that alters no behaviour.\n\nA delegation is the opposite question. It names a record IDENTITY, and it is\nthe audit point: `synthesis_evidence` -- which RF-ADR-008 section D says is what\nmakes a synthesized graph auditable and reproducible -- is inside\n`definition_digest` and outside `shape_digest`, as are `version`, the actor\nscope, the purpose, the policy digest and the admitted\n`composed_work_ceiling`. A delegation that pinned only the shape would\nattest to what ran while leaving WHY it was composed unpinned.\n\nDo not \"unify\" the two by giving both the same digest: they answer different\nquestions, and [`crate::agent_graph::AgentGraphEntry`]'s own impl-block doc\ncarries the other half of this note.\n\nThe behaviour pin is not lost: `definition_digest` is a hash OVER\n`shape_digest`, and a shape digest covers every node, while an agent node\npins its own `definition_digest`, which pins every component it is assembled\nfrom. So the record digest still pins the ENTIRE tree transitively -- which\nis why a graph target needs no separate `model_digest` (see\n[`KgDelegateRequest::model_digest`]).",
+      "properties": {
+        "actor_scope": {
+          "type": "string"
+        },
+        "composed_work_ceiling": {
+          "description": "The composed work ceiling this graph was admitted with --\n`CompositionFacts::total_work` from its publish.\n\nCarried rather than recomputed for two reasons. An executor cannot\nderive it without re-resolving the whole composition tree, and more\nimportantly it must honour the ceiling that was VALIDATED at admission,\nnot one it recomputes later against a tree that may have grown new\nrevisions.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "definition_digest": {
+          "description": "The published RECORD digest -- see the type doc for why this is the\nrecord digest and not the shape digest.",
+          "type": "string"
+        },
+        "entry_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "graph_id": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "purpose_id": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "graph_id",
+        "entry_revision",
+        "definition_digest",
+        "actor_scope",
+        "purpose_id",
+        "policy_digest",
+        "composed_work_ceiling"
       ],
       "type": "object"
     },
@@ -1031,10 +1546,11 @@
       "type": "object"
     },
     "AgentLibraryLifecycle": {
-      "description": "The retained lifecycle of one Agent Library definition.\n\n`Retired` is a durable tombstone.  It remains in the revision stream and\ncannot be replaced by a later publish, preserving the definition's\nprovenance and preventing silent resurrection of an agent identity.",
+      "description": "The retained lifecycle of one Agent Library definition.\n\n`Retired` is a durable tombstone.  It remains in the revision stream and\ncannot be replaced by a later publish, preserving the definition's\nprovenance and preventing silent resurrection of an agent identity.\n\n`Withdrawn` is the reversible counterpart, and it exists only for connector\npack members: a pack that stops serving an entry has not decided the entry\nwas wrong, only that it is no longer offered, and a later import that\noffers it again must be able to republish it. Collapsing the two would make\nevery transient publisher outage a permanent tombstone.",
       "enum": [
         "published",
-        "retired"
+        "retired",
+        "withdrawn"
       ],
       "type": "string"
     },
@@ -1411,6 +1927,198 @@
       },
       "type": "object"
     },
+    "Algorithm": {
+      "description": "The solver algorithm that produced a certificate.",
+      "oneOf": [
+        {
+          "const": "depth_first_dual_ascent",
+          "description": "Propagation, greedy incumbent, depth-first branch-and-bound with a\ndual-ascent Lagrangian bound, pre-order leaf-bound certificate.",
+          "type": "string"
+        }
+      ]
+    },
+    "AssemblyConstraints": {
+      "additionalProperties": false,
+      "description": "Non-capability requirements the assembly must satisfy.",
+      "properties": {
+        "context_budget_tokens": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cost_budget": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CostBudget"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "max_components": {
+          "default": null,
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_p95_latency_ms": {
+          "default": null,
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "modalities_in": {
+          "$ref": "#/$defs/BoundedVec_string_16",
+          "default": []
+        },
+        "modalities_out": {
+          "$ref": "#/$defs/BoundedVec_string_16",
+          "default": []
+        },
+        "require_structured_output": {
+          "default": false,
+          "type": "boolean"
+        },
+        "require_tools": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "AssemblyRequest": {
+      "additionalProperties": false,
+      "description": "One assembly question.",
+      "properties": {
+        "candidates": {
+          "$ref": "#/$defs/LibraryCandidateScope"
+        },
+        "policy": {
+          "$ref": "#/$defs/DecisionPolicyRef"
+        },
+        "requirements": {
+          "$ref": "#/$defs/AssemblyRequirements"
+        },
+        "solver": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SolverBudget"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "templates": {
+          "$ref": "#/$defs/BoundedVec_AgentGraphEntryRef_8",
+          "default": [],
+          "description": "Candidate graph templates. Empty asks for a one-agent graph."
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "requirements",
+        "candidates",
+        "policy"
+      ],
+      "type": "object"
+    },
+    "AssemblyRequirements": {
+      "additionalProperties": false,
+      "description": "What the assembled agent has to be able to do.",
+      "properties": {
+        "capabilities": {
+          "$ref": "#/$defs/BoundedVec_string_32",
+          "default": [],
+          "description": "Native `eg:capability/*` IRIs."
+        },
+        "constraints": {
+          "$ref": "#/$defs/AssemblyConstraints",
+          "default": {
+            "context_budget_tokens": null,
+            "cost_budget": null,
+            "max_components": null,
+            "max_p95_latency_ms": null,
+            "modalities_in": [],
+            "modalities_out": [],
+            "require_structured_output": false,
+            "require_tools": false
+          }
+        },
+        "denies": {
+          "$ref": "#/$defs/BoundedVec_string_64",
+          "default": [],
+          "description": "Component ids that must not be selected."
+        },
+        "pins": {
+          "$ref": "#/$defs/BoundedVec_ComponentDependency_64",
+          "default": []
+        },
+        "task_mappings": {
+          "$ref": "#/$defs/BoundedVec_ClaimedTaskMapping_32",
+          "default": []
+        },
+        "tasks": {
+          "$ref": "#/$defs/BoundedVec_string_32",
+          "default": [],
+          "description": "Native `eg:task/*` IRIs."
+        },
+        "unmapped_task_digests": {
+          "$ref": "#/$defs/BoundedVec_string_32",
+          "default": [],
+          "description": "Digests of free text no mapping covered. Each becomes an abstention\nreason rather than a silently dropped requirement."
+        }
+      },
+      "type": "object"
+    },
+    "AssemblyResult": {
+      "additionalProperties": false,
+      "description": "The answer: always a record, and a graph draft only when one was proved.",
+      "properties": {
+        "graph": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentGraphDraft"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`Some` exactly when the record's outcome is `Solved`."
+        },
+        "record": {
+          "$ref": "#/$defs/DecisionRecord"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "record"
+      ],
+      "type": "object"
+    },
     "BackupReceipt": {
       "description": "Result of `Method::Backup`: aggregate counts of the published bundle. It carries\nno local path and no raw label.",
       "properties": {
@@ -1485,6 +2193,483 @@
         "encrypted_recovery_plans"
       ],
       "type": "object"
+    },
+    "BoundProof": {
+      "description": "The lower-bound evidence a certificate carries.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A complete pre-order search tree.",
+          "properties": {
+            "tree": {
+              "additionalProperties": false,
+              "properties": {
+                "nodes": {
+                  "items": {
+                    "$ref": "#/$defs/ProofNode"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "nodes"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "tree"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Only the root dual (the tree exceeded the certificate leaf limit).",
+          "properties": {
+            "root": {
+              "additionalProperties": false,
+              "properties": {
+                "dual": {
+                  "$ref": "#/$defs/LagrangeDual"
+                }
+              },
+              "required": [
+                "dual"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "root"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "BoundedVec_AbstainReason_64": {
+      "items": {
+        "$ref": "#/$defs/AbstainReason"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_AgentComponentKind_16": {
+      "items": {
+        "$ref": "#/$defs/AgentComponentKind"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "BoundedVec_AgentGraphEntryRef_8": {
+      "items": {
+        "$ref": "#/$defs/AgentGraphEntryRef"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "BoundedVec_CandidateFacts_64": {
+      "items": {
+        "$ref": "#/$defs/CandidateFacts"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_ClaimedTaskMapping_32": {
+      "items": {
+        "$ref": "#/$defs/ClaimedTaskMapping"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "BoundedVec_ComponentDependency_1024": {
+      "items": {
+        "$ref": "#/$defs/ComponentDependency"
+      },
+      "maxItems": 1024,
+      "type": "array"
+    },
+    "BoundedVec_ComponentDependency_256": {
+      "items": {
+        "$ref": "#/$defs/ComponentDependency"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
+    "BoundedVec_ComponentDependency_64": {
+      "items": {
+        "$ref": "#/$defs/ComponentDependency"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_CoverageDerivation_32": {
+      "items": {
+        "$ref": "#/$defs/CoverageDerivation"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "BoundedVec_DerivationEdge_16": {
+      "items": {
+        "$ref": "#/$defs/DerivationEdge"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "BoundedVec_Elimination_64": {
+      "items": {
+        "$ref": "#/$defs/Elimination"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_ObjectiveLevelKind_8": {
+      "items": {
+        "$ref": "#/$defs/ObjectiveLevelKind"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "BoundedVec_PackViolation_256": {
+      "items": {
+        "$ref": "#/$defs/PackViolation"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
+    "BoundedVec_PackWarning_256": {
+      "items": {
+        "$ref": "#/$defs/PackWarning"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
+    "BoundedVec_PremiseRef_1024": {
+      "items": {
+        "$ref": "#/$defs/PremiseRef"
+      },
+      "maxItems": 1024,
+      "type": "array"
+    },
+    "BoundedVec_PremiseRef_32": {
+      "items": {
+        "$ref": "#/$defs/PremiseRef"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "BoundedVec_SlotAssignment_64": {
+      "items": {
+        "$ref": "#/$defs/SlotAssignment"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_WeightedLevel_8": {
+      "items": {
+        "$ref": "#/$defs/WeightedLevel"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "BoundedVec_WhyNot_64": {
+      "items": {
+        "$ref": "#/$defs/WhyNot"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_string_16": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
+    "BoundedVec_string_32": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "BoundedVec_string_64": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_string_8": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "CandidateFacts": {
+      "additionalProperties": false,
+      "description": "Everything known about one candidate at decision time.",
+      "properties": {
+        "classification": {
+          "$ref": "#/$defs/BoundedVec_string_64"
+        },
+        "component_id": {
+          "type": "string"
+        },
+        "declared_capabilities": {
+          "$ref": "#/$defs/BoundedVec_string_64"
+        },
+        "definition_digest": {
+          "type": "string"
+        },
+        "entry_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "fact_premises": {
+          "$ref": "#/$defs/BoundedVec_PremiseRef_32",
+          "description": "The premises the facts above rest on."
+        },
+        "facts": {
+          "$ref": "#/$defs/AgentComponentFacts"
+        },
+        "kind": {
+          "$ref": "#/$defs/AgentComponentKind"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/AgentLibraryLifecycle"
+        },
+        "required_capabilities": {
+          "$ref": "#/$defs/BoundedVec_string_64"
+        },
+        "requires": {
+          "$ref": "#/$defs/BoundedVec_ComponentDependency_256"
+        }
+      },
+      "required": [
+        "component_id",
+        "kind",
+        "entry_revision",
+        "definition_digest",
+        "lifecycle",
+        "classification",
+        "required_capabilities",
+        "declared_capabilities",
+        "requires",
+        "facts",
+        "fact_premises"
+      ],
+      "type": "object"
+    },
+    "CandidateSourceRecord": {
+      "description": "Where the candidates came from.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "One tenant-bound agent library snapshot.",
+          "properties": {
+            "classification_under": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kinds": {
+              "$ref": "#/$defs/BoundedVec_AgentComponentKind_16"
+            },
+            "source": {
+              "const": "agent_library",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "kinds"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An RLS-filtered graph plan, pinned by its plan digest.",
+          "properties": {
+            "plan_digest": {
+              "type": "string"
+            },
+            "source": {
+              "const": "graph",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "plan_digest"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Certificate": {
+      "additionalProperties": false,
+      "description": "Everything a verifier needs, and nothing it must trust.",
+      "properties": {
+        "algorithm": {
+          "$ref": "#/$defs/Algorithm"
+        },
+        "config": {
+          "$ref": "#/$defs/SolverConfig"
+        },
+        "incumbent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Incumbent"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lower_bound": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Scalar"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Certified scalar lower bound, when any bound leaf exists."
+        },
+        "model_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "nodes_expanded": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "proof": {
+          "$ref": "#/$defs/BoundProof"
+        },
+        "status": {
+          "$ref": "#/$defs/SolveStatus"
+        }
+      },
+      "required": [
+        "model_digest",
+        "algorithm",
+        "config",
+        "status",
+        "proof",
+        "nodes_expanded"
+      ],
+      "type": "object"
+    },
+    "ClaimProvenance": {
+      "additionalProperties": false,
+      "description": "How a free-text task was mapped onto native task IRIs, and by what.\n\nA mapping is a CLAIM, never a proof: it is recorded with its producer so a\nrecord that leans on one is classified by its weakest premise.",
+      "properties": {
+        "model_profile": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComponentDependency"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "producer": {
+          "type": "string"
+        },
+        "prompt_digest": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "producer"
+      ],
+      "type": "object"
+    },
+    "ClaimedTaskMapping": {
+      "additionalProperties": false,
+      "description": "One claimed free-text-to-task mapping.",
+      "properties": {
+        "provenance": {
+          "$ref": "#/$defs/ClaimProvenance"
+        },
+        "task_iris": {
+          "$ref": "#/$defs/BoundedVec_string_8"
+        },
+        "text_digest": {
+          "description": "`sha256:<hex>` of the free text, never the text.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text_digest",
+        "task_iris",
+        "provenance"
+      ],
+      "type": "object"
+    },
+    "ColdStart": {
+      "description": "What the engine does before a head is calibrated.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Only the deterministic constraint ladder runs.",
+          "properties": {
+            "mode": {
+              "const": "deterministic_only",
+              "type": "string"
+            }
+          },
+          "required": [
+            "mode"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Scores are produced and labelled uncalibrated; nothing acts on them.",
+          "properties": {
+            "mode": {
+              "const": "advisory_uncalibrated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "mode"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Bounded exploration is allowed within `budget`.",
+          "properties": {
+            "budget": {
+              "$ref": "#/$defs/ExplorationBudget"
+            },
+            "mode": {
+              "const": "explore",
+              "type": "string"
+            }
+          },
+          "required": [
+            "mode",
+            "budget"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "ComponentDependency": {
       "additionalProperties": false,
@@ -1568,6 +2753,222 @@
         }
       ]
     },
+    "ConnectorPackBindingResult": {
+      "additionalProperties": false,
+      "description": "What a bind or unbind committed.",
+      "properties": {
+        "batch_id": {
+          "type": "string"
+        },
+        "bound_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "bound_by": {
+          "type": "string"
+        },
+        "committed_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "connector": {
+          "type": "string"
+        },
+        "importer": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "tenant_id",
+        "connector",
+        "bound_by",
+        "bound_at_ms",
+        "batch_id",
+        "committed_version"
+      ],
+      "type": "object"
+    },
+    "ConnectorPackStatus": {
+      "additionalProperties": false,
+      "description": "One connector's pack state.",
+      "properties": {
+        "connector": {
+          "type": "string"
+        },
+        "head": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PackHeadView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "importer": {
+          "default": null,
+          "description": "Who may publish this connector's packs. Served only to pack-control and\nadministrative callers: to everyone else it is another tenant's\noperational detail.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "last_receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PackImportReceipt"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "members": {
+          "$ref": "#/$defs/PackMemberCounts"
+        },
+        "projection": {
+          "$ref": "#/$defs/PackProjectionState"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "warnings": {
+          "$ref": "#/$defs/BoundedVec_PackWarning_256"
+        }
+      },
+      "required": [
+        "schema_version",
+        "tenant_id",
+        "connector",
+        "members",
+        "warnings",
+        "projection"
+      ],
+      "type": "object"
+    },
+    "CostBudget": {
+      "additionalProperties": false,
+      "description": "A currency-denominated ceiling on the selection's declared cost.",
+      "properties": {
+        "currency": {
+          "description": "ISO 4217, exactly three ASCII uppercase letters.",
+          "type": "string"
+        },
+        "max_micros": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "strict": {
+          "description": "Strict means an unknown cost is excluded rather than ranked below.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "currency",
+        "max_micros",
+        "strict"
+      ],
+      "type": "object"
+    },
+    "CostFacts": {
+      "additionalProperties": false,
+      "description": "What one invocation costs, exactly, in a named currency.\n\nInteger micros, never a float: a budget comparison that depends on binary\nrounding is a budget that decides differently on two hosts.",
+      "properties": {
+        "currency": {
+          "description": "ISO 4217: exactly three ASCII uppercase letters.",
+          "type": "string"
+        },
+        "input_per_mtok_micros": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "output_per_mtok_micros": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "per_call_micros": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "price_source": {
+          "$ref": "#/$defs/PriceSource"
+        },
+        "quality": {
+          "$ref": "#/$defs/FactQuality"
+        }
+      },
+      "required": [
+        "currency",
+        "price_source",
+        "quality"
+      ],
+      "type": "object"
+    },
+    "CoverageDerivation": {
+      "additionalProperties": false,
+      "description": "How one required capability is covered, step by step.",
+      "properties": {
+        "chain": {
+          "$ref": "#/$defs/BoundedVec_DerivationEdge_16"
+        },
+        "covered_by": {
+          "default": null,
+          "description": "The component that covers it, or `None` when nothing does.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "required": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "required",
+        "chain"
+      ],
+      "type": "object"
+    },
     "CursorPosition": {
       "oneOf": [
         {
@@ -1637,12 +3038,1525 @@
         }
       ]
     },
+    "DecisionCommitResult": {
+      "additionalProperties": false,
+      "description": "The committed record's durable identity.",
+      "properties": {
+        "component": {
+          "$ref": "#/$defs/AgentComponentCommittedResult"
+        },
+        "record_id": {
+          "description": "`\"decision:\" + hex(record_digest)`.",
+          "type": "string"
+        },
+        "replayed": {
+          "description": "True when an identical commit had already landed.",
+          "type": "boolean"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "record_id",
+        "component",
+        "replayed"
+      ],
+      "type": "object"
+    },
+    "DecisionInputs": {
+      "additionalProperties": false,
+      "description": "The complete input set, digested as `inputs_digest`.",
+      "properties": {
+        "candidates": {
+          "$ref": "#/$defs/BoundedVec_CandidateFacts_64",
+          "description": "Sorted by `component_id`, so the digest does not depend on read order."
+        },
+        "catalog_digest": {
+          "type": "string"
+        },
+        "ontology_digest": {
+          "type": "string"
+        },
+        "policy": {
+          "$ref": "#/$defs/DecisionPolicy"
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/AssemblyRequest"
+        },
+        "solver": {
+          "$ref": "#/$defs/SolverIdentity"
+        }
+      },
+      "required": [
+        "request",
+        "candidates",
+        "ontology_digest",
+        "policy",
+        "policy_digest",
+        "catalog_digest",
+        "solver"
+      ],
+      "type": "object"
+    },
+    "DecisionOutcome": {
+      "description": "The conclusion of one assembly decision.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "An assembly, with the certificate that proves it optimal.",
+          "properties": {
+            "certificate": {
+              "$ref": "#/$defs/Certificate"
+            },
+            "graph_digest": {
+              "type": "string"
+            },
+            "outcome": {
+              "const": "solved",
+              "type": "string"
+            },
+            "slots": {
+              "$ref": "#/$defs/BoundedVec_SlotAssignment_64"
+            }
+          },
+          "required": [
+            "outcome",
+            "graph_digest",
+            "slots",
+            "certificate"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "No assembly, and exactly why.",
+          "properties": {
+            "outcome": {
+              "const": "abstained",
+              "type": "string"
+            },
+            "reasons": {
+              "$ref": "#/$defs/BoundedVec_AbstainReason_64"
+            }
+          },
+          "required": [
+            "outcome",
+            "reasons"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DecisionPolicy": {
+      "additionalProperties": false,
+      "description": "The complete decision policy.",
+      "properties": {
+        "a2a_requires_observation": {
+          "description": "Whether an A2A agent card needs an observation before it is selectable.",
+          "type": "boolean"
+        },
+        "accepted_gap": {
+          "$ref": "#/$defs/Scalar",
+          "description": "Largest objective gap accepted instead of reporting budget exhaustion."
+        },
+        "cold_start": {
+          "$ref": "#/$defs/ColdStart"
+        },
+        "max_nogood_rounds": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_slots": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_templates": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_why_not_per_slot": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "node_budget": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "objective": {
+          "$ref": "#/$defs/ObjectiveOrder"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "statistical": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StatisticalPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "unknown_cost": {
+          "$ref": "#/$defs/UnknownCostRule"
+        }
+      },
+      "required": [
+        "schema_version",
+        "objective",
+        "unknown_cost",
+        "accepted_gap",
+        "node_budget",
+        "max_templates",
+        "max_slots",
+        "max_nogood_rounds",
+        "max_why_not_per_slot",
+        "a2a_requires_observation",
+        "cold_start"
+      ],
+      "type": "object"
+    },
+    "DecisionPolicyRef": {
+      "description": "Which policy decides this request.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The engine default policy.",
+          "properties": {
+            "policy": {
+              "const": "default",
+              "type": "string"
+            }
+          },
+          "required": [
+            "policy"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A published `DecisionPolicy` component, pinned by revision digest.",
+          "properties": {
+            "component": {
+              "$ref": "#/$defs/ComponentDependency"
+            },
+            "policy": {
+              "const": "pinned",
+              "type": "string"
+            }
+          },
+          "required": [
+            "policy",
+            "component"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DecisionQuestion": {
+      "description": "The question a record answers. One variant in this wave; the tag exists so\na later question does not have to break the record shape.",
+      "enum": [
+        "assemble"
+      ],
+      "type": "string"
+    },
+    "DecisionRecord": {
+      "additionalProperties": false,
+      "description": "One assembly decision, in full.",
+      "properties": {
+        "caller_principal": {
+          "description": "Privacy-safe persistence id of the caller, never a display name.",
+          "type": "string"
+        },
+        "candidate_source": {
+          "$ref": "#/$defs/CandidateSourceRecord"
+        },
+        "created_at_ms": {
+          "description": "Recorded, and never read by the math.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "derivation_class": {
+          "$ref": "#/$defs/DerivationClass"
+        },
+        "derivations": {
+          "$ref": "#/$defs/BoundedVec_CoverageDerivation_32"
+        },
+        "eliminated": {
+          "$ref": "#/$defs/BoundedVec_Elimination_64"
+        },
+        "evidence_class": {
+          "$ref": "#/$defs/EvidenceClass"
+        },
+        "inputs": {
+          "$ref": "#/$defs/DecisionInputs"
+        },
+        "inputs_digest": {
+          "type": "string"
+        },
+        "outcome": {
+          "$ref": "#/$defs/DecisionOutcome"
+        },
+        "premises": {
+          "$ref": "#/$defs/BoundedVec_PremiseRef_1024"
+        },
+        "question": {
+          "$ref": "#/$defs/DecisionQuestion"
+        },
+        "record_digest": {
+          "type": "string"
+        },
+        "record_id": {
+          "type": "string"
+        },
+        "resolution_kind": {
+          "$ref": "#/$defs/ResolutionKind"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "trace_fidelity": {
+          "$ref": "#/$defs/TraceFidelity"
+        },
+        "why_not": {
+          "$ref": "#/$defs/BoundedVec_WhyNot_64"
+        }
+      },
+      "required": [
+        "schema_version",
+        "record_id",
+        "tenant_id",
+        "caller_principal",
+        "created_at_ms",
+        "question",
+        "candidate_source",
+        "inputs",
+        "inputs_digest",
+        "resolution_kind",
+        "evidence_class",
+        "derivation_class",
+        "trace_fidelity",
+        "premises",
+        "eliminated",
+        "derivations",
+        "outcome",
+        "why_not",
+        "record_digest"
+      ],
+      "type": "object"
+    },
+    "DeclaredLatency": {
+      "additionalProperties": false,
+      "description": "A publisher's declared latency profile.",
+      "properties": {
+        "p50_ms": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "p95_ms": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "p50_ms",
+        "p95_ms"
+      ],
+      "type": "object"
+    },
+    "DerivationClass": {
+      "description": "How the derivation itself was produced. Only checkable derivations are\nadmitted in this wave, so the enum has one arm and a name.",
+      "enum": [
+        "proof"
+      ],
+      "type": "string"
+    },
+    "DerivationEdge": {
+      "additionalProperties": false,
+      "description": "One `narrower ⊑ broader` step of a coverage chain.",
+      "properties": {
+        "broader": {
+          "type": "string"
+        },
+        "class": {
+          "$ref": "#/$defs/PremiseClass"
+        },
+        "narrower": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/EdgeSource"
+        }
+      },
+      "required": [
+        "narrower",
+        "broader",
+        "source",
+        "class"
+      ],
+      "type": "object"
+    },
     "Digest256": {
       "description": "32 bytes of SHA-256 as lowercase hexadecimal",
       "maxLength": 64,
       "minLength": 64,
       "pattern": "^[0-9a-f]{64}$",
       "type": "string"
+    },
+    "DualEntry": {
+      "additionalProperties": false,
+      "description": "One non-zero rational multiplier numerator.",
+      "properties": {
+        "numerator": {
+          "$ref": "#/$defs/Scalar"
+        },
+        "row": {
+          "$ref": "#/$defs/RowId"
+        }
+      },
+      "required": [
+        "row",
+        "numerator"
+      ],
+      "type": "object"
+    },
+    "EdgeSource": {
+      "description": "Which side of a subsumption edge the engine got it from.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The engine's own ontology.",
+          "properties": {
+            "edge": {
+              "const": "native_ontology",
+              "type": "string"
+            }
+          },
+          "required": [
+            "edge"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A component's own classification list.",
+          "properties": {
+            "component_id": {
+              "type": "string"
+            },
+            "edge": {
+              "const": "component_classification",
+              "type": "string"
+            }
+          },
+          "required": [
+            "edge",
+            "component_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Elimination": {
+      "additionalProperties": false,
+      "description": "One eliminated candidate and the rule that removed it.",
+      "properties": {
+        "component_id": {
+          "type": "string"
+        },
+        "violation": {
+          "$ref": "#/$defs/Violation"
+        }
+      },
+      "required": [
+        "component_id",
+        "violation"
+      ],
+      "type": "object"
+    },
+    "EvidenceClass": {
+      "description": "The weakest class of evidence the conclusion rests on.",
+      "enum": [
+        "proof",
+        "observation",
+        "claim"
+      ],
+      "type": "string"
+    },
+    "ExplorationBudget": {
+      "additionalProperties": false,
+      "description": "How much exploration a cold, uncalibrated question may spend.",
+      "properties": {
+        "fraction": {
+          "$ref": "#/$defs/UnitRationalWire"
+        },
+        "questions": {
+          "$ref": "#/$defs/BoundedVec_string_16",
+          "description": "Question ids exploration is permitted for. Empty forbids it everywhere."
+        },
+        "spend_at_risk_micros": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "fraction",
+        "spend_at_risk_micros",
+        "questions"
+      ],
+      "type": "object"
+    },
+    "FactQuality": {
+      "description": "How strong one declared fact is.\n\nA connector pack carries no measurement and no operator attestation, so a\nprice read out of one is neither measured nor estimated: it is\n[`FactQuality::Declared`], and a record that used it says so.",
+      "enum": [
+        "measured",
+        "estimated",
+        "declared",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "Incumbent": {
+      "additionalProperties": false,
+      "description": "A feasible assignment and its objective value.",
+      "properties": {
+        "objective": {
+          "$ref": "#/$defs/ObjectiveValue"
+        },
+        "selected": {
+          "items": {
+            "type": "boolean"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "selected",
+        "objective"
+      ],
+      "type": "object"
+    },
+    "LagrangeDual": {
+      "additionalProperties": false,
+      "description": "Row multipliers `numerator / denominator`, entries strictly ordered by row.",
+      "properties": {
+        "denominator": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/DualEntry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "denominator",
+        "entries"
+      ],
+      "type": "object"
+    },
+    "LeafProof": {
+      "description": "How a leaf of the search tree is closed.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "`L(dual, path)` is a lower bound on every feasible completion.",
+          "properties": {
+            "bound": {
+              "additionalProperties": false,
+              "properties": {
+                "dual": {
+                  "$ref": "#/$defs/LagrangeDual"
+                }
+              },
+              "required": [
+                "dual"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "bound"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`L(dual, path)` with a zero objective is positive: no feasible completion.",
+          "properties": {
+            "infeasible": {
+              "additionalProperties": false,
+              "properties": {
+                "dual": {
+                  "$ref": "#/$defs/LagrangeDual"
+                }
+              },
+              "required": [
+                "dual"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "infeasible"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "LevelValue": {
+      "additionalProperties": false,
+      "description": "Value of one objective level under an assignment.",
+      "properties": {
+        "known": {
+          "$ref": "#/$defs/Scalar",
+          "description": "Sum of the known coefficients of the selected variables."
+        },
+        "unknown_selected": {
+          "description": "How many selected variables have an unknown coefficient at this level.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "known",
+        "unknown_selected"
+      ],
+      "type": "object"
+    },
+    "LibraryCandidateScope": {
+      "additionalProperties": false,
+      "description": "Which slice of the agent library the candidates come from.",
+      "properties": {
+        "classification_under": {
+          "default": null,
+          "description": "Restrict to components classified under this ontology term.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kinds": {
+          "$ref": "#/$defs/BoundedVec_AgentComponentKind_16"
+        }
+      },
+      "required": [
+        "kinds"
+      ],
+      "type": "object"
+    },
+    "ModalityFacts": {
+      "additionalProperties": false,
+      "description": "Which modalities a component consumes and produces.\n\nNative `eg:modality/*` IRIs, sorted and unique, so two components that\nspeak the same modalities digest identically whatever order they declared\nthem in.",
+      "properties": {
+        "input": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "output": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "ObjectiveLevelKind": {
+      "description": "One level of the objective, named rather than positional so a record says\nwhich quantity a budget was exhausted on.",
+      "oneOf": [
+        {
+          "const": "uncovered",
+          "description": "How many required capabilities stay uncovered.",
+          "type": "string"
+        },
+        {
+          "const": "components",
+          "description": "How many components the assembly selects.",
+          "type": "string"
+        },
+        {
+          "const": "declared_cost",
+          "description": "Declared cost of the selection, in the budget's currency.",
+          "type": "string"
+        },
+        {
+          "const": "declared_p95_latency",
+          "description": "Declared p95 latency of the selection.",
+          "type": "string"
+        }
+      ]
+    },
+    "ObjectiveOrder": {
+      "description": "How the objective levels combine.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Strict priority: any change in an earlier level outweighs every\npossible change in all later ones together.",
+          "properties": {
+            "levels": {
+              "$ref": "#/$defs/BoundedVec_ObjectiveLevelKind_8"
+            },
+            "order": {
+              "const": "lexicographic",
+              "type": "string"
+            }
+          },
+          "required": [
+            "order",
+            "levels"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "One weighted sum.",
+          "properties": {
+            "order": {
+              "const": "weighted",
+              "type": "string"
+            },
+            "weights": {
+              "$ref": "#/$defs/BoundedVec_WeightedLevel_8"
+            }
+          },
+          "required": [
+            "order",
+            "weights"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ObjectiveValue": {
+      "additionalProperties": false,
+      "description": "Every level's value plus the exact scalarised objective.",
+      "properties": {
+        "levels": {
+          "items": {
+            "$ref": "#/$defs/LevelValue"
+          },
+          "type": "array"
+        },
+        "scalar": {
+          "$ref": "#/$defs/Scalar"
+        }
+      },
+      "required": [
+        "levels",
+        "scalar"
+      ],
+      "type": "object"
+    },
+    "ObservationRef": {
+      "additionalProperties": false,
+      "description": "A pointer to a recorded evaluation, for a fact that was MEASURED rather\nthan declared.",
+      "properties": {
+        "digest": {
+          "type": "string"
+        },
+        "evaluation_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "evaluation_id",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "PackBodyReconcileReport": {
+      "additionalProperties": false,
+      "description": "What one body-reconciliation sweep found and released.",
+      "properties": {
+        "next_run_after_ms": {
+          "description": "When the next sweep may usefully run. A sweep that is called back\nsooner does the same scan for nothing.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "orphaned": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "released": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "scanned": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "tenant_id",
+        "scanned",
+        "orphaned",
+        "released",
+        "next_run_after_ms"
+      ],
+      "type": "object"
+    },
+    "PackDispositionCounts": {
+      "additionalProperties": false,
+      "description": "What an import did to each entry, counted.",
+      "properties": {
+        "published": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "republished": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "revised": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unchanged": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "withdrawn": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "published",
+        "revised",
+        "unchanged",
+        "withdrawn",
+        "republished"
+      ],
+      "type": "object"
+    },
+    "PackHeadView": {
+      "additionalProperties": false,
+      "description": "The current head, as `status` reports it.",
+      "properties": {
+        "binding_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "committed_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pack_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "record_id": {
+          "type": "string"
+        },
+        "server_contract_version": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "server_package_version": {
+          "type": "string"
+        },
+        "visible_record_id": {
+          "default": null,
+          "description": "The record id the graph projection currently exposes, when it lags the\ncommitted one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "binding_revision",
+        "pack_digest",
+        "server_package_version",
+        "record_id",
+        "committed_at_ms"
+      ],
+      "type": "object"
+    },
+    "PackImportReceipt": {
+      "additionalProperties": false,
+      "description": "The durable receipt of one landed import.",
+      "properties": {
+        "batch_id": {
+          "type": "string"
+        },
+        "binding_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "committed_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "connector": {
+          "type": "string"
+        },
+        "counts": {
+          "$ref": "#/$defs/PackDispositionCounts"
+        },
+        "pack_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "previous_pack_digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "projection": {
+          "$ref": "#/$defs/PackProjectionState"
+        },
+        "record_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "warnings": {
+          "$ref": "#/$defs/BoundedVec_PackWarning_256"
+        }
+      },
+      "required": [
+        "schema_version",
+        "tenant_id",
+        "connector",
+        "binding_revision",
+        "pack_digest",
+        "record_id",
+        "batch_id",
+        "committed_version",
+        "counts",
+        "warnings",
+        "projection"
+      ],
+      "type": "object"
+    },
+    "PackImportResult": {
+      "description": "What one import attempt produced.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "receipt": {
+              "$ref": "#/$defs/PackImportReceipt"
+            },
+            "result": {
+              "const": "imported",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result",
+            "receipt"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Byte-identical to the current head; nothing was written.",
+          "properties": {
+            "binding_revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "pack_digest": {
+              "$ref": "#/$defs/Digest256"
+            },
+            "result": {
+              "const": "unchanged",
+              "type": "string"
+            }
+          },
+          "required": [
+            "result",
+            "pack_digest",
+            "binding_revision"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Validation refused the pack. Nothing was written, and every reason is\nnamed; `budget_exhausted` says the list is a prefix, not the whole set.",
+          "properties": {
+            "budget_exhausted": {
+              "type": "boolean"
+            },
+            "pack_digest": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Digest256"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "result": {
+              "const": "rejected",
+              "type": "string"
+            },
+            "violations": {
+              "$ref": "#/$defs/BoundedVec_PackViolation_256"
+            }
+          },
+          "required": [
+            "result",
+            "violations",
+            "budget_exhausted"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PackMemberCounts": {
+      "additionalProperties": false,
+      "description": "How many members the connector has, by lifecycle.",
+      "properties": {
+        "published": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "retired": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "withdrawn": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "published",
+        "withdrawn",
+        "retired"
+      ],
+      "type": "object"
+    },
+    "PackProjectionState": {
+      "description": "Where the graph projection of this head stands.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Nothing to project.",
+          "properties": {
+            "projection": {
+              "const": "none",
+              "type": "string"
+            }
+          },
+          "required": [
+            "projection"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Queued on the import outbox.",
+          "properties": {
+            "projection": {
+              "const": "pending",
+              "type": "string"
+            }
+          },
+          "required": [
+            "projection"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "graph": {
+              "type": "string"
+            },
+            "graph_version": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "projection": {
+              "const": "applied",
+              "type": "string"
+            }
+          },
+          "required": [
+            "projection",
+            "graph",
+            "graph_version"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "projection": {
+              "const": "failed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "projection",
+            "code"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PackRetireResult": {
+      "additionalProperties": false,
+      "description": "What a retire committed, entry by entry.",
+      "properties": {
+        "batch_id": {
+          "type": "string"
+        },
+        "committed_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "connector": {
+          "type": "string"
+        },
+        "retired": {
+          "$ref": "#/$defs/BoundedVec_ComponentDependency_1024"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "tenant_id",
+        "connector",
+        "retired",
+        "batch_id",
+        "committed_version"
+      ],
+      "type": "object"
+    },
+    "PackViolation": {
+      "additionalProperties": false,
+      "description": "One rejection, attributed to the entry that caused it where possible.",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/PackViolationCode"
+        },
+        "detail": {
+          "description": "At most one kibibyte, so a rejection cannot become an exfiltration\nchannel for the pack's own content.",
+          "type": "string"
+        },
+        "uri": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "detail"
+      ],
+      "type": "object"
+    },
+    "PackViolationCode": {
+      "description": "Why a pack was rejected. Screaming-snake on the wire, so the code a caller\nreads is the code the design documents.",
+      "enum": [
+        "MALFORMED_INDEX",
+        "UNKNOWN_ENTRY_KIND",
+        "PACK_TOO_LARGE",
+        "ARCHIVE_MISSING",
+        "ARCHIVE_DIGEST_MISMATCH",
+        "MALFORMED_SECTIONS",
+        "PACK_DIGEST_MISMATCH",
+        "DUPLICATE_COMPONENT_ID",
+        "FORBIDDEN_ENTRY_KIND",
+        "MALFORMED_BODY",
+        "MISSING_TOOL_SCHEMA",
+        "UNKNOWN_CAPABILITY_IRI",
+        "INVALID_ANNOTATION",
+        "INVALID_FACTS",
+        "ONTOLOGY_INVALID",
+        "SHAPES_INVALID",
+        "ONTOLOGY_INCONSISTENT",
+        "VALIDATION_BUDGET_EXCEEDED",
+        "SHACL_VIOLATION",
+        "UNRESOLVED_REFERENCE",
+        "REFERENCE_CYCLE",
+        "INVALID_COMPONENT",
+        "IMPORTER_MISMATCH",
+        "PACK_MASS_WITHDRAWAL",
+        "RETIRED_ENTRY_RETURNED"
+      ],
+      "type": "string"
+    },
+    "PackWarning": {
+      "additionalProperties": false,
+      "description": "One warning, in the same shape as a violation.",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/PackWarningCode"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "uri": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "code",
+        "detail"
+      ],
+      "type": "object"
+    },
+    "PackWarningCode": {
+      "description": "Something worth saying that did not stop the import.",
+      "enum": [
+        "EMPTY_DESCRIPTION",
+        "UNRESOLVED_CAPABILITY_IRI",
+        "DUPLICATE_SHAPE_IRI"
+      ],
+      "type": "string"
+    },
+    "PremiseClass": {
+      "description": "How strong one premise is.",
+      "oneOf": [
+        {
+          "const": "definition",
+          "description": "True by the definition of the vocabulary.",
+          "type": "string"
+        },
+        {
+          "const": "claim",
+          "description": "Asserted by a producer that is not the engine.",
+          "type": "string"
+        },
+        {
+          "const": "observation",
+          "description": "Measured by a recorded evaluation.",
+          "type": "string"
+        },
+        {
+          "const": "proof",
+          "description": "Derived by a checkable rule from other premises.",
+          "type": "string"
+        }
+      ]
+    },
+    "PremiseProvenance": {
+      "description": "Where a premise came from.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The engine's own ontology, at the digest named.",
+          "properties": {
+            "ontology_digest": {
+              "type": "string"
+            },
+            "provenance": {
+              "const": "native_ontology",
+              "type": "string"
+            }
+          },
+          "required": [
+            "provenance",
+            "ontology_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The decision policy in force.",
+          "properties": {
+            "policy_digest": {
+              "type": "string"
+            },
+            "provenance": {
+              "const": "policy",
+              "type": "string"
+            }
+          },
+          "required": [
+            "provenance",
+            "policy_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A component publisher's declaration at an exact revision.",
+          "properties": {
+            "component_id": {
+              "type": "string"
+            },
+            "definition_digest": {
+              "type": "string"
+            },
+            "provenance": {
+              "const": "publisher",
+              "type": "string"
+            }
+          },
+          "required": [
+            "provenance",
+            "component_id",
+            "definition_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A connector pack entry at an exact binding revision.",
+          "properties": {
+            "binding_revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "connector": {
+              "type": "string"
+            },
+            "entry_digest": {
+              "type": "string"
+            },
+            "pack_digest": {
+              "type": "string"
+            },
+            "provenance": {
+              "const": "connector_pack",
+              "type": "string"
+            }
+          },
+          "required": [
+            "provenance",
+            "connector",
+            "binding_revision",
+            "pack_digest",
+            "entry_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A free-text-to-task mapping asserted by a producer.",
+          "properties": {
+            "producer": {
+              "type": "string"
+            },
+            "provenance": {
+              "const": "claimed_mapping",
+              "type": "string"
+            },
+            "text_digest": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "provenance",
+            "text_digest",
+            "producer"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A recorded evaluation.",
+          "properties": {
+            "evaluation_id": {
+              "type": "string"
+            },
+            "provenance": {
+              "const": "observation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "provenance",
+            "evaluation_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PremiseRef": {
+      "additionalProperties": false,
+      "description": "One fact the decision used.",
+      "properties": {
+        "class": {
+          "$ref": "#/$defs/PremiseClass"
+        },
+        "fact": {
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/$defs/PremiseProvenance"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject",
+        "fact",
+        "class",
+        "provenance"
+      ],
+      "type": "object"
+    },
+    "PriceSource": {
+      "description": "Who says what this costs.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The model or tool publisher's own list price.",
+          "properties": {
+            "source": {
+              "const": "publisher",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A connector pack entry, pinned by the entry's digest.",
+          "properties": {
+            "connector": {
+              "type": "string"
+            },
+            "entry_digest": {
+              "type": "string"
+            },
+            "source": {
+              "const": "connector_pack",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "connector",
+            "entry_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An operator override, with the reference that justifies it.",
+          "properties": {
+            "reference": {
+              "type": "string"
+            },
+            "source": {
+              "const": "operator",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "reference"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "PromptMode": {
       "description": "How a prompt's text is resolved.",
@@ -1658,6 +4572,119 @@
           "type": "string"
         }
       ]
+    },
+    "ProofNode": {
+      "description": "One pre-order node of the search-tree proof.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "branch": {
+              "additionalProperties": false,
+              "properties": {
+                "first": {
+                  "type": "boolean"
+                },
+                "var": {
+                  "$ref": "#/$defs/VarId"
+                }
+              },
+              "required": [
+                "var",
+                "first"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "branch"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "forced": {
+              "additionalProperties": false,
+              "properties": {
+                "row": {
+                  "$ref": "#/$defs/RowId"
+                },
+                "value": {
+                  "type": "boolean"
+                },
+                "var": {
+                  "$ref": "#/$defs/VarId"
+                }
+              },
+              "required": [
+                "var",
+                "value",
+                "row"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "forced"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "leaf": {
+              "additionalProperties": false,
+              "properties": {
+                "proof": {
+                  "$ref": "#/$defs/LeafProof"
+                }
+              },
+              "required": [
+                "proof"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "leaf"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "QuantScaleTag": {
+      "description": "The fixed-point scale a [`QuantisedValue`] is read on. Mirrors\n`eg_numeric`'s `QuantScale`.",
+      "oneOf": [
+        {
+          "const": "pico",
+          "description": "`value / 10^12`.",
+          "type": "string"
+        },
+        {
+          "const": "q32",
+          "description": "`value / 2^32`.",
+          "type": "string"
+        }
+      ]
+    },
+    "QuantisedValue": {
+      "additionalProperties": false,
+      "description": "An exact fixed-point number: `value` read on `scale`.",
+      "properties": {
+        "scale": {
+          "$ref": "#/$defs/QuantScaleTag"
+        },
+        "value": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "scale",
+        "value"
+      ],
+      "type": "object"
     },
     "RecoveryStoreCounts": {
       "additionalProperties": false,
@@ -1751,6 +4778,17 @@
         "maintenance"
       ],
       "type": "object"
+    },
+    "ResolutionKind": {
+      "description": "How the conclusion was reached.",
+      "enum": [
+        "constraint",
+        "entailment",
+        "optimization",
+        "statistical",
+        "abstention"
+      ],
+      "type": "string"
     },
     "RestoreReceipt": {
       "description": "Result of `Method::Restore`: the opaque stage reference an operator swaps in, plus\nthe import totals. Portable: no username or filesystem reference.",
@@ -1847,6 +4885,219 @@
         "admin_batches",
         "prepared_parents",
         "encrypted_recovery_plans"
+      ],
+      "type": "object"
+    },
+    "RowId": {
+      "description": "Index of a constraint (its position in [`ModelSpec::constraints`]). Every\nconstraint lowers to exactly one linear row, so this is also the row index.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "Scalar": {
+      "description": "An exact 128-bit signed integer (objective values, bounds, multipliers).",
+      "type": "string"
+    },
+    "Sha256Digest": {
+      "description": "A SHA-256 digest, serialised as 64 lower-case hex characters.",
+      "type": "string"
+    },
+    "SlotAssignment": {
+      "additionalProperties": false,
+      "description": "One slot of the assembled graph and the component bound to it.",
+      "properties": {
+        "component": {
+          "$ref": "#/$defs/ComponentDependency"
+        },
+        "slot": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "slot",
+        "component"
+      ],
+      "type": "object"
+    },
+    "SolveStatus": {
+      "description": "The outcome class of a solve.",
+      "oneOf": [
+        {
+          "const": "optimal",
+          "description": "The incumbent is optimal and the tree or root proof certifies it.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The search completed; its tree exceeded the certificate limit, so the\nproof is a reproducible deterministic derivation, not a certificate.",
+          "properties": {
+            "optimal_by_deterministic_search": {
+              "additionalProperties": false,
+              "properties": {
+                "nodes_expanded": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "nodes_expanded"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "optimal_by_deterministic_search"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The budget ran out with a certified gap no larger than the accepted gap.",
+          "properties": {
+            "feasible_with_gap": {
+              "additionalProperties": false,
+              "properties": {
+                "gap": {
+                  "$ref": "#/$defs/Scalar"
+                }
+              },
+              "required": [
+                "gap"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "feasible_with_gap"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "No feasible assignment exists; `core` lists the rows the proof uses.",
+          "properties": {
+            "infeasible": {
+              "additionalProperties": false,
+              "properties": {
+                "core": {
+                  "items": {
+                    "$ref": "#/$defs/RowId"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "core"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "infeasible"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The search completed without a feasible assignment and without a\ncertificate-sized tree.",
+          "properties": {
+            "infeasible_by_deterministic_search": {
+              "additionalProperties": false,
+              "properties": {
+                "nodes_expanded": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "nodes_expanded"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "infeasible_by_deterministic_search"
+          ],
+          "type": "object"
+        },
+        {
+          "const": "budget_exhausted",
+          "description": "The budget ran out with no incumbent or a gap above the accepted gap.",
+          "type": "string"
+        }
+      ]
+    },
+    "SolverBudget": {
+      "additionalProperties": false,
+      "description": "A caller's per-request solver budget. It may only TIGHTEN the policy; a\nrequest that tries to widen one is refused with `POLICY_LOOSENING`.",
+      "properties": {
+        "max_why_not_per_slot": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "node_budget": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "node_budget",
+        "max_why_not_per_slot"
+      ],
+      "type": "object"
+    },
+    "SolverConfig": {
+      "additionalProperties": false,
+      "description": "Deterministic work limits and gap acceptance. No wall clock is read.",
+      "properties": {
+        "accepted_gap": {
+          "$ref": "#/$defs/Scalar"
+        },
+        "bound_denominator": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_certificate_leaves": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "node_budget": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "node_budget",
+        "max_certificate_leaves",
+        "bound_denominator",
+        "accepted_gap"
+      ],
+      "type": "object"
+    },
+    "SolverIdentity": {
+      "additionalProperties": false,
+      "description": "The solver identity a record was decided under.",
+      "properties": {
+        "algorithm": {
+          "$ref": "#/$defs/Algorithm"
+        },
+        "node_budget": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "algorithm",
+        "node_budget"
       ],
       "type": "object"
     },
@@ -1973,6 +5224,63 @@
       ],
       "type": "object"
     },
+    "StatisticalPolicy": {
+      "additionalProperties": false,
+      "description": "The statistical half of a policy: the risk, coverage and support levels\nbelow which the engine abstains instead of acting.",
+      "properties": {
+        "alpha": {
+          "$ref": "#/$defs/UnitRationalWire",
+          "description": "Miscoverage level of the prediction set."
+        },
+        "audit_sample": {
+          "$ref": "#/$defs/UnitRationalWire",
+          "description": "Share of decisions sampled into the audit stream."
+        },
+        "delta": {
+          "$ref": "#/$defs/UnitRationalWire",
+          "description": "Failure probability of that guarantee."
+        },
+        "epsilon": {
+          "$ref": "#/$defs/UnitRationalWire",
+          "description": "Risk level the controlled procedure must hold."
+        },
+        "min_ess": {
+          "$ref": "#/$defs/QuantisedValue",
+          "description": "Smallest effective sample size an off-policy estimate may report."
+        },
+        "min_outcome_fidelity": {
+          "$ref": "#/$defs/TraceFidelityLevel"
+        },
+        "min_support": {
+          "description": "Fewest supporting records per option.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_min": {
+          "description": "Fewest records before any calibrated claim is made.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_public_features": {
+          "description": "Whether tenant-public features may be read for this question.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "alpha",
+        "epsilon",
+        "delta",
+        "n_min",
+        "min_support",
+        "min_ess",
+        "min_outcome_fidelity",
+        "tenant_public_features",
+        "audit_sample"
+      ],
+      "type": "object"
+    },
     "TemplateInstanceRef": {
       "additionalProperties": false,
       "description": "Where an instantiated agent came from.",
@@ -2065,12 +5373,357 @@
           "type": "string"
         }
       ]
+    },
+    "TraceFidelity": {
+      "description": "How complete the recorded trace is.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Every step is present.",
+          "properties": {
+            "fidelity": {
+              "const": "full_step",
+              "type": "string"
+            }
+          },
+          "required": [
+            "fidelity"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Steps were dropped to stay inside the record bound; each is named.",
+          "properties": {
+            "dropped": {
+              "$ref": "#/$defs/BoundedVec_string_16"
+            },
+            "fidelity": {
+              "const": "truncated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "fidelity",
+            "dropped"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "TraceFidelityLevel": {
+      "description": "How much of a run's trace has to survive for its outcome to count as a\nlabel. Mirrors the record's own [`super::TraceFidelity`] at policy\ngranularity.",
+      "enum": [
+        "full_step",
+        "tool_calls",
+        "final_output"
+      ],
+      "type": "string"
+    },
+    "UnitRationalWire": {
+      "additionalProperties": false,
+      "description": "An exact rational in `[0, 1]`: `numerator / denominator`.\n\nValidated on the way in rather than at each use site, because it appears in\nsix different records and a per-site check is a check that one of them\neventually forgets.",
+      "properties": {
+        "denominator": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "numerator": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "numerator",
+        "denominator"
+      ],
+      "type": "object"
+    },
+    "UnknownCostRule": {
+      "description": "What an unknown cost means when a budget is in force.",
+      "oneOf": [
+        {
+          "const": "exclude_when_strict",
+          "description": "A strict budget excludes every candidate whose cost is unknown.",
+          "type": "string"
+        },
+        {
+          "const": "rank_below_known",
+          "description": "An unknown cost ranks below every known one, and is never read as zero.",
+          "type": "string"
+        }
+      ]
+    },
+    "VarId": {
+      "description": "Index of a binary decision variable (its position in [`ModelSpec::variables`]).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "Violation": {
+      "description": "Why a candidate was removed before the solver ran.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The request denied this component id.",
+          "properties": {
+            "violation": {
+              "const": "denied",
+              "type": "string"
+            }
+          },
+          "required": [
+            "violation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The component is withdrawn by its connector pack.",
+          "properties": {
+            "violation": {
+              "const": "withdrawn",
+              "type": "string"
+            }
+          },
+          "required": [
+            "violation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The component revision is retired.",
+          "properties": {
+            "violation": {
+              "const": "retired",
+              "type": "string"
+            }
+          },
+          "required": [
+            "violation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An external agent without the observation its policy requires.",
+          "properties": {
+            "violation": {
+              "const": "ineligible_external_agent",
+              "type": "string"
+            }
+          },
+          "required": [
+            "violation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "available": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "required": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "violation": {
+              "const": "context_window_too_small",
+              "type": "string"
+            }
+          },
+          "required": [
+            "violation",
+            "required",
+            "available"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "violation": {
+              "const": "missing_tool_support",
+              "type": "string"
+            }
+          },
+          "required": [
+            "violation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "violation": {
+              "const": "missing_structured_output",
+              "type": "string"
+            }
+          },
+          "required": [
+            "violation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "iri": {
+              "type": "string"
+            },
+            "violation": {
+              "const": "missing_modality",
+              "type": "string"
+            }
+          },
+          "required": [
+            "violation",
+            "iri"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Its cost is unknown and the budget is strict.",
+          "properties": {
+            "violation": {
+              "const": "unknown_cost_under_strict_budget",
+              "type": "string"
+            }
+          },
+          "required": [
+            "violation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "level": {
+              "$ref": "#/$defs/ObjectiveLevelKind"
+            },
+            "violation": {
+              "const": "over_budget",
+              "type": "string"
+            }
+          },
+          "required": [
+            "violation",
+            "level"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A template rule refused this component in this slot.",
+          "properties": {
+            "code": {
+              "type": "string"
+            },
+            "violation": {
+              "const": "template_validation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "violation",
+            "code"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "WeightedLevel": {
+      "additionalProperties": false,
+      "description": "One weighted objective level.",
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/ObjectiveLevelKind"
+        },
+        "weight": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "level",
+        "weight"
+      ],
+      "type": "object"
+    },
+    "WhyNot": {
+      "additionalProperties": false,
+      "description": "Why one candidate did not win its slot.",
+      "properties": {
+        "component_id": {
+          "type": "string"
+        },
+        "forced_objective": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ObjectiveValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The objective it would have forced, when it was feasible but worse."
+        },
+        "slot": {
+          "type": "string"
+        },
+        "violation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Violation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The rule that removed it, when it was not feasible at all."
+        }
+      },
+      "required": [
+        "component_id",
+        "slot"
+      ],
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "methods": {
+    "AgentAssemble": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/AssemblyResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
     "AgentComponent": {
       "bodies": {
+        "content": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/AgentComponentContentResult"
+          }
+        },
         "current": {
           "dynamic": null,
           "encoding": "Raw",
@@ -2487,6 +6140,72 @@
           "encoding": "String",
           "schema": {
             "type": "string"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ConnectorPack": {
+      "bodies": {
+        "bind": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ConnectorPackBindingResult"
+          }
+        },
+        "import": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/PackImportResult"
+          }
+        },
+        "reconcile_bodies": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/PackBodyReconcileReport"
+          }
+        },
+        "reproject": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/PackImportReceipt"
+          }
+        },
+        "retire": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/PackRetireResult"
+          }
+        },
+        "status": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ConnectorPackStatus"
+          }
+        },
+        "unbind": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ConnectorPackBindingResult"
+          }
+        }
+      },
+      "selected_by": "op"
+    },
+    "DecisionCommit": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/DecisionCommitResult"
           }
         }
       },

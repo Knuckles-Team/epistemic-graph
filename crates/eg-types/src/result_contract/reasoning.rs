@@ -1,5 +1,6 @@
 //! Declared results of the `reasoning` contract domain.
 
+use crate::graph_schema::{GraphSchemaCommitted, GraphSchemaSourcesView};
 #[cfg(feature = "sparql")]
 use crate::protocol::SparqlResult;
 #[cfg(feature = "owl")]
@@ -10,6 +11,10 @@ use crate::types::DatalogReasoningResult;
 method_results! {
     visit_reasoning;
     IcvConfigure(IcvConfigure) => Bool<bool>;
+    // One body for every op: `GraphSchema` declares no per-op markers, so the
+    // attach, attach-pack and detach paths all answer the committed view.
+    GraphSchema(GraphSchema) => Raw<GraphSchemaCommitted>;
+    GraphSchemaList(GraphSchemaList) => Raw<GraphSchemaSourcesView>;
     RunDatalogReasoning(RunDatalogReasoning) => Json<DatalogReasoningResult>;
     // The graph serialized as an N-Triples document.
     GetRdf(GetRdf) => Raw<String>;

@@ -28,6 +28,7 @@ pub(crate) const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
     "CancelWorkItem",
     "CasWorkItemMetadata",
     "ClaimNext",
+    "DecisionCommit",
     "ClaimWorkItem",
     "KgDelegate",
     "SubmitWorkItem",
@@ -60,6 +61,7 @@ pub(crate) const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
     "FromMsgpack",
     "ImportSqliteFile",
     "IcvConfigure",
+    "GraphSchema",
     "InvalidateEdge",
     "KvCas",
     "KvDelete",
@@ -98,6 +100,14 @@ pub(crate) const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
 /// `policy()`'s `mutates: true` for these is a conservative UPPER BOUND, not an equality --
 /// the real answer depends on data the static table cannot see.
 pub(crate) const ACCESS_RS_MUTATES_CONDITIONAL: &[&str] = &[
+    // The decision, pack and outbox surfaces take the same runtime-conditional
+    // shape as the four agent layers below: `requires_write` delegates to the
+    // op's own `is_mutation()`, while the registry row carries the conservative
+    // `mutates = true` upper bound.
+    "ConnectorPack",
+    "DecisionEval",
+    "DecisionFit",
+    "MutationOutbox",
     // Publish/Retire write; Current/History/Status remain authenticated reads.
     // All four RF-ADR-008 agent-hierarchy layers have this shape: each
     // delegates `access::requires_write` to its own op's `is_mutation()`,
@@ -225,6 +235,7 @@ pub(crate) const NATIVE_GRAPHREDB_DURABLE: &[&str] = &[
     "FromMsgpack",
     "GraphQl",
     "IcvConfigure",
+    "GraphSchema",
     // Mining pipeline writes are committed by the dedicated pipeline handler,
     // not by mutation_apply's graph-core replay classifier.
     "MiningPipelinePredict",
@@ -352,6 +363,7 @@ pub(crate) const AUDIT_RS_AUDITED: &[&str] = &[
     "GraphLearnPredict",
     "GraphQl",
     "IcvConfigure",
+    "GraphSchema",
     "ImportSqliteFile",
     "InvalidateEdge",
     "Maintain",
@@ -433,6 +445,7 @@ pub(crate) const CDC_RS_EMITS_CDC: &[&str] = &[
     "CreateNodeIfAbsent",
     "FromMsgpack",
     "IcvConfigure",
+    "GraphSchema",
     "Reconcile",
     "RegisterServer",
     "RemoveEdge",

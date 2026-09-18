@@ -708,6 +708,7 @@ impl AgentGraphEntry {
         if self.schema_version != AGENT_GRAPH_ENTRY_SCHEMA_VERSION {
             return Err("agent graph entry schema version is unsupported".to_string());
         }
+        crate::agent_library::refuse_withdrawn("agent graph", self.lifecycle)?;
         let draft = self.as_draft();
         draft.validate()?;
         if self.entry_revision == 0 {
@@ -1348,9 +1349,12 @@ impl AgentGraphOutboxEvent {
         self.graph.validate()?;
         // A tombstone relabelled as a publish would make the event stream
         // disagree with the durable row it describes.
+        crate::agent_library::refuse_withdrawn("agent graph", self.graph.lifecycle)?;
         let expected = match self.graph.lifecycle {
             AgentLibraryLifecycle::Published => AgentGraphMutationKind::Publish,
-            AgentLibraryLifecycle::Retired => AgentGraphMutationKind::Retire,
+            AgentLibraryLifecycle::Retired | AgentLibraryLifecycle::Withdrawn => {
+                AgentGraphMutationKind::Retire
+            }
         };
         if self.kind != expected {
             return Err("agent graph outbox kind does not match the entry's lifecycle".to_string());

@@ -409,6 +409,10 @@ pub mod reasoning_cascade;
 // without it compiles none of it and every write path stays byte-identical.
 #[cfg(feature = "shacl")]
 pub(crate) mod icv_guard;
+// The 2.27.x contract wave's refusal stubs. Deleted by the promotion commit.
+pub(crate) mod contract_wave;
+// X9 — keyed schema sources on one request graph.
+pub(crate) mod graph_schema;
 pub mod persistence;
 // Shared request/auth/codec support for native wire adapters. Each adapter keeps
 // its own protocol limits and wire state on top of this seam.

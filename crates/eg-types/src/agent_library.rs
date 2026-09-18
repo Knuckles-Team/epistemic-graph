@@ -47,20 +47,10 @@ const MAX_REFERENCE_COUNT: usize = 1_024;
 const MAX_REFERENCE_BYTES: usize = 4 * 1024;
 const DIGEST_PREFIX: &str = "sha256:";
 
-/// The retained lifecycle of one Agent Library definition.
-///
-/// `Retired` is a durable tombstone.  It remains in the revision stream and
-/// cannot be replaced by a later publish, preserving the definition's
-/// provenance and preventing silent resurrection of an agent identity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub enum AgentLibraryLifecycle {
-    Published,
-    Retired,
-}
+pub mod lifecycle;
 
 pub use crate::agent_component::ComponentDependency;
+pub use lifecycle::{refuse_withdrawn, AgentLibraryLifecycle};
 
 /// Whether the system prompt is fixed at publish time or resolved per run.
 ///
@@ -618,7 +608,10 @@ impl AgentLibraryEntry {
         if self.updated_at_ms < self.created_at_ms {
             return Err("agent library entry update time precedes creation time".to_string());
         }
-        validate_draft(&self.as_draft())?;
+        // An agent has no pack importer, so `Withdrawn` is unreachable for it and
+        // is refused by name before the draft's own fields are looked at.
+        refuse_withdrawn("agent library", self.lifecycle)
+            .and_then(|()| validate_draft(&self.as_draft()))?;
         if !is_digest(&self.definition_digest) {
             return Err("agent library definition_digest is not a sha256 digest".to_string());
         }

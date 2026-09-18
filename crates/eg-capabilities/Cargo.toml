@@ -105,7 +105,13 @@ required-features = ["contract", "canonical-ledger", "contract-schema"]
 [features]
 default = []
 # RF-RULING-003 — the exact profile `gen_contract` regenerates and `--check` verifies.
-contract = ["canonical-ledger", "contract-schema"]
+#
+# It pulls `eg-types/test-support` because the generated digest vectors are
+# computed from the SAME sample values the wire tests use. A second, generator-
+# local copy of those samples is how a golden vector starts describing a value
+# nothing else ever sends. Default builds (the one the root package links behind
+# `server`) enable neither this feature nor that module.
+contract = ["canonical-ledger", "contract-schema", "eg-types/test-support"]
 # JSON Schema derivation for the wire request/result bodies. Default OFF on both this
 # crate and `eg-types`, exactly like the ~90 other pure-serde Method-gating features.
 contract-schema = [

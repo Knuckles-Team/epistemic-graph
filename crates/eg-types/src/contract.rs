@@ -6,10 +6,12 @@
 
 mod collections;
 mod crypto;
+mod error_code;
 mod identifiers;
 
 pub use collections::{BoundedVec, RecordBytes};
 pub use crypto::{Digest256, Ed25519Signature, Nonce};
+pub(crate) use error_code::closed_error_codes;
 pub use identifiers::{
     ActorId, AdmissionOutcome, AudienceId, DecisionOutcome, EffectState, IdempotencyKey,
     IngressSurface, MethodId, MutationDisposition, MutationDomain, OpaqueId, Operation,

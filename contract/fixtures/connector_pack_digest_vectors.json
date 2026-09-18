@@ -1,0 +1,56 @@
+{
+  "schema": "eg-digest-vectors/v1",
+  "family": "connector-pack",
+  "vectors": [
+    {
+      "name": "entry_digest/tool",
+      "domain": "eg/connector-pack-entry/v1",
+      "sha256": "d828af787121d199b44c0f7e26fd40b0bb6da907fc561c805ad3df2e397ee1f3"
+    },
+    {
+      "name": "entry_digest/server",
+      "domain": "eg/connector-pack-entry/v1",
+      "sha256": "8e144ba10d0c55e06ec5d4c20a368f46beead8755f4f077fdcbb743238f516a3"
+    },
+    {
+      "name": "annotations_digest/full",
+      "domain": "eg/connector-pack-annotations/v1",
+      "sha256": "b904fe27afbca03ff78c3103c87ed00f01a724560f409ff678998434ecb7c0a9"
+    },
+    {
+      "name": "annotations_digest/empty",
+      "domain": "eg/connector-pack-annotations/v1",
+      "sha256": "8ac9e8397ff58e844d5d62a347049a23c8781f8e32e98d07320bacc506f479c2"
+    },
+    {
+      "name": "model_facts_digest/tri_state",
+      "domain": "eg/cp-model-facts/v1",
+      "sha256": "2cd426b67300c0fafcc3ee9ff4eb80b6095152b6680e2840377d11ea457e2307"
+    },
+    {
+      "name": "references_digest/sorted_pairs",
+      "domain": "eg/connector-pack-references/v1",
+      "sha256": "e0f48f146b0d909e1e88f2c0b5942aa04cb2ddcdf3534a94194d99a9e8b7175c"
+    },
+    {
+      "name": "list_digest/sorted_and_deduplicated",
+      "domain": "eg/connector-pack-entry/v1",
+      "sha256": "0b04c8212de1ec5e0904d2ea5ccd04608d5047bcad0c5d133ad2899549327fd2"
+    },
+    {
+      "name": "pack_digest/one_entry_per_kind",
+      "domain": "eg/connector-pack/v1",
+      "sha256": "6905f9ddb15de9c05f913a2251c5249d6fbb265ae83092a1f59116d5f2c139bd"
+    },
+    {
+      "name": "component_id/escaped",
+      "domain": "eg/connector-pack-component-id/v1",
+      "sha256": "mcp:connector-a/tool/search%20files%2F%7E%20100%25"
+    },
+    {
+      "name": "component_id/unescaped",
+      "domain": "eg/connector-pack-component-id/v1",
+      "sha256": "mcp:connector-a/model_profile/model-1.0_x"
+    }
+  ]
+}

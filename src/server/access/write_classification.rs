@@ -48,6 +48,24 @@ fn requires_write_agent_surface(method: &Method) -> Option<bool> {
     None
 }
 
+/// The decision and catalog-administration surfaces, whose read/write split
+/// lives on their own ops.
+///
+/// Four methods, one classifier: each delegates to `is_mutation()` on the op,
+/// so this file and the capability ledger cannot drift apart about an
+/// operation. `ConnectorPack.status`, `DecisionFit.status`,
+/// `DecisionEval.status`, `MutationOutbox.status` and
+/// `MutationOutbox.dead_letters` are genuinely reads; everything else writes.
+fn requires_write_decision_surface(method: &Method) -> Option<bool> {
+    match method {
+        Method::ConnectorPack { op } => Some(op.is_mutation()),
+        Method::DecisionFit { op } => Some(op.is_mutation()),
+        Method::DecisionEval { op } => Some(op.is_mutation()),
+        Method::MutationOutbox { op } => Some(op.is_mutation()),
+        _ => None,
+    }
+}
+
 fn requires_write_native_surface(method: &Method) -> Option<bool> {
     #[cfg(feature = "modality-serving")]
     if let Method::ServedModality { op } = method {
@@ -226,19 +244,18 @@ fn requires_write_learning_surface(method: &Method) -> Option<bool> {
 /// the current/history/status read sub-operations. Pure-compute methods
 /// (finance, datascience, parse) never touch graph state and classify as Read.
 pub(crate) fn requires_write(method: &Method) -> bool {
-    if let Some(result) = requires_write_agent_surface(method) {
-        return result;
-    }
-    if let Some(result) = requires_write_native_surface(method) {
-        return result;
-    }
-    if let Some(result) = requires_write_query_surface(method) {
-        return result;
-    }
-    if let Some(result) = requires_write_mining_surface(method) {
-        return result;
-    }
-    if let Some(result) = requires_write_learning_surface(method) {
+    /// The runtime-conditional classifiers, in resolution order. A table rather
+    /// than a chain of `if let`s so a sixth surface is one entry rather than
+    /// one more branch in this function.
+    const CONDITIONAL: &[fn(&Method) -> Option<bool>] = &[
+        requires_write_agent_surface,
+        requires_write_decision_surface,
+        requires_write_native_surface,
+        requires_write_query_surface,
+        requires_write_mining_surface,
+        requires_write_learning_surface,
+    ];
+    if let Some(result) = CONDITIONAL.iter().find_map(|classify| classify(method)) {
         return result;
     }
     // Agent-memory / scene-graph / trajectory mutations (CONCEPT:EG-KG.memory.eg-batch-decay-caller):
@@ -283,6 +300,13 @@ pub(crate) fn requires_write(method: &Method) -> bool {
                 // `security:admin` capability is enforced before this graph Write check;
                 // the graph ACL then binds that admin operation to its authorized route.
                 | Method::IcvConfigure { .. }
+                // X9: attaching, replacing or detaching a schema source
+                // changes what the graph's own data is validated against, so
+                // it is a graph write for the same reason IcvConfigure is.
+                | Method::GraphSchema { .. }
+                // RF-ADR-010: committing a decision record writes one
+                // component revision into the agent-library owner.
+                | Method::DecisionCommit { .. }
                 | Method::DeleteGraph { .. }
                 | Method::ClaimNext { .. }
                 | Method::MintWorkItemClaimCapability { .. }

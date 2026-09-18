@@ -175,6 +175,7 @@
 | `MineOntologyGap` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
 | `MineRetrievalQuality` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
 | `MineCommunity` | ~true | GraphRedb | `mining:write` | false | true | false | Atomic | mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field |
+| `Solve` | false | None | `compute:solve` | true | false | false | None | pure compute: a bounded 0-1 integer programme with an independently verifiable certificate. Reads no store, no clock and no float, so it participates in no transaction |
 | `ClaimNext` | true | GraphRedb | `node:write` | false | true | false | Atomic |  |
 | `ClaimWorkItem` | true | GraphRedb | `work:claim` | false | true | false | Atomic | engine-native tenant/fair WorkItem lease claim |
 | `AcquireCapacity` | true | GraphRedb | `capacity:lease` | true | true | false | Atomic | atomic multi-dimensional capacity admission with epoch/fence ownership |
@@ -210,6 +211,8 @@
 | `UpdateDevelopmentLaneQuota` | true | GraphRedb | `lane:quota` | true | true | false | Atomic | controller/admin-only monotonic server-owned quota policy with numeric expected_policy_revision CAS; now_ms is authority-normalized |
 | `ResourceStatsPage` | false | None | `service:control` | true | false | false | None | bounded ACL-filtered keyset page; summary suppresses detail arrays |
 | `AnalyticsJob` | ~true | JobsRedb | `jobs:write` | false | false | false | Atomic | runtime-conditional: Status is a read; Submit/Cancel/Resume commit through the native jobs.redb MutationBatch gateway |
+| `DecisionFit` | ~true | JobsRedb | `admin:decision-fit` | true | false | false | Atomic | runtime-conditional like AnalyticsJob: status is a read; submit commits a native MutationBatch in jobs.redb carrying the decision job row and its receipt, while the fitted draft is an engine-held Blob CAS body. Local-only authority, refused in clustered mode |
+| `DecisionEval` | ~true | JobsRedb | `admin:decision-eval` | true | false | false | Atomic | runtime-conditional like AnalyticsJob: status is a read; submit commits a native MutationBatch in jobs.redb carrying the evaluation job row and its receipt. Local-only authority, refused in clustered mode |
 | `Statechart` | ~true | StatechartRedb | `statechart:write` | false | false | false | Atomic | runtime-conditional: GetState/List are reads; Define/Instantiate/SendEvent commit to the native statecharts.redb store (CONCEPT:INT-P2-2) |
 | `AddNode` | true | GraphRedb | `node:write` | false | true | true | Atomic |  |
 | `CreateNodeIfAbsent` | true | GraphRedb | `node:write` | false | true | true | Atomic | atomic create returns true only to the inserting writer, so its result is not cross-request cacheable |
@@ -357,6 +360,7 @@
 | `NlQuery` | false | None | `query:nl` | false | false | false | Snapshot |  |
 | `TxnUnifiedQuery` | false | None | `txn:read` | true | false | false | Saga |  |
 | `TxnUnifiedQueryText` | false | None | `txn:read` | true | false | false | Saga |  |
+| `Decide` | false | None | `query:decide` | true | false | false | Snapshot | RF-ADR-010 DL-2. Evaluate-only: scores library or RLS-filtered graph candidates under a pinned feature schema and head and answers a batch of records; it commits none of them |
 | `RunDatalogReasoning` | true | GraphRedb | `reasoning:write` | false | true | true | Atomic | state-backed MutationBatch commits inferred facts |
 | `GetRdf` | false | None | `rdf:read` | true | false | false | Snapshot |  |
 | `Sparql` | false | None | `sparql:read` | true | false | false | Snapshot |  |
@@ -367,6 +371,8 @@
 | `RunRules` | false | None | `reasoning:read` | true | false | false | Snapshot | READ-ONLY (EG-P0-2/L11 handler audit): handle_run_rules reasons over an off-lock analysis_snapshot and returns inferred triples, no writeback -- unlike its sibling RunDatalogReasoning which materialises in-place. Corrected from a prior mutates=true semantic guess; now agrees with access.rs (never a write there) |
 | `ShaclValidate` | false | None | `validation:read` | true | false | false | Snapshot |  |
 | `IcvConfigure` | true | GraphRedb | `security:admin` | true | true | true | Atomic | state-backed MutationBatch |
+| `GraphSchema` | true | GraphRedb | `security:admin` | true | true | true | Atomic | X9. Gateway-routed exactly like IcvConfigure: every op attaches, replaces or detaches one keyed schema source through the graph commit kernel, so it is audited and emits CDC. Local-only in 2.27.x until its Raft catalog record lands |
+| `GraphSchemaList` | false | None | `security:admin` | true | false | false | Snapshot | X9. Reads the request graph's schema-source set and its composed digest; a separate method rather than an op because a read op inside a gateway-routed method would need a runtime-conditional gateway plan |
 | `ShexValidate` | false | None | `validation:read` | true | false | false | Snapshot |  |
 | `GetLedger` | false | None | `ledger:read` | true | false | false | Snapshot |  |
 | `AuditVerify` | false | None | `security:audit` | true | false | false | Snapshot |  |
@@ -384,6 +390,9 @@
 | `AgentGraph` | true | ControlRedb | `agent:graph-write` | true | false | false | Atomic | RF-ADR-008. Runtime-conditional exactly like AgentLibrary: Current/History/Status are authenticated tenant-bound read snapshots; Publish/Retire atomically commit native graph revisions, action provenance, replay receipts, and outbox through ControlRedb into the SAME agent_library.redb owner |
 | `AgentComponent` | true | ControlRedb | `agent:component-write` | true | false | false | Atomic | RF-ADR-008 layer 1. Runtime-conditional like AgentLibrary/AgentGraph: Current/History/Status/Search are authenticated tenant-bound read snapshots; Publish/Retire atomically commit native component revisions, action provenance, replay receipts and outbox through ControlRedb into the SAME agent_library.redb owner |
 | `AgentTemplate` | true | ControlRedb | `agent:template-write` | true | false | false | Atomic | RF-ADR-008 item C. Runtime-conditional like the three layers beside it: Current/History/Status/Instantiate are authenticated tenant-bound read snapshots (Instantiate binds parameters and returns a draft, committing nothing); Publish/Retire atomically commit native template revisions, action provenance, replay receipts and outbox through ControlRedb into the SAME agent_library.redb owner. Its own authz action because publishing a parameterized FAMILY of agents is a distinct privilege from publishing one |
+| `AgentAssemble` | false | None | `agent:assemble-read` | true | false | false | Snapshot | RF-ADR-010 A1. Reads ONE tenant-bound agent_library.redb snapshot and proves an agent graph against it; commits nothing. The record it answers with is durable only if the caller then sends DecisionCommit |
+| `DecisionCommit` | true | ControlRedb | `agent:decision-write` | true | false | false | Atomic | native MutationBatch in agent_library.redb: one DecisionRecord component revision, its receipt and outbox in one WTX after re-derivation and a catalog compare-and-set; local-only authority, refused in clustered mode |
+| `ConnectorPack` | true | ControlRedb | `agent:pack-control` | true | false | false | Atomic | RF-ADR-009 A2. Runtime-conditional: status is an authenticated tenant-bound read snapshot, and its authz action is agent:pack-read; import commits the whole pack atomically, while bind/unbind/retire/reproject/reconcile_bodies and a mass-withdrawal import need admin:connector-pack. Pack head, members, component revisions, body holders, import record, receipt and outbox commit in one WTX; local-only authority, refused in clustered mode |
 | `TsAppend` | true | SeriesRedb | `timeseries:write` | false | false | false | Atomic | graph ACL + placement policy precede the tenant/graph/series-scoped series.redb write |
 | `TsRange` | false | None | `timeseries:read` | true | false | false | Snapshot |  |
 | `TsAsofJoin` | false | None | `timeseries:read` | true | false | false | Snapshot |  |
@@ -429,3 +438,4 @@
 | `TxnMaterializeBelief` | true | ControlRedb | `txn:write` | false | false | false | Saga | encrypted Raft-native cross-modal staging |
 | `Commit` | true | ControlRedb | `txn:control` | true | false | false | Saga | named parent receipt plus atomic graph/cross-modal child batches |
 | `Rollback` | true | ControlRedb | `txn:control` | false | false | false | Saga | encrypted Raft-native transaction staging removal |
+| `MutationOutbox` | true | ControlRedb | `admin:outbox` | true | false | false | Saga | X10. Runtime-conditional: status and dead_letters are reads; rewind resets one consumer's durable cursor through bounded eg-transaction transactions, so it is a saga rather than one atomic write. Local-only authority, refused in clustered mode |

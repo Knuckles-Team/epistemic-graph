@@ -228,10 +228,13 @@ fn mutating_served_modality(
 /// Reserved-marker CDC event id for the "durable but no single node/edge row" methods
 /// (W1c): `ApplyMutation`, `ApplyMultisigMutation`, `RegisterServer`, `IcvConfigure`
 /// (shacl), `RunDatalogReasoning` (reasoning), `ClearLedger`/`ApplyLedger`, and
-/// `CompactNodesByType`. `None` for everything else (including the node/edge/reset/
-/// envelope/modality methods, which [`emit_for_method`] matches before ever reaching
-/// this fallback arm). Split out so this one repeated marker-emit shape doesn't
-/// dominate the outer dispatcher's cyclomatic budget.
+/// `CompactNodesByType`. Falls through to [`x9_marker_event_id`] for the schema-source
+/// family (kept as a separate function rather than a further arm here, so growing
+/// that family doesn't show as a regression on this one). `None` for everything else
+/// (including the node/edge/reset/envelope/modality methods, which
+/// [`emit_for_method`] matches before ever reaching this fallback arm). Split out so
+/// this one repeated marker-emit shape doesn't dominate the outer dispatcher's
+/// cyclomatic budget.
 fn marker_event_id(method: &Method) -> Option<&'static str> {
     match method {
         Method::ApplyMutation { .. } => Some("__apply_mutation"),
@@ -243,6 +246,21 @@ fn marker_event_id(method: &Method) -> Option<&'static str> {
         Method::RunDatalogReasoning { .. } => Some("__run_datalog_reasoning"),
         Method::ClearLedger | Method::ApplyLedger { .. } => Some("__ledger"),
         Method::CompactNodesByType { .. } => Some("__compact_nodes_by_type"),
+        _ => x9_marker_event_id(method),
+    }
+}
+
+/// X9: a schema-source change alters what the graph's data is validated
+/// against, so a subscriber that re-validates has to see it.
+#[cfg(feature = "shacl")]
+fn x9_marker_event_id(method: &Method) -> Option<&'static str> {
+    match method {
+        Method::GraphSchema { .. } => Some("__graph_schema"),
         _ => None,
     }
+}
+
+#[cfg(not(feature = "shacl"))]
+fn x9_marker_event_id(_method: &Method) -> Option<&'static str> {
+    None
 }

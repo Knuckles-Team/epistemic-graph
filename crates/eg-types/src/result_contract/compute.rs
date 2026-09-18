@@ -14,6 +14,7 @@ use crate::compute_result::graphlearn;
 use crate::compute_result::mining;
 #[cfg(feature = "ml-pipeline")]
 use crate::compute_result::pipeline;
+use crate::solve::SolveResult;
 #[cfg(feature = "datascience")]
 use crate::wire::FittedModel;
 use serde::{Deserialize, Serialize};
@@ -232,4 +233,5 @@ method_results! {
     MiningPipelineEvaluate(MiningPipelineEvaluate) => Json<pipeline::PipelineEvaluation>;
     #[cfg(feature = "ml-pipeline")]
     MiningPipelineCompare(MiningPipelineCompare) => Json<pipeline::PipelineComparison>;
+    Solve(Solve) => Raw<SolveResult>;
 }

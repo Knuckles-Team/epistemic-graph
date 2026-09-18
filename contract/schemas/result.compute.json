@@ -92,6 +92,16 @@
       ],
       "type": "object"
     },
+    "Algorithm": {
+      "description": "The solver algorithm that produced a certificate.",
+      "oneOf": [
+        {
+          "const": "depth_first_dual_ascent",
+          "description": "Propagation, greedy incumbent, depth-first branch-and-bound with a\ndual-ascent Lagrangian bound, pre-order leaf-bound certificate.",
+          "type": "string"
+        }
+      ]
+    },
     "AnomalyMiningResult": {
       "description": "`MineAnomaly`.",
       "properties": {
@@ -221,6 +231,58 @@
       ],
       "type": "object"
     },
+    "BoundProof": {
+      "description": "The lower-bound evidence a certificate carries.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A complete pre-order search tree.",
+          "properties": {
+            "tree": {
+              "additionalProperties": false,
+              "properties": {
+                "nodes": {
+                  "items": {
+                    "$ref": "#/$defs/ProofNode"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "nodes"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "tree"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Only the root dual (the tree exceeded the certificate leaf limit).",
+          "properties": {
+            "root": {
+              "additionalProperties": false,
+              "properties": {
+                "dual": {
+                  "$ref": "#/$defs/LagrangeDual"
+                }
+              },
+              "required": [
+                "dual"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "root"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "CausalImpactMiningResult": {
       "description": "`MineCausalImpact`.",
       "properties": {
@@ -283,6 +345,62 @@
       "required": [
         "from",
         "to"
+      ],
+      "type": "object"
+    },
+    "Certificate": {
+      "additionalProperties": false,
+      "description": "Everything a verifier needs, and nothing it must trust.",
+      "properties": {
+        "algorithm": {
+          "$ref": "#/$defs/Algorithm"
+        },
+        "config": {
+          "$ref": "#/$defs/SolverConfig"
+        },
+        "incumbent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Incumbent"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lower_bound": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Scalar"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Certified scalar lower bound, when any bound leaf exists."
+        },
+        "model_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "nodes_expanded": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "proof": {
+          "$ref": "#/$defs/BoundProof"
+        },
+        "status": {
+          "$ref": "#/$defs/SolveStatus"
+        }
+      },
+      "required": [
+        "model_digest",
+        "algorithm",
+        "config",
+        "status",
+        "proof",
+        "nodes_expanded"
       ],
       "type": "object"
     },
@@ -1060,6 +1178,23 @@
         "loss",
         "grad_chosen",
         "grad_rejected"
+      ],
+      "type": "object"
+    },
+    "DualEntry": {
+      "additionalProperties": false,
+      "description": "One non-zero rational multiplier numerator.",
+      "properties": {
+        "numerator": {
+          "$ref": "#/$defs/Scalar"
+        },
+        "row": {
+          "$ref": "#/$defs/RowId"
+        }
+      },
+      "required": [
+        "row",
+        "numerator"
       ],
       "type": "object"
     },
@@ -1883,6 +2018,26 @@
       ],
       "type": "object"
     },
+    "Incumbent": {
+      "additionalProperties": false,
+      "description": "A feasible assignment and its objective value.",
+      "properties": {
+        "objective": {
+          "$ref": "#/$defs/ObjectiveValue"
+        },
+        "selected": {
+          "items": {
+            "type": "boolean"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "selected",
+        "objective"
+      ],
+      "type": "object"
+    },
     "InterClusterEdge": {
       "description": "An edge between two clusters of one served level, by array-local index into\nthat response's `clusters`.",
       "properties": {
@@ -1968,6 +2123,98 @@
       "required": [
         "states",
         "variances"
+      ],
+      "type": "object"
+    },
+    "LagrangeDual": {
+      "additionalProperties": false,
+      "description": "Row multipliers `numerator / denominator`, entries strictly ordered by row.",
+      "properties": {
+        "denominator": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/DualEntry"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "denominator",
+        "entries"
+      ],
+      "type": "object"
+    },
+    "LeafProof": {
+      "description": "How a leaf of the search tree is closed.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "`L(dual, path)` is a lower bound on every feasible completion.",
+          "properties": {
+            "bound": {
+              "additionalProperties": false,
+              "properties": {
+                "dual": {
+                  "$ref": "#/$defs/LagrangeDual"
+                }
+              },
+              "required": [
+                "dual"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "bound"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`L(dual, path)` with a zero objective is positive: no feasible completion.",
+          "properties": {
+            "infeasible": {
+              "additionalProperties": false,
+              "properties": {
+                "dual": {
+                  "$ref": "#/$defs/LagrangeDual"
+                }
+              },
+              "required": [
+                "dual"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "infeasible"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "LevelValue": {
+      "additionalProperties": false,
+      "description": "Value of one objective level under an assignment.",
+      "properties": {
+        "known": {
+          "$ref": "#/$defs/Scalar",
+          "description": "Sum of the known coefficients of the selected variables."
+        },
+        "unknown_selected": {
+          "description": "How many selected variables have an unknown coefficient at this level.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "known",
+        "unknown_selected"
       ],
       "type": "object"
     },
@@ -2140,6 +2387,26 @@
         "n_host_nodes",
         "n_host_edges",
         "written_back"
+      ],
+      "type": "object"
+    },
+    "ObjectiveValue": {
+      "additionalProperties": false,
+      "description": "Every level's value plus the exact scalarised objective.",
+      "properties": {
+        "levels": {
+          "items": {
+            "$ref": "#/$defs/LevelValue"
+          },
+          "type": "array"
+        },
+        "scalar": {
+          "$ref": "#/$defs/Scalar"
+        }
+      },
+      "required": [
+        "levels",
+        "scalar"
       ],
       "type": "object"
     },
@@ -2758,6 +3025,86 @@
       ],
       "type": "object"
     },
+    "ProofNode": {
+      "description": "One pre-order node of the search-tree proof.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "branch": {
+              "additionalProperties": false,
+              "properties": {
+                "first": {
+                  "type": "boolean"
+                },
+                "var": {
+                  "$ref": "#/$defs/VarId"
+                }
+              },
+              "required": [
+                "var",
+                "first"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "branch"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "forced": {
+              "additionalProperties": false,
+              "properties": {
+                "row": {
+                  "$ref": "#/$defs/RowId"
+                },
+                "value": {
+                  "type": "boolean"
+                },
+                "var": {
+                  "$ref": "#/$defs/VarId"
+                }
+              },
+              "required": [
+                "var",
+                "value",
+                "row"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "forced"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "leaf": {
+              "additionalProperties": false,
+              "properties": {
+                "proof": {
+                  "$ref": "#/$defs/LeafProof"
+                }
+              },
+              "required": [
+                "proof"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "leaf"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "QueueSignal": {
       "description": "Queue-imbalance skew and per-side fill times.",
       "properties": {
@@ -3202,6 +3549,12 @@
       ],
       "type": "object"
     },
+    "RowId": {
+      "description": "Index of a constraint (its position in [`ModelSpec::constraints`]). Every\nconstraint lowers to exactly one linear row, so this is also the row index.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
     "RowRef": {
       "anyOf": [
         {
@@ -3251,6 +3604,10 @@
         "converged"
       ],
       "type": "object"
+    },
+    "Scalar": {
+      "description": "An exact 128-bit signed integer (objective values, bounds, multipliers).",
+      "type": "string"
     },
     "SequenceMiningResult": {
       "description": "`MineSequence`.",
@@ -3308,6 +3665,175 @@
         "items",
         "support",
         "count"
+      ],
+      "type": "object"
+    },
+    "Sha256Digest": {
+      "description": "A SHA-256 digest, serialised as 64 lower-case hex characters.",
+      "type": "string"
+    },
+    "SolveResult": {
+      "additionalProperties": false,
+      "description": "A solved model: the certificate plus the digest a caller pins it by.",
+      "properties": {
+        "certificate": {
+          "$ref": "#/$defs/Certificate"
+        },
+        "certificate_digest": {
+          "$ref": "#/$defs/Sha256Digest"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "certificate",
+        "certificate_digest"
+      ],
+      "type": "object"
+    },
+    "SolveStatus": {
+      "description": "The outcome class of a solve.",
+      "oneOf": [
+        {
+          "const": "optimal",
+          "description": "The incumbent is optimal and the tree or root proof certifies it.",
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The search completed; its tree exceeded the certificate limit, so the\nproof is a reproducible deterministic derivation, not a certificate.",
+          "properties": {
+            "optimal_by_deterministic_search": {
+              "additionalProperties": false,
+              "properties": {
+                "nodes_expanded": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "nodes_expanded"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "optimal_by_deterministic_search"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The budget ran out with a certified gap no larger than the accepted gap.",
+          "properties": {
+            "feasible_with_gap": {
+              "additionalProperties": false,
+              "properties": {
+                "gap": {
+                  "$ref": "#/$defs/Scalar"
+                }
+              },
+              "required": [
+                "gap"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "feasible_with_gap"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "No feasible assignment exists; `core` lists the rows the proof uses.",
+          "properties": {
+            "infeasible": {
+              "additionalProperties": false,
+              "properties": {
+                "core": {
+                  "items": {
+                    "$ref": "#/$defs/RowId"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "core"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "infeasible"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The search completed without a feasible assignment and without a\ncertificate-sized tree.",
+          "properties": {
+            "infeasible_by_deterministic_search": {
+              "additionalProperties": false,
+              "properties": {
+                "nodes_expanded": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "nodes_expanded"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "infeasible_by_deterministic_search"
+          ],
+          "type": "object"
+        },
+        {
+          "const": "budget_exhausted",
+          "description": "The budget ran out with no incumbent or a gap above the accepted gap.",
+          "type": "string"
+        }
+      ]
+    },
+    "SolverConfig": {
+      "additionalProperties": false,
+      "description": "Deterministic work limits and gap acceptance. No wall clock is read.",
+      "properties": {
+        "accepted_gap": {
+          "$ref": "#/$defs/Scalar"
+        },
+        "bound_denominator": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_certificate_leaves": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "node_budget": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "node_budget",
+        "max_certificate_leaves",
+        "bound_denominator",
+        "accepted_gap"
       ],
       "type": "object"
     },
@@ -3586,6 +4112,12 @@
         "value"
       ],
       "type": "object"
+    },
+    "VarId": {
+      "description": "Index of a binary decision variable (its position in [`ModelSpec::variables`]).",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
     },
     "Vf2MatchResult": {
       "description": "Materialized result of a bounded VF2 subgraph-isomorphism search.\n\n`truncated` is true when either the requested match limit or search-step\nbudget stopped the search before the candidate space was exhausted.",
@@ -5464,6 +5996,18 @@
           },
           "encoding": "Raw",
           "schema": true
+        }
+      },
+      "selected_by": null
+    },
+    "Solve": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SolveResult"
+          }
         }
       },
       "selected_by": null

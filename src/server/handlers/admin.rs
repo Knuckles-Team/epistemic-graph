@@ -25,6 +25,11 @@ use tokio::sync::RwLock;
 #[cfg(feature = "redb")]
 mod agent;
 #[cfg(feature = "redb")]
+mod component_content;
+// Refusal-only until its package lands, so it needs no durable owner and is
+// declared in every build -- the dispatch arm that reaches it carries no cfg.
+mod connector_pack;
+#[cfg(feature = "redb")]
 mod backup;
 #[cfg(feature = "redb")]
 mod cluster;
@@ -41,6 +46,7 @@ pub(crate) use agent::{
 pub(crate) use backup::backup_bundle_name;
 #[cfg(feature = "redb")]
 pub(crate) use cluster::try_handle;
+pub(crate) use connector_pack::handle_connector_pack;
 #[cfg(any(feature = "compute-dist", feature = "matview"))]
 pub(crate) use saga::begin_admin_saga;
 #[cfg(feature = "redb")]

@@ -14,6 +14,7 @@ pub use resources::*;
 pub use statechart::*;
 pub use work_items::*;
 
+use crate::decision::DecisionJobRecord;
 use crate::delegation::KgDelegateResult;
 use crate::epistemic_operations::{
     ClaimWorkItemResult, DevelopmentLaneCleanupCompleteResult, DevelopmentLaneFinishResult,
@@ -97,4 +98,8 @@ method_results! {
     StatechartGetState(Statechart / "GetState") => Json<StatechartInstance>;
     #[cfg(feature = "statechart")]
     StatechartList(Statechart / "List") => Json<StatechartInstanceList>;
+    DecisionFitSubmit(DecisionFit / "submit") => Raw<DecisionJobRecord>;
+    DecisionFitStatus(DecisionFit / "status") => Raw<Option<DecisionJobRecord>>;
+    DecisionEvalSubmit(DecisionEval / "submit") => Raw<DecisionJobRecord>;
+    DecisionEvalStatus(DecisionEval / "status") => Raw<Option<DecisionJobRecord>>;
 }

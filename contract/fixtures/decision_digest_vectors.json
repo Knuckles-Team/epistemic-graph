@@ -1,0 +1,41 @@
+{
+  "schema": "eg-digest-vectors/v1",
+  "family": "decision",
+  "vectors": [
+    {
+      "name": "record_digest/solved",
+      "domain": "eg/decision-record/v1",
+      "sha256": "sha256:bca04b21b3d7154e428bdfd182b047ade661f0d7a113e90af1a38ff0ca3e53aa"
+    },
+    {
+      "name": "inputs_digest/library_candidates",
+      "domain": "eg/decision-inputs/v1",
+      "sha256": "sha256:92981614aa4819ae6b40064f7c8e6e0a897c5f42c4f40e6173ea48dcfe7c7565"
+    },
+    {
+      "name": "policy_digest/default_shape",
+      "domain": "eg/decision-policy/v1",
+      "sha256": "sha256:6285a9290f658e281333296ec7de2578de2f677ad28d186b197c8142b0508cdc"
+    },
+    {
+      "name": "catalog_digest/unsorted_input",
+      "domain": "eg/decision-catalog/v1",
+      "sha256": "sha256:8f244ed6ca016948c9de945ea5328049733c7cfbfd2645119744d8335a672ca8"
+    },
+    {
+      "name": "ontology_digest/native_vocabulary",
+      "domain": "eg/agent-ontology/v1",
+      "sha256": "sha256:d1817ceb463d7a3d97f5509ffe514641f05ef5bf7ec50a5f260e797b626dc783"
+    },
+    {
+      "name": "statistical_record_digest/acted",
+      "domain": "eg/decision-record/v2",
+      "sha256": "sha256:7eb477add5b6e45b1f95059f4ba37b50dddc669ee8fe0f02dda957a4b82ff893"
+    },
+    {
+      "name": "component_kind/decision_record_token",
+      "domain": "eg/agent-component-kind/v3",
+      "sha256": "decision_record"
+    }
+  ]
+}
