@@ -95,7 +95,10 @@ fn chunk_file_variants(path: &std::path::Path) -> BTreeSet<String> {
          chain moved again and this gate needs to follow it there",
         path.display()
     );
-    let found: BTreeSet<String> = text.lines().filter_map(variant_name_at_enum_indent).collect();
+    let found: BTreeSet<String> = text
+        .lines()
+        .filter_map(variant_name_at_enum_indent)
+        .collect();
     assert!(
         !found.is_empty(),
         "{} contributed no Method variants -- confirm its variant lines are still at \
@@ -114,7 +117,11 @@ fn variant_name_at_enum_indent(line: &str) -> Option<String> {
     if !rest.starts_with(|c: char| c.is_ascii_uppercase()) {
         return None;
     }
-    Some(rest.chars().take_while(|c| c.is_ascii_alphanumeric()).collect())
+    Some(
+        rest.chars()
+            .take_while(|c| c.is_ascii_alphanumeric())
+            .collect(),
+    )
 }
 
 fn descriptor_ids() -> Vec<String> {
