@@ -123,200 +123,205 @@ pub(crate) fn domain_for(method: &Method, surface: MutationSurface) -> Durabilit
         #[cfg(feature = "asr-native")]
         Method::Asr { .. } => default_mutation_domain(surface),
         #[cfg(feature = "blob")]
-        Method::BlobFetchBegin { .. } | Method::BlobChunkGet { .. }
-        | Method::BlobFetchEnd { .. } => default_mutation_domain(surface),
+        Method::BlobFetchEnd { .. } | Method::BlobChunkGet { .. }
+        | Method::BlobFetchBegin { .. } => default_mutation_domain(surface),
         #[cfg(feature = "broker")]
-        Method::StreamRead { .. } | Method::StreamCommittedOffset { .. } => default_mutation_domain(surface),
+        Method::StreamCommittedOffset { .. } | Method::StreamRead { .. } => default_mutation_domain(surface),
         #[cfg(feature = "compute-dist")]
-        Method::DistributedCompute { .. } | Method::CreateMatView { .. }
-        | Method::GetMatView { .. } | Method::RefreshMatView { .. } => default_mutation_domain(surface),
+        Method::GetMatView { .. } | Method::CreateMatView { .. }
+        | Method::DistributedCompute { .. } | Method::RefreshMatView { .. } => default_mutation_domain(surface),
         #[cfg(feature = "cost")]
         Method::ResourceStatsPage { .. } => default_mutation_domain(surface),
         #[cfg(feature = "datascience")]
         Method::DsFitEstimator { .. } | Method::DsPredictEstimator { .. } => default_mutation_domain(surface),
         #[cfg(feature = "epistemic")]
-        Method::ExplainBelief { .. } | Method::EpistemicStatus { .. }
-        | Method::WhatChanged { .. } | Method::RecomputeMaterialization { .. }
-        | Method::MaterializationStatus { .. } | Method::StaleMaterializations
-        | Method::ResolveConflict { .. } | Method::ExplainEvidence { .. }
-        | Method::CausalEstimate { .. } | Method::CausalCounterfactual { .. }
-        | Method::RankByProvenance { .. } | Method::TxnMaterializeBelief { .. } => default_mutation_domain(surface),
+        Method::TxnMaterializeBelief { .. } | Method::StaleMaterializations
+        | Method::MaterializationStatus { .. } | Method::RecomputeMaterialization { .. }
+        | Method::CausalEstimate { .. } | Method::ExplainBelief { .. }
+        | Method::CausalCounterfactual { .. } | Method::EpistemicStatus { .. }
+        | Method::ExplainEvidence { .. } | Method::RankByProvenance { .. }
+        | Method::WhatChanged { .. } | Method::ResolveConflict { .. } => default_mutation_domain(surface),
         #[cfg(feature = "federation")]
         Method::RegisterForeignSource { .. } => default_mutation_domain(surface),
         #[cfg(feature = "finance")]
         Method::FinanceMatchOrders { .. } | Method::FinanceForensicReport { .. } => default_mutation_domain(surface),
         #[cfg(feature = "graphlearn")]
-        Method::GraphLearnFit { .. } | Method::GraphLearnPredict { .. } => default_mutation_domain(surface),
+        Method::GraphLearnPredict { .. } | Method::GraphLearnFit { .. } => default_mutation_domain(surface),
         #[cfg(feature = "graphql")]
         Method::GraphQl { .. } => default_mutation_domain(surface),
         #[cfg(feature = "knowledge-batch")]
         Method::KnowledgeStream { .. } => default_mutation_domain(surface),
         #[cfg(feature = "kv")]
-        Method::KvGet { .. } | Method::KvScan { .. } => default_mutation_domain(surface),
+        Method::KvScan { .. } | Method::KvGet { .. } => default_mutation_domain(surface),
         #[cfg(feature = "matview")]
-        Method::PlanMatViewDefine { .. } | Method::PlanMatViewGet { .. }
-        | Method::PlanMatViewRefresh { .. } | Method::PlanMatViewDrop { .. } => default_mutation_domain(surface),
+        Method::PlanMatViewRefresh { .. } | Method::PlanMatViewGet { .. }
+        | Method::PlanMatViewDefine { .. } | Method::PlanMatViewDrop { .. } => default_mutation_domain(surface),
         #[cfg(feature = "mining")]
-        Method::MineAssociate { .. } | Method::MineCluster { .. } | Method::MineAnomaly { .. }
-        | Method::MineClassifyFit { .. } | Method::MineClassifyPredict { .. }
-        | Method::MineReduce { .. } | Method::MineSequence { .. } | Method::MineForecast { .. }
-        | Method::MineText { .. } | Method::MineSubgraph { .. }
-        | Method::MineEntityResolve { .. } | Method::MineCausalImpact { .. }
-        | Method::MineProcess { .. } | Method::MineRootCause { .. }
-        | Method::MineRiskPropagation { .. } | Method::MineOntologyGap { .. }
-        | Method::MineRetrievalQuality { .. } | Method::MineCommunity { .. } => default_mutation_domain(surface),
+        Method::MineProcess { .. } | Method::MineForecast { .. } | Method::MineSubgraph { .. }
+        | Method::MineEntityResolve { .. } | Method::MineAnomaly { .. }
+        | Method::MineClassifyPredict { .. } | Method::MineReduce { .. }
+        | Method::MineRiskPropagation { .. } | Method::MineCommunity { .. }
+        | Method::MineCausalImpact { .. } | Method::MineOntologyGap { .. }
+        | Method::MineSequence { .. } | Method::MineAssociate { .. }
+        | Method::MineClassifyFit { .. } | Method::MineCluster { .. }
+        | Method::MineRetrievalQuality { .. } | Method::MineRootCause { .. }
+        | Method::MineText { .. } => default_mutation_domain(surface),
         #[cfg(feature = "ml-pipeline")]
-        Method::MiningPipelineTrain { .. } | Method::MiningPipelineEvaluate { .. }
-        | Method::MiningPipelineServe { .. } | Method::MiningPipelinePredict { .. }
+        Method::MiningPipelineTrain { .. } | Method::MiningPipelineServe { .. }
+        | Method::MiningPipelinePredict { .. } | Method::MiningPipelineEvaluate { .. }
         | Method::MiningPipelineCompare { .. } => default_mutation_domain(surface),
         #[cfg(feature = "modality-serving")]
         Method::ServedModality { .. } => default_mutation_domain(surface),
         #[cfg(feature = "obda")]
         Method::SparqlVirtual { .. } => default_mutation_domain(surface),
         #[cfg(feature = "owl")]
-        Method::TxnAxiom { .. } | Method::OwlReason { .. } | Method::OwlReasonDistributed { .. }
-        | Method::OwlExplain { .. } => default_mutation_domain(surface),
+        Method::OwlReasonDistributed { .. } | Method::OwlExplain { .. }
+        | Method::OwlReason { .. } | Method::TxnAxiom { .. } => default_mutation_domain(surface),
         #[cfg(feature = "quantum")]
         Method::Quantum { .. } => default_mutation_domain(surface),
         #[cfg(feature = "query")]
-        Method::UnifiedQuery { .. } | Method::UnifiedQueryText { .. }
-        | Method::ExplainPlan { .. } | Method::ExplainProvenance { .. }
-        | Method::ExplainProvenanceByIds { .. } | Method::ExplainPolicy { .. }
+        Method::UnifiedQueryText { .. } | Method::TxnUnifiedQueryText { .. }
         | Method::TxnPlanWriteback { .. } | Method::TxnUnifiedQuery { .. }
-        | Method::TxnUnifiedQueryText { .. } => default_mutation_domain(surface),
+        | Method::UnifiedQuery { .. } | Method::ExplainProvenanceByIds { .. }
+        | Method::ExplainProvenance { .. } | Method::ExplainPlan { .. }
+        | Method::ExplainPolicy { .. } => default_mutation_domain(surface),
         #[cfg(feature = "rdf")]
-        Method::GetRdf | Method::RunRules { .. } => default_mutation_domain(surface),
+        Method::RunRules { .. } | Method::GetRdf => default_mutation_domain(surface),
         #[cfg(feature = "security")]
-        Method::AuditVerify | Method::AuditProveInclusion { .. } => default_mutation_domain(surface),
+        Method::AuditProveInclusion { .. } | Method::AuditVerify => default_mutation_domain(surface),
         #[cfg(feature = "sparql")]
-        Method::TxnConstruct { .. } | Method::Sparql { .. } => default_mutation_domain(surface),
+        Method::Sparql { .. } | Method::TxnConstruct { .. } => default_mutation_domain(surface),
         #[cfg(feature = "sqlite-file")]
         Method::ImportSqliteFile { .. } | Method::ExportSqliteFile { .. } => default_mutation_domain(surface),
         #[cfg(feature = "statechart")]
         Method::Statechart { .. } => default_mutation_domain(surface),
         #[cfg(feature = "streaming")]
-        Method::CdcRead { .. } | Method::RegisterContinuousQuery { .. }
-        | Method::ReadContinuousQuery { .. } | Method::DropContinuousQuery { .. }
-        | Method::Watch { .. } | Method::RegisterTrigger { .. } | Method::DropTrigger { .. }
-        | Method::ListTriggers { .. } | Method::FiredTriggers { .. }
-        | Method::CepSubscribe { .. } | Method::CepPoll { .. } | Method::CepUnsubscribe { .. } => default_mutation_domain(surface),
+        Method::RegisterContinuousQuery { .. } | Method::CepUnsubscribe { .. }
+        | Method::ReadContinuousQuery { .. } | Method::DropTrigger { .. }
+        | Method::CepSubscribe { .. } | Method::RegisterTrigger { .. } | Method::CepPoll { .. }
+        | Method::FiredTriggers { .. } | Method::Watch { .. } | Method::ListTriggers { .. }
+        | Method::DropContinuousQuery { .. } | Method::CdcRead { .. } => default_mutation_domain(surface),
         #[cfg(feature = "viz")]
         Method::Viz { .. } => default_mutation_domain(surface),
         #[cfg(feature = "wasm-udf")]
-        Method::RegisterUdf { .. } | Method::RunUdf { .. } => default_mutation_domain(surface),
-        Method::AddNode { .. } | Method::CreateNodeIfAbsent { .. } | Method::RemoveNode { .. }
-        | Method::HasNode { .. } | Method::GetNodes | Method::GetNodesByLabel { .. }
-        | Method::GetNodeProperties { .. } | Method::CompareAndSetNodeFields { .. }
-        | Method::ClaimNext { .. } | Method::ReconcileCapacity { .. }
-        | Method::CapacityStatus { .. } | Method::AgentLibrary { .. }
-        | Method::AgentGraph { .. } | Method::AgentComponent { .. }
-        | Method::AgentTemplate { .. } | Method::SemanticIndex { .. }
-        | Method::MintWorkItemClaimCapability { .. }
-        | Method::VerifyWorkItemClaimCapability { .. } | Method::QueryWorkItemReservation { .. }
-        | Method::ResourceReservationStatus { .. } | Method::ReserveDevelopmentLane { .. }
-        | Method::RenewDevelopmentLane { .. } | Method::ObserveDevelopmentLane { .. }
-        | Method::FinishDevelopmentLane { .. } | Method::CleanupDevelopmentLane { .. }
-        | Method::QueryDevelopmentLane { .. } | Method::DevelopmentLaneStatus { .. }
-        | Method::UpdateDevelopmentLaneQuota { .. } | Method::CreateSummaryNode { .. }
-        | Method::Consolidate { .. } | Method::Reinforce { .. } | Method::DecayNode { .. }
-        | Method::DecayMemories { .. } | Method::EvictBelow { .. } | Method::Maintain { .. }
-        | Method::SummaryChildren { .. } | Method::SummariesAtLevel { .. }
-        | Method::AddSceneObject { .. } | Method::SetPose { .. } | Method::Reparent { .. }
-        | Method::WorldTransform { .. } | Method::SceneChildren { .. }
-        | Method::StartTrajectory { .. } | Method::AppendStep { .. }
-        | Method::DiscountedReturn { .. } | Method::BestTrajectory { .. }
-        | Method::GetNodePropertiesBatch { .. } | Method::HasNodesBatch { .. }
-        | Method::NodeCount | Method::NodeIds | Method::AddEdge { .. }
-        | Method::RemoveEdge { .. } | Method::InvalidateEdge { .. }
-        | Method::SupersedeEdge { .. } | Method::HasEdge { .. } | Method::GetEdges
-        | Method::GetEdgesPage { .. } | Method::ClearGraph | Method::GetEdgeProperties { .. }
-        | Method::GetEdgePropertiesBatch { .. } | Method::EdgeCount | Method::InDegree { .. }
-        | Method::OutDegree { .. } | Method::GetPredecessors { .. }
-        | Method::GetSuccessors { .. } | Method::GetNeighbors { .. }
-        | Method::GetNeighborsBatch { .. } | Method::UnionGetNodeProperties { .. }
-        | Method::UnionGetNodesByLabel { .. } | Method::UnionGetNeighbors { .. }
-        | Method::TopologicalSort | Method::FindCycle | Method::GetShortestPath { .. }
-        | Method::GetBlastRadius { .. } | Method::DegreeCentrality { .. }
-        | Method::DegreeCentralityAll | Method::BetweennessCentrality | Method::PageRank { .. }
-        | Method::PersonalizedPageRank { .. } | Method::ConnectedComponents
-        | Method::StronglyConnectedComponents | Method::MinimumSpanningTree
-        | Method::CommunityDetection { .. } | Method::CommunityDetectEphemeral { .. }
-        | Method::GraphColoring | Method::ComputeSimilarityEdges { .. }
-        | Method::ResolveCandidates { .. } | Method::ClusterHierarchyRefresh { .. }
-        | Method::ClusterHierarchyClusters { .. } | Method::ClusterHierarchyExpand { .. }
-        | Method::PruneByLifecycle { .. } | Method::GetContextView { .. }
-        | Method::BatchUpdate { .. } | Method::Metrics | Method::EvictLRU { .. }
-        | Method::DecaySweep { .. } | Method::TouchNodes { .. } | Method::ToMsgpack
-        | Method::FromMsgpack { .. } | Method::GetLedger | Method::ClearLedger
-        | Method::ApplyLedger { .. } | Method::GetSubgraph { .. } | Method::Fork
-        | Method::DiffAgainst { .. } | Method::CompactNodesByType { .. }
-        | Method::RunDatalogReasoning { .. } | Method::ApplyChangeEnvelope { .. }
-        | Method::ApplyChangeEnvelopes { .. } | Method::GetChangeEnvelope { .. }
-        | Method::GetContentVersion { .. } | Method::GetChangeCursor { .. } | Method::ListGraphs
-        | Method::Reshard { .. } | Method::CatalogAssign { .. } | Method::CatalogReassign { .. }
-        | Method::CatalogRemove { .. } | Method::CatalogList | Method::RebalancePlan { .. }
-        | Method::RebalanceExecute { .. } | Method::RaftAddLearner { .. }
-        | Method::RaftChangeMembership { .. } | Method::ClusterMembers
-        | Method::RegisterServer { .. } | Method::PlacementRoute { .. }
-        | Method::PlacementAdmin { .. } | Method::Backup { .. } | Method::Restore { .. }
-        | Method::CreateChannel { .. } | Method::JoinChannel { .. }
-        | Method::LeaveChannel { .. } | Method::CloseChannel { .. } | Method::SendMessage { .. }
-        | Method::GetChannelMessages { .. } | Method::ListChannels
-        | Method::GetChannelMembers { .. } | Method::Ping | Method::Health | Method::Shutdown
-        | Method::CancelRequest { .. } | Method::Reconcile { .. } | Method::ApplyMutation { .. }
-        | Method::Vf2SubgraphMatch { .. } | Method::ParseFile { .. } | Method::ParseFiles { .. }
-        | Method::IndexRepository { .. } | Method::ObserveScreen { .. }
-        | Method::AddEmbedding { .. } | Method::SemanticSearch { .. } | Method::Discover { .. }
-        | Method::MatchOntologyTerms { .. } | Method::BatchL2Normalize { .. }
-        | Method::FinanceOptimizePortfolio { .. } | Method::FinanceRiskParity { .. }
-        | Method::FinanceBlackLitterman { .. } | Method::FinanceEfficientFrontier { .. }
-        | Method::DsLinearRegression { .. } | Method::DsKMeans { .. } | Method::DsPca { .. }
-        | Method::DsComputeStats { .. } | Method::DsTrainTestSplit { .. }
-        | Method::DsSoftmax { .. } | Method::DsLogSoftmax { .. } | Method::DsCrossEntropy { .. }
-        | Method::DsDpoLoss { .. } | Method::DsGrpoSurrogate { .. }
-        | Method::DsKlDivergence { .. } | Method::DsAdamStep { .. } | Method::DsSgdStep { .. }
-        | Method::FinanceVar { .. } | Method::FinanceCvar { .. }
-        | Method::FinanceMaxDrawdown { .. } | Method::FinanceDrawdownSeries { .. }
-        | Method::FinanceDownsideDeviation { .. } | Method::FinanceRiskMetrics { .. }
-        | Method::FinanceMonteCarloVar { .. } | Method::FinanceStressTest { .. }
-        | Method::FinanceDetectRegimes { .. } | Method::FinanceRollingZscore { .. }
-        | Method::FinanceEwma { .. } | Method::FinanceSignalDecay { .. }
-        | Method::FinanceCombineAlphas { .. } | Method::FinanceCrossSectionalRank { .. }
-        | Method::FinanceMomentum { .. } | Method::FinanceMeanReversion { .. }
-        | Method::FinanceInformationCoefficient { .. } | Method::FinanceTwap { .. }
-        | Method::FinanceVwap { .. } | Method::FinanceMarketImpact { .. }
-        | Method::FinancePairsTrading { .. } | Method::FinanceAvellanedaStoikov { .. }
-        | Method::FinanceGltQuotes { .. } | Method::FinanceLogitQuotes { .. }
-        | Method::FinanceGlostenMilgromSpread { .. } | Method::FinanceExpectedPnlRate { .. }
-        | Method::FinanceBreakevenAlpha { .. } | Method::FinanceOfiSeries { .. }
-        | Method::FinanceMicropriceSeries { .. } | Method::FinanceVpinPm { .. }
-        | Method::FinanceHawkesMle { .. } | Method::FinanceHardimanBouchaud { .. }
-        | Method::FinanceKyleLambda { .. } | Method::FinanceSurveillanceRisk { .. }
-        | Method::FinanceKellyFraction { .. } | Method::FinanceBayesianKelly { .. }
-        | Method::FinancePosteriorCredibleInterval { .. } | Method::FinancePurgedCpcv { .. }
-        | Method::FinanceDeflatedSharpe { .. }
-        | Method::FinanceProbabilityBacktestOverfit { .. }
-        | Method::FinanceDieboldMariano { .. } | Method::FinanceKalmanFilter1d { .. }
-        | Method::FinanceKalmanBeta { .. } | Method::FinanceKalmanVolatility { .. }
-        | Method::FinanceAdfTest { .. } | Method::FinanceOuCalibrate { .. }
-        | Method::FinanceOuOptimalThresholds { .. }
-        | Method::FinanceMarkovTransitionMatrix { .. }
-        | Method::FinanceOrderBookImbalance { .. } | Method::FinanceQueueImbalance { .. }
-        | Method::FinanceRealizedVolTick { .. } | Method::FinanceSpreadReversion { .. }
-        | Method::FinanceInformationRatio { .. } | Method::FinanceEffectiveIndependentN { .. }
-        | Method::FinanceAlphaCombinationEngine { .. } | Method::FinanceBrierScore { .. }
-        | Method::FinanceConvergenceGate { .. } | Method::FinanceEmpiricalKelly { .. }
-        | Method::FinanceSabrImpliedVol { .. } | Method::FinanceSabrSmile { .. }
-        | Method::FinanceSabrCalibrate { .. } | Method::RegisterIdentity { .. }
-        | Method::GetIdentity { .. } | Method::RbacAdmin { .. }
-        | Method::ApplyMultisigMutation { .. } | Method::CypherQuery { .. }
-        | Method::NlQuery { .. } | Method::BeginTxn { .. } | Method::TxnAddNode { .. }
-        | Method::TxnRemoveNode { .. } | Method::TxnAddEdge { .. }
-        | Method::TxnRemoveEdge { .. } | Method::TxnCas { .. } | Method::TxnAddEmbedding { .. }
-        | Method::TxnBlobRef { .. } | Method::TxnAddMeasurement { .. } | Method::Rollback { .. }
-        | Method::TsRange { .. } | Method::TsAsofJoin { .. } | Method::TsWindow { .. }
-        | Method::TsGapFill { .. } | Method::TsListSeries | Method::ShaclValidate { .. }
-        | Method::IcvConfigure { .. } | Method::ShexValidate { .. } => default_mutation_domain(surface),
+        Method::RunUdf { .. } | Method::RegisterUdf { .. } => default_mutation_domain(surface),
+        Method::ApplyMultisigMutation { .. } | Method::AddEmbedding { .. }
+        | Method::JoinChannel { .. } | Method::AddSceneObject { .. }
+        | Method::VerifyWorkItemClaimCapability { .. } | Method::FromMsgpack { .. }
+        | Method::BatchUpdate { .. } | Method::DsAdamStep { .. }
+        | Method::ClusterHierarchyRefresh { .. } | Method::TxnBlobRef { .. }
+        | Method::Maintain { .. } | Method::AgentComponent { .. } | Method::BeginTxn { .. }
+        | Method::AddNode { .. } | Method::FinanceHawkesMle { .. }
+        | Method::CleanupDevelopmentLane { .. } | Method::TxnAddEmbedding { .. }
+        | Method::ConnectedComponents | Method::DecaySweep { .. }
+        | Method::GetNodesByLabel { .. } | Method::ApplyLedger { .. }
+        | Method::ResourceReservationStatus { .. } | Method::TxnAddEdge { .. }
+        | Method::FinanceMarkovTransitionMatrix { .. } | Method::DsCrossEntropy { .. }
+        | Method::RemoveNode { .. } | Method::TouchNodes { .. } | Method::CatalogRemove { .. }
+        | Method::DsSgdStep { .. } | Method::GetEdgeProperties { .. }
+        | Method::InvalidateEdge { .. } | Method::Consolidate { .. }
+        | Method::DsLinearRegression { .. } | Method::FinanceBreakevenAlpha { .. }
+        | Method::DsLogSoftmax { .. } | Method::FinanceEwma { .. } | Method::DsSoftmax { .. }
+        | Method::FinanceOuOptimalThresholds { .. } | Method::FinancePurgedCpcv { .. }
+        | Method::FinanceCrossSectionalRank { .. } | Method::FinishDevelopmentLane { .. }
+        | Method::LeaveChannel { .. } | Method::RunDatalogReasoning { .. }
+        | Method::GraphColoring | Method::FinanceLogitQuotes { .. }
+        | Method::FinanceOptimizePortfolio { .. } | Method::TxnAddNode { .. }
+        | Method::RaftAddLearner { .. } | Method::Reshard { .. }
+        | Method::ResolveCandidates { .. } | Method::SemanticIndex { .. }
+        | Method::FinanceQueueImbalance { .. } | Method::OutDegree { .. }
+        | Method::SendMessage { .. } | Method::WorldTransform { .. }
+        | Method::FinanceVwap { .. } | Method::FinanceDrawdownSeries { .. }
+        | Method::DecayNode { .. } | Method::FinanceMomentum { .. }
+        | Method::ObserveScreen { .. } | Method::GetEdgePropertiesBatch { .. }
+        | Method::MinimumSpanningTree | Method::FinanceCombineAlphas { .. }
+        | Method::QueryDevelopmentLane { .. } | Method::AgentLibrary { .. }
+        | Method::FinanceExpectedPnlRate { .. } | Method::DiffAgainst { .. } | Method::Health
+        | Method::FinanceInformationCoefficient { .. } | Method::DsTrainTestSplit { .. }
+        | Method::GetContextView { .. } | Method::CloseChannel { .. } | Method::ClaimNext { .. }
+        | Method::FinanceMaxDrawdown { .. } | Method::MintWorkItemClaimCapability { .. }
+        | Method::ClusterHierarchyClusters { .. } | Method::HasNode { .. }
+        | Method::SceneChildren { .. } | Method::RaftChangeMembership { .. }
+        | Method::FinanceSabrSmile { .. } | Method::RenewDevelopmentLane { .. }
+        | Method::FinanceMarketImpact { .. } | Method::RebalancePlan { .. }
+        | Method::SemanticSearch { .. } | Method::BetweennessCentrality | Method::NodeCount
+        | Method::GetPredecessors { .. } | Method::ReconcileCapacity { .. } | Method::GetNodes
+        | Method::ApplyMutation { .. } | Method::TxnRemoveEdge { .. }
+        | Method::PruneByLifecycle { .. } | Method::FinanceDetectRegimes { .. }
+        | Method::TxnAddMeasurement { .. } | Method::DsKlDivergence { .. }
+        | Method::ParseFile { .. } | Method::FinanceBayesianKelly { .. }
+        | Method::FinanceDieboldMariano { .. } | Method::AgentGraph { .. } | Method::Ping
+        | Method::PageRank { .. } | Method::SummaryChildren { .. }
+        | Method::FinanceAlphaCombinationEngine { .. } | Method::QueryWorkItemReservation { .. }
+        | Method::ApplyChangeEnvelopes { .. } | Method::GetShortestPath { .. }
+        | Method::TsGapFill { .. } | Method::GetChangeCursor { .. }
+        | Method::FinanceProbabilityBacktestOverfit { .. } | Method::PlacementAdmin { .. }
+        | Method::FinanceDeflatedSharpe { .. } | Method::ListChannels | Method::GetLedger
+        | Method::ShaclValidate { .. } | Method::FinanceConvergenceGate { .. }
+        | Method::FinanceGlostenMilgromSpread { .. } | Method::FinanceCvar { .. }
+        | Method::RegisterServer { .. } | Method::Reparent { .. }
+        | Method::FinanceSurveillanceRisk { .. } | Method::AddEdge { .. }
+        | Method::CapacityStatus { .. } | Method::FinanceVar { .. } | Method::DsPca { .. }
+        | Method::ObserveDevelopmentLane { .. } | Method::Backup { .. }
+        | Method::MatchOntologyTerms { .. } | Method::IndexRepository { .. }
+        | Method::ClearLedger | Method::FinanceKalmanBeta { .. }
+        | Method::RegisterIdentity { .. } | Method::FinanceSabrCalibrate { .. }
+        | Method::SetPose { .. } | Method::TxnCas { .. } | Method::PersonalizedPageRank { .. }
+        | Method::GetSuccessors { .. } | Method::FinanceTwap { .. }
+        | Method::FinanceOrderBookImbalance { .. } | Method::Fork | Method::RbacAdmin { .. }
+        | Method::FinanceKalmanFilter1d { .. } | Method::FinanceRiskParity { .. }
+        | Method::ReserveDevelopmentLane { .. } | Method::NlQuery { .. }
+        | Method::FinanceMeanReversion { .. } | Method::FinanceHardimanBouchaud { .. }
+        | Method::DsDpoLoss { .. } | Method::SupersedeEdge { .. }
+        | Method::DiscountedReturn { .. } | Method::CatalogReassign { .. }
+        | Method::RemoveEdge { .. } | Method::EdgeCount | Method::PlacementRoute { .. }
+        | Method::FinanceOuCalibrate { .. } | Method::AppendStep { .. }
+        | Method::ParseFiles { .. } | Method::Metrics | Method::CancelRequest { .. }
+        | Method::DegreeCentrality { .. } | Method::Restore { .. }
+        | Method::GetBlastRadius { .. } | Method::EvictLRU { .. }
+        | Method::FinancePairsTrading { .. } | Method::DegreeCentralityAll
+        | Method::ClusterMembers | Method::FinanceMicropriceSeries { .. }
+        | Method::TsRange { .. } | Method::IcvConfigure { .. } | Method::ShexValidate { .. }
+        | Method::DevelopmentLaneStatus { .. } | Method::CommunityDetection { .. }
+        | Method::NodeIds | Method::TsAsofJoin { .. } | Method::InDegree { .. }
+        | Method::FinanceRealizedVolTick { .. } | Method::TsWindow { .. }
+        | Method::GetNeighborsBatch { .. } | Method::GetNodeProperties { .. }
+        | Method::GetIdentity { .. } | Method::TsListSeries
+        | Method::UpdateDevelopmentLaneQuota { .. } | Method::Reconcile { .. }
+        | Method::UnionGetNodesByLabel { .. } | Method::StartTrajectory { .. }
+        | Method::BestTrajectory { .. } | Method::FinanceGltQuotes { .. }
+        | Method::TopologicalSort | Method::Vf2SubgraphMatch { .. }
+        | Method::RebalanceExecute { .. } | Method::FinanceSpreadReversion { .. }
+        | Method::FinanceStressTest { .. } | Method::GetSubgraph { .. }
+        | Method::FinanceBlackLitterman { .. } | Method::UnionGetNeighbors { .. }
+        | Method::FinanceOfiSeries { .. } | Method::FinanceEmpiricalKelly { .. }
+        | Method::FinanceKellyFraction { .. } | Method::FinanceDownsideDeviation { .. }
+        | Method::FinanceKalmanVolatility { .. } | Method::Reinforce { .. }
+        | Method::FinanceEfficientFrontier { .. } | Method::CreateNodeIfAbsent { .. }
+        | Method::Rollback { .. } | Method::ToMsgpack | Method::GetContentVersion { .. }
+        | Method::ListGraphs | Method::CatalogList | Method::DsGrpoSurrogate { .. }
+        | Method::FinanceRollingZscore { .. } | Method::FinanceMonteCarloVar { .. }
+        | Method::GetNeighbors { .. } | Method::FinanceRiskMetrics { .. }
+        | Method::StronglyConnectedComponents | Method::FindCycle | Method::Discover { .. }
+        | Method::CompactNodesByType { .. } | Method::CreateChannel { .. }
+        | Method::FinanceKyleLambda { .. } | Method::FinanceInformationRatio { .. }
+        | Method::GetEdgesPage { .. } | Method::CreateSummaryNode { .. }
+        | Method::GetChannelMessages { .. } | Method::SummariesAtLevel { .. }
+        | Method::FinanceAdfTest { .. } | Method::DsKMeans { .. }
+        | Method::FinanceAvellanedaStoikov { .. } | Method::CypherQuery { .. }
+        | Method::GetEdges | Method::DsComputeStats { .. } | Method::AgentTemplate { .. }
+        | Method::FinanceSabrImpliedVol { .. } | Method::CatalogAssign { .. }
+        | Method::EvictBelow { .. } | Method::Shutdown | Method::UnionGetNodeProperties { .. }
+        | Method::ClusterHierarchyExpand { .. } | Method::FinanceVpinPm { .. }
+        | Method::GetNodePropertiesBatch { .. } | Method::ApplyChangeEnvelope { .. }
+        | Method::TxnRemoveNode { .. } | Method::GetChannelMembers { .. }
+        | Method::FinanceBrierScore { .. } | Method::HasNodesBatch { .. }
+        | Method::CommunityDetectEphemeral { .. } | Method::BatchL2Normalize { .. }
+        | Method::HasEdge { .. } | Method::ComputeSimilarityEdges { .. }
+        | Method::FinanceSignalDecay { .. } | Method::FinancePosteriorCredibleInterval { .. }
+        | Method::FinanceEffectiveIndependentN { .. } | Method::GetChangeEnvelope { .. }
+        | Method::CompareAndSetNodeFields { .. } | Method::ClearGraph
+        | Method::DecayMemories { .. } => default_mutation_domain(surface),
     }
 }
 
