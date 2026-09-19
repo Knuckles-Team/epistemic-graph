@@ -38,7 +38,7 @@ use openraft::Config;
 use tokio::sync::RwLock;
 
 use super::membership_shrink::MembershipShrinkJournal;
-use super::network::{self, GroupRpcReply, RaftFrame, RaftFrameReply};
+use super::network::{self, RaftFrame, RaftFrameReply};
 use super::placement::{self, PlacementCatalog, PlacementRoute};
 use super::store::EgStore;
 use super::{
@@ -1760,13 +1760,24 @@ async fn serve_conn(
                         "invalid raft heartbeat batch",
                     ));
                 }
-                let mut replies: Vec<GroupRpcReply> = Vec::with_capacity(rpcs.len());
-                for rpc in rpcs {
-                    let gid = rpc.group_id();
-                    let raft = groups.read().await.get(&gid).cloned();
-                    replies.push(network::dispatch_group(raft, gid, rpc, &read_service).await);
-                }
-                RaftFrameReply::Batch(replies)
+                // Dispatch every group's coalesced heartbeat CONCURRENTLY (EH-288 fix):
+                // each targets an INDEPENDENT raft group with its own core and apply
+                // pipeline, so one group backlogged behind heavy concurrent writes must
+                // not delay another group's heartbeat reply just because they arrived
+                // bundled in the same wire batch. `join_all` preserves the input order,
+                // matching the ordered reply-per-RPC contract `RaftFrameReply::Batch`
+                // promises its caller (each awaiting sender matches its own reply by
+                // position).
+                let read_service = &read_service;
+                let jobs = rpcs.into_iter().map(|rpc| {
+                    let groups = Arc::clone(&groups);
+                    async move {
+                        let gid = rpc.group_id();
+                        let raft = groups.read().await.get(&gid).cloned();
+                        network::dispatch_group(raft, gid, rpc, read_service).await
+                    }
+                });
+                RaftFrameReply::Batch(futures::future::join_all(jobs).await)
             }
         };
         let out = rmp_serde::to_vec_named(&reply)
