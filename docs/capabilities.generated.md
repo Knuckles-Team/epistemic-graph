@@ -407,8 +407,8 @@
 | `BlobFetchBegin` | false | None | `blob:read` | true | false | false | Snapshot |  |
 | `BlobChunkGet` | false | None | `blob:read` | true | false | false | Snapshot |  |
 | `BlobFetchEnd` | false | None | `blob:read` | true | false | false | Snapshot |  |
-| `BlobRef` | true | BlobRedb | `blob:write` | false | false | false | Atomic | refcount increment; idempotent-ish but re-invocation adds another ref, so not idempotent; durable via blob.redb |
-| `BlobUnref` | true | BlobRedb | `blob:write` | false | false | false | Atomic | durable via blob.redb |
+| `BlobRef` | true | BlobRedb | `blob:write` | true | false | false | Atomic | X6 (fix/eg-blob-cas-hardening-20260917): holder-scoped named reference (digest, owner scope), not a bare counter -- a retry or replay of the same reference is one holder row, never a second count (holders.rs's own module doc and handle_blob_ref_op's doc comment). Idempotent as of the 2.27.x blob CAS hardening; durable via blob.redb. |
+| `BlobUnref` | true | BlobRedb | `blob:write` | true | false | false | Atomic | X6: releasing an already-released holder returns changed: false rather than erroring or underflowing (HolderOutcome's own doc comment). Idempotent as of the 2.27.x blob CAS hardening; durable via blob.redb. |
 | `BlobGc` | true | BlobRedb | `blob:admin` | true | false | false | Atomic | durable via blob.redb |
 | `KvGet` | false | None | `kv:read` | true | false | false | Snapshot |  |
 | `KvPut` | true | KvRedb | `kv:write` | false | false | false | Atomic | durable via its own kv.redb (redb::Durability::Immediate, commit-before-ack); self-routes before graph dispatch |

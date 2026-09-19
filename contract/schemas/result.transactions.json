@@ -464,7 +464,38 @@
     },
     "MutationOutboxStatusView": {
       "additionalProperties": false,
-      "description": "One consumer's standing on one outbox.\n\nSeveral counters carry an explicit `_is_lower_bound` flag rather than being\nsilently approximate: a saturated index can only be scanned so far, and an\noperator deciding whether to rewind needs to know that \"12\" might mean\n\"at least 12\".",
+      "description": "One consumer's standing on the generic mutation outbox.",
+      "properties": {
+        "head": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OutboxHeadView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/$defs/OutboxConsumerStatus"
+        }
+      },
+      "required": [
+        "schema_version",
+        "status"
+      ],
+      "type": "object"
+    },
+    "OutboxConsumerStatus": {
+      "additionalProperties": false,
+      "description": "One consumer's standing on one outbox -- the fields that mean the same\nthing regardless of WHICH durable outbox backs the view. Shared by\n[`MutationOutboxStatusView`] (this generic outbox) and\n[`crate::result_contract::ingestion::SemanticOutboxStatus`] (the\nsemantic-index stage queue's own outbox), which otherwise built an\nidentical 13-field struct independently; each view keeps its own\nsystem-specific fields (a schema version and the head-of-queue detail\nhere, claim counters there) beside this rather than inside it, and this\ntype is neither `#[serde(flatten)]`ed nor a wire-visible name of its\nown's alternative -- it is a genuinely nested field, precisely so both\ncontainers can keep `#[serde(deny_unknown_fields)]`, which `flatten`\ncannot coexist with.\n\nSeveral counters carry an explicit `_is_lower_bound` flag rather than being\nsilently approximate: a saturated index can only be scanned so far, and an\noperator deciding whether to rewind needs to know that \"12\" might mean\n\"at least 12\".",
       "properties": {
         "capacity": {
           "format": "uint32",
@@ -483,17 +514,6 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
-        },
-        "head": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/OutboxHeadView"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         },
         "index_complete": {
           "type": "boolean"
@@ -535,12 +555,6 @@
         "saturated": {
           "type": "boolean"
         },
-        "schema_version": {
-          "format": "uint16",
-          "maximum": 65535,
-          "minimum": 0,
-          "type": "integer"
-        },
         "topic": {
           "default": null,
           "type": [
@@ -550,7 +564,6 @@
         }
       },
       "required": [
-        "schema_version",
         "consumer",
         "live",
         "capacity",

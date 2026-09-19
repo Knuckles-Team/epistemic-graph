@@ -675,6 +675,94 @@
       ],
       "type": "object"
     },
+    "OutboxConsumerStatus": {
+      "additionalProperties": false,
+      "description": "One consumer's standing on one outbox -- the fields that mean the same\nthing regardless of WHICH durable outbox backs the view. Shared by\n[`MutationOutboxStatusView`] (this generic outbox) and\n[`crate::result_contract::ingestion::SemanticOutboxStatus`] (the\nsemantic-index stage queue's own outbox), which otherwise built an\nidentical 13-field struct independently; each view keeps its own\nsystem-specific fields (a schema version and the head-of-queue detail\nhere, claim counters there) beside this rather than inside it, and this\ntype is neither `#[serde(flatten)]`ed nor a wire-visible name of its\nown's alternative -- it is a genuinely nested field, precisely so both\ncontainers can keep `#[serde(deny_unknown_fields)]`, which `flatten`\ncannot coexist with.\n\nSeveral counters carry an explicit `_is_lower_bound` flag rather than being\nsilently approximate: a saturated index can only be scanned so far, and an\noperator deciding whether to rewind needs to know that \"12\" might mean\n\"at least 12\".",
+      "properties": {
+        "capacity": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "consumer": {
+          "type": "string"
+        },
+        "dead_lettered": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "delivered": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "index_complete": {
+          "type": "boolean"
+        },
+        "inflight": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "inflight_is_lower_bound": {
+          "type": "boolean"
+        },
+        "lag_rows": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lag_versions": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "live": {
+          "type": "boolean"
+        },
+        "oldest_pending_age_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pending": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pending_is_lower_bound": {
+          "type": "boolean"
+        },
+        "saturated": {
+          "type": "boolean"
+        },
+        "topic": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "consumer",
+        "live",
+        "capacity",
+        "inflight",
+        "inflight_is_lower_bound",
+        "pending",
+        "pending_is_lower_bound",
+        "delivered",
+        "dead_lettered",
+        "oldest_pending_age_ms",
+        "lag_rows",
+        "lag_versions",
+        "saturated",
+        "index_complete"
+      ],
+      "type": "object"
+    },
     "ParseResult": {
       "description": "Result of `Method::ParseFile`, and one entry of `Method::ParseFiles`: the raw,\nunresolved symbol graph of one source file.",
       "properties": {
@@ -1662,76 +1750,15 @@
       "type": "object"
     },
     "SemanticOutboxStatus": {
-      "description": "Wire view of the outbox status returned by the semantic stage queue.",
+      "description": "Wire view of the outbox status returned by the semantic stage queue. The\nfields every outbox-status view shares live in\n[`OutboxConsumerStatus`]; `consecutive_claims`/`total_claims` are this\nqueue's own.",
       "properties": {
-        "capacity": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        },
         "consecutive_claims": {
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
         },
-        "consumer": {
-          "type": "string"
-        },
-        "dead_lettered": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "delivered": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "index_complete": {
-          "type": "boolean"
-        },
-        "inflight": {
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "inflight_is_lower_bound": {
-          "type": "boolean"
-        },
-        "lag_rows": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "lag_versions": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "live": {
-          "type": "boolean"
-        },
-        "oldest_pending_age_ms": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "pending": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": "integer"
-        },
-        "pending_is_lower_bound": {
-          "type": "boolean"
-        },
-        "saturated": {
-          "type": "boolean"
-        },
-        "topic": {
-          "type": [
-            "string",
-            "null"
-          ]
+        "status": {
+          "$ref": "#/$defs/OutboxConsumerStatus"
         },
         "total_claims": {
           "format": "uint64",
@@ -1740,22 +1767,9 @@
         }
       },
       "required": [
-        "consumer",
-        "live",
-        "capacity",
-        "inflight",
-        "inflight_is_lower_bound",
-        "pending",
-        "pending_is_lower_bound",
-        "delivered",
-        "dead_lettered",
-        "oldest_pending_age_ms",
-        "lag_rows",
-        "lag_versions",
-        "saturated",
+        "status",
         "consecutive_claims",
-        "total_claims",
-        "index_complete"
+        "total_claims"
       ],
       "type": "object"
     },

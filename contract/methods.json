@@ -16819,13 +16819,13 @@
         "STORAGE_KERNEL_SCHEMA_VERSION"
       ],
       "id": "BlobRef",
-      "note": "refcount increment; idempotent-ish but re-invocation adds another ref, so not idempotent; durable via blob.redb",
+      "note": "X6 (fix/eg-blob-cas-hardening-20260917): holder-scoped named reference (digest, owner scope), not a bare counter -- a retry or replay of the same reference is one holder row, never a second count (holders.rs's own module doc and handle_blob_ref_op's doc comment). Idempotent as of the 2.27.x blob CAS hardening; durable via blob.redb.",
       "policy": {
         "audited": false,
         "authz_action": "blob:write",
         "durability_domain": "BlobRedb",
         "emits_cdc": false,
-        "idempotent": false,
+        "idempotent": true,
         "mutates": true,
         "txn_participation": "Atomic"
       },
@@ -16864,13 +16864,13 @@
         "STORAGE_KERNEL_SCHEMA_VERSION"
       ],
       "id": "BlobUnref",
-      "note": "durable via blob.redb",
+      "note": "X6: releasing an already-released holder returns changed: false rather than erroring or underflowing (HolderOutcome's own doc comment). Idempotent as of the 2.27.x blob CAS hardening; durable via blob.redb.",
       "policy": {
         "audited": false,
         "authz_action": "blob:write",
         "durability_domain": "BlobRedb",
         "emits_cdc": false,
-        "idempotent": false,
+        "idempotent": true,
         "mutates": true,
         "txn_participation": "Atomic"
       },
