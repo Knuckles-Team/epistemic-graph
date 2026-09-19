@@ -385,7 +385,7 @@ impl ConnectionTaskSet {
 }
 
 /// Minimum interval between two balancer-triggered leader transfers for the SAME group
-/// (CONCEPT:AU-KG.backend.authority-has-already-acked). Comfortably above `election_timeout_max` (3s) so a handoff has
+/// (CONCEPT:AU-KG.backend.authority-has-already-acked). Above `election_timeout_max` (8s) so a handoff has
 /// settled before the balancer would consider another — no flapping.
 const TRANSFER_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(10);
 /// A transfer must remove at least one leader slot from the current node.  This is
@@ -395,10 +395,23 @@ const LEADER_TRANSFER_MIN_MARGIN: usize = 1;
 /// At most one automatic transfer is issued by a node per observation pass.  The
 /// next pass observes the new terms/loads before making another change.
 const MAX_AUTOMATIC_TRANSFERS_PER_PASS: usize = 1;
-/// The automatic scheduler is intentionally much slower than the 250 ms Raft
+/// The automatic scheduler is intentionally much slower than the 1000 ms Raft
 /// heartbeat; a transfer gets several election/replication observations to settle.
 const LEADER_BALANCE_INTERVAL: Duration = Duration::from_secs(15);
-const MAX_RAFT_INBOUND_CONNECTIONS: usize = 64;
+/// Global cap on simultaneously-accepted inbound Raft connections on ONE node's
+/// shared listener (a permit from this semaphore is held for a connection's whole
+/// lifetime — see the accept loop in `start_configured`, not just per RPC), so it must
+/// stay comfortably above every remote peer's warm-pool demand combined:
+/// `network::DEFAULT_MAX_IDLE_PER_PEER` (16) times how many OTHER nodes may hold
+/// connections open to this one. A cap sized for only one peer's worth of demand
+/// silently DROPS the excess inbound connections once exceeded (`try_acquire_owned`
+/// fails, the accept loop closes the stream and loops back) rather than queuing them
+/// — from the caller's TCP stack that surfaces as `Connection refused (os error
+/// 111)`, not a timeout. See `network::DEFAULT_MAX_IDLE_PER_PEER`'s doc for how this
+/// pairing was found: raising the per-peer idle cap without raising this one
+/// reproduced exactly that failure on the same test that originally motivated the
+/// idle-cap increase.
+const MAX_RAFT_INBOUND_CONNECTIONS: usize = 256;
 const MAX_PLACEMENT_EPOCH_RETRIES: usize = 8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -885,12 +898,35 @@ impl MultiRaft {
             router: Some(self.router.clone()),
         };
         let store = EgStore::open(gid, self.backend.clone(), store_ctx)?;
+        // openraft's heartbeat worker uses `heartbeat_interval` itself as EACH heartbeat
+        // RPC's own timeout (`openraft::core::heartbeat::worker`), not a separate knob —
+        // there is no way to decouple "how often" from "how long one attempt gets" in
+        // openraft 0.10. ADR-2 puts many independent groups on ONE shared listener/pool
+        // per node (CONCEPT:EG-KG.sharding.raft-resharding), so busier deployments (more
+        // groups, more concurrent client writes) have proportionally more heartbeat/vote/
+        // append-entries RPC traffic contending for the same node's connections and CPU.
+        // 250ms was too tight for that contention: reproduced on an otherwise-quiet build
+        // host with 8 groups + a 24-graph concurrent write workload
+        // (`raft::tests::multi_group_writes_commit_on_independent_group_logs`), where
+        // heartbeats repeatedly overshot 250ms (`HeartbeatWorker ... failed to send a
+        // heartbeat: Err(Elapsed(()))`), driving unnecessary re-elections — one group
+        // cycled 8 terms over ~50s before a leader's heartbeats finally landed reliably,
+        // with no host load involved at all. Doubling to 500ms (ratios unchanged) was NOT
+        // enough: the same test, on the same class of host, still logged `Elapsed`
+        // heartbeat timeouts and still failed the same way. Quadrupled from the original
+        // instead, to 1000ms/4s/8s (ratios intentionally compressed a little, 4x/8x
+        // instead of 6x/12x, to stay under `TRANSFER_COOLDOWN` (10s) with real margin);
+        // still two orders of magnitude below `LEADER_BALANCE_INTERVAL` (15s). This is a
+        // real production timing/throughput ceiling for how many groups can share one
+        // node's connections and CPU at the default cadence, not merely a test artifact —
+        // see the lane's WRAPUP for the full test-vs-product analysis and the remaining
+        // open question about whether even this is sufficient under load.
         let raft_config = Arc::new(
             Config {
                 cluster_name: format!("epistemic-graph-g{gid}"),
-                heartbeat_interval: 250,
-                election_timeout_min: 1500,
-                election_timeout_max: 3000,
+                heartbeat_interval: 1000,
+                election_timeout_min: 4000,
+                election_timeout_max: 8000,
                 ..Default::default()
             }
             .validate()

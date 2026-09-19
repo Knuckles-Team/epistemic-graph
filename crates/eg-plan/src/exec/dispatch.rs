@@ -61,15 +61,23 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
             apply_text_and_owl(op, input, ctx)
         }
 
-        #[cfg(any(
-            feature = "wasm-udf",
-            feature = "federation",
-            feature = "probabilistic",
-            feature = "stream"
-        ))]
-        Op::Udf { .. } | Op::ForeignScan { .. } | Op::Probabilistic { .. } | Op::Cep { .. } => {
-            apply_single_feature_ops(op, input, ctx)
-        }
+        // Each disjunct is gated on its OWN single feature, not a shared `any(...)`: the
+        // four `Op` variants are independently `#[cfg]`-gated in `eg-types` (one feature
+        // each), so a build enabling only ONE of the four (e.g. `full`, which pulls in
+        // `wasm-udf`/`federation`/`stream` but deliberately NOT `probabilistic`) must not
+        // reference a variant that does not exist in that build's `Op` enum. A single
+        // `#[cfg(any(wasm-udf, federation, probabilistic, stream))]` guarding all four
+        // patterns together compiled only by coincidence, whenever every build happened to
+        // enable all four or none; it broke E0599 ("no variant named `Probabilistic`") the
+        // first time a build enabled exactly a subset (found verifying `cluster` compiles).
+        #[cfg(feature = "wasm-udf")]
+        Op::Udf { .. } => apply_single_feature_ops(op, input, ctx),
+        #[cfg(feature = "federation")]
+        Op::ForeignScan { .. } => apply_single_feature_ops(op, input, ctx),
+        #[cfg(feature = "probabilistic")]
+        Op::Probabilistic { .. } => apply_single_feature_ops(op, input, ctx),
+        #[cfg(feature = "stream")]
+        Op::Cep { .. } => apply_single_feature_ops(op, input, ctx),
 
         #[cfg(any(feature = "geo", feature = "tensor"))]
         Op::SpatialScan { .. }

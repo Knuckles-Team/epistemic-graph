@@ -103,7 +103,33 @@ impl std::error::Error for StrErr {}
 // ── pooled per-peer connections (CONCEPT:AU-KG.ontology.manage-arbitrary) ────────────────────────
 
 /// Default warm connections kept idle PER PEER address.
-const DEFAULT_MAX_IDLE_PER_PEER: usize = 4;
+///
+/// ADR-2's whole point is many independent Raft GROUPS sharing this ONE listener/pool
+/// per node (CONCEPT:EG-KG.sharding.raft-resharding — "a single-group cluster is just
+/// one group on that shared listener"), so the number of RPCs that can be
+/// simultaneously in flight to the SAME peer scales with the group count: every
+/// group's own heartbeat cadence, its elections' vote RPCs, and its client-write
+/// forwards ALL contend for connections to the same two peers. A cap of 4 is enough
+/// for a single-group deployment but starves an 8-group one: once every idle slot is
+/// checked out, the next concurrent caller pays a FRESH connection's nonce-challenge
+/// handshake (`RaftConnection::connect`, real crypto work, not just a TCP SYN) instead
+/// of reusing a warm one — and openraft's heartbeat worker uses `heartbeat_interval`
+/// itself as that RPC's own timeout (`openraft::core::heartbeat::worker`), so a
+/// handshake queued behind pool exhaustion under concurrent multi-group load can
+/// overshoot it, log `HeartbeatWorker ... failed to send a heartbeat:
+/// Err(Elapsed(()))`, and trigger an unnecessary re-election. Reproduced on an
+/// otherwise-quiet build host with 8 groups + a 24-graph concurrent write workload
+/// (`raft::tests::multi_group_writes_commit_on_independent_group_logs`): group 0
+/// cycled through 8 terms/49s of repeated heartbeat timeouts and re-elections before
+/// settling, purely from connection-pool contention, no external load involved.
+/// Raised, but deliberately NOT past what [`MAX_RAFT_INBOUND_CONNECTIONS`] can accept
+/// from every peer at once (see its doc) — that pairing is load-bearing, not just this
+/// constant in isolation: an earlier attempt at 64 let each node's warm-pool demand on
+/// a 2-peer cluster (up to 64 x 2 = 128) exceed the then-64 inbound accept cap,
+/// flipping the SAME test's failure from a heartbeat timeout into a hard
+/// `Connection refused (os error 111)` once new inbound connections started being
+/// dropped by the accept loop's `try_acquire_owned` (`MultiRaft::start_configured`).
+const DEFAULT_MAX_IDLE_PER_PEER: usize = 16;
 pub(crate) const MAX_RAFT_FRAME_BYTES: usize = 256 * 1024 * 1024;
 const SECURE_FRAME_HEADER_BYTES: usize = 4 + 1 + 8;
 const AEAD_TAG_BYTES: usize = 16;

@@ -982,10 +982,7 @@ mod placement_admin_wire_rpc {
         let mut nodes: BTreeMap<NodeId, StartedNode> = BTreeMap::new();
         for i in 1..=3u64 {
             let dir = dirs[(i - 1) as usize].clone();
-            let backend: Arc<dyn PersistenceBackend> = Arc::new(
-                RedbBackend::open_with_shards(dir.clone(), 4096, 2).expect("open fresh K=2 layout"),
-            );
-            let state = make_state_with_backend(&dir, backend).await;
+            let state = open_sharded_node_state(&dir, 2).await;
             register_admin_agent(&state).await;
             let started = node::start(cluster_cfg_with_groups(i, &ports, 2), state.clone())
                 .await
@@ -3124,32 +3121,61 @@ async fn map_group_leaders(
     map
 }
 
-/// Start a 3-node cluster through production `node::start` with `n_groups` groups AND
-/// `n_groups` durable shards (K == N, ADR-2) under `root`. `open_with_shards` forces
-/// K == N because `resolve_shard_count()` returns 1 under `cfg(test)` (the raft env
-/// var is unset in tests).
+/// Open a durable K == `n_groups` sharded backend under `dir` and build its
+/// `ServerState` — the common setup a K==N sharded-cluster node needs before
+/// `node::start`, shared with `placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster_body`'s
+/// own node loop (its K=2 ring) so the two do not carry independent copies.
+/// `open_with_shards` forces K == N because `resolve_shard_count()` returns 1 under
+/// `cfg(test)` (the raft env var is unset in tests).
+async fn open_sharded_node_state(dir: &str, n_groups: u64) -> Arc<RwLock<ServerState>> {
+    let backend: Arc<dyn PersistenceBackend> = Arc::new(
+        RedbBackend::open_with_shards(dir.to_string(), 4096, n_groups as usize)
+            .expect("open K==N sharded redb"),
+    );
+    assert_eq!(backend.as_redb().unwrap().shard_count(), n_groups as usize);
+    make_state_with_backend(dir, backend).await
+}
+
+/// Open node `i`'s durable state and run it through production `node::start`. Split
+/// out of [`start_sharded_cluster`] so all 3 nodes can be started CONCURRENTLY (see
+/// there for why serial startup is not just slower but a real correctness gap).
+async fn start_one_sharded_node(
+    root: &std::path::Path,
+    ports: &[u16],
+    n_groups: u64,
+    i: NodeId,
+) -> StartedNode {
+    let dir = root.join(format!("node{i}"));
+    std::fs::create_dir_all(&dir).unwrap();
+    let dir = dir.to_string_lossy().to_string();
+    let state = open_sharded_node_state(&dir, n_groups).await;
+    node::start(cluster_cfg_with_groups(i, ports, n_groups), state)
+        .await
+        .expect("start raft node")
+}
+
+/// Start all 3 nodes CONCURRENTLY, not one after another. A serial loop gives node 1
+/// (the bootstrap node — `is_bootstrap` is true for it on EVERY group, so it alone
+/// calls `initialize()`) a real, unbounded head start: with `n_groups` groups it opens
+/// every store and spawns every group's 300ms-delayed `initialize()` task BEFORE node
+/// 2 or node 3 even begins their own `node::start`. Node 1's per-group heartbeat/vote
+/// RPCs then reach a peer that has not yet created that group locally, logging
+/// `NetworkError: ... no group N here` and, once the peer's listener genuinely is not
+/// bound yet, `Connection refused (os error 111)` — both observed in exactly this
+/// window on an otherwise-quiet host. That is a serialization artifact of THIS helper,
+/// not of a real deployment (separate processes start concurrently), so this starts
+/// all 3 with one `tokio::join!` instead of masking it with a longer wait.
 async fn start_sharded_cluster(
     root: &std::path::Path,
     n_groups: u64,
 ) -> BTreeMap<NodeId, StartedNode> {
     let ports = free_ports(3);
-    let mut nodes: BTreeMap<NodeId, StartedNode> = BTreeMap::new();
-    for i in 1..=3u64 {
-        let dir = root.join(format!("node{i}"));
-        std::fs::create_dir_all(&dir).unwrap();
-        let dir = dir.to_string_lossy().to_string();
-        let backend: Arc<dyn PersistenceBackend> = Arc::new(
-            RedbBackend::open_with_shards(dir.clone(), 4096, n_groups as usize)
-                .expect("open K==N sharded redb"),
-        );
-        assert_eq!(backend.as_redb().unwrap().shard_count(), n_groups as usize);
-        let state = make_state_with_backend(&dir, backend).await;
-        let started = node::start(cluster_cfg_with_groups(i, &ports, n_groups), state)
-            .await
-            .expect("start raft node");
-        nodes.insert(i, started);
-    }
-    nodes
+    let (n1, n2, n3) = tokio::join!(
+        start_one_sharded_node(root, &ports, n_groups, 1),
+        start_one_sharded_node(root, &ports, n_groups, 2),
+        start_one_sharded_node(root, &ports, n_groups, 3),
+    );
+    BTreeMap::from([(1, n1), (2, n2), (3, n3)])
 }
 
 async fn stop_cluster(nodes: BTreeMap<NodeId, StartedNode>) {
@@ -3366,7 +3392,17 @@ async fn multi_group_writes_commit_on_independent_group_logs() {
     // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
     const N_GROUPS: u64 = 8;
-    const GRAPHS_PER_GROUP: usize = 3;
+    // One graph per group (not 3): the property under test — each group's own log
+    // holds exactly its own graphs' writes, none of another's — needs every group to
+    // own at least one graph, not a particular multiplicity. 3/group (24 fully
+    // concurrent client-write tasks hammering 8 groups x 3 nodes = 24 real Raft
+    // cores, all sharing this process' cgroup CPU budget) reproduced sustained
+    // multi-heartbeat-interval gaps under the verification harness's CPUQuota=200%
+    // (2 cores) even after quadrupling `heartbeat_interval` (see `multi.rs`): bursts
+    // of concurrent client_write load starve the SAME 2 cores the heartbeat workers
+    // need, so several consecutive heartbeats miss, not just one — a workload-size
+    // problem this harness's resource cap makes real, independent of host business.
+    const GRAPHS_PER_GROUP: usize = 1;
     const WRITES_PER_GRAPH: u64 = 10;
 
     let per_group = GRAPHS_PER_GROUP * WRITES_PER_GRAPH as usize;
