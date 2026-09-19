@@ -120,7 +120,7 @@ pub(crate) fn domain_for(method: &Method, surface: MutationSurface) -> Durabilit
         // them here (instead of `_`) keeps that default AND makes the dispatch
         // exhaustive -- a future `Method` variant is a compile error at this match,
         // not a silent default.
-        #[cfg(feature = "asr-native")]
+        #[cfg(feature = "asr-whisper")]
         Method::Asr { .. } => default_mutation_domain(surface),
         #[cfg(feature = "blob")]
         Method::BlobFetchEnd { .. }
