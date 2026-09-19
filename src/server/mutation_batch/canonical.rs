@@ -130,7 +130,30 @@ pub(crate) fn domain_for(method: &Method, surface: MutationSurface) -> Durabilit
         Method::StreamCommittedOffset { .. } | Method::StreamRead { .. } => {
             default_mutation_domain(surface)
         }
-        #[cfg(feature = "compute-dist")]
+        // `GetMatView`/`CreateMatView`/`DistributedCompute`/`RefreshMatView` are
+        // wire-unconditional too, for a reason `cargo tree -e features -p eg-types`
+        // makes visible but a Cargo.toml grep does not: this crate's own
+        // `eg-capabilities` dependency (linked unconditionally by the `server`
+        // feature, which this whole module already requires -- see `src/lib.rs`'s
+        // `#[cfg(feature = "server")] pub mod server;`) forces `eg-types/compute-dist`
+        // on in its base `[dependencies.eg-types] features` list, deliberately
+        // unconditionally: `crates/eg-capabilities/Cargo.toml`'s policy ledger must
+        // see every `Method` variant regardless of serving tier, exactly like the
+        // `Ts*` note above. That forcing is NOT gated by this root crate's own
+        // `compute-dist` feature (which additionally pulls `raft`/openraft for the
+        // real cross-shard Pregel engine -- `compute-dist = ["raft",
+        // "eg-types/compute-dist"]`), so these variants exist in ANY `server` build,
+        // `full` included, even though `full` does not list `compute-dist` and the
+        // main/default build must link no openraft (see the root Cargo.toml's
+        // `cluster`-layer comment). A `#[cfg(feature = "compute-dist")]` gate here
+        // was therefore always false under `--no-default-features --features full`
+        // while the variants were still present -- the non-exhaustive-match defect
+        // this comment replaces. Gating eg-capabilities' forcing behind its own
+        // mirrored `compute-dist` companion feature (the same fix already applied to
+        // `jobs`/`statechart`/`quantum-agent-api`/`viz`/`asr-native` there) would let
+        // this arm go back to being feature-gated, but that is a contract-regenerating
+        // change to a crate this lane does not own the artifacts for; tracked instead
+        // of done here (see WRAPUP).
         Method::GetMatView { .. }
         | Method::CreateMatView { .. }
         | Method::DistributedCompute { .. }
@@ -209,7 +232,20 @@ pub(crate) fn domain_for(method: &Method, surface: MutationSurface) -> Durabilit
         | Method::OwlExplain { .. }
         | Method::OwlReason { .. }
         | Method::TxnAxiom { .. } => default_mutation_domain(surface),
-        #[cfg(feature = "quantum")]
+        // Same bug class as the `Asr` note above (see git history): this root
+        // crate's bare `quantum` feature only pulls `dep:eg-quantum-core` (the IR +
+        // planner, `quantum = ["dep:eg-quantum-core"]`) and never forwards
+        // `eg-types/quantum`. Only `quantum-agent-api` does
+        // (`["quantum-sim", "server", "eg-types/quantum", "eg-capabilities/quantum"]`,
+        // root Cargo.toml) -- it is the ONE feature that makes `Method::Quantum`
+        // reachable at all. Gating on bare `quantum` was always wrong: it let this
+        // arm compile under `--features quantum,server` even though `Method::Quantum`
+        // does not exist there (eg-capabilities deliberately excludes `quantum` from
+        // its unconditional eg-types forcing, exactly like `jobs`/`statechart`, so
+        // nothing else turns the variant on) -- a real non-exhaustive-match defect
+        // that `--all-features`/`full` both mask because they also enable
+        // `quantum-agent-api`.
+        #[cfg(feature = "quantum-agent-api")]
         Method::Quantum { .. } => default_mutation_domain(surface),
         #[cfg(feature = "query")]
         Method::UnifiedQueryText { .. }

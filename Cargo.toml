@@ -794,6 +794,26 @@ raft = [
 # pulls `raft` and is included only in the source-built `cluster` layer. The
 # single-shard fast path is unchanged (always-on
 # `algorithms`); this adds the cross-shard superstep coordinator on top.
+#
+# WARNING (found 2026-09-19, D-CFG-1): this feature does NOT control whether the
+# `Method::DistributedCompute`/`CreateMatView`/`GetMatView`/`RefreshMatView` wire
+# variants EXIST in `eg-types` -- `crates/eg-capabilities/Cargo.toml`'s base
+# `[dependencies.eg-types] features` list forces `eg-types/compute-dist` on
+# unconditionally, and `eg-capabilities` is itself unconditional under this
+# crate's `server` feature (`server = [..., "dep:eg-capabilities"]`). So those
+# four variants exist in ANY `server` build, `full` included, regardless of
+# whether THIS feature (hence `raft`/openraft) is on. `compute-dist` here gates
+# only the real cross-shard execution engine. Do not `#[cfg(feature =
+# "compute-dist")]` those variants anywhere in the root crate expecting it to
+# track their existence -- see `src/server/mutation_batch/canonical.rs`'s
+# `domain_for` comment for the arm this bit and the non-exhaustive-match defect
+# it caused under `--no-default-features --features full`. The proper long-term
+# fix is mirroring `jobs`/`statechart`/`quantum-agent-api`/`viz`/`asr-native`'s
+# pattern in `eg-capabilities` (exclude `compute-dist` from its unconditional
+# list, add a mirrored `eg-capabilities/compute-dist` companion feature enabled
+# here too, cfg-gate its four ROWS entries) -- deferred because it also requires
+# regenerating and re-verifying the committed capability-ledger contract
+# artifacts, which no lane has done yet for this feature.
 compute-dist = ["raft", "eg-types/compute-dist"]
 # Non-blocking cross-shard commit (CONCEPT:EG-082) — Paxos-Commit-lite. ADDITIVE: the
 # default cross-shard path stays classic 2PC (`src/raft/cross_shard_txn/`), which
