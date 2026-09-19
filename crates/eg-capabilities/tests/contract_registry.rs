@@ -168,9 +168,14 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 413 -> 414: RF-019's `SemanticIndex`, the S1-S6 tiered semantic ingestion
     // queue -- the first wire surface over the semantic stage queue rather than
     // over semantic CONTENT.
+    // 414 -> 415: `SqlSourceBatch` (SQL source ingestion through the native SQL
+    // owner).
+    // 415 -> 425: the 2.27.x contract wave's ten new methods -- `Decide`,
+    // `ConnectorPack`, `GraphSchema`, `GraphSchemaList`, `MutationOutbox`,
+    // `Solve`, `AgentAssemble`, `DecisionCommit`, `DecisionEval`, `DecisionFit`.
     assert_eq!(
         variants.len(),
-        414,
+        425,
         "the wire method census changed; update this exact count deliberately"
     );
 }

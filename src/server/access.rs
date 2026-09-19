@@ -1784,6 +1784,7 @@ mod universal_row_read_tests {
 
 mod read_classification;
 
+#[cfg(test)]
 use read_classification::{
     NON_ROW_SCOPED, NOT_YET_AUDITED, REASON_ASR_PURE_COMPUTE, REASON_EPISTEMIC_CAUSAL_PURE_COMPUTE,
     REASON_QUANTUM_PURE_COMPUTE, REASON_VIZ_CARRIER_SCOPED, RLS_ROUTED,

@@ -72,11 +72,15 @@ pub struct WhyNot {
 #[serde(tag = "outcome", rename_all = "snake_case", deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum DecisionOutcome {
-    /// An assembly, with the certificate that proves it optimal.
+    /// An assembly, with the certificate that proves it optimal. Boxed: the
+    /// certificate's own proof tree dwarfs every other field this enum
+    /// carries (320 bytes vs. `Abstained`'s 24), so every `DecisionOutcome`
+    /// value would otherwise pay `Solved`'s size even when it holds the far
+    /// smaller `Abstained` variant.
     Solved {
         graph_digest: String,
         slots: BoundedVec<SlotAssignment, 64>,
-        certificate: Certificate,
+        certificate: Box<Certificate>,
     },
     /// No assembly, and exactly why.
     Abstained {

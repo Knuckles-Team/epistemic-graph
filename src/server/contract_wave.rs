@@ -54,7 +54,7 @@ macro_rules! contract_wave_stub_test {
             /// Deleted by the package that lands this handler (wave rule R6).
             #[tokio::test]
             async fn the_declared_surface_refuses_until_its_handler_lands() {
-                crate::server::contract_wave::assert_refuses_by_name($surface);
+                $crate::server::contract_wave::assert_refuses_by_name($surface);
             }
         }
     };

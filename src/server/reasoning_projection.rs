@@ -1614,6 +1614,7 @@ mod tests {
                 claims: Vec::new(),
                 deferred: Some(eg_transaction::OutboxDeferral::BudgetSpent),
                 more_available: true,
+                dead_lettered: Vec::new(),
             })
         }
 

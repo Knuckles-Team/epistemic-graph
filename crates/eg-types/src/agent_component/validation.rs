@@ -1,9 +1,8 @@
 use std::collections::BTreeSet;
 
 use super::{
-    AgentComponentDraft, AgentComponentKind, AgentComponentSearchRequest, ComponentProvenance,
-    MAX_AGENT_COMPONENT_SEARCH_CURSOR_BYTES, MAX_AGENT_COMPONENT_SEARCH_LIMIT, MAX_ATTRIBUTES,
-    MAX_CAPABILITIES, MAX_DEPENDENCIES, MAX_TEXT_BYTES,
+    AgentComponentDraft, AgentComponentKind, ComponentProvenance, MAX_ATTRIBUTES, MAX_CAPABILITIES,
+    MAX_DEPENDENCIES, MAX_TEXT_BYTES,
 };
 
 pub(super) fn validate_draft(draft: &AgentComponentDraft) -> Result<(), String> {
@@ -141,37 +140,6 @@ fn validate_draft_attributes(draft: &AgentComponentDraft) -> Result<(), String> 
         super::validate_text("attribute name", name)?;
         if value.len() > MAX_TEXT_BYTES {
             return Err("agent component attribute value exceeds its size limit".to_string());
-        }
-    }
-    Ok(())
-}
-
-pub(super) fn validate_search_request(request: &AgentComponentSearchRequest) -> Result<(), String> {
-    super::validate_text("tenant_id", &request.tenant_id)?;
-    if let Some(task) = &request.task {
-        super::validate_text("task", task)?;
-    }
-    super::validate_names("capabilities", &request.capabilities, MAX_CAPABILITIES)?;
-    if request.kinds.len() > 16 {
-        return Err("agent component search names too many kinds".to_string());
-    }
-    if request.task.is_none() && request.capabilities.is_empty() {
-        return Err("agent component search needs a task or at least one capability".to_string());
-    }
-    validate_search_page(request)
-}
-
-fn validate_search_page(request: &AgentComponentSearchRequest) -> Result<(), String> {
-    if let Some(limit) = request.limit {
-        if limit == 0 || limit > MAX_AGENT_COMPONENT_SEARCH_LIMIT {
-            return Err(format!(
-                "agent component search limit must be 1..={MAX_AGENT_COMPONENT_SEARCH_LIMIT}"
-            ));
-        }
-    }
-    if let Some(cursor) = &request.cursor {
-        if cursor.is_empty() || cursor.len() > MAX_AGENT_COMPONENT_SEARCH_CURSOR_BYTES {
-            return Err("agent component search cursor is outside its bound".to_string());
         }
     }
     Ok(())

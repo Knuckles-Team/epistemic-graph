@@ -222,7 +222,7 @@ pub fn every_decision_outcome() -> Vec<DecisionOutcome> {
                 slot: "tool".to_string(),
                 component: dependency("component-a", AgentComponentKind::Tool),
             }]),
-            certificate: solver::certificate(),
+            certificate: Box::new(solver::certificate()),
         },
         DecisionOutcome::Abstained {
             reasons: bounded(every_abstain_reason()),

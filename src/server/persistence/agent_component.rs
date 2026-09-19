@@ -684,30 +684,6 @@ mod tests {
         (dir, store)
     }
 
-    /// Publish one `tenant-b` tool component per `(component_id, capability)`
-    /// pair in `tools`, each with a distinct nonce and idempotency key. Every
-    /// isolation/paging test that seeds a second tenant to prove it does not
-    /// leak shares this loop; only the tool list varies per caller.
-    fn seed_tenant_b_tools(store: &AgentLibraryStore, tools: &[(&str, &str)]) {
-        for (index, (id, capability)) in tools.iter().enumerate() {
-            let nonce = u8::try_from(index + 100).unwrap();
-            store
-                .publish_component(AgentComponentPublishRequest {
-                    context: context_for(
-                        "tenant-b",
-                        store,
-                        &format!("tenant-b-key-{index}"),
-                        nonce,
-                        0,
-                        "agent-component:publish",
-                    ),
-                    evaluation_receipt_digest: None,
-                    component: tool_for("tenant-b", id, capability, ToolEffect::Read),
-                })
-                .unwrap();
-        }
-    }
-
     #[test]
     fn a_published_component_is_durable_and_reads_back() {
         let (_dir, store) = open_store();
@@ -781,6 +757,7 @@ mod tests {
         store
             .publish_component(AgentComponentPublishRequest {
                 context: context(&store, "key-1", 1, 0, "agent-component:publish"),
+                evaluation_receipt_digest: None,
                 component: component.clone(),
             })
             .unwrap();
@@ -788,6 +765,7 @@ mod tests {
         let replayed = store
             .publish_component(AgentComponentPublishRequest {
                 context: context(&store, "key-1", 2, 0, "agent-component:publish"),
+                evaluation_receipt_digest: None,
                 component: component.clone(),
             })
             .unwrap();
@@ -796,6 +774,7 @@ mod tests {
         let error = store
             .publish_component(AgentComponentPublishRequest {
                 context: context(&store, "key-1", 2, 0, "agent-component:publish"),
+                evaluation_receipt_digest: None,
                 component,
             })
             .expect_err("a replay nonce must be consumed before the replay returns");
@@ -1019,6 +998,7 @@ mod tests {
                         0,
                         "agent-component:publish",
                     ),
+                    evaluation_receipt_digest: None,
                     component: tool_for("tenant-b", id, capability, ToolEffect::Read),
                 })
                 .unwrap();

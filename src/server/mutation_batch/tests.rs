@@ -520,19 +520,26 @@ const CLASSIFICATION_GOLDEN: &[(&str, &str)] = &[
 /// hand-maintained table: a second table would drift, and a hash over the file
 /// would fail on a comment. Arms accumulate `Method::Name` tokens until the arm's
 /// `DurabilityDomain::Name` is reached; a wildcard arm names no method and is
-/// recorded as `_`. The classifier is three functions -- `owner_domain` delegates
-/// its tail to `service_owner_domain` and `domain_for` falls back to
-/// `graph_domain` -- so all three are read, in the order the dispatch reaches
-/// them. A `MethodWriteFamily::Name` in an arm contributes that family's own
-/// variants, read from `families.rs`, in declaration order.
+/// recorded as `_`. The store-owner classification is two functions --
+/// `owner_domain` delegates its tail to `service_owner_domain` -- so both are
+/// read, in the order `domain_for` reaches them. `remaining_default_domain` is
+/// deliberately NOT read here: every one of its arms calls
+/// `default_mutation_domain(surface)`, which states no `DurabilityDomain::`
+/// literal at the call site, so it contributes nothing to this map either way --
+/// only the store-owner classification above is pinned. A `MethodWriteFamily::Name`
+/// in an arm contributes that family's own variants, read from `families.rs`, in
+/// declaration order.
 fn classification_map_from_source() -> Vec<(String, String)> {
     let source = include_str!("canonical.rs");
     let mut map: Vec<(String, String)> = Vec::new();
-    for function in [
-        "fn owner_domain",
-        "fn service_owner_domain",
-        "fn graph_domain",
-    ] {
+    // `graph_domain` (a bare `match surface { .. }` with no `Method::` arms) is
+    // GONE: every variant is named explicitly now, so the default it used to
+    // return directly is reached only through `remaining_default_domain`'s named
+    // arms calling `default_mutation_domain(surface)` -- see the comment on the
+    // removed tail rows below. That call site never states a literal
+    // `DurabilityDomain::` token, so this reader still correctly contributes no
+    // `("_", ..)` row for it without needing to scan that function at all.
+    for function in ["fn owner_domain", "fn service_owner_domain"] {
         map.extend(classified_arms(function_body(source, function)));
     }
     map

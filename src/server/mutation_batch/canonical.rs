@@ -99,7 +99,10 @@ fn service_owner_domain(method: &Method) -> Option<DurabilityDomain> {
         // as a separate arm rather than sharing `Sql`'s now-unconditional one.
         #[cfg(feature = "query")]
         (_, Method::SqlSourceBatch { .. }) => DurabilityDomain::SqlCatalog,
-        #[cfg(feature = "rdf")]
+        // Wire-unconditional, same reason as the `datascience`/`finance`/etc.
+        // notes above: `full` does not list plain `rdf` (only `rdf-xml`/
+        // `sparql-*`/etc.), but `eg-capabilities` forces `eg-types/rdf` on
+        // regardless.
         (_, Method::AddTriples { .. } | Method::RemoveTriples { .. } | Method::DropNamedGraph) => {
             DurabilityDomain::RdfDataset
         }
@@ -163,7 +166,11 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::RefreshMatView { .. } => default_mutation_domain(surface),
         #[cfg(feature = "cost")]
         Method::ResourceStatsPage { .. } => default_mutation_domain(surface),
-        #[cfg(feature = "datascience")]
+        // Wire-unconditional: `eg-capabilities` forces `eg-types/datascience` on
+        // unconditionally for its policy ledger (its `[dependencies.eg-types]`
+        // features list), which this root crate's own `datascience` feature does
+        // not gate -- `full` does not list `datascience` at all. Same bug class as
+        // the `compute-dist`/`Quantum` notes elsewhere in this file.
         Method::DsFitEstimator { .. } | Method::DsPredictEstimator { .. } => {
             default_mutation_domain(surface)
         }
@@ -182,11 +189,15 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::ResolveConflict { .. } => default_mutation_domain(surface),
         #[cfg(feature = "federation")]
         Method::RegisterForeignSource { .. } => default_mutation_domain(surface),
-        #[cfg(feature = "finance")]
+        // Wire-unconditional, same reason as `datascience` above: `full` does not
+        // list `finance`, but `eg-capabilities` forces `eg-types/finance` on
+        // regardless.
         Method::FinanceMatchOrders { .. } | Method::FinanceForensicReport { .. } => {
             default_mutation_domain(surface)
         }
-        #[cfg(feature = "graphlearn")]
+        // Wire-unconditional, same reason as `datascience` above: `full` does not
+        // list `graphlearn`, but `eg-capabilities` forces `eg-types/graphlearn` on
+        // regardless.
         Method::GraphLearnPredict { .. } | Method::GraphLearnFit { .. } => {
             default_mutation_domain(surface)
         }
@@ -201,7 +212,9 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::PlanMatViewGet { .. }
         | Method::PlanMatViewDefine { .. }
         | Method::PlanMatViewDrop { .. } => default_mutation_domain(surface),
-        #[cfg(feature = "mining")]
+        // Wire-unconditional, same reason as `datascience` above: `full` does not
+        // list `mining`, but `eg-capabilities` forces `eg-types/mining` on
+        // regardless.
         Method::MineProcess { .. }
         | Method::MineForecast { .. }
         | Method::MineSubgraph { .. }
@@ -220,7 +233,9 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::MineRetrievalQuality { .. }
         | Method::MineRootCause { .. }
         | Method::MineText { .. } => default_mutation_domain(surface),
-        #[cfg(feature = "ml-pipeline")]
+        // Wire-unconditional, same reason as `datascience` above: `full` does not
+        // list `ml-pipeline`, but `eg-capabilities` forces `eg-types/ml-pipeline`
+        // on regardless.
         Method::MiningPipelineTrain { .. }
         | Method::MiningPipelineServe { .. }
         | Method::MiningPipelinePredict { .. }
@@ -260,7 +275,9 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::ExplainProvenance { .. }
         | Method::ExplainPlan { .. }
         | Method::ExplainPolicy { .. } => default_mutation_domain(surface),
-        #[cfg(feature = "rdf")]
+        // Wire-unconditional, same reason as `datascience` above: `full` does not
+        // list plain `rdf` (only `rdf-xml`/`sparql-*`/etc.), but `eg-capabilities`
+        // forces `eg-types/rdf` on regardless.
         Method::RunRules { .. } | Method::GetRdf => default_mutation_domain(surface),
         #[cfg(feature = "security")]
         Method::AuditProveInclusion { .. } | Method::AuditVerify => {
@@ -545,6 +562,89 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::CompareAndSetNodeFields { .. }
         | Method::ClearGraph
         | Method::DecayMemories { .. } => default_mutation_domain(surface),
+        // `owner_domain` (directly, or via its `service_owner_domain` delegate)
+        // already classifies every variant below -- `domain_for`'s
+        // `owner_domain(method).unwrap_or_else(...)` never actually reaches this
+        // arm for them. They still need a home HERE: this match carries no
+        // wildcard (see the module doc comment above `remaining_default_domain`),
+        // so it must independently be exhaustive over every `Method` variant --
+        // Rust checks each `match` against its own patterns, not against what a
+        // caller's control flow already ruled out. Delegating back to
+        // `owner_domain` (which itself falls through to `service_owner_domain`
+        // for anything it doesn't list directly) keeps this arm correct by
+        // construction -- one source of truth -- instead of hand-duplicating a
+        // domain value that could silently drift out of sync with it.
+        Method::CreateGraph { .. }
+        | Method::DeleteGraph { .. }
+        | Method::MultiGraphBatchUpdate { .. }
+        | Method::Commit { .. }
+        | Method::TsAppend { .. }
+        | Method::TsEvict { .. }
+        | Method::TsDeleteSeries { .. }
+        | Method::KgDelegate { .. }
+        | Method::SubmitWorkItem { .. }
+        | Method::SubmitWorkItems { .. }
+        | Method::AcquireCapacity { .. }
+        | Method::RenewCapacity { .. }
+        | Method::ReleaseCapacity { .. }
+        | Method::ReclaimExpiredCapacity { .. }
+        | Method::UpdateCapacityCell { .. }
+        | Method::ClaimWorkItem { .. }
+        | Method::RenewWorkItemLease { .. }
+        | Method::CommitWorkItemResult { .. }
+        | Method::CancelWorkItem { .. }
+        | Method::DeferWorkItem { .. }
+        | Method::CasWorkItemMetadata { .. }
+        | Method::ReserveWorkItemResources { .. }
+        | Method::ReleaseWorkItemResources { .. }
+        | Method::ReclaimWorkItemResources { .. }
+        | Method::UpdateResourceHost { .. }
+        | Method::Sql { .. }
+        | Method::AddTriples { .. }
+        | Method::RemoveTriples { .. }
+        | Method::DropNamedGraph => owner_domain(method)
+            .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
+        #[cfg(feature = "blob")]
+        Method::BlobBegin { .. }
+        | Method::BlobChunkPut { .. }
+        | Method::BlobCommit { .. }
+        | Method::BlobRef { .. }
+        | Method::BlobUnref { .. }
+        | Method::BlobGc => owner_domain(method)
+            .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
+        #[cfg(feature = "kv")]
+        Method::KvPut { .. } | Method::KvDelete { .. } | Method::KvCas { .. } => owner_domain(
+            method,
+        )
+        .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
+        #[cfg(feature = "jobs")]
+        Method::AnalyticsJob { .. } => owner_domain(method)
+            .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
+        #[cfg(feature = "query")]
+        Method::SqlSourceBatch { .. } => owner_domain(method)
+            .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
+        #[cfg(feature = "broker")]
+        Method::DeclareExchange { .. }
+        | Method::DeleteExchange { .. }
+        | Method::BindQueue { .. }
+        | Method::UnbindQueue { .. }
+        | Method::Publish { .. }
+        | Method::DeclareQueue { .. }
+        | Method::PublishEx { .. }
+        | Method::BrokerConsume { .. }
+        | Method::BrokerAck { .. }
+        | Method::BrokerReject { .. }
+        | Method::SweepExpired { .. }
+        | Method::StreamDeclare { .. }
+        | Method::StreamPublish { .. }
+        | Method::StreamTrim { .. }
+        | Method::StreamCommitOffset { .. }
+        | Method::PublishConfirmed { .. }
+        | Method::PublishIdempotent { .. }
+        | Method::BrokerAckTag { .. }
+        | Method::BrokerNackTag { .. }
+        | Method::BrokerRenewTag { .. } => owner_domain(method)
+            .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
     }
 }
 
@@ -566,7 +666,10 @@ fn default_mutation_domain(surface: MutationSurface) -> DurabilityDomain {
 /// explicit graph-row methods; they are intentionally not guessed here.
 pub(super) fn lower_canonical_operation(method: Method) -> Method {
     match method {
-        #[cfg(feature = "rdf")]
+        // Wire-unconditional, same reason as the `datascience`/`finance`/etc.
+        // notes above: `full` does not list plain `rdf` (only `rdf-xml`/
+        // `sparql-*`/etc.), but `eg-capabilities` forces `eg-types/rdf` on
+        // regardless.
         Method::DropNamedGraph => Method::ClearGraph,
         other => other,
     }
@@ -587,7 +690,10 @@ pub(super) fn surface_for(method: &Method) -> Option<MutationSurface> {
         ) => Some(MutationSurface::Query),
         #[cfg(feature = "graphql")]
         (_, Method::GraphQl { .. }) => Some(MutationSurface::Query),
-        #[cfg(feature = "rdf")]
+        // Wire-unconditional, same reason as the `datascience`/`finance`/etc.
+        // notes above: `full` does not list plain `rdf` (only `rdf-xml`/
+        // `sparql-*`/etc.), but `eg-capabilities` forces `eg-types/rdf` on
+        // regardless.
         (_, Method::AddTriples { .. } | Method::RemoveTriples { .. } | Method::DropNamedGraph) => {
             Some(MutationSurface::Rdf)
         }

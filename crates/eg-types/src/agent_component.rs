@@ -48,10 +48,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::agent_library::AgentLibraryLifecycle;
 
-mod validation;
 pub mod content;
 pub mod facts;
 pub mod search;
+
+mod validation;
 
 pub use content::{
     AgentComponentContentRequest, AgentComponentContentResult, COMPONENT_CONTENT_SCHEMA_VERSION,
@@ -614,40 +615,6 @@ impl AgentComponentDraft {
     pub fn validate(&self) -> Result<(), String> {
         validation::validate_draft(self)
     }
-}
-
-/// The `requires` list's bounds, self-reference rule and uniqueness.
-fn validate_dependencies(draft: &AgentComponentDraft) -> Result<(), String> {
-    if draft.requires.len() > MAX_DEPENDENCIES {
-        return Err("agent component has too many dependencies".to_string());
-    }
-    let mut seen = BTreeSet::new();
-    for dependency in &draft.requires {
-        validate_text("dependency component_id", &dependency.component_id)?;
-        validate_digest(
-            "dependency definition_digest",
-            &dependency.definition_digest,
-        )?;
-        // Self-reference is the one cycle a single record CAN express, and it
-        // is unrepresentable in a valid one: a dependency pins a digest, and a
-        // component's own digest covers its dependencies, so pinning yourself
-        // is a hash preimage. Rejecting by id makes the intent explicit rather
-        // than relying on that.
-        if dependency.component_id == draft.component_id {
-            return Err(format!(
-                "agent component '{}' cannot require itself",
-                draft.component_id
-            ));
-        }
-        if !seen.insert((&dependency.component_id, dependency.kind)) {
-            return Err(format!(
-                "agent component requires '{}' ({}) twice",
-                dependency.component_id,
-                dependency.kind.as_str()
-            ));
-        }
-    }
-    Ok(())
 }
 
 fn definition_digest(draft: &AgentComponentDraft) -> String {
