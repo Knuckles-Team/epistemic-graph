@@ -5,6 +5,32 @@
 
 use super::*;
 
+/// Row accumulator shared by [`scan_redb_rows`] and [`scan_memory_rows`]: both walk a
+/// sorted range and stop under the same [`push_scan_row`] row-count/response-size cap —
+/// only how they obtain each `(key, value)` pair differs.
+struct ScanAccumulator {
+    rows: Vec<(String, Vec<u8>)>,
+    bytes: usize,
+}
+
+impl ScanAccumulator {
+    fn new() -> Self {
+        Self {
+            rows: Vec::new(),
+            bytes: 0,
+        }
+    }
+
+    /// Push one row; `false` once `limit` rows are collected and the scan must stop.
+    fn push(&mut self, limit: usize, key: &str, value: &[u8]) -> Result<bool, String> {
+        push_scan_row(&mut self.rows, &mut self.bytes, limit, key, value)
+    }
+
+    fn into_rows(self) -> Vec<(String, Vec<u8>)> {
+        self.rows
+    }
+}
+
 /// The durable-backend half of [`KvStore::scan`]: range from `(namespace, prefix)` —
 /// all prefix matches are a contiguous sorted block right after this bound, so this
 /// stops as soon as the namespace changes or a key no longer carries the prefix.
@@ -14,8 +40,7 @@ pub(super) fn scan_redb_rows(
     prefix: &str,
     limit: usize,
 ) -> Result<Vec<(String, Vec<u8>)>, String> {
-    let mut out = Vec::new();
-    let mut response_bytes = 0usize;
+    let mut acc = ScanAccumulator::new();
     let read = store.read()?;
     let table = read.open_owner_table(KV)?;
     for entry in table
@@ -27,11 +52,11 @@ pub(super) fn scan_redb_rows(
         if ns != namespace || !key.starts_with(prefix) {
             break;
         }
-        if !push_scan_row(&mut out, &mut response_bytes, limit, key, v.value())? {
+        if !acc.push(limit, key, v.value())? {
             break;
         }
     }
-    Ok(out)
+    Ok(acc.into_rows())
 }
 
 /// The ephemeral-backend half of [`KvStore::scan`]: same contiguous-range walk over the
@@ -42,19 +67,18 @@ pub(super) fn scan_memory_rows(
     prefix: &str,
     limit: usize,
 ) -> Result<Vec<(String, Vec<u8>)>, String> {
-    let mut out = Vec::new();
-    let mut response_bytes = 0usize;
+    let mut acc = ScanAccumulator::new();
     let guard = m.lock();
     let start = (namespace.to_string(), prefix.to_string());
     for ((ns, key), v) in guard.range(start..) {
         if ns != namespace || !key.starts_with(prefix) {
             break;
         }
-        if !push_scan_row(&mut out, &mut response_bytes, limit, key, v)? {
+        if !acc.push(limit, key, v)? {
             break;
         }
     }
-    Ok(out)
+    Ok(acc.into_rows())
 }
 
 /// Resolve the KV store off `state`, or the final routing/error outcome when it isn't

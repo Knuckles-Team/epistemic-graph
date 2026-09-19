@@ -160,6 +160,23 @@ fn admit_sqlite_file_method(
     Ok(())
 }
 
+/// Resolve the persistence directory plus a caller-owned authority clone shared by both
+/// import and export before they build their owned blocking job, or the final
+/// `Response::err` outcome when the persist dir isn't configured (same error
+/// [`tenant_persist_dir`] itself reports).
+async fn resolve_transfer_context(
+    state: &std::sync::Arc<tokio::sync::RwLock<crate::server::ServerState>>,
+    req_id: u64,
+    authority: &CarrierAuthority,
+) -> Result<(PathBuf, CarrierAuthority), Response> {
+    let persist_dir = match tenant_persist_dir(state).await {
+        Ok(dir) => dir,
+        Err(e) => return Err(Response::err(req_id, e)),
+    };
+    let owner_authority = authority.clone();
+    Ok((persist_dir, owner_authority))
+}
+
 async fn handle_import_sqlite_file(
     state: &std::sync::Arc<tokio::sync::RwLock<crate::server::ServerState>>,
     req_id: u64,
@@ -168,11 +185,11 @@ async fn handle_import_sqlite_file(
     original_method: &Method,
     path: String,
 ) -> Response {
-    let persist_dir = match tenant_persist_dir(state).await {
-        Ok(dir) => dir,
-        Err(e) => return Response::err(req_id, e),
-    };
-    let owner_authority = authority.clone();
+    let (persist_dir, owner_authority) =
+        match resolve_transfer_context(state, req_id, authority).await {
+            Ok(pair) => pair,
+            Err(response) => return response,
+        };
     let original_method = original_method.clone();
     // Sample replicated authoritative time on the reactor while its task-local
     // apply scope is available, then move the complete filesystem/catalog
@@ -206,11 +223,11 @@ async fn handle_export_sqlite_file(
     path: &str,
     tables: &[String],
 ) -> Response {
-    let persist_dir = match tenant_persist_dir(state).await {
-        Ok(dir) => dir,
-        Err(e) => return Response::err(req_id, e),
-    };
-    let owner_authority = authority.clone();
+    let (persist_dir, owner_authority) =
+        match resolve_transfer_context(state, req_id, authority).await {
+            Ok(pair) => pair,
+            Err(response) => return response,
+        };
     let path = path.to_string();
     let tables = tables.to_vec();
     let out = run_transfer_job("export", move || {
