@@ -25,14 +25,14 @@ use tokio::sync::RwLock;
 #[cfg(feature = "redb")]
 mod agent;
 #[cfg(feature = "redb")]
+mod backup;
+#[cfg(feature = "redb")]
+mod cluster;
+#[cfg(feature = "redb")]
 mod component_content;
 // Refusal-only until its package lands, so it needs no durable owner and is
 // declared in every build -- the dispatch arm that reaches it carries no cfg.
 mod connector_pack;
-#[cfg(feature = "redb")]
-mod backup;
-#[cfg(feature = "redb")]
-mod cluster;
 #[cfg(feature = "redb")]
 mod saga;
 
