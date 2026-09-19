@@ -49,6 +49,16 @@ impl HeartbeatCoalescer {
         self.fail_pending("raft heartbeat coalescer stopped");
     }
 
+    /// Fold one taken batch set into the coalescing counters. Shared by both take
+    /// paths so the two never drift: a batch set that folded nothing is not a flush.
+    fn record_fold(&self, batches: &[(String, Vec<PendingHeartbeat>)]) {
+        let folded: u64 = batches.iter().map(|(_, v)| v.len() as u64).sum();
+        if folded > 0 {
+            self.coalesced.fetch_add(folded, Ordering::Relaxed);
+            self.flushes.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
     fn take_pending(&self) -> Vec<(String, Vec<PendingHeartbeat>)> {
         let mut pending = self.pending.lock().unwrap();
         pending.drain().collect()
@@ -56,11 +66,7 @@ impl HeartbeatCoalescer {
 
     pub(super) fn drain_pending(&self) -> Vec<(String, Vec<PendingHeartbeat>)> {
         let drained = self.take_pending();
-        let folded: u64 = drained.iter().map(|(_, v)| v.len() as u64).sum();
-        if folded > 0 {
-            self.coalesced.fetch_add(folded, Ordering::Relaxed);
-            self.flushes.fetch_add(1, Ordering::Relaxed);
-        }
+        self.record_fold(&drained);
         drained
     }
 
@@ -82,11 +88,7 @@ impl HeartbeatCoalescer {
             .into_iter()
             .filter_map(|addr| pending.remove(&addr).map(|items| (addr, items)))
             .collect();
-        let folded: u64 = ready.iter().map(|(_, v)| v.len() as u64).sum();
-        if folded > 0 {
-            self.coalesced.fetch_add(folded, Ordering::Relaxed);
-            self.flushes.fetch_add(1, Ordering::Relaxed);
-        }
+        self.record_fold(&ready);
         ready
     }
 
