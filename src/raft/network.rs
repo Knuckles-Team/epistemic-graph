@@ -811,6 +811,13 @@ pub struct HeartbeatCoalescer {
     /// Set during shutdown so queued OpenRaft callers fail promptly rather than
     /// waiting forever if the manager is being torn down.
     stopping: std::sync::atomic::AtomicBool,
+    /// Peers with an outstanding flush round-trip right now (EH-288). A peer already
+    /// being flushed is left queued rather than flushed again, so at most one batch
+    /// per peer is ever in flight: this is what lets each peer's flush proceed
+    /// independently — one slow peer's round trip no longer withholds every OTHER
+    /// peer's heartbeats behind it — without reordering that slow peer's own
+    /// AppendEntries stream or letting its backlog grow without bound.
+    in_flight: std::sync::Mutex<std::collections::HashSet<String>>,
 }
 
 struct PendingHeartbeat {
@@ -826,6 +833,7 @@ impl HeartbeatCoalescer {
             flushes: AtomicU64::new(0),
             wake: Notify::new(),
             stopping: std::sync::atomic::AtomicBool::new(false),
+            in_flight: std::sync::Mutex::default(),
         }
     }
 
