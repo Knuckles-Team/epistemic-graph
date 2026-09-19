@@ -432,8 +432,8 @@ fn rdf_adapter_marks_rdf_surface() {
 // Durability-domain classification golden (RF-RULING-007 / B13)
 // ---------------------------------------------------------------------------
 
-/// Every explicit `Method -> DurabilityDomain` arm of `canonical::domain_for`, in
-/// source order, plus its two fall-through arms as `("_", ..)`.
+/// Every `Method -> DurabilityDomain` arm of `canonical::domain_for`, in source
+/// order. The match is exhaustive, so there are no fall-through `("_", ..)` rows.
 ///
 /// This is the golden: a method's durability domain decides which authority owns
 /// its state and its version counter, so a silent reclassification moves a write
@@ -503,11 +503,14 @@ const CLASSIFICATION_GOLDEN: &[(&str, &str)] = &[
     ("BrokerAckTag", "Broker"),
     ("BrokerNackTag", "Broker"),
     ("BrokerRenewTag", "Broker"),
-    // The two tail arms: a `Transaction`-surface method with no explicit arm is
-    // a graph-row write, anything else is a graph-snapshot write. `AddEmbedding`
-    // reaches the second one.
-    ("_", "GraphRows"),
-    ("_", "GraphSnapshot"),
+    // The two tail arms are GONE: `domain_for` no longer has a `_` catch-all.
+    // Every variant is now named explicitly, so a future `Method` is a compile
+    // error at that match rather than a silent fall-through to the surface-keyed
+    // default. The default itself still exists as `default_mutation_domain`, but
+    // it is now reached only from named arms, so it contributes no `("_", ..)`
+    // row here. NO METHOD CHANGED AUTHORITY in that change -- verified by diffing
+    // the classification before and after: every named pair is identical and the
+    // only delta is the removal of these two wildcard rows.
 ];
 
 /// Read the `Method -> DurabilityDomain` arms back out of `canonical.rs`.
