@@ -389,10 +389,11 @@ _CREDENTIAL_URI_RE = re.compile(
 # though it were. This set had drifted out of sync with
 # scripts/check_wheel_privacy.py's own ``_CREDENTIAL_PLACEHOLDER_TOKENS`` --
 # the comment already claimed they mirrored each other, but that script's
-# set additionally recognizes "agent" (this repo's own
-# ``postgresql://agent:agent@localhost:5432/agent_kg`` documented example  #
-# sanitizer:ignore
-# DSN, README.md / docs/architecture/graph_backends_architecture.md),
+# set additionally recognizes "agent" (this repo's own documented example
+# Postgres DSN spells its placeholder user and password as "agent", in the
+# generic form ``<scheme>://<user>:<password>@<host>:<port>/<db>`` --
+# deliberately not spelled out with a literal scheme name here, so this
+# explanatory line itself never reads as one more credential-shaped URI),
 # "password", "secret", "test", and "sample" as placeholder words. Restored
 # so the two gates actually agree, as documented.
 _CREDENTIAL_PLACEHOLDER_TOKENS = frozenset(
