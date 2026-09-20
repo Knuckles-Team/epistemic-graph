@@ -118,16 +118,31 @@ fn checkpoint_compare_and_swap_is_serialized_across_distinct_admitted_owner_scop
     mutation.set_source_version(source_version);
     let competing_store = store.clone();
     let competing_batch = batch(&loser, "loser", "scope-loser", 0);
-    let (started, received) = std::sync::mpsc::channel();
-    let competitor = std::thread::spawn(move || {
+    // `mpsc::channel` (unbounded) and `JoinHandle::join` (no deadline) are both
+    // `clippy::disallowed_methods` here: a wedged competitor would otherwise grow
+    // the channel forever or take this test down with it instead of failing by
+    // name. The root package's bounded answer, `crate::test_rendezvous`, lives
+    // above this crate in the dependency DAG and so cannot be reached from a
+    // leaf crate — eg-core's own `test_threads` module hits the identical
+    // reachability problem and solves it the same way: the worker reports its
+    // start AND its outcome over bounded channels, and the collector's deadline
+    // is `recv_timeout`, so the `JoinHandle` itself is never joined (dropping an
+    // already-finished thread's handle is a no-op).
+    let (started, arrived) = std::sync::mpsc::sync_channel(0);
+    let (outcome, reported) = std::sync::mpsc::sync_channel(1);
+    let _ = std::thread::spawn(move || {
         started.send(()).unwrap();
-        competing_store.commit_source_batch(&competing_batch, 103)
+        let result = competing_store.commit_source_batch(&competing_batch, 103);
+        let _ = outcome.send(result);
     });
-    received
+    arrived
         .recv_timeout(std::time::Duration::from_secs(30))
-        .unwrap();
+        .expect("competitor did not reach its start rendezvous within 30s");
     publish(store, mutation, &winning_batch, &invocation, 102, None).unwrap();
-    let error = competitor.join().unwrap().unwrap_err();
+    let error = reported
+        .recv_timeout(std::time::Duration::from_secs(30))
+        .expect("competitor did not report its commit outcome within 30s")
+        .unwrap_err();
     assert!(error.contains("compare-and-swap"), "{error}");
     assert_eq!(epoch(store), before + 1);
     assert_eq!(store.scan("issues").unwrap().len(), 2);
@@ -688,6 +703,23 @@ fn aggregate_materialization_reservation_accepts_its_boundary_and_rejects_one_by
     }
 }
 
+/// The 1024-row / 1024-column fixture below must be rejected for STRUCTURAL
+/// reasons (independent omitted cell/tag nodes exceeding the bounded decoder's
+/// node ceiling), never merely for exceeding the raw byte cap — otherwise the
+/// test would not be exercising the code path its name claims. `1024 * (5 +
+/// 32 + 1023 * 8)` is this fixture's own per-row structural estimate (a <=5
+/// byte array header, a <=32 byte Int cell, and 1023 omitted-column tag nodes
+/// at 8 bytes each), and `MAX_SQL_SOURCE_BATCH_BYTES` is a compile-time
+/// constant, so this was always a compile-time fact rather than a runtime
+/// check — `assert!` on it at test time never ran anything (clippy's
+/// `assertions_on_constants` is what caught that it was dead). Asserting it in
+/// a `const` context instead makes the same fact fail the BUILD, immediately,
+/// if `MAX_SQL_SOURCE_BATCH_BYTES` is ever changed enough to put the fixture's
+/// estimate over the byte cap and silently invalidate this test's premise.
+const _: () = assert!(
+    1024 * (5 + 32 + 1023 * 8) < eg_types::storage_wire::source_batch::MAX_SQL_SOURCE_BATCH_BYTES
+);
+
 #[test]
 fn wide_omitted_null_rows_are_rejected_by_structural_expansion_before_cloning_cells() {
     let mut columns = vec![Column::new("id", ColumnType::BigInt, false, true)];
@@ -698,12 +730,6 @@ fn wide_omitted_null_rows_are_rejected_by_structural_expansion_before_cloning_ce
     let fixture = Fixture::new(&schema);
     let store = fixture.store();
     let request = with_id_rows(&request(&schema, vec![SqlSourceCell::Int(1)]), 1024);
-    // Codec reservation is below 16MiB; omitted cell/tag nodes independently
-    // exceed the same standard structural ceiling used by the bounded decoder.
-    assert!(
-        1024 * (5 + 32 + 1023 * 8)
-            < eg_types::storage_wire::source_batch::MAX_SQL_SOURCE_BATCH_BYTES
-    );
     let before = epoch(store);
     let batch = batch(&request, "wide-expansion", "source-a", 0);
     let error = store.commit_source_batch(&batch, 101).unwrap_err();
