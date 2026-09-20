@@ -74,8 +74,29 @@ fn owner_domain(method: &Method) -> Option<DurabilityDomain> {
         }
         #[cfg(feature = "jobs")]
         Method::AnalyticsJob { .. } => DurabilityDomain::AnalyticsJob,
-        _ => return service_owner_domain(method),
+        // RF-ADR-010's two admin decide-layer jobs are classified in
+        // `decide_layer_job_domain`, called from this arm's own fallthrough
+        // rather than added as a match arm here -- extracted, not inlined, so
+        // this match's own arm count (and complexity-staged's regression check
+        // on it) is unaffected by their addition. See that function's doc
+        // comment for why they share `AnalyticsJob`'s domain.
+        _ => return decide_layer_job_domain(method).or_else(|| service_owner_domain(method)),
     })
+}
+
+/// `DecisionFit`/`DecisionEval` are wire-unconditional (S1's decide layer
+/// carries no feature gate at all), unlike `AnalyticsJob`'s own
+/// `#[cfg(feature = "jobs")]` gate in `owner_domain` above -- so they cannot
+/// join that arm directly. Both are explicitly documented as sharing its
+/// store: `DecisionFit`'s own doc comment says "runtime-conditional like
+/// AnalyticsJob: status is a read; submit commits a native MutationBatch in
+/// jobs.redb carrying the decision job row and its receipt" (`DecisionEval`'s
+/// says the same for the evaluation job row) -- the SAME job-plane redb
+/// `AnalyticsJob` owns, so they share its domain rather than falling to the
+/// surface-keyed default.
+fn decide_layer_job_domain(method: &Method) -> Option<DurabilityDomain> {
+    matches!(method, Method::DecisionFit { .. } | Method::DecisionEval { .. })
+        .then_some(DurabilityDomain::AnalyticsJob)
 }
 
 /// Control-plane, SQL, RDF and broker owners.
@@ -538,7 +559,41 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::GetEdges
         | Method::DsComputeStats { .. }
         | Method::AgentTemplate { .. }
-        | Method::FinanceSabrImpliedVol { .. }
+        // RF-ADR-010's Decide layer (S1): all `Stability::Internal`, `NO_CONSUMER`,
+        // refusal-only dispatch arms in this wave -- none of them serves a write
+        // yet, so none has an authority to route to other than the surface-keyed
+        // default (the same treatment `AgentComponent`/`AgentLibrary`/
+        // `AgentGraph`/`AgentTemplate` above already get, despite each of THEM
+        // being a native write too: this classifier's `ControlPlane` domain is
+        // reserved for the WorkItem/capacity-lease control-plane redb, a
+        // DIFFERENT physical store than agent_library.redb, so a native write
+        // there does not by itself imply `ControlPlane` here -- see the four
+        // Agent* arms' own precedent). Examined individually, not defaulted
+        // reflexively:
+        //  * `AgentAssemble`/`Decide`/`GraphSchemaList` read only, commit nothing.
+        //  * `Solve` is pure compute: no store, no clock, no float.
+        //  * `DecisionCommit`/`ConnectorPack` DO write natively (agent_library.redb,
+        //    one WTX per their own doc comments) -- same store family, same
+        //    treatment as the four Agent* arms just above.
+        //  * `GraphSchema` is "gateway-routed exactly like `IcvConfigure`" per its
+        //    own doc comment -- a graph-row/snapshot write through the graph
+        //    commit kernel, i.e. exactly what this default already means; see
+        //    `IcvConfigure` a few arms below.
+        //  * `MutationOutbox`'s `rewind` writes through bounded `eg-transaction`
+        //    transactions (a saga), not a graph or native `MutationBatch` WTX, and
+        //    this classifier has no dedicated outbox domain to route it to. The
+        //    package that lands `rewind`'s real dispatch arm must revisit this.
+        //  * `DecisionFit`/`DecisionEval` are NOT here: they write jobs.redb like
+        //    `AnalyticsJob` and are classified in `owner_domain` alongside it.
+        | Method::AgentAssemble { .. }
+        | Method::Decide { .. }
+        | Method::DecisionCommit { .. }
+        | Method::Solve { .. }
+        | Method::ConnectorPack { .. }
+        | Method::GraphSchema { .. }
+        | Method::GraphSchemaList
+        | Method::MutationOutbox { .. } => default_mutation_domain(surface),
+        Method::FinanceSabrImpliedVol { .. }
         | Method::CatalogAssign { .. }
         | Method::EvictBelow { .. }
         | Method::Shutdown
