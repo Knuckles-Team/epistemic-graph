@@ -470,7 +470,15 @@ pub(crate) fn modularity_of(
 
 /// Deterministic visit order. `None` ⇒ ascending; `Some(seed)` ⇒ seeded
 /// Fisher–Yates using a splitmix64 stream (dependency-free, reproducible).
-fn visit_order(n: usize, seed: Option<u64>) -> Vec<usize> {
+///
+/// `pub(crate)` (not `fn`-private) — reused verbatim by
+/// [`super::leiden::local_moving`]'s quality-generic kernel (EH-283), which
+/// needs the SAME outer-pass visit order Louvain uses so the default
+/// (modularity, unrestricted) case stays bit-for-bit identical to this
+/// kernel's own pre-existing behaviour. Widening this one function's
+/// visibility (a pure additive, non-semantic change) is the dupehound-clean
+/// alternative to Leiden re-deriving its own byte-identical copy.
+pub(crate) fn visit_order(n: usize, seed: Option<u64>) -> Vec<usize> {
     let mut order: Vec<usize> = (0..n).collect();
     if let Some(seed) = seed {
         let mut rng = SplitMix64::new(seed);

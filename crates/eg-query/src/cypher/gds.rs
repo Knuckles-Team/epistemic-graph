@@ -565,6 +565,11 @@ impl CypherProcedure for Leiden {
             // Budget: 15s, not caller-overridable — same reasoning as
             // `gds.louvain` above.
             budget: LOUVAIN_BUDGET,
+            // EH-283 added `quality` to `LeidenConfig`; this Cypher procedure
+            // does not yet expose an `objectiveFunction`/CPM config knob, so
+            // it keeps the pre-EH-283 default (modularity) explicitly via
+            // `..Default::default()` rather than naming every field by hand.
+            ..Default::default()
         };
         Ok(partition_rows(leiden(&g, &lc).communities, "communityId"))
     }

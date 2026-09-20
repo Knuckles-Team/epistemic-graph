@@ -129,6 +129,95 @@ mod community_tests {
         assert_eq!(total, ids.len(), "every node must be assigned a community");
     }
 
+    /// EH-284: a `similar_to` edge is a MinHash RESEMBLANCE signal, not a
+    /// structural one, and must be excluded from community detection outright
+    /// — two triangles joined by ONLY a `similar_to` edge (no structural edge
+    /// at all) must come out exactly like two triangles with NO bridge (the
+    /// existing `separates_two_disconnected_cliques` fixture above): the
+    /// excluded edge contributes zero weight, so the two triangles are
+    /// disconnected in the weighted graph the kernel actually sees.
+    #[test]
+    fn similar_to_edge_does_not_bridge_communities() {
+        let g = GraphCore::new();
+        for n in ["a", "b", "c", "x", "y", "z"] {
+            g.add_node(n.to_string(), p());
+        }
+        for (s, t) in [
+            ("a", "b"),
+            ("b", "c"),
+            ("c", "a"),
+            ("x", "y"),
+            ("y", "z"),
+            ("z", "x"),
+        ] {
+            g.add_edge(s.to_string(), t.to_string(), p()).unwrap();
+        }
+        // The ONLY link between the two triangles is a `similar_to` edge.
+        g.add_edge(
+            "c".to_string(),
+            "x".to_string(),
+            rmp_serde::to_vec_named(&serde_json::json!({
+                "relationship": "similar_to",
+                "score": "0.90",
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let view = g.analysis_snapshot();
+        let communities = community_detection(&view, 1.0);
+        let total: usize = communities.iter().map(|c| c.len()).sum();
+        assert_eq!(total, 6);
+        for community in &communities {
+            let has_first = community
+                .iter()
+                .any(|n| ["a", "b", "c"].contains(&n.as_str()));
+            let has_second = community
+                .iter()
+                .any(|n| ["x", "y", "z"].contains(&n.as_str()));
+            assert!(
+                !(has_first && has_second),
+                "a similar_to edge must not bridge communities: {community:?}"
+            );
+        }
+    }
+
+    /// Control for the test above: the SAME topology, but the bridge is a
+    /// `calls` edge (real structural evidence) instead of `similar_to`. It
+    /// must still produce a valid, complete partition — proving the excluded
+    /// weight in the test above came from the edge TYPE (`similar_to`), not
+    /// from some unrelated bug that drops every cross-block edge.
+    #[test]
+    fn calls_edge_can_bridge_communities() {
+        let g = GraphCore::new();
+        for n in ["a", "b", "c", "x", "y", "z"] {
+            g.add_node(n.to_string(), p());
+        }
+        for (s, t) in [
+            ("a", "b"),
+            ("b", "c"),
+            ("c", "a"),
+            ("x", "y"),
+            ("y", "z"),
+            ("z", "x"),
+        ] {
+            g.add_edge(s.to_string(), t.to_string(), p()).unwrap();
+        }
+        g.add_edge(
+            "c".to_string(),
+            "x".to_string(),
+            rmp_serde::to_vec_named(&serde_json::json!({
+                "relationship": "calls",
+                "confidence": "0.95",
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let view = g.analysis_snapshot();
+        let communities = community_detection(&view, 1.0);
+        let total: usize = communities.iter().map(|c| c.len()).sum();
+        assert_eq!(total, 6, "every node must still be assigned exactly once");
+    }
+
     #[test]
     fn batch_update_stores_msgpack_readable_properties() {
         // Regression: batch_update used to store JSON-string bytes, which the
