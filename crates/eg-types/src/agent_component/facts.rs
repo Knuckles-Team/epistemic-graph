@@ -95,11 +95,15 @@ pub enum PriceSource {
 /// What one invocation costs, exactly, in a named currency.
 ///
 /// Integer micros, never a float: a budget comparison that depends on binary
-/// rounding is a budget that decides differently on two hosts.
+/// rounding is a budget that decides differently on two hosts. The same
+/// shape a connector pack entry declares for itself
+/// ([`crate::connector_pack::PackCost`]) — one owner for "what does this
+/// invocation cost", whether the number arrived via a pack import or was
+/// otherwise declared.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct CostFacts {
+pub struct DeclaredCost {
     /// ISO 4217: exactly three ASCII uppercase letters.
     pub currency: String,
     #[serde(default)]
@@ -108,6 +112,15 @@ pub struct CostFacts {
     pub input_per_mtok_micros: Option<u64>,
     #[serde(default)]
     pub output_per_mtok_micros: Option<u64>,
+}
+
+/// What one invocation costs, plus who says so and how strongly.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct CostFacts {
+    #[serde(flatten)]
+    pub declared: DeclaredCost,
     pub price_source: PriceSource,
     pub quality: FactQuality,
 }
@@ -342,8 +355,9 @@ fn validate_modality_list(field: &str, values: &[String]) -> Result<(), String> 
 }
 
 fn validate_cost(cost: &CostFacts) -> Result<(), String> {
-    let currency_is_iso = cost.currency.len() == 3
+    let currency_is_iso = cost.declared.currency.len() == 3
         && cost
+            .declared
             .currency
             .bytes()
             .all(|character| character.is_ascii_uppercase());
@@ -351,9 +365,9 @@ fn validate_cost(cost: &CostFacts) -> Result<(), String> {
         return Err("agent component cost currency must be three ISO 4217 letters".into());
     }
     let prices = [
-        cost.per_call_micros,
-        cost.input_per_mtok_micros,
-        cost.output_per_mtok_micros,
+        cost.declared.per_call_micros,
+        cost.declared.input_per_mtok_micros,
+        cost.declared.output_per_mtok_micros,
     ];
     if prices
         .iter()

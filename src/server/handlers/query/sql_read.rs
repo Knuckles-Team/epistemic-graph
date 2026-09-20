@@ -130,20 +130,7 @@ async fn handle_sql_read(scope: SqlReadScope<'_>, query: String) -> Response {
     })
     .await
     {
-        Ok(Ok(typed)) => match typed.rows.iter().map(msgpack_bytes).collect() {
-            Ok(rows) => dynamic_response::<query_results::Sql, _>(
-                req_id,
-                &crate::protocol::QueryResult {
-                    columns: typed
-                        .columns
-                        .iter()
-                        .map(|column| column.name.clone())
-                        .collect(),
-                    rows,
-                },
-            ),
-            Err(error) => Response::err(req_id, error),
-        },
+        Ok(Ok(typed)) => typed_sql_response(req_id, typed),
         Ok(Err(message)) => Response::err(req_id, format!("SQL error: {message}")),
         Err(response) => response,
     };

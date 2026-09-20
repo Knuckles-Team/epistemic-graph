@@ -481,32 +481,28 @@ fn binding_for_image(
     .unwrap()
 }
 
-fn seed_binding_head(codes: &SemanticCodeStore, binding: &SemanticBinding) {
-    let owner = codes.door.owner();
-    let read = codes.door.storage_kernel().read_scope(owner).unwrap();
-    let version = eg_transaction::version(&read).unwrap();
-    drop(read);
-    let batch = seed_batch(owner, binding.generation, "reconciliation-seed", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
+/// Admit `batch` under `owner` through the mutation kernel, hand the
+/// freshly-opened owner rows to `write_rows` for the fixture-specific table
+/// writes (and any assertion that must run inside that scope), then run the
+/// SAME finish/commit sequence every direct-kernel test seed in this file
+/// needs. Kernel-seeded fixtures differ only in which table(s) they
+/// populate; the admit/begin-match/finish/commit dance around that is
+/// identical and belongs in one place, not re-spelled per test.
+fn seed_via_kernel<'a>(
+    codes: &'a SemanticCodeStore,
+    owner: &'a eg_storage::OwnedStoreHandle<eg_storage::SemanticIndexOwner>,
+    batch: &eg_types::MutationBatch,
+    write_rows: impl FnOnce(&eg_transaction::AdmittedOwnerWrite<'a, eg_storage::SemanticIndexOwner>),
+) {
+    let (write, begin) = codes.door.mutation_kernel().admit(owner, batch).unwrap();
     let eg_transaction::Begin::Apply {
         source_version: source_version_write,
     } = begin
     else {
         panic!("expected a fresh Begin::Apply, got a replay");
     };
-    let rows = write.owner_rows(owner, &batch).unwrap();
-    let binding_bytes = binding.to_canonical_cbor().unwrap();
-    rows.open_table(SEMANTIC_BINDINGS)
-        .unwrap()
-        .insert(
-            (TENANT, BINDING, binding.generation),
-            binding_bytes.as_slice(),
-        )
-        .unwrap();
-    rows.open_table(SEMANTIC_HEADS)
-        .unwrap()
-        .insert((TENANT, BINDING), binding.generation)
-        .unwrap();
+    let rows = write.owner_rows(owner, batch).unwrap();
+    write_rows(&rows);
     rows.finish_owner().unwrap();
     // A write only reaches the kernel's `Finished` admission state
     // through `finish`; `finish_owner` above closes only the owner-row
@@ -514,9 +510,31 @@ fn seed_binding_head(codes: &SemanticCodeStore, binding: &SemanticBinding) {
     codes
         .door
         .mutation_kernel()
-        .finish(&write, &batch, None, 0, source_version_write)
+        .finish(&write, batch, None, 0, source_version_write)
         .unwrap();
-    codes.door.mutation_kernel().commit(write, &batch).unwrap();
+    codes.door.mutation_kernel().commit(write, batch).unwrap();
+}
+
+fn seed_binding_head(codes: &SemanticCodeStore, binding: &SemanticBinding) {
+    let owner = codes.door.owner();
+    let read = codes.door.storage_kernel().read_scope(owner).unwrap();
+    let version = eg_transaction::version(&read).unwrap();
+    drop(read);
+    let batch = seed_batch(owner, binding.generation, "reconciliation-seed", version);
+    seed_via_kernel(codes, owner, &batch, |rows| {
+        let binding_bytes = binding.to_canonical_cbor().unwrap();
+        rows.open_table(SEMANTIC_BINDINGS)
+            .unwrap()
+            .insert(
+                (TENANT, BINDING, binding.generation),
+                binding_bytes.as_slice(),
+            )
+            .unwrap();
+        rows.open_table(SEMANTIC_HEADS)
+            .unwrap()
+            .insert((TENANT, BINDING), binding.generation)
+            .unwrap();
+    });
 }
 
 fn reconciliation_source_entity(seed: u8) -> String {
@@ -717,55 +735,42 @@ fn dead_letter_registry_key_retains_intent_identity_at_one_attempt() {
     let version =
         eg_transaction::version(&codes.door.storage_kernel().read_scope(owner).unwrap()).unwrap();
     let batch = seed_batch(owner, 1, "dead-letter-key", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
-    let eg_transaction::Begin::Apply {
-        source_version: source_version_write,
-    } = begin
-    else {
-        panic!("expected a fresh Begin::Apply, got a replay");
-    };
-    let rows = write.owner_rows(owner, &batch).unwrap();
-    rows.open_table(SEMANTIC_DEAD_LETTERS)
-        .unwrap()
-        .insert(
-            (TENANT, BINDING, "sha256:intent-a", 3),
-            b"dead-letter-a".as_slice(),
-        )
-        .unwrap();
-    rows.open_table(SEMANTIC_DEAD_LETTERS)
-        .unwrap()
-        .insert(
-            (TENANT, BINDING, "sha256:intent-b", 3),
-            b"dead-letter-b".as_slice(),
-        )
-        .unwrap();
-    // Two distinct intent digests at the SAME attempt number must remain two
-    // rows -- the attempt count must never collapse them onto one key.
-    assert_eq!(
+    seed_via_kernel(&codes, owner, &batch, |rows| {
         rows.open_table(SEMANTIC_DEAD_LETTERS)
             .unwrap()
-            .get((TENANT, BINDING, "sha256:intent-a", 3))
-            .unwrap()
-            .unwrap()
-            .value(),
-        b"dead-letter-a"
-    );
-    assert_eq!(
+            .insert(
+                (TENANT, BINDING, "sha256:intent-a", 3),
+                b"dead-letter-a".as_slice(),
+            )
+            .unwrap();
         rows.open_table(SEMANTIC_DEAD_LETTERS)
             .unwrap()
-            .get((TENANT, BINDING, "sha256:intent-b", 3))
-            .unwrap()
-            .unwrap()
-            .value(),
-        b"dead-letter-b"
-    );
-    rows.finish_owner().unwrap();
-    codes
-        .door
-        .mutation_kernel()
-        .finish(&write, &batch, None, 0, source_version_write)
-        .unwrap();
-    codes.door.mutation_kernel().commit(write, &batch).unwrap();
+            .insert(
+                (TENANT, BINDING, "sha256:intent-b", 3),
+                b"dead-letter-b".as_slice(),
+            )
+            .unwrap();
+        // Two distinct intent digests at the SAME attempt number must remain two
+        // rows -- the attempt count must never collapse them onto one key.
+        assert_eq!(
+            rows.open_table(SEMANTIC_DEAD_LETTERS)
+                .unwrap()
+                .get((TENANT, BINDING, "sha256:intent-a", 3))
+                .unwrap()
+                .unwrap()
+                .value(),
+            b"dead-letter-a"
+        );
+        assert_eq!(
+            rows.open_table(SEMANTIC_DEAD_LETTERS)
+                .unwrap()
+                .get((TENANT, BINDING, "sha256:intent-b", 3))
+                .unwrap()
+                .unwrap()
+                .value(),
+            b"dead-letter-b"
+        );
+    });
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -823,26 +828,10 @@ fn persisted_dead_letter_transitions_keep_distinct_intents_at_one_attempt() {
         let version = eg_transaction::version(&read).unwrap();
         drop(read);
         let batch = seed_batch(owner, 1, &format!("dead-letter-{ordinal}"), version);
-        let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
-        let eg_transaction::Begin::Apply {
-            source_version: source_version_write,
-        } = begin
-        else {
-            panic!("expected a fresh Begin::Apply, got a replay");
-        };
-        let rows = write.owner_rows(owner, &batch).unwrap();
-        persist_stage_artifact_with_lease(&rows, TENANT, BINDING, &transition, None, &artifact)
-            .unwrap();
-        rows.finish_owner().unwrap();
-        // A write only reaches the kernel's `Finished` admission state
-        // through `finish`; `finish_owner` above closes only the owner-row
-        // half, so `commit` alone is refused.
-        codes
-            .door
-            .mutation_kernel()
-            .finish(&write, &batch, None, 0, source_version_write)
-            .unwrap();
-        codes.door.mutation_kernel().commit(write, &batch).unwrap();
+        seed_via_kernel(&codes, owner, &batch, |rows| {
+            persist_stage_artifact_with_lease(rows, TENANT, BINDING, &transition, None, &artifact)
+                .unwrap();
+        });
     }
     let read = codes
         .door
@@ -1351,32 +1340,16 @@ fn reconciliation_entity_pages_are_bounded_and_revision_fenced() {
     let version = eg_transaction::version(&read).unwrap();
     drop(read);
     let batch = seed_batch(owner, 1, "reconciliation-progress-seed", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
-    let eg_transaction::Begin::Apply {
-        source_version: source_version_write,
-    } = begin
-    else {
-        panic!("expected a fresh Begin::Apply, got a replay");
-    };
-    let rows = write.owner_rows(owner, &batch).unwrap();
-    for entity in [first.clone(), second.clone()] {
-        let progress = reconciliation_progress(&binding, entity.clone(), revision);
-        let bytes = progress.to_canonical_cbor().unwrap();
-        rows.open_table(SEMANTIC_SOURCE_PROGRESS)
-            .unwrap()
-            .insert((TENANT, BINDING, 1, entity.as_str()), bytes.as_slice())
-            .unwrap();
-    }
-    rows.finish_owner().unwrap();
-    // A write only reaches the kernel's `Finished` admission state
-    // through `finish`; `finish_owner` above closes only the owner-row
-    // half, so `commit` alone is refused.
-    codes
-        .door
-        .mutation_kernel()
-        .finish(&write, &batch, None, 0, source_version_write)
-        .unwrap();
-    codes.door.mutation_kernel().commit(write, &batch).unwrap();
+    seed_via_kernel(&codes, owner, &batch, |rows| {
+        for entity in [first.clone(), second.clone()] {
+            let progress = reconciliation_progress(&binding, entity.clone(), revision);
+            let bytes = progress.to_canonical_cbor().unwrap();
+            rows.open_table(SEMANTIC_SOURCE_PROGRESS)
+                .unwrap()
+                .insert((TENANT, BINDING, 1, entity.as_str()), bytes.as_slice())
+                .unwrap();
+        }
+    });
 
     let (page, next) = codes.list_source_entities_page(1, None, 1).unwrap();
     assert_eq!(page, vec![first.clone()]);
@@ -1465,49 +1438,33 @@ fn complete_reconciliation_tombstone_replaces_completed_prior_revision() {
     let version = eg_transaction::version(&read).unwrap();
     drop(read);
     let batch = seed_batch(owner, 1, "reconciliation-tombstone-seed", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
-    let eg_transaction::Begin::Apply {
-        source_version: source_version_write,
-    } = begin
-    else {
-        panic!("expected a fresh Begin::Apply, got a replay");
-    };
-    let rows = write.owner_rows(owner, &batch).unwrap();
-    let progress_bytes = old_progress.to_canonical_cbor().unwrap();
-    rows.open_table(SEMANTIC_SOURCE_PROGRESS)
-        .unwrap()
-        .insert(
-            (TENANT, BINDING, 1, source_entity_id.as_str()),
-            progress_bytes.as_slice(),
-        )
-        .unwrap();
-    let stage_bytes = old_mutation_bytes.as_slice();
-    rows.open_table(SEMANTIC_STAGES)
-        .unwrap()
-        .insert(
-            (
-                TENANT,
-                BINDING,
-                super::stage::stage_intent_key(&old_intent).as_str(),
-            ),
-            stage_bytes,
-        )
-        .unwrap();
-    let receipt_key = super::stage::stage_receipt_index_key(old_receipt.receipt_digest());
-    rows.open_table(SEMANTIC_STAGES)
-        .unwrap()
-        .insert((TENANT, BINDING, receipt_key.as_str()), stage_bytes)
-        .unwrap();
-    rows.finish_owner().unwrap();
-    // A write only reaches the kernel's `Finished` admission state
-    // through `finish`; `finish_owner` above closes only the owner-row
-    // half, so `commit` alone is refused.
-    codes
-        .door
-        .mutation_kernel()
-        .finish(&write, &batch, None, 0, source_version_write)
-        .unwrap();
-    codes.door.mutation_kernel().commit(write, &batch).unwrap();
+    seed_via_kernel(&codes, owner, &batch, |rows| {
+        let progress_bytes = old_progress.to_canonical_cbor().unwrap();
+        rows.open_table(SEMANTIC_SOURCE_PROGRESS)
+            .unwrap()
+            .insert(
+                (TENANT, BINDING, 1, source_entity_id.as_str()),
+                progress_bytes.as_slice(),
+            )
+            .unwrap();
+        let stage_bytes = old_mutation_bytes.as_slice();
+        rows.open_table(SEMANTIC_STAGES)
+            .unwrap()
+            .insert(
+                (
+                    TENANT,
+                    BINDING,
+                    super::stage::stage_intent_key(&old_intent).as_str(),
+                ),
+                stage_bytes,
+            )
+            .unwrap();
+        let receipt_key = super::stage::stage_receipt_index_key(old_receipt.receipt_digest());
+        rows.open_table(SEMANTIC_STAGES)
+            .unwrap()
+            .insert((TENANT, BINDING, receipt_key.as_str()), stage_bytes)
+            .unwrap();
+    });
 
     let checkpoint = super::reconciliation::SemanticSourceReconciliationCheckpoint {
         source_wakeup_digest: digest(44),
@@ -2230,54 +2187,38 @@ fn refresh_with_s1_moves_head_and_replays_after_the_head_changed() {
     let version = eg_transaction::version(&read).unwrap();
     drop(read);
     let batch = seed_batch(owner, 1, "refresh-seed", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
-    let eg_transaction::Begin::Apply {
-        source_version: source_version_write,
-    } = begin
-    else {
-        panic!("expected a fresh Begin::Apply, got a replay");
-    };
-    let rows = write.owner_rows(owner, &batch).unwrap();
-    let live_bytes = live_one.to_canonical_cbor().unwrap();
-    rows.open_table(SEMANTIC_BINDINGS)
-        .unwrap()
-        .insert((TENANT, BINDING, 1), live_bytes.as_slice())
-        .unwrap();
-    rows.open_table(SEMANTIC_HEADS)
-        .unwrap()
-        .insert((TENANT, BINDING), 1)
-        .unwrap();
-    let state_bytes = to_live.to_canonical_cbor().unwrap();
-    rows.open_table(SEMANTIC_STATES)
-        .unwrap()
-        .insert((TENANT, BINDING), state_bytes.as_slice())
-        .unwrap();
-    let progress_bytes = old_progress.to_canonical_cbor().unwrap();
-    rows.open_table(SEMANTIC_SOURCE_PROGRESS)
-        .unwrap()
-        .insert(
-            (TENANT, BINDING, 1, source_entity_id.as_str()),
-            progress_bytes.as_slice(),
-        )
-        .unwrap();
-    let stage_key = old_intent.intent_digest.to_string();
-    rows.open_table(SEMANTIC_STAGES)
-        .unwrap()
-        .insert(
-            (TENANT, BINDING, stage_key.as_str()),
-            old_mutation_bytes.as_slice(),
-        )
-        .unwrap();
-    rows.finish_owner().unwrap();
-    // A write only reaches the kernel's `Finished` admission state
-    // through `finish`; `finish_owner` above closes only the owner-row
-    // half, so `commit` alone is refused.
-    codes
-        .door
-        .mutation_kernel()
-        .finish(&write, &batch, None, 0, source_version_write)
-        .unwrap();
-    codes.door.mutation_kernel().commit(write, &batch).unwrap();
+    seed_via_kernel(&codes, owner, &batch, |rows| {
+        let live_bytes = live_one.to_canonical_cbor().unwrap();
+        rows.open_table(SEMANTIC_BINDINGS)
+            .unwrap()
+            .insert((TENANT, BINDING, 1), live_bytes.as_slice())
+            .unwrap();
+        rows.open_table(SEMANTIC_HEADS)
+            .unwrap()
+            .insert((TENANT, BINDING), 1)
+            .unwrap();
+        let state_bytes = to_live.to_canonical_cbor().unwrap();
+        rows.open_table(SEMANTIC_STATES)
+            .unwrap()
+            .insert((TENANT, BINDING), state_bytes.as_slice())
+            .unwrap();
+        let progress_bytes = old_progress.to_canonical_cbor().unwrap();
+        rows.open_table(SEMANTIC_SOURCE_PROGRESS)
+            .unwrap()
+            .insert(
+                (TENANT, BINDING, 1, source_entity_id.as_str()),
+                progress_bytes.as_slice(),
+            )
+            .unwrap();
+        let stage_key = old_intent.intent_digest.to_string();
+        rows.open_table(SEMANTIC_STAGES)
+            .unwrap()
+            .insert(
+                (TENANT, BINDING, stage_key.as_str()),
+                old_mutation_bytes.as_slice(),
+            )
+            .unwrap();
+    });
 
     let replacement = binding_for_generation(revision_two, 2);
     let new_input = SemanticDigest::from_bytes([103; 32]);
@@ -2335,32 +2276,16 @@ fn refresh_with_s1_moves_head_and_replays_after_the_head_changed() {
     let version = eg_transaction::version(&read).unwrap();
     drop(read);
     let batch = seed_batch(owner, 1, "refresh-index-repair", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
-    let eg_transaction::Begin::Apply {
-        source_version: source_version_write,
-    } = begin
-    else {
-        panic!("expected a fresh Begin::Apply, got a replay");
-    };
-    let rows = write.owner_rows(owner, &batch).unwrap();
-    let receipt_key = super::stage::stage_receipt_index_key(old_receipt.receipt_digest());
-    rows.open_table(SEMANTIC_STAGES)
-        .unwrap()
-        .insert(
-            (TENANT, BINDING, receipt_key.as_str()),
-            old_mutation_bytes.as_slice(),
-        )
-        .unwrap();
-    rows.finish_owner().unwrap();
-    // A write only reaches the kernel's `Finished` admission state
-    // through `finish`; `finish_owner` above closes only the owner-row
-    // half, so `commit` alone is refused.
-    codes
-        .door
-        .mutation_kernel()
-        .finish(&write, &batch, None, 0, source_version_write)
-        .unwrap();
-    codes.door.mutation_kernel().commit(write, &batch).unwrap();
+    seed_via_kernel(&codes, owner, &batch, |rows| {
+        let receipt_key = super::stage::stage_receipt_index_key(old_receipt.receipt_digest());
+        rows.open_table(SEMANTIC_STAGES)
+            .unwrap()
+            .insert(
+                (TENANT, BINDING, receipt_key.as_str()),
+                old_mutation_bytes.as_slice(),
+            )
+            .unwrap();
+    });
     let first = codes
         .refresh_binding_operation_with_s1(
             1,
@@ -2636,37 +2561,21 @@ fn s6_generation_two_demotes_the_previous_live_binding_in_one_write() {
     let version = eg_transaction::version(&read).unwrap();
     drop(read);
     let batch = seed_batch(owner, 1, "s6-demotion", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
-    let eg_transaction::Begin::Apply {
-        source_version: source_version_write,
-    } = begin
-    else {
-        panic!("expected a fresh Begin::Apply, got a replay");
-    };
-    let rows = write.owner_rows(owner, &batch).unwrap();
-    let binding_bytes = live.to_canonical_cbor().unwrap();
-    rows.open_table(SEMANTIC_BINDINGS)
-        .unwrap()
-        .insert((TENANT, BINDING, 1), binding_bytes.as_slice())
-        .unwrap();
-    rows.open_table(SEMANTIC_POINTERS)
-        .unwrap()
-        .insert(
-            (TENANT, BINDING),
-            pointer.to_canonical_cbor().unwrap().as_slice(),
-        )
-        .unwrap();
-    super::binding::demote_prior_live_binding_in_write(&rows, TENANT, BINDING, 1).unwrap();
-    rows.finish_owner().unwrap();
-    // A write only reaches the kernel's `Finished` admission state
-    // through `finish`; `finish_owner` above closes only the owner-row
-    // half, so `commit` alone is refused.
-    codes
-        .door
-        .mutation_kernel()
-        .finish(&write, &batch, None, 0, source_version_write)
-        .unwrap();
-    codes.door.mutation_kernel().commit(write, &batch).unwrap();
+    seed_via_kernel(&codes, owner, &batch, |rows| {
+        let binding_bytes = live.to_canonical_cbor().unwrap();
+        rows.open_table(SEMANTIC_BINDINGS)
+            .unwrap()
+            .insert((TENANT, BINDING, 1), binding_bytes.as_slice())
+            .unwrap();
+        rows.open_table(SEMANTIC_POINTERS)
+            .unwrap()
+            .insert(
+                (TENANT, BINDING),
+                pointer.to_canonical_cbor().unwrap().as_slice(),
+            )
+            .unwrap();
+        super::binding::demote_prior_live_binding_in_write(rows, TENANT, BINDING, 1).unwrap();
+    });
     let read = codes
         .door
         .storage_kernel()
@@ -3505,28 +3414,7 @@ fn a_second_admitted_write_racing_the_same_version_fails_closed() {
 
     // The winner is an ordinary admitted owner mutation. The legacy ANN
     // publication helper is not used to advance the ledger or scope version.
-    let (winner_write, begin) = codes.door.mutation_kernel().admit(owner, &winner).unwrap();
-    let eg_transaction::Begin::Apply {
-        source_version: source_version_winner_write,
-    } = begin
-    else {
-        panic!("expected a fresh Begin::Apply, got a replay");
-    };
-    let owner_rows = winner_write.owner_rows(owner, &winner).unwrap();
-    owner_rows.finish_owner().unwrap();
-    // A write only reaches the kernel's `Finished` admission state
-    // through `finish`; `finish_owner` above closes only the owner-row
-    // half, so `commit` alone is refused.
-    codes
-        .door
-        .mutation_kernel()
-        .finish(&winner_write, &winner, None, 0, source_version_winner_write)
-        .unwrap();
-    codes
-        .door
-        .mutation_kernel()
-        .commit(winner_write, &winner)
-        .unwrap();
+    seed_via_kernel(&codes, owner, &winner, |_rows| {});
 
     // The loser was built against the version the winner consumed.
     let error = codes
@@ -3551,51 +3439,31 @@ fn production_generation_checkpoint_heads_refuse_stale_s3_and_s5_cas() {
             eg_transaction::version(&codes.door.storage_kernel().read_scope(owner).unwrap())
                 .unwrap();
         let winner = seed_batch(owner, 1, "checkpoint-cas-winner", version);
-        let (winner_write, begin) = codes.door.mutation_kernel().admit(owner, &winner).unwrap();
-        let eg_transaction::Begin::Apply {
-            source_version: source_version_winner_write,
-        } = begin
-        else {
-            panic!("expected a fresh Begin::Apply, got a replay");
-        };
-        let winner_rows = winner_write.owner_rows(owner, &winner).unwrap();
-        let progress_bytes = fixture.progress.to_canonical_cbor().unwrap();
-        winner_rows
-            .open_table(SEMANTIC_SOURCE_PROGRESS)
-            .unwrap()
-            .insert((TENANT, BINDING, 1, "entity:a"), progress_bytes.as_slice())
-            .unwrap();
-        let stage_key = fixture.transition.intent.intent_digest.to_string();
-        winner_rows
-            .open_table(SEMANTIC_STAGES)
-            .unwrap()
-            .insert(
-                (TENANT, BINDING, stage_key.as_str()),
-                fixture.mutation_bytes.as_slice(),
+        seed_via_kernel(&codes, owner, &winner, |winner_rows| {
+            let progress_bytes = fixture.progress.to_canonical_cbor().unwrap();
+            winner_rows
+                .open_table(SEMANTIC_SOURCE_PROGRESS)
+                .unwrap()
+                .insert((TENANT, BINDING, 1, "entity:a"), progress_bytes.as_slice())
+                .unwrap();
+            let stage_key = fixture.transition.intent.intent_digest.to_string();
+            winner_rows
+                .open_table(SEMANTIC_STAGES)
+                .unwrap()
+                .insert(
+                    (TENANT, BINDING, stage_key.as_str()),
+                    fixture.mutation_bytes.as_slice(),
+                )
+                .unwrap();
+            super::persist::persist_generation_checkpoint_update(
+                winner_rows,
+                TENANT,
+                BINDING,
+                &fixture.transition,
+                &fixture.update,
             )
             .unwrap();
-        super::persist::persist_generation_checkpoint_update(
-            &winner_rows,
-            TENANT,
-            BINDING,
-            &fixture.transition,
-            &fixture.update,
-        )
-        .unwrap();
-        winner_rows.finish_owner().unwrap();
-        // A write only reaches the kernel's `Finished` admission state
-        // through `finish`; `finish_owner` above closes only the owner-row
-        // half, so `commit` alone is refused.
-        codes
-            .door
-            .mutation_kernel()
-            .finish(&winner_write, &winner, None, 0, source_version_winner_write)
-            .unwrap();
-        codes
-            .door
-            .mutation_kernel()
-            .commit(winner_write, &winner)
-            .unwrap();
+        });
 
         let before = store_fingerprint(&dir);
         let version =
@@ -3685,103 +3553,86 @@ fn production_six_rejects_complete_nonhead_checkpoint_dependencies() {
     let version =
         eg_transaction::version(&codes.door.storage_kernel().read_scope(owner).unwrap()).unwrap();
     let batch = seed_batch(owner, 1, "checkpoint-s6-head", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
-    let eg_transaction::Begin::Apply {
-        source_version: source_version_write,
-    } = begin
-    else {
-        panic!("expected a fresh Begin::Apply, got a replay");
-    };
-    let rows = write.owner_rows(owner, &batch).unwrap();
-    let progress = SemanticSourceProgress {
-        binding_id: BINDING.to_string(),
-        binding_digest,
-        generation: 1,
-        source_entity_id: "entity:a".to_string(),
-        source_revision: "r1".to_string(),
-        completed_stage: Some(SemanticStage::AnnIndex),
-        completed_receipt_digest: Some(ann_fixture.transition.receipt.receipt_digest()),
-        superseded_by_revision: None,
-        updated_at: "unix-ms:1".to_string(),
-    };
-    let progress_bytes = progress.to_canonical_cbor().unwrap();
-    rows.open_table(SEMANTIC_SOURCE_PROGRESS)
-        .unwrap()
-        .insert((TENANT, BINDING, 1, "entity:a"), progress_bytes.as_slice())
-        .unwrap();
-    let ann_stage_key = ann_fixture.transition.intent.intent_digest.to_string();
-    rows.open_table(SEMANTIC_STAGES)
-        .unwrap()
-        .insert(
-            (TENANT, BINDING, ann_stage_key.as_str()),
-            ann_fixture.mutation_bytes.as_slice(),
-        )
-        .unwrap();
-    for checkpoint in [&lexical, &orphan_lexical, &ann] {
-        let key = checkpoint.checkpoint_digest.to_string();
-        let bytes = checkpoint.to_canonical_cbor().unwrap();
-        rows.open_table(SEMANTIC_CHECKPOINTS)
+    seed_via_kernel(&codes, owner, &batch, |rows| {
+        let progress = SemanticSourceProgress {
+            binding_id: BINDING.to_string(),
+            binding_digest,
+            generation: 1,
+            source_entity_id: "entity:a".to_string(),
+            source_revision: "r1".to_string(),
+            completed_stage: Some(SemanticStage::AnnIndex),
+            completed_receipt_digest: Some(ann_fixture.transition.receipt.receipt_digest()),
+            superseded_by_revision: None,
+            updated_at: "unix-ms:1".to_string(),
+        };
+        let progress_bytes = progress.to_canonical_cbor().unwrap();
+        rows.open_table(SEMANTIC_SOURCE_PROGRESS)
             .unwrap()
-            .insert((TENANT, BINDING, 1, key.as_str()), bytes.as_slice())
+            .insert((TENANT, BINDING, 1, "entity:a"), progress_bytes.as_slice())
             .unwrap();
-        if checkpoint != &orphan_lexical {
-            rows.open_table(SEMANTIC_CHECKPOINT_HEADS)
+        let ann_stage_key = ann_fixture.transition.intent.intent_digest.to_string();
+        rows.open_table(SEMANTIC_STAGES)
+            .unwrap()
+            .insert(
+                (TENANT, BINDING, ann_stage_key.as_str()),
+                ann_fixture.mutation_bytes.as_slice(),
+            )
+            .unwrap();
+        for checkpoint in [&lexical, &orphan_lexical, &ann] {
+            let key = checkpoint.checkpoint_digest.to_string();
+            let bytes = checkpoint.to_canonical_cbor().unwrap();
+            rows.open_table(SEMANTIC_CHECKPOINTS)
                 .unwrap()
-                .insert(
-                    (TENANT, BINDING, 1, "r1", checkpoint.stage.as_str()),
-                    bytes.as_slice(),
-                )
+                .insert((TENANT, BINDING, 1, key.as_str()), bytes.as_slice())
                 .unwrap();
+            if checkpoint != &orphan_lexical {
+                rows.open_table(SEMANTIC_CHECKPOINT_HEADS)
+                    .unwrap()
+                    .insert(
+                        (TENANT, BINDING, 1, "r1", checkpoint.stage.as_str()),
+                        bytes.as_slice(),
+                    )
+                    .unwrap();
+            }
         }
-    }
-    let refused =
-        super::predecessor::validate_six_checkpoint_write(&rows, TENANT, BINDING, &forged)
+        let refused = super::predecessor::validate_six_checkpoint_write(rows, TENANT, BINDING, &forged)
             .expect_err(
                 "a complete checkpoint that names a non-head lexical branch must be refused",
             );
-    assert!(
-        refused.to_string().contains("current lexical/ANN head"),
-        "unexpected non-head S6 refusal: {refused}"
-    );
-    super::predecessor::validate_six_checkpoint_write(&rows, TENANT, BINDING, &exact)
-        .expect("the exact lexical and ANN heads must satisfy S6 validation");
-    let lexical_bytes = lexical.to_canonical_cbor().unwrap();
-    assert_eq!(
-        rows.open_table(SEMANTIC_CHECKPOINT_HEADS)
-            .unwrap()
-            .get((
-                TENANT,
-                BINDING,
-                1,
-                "r1",
-                SemanticStage::LexicalIndex.as_str(),
-            ))
-            .unwrap()
-            .map(|value| value.value().to_vec()),
-        Some(lexical_bytes),
-        "the durable lexical head remains the selected branch"
-    );
-    let orphan_key = orphan_lexical.checkpoint_digest.to_string();
-    let orphan_bytes = orphan_lexical.to_canonical_cbor().unwrap();
-    assert_eq!(
-        rows.open_table(SEMANTIC_CHECKPOINTS)
-            .unwrap()
-            .get((TENANT, BINDING, 1, orphan_key.as_str()))
-            .unwrap()
-            .map(|value| value.value().to_vec()),
-        Some(orphan_bytes),
-        "non-head lexical branch remains durable while excluded from authority"
-    );
-    rows.finish_owner().unwrap();
-    // A write only reaches the kernel's `Finished` admission state
-    // through `finish`; `finish_owner` above closes only the owner-row
-    // half, so `commit` alone is refused.
-    codes
-        .door
-        .mutation_kernel()
-        .finish(&write, &batch, None, 0, source_version_write)
-        .unwrap();
-    codes.door.mutation_kernel().commit(write, &batch).unwrap();
+        assert!(
+            refused.to_string().contains("current lexical/ANN head"),
+            "unexpected non-head S6 refusal: {refused}"
+        );
+        super::predecessor::validate_six_checkpoint_write(rows, TENANT, BINDING, &exact)
+            .expect("the exact lexical and ANN heads must satisfy S6 validation");
+        let lexical_bytes = lexical.to_canonical_cbor().unwrap();
+        assert_eq!(
+            rows.open_table(SEMANTIC_CHECKPOINT_HEADS)
+                .unwrap()
+                .get((
+                    TENANT,
+                    BINDING,
+                    1,
+                    "r1",
+                    SemanticStage::LexicalIndex.as_str(),
+                ))
+                .unwrap()
+                .map(|value| value.value().to_vec()),
+            Some(lexical_bytes),
+            "the durable lexical head remains the selected branch"
+        );
+        let orphan_key = orphan_lexical.checkpoint_digest.to_string();
+        let orphan_bytes = orphan_lexical.to_canonical_cbor().unwrap();
+        assert_eq!(
+            rows.open_table(SEMANTIC_CHECKPOINTS)
+                .unwrap()
+                .get((TENANT, BINDING, 1, orphan_key.as_str()))
+                .unwrap()
+                .map(|value| value.value().to_vec()),
+            Some(orphan_bytes),
+            "non-head lexical branch remains durable while excluded from authority"
+        );
+    });
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -3799,70 +3650,57 @@ fn checkpoint_head_resolves_only_the_durable_pointer() {
     let version =
         eg_transaction::version(&codes.door.storage_kernel().read_scope(owner).unwrap()).unwrap();
     let batch = seed_batch(owner, 1, "checkpoint-head", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
-    let eg_transaction::Begin::Apply {
-        source_version: source_version_write,
-    } = begin
-    else {
-        panic!("expected a fresh Begin::Apply, got a replay");
-    };
-    let rows = write.owner_rows(owner, &batch).unwrap();
-    let partial_key = partial.checkpoint_digest.to_string();
-    let partial_bytes = partial.to_canonical_cbor().unwrap();
-    let complete_key = complete.checkpoint_digest.to_string();
-    let complete_bytes = complete.to_canonical_cbor().unwrap();
-    rows.open_table(SEMANTIC_CHECKPOINTS)
-        .unwrap()
-        .insert(
-            ("native", "binding-a", 1, partial_key.as_str()),
-            partial_bytes.as_slice(),
+    seed_via_kernel(&codes, owner, &batch, |rows| {
+        let partial_key = partial.checkpoint_digest.to_string();
+        let partial_bytes = partial.to_canonical_cbor().unwrap();
+        let complete_key = complete.checkpoint_digest.to_string();
+        let complete_bytes = complete.to_canonical_cbor().unwrap();
+        rows.open_table(SEMANTIC_CHECKPOINTS)
+            .unwrap()
+            .insert(
+                ("native", "binding-a", 1, partial_key.as_str()),
+                partial_bytes.as_slice(),
+            )
+            .unwrap();
+        rows.open_table(SEMANTIC_CHECKPOINTS)
+            .unwrap()
+            .insert(
+                ("native", "binding-a", 1, complete_key.as_str()),
+                complete_bytes.as_slice(),
+            )
+            .unwrap();
+        // Only the COMPLETE checkpoint gets a durable head pointer; the partial one
+        // stays a durable-but-unselected branch.
+        rows.open_table(SEMANTIC_CHECKPOINT_HEADS)
+            .unwrap()
+            .insert(
+                (
+                    "native",
+                    "binding-a",
+                    1,
+                    "r1",
+                    SemanticStage::LexicalIndex.as_str(),
+                ),
+                complete_bytes.as_slice(),
+            )
+            .unwrap();
+        let head = current_checkpoint_from_tables(
+            &rows.open_table(SEMANTIC_CHECKPOINTS).unwrap(),
+            &rows.open_table(SEMANTIC_CHECKPOINT_HEADS).unwrap(),
+            GenerationCoordinates {
+                tenant: "native",
+                binding: "binding-a",
+                generation: 1,
+                binding_digest: SemanticDigest::from_bytes([8; 32]),
+                source_revision: "r1",
+            },
+            SemanticStage::LexicalIndex,
         )
-        .unwrap();
-    rows.open_table(SEMANTIC_CHECKPOINTS)
         .unwrap()
-        .insert(
-            ("native", "binding-a", 1, complete_key.as_str()),
-            complete_bytes.as_slice(),
-        )
-        .unwrap();
-    // Only the COMPLETE checkpoint gets a durable head pointer; the partial one
-    // stays a durable-but-unselected branch.
-    rows.open_table(SEMANTIC_CHECKPOINT_HEADS)
-        .unwrap()
-        .insert(
-            (
-                "native",
-                "binding-a",
-                1,
-                "r1",
-                SemanticStage::LexicalIndex.as_str(),
-            ),
-            complete_bytes.as_slice(),
-        )
-        .unwrap();
-    let head = current_checkpoint_from_tables(
-        &rows.open_table(SEMANTIC_CHECKPOINTS).unwrap(),
-        &rows.open_table(SEMANTIC_CHECKPOINT_HEADS).unwrap(),
-        GenerationCoordinates {
-            tenant: "native",
-            binding: "binding-a",
-            generation: 1,
-            binding_digest: SemanticDigest::from_bytes([8; 32]),
-            source_revision: "r1",
-        },
-        SemanticStage::LexicalIndex,
-    )
-    .unwrap()
-    .expect("a durable checkpoint head must be found");
-    assert_eq!(head.checkpoint_digest, complete.checkpoint_digest);
-    assert_eq!(head.aggregate.completed_entity_count, 2);
-    rows.finish_owner().unwrap();
-    codes
-        .door
-        .mutation_kernel()
-        .finish(&write, &batch, None, 0, source_version_write)
-        .unwrap();
-    codes.door.mutation_kernel().commit(write, &batch).unwrap();
+        .expect("a durable checkpoint head must be found");
+        assert_eq!(head.checkpoint_digest, complete.checkpoint_digest);
+        assert_eq!(head.aggregate.completed_entity_count, 2);
+    });
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -3885,48 +3723,35 @@ fn checkpoint_head_does_not_promote_orphan_higher_count_rows() {
     let version =
         eg_transaction::version(&codes.door.storage_kernel().read_scope(owner).unwrap()).unwrap();
     let batch = seed_batch(owner, 1, "checkpoint-orphan", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
-    let eg_transaction::Begin::Apply {
-        source_version: source_version_write,
-    } = begin
-    else {
-        panic!("expected a fresh Begin::Apply, got a replay");
-    };
-    let rows = write.owner_rows(owner, &batch).unwrap();
-    // No `SEMANTIC_CHECKPOINT_HEADS` row is written on purpose -- an orphan
-    // checkpoint is exactly one with no durable head pointer.
-    for checkpoint in [&partial, &complete] {
-        let key = checkpoint.checkpoint_digest.to_string();
-        let bytes = checkpoint.to_canonical_cbor().unwrap();
-        rows.open_table(SEMANTIC_CHECKPOINTS)
+    seed_via_kernel(&codes, owner, &batch, |rows| {
+        // No `SEMANTIC_CHECKPOINT_HEADS` row is written on purpose -- an orphan
+        // checkpoint is exactly one with no durable head pointer.
+        for checkpoint in [&partial, &complete] {
+            let key = checkpoint.checkpoint_digest.to_string();
+            let bytes = checkpoint.to_canonical_cbor().unwrap();
+            rows.open_table(SEMANTIC_CHECKPOINTS)
+                .unwrap()
+                .insert(("native", "binding-a", 1, key.as_str()), bytes.as_slice())
+                .unwrap();
+        }
+        assert!(
+            current_checkpoint_from_tables(
+                &rows.open_table(SEMANTIC_CHECKPOINTS).unwrap(),
+                &rows.open_table(SEMANTIC_CHECKPOINT_HEADS).unwrap(),
+                GenerationCoordinates {
+                    tenant: "native",
+                    binding: "binding-a",
+                    generation: 1,
+                    binding_digest: SemanticDigest::from_bytes([8; 32]),
+                    source_revision: "r1",
+                },
+                SemanticStage::LexicalIndex,
+            )
             .unwrap()
-            .insert(("native", "binding-a", 1, key.as_str()), bytes.as_slice())
-            .unwrap();
-    }
-    assert!(
-        current_checkpoint_from_tables(
-            &rows.open_table(SEMANTIC_CHECKPOINTS).unwrap(),
-            &rows.open_table(SEMANTIC_CHECKPOINT_HEADS).unwrap(),
-            GenerationCoordinates {
-                tenant: "native",
-                binding: "binding-a",
-                generation: 1,
-                binding_digest: SemanticDigest::from_bytes([8; 32]),
-                source_revision: "r1",
-            },
-            SemanticStage::LexicalIndex,
-        )
-        .unwrap()
-        .is_none(),
-        "an orphan checkpoint row must not become a stage head by completion count"
-    );
-    rows.finish_owner().unwrap();
-    codes
-        .door
-        .mutation_kernel()
-        .finish(&write, &batch, None, 0, source_version_write)
-        .unwrap();
-    codes.door.mutation_kernel().commit(write, &batch).unwrap();
+            .is_none(),
+            "an orphan checkpoint row must not become a stage head by completion count"
+        );
+    });
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -3943,73 +3768,60 @@ fn checkpoint_head_rejects_pointer_row_bytes_mismatch() {
     let version =
         eg_transaction::version(&codes.door.storage_kernel().read_scope(owner).unwrap()).unwrap();
     let batch = seed_batch(owner, 1, "checkpoint-ambiguity", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
-    let eg_transaction::Begin::Apply {
-        source_version: source_version_write,
-    } = begin
-    else {
-        panic!("expected a fresh Begin::Apply, got a replay");
-    };
-    let rows = write.owner_rows(owner, &batch).unwrap();
-    let left_key = left.checkpoint_digest.to_string();
-    let left_bytes = left.to_canonical_cbor().unwrap();
-    let right_key = right.checkpoint_digest.to_string();
-    let right_bytes = right.to_canonical_cbor().unwrap();
-    // The row filed under LEFT's key deliberately holds RIGHT's bytes -- that
-    // disagreement is what the head pointer must fail closed on.
-    rows.open_table(SEMANTIC_CHECKPOINTS)
-        .unwrap()
-        .insert(
-            ("native", "binding-a", 1, left_key.as_str()),
-            right_bytes.as_slice(),
+    seed_via_kernel(&codes, owner, &batch, |rows| {
+        let left_key = left.checkpoint_digest.to_string();
+        let left_bytes = left.to_canonical_cbor().unwrap();
+        let right_key = right.checkpoint_digest.to_string();
+        let right_bytes = right.to_canonical_cbor().unwrap();
+        // The row filed under LEFT's key deliberately holds RIGHT's bytes -- that
+        // disagreement is what the head pointer must fail closed on.
+        rows.open_table(SEMANTIC_CHECKPOINTS)
+            .unwrap()
+            .insert(
+                ("native", "binding-a", 1, left_key.as_str()),
+                right_bytes.as_slice(),
+            )
+            .unwrap();
+        rows.open_table(SEMANTIC_CHECKPOINTS)
+            .unwrap()
+            .insert(
+                ("native", "binding-a", 1, right_key.as_str()),
+                right_bytes.as_slice(),
+            )
+            .unwrap();
+        rows.open_table(SEMANTIC_CHECKPOINT_HEADS)
+            .unwrap()
+            .insert(
+                (
+                    "native",
+                    "binding-a",
+                    1,
+                    "r1",
+                    SemanticStage::LexicalIndex.as_str(),
+                ),
+                left_bytes.as_slice(),
+            )
+            .unwrap();
+        let error = current_checkpoint_from_tables(
+            &rows.open_table(SEMANTIC_CHECKPOINTS).unwrap(),
+            &rows.open_table(SEMANTIC_CHECKPOINT_HEADS).unwrap(),
+            GenerationCoordinates {
+                tenant: "native",
+                binding: "binding-a",
+                generation: 1,
+                binding_digest: SemanticDigest::from_bytes([8; 32]),
+                source_revision: "r1",
+            },
+            SemanticStage::LexicalIndex,
         )
-        .unwrap();
-    rows.open_table(SEMANTIC_CHECKPOINTS)
-        .unwrap()
-        .insert(
-            ("native", "binding-a", 1, right_key.as_str()),
-            right_bytes.as_slice(),
-        )
-        .unwrap();
-    rows.open_table(SEMANTIC_CHECKPOINT_HEADS)
-        .unwrap()
-        .insert(
-            (
-                "native",
-                "binding-a",
-                1,
-                "r1",
-                SemanticStage::LexicalIndex.as_str(),
-            ),
-            left_bytes.as_slice(),
-        )
-        .unwrap();
-    let error = current_checkpoint_from_tables(
-        &rows.open_table(SEMANTIC_CHECKPOINTS).unwrap(),
-        &rows.open_table(SEMANTIC_CHECKPOINT_HEADS).unwrap(),
-        GenerationCoordinates {
-            tenant: "native",
-            binding: "binding-a",
-            generation: 1,
-            binding_digest: SemanticDigest::from_bytes([8; 32]),
-            source_revision: "r1",
-        },
-        SemanticStage::LexicalIndex,
-    )
-    .expect_err("a pointer whose checkpoint row bytes differ must fail closed");
-    assert!(
-        error
-            .to_string()
-            .contains("head bytes differ from its checkpoint row"),
-        "unexpected ambiguity error: {error}"
-    );
-    rows.finish_owner().unwrap();
-    codes
-        .door
-        .mutation_kernel()
-        .finish(&write, &batch, None, 0, source_version_write)
-        .unwrap();
-    codes.door.mutation_kernel().commit(write, &batch).unwrap();
+        .expect_err("a pointer whose checkpoint row bytes differ must fail closed");
+        assert!(
+            error
+                .to_string()
+                .contains("head bytes differ from its checkpoint row"),
+            "unexpected ambiguity error: {error}"
+        );
+    });
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -4037,48 +3849,35 @@ fn authoritative_state_rejects_completed_progress_without_stage_receipt() {
     let version =
         eg_transaction::version(&codes.door.storage_kernel().read_scope(owner).unwrap()).unwrap();
     let batch = seed_batch(owner, 1, "checkpoint-progress", version);
-    let (write, begin) = codes.door.mutation_kernel().admit(owner, &batch).unwrap();
-    let eg_transaction::Begin::Apply {
-        source_version: source_version_write,
-    } = begin
-    else {
-        panic!("expected a fresh Begin::Apply, got a replay");
-    };
-    let rows = write.owner_rows(owner, &batch).unwrap();
-    let bytes = progress.to_canonical_cbor().unwrap();
-    rows.open_table(SEMANTIC_SOURCE_PROGRESS)
-        .unwrap()
-        .insert(("native", "binding-a", 1, "entity:a"), bytes.as_slice())
-        .unwrap();
-    // `SEMANTIC_STAGES` is left EMPTY on purpose: the progress row above claims
-    // a completed stage, and the missing stage receipt is what must be refused.
-    let error = super::checkpoint::authoritative_generation_state(
-        &rows.open_table(SEMANTIC_SOURCE_PROGRESS).unwrap(),
-        &rows.open_table(SEMANTIC_STAGES).unwrap(),
-        GenerationCoordinates {
-            tenant: "native",
-            binding: "binding-a",
-            generation: 1,
-            binding_digest: SemanticDigest::from_bytes([8; 32]),
-            source_revision: "r1",
-        },
-        SemanticStage::LexicalIndex,
-        SemanticStage::LexicalIndex,
-        None,
-    )
-    .expect_err("completed progress without a receipt must not complete a checkpoint");
-    assert!(
-        error
-            .to_string()
-            .contains("completed source progress without a stage receipt"),
-        "unexpected authoritative-state error: {error}"
-    );
-    rows.finish_owner().unwrap();
-    codes
-        .door
-        .mutation_kernel()
-        .finish(&write, &batch, None, 0, source_version_write)
-        .unwrap();
-    codes.door.mutation_kernel().commit(write, &batch).unwrap();
+    seed_via_kernel(&codes, owner, &batch, |rows| {
+        let bytes = progress.to_canonical_cbor().unwrap();
+        rows.open_table(SEMANTIC_SOURCE_PROGRESS)
+            .unwrap()
+            .insert(("native", "binding-a", 1, "entity:a"), bytes.as_slice())
+            .unwrap();
+        // `SEMANTIC_STAGES` is left EMPTY on purpose: the progress row above claims
+        // a completed stage, and the missing stage receipt is what must be refused.
+        let error = super::checkpoint::authoritative_generation_state(
+            &rows.open_table(SEMANTIC_SOURCE_PROGRESS).unwrap(),
+            &rows.open_table(SEMANTIC_STAGES).unwrap(),
+            GenerationCoordinates {
+                tenant: "native",
+                binding: "binding-a",
+                generation: 1,
+                binding_digest: SemanticDigest::from_bytes([8; 32]),
+                source_revision: "r1",
+            },
+            SemanticStage::LexicalIndex,
+            SemanticStage::LexicalIndex,
+            None,
+        )
+        .expect_err("completed progress without a receipt must not complete a checkpoint");
+        assert!(
+            error
+                .to_string()
+                .contains("completed source progress without a stage receipt"),
+            "unexpected authoritative-state error: {error}"
+        );
+    });
     let _ = std::fs::remove_dir_all(&dir);
 }

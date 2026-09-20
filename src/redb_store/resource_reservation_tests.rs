@@ -2002,6 +2002,23 @@ fn host_refresh_rejects_filesystem_shrink_under_existing_held_disk() {
             let mut anti_affinity = graph.open_scoped_table(RESOURCE_ANTI_AFFINITY).unwrap();
             let mut disk_policies = graph.open_scoped_table(RESOURCE_DISK_POLICIES).unwrap();
             let crypto = DurableCrypto::none();
+            macro_rules! reservation_tables {
+                () => {
+                    ResourceReservationTables {
+                        nodes: &mut nodes,
+                        reservations: &mut reservations,
+                        tenant_index: &mut tenant_index,
+                        attempts: &mut attempts,
+                        hosts: &mut hosts,
+                        exclusivity: &mut exclusivity,
+                        fairness: &mut fairness,
+                        concurrency: &mut concurrency,
+                        anti_affinity: &mut anti_affinity,
+                        disk_policies: &mut disk_policies,
+                        crypto,
+                    }
+                };
+            }
             let current = host();
             resource_put_host(&mut hosts, "graph-a", &current, crypto).unwrap();
             let refreshed = ResourceHostUpdateRequest {
@@ -2026,19 +2043,7 @@ fn host_refresh_rejects_filesystem_shrink_under_existing_held_disk() {
             let result = apply_resource_reservation_rows(ResourceReservationApplyRequest {
                 graph: "graph-a",
                 method: &Method::UpdateResourceHost { request: refreshed },
-                tables: ResourceReservationTables {
-                    nodes: &mut nodes,
-                    reservations: &mut reservations,
-                    tenant_index: &mut tenant_index,
-                    attempts: &mut attempts,
-                    hosts: &mut hosts,
-                    exclusivity: &mut exclusivity,
-                    fairness: &mut fairness,
-                    concurrency: &mut concurrency,
-                    anti_affinity: &mut anti_affinity,
-                    disk_policies: &mut disk_policies,
-                    crypto,
-                },
+                tables: reservation_tables!(),
             })
             .unwrap()
             .expect("host update returns a typed refusal");
@@ -2095,6 +2100,23 @@ fn host_disk_policy_projection_caps_at_schema_bound() {
             let mut anti_affinity = graph.open_scoped_table(RESOURCE_ANTI_AFFINITY).unwrap();
             let mut disk_policies = graph.open_scoped_table(RESOURCE_DISK_POLICIES).unwrap();
             let crypto = DurableCrypto::none();
+            macro_rules! reservation_tables {
+                () => {
+                    ResourceReservationTables {
+                        nodes: &mut nodes,
+                        reservations: &mut reservations,
+                        tenant_index: &mut tenant_index,
+                        attempts: &mut attempts,
+                        hosts: &mut hosts,
+                        exclusivity: &mut exclusivity,
+                        fairness: &mut fairness,
+                        concurrency: &mut concurrency,
+                        anti_affinity: &mut anti_affinity,
+                        disk_policies: &mut disk_policies,
+                        crypto,
+                    }
+                };
+            }
             let current = host();
             resource_put_host(&mut hosts, "graph-a", &current, crypto).unwrap();
             let policy = DurableResourceDiskPolicy {
@@ -2136,38 +2158,14 @@ fn host_disk_policy_projection_caps_at_schema_bound() {
                 method: &Method::UpdateResourceHost {
                     request: invalid_ttl,
                 },
-                tables: ResourceReservationTables {
-                    nodes: &mut nodes,
-                    reservations: &mut reservations,
-                    tenant_index: &mut tenant_index,
-                    attempts: &mut attempts,
-                    hosts: &mut hosts,
-                    exclusivity: &mut exclusivity,
-                    fairness: &mut fairness,
-                    concurrency: &mut concurrency,
-                    anti_affinity: &mut anti_affinity,
-                    disk_policies: &mut disk_policies,
-                    crypto,
-                },
+                tables: reservation_tables!(),
             })
             .expect_err("heartbeat TTL below the schema minimum must fail closed");
             assert!(error.contains("telemetry bounds"));
             apply_resource_reservation_rows(ResourceReservationApplyRequest {
                 graph: "graph-a",
                 method: &Method::UpdateResourceHost { request: update(8) },
-                tables: ResourceReservationTables {
-                    nodes: &mut nodes,
-                    reservations: &mut reservations,
-                    tenant_index: &mut tenant_index,
-                    attempts: &mut attempts,
-                    hosts: &mut hosts,
-                    exclusivity: &mut exclusivity,
-                    fairness: &mut fairness,
-                    concurrency: &mut concurrency,
-                    anti_affinity: &mut anti_affinity,
-                    disk_policies: &mut disk_policies,
-                    crypto,
-                },
+                tables: reservation_tables!(),
             })
             .expect("128 policy rows remain representable")
             .expect("host update result");
@@ -2187,19 +2185,7 @@ fn host_disk_policy_projection_caps_at_schema_bound() {
             let error = apply_resource_reservation_rows(ResourceReservationApplyRequest {
                 graph: "graph-a",
                 method: &Method::UpdateResourceHost { request: update(9) },
-                tables: ResourceReservationTables {
-                    nodes: &mut nodes,
-                    reservations: &mut reservations,
-                    tenant_index: &mut tenant_index,
-                    attempts: &mut attempts,
-                    hosts: &mut hosts,
-                    exclusivity: &mut exclusivity,
-                    fairness: &mut fairness,
-                    concurrency: &mut concurrency,
-                    anti_affinity: &mut anti_affinity,
-                    disk_policies: &mut disk_policies,
-                    crypto,
-                },
+                tables: reservation_tables!(),
             })
             .expect_err("129 policy rows exceed the generated snapshot bound");
             assert!(error.contains("disk-policy scan exceeds native bound"));
@@ -2256,6 +2242,23 @@ fn orphan_attempt_index_fails_closed_without_recharging_host() {
             let mut anti_affinity = graph.open_scoped_table(RESOURCE_ANTI_AFFINITY).unwrap();
             let mut disk_policies = graph.open_scoped_table(RESOURCE_DISK_POLICIES).unwrap();
             let crypto = DurableCrypto::none();
+            macro_rules! reservation_tables {
+                () => {
+                    ResourceReservationTables {
+                        nodes: &mut nodes,
+                        reservations: &mut reservations,
+                        tenant_index: &mut tenant_index,
+                        attempts: &mut attempts,
+                        hosts: &mut hosts,
+                        exclusivity: &mut exclusivity,
+                        fairness: &mut fairness,
+                        concurrency: &mut concurrency,
+                        anti_affinity: &mut anti_affinity,
+                        disk_policies: &mut disk_policies,
+                        crypto,
+                    }
+                };
+            }
             let props = work_item_props();
             let props_bytes = rmp_serde::to_vec_named(&props).unwrap();
             nodes
@@ -2286,19 +2289,7 @@ fn orphan_attempt_index_fails_closed_without_recharging_host() {
                 method: &Method::ReserveWorkItemResources {
                     request: reserve_request.clone(),
                 },
-                tables: ResourceReservationTables {
-                    nodes: &mut nodes,
-                    reservations: &mut reservations,
-                    tenant_index: &mut tenant_index,
-                    attempts: &mut attempts,
-                    hosts: &mut hosts,
-                    exclusivity: &mut exclusivity,
-                    fairness: &mut fairness,
-                    concurrency: &mut concurrency,
-                    anti_affinity: &mut anti_affinity,
-                    disk_policies: &mut disk_policies,
-                    crypto,
-                },
+                tables: reservation_tables!(),
             })
             .expect_err("an orphan attempt index is corruption, not an idempotent win");
             assert!(error.contains("attempt index references missing reservation"));
@@ -2329,19 +2320,7 @@ fn orphan_attempt_index_fails_closed_without_recharging_host() {
                 method: &Method::ReserveWorkItemResources {
                     request: reserve_request.clone(),
                 },
-                tables: ResourceReservationTables {
-                    nodes: &mut nodes,
-                    reservations: &mut reservations,
-                    tenant_index: &mut tenant_index,
-                    attempts: &mut attempts,
-                    hosts: &mut hosts,
-                    exclusivity: &mut exclusivity,
-                    fairness: &mut fairness,
-                    concurrency: &mut concurrency,
-                    anti_affinity: &mut anti_affinity,
-                    disk_policies: &mut disk_policies,
-                    crypto,
-                },
+                tables: reservation_tables!(),
             })
             .unwrap()
             .expect("reserve result");
@@ -2371,19 +2350,7 @@ fn orphan_attempt_index_fails_closed_without_recharging_host() {
                     method: &Method::ReleaseWorkItemResources {
                         request: stale_release,
                     },
-                    tables: ResourceReservationTables {
-                        nodes: &mut nodes,
-                        reservations: &mut reservations,
-                        tenant_index: &mut tenant_index,
-                        attempts: &mut attempts,
-                        hosts: &mut hosts,
-                        exclusivity: &mut exclusivity,
-                        fairness: &mut fairness,
-                        concurrency: &mut concurrency,
-                        anti_affinity: &mut anti_affinity,
-                        disk_policies: &mut disk_policies,
-                        crypto,
-                    },
+                    tables: reservation_tables!(),
                 })
                 .unwrap()
                 .expect("stale lifecycle refusal result");
@@ -2401,19 +2368,7 @@ fn orphan_attempt_index_fails_closed_without_recharging_host() {
                 method: &Method::ReleaseWorkItemResources {
                     request: release_request.clone(),
                 },
-                tables: ResourceReservationTables {
-                    nodes: &mut nodes,
-                    reservations: &mut reservations,
-                    tenant_index: &mut tenant_index,
-                    attempts: &mut attempts,
-                    hosts: &mut hosts,
-                    exclusivity: &mut exclusivity,
-                    fairness: &mut fairness,
-                    concurrency: &mut concurrency,
-                    anti_affinity: &mut anti_affinity,
-                    disk_policies: &mut disk_policies,
-                    crypto,
-                },
+                tables: reservation_tables!(),
             })
             .unwrap()
             .expect("release result");
@@ -2437,19 +2392,7 @@ fn orphan_attempt_index_fails_closed_without_recharging_host() {
                 method: &Method::ReleaseWorkItemResources {
                     request: release_request,
                 },
-                tables: ResourceReservationTables {
-                    nodes: &mut nodes,
-                    reservations: &mut reservations,
-                    tenant_index: &mut tenant_index,
-                    attempts: &mut attempts,
-                    hosts: &mut hosts,
-                    exclusivity: &mut exclusivity,
-                    fairness: &mut fairness,
-                    concurrency: &mut concurrency,
-                    anti_affinity: &mut anti_affinity,
-                    disk_policies: &mut disk_policies,
-                    crypto,
-                },
+                tables: reservation_tables!(),
             })
             .unwrap()
             .expect("release replay result");
@@ -2466,19 +2409,7 @@ fn orphan_attempt_index_fails_closed_without_recharging_host() {
                     method: &Method::ReleaseWorkItemResources {
                         request: changed_precondition,
                     },
-                    tables: ResourceReservationTables {
-                        nodes: &mut nodes,
-                        reservations: &mut reservations,
-                        tenant_index: &mut tenant_index,
-                        attempts: &mut attempts,
-                        hosts: &mut hosts,
-                        exclusivity: &mut exclusivity,
-                        fairness: &mut fairness,
-                        concurrency: &mut concurrency,
-                        anti_affinity: &mut anti_affinity,
-                        disk_policies: &mut disk_policies,
-                        crypto,
-                    },
+                    tables: reservation_tables!(),
                 })
                 .unwrap()
                 .expect("changed lifecycle refusal result");
@@ -2498,19 +2429,7 @@ fn orphan_attempt_index_fails_closed_without_recharging_host() {
                 method: &Method::ReserveWorkItemResources {
                     request: changed_id,
                 },
-                tables: ResourceReservationTables {
-                    nodes: &mut nodes,
-                    reservations: &mut reservations,
-                    tenant_index: &mut tenant_index,
-                    attempts: &mut attempts,
-                    hosts: &mut hosts,
-                    exclusivity: &mut exclusivity,
-                    fairness: &mut fairness,
-                    concurrency: &mut concurrency,
-                    anti_affinity: &mut anti_affinity,
-                    disk_policies: &mut disk_policies,
-                    crypto,
-                },
+                tables: reservation_tables!(),
             })
             .unwrap()
             .expect("changed-id refusal result");

@@ -51,6 +51,26 @@ fn msgpack_bytes<T: serde::Serialize + ?Sized>(value: &T) -> Result<Vec<u8>, Str
     rmp_serde::to_vec_named(value).map_err(|error| format!("result serialization failed: {error}"))
 }
 
+/// Encode a [`eg_query::TypedQueryResult`] as the wire `Sql` response:
+/// msgpack every cell, or fail the whole response if one cell can't encode.
+/// The plain, cancellable, and graph-table-backed typed-SQL execution paths
+/// all reach exactly this row-to-wire step once DataFusion has produced
+/// typed rows — one owner so a change to how a cell fails to encode can't
+/// land on one path and not the others.
+#[cfg(feature = "query")]
+fn typed_sql_response(req_id: u64, typed: eg_query::TypedQueryResult) -> Response {
+    match typed.rows.iter().map(msgpack_bytes).collect() {
+        Ok(rows) => dynamic_response::<query_results::Sql, _>(
+            req_id,
+            &crate::protocol::QueryResult {
+                columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
+                rows,
+            },
+        ),
+        Err(error) => Response::err(req_id, error),
+    }
+}
+
 /// Answer with `body` encoded as `M`'s declared result.
 #[cfg(feature = "query")]
 fn result_response<M>(req_id: u64, body: &M::Body) -> Response

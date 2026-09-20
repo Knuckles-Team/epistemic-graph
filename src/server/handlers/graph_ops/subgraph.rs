@@ -20,18 +20,16 @@ fn handle_get_subgraph(req_id: u64, core: &Arc<GraphCore>, node_ids: &[String]) 
             properties: props,
         });
     }
-    let mut edges = Vec::new();
-    for ((src, tgt), blobs) in &sub.edge_properties {
-        for blob in blobs {
-            let props =
-                eg_types::msgpack::decode_property_value(blob).unwrap_or(serde_json::Value::Null);
-            edges.push(eg_types::types::SubgraphEdge {
-                source: src.clone(),
-                target: tgt.clone(),
-                properties: props,
-            });
-        }
-    }
+    let edges: Vec<_> = decoded_edge_properties(&sub)
+        .into_iter()
+        .map(
+            |(source, target, properties)| eg_types::types::SubgraphEdge {
+                source,
+                target,
+                properties,
+            },
+        )
+        .collect();
     Response::ok(
         req_id,
         ResultPayload::of::<eg_types::result_contract::graph::GetSubgraph>(

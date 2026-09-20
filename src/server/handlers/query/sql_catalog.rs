@@ -115,16 +115,7 @@ pub(crate) async fn exec_sql_graph_table_read(
 ) -> Response {
     let rows = compute_off_lock(req_id, move || graph_table_rows(&store, &read_core, &query)).await;
     match rows {
-        Ok(Ok(typed)) => match typed.rows.iter().map(msgpack_bytes).collect() {
-            Ok(rows) => dynamic_response::<query_results::Sql, _>(
-                req_id,
-                &crate::protocol::QueryResult {
-                    columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
-                    rows,
-                },
-            ),
-            Err(error) => Response::err(req_id, error),
-        },
+        Ok(Ok(typed)) => typed_sql_response(req_id, typed),
         Ok(Err(error)) => Response::err(req_id, format!("SQL error: {error}")),
         Err(response) => response,
     }

@@ -59,8 +59,8 @@ pub use content::{
     DEFAULT_COMPONENT_MEDIA_TYPE, MAX_COMPONENT_BODY_BYTES,
 };
 pub use facts::{
-    AgentComponentFacts, CostFacts, DeclaredLatency, FactQuality, ModalityFacts, ObservationRef,
-    PriceSource, PromptMode, ToolEffect, ToolsetTransport,
+    AgentComponentFacts, CostFacts, DeclaredCost, DeclaredLatency, FactQuality, ModalityFacts,
+    ObservationRef, PriceSource, PromptMode, ToolEffect, ToolsetTransport,
 };
 pub use search::{
     decode_search_cursor, encode_search_cursor, AgentComponentSearchPage,
@@ -812,11 +812,11 @@ fn put_selection_facts(
         None => hasher.update([0u8]),
         Some(cost) => {
             hasher.update([1u8]);
-            put_text(hasher, &cost.currency);
+            put_text(hasher, &cost.declared.currency);
             for price in [
-                cost.per_call_micros,
-                cost.input_per_mtok_micros,
-                cost.output_per_mtok_micros,
+                cost.declared.per_call_micros,
+                cost.declared.input_per_mtok_micros,
+                cost.declared.output_per_mtok_micros,
             ] {
                 hasher.update(price.unwrap_or_default().to_be_bytes());
                 hasher.update([u8::from(price.is_some())]);
@@ -1744,10 +1744,12 @@ mod tests {
             ("facts.cost", |d| {
                 d.facts = tool_facts_with(ToolFactOverrides {
                     cost: Some(CostFacts {
-                        currency: "USD".into(),
-                        per_call_micros: Some(10),
-                        input_per_mtok_micros: None,
-                        output_per_mtok_micros: None,
+                        declared: DeclaredCost {
+                            currency: "USD".into(),
+                            per_call_micros: Some(10),
+                            input_per_mtok_micros: None,
+                            output_per_mtok_micros: None,
+                        },
                         price_source: PriceSource::Publisher,
                         quality: FactQuality::Declared,
                     }),

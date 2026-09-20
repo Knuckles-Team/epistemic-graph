@@ -1,5 +1,21 @@
 use super::*;
 
+/// Translate a Cypher execution's `compute_off_lock` outcome into a
+/// [`Response`]: the plain (non-result-cache) reply shape both the write path
+/// (`handle_cypher_write`) and the uncached read fallback
+/// (`handle_cypher_read`) resolve to once the query itself has run.
+#[cfg(feature = "cypher")]
+fn cypher_query_response(
+    req_id: u64,
+    outcome: Result<Result<eg_query::QueryResult, String>, Response>,
+) -> Response {
+    match outcome {
+        Ok(Ok(result)) => dynamic_response::<query_results::CypherQuery, _>(req_id, &result),
+        Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
+        Err(resp) => resp,
+    }
+}
+
 #[cfg(feature = "cypher")]
 /// Cypher WRITE surface (CONCEPT:EG-KG.query.register-each-user-table/EG-023) — the
 /// `CypherMode::Write` arm of [`handle_cypher_query`]: a `CREATE`/`MERGE`/`SET`/
@@ -13,11 +29,9 @@ pub(crate) async fn handle_cypher_write(
     query: String,
 ) -> Response {
     let core_w = core.clone();
-    match compute_off_lock(req_id, move || eg_query::exec_cypher_write(&core_w, &query)).await {
-        Ok(Ok(result)) => dynamic_response::<query_results::CypherQuery, _>(req_id, &result),
-        Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
-        Err(resp) => resp,
-    }
+    let outcome = compute_off_lock(req_id, move || eg_query::exec_cypher_write(&core_w, &query))
+        .await;
+    cypher_query_response(req_id, outcome)
 }
 
 #[cfg(feature = "cypher")]
@@ -166,20 +180,16 @@ async fn handle_cypher_read(ctx: &QueryHandlerCtx<'_>, query: String) -> Respons
     {
         Ok(Ok(result)) => match ResultPayload::of_dynamic::<query_results::CypherQuery, _>(&result)
         {
-            Ok(payload) => {
-                eg_core::result_cache::cache_result(core.result_cache(), hash, version, &payload);
-                Response::ok(req_id, payload)
-            }
+            Ok(payload) => cache_and_respond(&core, req_id, hash, version, payload),
             Err(error) => Response::err(req_id, error),
         },
         Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
         Err(resp) => resp,
     };
     #[cfg(not(feature = "result-cache"))]
-    let resp = match compute_off_lock(req_id, move || eg_query::exec_cypher(&snap, &query)).await {
-        Ok(Ok(result)) => dynamic_response::<query_results::CypherQuery, _>(req_id, &result),
-        Ok(Err(msg)) => Response::err(req_id, format!("Cypher error: {msg}")),
-        Err(resp) => resp,
-    };
+    let resp = cypher_query_response(
+        req_id,
+        compute_off_lock(req_id, move || eg_query::exec_cypher(&snap, &query)).await,
+    );
     resp
 }

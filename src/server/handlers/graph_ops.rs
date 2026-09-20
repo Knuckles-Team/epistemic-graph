@@ -41,3 +41,22 @@ mod union;
 
 pub(crate) use gateway::try_handle_gateway;
 pub(crate) use terminal::try_handle;
+
+/// Every edge's endpoints paired with its decoded property blob (`Null` for
+/// an undecodable one). The subgraph and cluster-hierarchy wire projections
+/// both start by walking `GraphView::edge_properties` and decoding each blob
+/// exactly this way — one walk so a fix to how a bad blob decodes can't land
+/// on one wire shape and not the other.
+fn decoded_edge_properties(
+    sub: &crate::graph::GraphView,
+) -> Vec<(String, String, serde_json::Value)> {
+    let mut decoded = Vec::new();
+    for ((src, tgt), blobs) in &sub.edge_properties {
+        for blob in blobs {
+            let props =
+                eg_types::msgpack::decode_property_value(blob).unwrap_or(serde_json::Value::Null);
+            decoded.push((src.clone(), tgt.clone(), props));
+        }
+    }
+    decoded
+}

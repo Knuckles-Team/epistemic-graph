@@ -73,6 +73,23 @@ pub(crate) fn graphql_result_txn_ids(value: &serde_json::Value) -> Vec<String> {
         .collect()
 }
 
+/// Store `payload` in the version-keyed result cache under `hash`/`version`,
+/// then wrap it as a successful [`Response`]. Cypher's cached read reaches
+/// this exact store-then-respond step right after its own execution+encode
+/// path (CONCEPT:EG-KG.coordination.distributed-cache-coherence); one owner keeps the cache write
+/// and the response construction from drifting apart.
+#[cfg(feature = "result-cache")]
+pub(crate) fn cache_and_respond(
+    core: &Arc<GraphCore>,
+    req_id: u64,
+    hash: u128,
+    version: u64,
+    payload: ResultPayload,
+) -> Response {
+    eg_core::result_cache::cache_result(core.result_cache(), hash, version, &payload);
+    Response::ok(req_id, payload)
+}
+
 #[cfg(feature = "graphql")]
 pub(crate) fn graphql_lifecycle_replay_is_live(
     owner_scope: &str,

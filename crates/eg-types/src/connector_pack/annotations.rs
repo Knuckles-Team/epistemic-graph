@@ -7,22 +7,14 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::agent_component::DeclaredLatency;
+use crate::agent_component::{DeclaredCost, DeclaredLatency};
 use crate::contract::BoundedVec;
 
-/// Declared per-invocation prices, in integer micros.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct PackCost {
-    pub currency: String,
-    #[serde(default)]
-    pub per_call_micros: Option<u64>,
-    #[serde(default)]
-    pub input_per_mtok_micros: Option<u64>,
-    #[serde(default)]
-    pub output_per_mtok_micros: Option<u64>,
-}
+/// Declared per-invocation prices, in integer micros — the same shape an
+/// [`crate::agent_component::CostFacts`] carries once the engine has recorded
+/// who declared it, so a pack entry's raw claim and the digested fact can
+/// never drift into two different ideas of "cost".
+pub type PackCost = DeclaredCost;
 
 /// A model profile a pack publishes.
 ///

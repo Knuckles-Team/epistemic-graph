@@ -200,12 +200,7 @@ pub(crate) fn apply_cancel_work_item_row(
 }
 
 pub(crate) struct DeferWorkItemInput<'args, 'table, 'crypto> {
-    pub(crate) graph: &'args str,
-    pub(crate) tenant: &'args String,
-    pub(crate) work_item_id: &'args str,
-    pub(crate) worker_id: &'args String,
-    pub(crate) lease_epoch: u64,
-    pub(crate) fencing_token: u64,
+    pub(crate) fence: WorkItemFenceKey<'args>,
     pub(crate) next_retry_at_ms: u64,
     pub(crate) reason_ref: &'args Option<String>,
     pub(crate) now_ms: u64,
@@ -266,12 +261,15 @@ pub(crate) fn apply_defer_work_item_row(
     input: DeferWorkItemInput<'_, '_, '_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     let DeferWorkItemInput {
-        graph,
-        tenant,
-        work_item_id,
-        worker_id,
-        lease_epoch,
-        fencing_token,
+        fence:
+            WorkItemFenceKey {
+                graph,
+                tenant,
+                work_item_id,
+                worker_id,
+                lease_epoch,
+                fencing_token,
+            },
         next_retry_at_ms,
         reason_ref,
         now_ms,

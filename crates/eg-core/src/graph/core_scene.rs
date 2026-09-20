@@ -1,6 +1,6 @@
 use super::*;
 
-fn relationship_blob_matches(blob: &[u8], relationship: &str) -> bool {
+pub(super) fn relationship_blob_matches(blob: &[u8], relationship: &str) -> bool {
     decode_property_value(blob)
         .ok()
         .and_then(|value| {

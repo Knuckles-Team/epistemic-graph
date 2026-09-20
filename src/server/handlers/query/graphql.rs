@@ -72,15 +72,15 @@ pub(crate) async fn handle_graphql_commit_txn(
     txn_id: &str,
     carrier: &crate::server::access::CarrierAuthority,
 ) -> Result<Response, Method> {
-    let committed = txn::commit_graphql_cross_modal(
+    let committed = txn::commit_graphql_cross_modal(txn::GraphQlCrossModalCommit {
         state,
-        req_id,
+        request_id: req_id,
         graph_name,
         core,
-        graphql_crossmodal_registry(),
+        registry: graphql_crossmodal_registry(),
         txn_id,
-        carrier,
-    )
+        authority: carrier,
+    })
     .await;
     let resp = match committed {
         Ok(committed) => dynamic_response::<query_results::GraphQl, _>(

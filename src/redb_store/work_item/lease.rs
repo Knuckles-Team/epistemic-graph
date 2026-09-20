@@ -3,12 +3,7 @@
 use super::*;
 
 pub(crate) struct RenewWorkItemLeaseInput<'args, 'table, 'crypto> {
-    pub(crate) graph: &'args str,
-    pub(crate) tenant: &'args String,
-    pub(crate) work_item_id: &'args str,
-    pub(crate) worker_id: &'args String,
-    pub(crate) lease_epoch: u64,
-    pub(crate) fencing_token: u64,
+    pub(crate) fence: WorkItemFenceKey<'args>,
     pub(crate) now_ms: u64,
     pub(crate) lease_ms: u64,
     pub(crate) nodes:
@@ -20,12 +15,15 @@ pub(crate) fn apply_renew_work_item_lease_row(
     input: RenewWorkItemLeaseInput<'_, '_, '_>,
 ) -> Result<Option<crate::protocol::ResultPayload>, String> {
     let RenewWorkItemLeaseInput {
-        graph,
-        tenant,
-        work_item_id,
-        worker_id,
-        lease_epoch,
-        fencing_token,
+        fence:
+            WorkItemFenceKey {
+                graph,
+                tenant,
+                work_item_id,
+                worker_id,
+                lease_epoch,
+                fencing_token,
+            },
         now_ms,
         lease_ms,
         nodes,

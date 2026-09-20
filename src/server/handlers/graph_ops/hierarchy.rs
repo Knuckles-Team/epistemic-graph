@@ -251,23 +251,20 @@ fn expand_leaf_cluster_to_nodes(
 /// `expand_leaf_cluster_to_nodes`; byte-identical behaviour, including the `"_"`
 /// fallback for a blob with no decodable `relationship`.
 fn expand_subgraph_edges_to_wire(sub: &crate::graph::GraphView) -> Vec<ClusterMemberEdge> {
-    let mut edges: Vec<ClusterMemberEdge> = Vec::new();
-    for ((src, tgt), blobs) in &sub.edge_properties {
-        for blob in blobs {
-            let props =
-                eg_types::msgpack::decode_property_value(blob).unwrap_or(serde_json::Value::Null);
+    decoded_edge_properties(sub)
+        .into_iter()
+        .map(|(src_id, dst_id, props)| {
             let relationship = props
                 .get("relationship")
                 .and_then(|v| v.as_str())
                 .unwrap_or("_");
-            edges.push(ClusterMemberEdge {
-                src_id: src.clone(),
-                dst_id: tgt.clone(),
+            ClusterMemberEdge {
+                src_id,
+                dst_id,
                 relationship: relationship.to_string(),
-            });
-        }
-    }
-    edges
+            }
+        })
+        .collect()
 }
 
 /// `ClusterHierarchyExpand` at a coarser level: drill down ONE level at a time

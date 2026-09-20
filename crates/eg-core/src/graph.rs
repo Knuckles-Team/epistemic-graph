@@ -748,20 +748,8 @@ fn edge_declares_relationship(
         .is_some_and(|blobs| {
             blobs
                 .iter()
-                .any(|blob| blob_declares_relationship(blob, relationship))
+                .any(|blob| core_scene::relationship_blob_matches(blob, relationship))
         })
-}
-
-fn blob_declares_relationship(blob: &[u8], relationship: &str) -> bool {
-    decode_property_value(blob)
-        .ok()
-        .and_then(|value| {
-            value
-                .get("relationship")
-                .and_then(|rel| rel.as_str())
-                .map(|value| value == relationship)
-        })
-        .unwrap_or(false)
 }
 
 /// Result of an owner-fenced delivery-tag nack transition.

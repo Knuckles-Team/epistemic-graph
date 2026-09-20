@@ -45,6 +45,19 @@ fn permit_scoped_scan(scope_key: &str, graph: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// The (graph, tenant, worker, lease) identity common to every fenced WorkItem
+/// row transition — `DeferWorkItem` and `RenewWorkItemLease` both validate a
+/// claimed lease against this exact tuple before touching a row. One shared
+/// shape so the two appliers can't drift on which fields fence a transition.
+pub(crate) struct WorkItemFenceKey<'args> {
+    pub(crate) graph: &'args str,
+    pub(crate) tenant: &'args String,
+    pub(crate) work_item_id: &'args str,
+    pub(crate) worker_id: &'args String,
+    pub(crate) lease_epoch: u64,
+    pub(crate) fencing_token: u64,
+}
+
 mod cancel;
 mod claim;
 mod commit;

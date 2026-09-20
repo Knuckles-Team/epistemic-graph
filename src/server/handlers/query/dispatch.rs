@@ -501,16 +501,7 @@ async fn handle_sql_with_lease(
     })
     .await
     {
-        Ok(Ok(typed)) => match typed.rows.iter().map(msgpack_bytes).collect() {
-            Ok(rows) => dynamic_response::<query_results::Sql, _>(
-                req_id,
-                &crate::protocol::QueryResult {
-                    columns: typed.columns.iter().map(|c| c.name.clone()).collect(),
-                    rows,
-                },
-            ),
-            Err(error) => Response::err(req_id, error),
-        },
+        Ok(Ok(typed)) => typed_sql_response(req_id, typed),
         Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
         Err(resp) => resp,
     };
