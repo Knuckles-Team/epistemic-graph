@@ -314,11 +314,17 @@ fn a_stage_lease_is_fenced_by_its_record_consumer_expiry_owner_and_event() {
     };
     let consumer = fenced(&lease, "another-consumer", now);
     assert!(consumer.contains("consumer does not match"), "{consumer}");
+    // Deliberately at the boundary: `now_ms == lease.lease_until_ms` must
+    // already be refused as expired -- `lease_until_ms` is an EXCLUSIVE
+    // upper bound (see its doc comment in eg-types' MutationOutboxLease /
+    // eg-transaction's OutboxDelivery), so this millisecond is the first
+    // INVALID one, not the last valid one. EH-315: this used to check for
+    // the old collapsed message text ("...absent, unissued, or expired"),
+    // which stopped existing when that message was split into distinct
+    // ABSENT/UNISSUED/EXPIRED refusals -- the boundary semantics this test
+    // actually exercises did not change, only the message it reads.
     let expired = fenced(&lease, CONSUMER, lease.lease_until_ms);
-    assert!(
-        expired.contains("absent, unissued, or expired"),
-        "{expired}"
-    );
+    assert!(expired.contains("has EXPIRED"), "{expired}");
     let mut keyless = lease.clone();
     keyless.record.intent.key = String::new();
     let invalid = fenced(&keyless, CONSUMER, now);

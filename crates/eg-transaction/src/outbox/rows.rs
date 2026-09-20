@@ -103,6 +103,16 @@ pub struct OutboxDelivery {
     pub consumer: String,
     pub position: OutboxPosition,
     pub lease_epoch: u64,
+    /// The lease's EXCLUSIVE upper bound: a half-open validity interval,
+    /// `now_ms < lease_until_ms`. At `now_ms == lease_until_ms` the lease is
+    /// already expired -- this millisecond is the first INVALID one, not the
+    /// last valid one. Every comparison against this field in this crate
+    /// (`leased_at` below, and the expiry checks in `outbox/claim.rs` and
+    /// `outbox/cursor.rs`) uses `> now_ms` for "still valid" / `<= now_ms`
+    /// for "expired"; keep any new comparison consistent with that, on
+    /// either side of this crate's boundary (see EH-315,
+    /// `eg-core::semantic_ann_codes::stage::fence_lease_envelope`, which
+    /// mirrors it for the same reason).
     pub lease_until_ms: u64,
     pub attempt: u32,
     pub delivered_at_ms: Option<u64>,

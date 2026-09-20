@@ -51,6 +51,11 @@ pub struct MutationOutboxLease {
     pub record: MutationOutboxRecord,
     pub consumer: String,
     pub lease_epoch: u64,
+    /// EXCLUSIVE upper bound, mirroring `eg_transaction::outbox::rows::
+    /// OutboxDelivery::lease_until_ms` (the durable row this lease is
+    /// issued over): valid while `now_ms < lease_until_ms`, expired once
+    /// `now_ms >= lease_until_ms`. `now_ms == lease_until_ms` is already
+    /// expired, not still valid.
     pub lease_until_ms: u64,
     pub attempt: u32,
 }
