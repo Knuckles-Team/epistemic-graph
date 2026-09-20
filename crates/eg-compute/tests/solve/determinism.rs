@@ -18,9 +18,10 @@ const SHAPE: AssemblyShape = AssemblyShape {
 ///
 /// EH-310: this constant was updated once, deliberately, to track a real contract
 /// change, not refreshed to make a failing test pass. FX-SOLVER's own build/test
-/// cycle (`/var/tmp/l9/fx-solver/`, lane-runs `9edb38bca`..`b1d55baa1`) verified the
-/// previous value, `71a64f581943d7cadfaecbcba26644c7d2fd2176ff714a9c1b840dc6659d8f4e`,
-/// against a tree where `Algorithm`'s sole variant still carried the version suffix
+/// cycle (its own lane run records, retained outside this repository, covering
+/// `9edb38bca`..`b1d55baa1`) verified the previous value,
+/// `71a64f581943d7cadfaecbcba26644c7d2fd2176ff714a9c1b840dc6659d8f4e`, against a
+/// tree where `Algorithm`'s sole variant still carried the version suffix
 /// RF-ADR-006 bans. The very next edit before landing — commit
 /// `f795bcebb073a7a19030eb67a6e959880910da6d` (squashed into main as `4b11f6289`;
 /// `git show f795bcebb0 -- crates/eg-compute/src/solve/certificate.rs` shows the
