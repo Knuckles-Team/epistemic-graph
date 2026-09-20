@@ -80,38 +80,216 @@ fn dispatch_sources() -> Vec<PathBuf> {
 
 /// The one dispatch source that defines `signature`, and its text.
 ///
-/// Fails loudly when the definition is missing or duplicated, so a move is a
-/// RED test rather than a guard that quietly measures nothing.
+/// Fails loudly, and DISTINCTLY, on the two failure modes this guard can hit —
+/// they mean completely different things and must never share a message:
+///   * **zero candidates**: the guard is BLIND — it could not locate its
+///     subject at all (e.g. the signature text drifted, as it did for EH-331:
+///     the search string omitted `pub(super)`, which every one of these
+///     functions actually carries). This is a defect in the GUARD, not
+///     necessarily in the code it guards, and must never be confused with an
+///     ordering violation.
+///   * **more than one candidate**: the guard is AMBIGUOUS — the subject is
+///     defined in more than one dispatch source, so "the" definition this
+///     guard reasons about does not exist.
+/// Only when exactly one candidate is found does this function return, and
+/// only then can a caller meaningfully ask about ordering within its body.
 fn defining_source(signature: &str) -> (PathBuf, String) {
+    let searched = dispatch_sources();
     let mut found: Vec<(PathBuf, String)> = Vec::new();
-    for path in dispatch_sources() {
-        let Ok(text) = fs::read_to_string(&path) else {
+    for path in &searched {
+        let Ok(text) = fs::read_to_string(path) else {
             continue;
         };
         if definition_offset(&text, signature).is_some() {
-            found.push((path, text));
+            found.push((path.clone(), text));
         }
     }
-    assert_eq!(
-        found.len(),
-        1,
-        "exactly one dispatch source must define `{signature}`, found {:?}",
-        found.iter().map(|(p, _)| p.clone()).collect::<Vec<_>>()
-    );
-    found.pop().expect("checked above")
+    resolve_unique_definition(signature, &searched, found)
 }
 
-/// Offset of the DEFINITION `signature` introduces — it must start at column 0,
-/// so a doc comment or a call site that merely names the function is not
-/// mistaken for it.
-fn definition_offset(source: &str, signature: &str) -> Option<usize> {
-    if source.starts_with(signature) {
-        return Some(0);
+/// Turns what `defining_source` found into either the unique answer or one
+/// of its two DISTINCT loud failures. Split out so the two failure messages
+/// — and the match that picks between them — don't add branching to
+/// `defining_source` itself; this function is new, so it carries its own
+/// complexity budget rather than regressing an existing one.
+fn resolve_unique_definition(
+    signature: &str,
+    searched: &[PathBuf],
+    mut found: Vec<(PathBuf, String)>,
+) -> (PathBuf, String) {
+    match found.len() {
+        1 => found.pop().expect("checked above"),
+        0 => panic!(
+            "GUARD IS BLIND (not an ordering failure): searched {} dispatch \
+             source(s) for a column-0 definition of `{signature}` (optionally \
+             preceded by visibility/qualifier keywords such as `pub(super)`, \
+             `pub(crate)`, `unsafe`, `const`, `extern \"C\"`) and found 0 \
+             candidates. Sources searched: {:?}. Either the signature text \
+             this guard looks for has drifted from the real declaration, or \
+             the item was removed/renamed/moved out of the dispatch tree — \
+             fix the guard's search text or `dispatch_sources()`, do not \
+             assume the guarded invariant itself is violated.",
+            searched.len(),
+            searched
+        ),
+        _ => panic!(
+            "GUARD IS AMBIGUOUS (not an ordering failure): `{signature}` is \
+             defined in {} dispatch sources, expected exactly 1: {:?}. The \
+             guard cannot reason about \"the\" definition's body while more \
+             than one candidate exists.",
+            found.len(),
+            found.iter().map(|(p, _)| p.clone()).collect::<Vec<_>>()
+        ),
     }
-    source
-        .match_indices(&format!("\n{signature}"))
-        .map(|(offset, _)| offset + 1)
-        .next()
+}
+
+/// Strips a leading `pub`, `pub(crate)`, `pub(super)`, or `pub(in path)` from
+/// `line`. `None` when `line` does not start with the `pub` keyword at a real
+/// word boundary (so an identifier like `public_key` is never mistaken for
+/// it).
+fn try_strip_pub(line: &str) -> Option<&str> {
+    let after = line.strip_prefix("pub")?;
+    let boundary = after.chars().next()?;
+    if !boundary.is_whitespace() && boundary != '(' {
+        return None;
+    }
+    let after = after.trim_start();
+    let Some(inner) = after.strip_prefix('(') else {
+        return Some(after);
+    };
+    let close = inner.find(')')?;
+    Some(inner[close + 1..].trim_start())
+}
+
+/// Strips a leading `unsafe` or `const` qualifier (word-boundary checked).
+fn try_strip_unsafe_or_const(line: &str) -> Option<&str> {
+    for keyword in ["unsafe", "const"] {
+        let Some(after) = line.strip_prefix(keyword) else {
+            continue;
+        };
+        if after.chars().next().is_some_and(char::is_whitespace) {
+            return Some(after.trim_start());
+        }
+    }
+    None
+}
+
+/// Strips a leading `extern` qualifier and its optional `"ABI"` string.
+fn try_strip_extern(line: &str) -> Option<&str> {
+    let after = line.strip_prefix("extern")?;
+    if !after.chars().next().is_some_and(char::is_whitespace) {
+        return None;
+    }
+    let after = after.trim_start();
+    let Some(after_quote) = after.strip_prefix('"') else {
+        return Some(after);
+    };
+    let close = after_quote.find('"')?;
+    Some(after_quote[close + 1..].trim_start())
+}
+
+/// Strips any leading visibility (`pub`, `pub(crate)`, `pub(super)`,
+/// `pub(in path::to::mod)`) and item qualifiers (`unsafe`, `const`,
+/// `extern "ABI"`) from the front of `line`, in any order/repetition Rust's
+/// grammar allows before a `fn`/`async fn` item. Only whitespace and these
+/// recognized keywords are ever consumed — anything else (a comment marker,
+/// a call expression, arbitrary indentation) is left untouched, so this
+/// cannot turn a mid-line mention or an indented item into a false match.
+/// Delegates each keyword to its own `try_strip_*` helper so this function
+/// stays a thin dispatch loop instead of one large nested conditional.
+fn strip_item_modifiers(line: &str) -> &str {
+    let mut rest = line.trim_start();
+    loop {
+        let stripped = try_strip_pub(rest)
+            .or_else(|| try_strip_unsafe_or_const(rest))
+            .or_else(|| try_strip_extern(rest));
+        rest = match stripped {
+            Some(next) => next,
+            None => return rest,
+        };
+    }
+}
+
+/// Byte offset and text (including its trailing `\n`, if present) of every
+/// line in `source`. Shared by `definition_offset` and `next_item_offset` so
+/// both scan column-0 items the same way instead of each re-implementing the
+/// same line walk.
+fn lines_with_start(source: &str) -> impl Iterator<Item = (usize, &str)> {
+    let mut offset = 0usize;
+    source.split_inclusive('\n').map(move |line| {
+        let start = offset;
+        offset += line.len();
+        (start, line)
+    })
+}
+
+/// If `line`, after stripping leading visibility/qualifier keywords, starts
+/// with `signature`, the byte offset (from the start of `line`) where
+/// `signature` itself begins.
+fn signature_offset_in_line(line: &str, signature: &str) -> Option<usize> {
+    let after_modifiers = strip_item_modifiers(line);
+    after_modifiers
+        .starts_with(signature)
+        .then(|| line.len() - after_modifiers.len())
+}
+
+/// Offset of the DEFINITION `signature` introduces — it must start at column
+/// 0 (optionally after stripping leading visibility/qualifier keywords), so
+/// a doc comment or a call site that merely names the function is not
+/// mistaken for it, and so `pub(super) async fn foo` matches a search for
+/// `async fn foo` just as a bare `async fn foo` would.
+fn definition_offset(source: &str, signature: &str) -> Option<usize> {
+    lines_with_start(source)
+        .find_map(|(start, line)| signature_offset_in_line(line, signature).map(|o| start + o))
+}
+
+/// Counts CALL sites of `callee` (a string like `"foo("` or
+/// `"path::to::foo("`) inside `text`, excluding its own definition line.
+/// A bare local name's definition (`fn callee(` / `async fn callee(` /
+/// `pub(super) fn callee(`, etc.) always ends in `"fn {callee}"`, so any match
+/// immediately preceded by `"fn "` is the declaration, not a call, and is
+/// excluded. A qualified callee like `"handlers::query::try_handle("` can
+/// never be a definition's own name (Rust items aren't named with `::`), so
+/// this is a no-op for those and safe to use everywhere uniformly.
+fn count_call_sites(text: &str, callee: &str) -> usize {
+    text.match_indices(callee)
+        .filter(|(offset, _)| !text[..*offset].ends_with("fn "))
+        .count()
+}
+
+/// Whether `line`, after stripping leading visibility/qualifier keywords,
+/// is the start of a `fn`/`async fn` item.
+fn is_fn_item_start(line: &str) -> bool {
+    let after_modifiers = strip_item_modifiers(line);
+    after_modifiers.starts_with("fn ") || after_modifiers.starts_with("async fn ")
+}
+
+/// Offset of the next column-0 `fn`/`async fn` item inside `text` — i.e. the
+/// start of whatever item follows the one `item_body` is bounding. The first
+/// line is always skipped: it is the remainder of the signature's own line,
+/// never preceded by a real newline, so it can never itself be "the next
+/// item" (mirrors the original marker-based search, which only ever matched
+/// after a literal `"\n"`).
+///
+/// Like `definition_offset`, this accepts any leading visibility/qualifier
+/// keywords via `strip_item_modifiers`. Before this fix it was a fixed list
+/// of six literal markers (`"\nfn "`, `"\npub fn "`, ...) that did not
+/// include `pub(super)` — the modifier every function in this dispatch tree
+/// actually carries — so it could never find the NEXT item either, and a
+/// body would silently run past its true end to the next boundary the old
+/// list DID recognize (or to EOF). That never flipped an assertion in this
+/// file from pass to fail, because every consumer only calls `.contains(..)`
+/// on the (possibly over-long) body, which an over-capture can only make
+/// MORE likely to match — so the bug could have hidden a real removal of a
+/// call (a false PASS) without ever producing a false FAIL. Fixed for the
+/// same reason `definition_offset` was: a text-scanning guard must bound
+/// itself by the real grammar it is describing, not a snapshot of the
+/// modifier combinations that happened to exist when it was written.
+fn next_item_offset(text: &str) -> Option<usize> {
+    lines_with_start(text)
+        .skip(1)
+        .find(|(_, line)| is_fn_item_start(line))
+        .map(|(start, _)| start)
 }
 
 /// The body text of the item introduced by `signature`, bounded by the next
@@ -120,19 +298,84 @@ fn item_body<'a>(source: &'a str, signature: &str, path: &Path) -> &'a str {
     let start = definition_offset(source, signature)
         .unwrap_or_else(|| panic!("`{signature}` must be defined in {}", path.display()));
     let after = &source[start + signature.len()..];
-    let end = [
-        "\nfn ",
-        "\nasync fn ",
-        "\npub fn ",
-        "\npub async fn ",
-        "\npub(crate) fn ",
-        "\npub(crate) async fn ",
-    ]
-    .iter()
-    .filter_map(|marker| after.find(marker))
-    .min()
-    .unwrap_or(after.len());
+    let end = next_item_offset(after).unwrap_or(after.len());
     &after[..end]
+}
+
+/// Proves `helper_signature` (identified by its `fn`/`async fn` signature and
+/// its bare call text `helper_call`, e.g. `"commit_query_gateway("`) has
+/// EXACTLY ONE caller in the whole dispatch tree — `gateway` — and returns
+/// how many times `callee` is called inside that helper's body. Split out of
+/// `assert_handler_reachable_only_through_gateway` so the exclusivity proof's
+/// own branching doesn't add to that function's complexity; it is new code,
+/// so it carries its own budget rather than regressing an existing one.
+fn assert_helper_exclusively_owned_and_count_calls(
+    gateway: &str,
+    gateway_body: &str,
+    helper_signature: &str,
+    helper_call: &str,
+    callee: &str,
+) -> usize {
+    let helper_call_total: usize = dispatch_sources()
+        .iter()
+        .filter_map(|path| fs::read_to_string(path).ok())
+        .map(|text| count_call_sites(&text, helper_call))
+        .sum();
+    let helper_call_inside_gateway = count_call_sites(gateway_body, helper_call);
+    assert!(
+        helper_call_inside_gateway > 0,
+        "{gateway} must call {helper_signature} (this guard's exemption for \
+         the helper is meaningless if the gateway never calls it)"
+    );
+    assert_eq!(
+        helper_call_total, helper_call_inside_gateway,
+        "{helper_signature} must be called ONLY from {gateway} — a call \
+         inside it is only as trustworthy as {gateway} itself because \
+         {gateway} is its one caller; a call from anywhere else would let \
+         something outside the access gate reach {callee} through this \
+         helper"
+    );
+    let (helper_path, helper_source) = defining_source(helper_signature);
+    let helper_body = item_body(&helper_source, helper_signature, &helper_path);
+    count_call_sites(helper_body, callee)
+}
+
+/// One iteration of guard link 5: every dispatch call site of `callee` lives
+/// inside `gateway`, or inside a helper `gateway` exclusively owns
+/// (`owned_helper`, see `assert_helper_exclusively_owned_and_count_calls`).
+fn assert_handler_reachable_only_through_gateway(
+    callee: &str,
+    gateway: &str,
+    owned_helper: Option<(&str, &str)>,
+) {
+    let (gateway_path, gateway_source) = defining_source(gateway);
+    let gateway_body = item_body(&gateway_source, gateway, &gateway_path);
+    let mut inside = count_call_sites(gateway_body, callee);
+    if let Some((helper_signature, helper_call)) = owned_helper {
+        inside += assert_helper_exclusively_owned_and_count_calls(
+            gateway,
+            gateway_body,
+            helper_signature,
+            helper_call,
+            callee,
+        );
+    }
+    assert!(
+        inside > 0,
+        "{gateway} must call {callee} at least once (this guard is \
+         meaningless if that call moved elsewhere)"
+    );
+    let total: usize = dispatch_sources()
+        .iter()
+        .filter_map(|path| fs::read_to_string(path).ok())
+        .map(|text| count_call_sites(&text, callee))
+        .sum();
+    assert_eq!(
+        total, inside,
+        "every {callee} call site in the dispatch tree must live inside \
+         {gateway} or its exclusively-owned commit helper; a call from \
+         anywhere else would reach a handler without passing the access gate"
+    );
 }
 
 /// `check_graph_access` must run strictly BEFORE every dispatch-reachable
@@ -145,13 +388,25 @@ fn item_body<'a>(source: &'a str, signature: &str, path: &Path) -> &'a str {
 /// The pipeline is decomposed, so the guard follows the chain instead of a byte
 /// offset inside one function body:
 ///
-/// 1. `dispatch_graph_op_inner` calls `gate_graph_op_under_lock` BEFORE it calls
+/// 1. `dispatch_graph_op_inner` calls `capture_graph_dispatch` BEFORE it calls
 ///    `route_graph_op_method`, and calls neither handler itself;
-/// 2. `gate_graph_op_under_lock` calls `check_graph_op_access`;
-/// 3. `check_graph_op_access` calls `check_graph_access`;
-/// 4. the ONLY call sites of the two handlers in the whole dispatch tree are
-///    inside `route_query_gateway` / `route_rdf_gateway`, which are reachable
-///    only through `route_graph_op_method` — i.e. only after link 1's gate.
+/// 2. `capture_graph_dispatch` — the entry point's own gate step, run and
+///    awaited before routing can happen — calls `gate_graph_op_under_lock`;
+/// 3. `gate_graph_op_under_lock` calls `check_graph_op_access`;
+/// 4. `check_graph_op_access` calls `check_graph_access`;
+/// 5. the ONLY call sites of the two handlers in the whole dispatch tree are
+///    inside `route_query_gateway` / `route_rdf_gateway` — or inside a private
+///    `commit_query_gateway` / `commit_rdf_gateway` helper each gateway
+///    exclusively owns (proven by checking that helper has no other caller) —
+///    and the gateways are reachable only through `route_graph_op_method`,
+///    i.e. only after link 1's gate.
+///
+/// (Corrected again, EH-331: the pipeline decomposed a second time since the
+/// note above was written — `dispatch_graph_op_inner` no longer calls
+/// `gate_graph_op_under_lock` itself, it calls `capture_graph_dispatch`, which
+/// calls the gate (link 2). Link 5 also grew the commit-helper exemption:
+/// `route_query_gateway`/`route_rdf_gateway` now delegate their write-commit
+/// path to a private helper that itself calls the handler.)
 ///
 /// Remove any one of those calls, or route before gating, and this test fails.
 #[test]
@@ -159,11 +414,12 @@ fn check_graph_access_precedes_query_and_rdf_try_handle_in_dispatch() {
     let (path, source) = defining_source("async fn dispatch_graph_op_inner");
     let entry = item_body(&source, "async fn dispatch_graph_op_inner", &path);
 
-    // (1) gate before route, inside the entry point itself.
-    let gate_offset = entry.find("gate_graph_op_under_lock(").unwrap_or_else(|| {
+    // (1) capture (which takes the gate) before route, inside the entry point.
+    let capture_offset = entry.find("capture_graph_dispatch(").unwrap_or_else(|| {
         panic!(
             "dispatch_graph_op_inner must take the access gate via \
-             gate_graph_op_under_lock in {}",
+             capture_graph_dispatch (which itself calls gate_graph_op_under_lock) \
+             in {}",
             path.display()
         )
     });
@@ -174,7 +430,7 @@ fn check_graph_access_precedes_query_and_rdf_try_handle_in_dispatch() {
         )
     });
     assert!(
-        gate_offset < route_offset,
+        capture_offset < route_offset,
         "the access gate must run BEFORE method routing inside \
          dispatch_graph_op_inner — this ordering is the gate every table access \
          (SQL included, via NE-003's sql_catalog_acl) must pass through"
@@ -187,7 +443,17 @@ fn check_graph_access_precedes_query_and_rdf_try_handle_in_dispatch() {
         );
     }
 
-    // (2) + (3) the gate really reaches check_graph_access.
+    // (2) capture_graph_dispatch really takes the gate.
+    let (capture_path, capture_source) = defining_source("async fn capture_graph_dispatch");
+    assert!(
+        item_body(&capture_source, "async fn capture_graph_dispatch", &capture_path)
+            .contains("gate_graph_op_under_lock("),
+        "capture_graph_dispatch must call gate_graph_op_under_lock — \
+         dispatch_graph_op_inner's ordering guarantee (link 1) is worthless if \
+         the function it awaits before routing does not actually gate"
+    );
+
+    // (3) + (4) the gate really reaches check_graph_access.
     let (gate_path, gate_source) = defining_source("fn gate_graph_op_under_lock");
     assert!(
         item_body(&gate_source, "fn gate_graph_op_under_lock", &gate_path)
@@ -203,43 +469,39 @@ fn check_graph_access_precedes_query_and_rdf_try_handle_in_dispatch() {
          chain this test follows terminates in nothing"
     );
 
-    // (4) the two handlers have no dispatch call site outside the routed gateways.
-    for (callee, gateway) in [
+    // (5) the two handlers have no dispatch call site outside the routed
+    // gateways OR a helper a gateway exclusively owns. `route_query_gateway`
+    // (and `route_rdf_gateway`) delegate their write-commit path to a private
+    // `commit_query_gateway` (`commit_rdf_gateway`) helper that ALSO calls the
+    // handler, from inside a `commit_conditional_mutation_async` apply
+    // closure, to actually run the query/RDF op once the write is staged. A
+    // call inside that helper is exactly as gated as one inside the gateway
+    // body itself — but only because the helper has exactly one caller in the
+    // whole dispatch tree, namely its own gateway; this guard proves that
+    // exclusivity rather than assuming it, so a stray second caller of the
+    // helper (which WOULD bypass the gate) still fails it.
+    for (callee, gateway, owned_helper) in [
         (
             "handlers::query::try_handle(",
             "async fn route_query_gateway",
+            Some(("async fn commit_query_gateway", "commit_query_gateway(")),
         ),
-        ("handlers::rdf::try_handle(", "async fn route_rdf_gateway"),
+        (
+            "handlers::rdf::try_handle(",
+            "async fn route_rdf_gateway",
+            Some(("async fn commit_rdf_gateway", "commit_rdf_gateway(")),
+        ),
     ] {
-        let (gateway_path, gateway_source) = defining_source(gateway);
-        let inside = item_body(&gateway_source, gateway, &gateway_path)
-            .matches(callee)
-            .count();
-        assert!(
-            inside > 0,
-            "{gateway} must call {callee} at least once (this guard is \
-             meaningless if that call moved elsewhere)"
-        );
-        let total: usize = dispatch_sources()
-            .iter()
-            .filter_map(|path| fs::read_to_string(path).ok())
-            .map(|text| text.matches(callee).count())
-            .sum();
-        assert_eq!(
-            total, inside,
-            "every {callee} call site in the dispatch tree must live inside \
-             {gateway}; a call from anywhere else would reach a handler without \
-             passing the access gate"
-        );
+        assert_handler_reachable_only_through_gateway(callee, gateway, owned_helper);
     }
 
-    // (5) and the gateways themselves are never invoked ahead of the gate: any
-    // call to one from inside the entry point must sit after `gate_offset`, so
-    // (1)-(5) compose into the ordering this guard claims.
+    // (6) and the gateways themselves are never invoked ahead of the gate: any
+    // call to one from inside the entry point must sit after `capture_offset`,
+    // so (1)-(6) compose into the ordering this guard claims.
     for gateway_call in ["route_query_gateway(", "route_rdf_gateway("] {
         for (offset, _) in entry.match_indices(gateway_call) {
             assert!(
-                gate_offset < offset,
+                capture_offset < offset,
                 "{gateway_call} must not be reached before the access gate inside \
                  dispatch_graph_op_inner"
             );

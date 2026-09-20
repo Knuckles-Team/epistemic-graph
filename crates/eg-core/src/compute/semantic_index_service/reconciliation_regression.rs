@@ -181,7 +181,16 @@ fn complete_source_stages(
     for lease in outcome.claims {
         let intent = service
             .validate_stage_lease(&lease, "semantic-source-worker", now_ms + 2)
-            .unwrap();
+            .unwrap_or_else(|error| {
+                panic!(
+                    "validate_stage_lease failed for lease {lease:?} at \
+                     now_ms={now_ms}: {error:?} — EH-315: surfacing the real \
+                     error instead of a blind unwrap so a reconciliation \
+                     regression run tells you WHY validation was refused \
+                     (e.g. a lease/consumer/clock mismatch) instead of just \
+                     panicking on an opaque None/Err"
+                )
+            });
         let source_entity_id = intent
             .scope
             .source_entity_id()
