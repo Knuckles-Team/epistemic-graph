@@ -416,6 +416,27 @@ fn orphaned_files(root: &Path, artifacts: &[Artifact]) -> Vec<String> {
     orphans
 }
 
+/// Describe one artifact's drift by CONTENT, not length: two byte strings of equal
+/// length are exactly the case a length-only message cannot distinguish from "identical"
+/// (a digest change at constant length, e.g. `catalog_digest.rs`, is the whole EH-266/
+/// EH-324 failure mode this program has now been misled by twice). Report both digests
+/// and the first byte at which the two disagree, so a reader who sees matching lengths
+/// still sees the files are different and roughly where.
+fn describe_drift(path: &str, committed: &[u8], generated: &[u8]) -> String {
+    let first_diff = committed
+        .iter()
+        .zip(generated.iter())
+        .position(|(a, b)| a != b)
+        .unwrap_or_else(|| committed.len().min(generated.len()));
+    format!(
+        "{path}: committed {} bytes, sha256 {} -- generated {} bytes, sha256 {} -- first differing byte at offset {first_diff}",
+        committed.len(),
+        sha256_hex(committed),
+        generated.len(),
+        sha256_hex(generated),
+    )
+}
+
 /// Byte-diff every artifact against the committed tree. `Ok(())` means no drift.
 pub fn check(root: &Path) -> Result<usize, Vec<String>> {
     let artifacts = render_all(root);
@@ -426,17 +447,39 @@ pub fn check(root: &Path) -> Result<usize, Vec<String>> {
     for artifact in &artifacts {
         let committed = std::fs::read(root.join(&artifact.path)).unwrap_or_default();
         if committed != artifact.bytes {
-            drift.push(format!(
-                "{}: committed {} bytes, generated {} bytes",
-                artifact.path,
-                committed.len(),
-                artifact.bytes.len()
-            ));
+            drift.push(describe_drift(&artifact.path, &committed, &artifact.bytes));
         }
     }
     if drift.is_empty() {
         Ok(artifacts.len())
     } else {
         Err(drift)
+    }
+}
+
+#[cfg(test)]
+mod drift_message_tests {
+    use super::describe_drift;
+
+    /// A gate you add must catch a known-bad input (BUILD-CONTRACT §3): feed
+    /// `describe_drift` two equal-length, unequal-content byte strings -- exactly the
+    /// EH-324 shape ("15945 vs 15945") -- and prove the message no longer reads as if
+    /// nothing differs.
+    #[test]
+    fn equal_length_unequal_content_is_distinguishable() {
+        let committed = b"pub const CONTRACT_CATALOG_DIGEST: &str = \"aaaa\";\n";
+        let generated = b"pub const CONTRACT_CATALOG_DIGEST: &str = \"bbbb\";\n";
+        assert_eq!(committed.len(), generated.len());
+        let message = describe_drift("crates/.../catalog_digest.rs", committed, generated);
+        assert!(
+            message.contains("sha256"),
+            "message must carry a content digest, not just a length: {message}"
+        );
+        let digest_committed = super::sha256_hex(committed);
+        let digest_generated = super::sha256_hex(generated);
+        assert_ne!(digest_committed, digest_generated);
+        assert!(message.contains(&digest_committed));
+        assert!(message.contains(&digest_generated));
+        assert!(message.contains("first differing byte at offset"));
     }
 }

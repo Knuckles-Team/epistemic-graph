@@ -1,14 +1,33 @@
 //! `AgentComponent.content`: serve one component revision's bytes back.
 //!
-//! Owned after S1 by the pack-bodies package, which replaces the stub body
-//! with the holder check, the engine-owned body read and the SHA-256
-//! verification of the bytes against the revision that pins them.
+//! Owned after S1 by **K-PACK-BODIES** (plans/refactor/architecture/
+//! CONTRACT-WAVE-PLAN.md §"engine-owned bodies"), which replaces the stub
+//! body below with the holder check, the engine-owned body read and the
+//! SHA-256 verification of the bytes against the revision that pins them.
 //!
-//! The honest gap this leaves: `AgentComponent` is already a stable, Python-
-//! visible method, so from S1 until that package lands this ONE op of an
-//! otherwise served method answers `METHOD_NOT_YET_SERVED`. The reachability
-//! gate looks at methods rather than ops and cannot see it; the promotion
-//! commit's deletion of `contract_wave` is what proves it was closed.
+//! The honest gap this leaves (EH-261): `AgentComponent` is already
+//! `Stability::Stable` and Python-visible, so from S1 until K-PACK-BODIES
+//! lands, this ONE op of an otherwise-served method answers
+//! `METHOD_NOT_YET_SERVED` at runtime. The reachability gate
+//! (`crates/eg-capabilities/tests/invariants.rs`) only permits refusal-only
+//! arms for `Internal`/no-consumer methods, so it cannot see a `Stable`
+//! method with one refusing op -- nothing mechanical catches this. The plan
+//! (CONTRACT-WAVE-PLAN.md §4, "The one honest gap S1 leaves") originally
+//! called for S1's own commit message to record it; S1 already landed
+//! without doing so, and EH-313's ruling against rewriting landed EG `main`
+//! history means that commit message can no longer be amended. This doc
+//! comment is therefore the durable record instead, and IT, not the
+//! now-unreachable commit message, is what the promotion commit P must
+//! check before it proceeds:
+//!
+//! **Promotion commit P must not land while this function still calls
+//! [`not_yet_served`].** The mechanical proof P relies on is the compile
+//! error the deletion of `crate::server::contract_wave` produces at every
+//! remaining stub call site (see that module's own doc comment) -- P cannot
+//! delete `contract_wave` while this file still references it, so a P that
+//! compiles is the actual gate here. A reviewer of P should additionally
+//! grep for `not_yet_served(req_id, "AgentComponent.content")` and confirm
+//! zero hits before signing off.
 
 use crate::protocol::Response;
 use crate::server::auth::VerifiedRequestContext;
