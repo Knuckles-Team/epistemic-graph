@@ -29,8 +29,8 @@ pub(crate) async fn handle_cypher_write(
     query: String,
 ) -> Response {
     let core_w = core.clone();
-    let outcome = compute_off_lock(req_id, move || eg_query::exec_cypher_write(&core_w, &query))
-        .await;
+    let outcome =
+        compute_off_lock(req_id, move || eg_query::exec_cypher_write(&core_w, &query)).await;
     cypher_query_response(req_id, outcome)
 }
 

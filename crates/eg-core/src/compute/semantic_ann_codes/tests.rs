@@ -492,7 +492,7 @@ fn seed_via_kernel<'a>(
     codes: &'a SemanticCodeStore,
     owner: &'a eg_storage::OwnedStoreHandle<eg_storage::SemanticIndexOwner>,
     batch: &eg_types::MutationBatch,
-    write_rows: impl FnOnce(&eg_transaction::AdmittedOwnerWrite<'a, eg_storage::SemanticIndexOwner>),
+    write_rows: impl FnOnce(&eg_transaction::AdmittedOwnerWrite<'_, eg_storage::SemanticIndexOwner>),
 ) {
     let (write, begin) = codes.door.mutation_kernel().admit(owner, batch).unwrap();
     let eg_transaction::Begin::Apply {
@@ -3595,10 +3595,11 @@ fn production_six_rejects_complete_nonhead_checkpoint_dependencies() {
                     .unwrap();
             }
         }
-        let refused = super::predecessor::validate_six_checkpoint_write(rows, TENANT, BINDING, &forged)
-            .expect_err(
-                "a complete checkpoint that names a non-head lexical branch must be refused",
-            );
+        let refused =
+            super::predecessor::validate_six_checkpoint_write(rows, TENANT, BINDING, &forged)
+                .expect_err(
+                    "a complete checkpoint that names a non-head lexical branch must be refused",
+                );
         assert!(
             refused.to_string().contains("current lexical/ANN head"),
             "unexpected non-head S6 refusal: {refused}"
