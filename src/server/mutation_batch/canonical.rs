@@ -601,13 +601,6 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         // owns -- so they carry its domain. They cannot join that arm directly
         // because `AnalyticsJob` is `#[cfg(feature = "jobs")]` gated while S1's
         // decide layer is wire-unconditional, so the single authority for their
-        // domain is `decide_layer_job_domain`; delegate to it rather than repeat
-        // the value here. This match must still name them: each `match` is
-        // checked for exhaustiveness on its own.
-        Method::DecisionFit { .. } | Method::DecisionEval { .. } => {
-            decide_layer_job_domain(method)
-                .unwrap_or_else(|| unreachable!("decide_layer_job_domain owns these two variants"))
-        }
         Method::FinanceSabrImpliedVol { .. }
         | Method::CatalogAssign { .. }
         | Method::EvictBelow { .. }
