@@ -84,6 +84,15 @@ ast-extended = [
     "dep:tree-sitter-bash",
     "dep:tree-sitter-scala",
     "dep:tree-sitter-lua",
+    # CONCEPT:EH-281 grammar expansion.
+    "dep:tree-sitter-kotlin-ng",
+    "dep:tree-sitter-objc",
+    "dep:tree-sitter-zig",
+    "dep:tree-sitter-groovy",
+    "dep:tree-sitter-swift",
+    "dep:tree-sitter-html",
+    "dep:tree-sitter-css",
+    "dep:tree-sitter-json",
 ]
 
 [dependencies]
@@ -144,6 +153,29 @@ tree-sitter-php = { version = "0.23", optional = true }
 tree-sitter-bash = { version = "0.23", optional = true }
 tree-sitter-scala = { version = "0.23", optional = true }
 tree-sitter-lua = { version = "0.2", optional = true }
+# CONCEPT:EH-281 grammar expansion — every pin below was checked against this
+# crate's tree-sitter 0.23 core (ABI 14, `MIN_COMPATIBLE_LANGUAGE_VERSION..=
+# LANGUAGE_VERSION` = 13..=14) the same way `tree-sitter-c-sharp` above was:
+# download the crate, read `src/parser.c`'s `LANGUAGE_VERSION`, and pin the
+# newest release that is still 14, because a newer release generated at ABI 15
+# fails `Parser::set_language` at runtime ("Incompatible language version 15"),
+# not at compile time — cargo happily builds an ABI you can't actually parse
+# with. No CUDA crate is pinned: crates.io's only maintained one (0.21.2) is
+# ABI 15 with no older ABI-14 release, and CUDA source is a C++ superset
+# anyway, so `tree_sitter.rs` routes `.cu`/`.cuh` through `tree-sitter-cpp`
+# instead (see the CUDA row in `CORE_LANGUAGES`). No Terraform/HCL crate is
+# pinned for the same reason: `tree-sitter-hcl` only ever published 1.1.0,
+# which is ABI 15.
+tree-sitter-kotlin-ng = { version = "=1.0.1", optional = true }
+tree-sitter-objc = { version = "=3.0.2", optional = true }
+tree-sitter-zig = { version = "=1.1.2", optional = true }
+tree-sitter-groovy = { version = "=0.1.2", optional = true }
+# 0.7.x+ moved to ABI 15; 0.6.0 is the newest ABI-14 release.
+tree-sitter-swift = { version = "=0.6.0", optional = true }
+tree-sitter-html = { version = "=0.23.2", optional = true }
+# 0.25.0 moved to ABI 15; 0.23.2 is the newest ABI-14 release.
+tree-sitter-css = { version = "=0.23.2", optional = true }
+tree-sitter-json = { version = "=0.24.8", optional = true }
 
 # Criterion harness for the AST parse-throughput baseline bench (CONCEPT:EG-012).
 # DEV-only — never linked into the engine binary.

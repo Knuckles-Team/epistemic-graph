@@ -18,6 +18,12 @@ mod ast;
 mod sql;
 #[path = "tree_sitter_walk.rs"]
 mod walk;
+// CONCEPT:EH-281 grammar expansion — the extended-language grammar TABLE lives in its
+// own file so this one stays small as the tier grows (a table row per language, never
+// a new function). See `grammars_extended::lookup` and its module doc.
+#[cfg(feature = "ast-extended")]
+#[path = "tree_sitter_grammars_extended.rs"]
+mod grammars_extended;
 
 #[cfg(test)]
 use ast::MAX_SYMBOL_CALL_SITES;
@@ -66,6 +72,16 @@ const CORE_LANGUAGES: &[(&[&str], LangCtor, &str)] = &[
         || tree_sitter_cpp::LANGUAGE.into(),
         "cpp",
     ),
+    // CUDA (CONCEPT:EH-281) reuses the C++ grammar rather than a dedicated
+    // crate: CUDA device code is a C++ superset, and crates.io's only
+    // maintained `tree-sitter-cuda` is generated at tree-sitter ABI 15, which
+    // this crate's ABI-14 core can't load (see the ABI note in Cargo.toml).
+    // GPU-specific syntax (`__global__`, kernel-launch `<<<...>>>`) that
+    // tree-sitter-cpp doesn't model may parse as an error node, but an
+    // ordinary function/type in a `.cu`/`.cuh` file resolves exactly as it
+    // would in a `.cpp` file — same grammar, a distinct language label so
+    // graph queries can still tell CUDA files apart from C++.
+    (&["cu", "cuh"], || tree_sitter_cpp::LANGUAGE.into(), "cuda"),
     (&["cs"], || tree_sitter_c_sharp::LANGUAGE.into(), "csharp"),
     (
         &["sql", "ddl"],
@@ -90,10 +106,15 @@ fn lang_for_path(file_path: &str) -> Option<(Language, &'static str)> {
     lang_for_path_extended(&ext)
 }
 
-/// Look up `ext` in [`CORE_LANGUAGES`], returning the matching grammar
-/// constructor and label.
-fn core_language_entry(ext: &str) -> Option<(LangCtor, &'static str)> {
-    for &(exts, ctor, label) in CORE_LANGUAGES {
+/// Look up `ext` in a `(extensions, ctor, label)` table by linear scan — the
+/// shape both [`CORE_LANGUAGES`] and the extended tier's table
+/// (`grammars_extended`) share, so growing either tier is a table row, never
+/// a second copy of this scan or a new dispatch branch.
+fn language_table_entry(
+    table: &[(&[&str], LangCtor, &'static str)],
+    ext: &str,
+) -> Option<(LangCtor, &'static str)> {
+    for &(exts, ctor, label) in table {
         if exts.contains(&ext) {
             return Some((ctor, label));
         }
@@ -101,18 +122,18 @@ fn core_language_entry(ext: &str) -> Option<(LangCtor, &'static str)> {
     None
 }
 
+/// Look up `ext` in [`CORE_LANGUAGES`], returning the matching grammar
+/// constructor and label.
+fn core_language_entry(ext: &str) -> Option<(LangCtor, &'static str)> {
+    language_table_entry(CORE_LANGUAGES, ext)
+}
+
 /// Extended-language tier (CONCEPT:AU-KG.compute.built-ast-extended), compiled only with `ast-extended`.
 /// Without the feature it resolves nothing, so a slim `ast` build stays lean.
+/// The table itself lives in `grammars_extended` (CONCEPT:EH-281).
 #[cfg(feature = "ast-extended")]
 fn lang_for_path_extended(ext: &str) -> Option<(Language, &'static str)> {
-    Some(match ext {
-        "rb" => (tree_sitter_ruby::LANGUAGE.into(), "ruby"),
-        "php" => (tree_sitter_php::LANGUAGE_PHP.into(), "php"),
-        "sh" | "bash" => (tree_sitter_bash::LANGUAGE.into(), "bash"),
-        "scala" | "sc" => (tree_sitter_scala::LANGUAGE.into(), "scala"),
-        "lua" => (tree_sitter_lua::LANGUAGE.into(), "lua"),
-        _ => return None,
-    })
+    grammars_extended::lookup(ext)
 }
 
 #[cfg(not(feature = "ast-extended"))]
@@ -124,10 +145,15 @@ fn lang_for_path_extended(_ext: &str) -> Option<(Language, &'static str)> {
 /// mirrored by the Python file-discovery walk.
 pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     "py", "pyi", "js", "jsx", "mjs", "cjs", "ts", "mts", "cts", "tsx", "go", "rs", "java", "c",
-    "h", "cpp", "cc", "cxx", "hpp", "hxx", "hh",
-    "cs", // SQL DDL (CONCEPT:AU-KG.ontology.emits-database-ontology-entities):
+    "h", "cpp", "cc", "cxx", "hpp", "hxx", "hh", "cu",
+    "cuh", // CUDA (CONCEPT:EH-281), reuses cpp.
+    "cs",  // SQL DDL (CONCEPT:AU-KG.ontology.emits-database-ontology-entities):
     "sql", "ddl", // extended tier (CONCEPT:AU-KG.compute.built-ast-extended):
     "rb", "php", "sh", "bash", "scala", "sc", "lua",
+    // CONCEPT:EH-281 grammar expansion (extended tier): Kotlin (+ Gradle Kotlin
+    // DSL via `.kts`), Objective-C, Zig, Groovy (+ Gradle Groovy DSL via
+    // `.gradle` — Gradle needs no grammar of its own), Swift, HTML, CSS, JSON.
+    "kt", "kts", "m", "mm", "zig", "groovy", "gradle", "swift", "html", "htm", "css", "json",
 ];
 
 pub fn parse_file(file_path: &str, source: &[u8]) -> Result<ParseResult, String> {
@@ -521,6 +547,21 @@ func (s *Server) Start() error { return nil }
         assert_eq!(f["symbol_type"], "Function");
         assert_eq!(f["language"], "c");
         assert_eq!(sym("a.c", src, "Pt")["kind_detail"], "struct");
+    }
+
+    #[test]
+    fn cuda_reuses_the_cpp_grammar_under_its_own_label() {
+        // CONCEPT:EH-281 — `.cu`/`.cuh` route through tree-sitter-cpp (no
+        // dedicated CUDA grammar is ABI-compatible; see the Cargo.toml note),
+        // so an ordinary C++-shaped struct/function extracts exactly as it
+        // would from a `.cpp` file, just stamped with the `cuda` label.
+        let src = "struct Params { int width; int height; };\nvoid scale(int a, int b) { int c = a + b; }\n";
+        let s = sym("kernel.cu", src, "Params");
+        assert_eq!(s["kind_detail"], "struct");
+        assert_eq!(s["language"], "cuda");
+        let f = sym("kernel.cuh", src, "scale");
+        assert_eq!(f["symbol_type"], "Function");
+        assert_eq!(f["language"], "cuda");
     }
 
     #[test]
@@ -947,7 +988,7 @@ pub fn free() {}
         let csharp: LangCtor = || tree_sitter_c_sharp::LANGUAGE.into();
         let sql: LangCtor = || tree_sitter_sequel::LANGUAGE.into();
         // One row per extension: `(extension, expected grammar, expected label)`.
-        let cases: [(&str, LangCtor, &str); 25] = [
+        let cases: [(&str, LangCtor, &str); 27] = [
             ("py", python, "python"),
             ("pyi", python, "python"),
             ("js", javascript, "javascript"),
@@ -970,6 +1011,9 @@ pub fn free() {}
             ("hxx", cpp, "cpp"),
             ("hh", cpp, "cpp"),
             ("c++", cpp, "cpp"),
+            // CUDA (CONCEPT:EH-281) reuses the cpp grammar under its own label.
+            ("cu", cpp, "cuda"),
+            ("cuh", cpp, "cuda"),
             ("cs", csharp, "csharp"),
             ("sql", sql, "sql"),
             ("ddl", sql, "sql"),

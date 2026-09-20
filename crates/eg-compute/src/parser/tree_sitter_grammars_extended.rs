@@ -1,0 +1,76 @@
+// CONCEPT:EH-281 grammar expansion — the extended-language grammar table.
+//
+// Split out of `tree_sitter.rs` so the core dispatcher file doesn't keep
+// growing as this tier does: adding a language here is a table ROW, never a
+// new function in the parent file. Compiled only under `ast-extended` (see
+// the `#[cfg]` on the `mod grammars_extended` declaration in `tree_sitter.rs`),
+// mirroring exactly how `CORE_LANGUAGES` is shaped and looked up
+// (`super::language_table_entry`) — same data shape, same linear scan, no
+// second dispatch mechanism invented for this tier.
+//
+// Every grammar below is pinned in `Cargo.toml` to a tree-sitter ABI-14
+// release (this crate's tree-sitter core accepts ABI 13..=14 only — see the
+// `tree-sitter-c-sharp` precedent in `CORE_LANGUAGES`'s file and the ABI note
+// above these dependencies in `Cargo.toml`). Languages that the ledger
+// (EH-281) asked for but that have no maintained, ABI-compatible crates.io
+// binding — Terraform/HCL (only release is ABI 15) and DreamMaker (no
+// maintained tree-sitter grammar at all) — are deliberately NOT here; see the
+// lane's WRAPUP for the evidence. Likewise, Julia, Elixir, PowerShell,
+// Fortran, Pascal and Verilog all have ABI-14-compatible crates but are not
+// registered here: none of their declaration node kinds are covered by the
+// existing generic AST walker's node-kind vocabulary (`tree_sitter_ast.rs`'s
+// `class_like_kind`/`function_like_kind`, owned by a different lane in this
+// program), so registering them would silently extract zero symbols. See the
+// WRAPUP for the exact node-kind evidence per language.
+
+use super::{language_table_entry, LangCtor};
+use tree_sitter::Language;
+
+/// `(extensions, grammar constructor, stable language label)` for the
+/// extended-language tier — same table shape as `CORE_LANGUAGES`.
+const EXTENDED_LANGUAGES: &[(&[&str], LangCtor, &str)] = &[
+    (&["rb"], || tree_sitter_ruby::LANGUAGE.into(), "ruby"),
+    (&["php"], || tree_sitter_php::LANGUAGE_PHP.into(), "php"),
+    (
+        &["sh", "bash"],
+        || tree_sitter_bash::LANGUAGE.into(),
+        "bash",
+    ),
+    (
+        &["scala", "sc"],
+        || tree_sitter_scala::LANGUAGE.into(),
+        "scala",
+    ),
+    (&["lua"], || tree_sitter_lua::LANGUAGE.into(), "lua"),
+    // CONCEPT:EH-281 grammar expansion additions below.
+    (
+        &["kt", "kts"],
+        || tree_sitter_kotlin_ng::LANGUAGE.into(),
+        "kotlin",
+    ),
+    (&["m", "mm"], || tree_sitter_objc::LANGUAGE.into(), "objc"),
+    (&["zig"], || tree_sitter_zig::LANGUAGE.into(), "zig"),
+    // Gradle's Groovy DSL (`build.gradle`) needs no grammar of its own — it
+    // IS Groovy — so `gradle` is just another extension on this row. The
+    // Kotlin DSL (`build.gradle.kts`) needs no row of its own either: its
+    // extension is plain `kts`, already routed to Kotlin above.
+    (
+        &["groovy", "gradle"],
+        || tree_sitter_groovy::LANGUAGE.into(),
+        "groovy",
+    ),
+    (&["swift"], || tree_sitter_swift::LANGUAGE.into(), "swift"),
+    (
+        &["html", "htm"],
+        || tree_sitter_html::LANGUAGE.into(),
+        "html",
+    ),
+    (&["css"], || tree_sitter_css::LANGUAGE.into(), "css"),
+    (&["json"], || tree_sitter_json::LANGUAGE.into(), "json"),
+];
+
+/// Resolve `ext` against the extended-language tier, or `None` if it isn't
+/// one of these grammars.
+pub(super) fn lookup(ext: &str) -> Option<(Language, &'static str)> {
+    language_table_entry(EXTENDED_LANGUAGES, ext).map(|(ctor, label)| (ctor(), label))
+}
