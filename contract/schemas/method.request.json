@@ -5902,7 +5902,7 @@
       "oneOf": [
         {
           "additionalProperties": false,
-          "description": "An assembly, with the certificate that proves it optimal.",
+          "description": "An assembly, with the certificate that proves it optimal. Boxed: the\ncertificate's own proof tree dwarfs every other field this enum\ncarries (320 bytes vs. `Abstained`'s 24), so every `DecisionOutcome`\nvalue would otherwise pay `Solved`'s size even when it holds the far\nsmaller `Abstained` variant.",
           "properties": {
             "certificate": {
               "$ref": "#/$defs/Certificate"

@@ -16168,7 +16168,7 @@
         "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
       ],
       "id": "ConnectorPack",
-      "note": "RF-ADR-009 A2. Runtime-conditional: status is an authenticated tenant-bound read snapshot, and its authz action is agent:pack-read; import commits the whole pack atomically, while bind/unbind/retire/reproject/reconcile_bodies and a mass-withdrawal import need admin:connector-pack. Pack head, members, component revisions, body holders, import record, receipt and outbox commit in one WTX; local-only authority, refused in clustered mode",
+      "note": "RF-ADR-009 A2, runtime-conditional: status is an authenticated tenant-bound read snapshot, and its authz action is agent:pack-read; import commits the whole pack atomically, while bind/unbind/retire/reproject/reconcile_bodies and a mass-withdrawal import need admin:connector-pack. Pack head, members, component revisions, body holders, import record, receipt and outbox commit in one WTX; local-only authority, refused in clustered mode",
       "policy": {
         "audited": false,
         "authz_action": "agent:pack-control",
@@ -18211,7 +18211,7 @@
         "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
       ],
       "id": "MutationOutbox",
-      "note": "X10. Runtime-conditional: status and dead_letters are reads; rewind resets one consumer's durable cursor through bounded eg-transaction transactions, so it is a saga rather than one atomic write. Local-only authority, refused in clustered mode",
+      "note": "X10, runtime-conditional: status and dead_letters are reads; rewind resets one consumer's durable cursor through bounded eg-transaction transactions, so it is a saga rather than one atomic write. Local-only authority, refused in clustered mode",
       "policy": {
         "audited": false,
         "authz_action": "admin:outbox",
