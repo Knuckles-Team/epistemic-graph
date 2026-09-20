@@ -394,22 +394,28 @@ mod tests {
             );
         }
         let dump = ring.render();
+        // Anchored on the trailing newline `render` always appends after a message
+        // with empty `fields` (see `Ring::render`): a bare `dump.contains("event-2")`
+        // is NOT a correct "was event 2 evicted" check at this CAPACITY, because it
+        // also matches any SURVIVING event whose number merely STARTS with "2" as a
+        // string -- "event-20", "event-234", "event-2999", .. -- and at CAPACITY =
+        // 4096 there are always over a thousand such survivors. Anchoring to
+        // "event-N\n" makes this an exact-line match: `event-N\n` can only be a
+        // substring of another line `event-M\n` when N == M, since decimal
+        // formatting never produces leading zeros. This was found empirically: this
+        // very assertion, unanchored, failed on a real run despite the eviction
+        // logic being correct (verified separately, by hand-tracing `Ring::push`).
+        let survives = |n: usize| dump.contains(&format!("event-{n}\n"));
+        assert!(!survives(0), "the oldest entries must have been evicted");
         assert!(
-            !dump.contains("event-0"),
-            "the oldest entries must have been evicted"
-        );
-        assert!(
-            !dump.contains("event-2"),
+            !survives(2),
             "exactly the first 3 (over-capacity) entries must be evicted"
         );
         assert!(
-            dump.contains("event-3"),
+            survives(3),
             "the first entry still within capacity must survive"
         );
-        assert!(
-            dump.contains(&format!("event-{}", CAPACITY + 2)),
-            "the newest entry must survive"
-        );
+        assert!(survives(CAPACITY + 2), "the newest entry must survive");
     }
 
     /// Rendering preserves push order (oldest first) and stamps every line with a
