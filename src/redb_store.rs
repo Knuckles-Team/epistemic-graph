@@ -50,6 +50,7 @@ where
         .any(|(expected, actual)| expected.is_some_and(|expected| expected != actual))
 }
 
+mod commit_timing;
 mod store_batch;
 mod store_cleanup;
 mod store_control;
@@ -62,6 +63,7 @@ mod store_state;
 mod store_state_tables;
 mod store_types;
 
+pub(crate) use commit_timing::CommitPhaseTimer;
 pub(crate) use store_batch::*;
 pub(crate) use store_cleanup::*;
 pub(crate) use store_control::*;
@@ -77,6 +79,8 @@ pub(crate) use store_state::*;
 pub(crate) use store_state_tables::*;
 pub(crate) use store_types::*;
 
+#[cfg(test)]
+mod commit_ops_phase_measurement;
 #[cfg(test)]
 mod resource_reservation_tests;
 #[cfg(test)]

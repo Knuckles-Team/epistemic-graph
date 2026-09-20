@@ -38,7 +38,7 @@
 //! graphs. A burst touching more flushes in chunks -- see [`chunk_graphs`].
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 #[cfg(any(test, feature = "server"))]
 use std::sync::Mutex;
 use std::sync::{Arc, RwLock};
@@ -64,6 +64,8 @@ use eg_types::{
 mod batch;
 pub(crate) use batch::bind_caller_batch;
 use batch::drain_batch;
+
+use super::CommitPhaseTimer;
 
 /// Physical store identity of every graph shard file.
 ///
@@ -190,6 +192,12 @@ pub(crate) fn chunk_graphs<T: Clone>(graphs: &[T]) -> Vec<Vec<T>> {
 pub(crate) struct Shard {
     kernel: StorageKernel,
     mutations: MutationKernel,
+    /// The exact path this shard was opened with (EH-290 write-amplification
+    /// measurement, CONCEPT:EG-KG.storage.commit-ops-phase-timing): a stat of
+    /// this path around a commit is the on-disk byte growth that commit cost.
+    /// Diagnostic only -- not the kernel's canonicalized physical root -- so a
+    /// caller-relative path is exactly as valid here as an absolute one.
+    physical_path: PathBuf,
     /// The file's own control scope, bound at open: it exists before any graph
     /// is known, which is what lets the boot scan read the graph catalog.
     control: ShardHandle,
@@ -219,11 +227,24 @@ impl Shard {
         Ok(Self {
             kernel,
             mutations,
+            physical_path: path.to_path_buf(),
             control,
             graphs: RwLock::new(BTreeMap::new()),
             #[cfg(feature = "server")]
             graft_protocols: RwLock::new(BTreeMap::new()),
         })
+    }
+
+    /// The physical shard file's current on-disk size, or 0 if it cannot be
+    /// stat'd right now (EH-290: a before/after pair around one `commit_ops`
+    /// drain is that drain's on-disk byte growth, the write-amplification
+    /// signal the storage durability design calls for). Diagnostic only --
+    /// never load-bearing, so a transient stat failure must not become a
+    /// write-path error.
+    pub(crate) fn physical_file_len(&self) -> u64 {
+        std::fs::metadata(&self.physical_path)
+            .map(|meta| meta.len())
+            .unwrap_or(0)
     }
 
     pub(crate) fn mutations(&self) -> &MutationKernel {
@@ -472,6 +493,12 @@ impl Shard {
         batches: &[MutationBatch],
         committed_at_ms: u64,
     ) -> Result<(), String> {
+        // EH-290 phase split: `ledger_finish` is per-batch terminal-metadata
+        // bookkeeping, still inside the one shared transaction (no fsync yet).
+        // `durability_commit` is sealing every member and ending the group's
+        // transaction -- the redb `commit()` call that performs the actual
+        // `Durability::Immediate` fsync. See `CommitPhaseTimer`.
+        let ledger_finish = CommitPhaseTimer::start("ledger_finish");
         for (index, batch) in batches.iter().enumerate() {
             let Begin::Apply { source_version } = group.begun(index)? else {
                 continue;
@@ -485,8 +512,12 @@ impl Shard {
                 source_version,
             )?;
         }
+        ledger_finish.finish();
         let refs: Vec<&MutationBatch> = batches.iter().collect();
-        self.mutations.commit_group(group, &refs)
+        let durability_commit = CommitPhaseTimer::start("durability_commit");
+        let result = self.mutations.commit_group(group, &refs);
+        durability_commit.finish();
+        result
     }
 
     // -- the two kernel surfaces this shard reaches through ONE call site each --

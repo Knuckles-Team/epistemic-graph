@@ -270,6 +270,46 @@ pub(crate) fn commit_ops(
     if ops.is_empty() && raft_log_ops.is_empty() {
         return Ok(());
     }
+    // EH-290 write-amplification check: logical bytes submitted (raft log
+    // entry payloads -- graph mutation `Method`s are not yet byte-costed)
+    // versus the shard file's own on-disk growth across the whole drain. Only
+    // recorded on success: an aborted drain wrote no durable bytes worth
+    // ratio-ing.
+    let logical_bytes: u64 = raft_log_ops
+        .iter()
+        .map(|(_, _, blob)| blob.len() as u64)
+        .sum();
+    let physical_before = shard.physical_file_len();
+    let result = commit_drained_ops(
+        shard,
+        ops,
+        raft_log_ops,
+        drain_id,
+        committed_at_ms,
+        crypto,
+        #[cfg(feature = "security")]
+        audit_tail,
+    );
+    if result.is_ok() {
+        let physical_grown = shard.physical_file_len().saturating_sub(physical_before);
+        crate::metrics::observe_commit_ops_bytes("logical", logical_bytes);
+        crate::metrics::observe_commit_ops_bytes("physical_delta", physical_grown);
+    }
+    result
+}
+
+/// The grouping + chunked commit loop `commit_ops` ran inline before EH-290,
+/// extracted so `commit_ops` itself is only the drain-level byte-amplification
+/// measurement wrapped around this.
+fn commit_drained_ops(
+    shard: &Shard,
+    ops: &mut Vec<(String, Method)>,
+    raft_log_ops: &mut Vec<(u64, u64, Vec<u8>)>,
+    drain_id: &str,
+    committed_at_ms: u64,
+    crypto: DurableCrypto<'_>,
+    #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
+) -> Result<(), String> {
     // Group by graph BEFORE anything else: a `BTreeMap` keeps the member order
     // deterministic across replicas, which is what makes the chunking below
     // reproducible, and it is also the order `ShardWrite` hands the members
@@ -328,12 +368,22 @@ pub(crate) fn commit_drained_chunk(
     crypto: DurableCrypto<'_>,
     #[cfg(feature = "security")] audit_tail: &mut AuditTailCache,
 ) -> Result<(), String> {
+    // EH-290 phase split: `acquire_txn` is binding cold graphs, admitting the
+    // group and opening the owner-row gate -- inside `admit_drain`,
+    // `PhysicalStore::begin_write` opens the actual redb `WriteTransaction`.
+    // `apply_writes` is encoding and inserting every row this chunk touches.
+    // See `CommitPhaseTimer`; `shard::commit_drain` covers the remaining two
+    // phases (`ledger_finish`, `durability_commit`).
+    //
     // Cold graphs bind FIRST, in their own transactions: binding opens and
     // commits its own write and redb admits one writer, so it cannot happen
     // inside the group.
+    let acquire_txn = CommitPhaseTimer::start("acquire_txn");
     let members = shard.graph_members(graphs)?;
     let (group, batches) = shard.admit_drain(&members, drain_id)?;
     let write = ShardWrite::open(shard, &group, &members, &batches)?;
+    acquire_txn.finish();
+    let apply_writes = CommitPhaseTimer::start("apply_writes");
     let applied = apply_drained_chunk(
         &write,
         graphs,
@@ -343,6 +393,7 @@ pub(crate) fn commit_drained_chunk(
         #[cfg(feature = "security")]
         audit_tail,
     );
+    apply_writes.finish();
     // The row gate closes whether or not the rows landed: dropping a member's
     // owner-row admission unfinished poisons the shared transaction, so the
     // failure must not skip it.

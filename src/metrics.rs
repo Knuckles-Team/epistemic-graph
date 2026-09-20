@@ -314,6 +314,20 @@ mod imp {
             &["mode"],
             lock_gap_buckets(),
         );
+        // EH-290 commit_ops decomposition: see CommitPhaseTimer for phases.
+        static ref COMMIT_OPS_PHASE: HistogramVec = histogram_vec(
+            "epistemic_graph_commit_ops_phase_seconds",
+            "Wall-clock duration of one commit_ops drain, decomposed by phase \
+             (acquire_txn|apply_writes|ledger_finish|durability_commit)",
+            &["phase"],
+            DURATION_BUCKETS.to_vec(),
+        );
+        static ref COMMIT_OPS_BYTES: HistogramVec = histogram_vec(
+            "epistemic_graph_commit_ops_bytes",
+            "Bytes accounted per commit_ops drain, by kind (logical|physical_delta)",
+            &["kind"],
+            prometheus::exponential_buckets(64.0, 4.0, 11).expect("valid bucket spec"),
+        );
         // ── RLS projection-cache hit/miss + miss cost (D-EGP-1, t1-grounding-0802) ──
         // `GraphReadAuthority::project_core` (`server/access.rs`) caches its expensive
         // per-(actor, GraphCore::version()) materialization in `rls_projection_cache`
@@ -701,6 +715,20 @@ mod imp {
             .observe(seconds);
     }
 
+    /// Record one `commit_ops` phase's duration (EH-290).
+    pub fn observe_commit_ops_phase(phase: &str, seconds: f64) {
+        COMMIT_OPS_PHASE
+            .with_label_values(&[phase])
+            .observe(seconds);
+    }
+
+    /// Record one `commit_ops` drain's bytes (EH-290): `kind` is `logical`/`physical_delta`.
+    pub fn observe_commit_ops_bytes(kind: &str, bytes: u64) {
+        COMMIT_OPS_BYTES
+            .with_label_values(&[kind])
+            .observe(bytes as f64);
+    }
+
     /// Record a hit against the RLS projection cache (D-EGP-1): the actor's
     /// materialized `GraphCore` was reused, no rebuild needed. Called from
     /// `GraphReadAuthority::project_core_active` on the fast path.
@@ -820,6 +848,8 @@ mod imp {
     pub fn observe_write_lock_wait(_graph: &str, _seconds: f64) {}
     pub fn observe_write_lock_hold(_graph: &str, _seconds: f64) {}
     pub fn observe_dispatch_lock_wait(_mode: &str, _seconds: f64) {}
+    pub fn observe_commit_ops_phase(_phase: &str, _seconds: f64) {}
+    pub fn observe_commit_ops_bytes(_kind: &str, _bytes: u64) {}
     pub fn projection_cache_hit() {}
     pub fn projection_cache_miss(_seconds: f64) {}
     pub fn loop_tick(_name: &str, _seconds: f64) {}
