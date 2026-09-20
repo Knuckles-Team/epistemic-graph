@@ -252,9 +252,42 @@ impl SemanticCodeStore {
             !consumer.trim().is_empty() && lease.consumer == consumer,
             "semantic stage lease consumer does not match",
         )?;
+        // EH-315: this used to be one `ensure` over all three conditions ANDed
+        // together, with one message ("...is absent, unissued, or expired")
+        // that could not say which had actually fired. A real R820 failure
+        // (`lease_epoch: 1, attempt: 0, lease_until_ms: 5004` at `now_ms: 3`)
+        // needed manual arithmetic against the Debug-printed lease to work out
+        // that only the middle condition (`attempt != 0`) was false — exactly
+        // the class of defect EH-331's guard hit: an error that collapses
+        // distinct cases into one string. Split so a failing run names the
+        // actual condition directly.
         ensure(
-            lease.lease_epoch != 0 && lease.attempt != 0 && lease.lease_until_ms > now_ms,
-            "semantic stage lease is absent, unissued, or expired",
+            lease.lease_epoch != 0,
+            &format!(
+                "semantic stage lease is ABSENT: lease_epoch=0 for consumer \
+                 {consumer:?} — no lease has ever been issued for this outbox row"
+            ),
+        )?;
+        ensure(
+            lease.attempt != 0,
+            &format!(
+                "semantic stage lease is UNISSUED: attempt=0 at lease_epoch={} \
+                 for consumer {consumer:?} — every claim increments lease_epoch \
+                 unconditionally, but `attempt` only advances for the HEAD row \
+                 of its ordering queue (X10-R1, see next_lease/head_only_attempt \
+                 in eg-transaction's outbox/claim.rs); attempt=0 here means this \
+                 lease was claimed as a non-head successor, or was never \
+                 obtained from claim_stage_leases at all",
+                lease.lease_epoch
+            ),
+        )?;
+        ensure(
+            lease.lease_until_ms > now_ms,
+            &format!(
+                "semantic stage lease has EXPIRED: lease_until_ms={} <= \
+                 now_ms={now_ms} for consumer {consumer:?}",
+                lease.lease_until_ms
+            ),
         )?;
         ensure_stage_topic_owner(
             lease,
