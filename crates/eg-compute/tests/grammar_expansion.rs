@@ -7,14 +7,21 @@
 //! path. Kept as its own integration-test file (rather than growing the
 //! crate's inline `#[cfg(test)] mod tests`) per this lane's file ownership.
 //!
-//! Two languages register a grammar but are deliberately tested for what the
+//! Objective-C registers a grammar but is deliberately tested for what the
 //! EXISTING generic AST walker (`tree_sitter_ast.rs`, owned by a different
-//! lane) actually extracts, not for a symbol shape this lane cannot add:
-//! Objective-C's own `@interface`/`@implementation`/method nodes carry no
+//! lane) actually extracts, not for a symbol shape this lane cannot add: its
+//! own `@interface`/`@implementation`/method nodes carry no
 //! `name`/`declarator`/`type` field the walker's `symbol_name()` can read, so
 //! only the plain-C constructs a `.m` file may also contain (a `struct`, a
-//! C-style function) extract; HTML/CSS/JSON have no function/class concept at
-//! all, so zero SYMBOL nodes is the CORRECT result, not a defect.
+//! C-style function) extract.
+//!
+//! HTML/CSS/JSON are deliberately NOT registered by this lane, even though
+//! ABI-14-compatible crates exist for all three: they have no function/class
+//! concept, so no vocabulary addition to the generic walker could ever
+//! extract anything from them, and registering the grammar alone (with
+//! nothing to consume elements/selectors/keys) would only inflate the
+//! supported-extension count for zero capability. `html_css_json_not_yet_registered`
+//! below is a regression guard for that decision, not a symbol test.
 #![cfg(feature = "ast-extended")]
 
 use eg_compute::parser::tree_sitter::parse_file;
@@ -131,25 +138,19 @@ fn swift_class_and_function() {
 }
 
 #[test]
-fn html_css_json_parse_with_no_code_symbols() {
-    // HTML/CSS/JSON have no function/class concept, so the generic AST
-    // symbol walker correctly extracts zero SYMBOL nodes for them.
-    // Registering these grammars closes the "Unsupported file extension"
-    // gap for repository-wide parsing sweeps; a dedicated structural
-    // extractor (as SQL DDL already has for database entities) is future
-    // work, not this lane's grammar-table scope.
-    let html =
-        parse_file("index.html", b"<html><body><p>hi</p></body></html>").expect("parse html");
-    assert_eq!(html.nodes.len(), 0);
-    assert_eq!(html.symbols_extracted, 0);
-
-    let css = parse_file("styles.css", b".foo { color: red; }").expect("parse css");
-    assert_eq!(css.nodes.len(), 0);
-    assert_eq!(css.symbols_extracted, 0);
-
-    let json = parse_file("data.json", br#"{"a": 1, "b": [1, 2, 3]}"#).expect("parse json");
-    assert_eq!(json.nodes.len(), 0);
-    assert_eq!(json.symbols_extracted, 0);
+fn html_css_json_not_yet_registered() {
+    // Deliberate exclusion, not an oversight (CONCEPT:EH-281 — see this
+    // file's module doc and the exclusion note in `grammars_extended`):
+    // registering a grammar with no extractor that can consume its node
+    // kinds would inflate the supported-extension count for zero capability.
+    // This is a regression guard on that decision — if a future lane adds a
+    // dedicated structural extractor and registers these grammars for real,
+    // this test should be replaced with one that asserts genuine extraction,
+    // not updated to keep expecting "Unsupported file extension".
+    for path in ["index.html", "styles.css", "data.json"] {
+        let err = parse_file(path, b"").expect_err("not registered yet");
+        assert_eq!(err, "Unsupported file extension");
+    }
 }
 
 #[test]

@@ -84,15 +84,14 @@ ast-extended = [
     "dep:tree-sitter-bash",
     "dep:tree-sitter-scala",
     "dep:tree-sitter-lua",
-    # CONCEPT:EH-281 grammar expansion.
+    # CONCEPT:EH-281 grammar expansion. HTML/CSS/JSON are deliberately NOT
+    # here: see the "no extractor consumes them" note above the ABI-pin
+    # comment block below.
     "dep:tree-sitter-kotlin-ng",
     "dep:tree-sitter-objc",
     "dep:tree-sitter-zig",
     "dep:tree-sitter-groovy",
     "dep:tree-sitter-swift",
-    "dep:tree-sitter-html",
-    "dep:tree-sitter-css",
-    "dep:tree-sitter-json",
 ]
 
 [dependencies]
@@ -165,17 +164,27 @@ tree-sitter-lua = { version = "0.2", optional = true }
 # anyway, so `tree_sitter.rs` routes `.cu`/`.cuh` through `tree-sitter-cpp`
 # instead (see the CUDA row in `CORE_LANGUAGES`). No Terraform/HCL crate is
 # pinned for the same reason: `tree-sitter-hcl` only ever published 1.1.0,
-# which is ABI 15.
+# which is ABI 15. No HTML/CSS/JSON crate is pinned either, though
+# ABI-14-compatible releases exist (tree-sitter-html 0.23.2, tree-sitter-css
+# 0.23.2, tree-sitter-json 0.24.8): none of these languages have a
+# function/class concept, so the generic AST walker's `class_like_kind`/
+# `function_like_kind` vocabulary (elements/selectors/keys are structurally
+# nothing like a declaration) would extract exactly zero symbols from any of
+# them. Registering the grammar now would only inflate the supported-
+# extension count for no capability, and would very likely start feeding
+# these (currently skipped) files into the parse pipeline via the Python
+# file-discovery walk that mirrors `SUPPORTED_EXTENSIONS` for nothing in
+# return. They need a DEDICATED structural extractor first — element
+# attributes for HTML, selector/property pairs for CSS, key paths for
+# JSON — the same shape SQL DDL already has via `tree_sitter_sql.rs`, which
+# is architecture work for a follow-up lane, not a grammar-table row. See
+# the lane WRAPUP for the full reasoning.
 tree-sitter-kotlin-ng = { version = "=1.0.1", optional = true }
 tree-sitter-objc = { version = "=3.0.2", optional = true }
 tree-sitter-zig = { version = "=1.1.2", optional = true }
 tree-sitter-groovy = { version = "=0.1.2", optional = true }
 # 0.7.x+ moved to ABI 15; 0.6.0 is the newest ABI-14 release.
 tree-sitter-swift = { version = "=0.6.0", optional = true }
-tree-sitter-html = { version = "=0.23.2", optional = true }
-# 0.25.0 moved to ABI 15; 0.23.2 is the newest ABI-14 release.
-tree-sitter-css = { version = "=0.23.2", optional = true }
-tree-sitter-json = { version = "=0.24.8", optional = true }
 
 # Criterion harness for the AST parse-throughput baseline bench (CONCEPT:EG-012).
 # DEV-only — never linked into the engine binary.

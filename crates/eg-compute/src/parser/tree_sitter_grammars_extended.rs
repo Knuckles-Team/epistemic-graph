@@ -11,17 +11,25 @@
 // Every grammar below is pinned in `Cargo.toml` to a tree-sitter ABI-14
 // release (this crate's tree-sitter core accepts ABI 13..=14 only — see the
 // `tree-sitter-c-sharp` precedent in `CORE_LANGUAGES`'s file and the ABI note
-// above these dependencies in `Cargo.toml`). Languages that the ledger
-// (EH-281) asked for but that have no maintained, ABI-compatible crates.io
-// binding — Terraform/HCL (only release is ABI 15) and DreamMaker (no
-// maintained tree-sitter grammar at all) — are deliberately NOT here; see the
-// lane's WRAPUP for the evidence. Likewise, Julia, Elixir, PowerShell,
-// Fortran, Pascal and Verilog all have ABI-14-compatible crates but are not
-// registered here: none of their declaration node kinds are covered by the
-// existing generic AST walker's node-kind vocabulary (`tree_sitter_ast.rs`'s
-// `class_like_kind`/`function_like_kind`, owned by a different lane in this
-// program), so registering them would silently extract zero symbols. See the
-// WRAPUP for the exact node-kind evidence per language.
+// above these dependencies in `Cargo.toml`). Three groups of ledger-requested
+// (EH-281) languages are deliberately NOT here — see the lane's WRAPUP for
+// the full evidence per language:
+//   * No maintained, ABI-compatible crates.io binding at all: Terraform/HCL
+//     (only release is ABI 15) and DreamMaker (no maintained grammar).
+//   * An ABI-14-compatible crate exists, but none of the language's
+//     declaration node kinds are covered by the existing generic AST
+//     walker's node-kind vocabulary (`tree_sitter_ast.rs`'s
+//     `class_like_kind`/`function_like_kind`, owned by a different lane in
+//     this program) — registering them would silently extract zero symbols:
+//     Julia, Elixir, PowerShell, Fortran, Pascal, Verilog.
+//   * An ABI-14-compatible crate exists and the walker gap is moot — these
+//     languages have no function/class concept at all, so no vocabulary
+//     addition to `class_like_kind`/`function_like_kind` could ever extract
+//     anything from them. They need a wholly separate DEDICATED extractor
+//     (element/attribute for HTML, selector/property for CSS, key path for
+//     JSON — the same shape `tree_sitter_sql.rs` already has for SQL DDL),
+//     which is architecture work for a follow-up lane, not a grammar-table
+//     row: HTML, CSS, JSON.
 
 use super::{language_table_entry, LangCtor};
 use tree_sitter::Language;
@@ -60,13 +68,6 @@ const EXTENDED_LANGUAGES: &[(&[&str], LangCtor, &str)] = &[
         "groovy",
     ),
     (&["swift"], || tree_sitter_swift::LANGUAGE.into(), "swift"),
-    (
-        &["html", "htm"],
-        || tree_sitter_html::LANGUAGE.into(),
-        "html",
-    ),
-    (&["css"], || tree_sitter_css::LANGUAGE.into(), "css"),
-    (&["json"], || tree_sitter_json::LANGUAGE.into(), "json"),
 ];
 
 /// Resolve `ext` against the extended-language tier, or `None` if it isn't

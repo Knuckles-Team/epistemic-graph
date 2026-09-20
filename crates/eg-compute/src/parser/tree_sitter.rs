@@ -152,8 +152,10 @@ pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     "rb", "php", "sh", "bash", "scala", "sc", "lua",
     // CONCEPT:EH-281 grammar expansion (extended tier): Kotlin (+ Gradle Kotlin
     // DSL via `.kts`), Objective-C, Zig, Groovy (+ Gradle Groovy DSL via
-    // `.gradle` — Gradle needs no grammar of its own), Swift, HTML, CSS, JSON.
-    "kt", "kts", "m", "mm", "zig", "groovy", "gradle", "swift", "html", "htm", "css", "json",
+    // `.gradle` — Gradle needs no grammar of its own), Swift. HTML/CSS/JSON
+    // are deliberately NOT listed: see the exclusion note in
+    // `grammars_extended`'s module doc.
+    "kt", "kts", "m", "mm", "zig", "groovy", "gradle", "swift",
 ];
 
 pub fn parse_file(file_path: &str, source: &[u8]) -> Result<ParseResult, String> {
