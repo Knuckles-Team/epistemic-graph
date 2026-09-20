@@ -137,7 +137,27 @@ mod dispatch_reachability_tests {
     /// The tenant `auth::request_context_policy()` expects under `cfg(test)`.
     const TENANT: &str = "tenant-shared";
 
-    fn signed(method: Method) -> Request {
+    /// One nonce per `surface`, not one shared literal across every call.
+    ///
+    /// The transport replay ledger (`auth::verify_envelope_v2_with`) checks
+    /// every NON-mutating request's nonce against a single per-process ledger
+    /// (`durable_replay_ledger`, `#[cfg(test)]`-swapped to one `OnceLock`
+    /// shared by the whole test binary), and correctly refuses a second
+    /// presentation of the same nonce as a replay. `contract_wave_samples()`
+    /// mixes mutating and non-mutating surfaces (mutating ones skip the
+    /// ledger entirely, `eg_capabilities::policy(..).mutates`), so a fixed
+    /// literal nonce reused across every iteration of this loop is not "the
+    /// same request retried" -- it is several DISTINCT non-mutating requests
+    /// presenting one nonce, which the ledger is right to reject on the
+    /// second one (deterministically: the loop order fixes exactly which
+    /// surface trips it, e.g. `AgentAssemble` then `Decide`). Each surface
+    /// gets its own nonce, derived from its label so it stays deterministic.
+    fn nonce_for(surface: &str) -> String {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest(surface.as_bytes()))
+    }
+
+    fn signed(surface: &str, method: Method) -> Request {
         let mut request = Request {
             id: 11,
             graph: "__commons__".to_string(),
@@ -160,7 +180,7 @@ mod dispatch_reachability_tests {
             &VerifiedEnvelopeParams {
                 context: &context,
                 timestamp: crate::server::dispatch::authoritative_now_ms() / 1000,
-                nonce: &"05".repeat(32),
+                nonce: &nonce_for(surface),
                 idempotency_key: "contract-wave-probe",
             },
         );
@@ -177,7 +197,7 @@ mod dispatch_reachability_tests {
             ServerState::test_isolation(CALLER),
         )));
         for (surface, method) in contract_wave_samples() {
-            let response = dispatch_test_on_heap(&state, signed(method)).await;
+            let response = dispatch_test_on_heap(&state, signed(surface, method)).await;
             let error = response
                 .error
                 .unwrap_or_else(|| panic!("{surface} answered a result before its handler landed"));

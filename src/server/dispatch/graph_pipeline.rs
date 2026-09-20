@@ -1688,7 +1688,8 @@ mod blob_dispatch_tests {
     use super::*;
     use crate::protocol::{Method, Request};
     use crate::server::auth::sign_current_test_request;
-    use crate::server::blob::{BlobCursors, RedbChunkStore};
+    use crate::server::blob::store::DEFAULT_UPLOAD_TTL_MS;
+    use crate::server::blob::{BlobCursors, BlobRetentionPolicy, RedbChunkStore};
     use std::sync::Arc;
     use tokio::sync::RwLock;
 
@@ -1723,7 +1724,25 @@ mod blob_dispatch_tests {
                 .expect("open blob-dispatch test redb backend"),
             ));
         }
-        state.blob = Some(Arc::new(BlobCursors::new(store)));
+        // Zero GC grace (X2, commit 62a2471e1): this test drives `BlobGc`
+        // through the real dispatch path with the real wall clock
+        // (`authoritative_now_ms()`), never a synthetic/injected `now`. The
+        // DEFAULT retention (`BlobRetentionPolicy::default()`, 24h grace --
+        // "long enough for any client to take its first holder" after a
+        // commit) is exactly right for production, but it means a manifest's
+        // grace can never have elapsed within one test's wall-clock runtime,
+        // so `BlobGc` right after `BlobUnref` below would deterministically
+        // report 0 blobs reclaimed forever, regardless of host load. This
+        // test's own assertion is about the OTHER half of GC eligibility --
+        // that a zero-refcount manifest is swept -- so it opts out of the
+        // grace window explicitly, the same way the store-level GC unit
+        // tests in `blob/store/tests.rs` do (there, by choosing synthetic
+        // `now_ms` values past `BlobRetentionPolicy::default().gc_grace_ms()`
+        // instead, since they call `sweep_batch` directly rather than
+        // through dispatch's real-time clock).
+        let retention = BlobRetentionPolicy::new(0, DEFAULT_UPLOAD_TTL_MS)
+            .expect("zero GC grace with the default upload TTL is a valid retention policy");
+        state.blob = Some(Arc::new(BlobCursors::new(store).with_retention(retention)));
         state.blob_cursor_ttl_secs = 300;
         Arc::new(RwLock::new(state))
     }
