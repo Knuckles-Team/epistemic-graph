@@ -50,8 +50,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 # `cargo llvm-cov` records SF: paths as whatever the build's cwd made them
-# (often an absolute build-host path when built from a synced source tree,
-# e.g. `/mnt/data/cargo-targets/eg-cov-src/...` on the R820 build host --
+# (often an absolute build-host path when built from a synced source tree --
 # see AGENTS.md build-host-split note). These are stripped back to
 # repo-relative so this script's own repo-relative --root cross-check works
 # regardless of which host produced the lcov file.

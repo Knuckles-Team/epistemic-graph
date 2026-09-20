@@ -212,8 +212,9 @@ reverifications:
       eg-durable/eg-resource) does not have a way to represent honestly without
       inventing a claim this pass did not verify per-crate.
       HONEST BOTTOM LINE: this file is NOT layout-checker-clean, for the two concrete,
-      reproducible reasons above (script: `/var/tmp/l9/eg-f56/run_layout_check.py`,
-      `run_layout_check2.py`), and closing either gap is a larger, separately-scoped
+      reproducible reasons above (verified by running this file's own
+      `registry.validate_layout_records` checker directly, via two one-off scripts
+      not retained in this repository), and closing either gap is a larger, separately-scoped
       edit than this lane's brief (agent-library claims, deletion lineage, staleness).
       No gate or component status below is marked passed/accepted on the strength of
       this run; both remain `not_run`/`proposed` exactly as before.
@@ -243,7 +244,7 @@ reverifications:
           Every directory-style path in every `owned_source_roots`/`public_contract_roots`/
           `test_roots`/`generated_roots`/`shared_roots`/`shared_files` entry across all 23
           implementation components lost its trailing `/` (mechanical, via a line-anchored
-          regex substitution -- `/var/tmp/l9/eg-f56/strip_trailing_slashes.py` -- confirmed
+          regex substitution -- via a one-off script, not retained in this repository -- confirmed
           against the live filesystem, not just string-edited). Because `public_contract_roots`
           and `owned_source_roots` participate in ONE GLOBAL overlap check across every
           component and category (`_paths_overlap`, checked pairwise over
@@ -255,7 +256,8 @@ reverifications:
           checkable path. Fixed for all ~48 owned crates across 18 components (plus the
           non-crate directory components below) by replacing the single directory-glob
           `owned_source_roots` entry with the crate's real, live `os.listdir(src/)` top-level
-          entries MINUS `lib.rs` (`/var/tmp/l9/eg-f56/apply_canonical_paths.py`) -- e.g.
+          entries MINUS `lib.rs` (via a one-off script, not retained in this repository,
+          that read each crate's live `src/` directory listing) -- e.g.
           eg.wire-contracts' `crates/eg-types/src/` became 42 individual top-level
           file/directory entries. Also fixed the same nested-overlap shape for
           `eg.cluster-replication` (`src/raft/` -> its 23 top-level entries, excluding
@@ -334,13 +336,13 @@ reverifications:
       in place (append-only), but is now known-stale as of this entry.
     al002_remeasurement: >-
       Re-ran `arch-lint check --format json` (0.5.0, the SAME tool/version as the 2026-09-04
-      baseline -- a real re-run, not a carried-forward number: raw output archived at
-      `/var/tmp/l9/eg-f56/arch-lint-2026-09-12.json`, sha256
+      baseline -- a real re-run, not a carried-forward number: raw JSON output archived
+      outside this repository at review time, sha256
       a68c461f6dacb65998c6ed131d269a58191e23a0b357943bc5d5a8691ddb15e2) and re-attributed
       every one of its 982 AL002 (no-sync-io) findings to a component by this file's
       POST-FIX `owned_crates`/`owned_source_roots`/`test_roots`/
-      `owned_source_roots_omissions` (script: `/var/tmp/l9/eg-f56/update_al002_blocks.py`,
-      attribution logic in `/var/tmp/l9/eg-f56/al002_final3.txt`'s generating script).
+      `owned_source_roots_omissions` (via a one-off script, not retained in this
+      repository, whose attribution logic and RESULT are described below).
       RESULT: 0 of 982 findings are unattributed to any component -- a genuine, exhaustive,
       cross-checked census, not a sample. Every component's `al002_no_sync_io.owned_errors`/
       `top_files` below is REPLACED with this 2026-09-12 count and stamped
@@ -418,7 +420,7 @@ reverifications:
       same as running the acceptance test each decision itself calls for, which this pass did
       not do.
     whole_file_path_existence_audit: >-
-      Scripted (`/var/tmp/l9/eg-f56/path_audit_final.py`: parse this file with `yaml.safe_load`,
+      Scripted (a one-off script, not retained in this repository: parse this file with `yaml.safe_load`,
       walk every string value, regex-extract repo-relative-path-shaped substrings, check
       `os.path.exists` for each against this lane's HEAD) rather than grepped, because a naive
       per-line grep both misses paths a YAML folded scalar wraps across two source lines and

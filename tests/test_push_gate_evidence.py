@@ -64,7 +64,7 @@ def test_exact_reuse_requires_complete_success_and_identical_selection() -> None
         "fixture-exact",
         ["cargo", "test", "-p", "eg-core", "--all-features"],
         kind="cargo",
-        environment={"CARGO_TARGET_DIR": "/var/tmp/eg", "CARGO_BUILD_JOBS": "2"},
+        environment={"CARGO_TARGET_DIR": "/tmp/eg", "CARGO_BUILD_JOBS": "2"},
     )
     document = _document(selection)
 
@@ -85,7 +85,7 @@ def test_exact_reuse_requires_complete_success_and_identical_selection() -> None
         "fixture-exact",
         selection.argv,
         kind="cargo",
-        environment={"CARGO_TARGET_DIR": "/var/tmp/other", "CARGO_BUILD_JOBS": "2"},
+        environment={"CARGO_TARGET_DIR": "/tmp/other", "CARGO_BUILD_JOBS": "2"},
     )
     assert not EvidenceStore._admissible(document, different_environment)
 

@@ -15,10 +15,11 @@ a change to either one that reintroduces the defect fails these tests too.
 
 `handle_shex_validate` is the real function, copied verbatim both sides: the
 base from `git show e25c73fb:src/server/handlers/rdf.rs` (cyclomatic 11 /
-cognitive 11, over the cyclomatic cap, exempt), the after from lane F3a's held
-working-tree copy at `/var/tmp/l9/eg-f3a/rdf.rs.worktree.bak` (cyclomatic 9 /
-cognitive 10, under both caps, not exempt) -- the exact edit the gate wrongly
-blocked. Each is independently measured below rather than asserted by fiat.
+cognitive 11, over the cyclomatic cap, exempt), the after from lane F3a's
+fix to this function (reproduced verbatim below as
+`HANDLE_SHEX_VALIDATE_SIMPLIFIED`; cyclomatic 9 / cognitive 10, under both
+caps, not exempt) -- the exact edit the gate wrongly blocked. Each is
+independently measured below rather than asserted by fiat.
 """
 
 from __future__ import annotations
@@ -144,7 +145,7 @@ async fn handle_shex_validate(
 """
 )
 
-# The real F3a fix, verbatim from /var/tmp/l9/eg-f3a/rdf.rs.worktree.bak: the
+# The real F3a fix, verbatim as landed by that lane: the
 # final `match serde_json::to_value(&report) {...}` (2 arms) is gone, replaced
 # by a typed `ResultPayload::of::<...>` call the new result-contract program
 # makes infallible at this site. Measured: cyclomatic 9, cognitive 10 -- under

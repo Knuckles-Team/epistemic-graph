@@ -30,7 +30,7 @@
 #     "contract-core epistemic-graph-lib"
 #
 # ENV:
-#   EG_COV_OUT        output directory (default: /var/tmp/l9/eg-coverage-<date>)
+#   EG_COV_OUT        output directory (default: "${TMPDIR:-/tmp}"/eg-coverage-<date>)
 #   EG_COV_JOBS        cargo -j (default: 4 -- see AGENTS.md "count cargo
 #                       lanes not lanes"; NEVER raise this on a shared build
 #                       host without checking `uptime` first)
@@ -62,7 +62,7 @@ fi
 
 JOBS="${EG_COV_JOBS:-4}"
 TOP="${EG_COV_TOP:-30}"
-OUT="${EG_COV_OUT:-/var/tmp/l9/eg-coverage-$(date +%Y%m%d)}"
+OUT="${EG_COV_OUT:-${TMPDIR:-/tmp}/eg-coverage-$(date +%Y%m%d)}"
 mkdir -p "$OUT/raw"
 
 # NEVER silently proceed on a starved fd table -- see AGENTS.md /

@@ -13,6 +13,7 @@ import os
 import posixpath
 import re
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -170,9 +171,12 @@ ARTIFACT_IO_ACTIONS = ("actions/upload-artifact", "actions/download-artifact")
 # a workflow-declared value.
 LOCAL_ENV_OVERRIDES = {
     "CARGO_TARGET_DIR": os.environ.get(
-        "CI_GATE_CARGO_TARGET_DIR", "/var/tmp/eg-ci-gate-target"
+        "CI_GATE_CARGO_TARGET_DIR",
+        os.path.join(tempfile.gettempdir(), "eg-ci-gate-target"),
     ),
-    "TMPDIR": os.environ.get("CI_GATE_TMPDIR", "/var/tmp/eg-ci-gate-tmp"),
+    "TMPDIR": os.environ.get(
+        "CI_GATE_TMPDIR", os.path.join(tempfile.gettempdir(), "eg-ci-gate-tmp")
+    ),
     # A CI runner is ephemeral and has no user-site directory. A developer host
     # does, and inheriting it is not a harmless difference -- it manufactures
     # code verdicts out of stale artifacts.

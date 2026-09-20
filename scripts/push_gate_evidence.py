@@ -315,9 +315,12 @@ def local_build_environment(
 
     values = dict(os.environ if environment is None else environment)
     values["CARGO_TARGET_DIR"] = values.get(
-        "CI_GATE_CARGO_TARGET_DIR", "/var/tmp/eg-ci-gate-target"
+        "CI_GATE_CARGO_TARGET_DIR",
+        os.path.join(tempfile.gettempdir(), "eg-ci-gate-target"),
     )
-    values["TMPDIR"] = values.get("CI_GATE_TMPDIR", "/var/tmp/eg-ci-gate-tmp")
+    values["TMPDIR"] = values.get(
+        "CI_GATE_TMPDIR", os.path.join(tempfile.gettempdir(), "eg-ci-gate-tmp")
+    )
     override = values.get("CI_GATE_CARGO_BUILD_JOBS")
     if override is not None:
         override_text = str(override)

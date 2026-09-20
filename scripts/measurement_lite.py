@@ -51,6 +51,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -225,7 +226,7 @@ def run_background(
     if systemd_run is None:
         raise SystemdRunUnavailableError("systemd-run not found on PATH")
     unit = unit_name or f"eg-measurement-{uuid.uuid4().hex[:12]}"
-    log_dir = Path(log_dir) if log_dir is not None else Path("/var/tmp")
+    log_dir = Path(log_dir) if log_dir is not None else Path(tempfile.gettempdir())
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{unit}.log"
     inner_cmd = f"{{ {cmd} ; }} > {shlex.quote(str(log_path))} 2>&1"

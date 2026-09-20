@@ -224,7 +224,7 @@ fn recovery_rejects_unknown_prepared_and_committed_events_but_replays_known_priv
     let _env_read_lock = crate::crypto::provisioned_test_env_read_lock_blocking();
     let directory = tempfile::Builder::new()
         .prefix("eg-admin-saga-recovery-contract-")
-        .tempdir_in("/var/tmp")
+        .tempdir()
         .unwrap();
     let backend = crate::server::persistence::redb_backend::RedbBackend::open_with_shards(
         directory.path().to_string_lossy().into_owned(),
@@ -314,7 +314,7 @@ fn sparql_recovery_rejects_untyped_results_while_prepared_and_replays_exact_outc
     let _env_read_lock = crate::crypto::provisioned_test_env_read_lock_blocking();
     let directory = tempfile::Builder::new()
         .prefix("eg-admin-sparql-recovery-contract-")
-        .tempdir_in("/var/tmp")
+        .tempdir()
         .unwrap();
     let backend = crate::server::persistence::redb_backend::RedbBackend::open_with_shards(
         directory.path().to_string_lossy().into_owned(),
@@ -438,7 +438,7 @@ fn method_bearing_retry_recovers_legacy_public_sagas_but_direct_resume_refuses()
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock_blocking();
     let directory = tempfile::Builder::new()
         .prefix("eg-admin-public-legacy-contract-")
-        .tempdir_in("/var/tmp")
+        .tempdir()
         .unwrap();
     let backend = crate::server::persistence::redb_backend::RedbBackend::open_with_shards(
         directory.path().to_string_lossy().into_owned(),
@@ -555,7 +555,7 @@ fn durable_reshard_saga_rejects_wrong_result_then_replays_typed_result() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock_blocking();
     let directory = tempfile::Builder::new()
         .prefix("eg-admin-saga-contract-")
-        .tempdir_in("/var/tmp")
+        .tempdir()
         .unwrap();
     let backend = crate::server::persistence::redb_backend::RedbBackend::open_with_shards(
         directory.path().to_string_lossy().into_owned(),

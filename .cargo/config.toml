@@ -42,8 +42,8 @@
 # workspace from scratch on multiple build hosts routinely) or a re-run after
 # `git clean` reuses compiled artifacts instead of recompiling all 65 crates.
 # sccache defaults its cache dir to `~/.cache/sccache`; on hosts where $HOME is
-# NFS-mounted, export `SCCACHE_DIR=/var/tmp/l9/sccache` (or another local-disk
-# path) before building — sccache over NFS is exactly the kind of pathological
+# NFS-mounted, export `SCCACHE_DIR=</path/to/a/local-disk/sccache>` before
+# building — sccache over NFS is exactly the kind of pathological
 # I/O pattern that caused the 60-minute link hang this program exists to fix.
 # NOTE: cargo hard-errors ("could not execute process `sccache`") if the
 # binary is not on PATH — this is not a soft fallback. Every build host in

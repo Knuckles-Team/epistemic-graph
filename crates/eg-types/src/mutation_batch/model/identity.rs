@@ -426,7 +426,7 @@ mod tests {
             "person@example.invalid",
             "/home/person",
             "/users/person",
-            "/mnt/data",
+            "/mnt/backup",
             "file://tenant",
         ] {
             assert!(

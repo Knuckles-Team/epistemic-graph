@@ -29,12 +29,16 @@ import argparse
 import getpass
 import hashlib
 import ipaddress
+import json
 import os
 import re
+import shutil
 import socket
 import stat
 import subprocess
 import sys
+import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -418,6 +422,43 @@ _CREDENTIAL_PLACEHOLDER_TOKENS = frozenset(
 )
 _HOST_IDENTITY_RE = re.compile(r"(?i)\bssh://(?!\$\{)[^\s/@]+@")
 _MACHINE_HOST_ID_RE = re.compile(r"(?i)(?<![a-z0-9])(?:rw?|host)[0-9]{3,}(?![a-z0-9])")
+
+# EH-312 (2026-09-19): this workspace's own standing convention (CLAUDE.md /
+# eg-publish-lane-rules.md) bans a small set of literal scratch/build-host
+# path roots from every EG tracked file -- this repo publishes to a PUBLIC
+# GitHub org, and none of these roots exist, or mean anything, outside this
+# one internal workspace. No pattern here enforced that convention in code;
+# found only by a hand review of 28 entropy-scan candidates that turned up
+# several unretrievable evidence citations pointing at this workspace's own
+# internal scratch-script location in architecture/component-registry.yml, a
+# live functional default in scripts/eg_coverage_report.sh, and dangling
+# fixture provenance in tests/test_check_complexity_staged.py -- all fixed
+# by hand (see those files' own history), none of them by this gate. This
+# pattern exists so the next one is caught automatically.
+#
+# One of the three roots below is ALSO independently caught by
+# `_HOME_PATH_RE` (see above), because its username component is not in
+# `_RESERVED_HOME_USERS` -- but is repeated here, explicitly and by name,
+# rather than left to depend on that word never being reserved for an
+# unrelated reason later.
+#
+# NOTE: each root is deliberately written as adjacent split string literals
+# (e.g. ``"/var" "/tmp"``, concatenated by Python at parse time into one
+# unchanged pattern) rather than one contiguous literal -- this is this
+# gate's OWN tracked source, scanned like any other, and a pattern that
+# spells out the exact roots it hunts for as one unbroken run of characters
+# would flag itself the same way `check_secret_history.py`'s docstring
+# already had to work around for its own credential-pattern literals.
+_SCRATCH_HOST_PATH_RE = re.compile(
+    r"(?<![A-Za-z0-9_.-])(?:"
+    r"/var"
+    r"/tmp|"
+    r"/mnt"
+    r"/data|"
+    r"/home"
+    r"/apps"
+    r")(?:/|\b)"
+)
 _NEUTRAL_AUTHOR_NAME = "repository maintainers"
 _NEUTRAL_AUTHOR_EMAIL_SUFFIX = "@example.invalid"
 _SCAN_EXCLUDED_DIRECTORIES = frozenset(
@@ -686,6 +727,23 @@ def _deployment_doc_categories(line: str) -> frozenset[str]:
     return frozenset(categories)
 
 
+# Single-regex, line-only categories, checked via one small helper (below)
+# instead of one more flat `if` per pattern in `classify_line` itself --
+# extraction, not a table for its own sake: the loop's own complexity is
+# absorbed by this new, otherwise-trivial function, so `classify_line`
+# gains a category with a plain `|=`, not a new branch.
+_LINE_SINGLE_MATCH_CATEGORIES: tuple[tuple[Callable[[str], object], str], ...] = (
+    (_MACHINE_HOST_ID_RE.search, "machine-specific host identifier"),
+    (_SCRATCH_HOST_PATH_RE.search, "internal scratch/build-host path"),
+)
+
+
+def _single_match_categories(line: str) -> frozenset[str]:
+    return frozenset(
+        category for matcher, category in _LINE_SINGLE_MATCH_CATEGORIES if matcher(line)
+    )
+
+
 def classify_line(
     line: str,
     *,
@@ -701,11 +759,28 @@ def classify_line(
     identifier_category = _identifier_category(line.casefold(), identifiers)
     if identifier_category:
         categories.add(identifier_category)
-    if _MACHINE_HOST_ID_RE.search(line):
-        categories.add("machine-specific host identifier")
+    categories |= _single_match_categories(line)
     if deployment_doc:
         categories |= _deployment_doc_categories(line)
     return frozenset(categories)
+
+
+# Same O(1)-cyclomatic table shape as `_LINE_SINGLE_MATCH_CATEGORIES` above,
+# for every runtime-source check that needs only `line` and returns a plain
+# match/bool -- folding these four into one loop (instead of four flat
+# `if`s) is what keeps room for EH-312's new category without regressing
+# this function's already-measured complexity.
+_RUNTIME_SOURCE_LINE_ONLY_CATEGORIES: tuple[
+    tuple[Callable[[str], object], str], ...
+] = (
+    (_has_real_home_path, "machine-specific home path in runtime source"),
+    (_internal_endpoint_in_line, "hard-coded internal endpoint in runtime source"),
+    (
+        _SCRATCH_HOST_PATH_RE.search,
+        "internal scratch/build-host path in runtime source",
+    ),
+    (_PRIVATE_KEY_LINE_RE.fullmatch, "private key material in runtime source"),
+)
 
 
 def classify_runtime_source_line(
@@ -726,21 +801,18 @@ def classify_runtime_source_line(
     """
 
     categories: set[str] = set()
-    if _has_real_home_path(line):
-        categories.add("machine-specific home path in runtime source")
+    for matcher, category in _RUNTIME_SOURCE_LINE_ONLY_CATEGORIES:
+        if matcher(line):
+            categories.add(category)
     folded = line.casefold()
     if any(
         re.search(rf"(?<![\w-]){re.escape(value)}(?![\w-])", folded)
         for value in identifiers
     ):
         categories.add("local account or host identifier in runtime source")
-    if _internal_endpoint_in_line(line):
-        categories.add("hard-coded internal endpoint in runtime source")
     credential_match = _CREDENTIAL_URI_RE.search(line)
     if credential_match and not _is_credential_exempt(credential_match):
         categories.add("credential-bearing URI in runtime source")
-    if _PRIVATE_KEY_LINE_RE.fullmatch(line):
-        categories.add("private key material in runtime source")
     return frozenset(categories)
 
 
@@ -1025,6 +1097,71 @@ def _scan_runtime_source_artifact(
             )
 
 
+def _self_check() -> tuple[int, dict]:
+    """Prove the scratch/build-host-path category (EH-312) actually catches a
+    planted violation, in BOTH scan passes, and does not fire on an ordinary
+    path that merely shares a directory name -- a gate that cannot fail on
+    planted input proves nothing (this program has been burned by that exact
+    shape twice). Uses a plain temp directory, not a git repo: absent
+    ``.git``, ``_tracked_artifacts``/``_runtime_source_artifacts`` already
+    fall back to a full filesystem walk (see ``_filesystem_files``), so
+    ``scan()`` needs no git fixture to exercise here.
+    """
+    tmp = Path(tempfile.mkdtemp(prefix="tracked-privacy-selfcheck-"))
+    try:
+        # Built via concatenation, not one contiguous literal, so this
+        # self-check's own tracked source is never itself a matching leak
+        # outside this throwaway directory -- same convention
+        # check_secret_history.py's fixtures use for the same reason.
+        bad_root = "/" + "var" + "/" + "tmp"
+        bad_line = f"see {bad_root}/eg-selfcheck-leak/output.log for details\n"
+        clean_line = "see /tmp/ordinary/output.log for details\n"
+
+        docs_dir = tmp / "docs"
+        docs_dir.mkdir(parents=True)
+        (docs_dir / "leak.md").write_text(bad_line, encoding="utf-8")
+        (docs_dir / "clean.md").write_text(clean_line, encoding="utf-8")
+
+        src_dir = tmp / "some_module"
+        src_dir.mkdir(parents=True)
+        (src_dir / "tool.py").write_text(bad_line, encoding="utf-8")
+        (src_dir / "clean_tool.py").write_text(clean_line, encoding="utf-8")
+
+        violations = scan(tmp)
+        by_path: dict[str, set[str]] = {}
+        for v in violations:
+            by_path.setdefault(v.path, set()).add(v.category)
+
+        caught_in_public_doc = any(
+            "scratch/build-host path" in category
+            for category in by_path.get("docs/leak.md", set())
+        )
+        caught_in_runtime_source = any(
+            "scratch/build-host path" in category
+            for category in by_path.get("some_module/tool.py", set())
+        )
+        clean_doc_not_flagged = "docs/clean.md" not in by_path
+        clean_source_not_flagged = "some_module/clean_tool.py" not in by_path
+
+        ok = (
+            caught_in_public_doc
+            and caught_in_runtime_source
+            and clean_doc_not_flagged
+            and clean_source_not_flagged
+        )
+        return (0 if ok else 1), {
+            "ok": ok,
+            "selfCheck": True,
+            "caughtInPublicDoc": caught_in_public_doc,
+            "caughtInRuntimeSource": caught_in_runtime_source,
+            "ordinaryDocNotFlagged": clean_doc_not_flagged,
+            "ordinarySourceNotFlagged": clean_source_not_flagged,
+            "violations": sorted(v.render() for v in violations),
+        }
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def scan(root: Path = ROOT) -> list[Violation]:
     identifiers = derive_local_identifiers(root)
     violations: list[Violation] = []
@@ -1061,10 +1198,7 @@ def scan(root: Path = ROOT) -> list[Violation]:
 MAX = 0
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(prog="check-tracked-privacy")
-    parser.parse_args()
-
+def _report_scan() -> int:
     violations = scan()
     count = len(violations)
     # Printed unconditionally -- pass or fail -- so the real count is always
@@ -1092,6 +1226,22 @@ def main() -> int:
         return 1
     print("Tracked artifact privacy gate PASSED.")
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(prog="check-tracked-privacy")
+    parser.add_argument(
+        "--self-check",
+        action="store_true",
+        help="prove the scratch/build-host-path category catches a known-bad input",
+    )
+    args = parser.parse_args()
+
+    if args.self_check:
+        rc, result = _self_check()
+        print(json.dumps(result, indent=2))
+        return rc
+    return _report_scan()
 
 
 if __name__ == "__main__":
