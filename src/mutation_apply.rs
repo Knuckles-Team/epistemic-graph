@@ -38,19 +38,50 @@ pub(crate) const ENGINE_LEDGER_PRINCIPAL: &str =
     "principal:sha256:41290b0e412ac542f312d4312a7a299e771eec66e3ffbbf7edb6369576875fb2";
 
 /// True for the methods whose effect must survive a crash in the authoritative store.
+///
+/// EH-323 (same root cause as EH-316/EH-319, `write_classification.rs`'s module
+/// doc has the full mechanism): `eg-capabilities` forces `eg-types`'s `rdf`,
+/// `mining` and `graphlearn` features on unconditionally whenever this root
+/// crate's `server` feature links it, so `AddTriples`/`RemoveTriples`/
+/// `DropNamedGraph` and every `Mine*`/`GraphLearn*` `Method` variant are
+/// wire-unconditional in ANY `server` build, regardless of whether this root
+/// crate's OWN same-named facade feature is enabled. Gating a CLASSIFICATION
+/// arm below behind that facade feature was therefore wrong the same way it
+/// was in `write_classification.rs`: a durable write could be silently
+/// misclassified non-durable (acknowledged, then lost on crash — EG-P0-3, the
+/// exact defect class this file's own `MineSequence`/`MineForecast` comment
+/// already names) under a build where the facade feature happens to be off
+/// even though the variant, and the `Method` value carrying it, both exist.
+/// `modality-serving` is NOT in `eg-capabilities`'s forced list (it has its
+/// own separate mirrored lockstep feature there instead), so
+/// `Method::ServedModality` genuinely does not exist without this crate's own
+/// `modality-serving` feature; that arm keeps its cfg gate.
+///
+/// `apply`, below, is different on purpose: its matching arms call INTO
+/// `eg_rdf`/`crate::server::handlers::{mining,graphlearn}`, dependencies that
+/// truly do not link without this crate's own facade feature, so those arms
+/// correctly stay gated — a replay that cannot run without the dependency
+/// falls through to `eg_core::durable_apply::apply`'s `_` catch-all rather
+/// than pretending to replay it. Making the classifier accurate is still the
+/// right fix: it means a caller cannot end up with a genuinely durable write
+/// that this function denies logging, on ANY build that can construct the
+/// method at all — the separate, pre-existing question of replaying it back
+/// across a feature-set change is unaffected either way.
 pub fn is_durable_mutation(m: &Method) -> bool {
     // Served modality mutations use the stronger state-backed MutationBatch path;
     // raw source bytes are replaced by the state-backed receipt before this
     // classifier is consulted. It still reports the durable effect for policy and
-    // placement accounting.
+    // placement accounting. `modality-serving` genuinely does not exist without
+    // this crate's own feature (see the function doc); this is the one arm here
+    // that keeps its cfg gate.
     #[cfg(feature = "modality-serving")]
     if let Method::ServedModality { op } = m {
         return op.mutates();
     }
-    // `AddTriples` (feature `rdf`) writes nodes + edges, so it is durable: the
-    // dispatch shell records the Method and `apply` below re-parses + re-applies it
-    // deterministically on replay, exactly like `BatchUpdate`.
-    #[cfg(feature = "rdf")]
+    // `AddTriples` writes nodes + edges, so it is durable: the dispatch shell
+    // records the Method and `apply` below re-parses + re-applies it
+    // deterministically on replay, exactly like `BatchUpdate`. Wire-unconditional
+    // (see function doc): no cfg gate.
     if matches!(
         m,
         Method::AddTriples { .. } | Method::RemoveTriples { .. } | Method::DropNamedGraph
@@ -67,7 +98,7 @@ pub fn is_durable_mutation(m: &Method) -> bool {
     // `:Forecast` nodes) and MUST mirror `access::requires_write`'s classification —
     // they were previously missing here, so an acknowledged write was silently
     // dropped on crash and their `mining::replay` arms were dead code (EG-P0-3).
-    #[cfg(feature = "mining")]
+    // Wire-unconditional (see function doc): no cfg gate.
     if matches!(
         m,
         Method::MineAssociate {
@@ -98,7 +129,7 @@ pub fn is_durable_mutation(m: &Method) -> bool {
     // `MineText`: durable only for `lda`/`nmf` writeback (their `:Topic` nodes) —
     // `tfidf` never mutates regardless of the flag, matching
     // `access::requires_write`'s exact condition byte-for-byte (EG-P0-3).
-    #[cfg(feature = "mining")]
+    // Wire-unconditional (see function doc): no cfg gate.
     if let Method::MineText {
         writeback,
         algorithm,
@@ -110,7 +141,7 @@ pub fn is_durable_mutation(m: &Method) -> bool {
     // `MineSubgraph`: durable only for `gspan` writeback (its `:FrequentSubgraph`
     // nodes) — `motif` never mutates regardless of the flag, matching
     // `access::requires_write`'s exact condition byte-for-byte (EG-P0-3).
-    #[cfg(feature = "mining")]
+    // Wire-unconditional (see function doc): no cfg gate.
     if let Method::MineSubgraph {
         writeback,
         algorithm,
@@ -124,7 +155,7 @@ pub fn is_durable_mutation(m: &Method) -> bool {
     // ontology-gap / retrieval-quality / community-writeback): durable only when
     // `writeback` materializes their typed nodes; `apply` re-mines + re-writes
     // deterministically, same contract as the mining family above.
-    #[cfg(feature = "mining")]
+    // Wire-unconditional (see function doc): no cfg gate.
     if matches!(
         m,
         Method::MineEntityResolve {
@@ -158,7 +189,7 @@ pub fn is_durable_mutation(m: &Method) -> bool {
     // Graph-learning write-back (CONCEPT:EG-KG.graphlearn.link-predictor): durable only
     // when `writeback` materializes `:EdgeFunction` / `:PredictedEdge` nodes. `apply`
     // re-derives + re-writes deterministically (seeded). A pure fit/predict is not logged.
-    #[cfg(feature = "graphlearn")]
+    // Wire-unconditional (see function doc): no cfg gate.
     if matches!(
         m,
         Method::GraphLearnFit {
@@ -267,6 +298,34 @@ fn parse_replayed_triples(
         eg_rdf::mapping::parse_ntriples(ntriples)
     } else {
         Ok(Vec::new())
+    }
+}
+
+/// EH-323 regression coverage: `DropNamedGraph` is a zero-field, wire-unconditional
+/// `Method` variant (see `is_durable_mutation`'s module doc), so this test compiles
+/// and runs under `--no-default-features --features server` with no `#[cfg]` gate
+/// of its own needed for the variant to exist. Before the fix, `is_durable_mutation`
+/// classified it non-durable under any build lacking this crate's own `rdf` facade
+/// feature, even though the variant (and thus a request carrying it) exists —
+/// exactly the "acknowledged, then silently lost on crash" defect class EG-P0-3
+/// names elsewhere in this file. `AddTriples`/`RemoveTriples`/`MineText`/
+/// `GraphLearnFit`/etc. got the identical mechanical fix (see the diff) but are not
+/// independently re-tested here: several `Mine*` variants carry their OWN
+/// wire-unconditional-but-facade-gated fields (`#[cfg(feature = "query")] plan`,
+/// `#[cfg(feature = "epistemic")] as_claim`), which is the SAME defect class one
+/// level down and is flagged, not chased, to keep this fix's diff reviewable.
+#[cfg(test)]
+mod eh323_slim_profile_tests {
+    use super::is_durable_mutation;
+    use crate::protocol::Method;
+
+    #[test]
+    fn drop_named_graph_is_durable_regardless_of_this_crates_own_rdf_feature() {
+        assert!(
+            is_durable_mutation(&Method::DropNamedGraph),
+            "DropNamedGraph must classify durable regardless of this crate's own \
+             `rdf` feature -- the variant is wire-unconditional"
+        );
     }
 }
 
