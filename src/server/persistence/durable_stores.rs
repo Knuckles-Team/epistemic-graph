@@ -24,8 +24,10 @@
 //! ## Keeping the registry honest
 //!
 //! [`DURABLE_STORES`] is the single list. `backup.rs`'s `registry_covers_every_redb_store`
-//! test scans the crate's own sources for `*.redb` filename literals and fails if any is
-//! unclassified, so a NEW durable store cannot be silently forgotten by a future change.
+//! test scans this crate's `src/` **and every workspace crate under `crates/`** (both live
+//! under this package's `CARGO_MANIFEST_DIR`, the workspace root) for `*.redb` filename
+//! literals and fails if any is unclassified, so a NEW durable store — wherever in the
+//! workspace it is opened — cannot be silently forgotten by a future change.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -384,6 +386,49 @@ mod tests {
             "backup.rs's negative fixture proving an unregistered store is refused",
         ),
         (
+            "absent.redb",
+            "eg-storage owner-manifest layout-predecessor unit-test fixture (tempdir): a path \
+             that is never created, used to prove a missing file is left to the normal open",
+        ),
+        (
+            "copied.redb",
+            "eg-storage sql_checkpoint_upgrade unit-test fixture (tempdir): a byte-for-byte \
+             copy of a wrong-owner source, used to prove the copy is refused identically",
+        ),
+        (
+            "copy.redb",
+            "eg-storage sql_checkpoint_upgrade unit-test fixture (tempdir): the live copy in \
+             opened_copy_cannot_borrow_restored_original_path_authority's path-swap proof",
+        ),
+        (
+            "current.redb",
+            "eg-storage owner-manifest layout-predecessor unit-test fixture (tempdir): a \
+             freshly created current-layout owner file, used to prove it is left to the \
+             normal open",
+        ),
+        (
+            "original.redb",
+            "eg-storage sql_checkpoint_upgrade unit-test fixture (tempdir): the renamed-aside \
+             source in opened_copy_cannot_borrow_restored_original_path_authority's path-swap \
+             proof",
+        ),
+        (
+            "preview.redb",
+            "eg-storage sql_checkpoint_upgrade BoundedPreviewBackend unit-test fixture \
+             (tempdir): caps I/O during preview writes",
+        ),
+        (
+            "replacement.redb",
+            "eg-storage sql_checkpoint_upgrade unit-test fixture (tempdir): a swapped-in copy \
+             used to prove a replaced inode is refused before creating a checkpoint",
+        ),
+        (
+            "sql.redb",
+            "eg-storage sql_checkpoint_upgrade unit-test fixture (tempdir), and the same \
+             tempdir-local name reused by eg-query's source_batch table-store test fixture \
+             (crates/eg-query/src/tables/store/source_batch/tests/support.rs)",
+        ),
+        (
             "changed-after-inspection.redb",
             "eg-storage physical-backup unit-test fixture (tempdir)",
         ),
@@ -497,10 +542,15 @@ mod tests {
     ///
     /// A file-list change alone rots: the next durable store someone adds is silently
     /// left out of every bundle, exactly as `rbac.redb`, `kv.redb` and `node_info.redb`
-    /// were. So scan the crate's OWN sources for `*.redb` filename literals and require
-    /// each one to be classified — bundled, deliberately excluded (with a reason),
-    /// retired, or explicitly not a persist-dir store. An unclassified name fails here,
-    /// at the point the store is introduced, instead of at a restore years later.
+    /// were. So scan this package's `src/` AND every workspace crate under `crates/` for
+    /// `*.redb` filename literals and require each one to be classified — bundled,
+    /// deliberately excluded (with a reason), retired, or explicitly not a persist-dir
+    /// store. The scan is workspace-wide, not crate-local: this package's
+    /// `CARGO_MANIFEST_DIR` is the workspace root, so `crates/` is a sibling of `src/`
+    /// under it, and a store opened by any workspace crate (e.g. `eg-storage`,
+    /// `eg-query`) is just as reachable here as one opened by this package itself. An
+    /// unclassified name fails here, at the point the store is introduced, instead of
+    /// at a restore years later.
     /// Extract `*.redb` filename literals from one source file's text into `names`
     /// (the `".redb\""` scan half of [`scan_redb_store_names`]).
     fn collect_redb_literals(text: &str, names: &mut std::collections::BTreeSet<String>) {
