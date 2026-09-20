@@ -238,7 +238,9 @@ impl SemanticCodeStore {
     }
 
     /// The lease envelope: a valid record for this consumer, an issued and
-    /// unexpired attempt, and this owner's stage topic.
+    /// unexpired lease, and this owner's stage topic. "Issued" is proven by
+    /// `lease_epoch != 0` alone (see EH-315 below) — `attempt` is a per-head
+    /// fairness counter, not an issuance signal, and is not checked here.
     fn fence_lease_envelope(
         &self,
         lease: &MutationOutboxLease,
@@ -252,33 +254,41 @@ impl SemanticCodeStore {
             !consumer.trim().is_empty() && lease.consumer == consumer,
             "semantic stage lease consumer does not match",
         )?;
-        // EH-315: this used to be one `ensure` over all three conditions ANDed
-        // together, with one message ("...is absent, unissued, or expired")
-        // that could not say which had actually fired. A real R820 failure
-        // (`lease_epoch: 1, attempt: 0, lease_until_ms: 5004` at `now_ms: 3`)
-        // needed manual arithmetic against the Debug-printed lease to work out
-        // that only the middle condition (`attempt != 0`) was false — exactly
-        // the class of defect EH-331's guard hit: an error that collapses
-        // distinct cases into one string. Split so a failing run names the
-        // actual condition directly.
+        // EH-315: this used to be one `ensure` over three ANDed conditions
+        // (`lease_epoch != 0 && attempt != 0 && lease_until_ms > now_ms`) with
+        // one message ("...is absent, unissued, or expired") that could not
+        // say which had actually fired. A real R820 failure (`lease_epoch: 1,
+        // attempt: 0, lease_until_ms: 5004` at `now_ms: 3`) needed manual
+        // arithmetic against the Debug-printed lease to work out that only
+        // the middle condition (`attempt != 0`) was false — exactly the class
+        // of defect EH-331's guard hit: an error that collapses distinct
+        // cases into one string.
+        //
+        // Splitting it (first pass of this fix) surfaced that the middle
+        // condition was not just under-explained but WRONG. `lease_epoch`
+        // (`eg-transaction`'s `next_lease`, outbox/claim.rs) increments
+        // UNCONDITIONALLY on every claim, so `lease_epoch != 0` is already
+        // complete proof this lease came from `claim_stage_leases` and was
+        // never hand-fabricated. `attempt` is a different thing: per X10-R1
+        // (`install_leases`/`head_only_attempt`, same file), it only advances
+        // for the HEAD row of a scope's ordering queue — every OTHER row a
+        // single claim call returns in the same pass is a legitimate
+        // successor whose `attempt` is deliberately left at 0 until it
+        // becomes the head. `claim_stage_leases` can and does return more
+        // than one lease per call (this store's own `OutboxClaimBudget`
+        // comment: budget is `4 * row_count` so `consecutive_cap()` admits
+        // the whole batch) — so requiring `attempt != 0` here rejected every
+        // non-head lease in a legitimately claimed batch, which is exactly
+        // what `complete_source_stages` does (claim once, validate each).
+        // `attempt` is never checked again after this: nothing downstream of
+        // `validate_stage_lease` reads it, so dropping the requirement adds
+        // no way to bypass this gate — it only stops the gate from bypassing
+        // a real, correctly-issued lease.
         ensure(
             lease.lease_epoch != 0,
             &format!(
                 "semantic stage lease is ABSENT: lease_epoch=0 for consumer \
                  {consumer:?} — no lease has ever been issued for this outbox row"
-            ),
-        )?;
-        ensure(
-            lease.attempt != 0,
-            &format!(
-                "semantic stage lease is UNISSUED: attempt=0 at lease_epoch={} \
-                 for consumer {consumer:?} — every claim increments lease_epoch \
-                 unconditionally, but `attempt` only advances for the HEAD row \
-                 of its ordering queue (X10-R1, see next_lease/head_only_attempt \
-                 in eg-transaction's outbox/claim.rs); attempt=0 here means this \
-                 lease was claimed as a non-head successor, or was never \
-                 obtained from claim_stage_leases at all",
-                lease.lease_epoch
             ),
         )?;
         ensure(
