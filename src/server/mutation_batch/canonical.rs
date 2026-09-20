@@ -95,8 +95,11 @@ fn owner_domain(method: &Method) -> Option<DurabilityDomain> {
 /// `AnalyticsJob` owns, so they share its domain rather than falling to the
 /// surface-keyed default.
 fn decide_layer_job_domain(method: &Method) -> Option<DurabilityDomain> {
-    matches!(method, Method::DecisionFit { .. } | Method::DecisionEval { .. })
-        .then_some(DurabilityDomain::AnalyticsJob)
+    matches!(
+        method,
+        Method::DecisionFit { .. } | Method::DecisionEval { .. }
+    )
+    .then_some(DurabilityDomain::AnalyticsJob)
 }
 
 /// Control-plane, SQL, RDF and broker owners.
@@ -686,6 +689,11 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
         #[cfg(feature = "jobs")]
         Method::AnalyticsJob { .. } => owner_domain(method)
+            .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
+        // Claimed by owner_domain's decide_layer_job_domain delegate, same
+        // reasoning as AnalyticsJob just above (and wire-unconditional, so no
+        // cfg gate here either).
+        Method::DecisionFit { .. } | Method::DecisionEval { .. } => owner_domain(method)
             .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
         #[cfg(feature = "query")]
         Method::SqlSourceBatch { .. } => owner_domain(method)
