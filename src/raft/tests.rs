@@ -65,6 +65,17 @@ fn cluster_cfg(node_id: NodeId, ports: &[u16]) -> RaftClusterConfig {
 
 /// [`cluster_cfg`] with an explicit group count (DIST-P2-2 multi-group startup test).
 fn cluster_cfg_with_groups(node_id: NodeId, ports: &[u16], groups: u64) -> RaftClusterConfig {
+    // EH-286: make openraft replication/heartbeat trace capture the DEFAULT for
+    // every cluster test rather than something a human must remember to enable by
+    // hand — see `harness::trace_capture`'s module docs for why this is a bounded
+    // ring buffer dumped on failure rather than ambient DEBUG tracing (the ledger
+    // entry this closes records that enabling DEBUG tracing by hand changed the
+    // failure it was diagnosing, raising reproduction from 80% to 100%). Every
+    // cluster test in this module reaches `node::start` through `cluster_cfg` or
+    // this function, so this one call site is the whole cluster-test surface.
+    // Idempotent: the actual subscriber/panic-hook install happens at most once
+    // per test binary.
+    super::harness::trace_capture::init();
     let peers = fixture::peer_map(ports);
     let bind_addr = peers.get(&node_id).unwrap().addr.clone();
     RaftClusterConfig {

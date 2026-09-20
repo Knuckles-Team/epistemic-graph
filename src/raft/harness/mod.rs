@@ -118,6 +118,13 @@ mod gauntlet_test;
 #[cfg(test)]
 mod catchup_test;
 
+/// EH-286: automatic openraft/raft-module trace capture on cluster-test failure.
+/// `pub(crate)` (not `mod`) because `super::tests::cluster_cfg_with_groups` calls
+/// [`trace_capture::init`] directly; `#[cfg(test)]` because it depends on the
+/// `tracing-subscriber` DEV-dependency, which is not linked into non-test builds.
+#[cfg(test)]
+pub(crate) mod trace_capture;
+
 use std::sync::Arc;
 use std::time::Duration;
 
