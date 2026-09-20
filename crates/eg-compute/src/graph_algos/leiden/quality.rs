@@ -10,7 +10,7 @@
 // null-model penalty — rather than branching inside the loop body.
 
 /// The objective [`super::leiden`]'s local-moving and refinement optimize.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum QualityFunction {
     /// Modularity (Newman 2006), the existing default. Its null model scales
     /// with each community's total EDGE WEIGHT against the whole graph's
@@ -19,6 +19,7 @@ pub enum QualityFunction {
     /// genuinely distinct small communities can score higher merged than
     /// separate, because the null-model term is tiny relative to `2m`
     /// regardless of the communities' own size.
+    #[default]
     Modularity,
     /// Constant Potts Model (Traag, Van Dooren & Nesterov 2011): quality =
     /// `Σ_c [e_c − γ·n_c·(n_c−1)/2]`. Its null model scales with each
@@ -29,12 +30,6 @@ pub enum QualityFunction {
     /// own γ (a link-density threshold), a different scale than modularity's
     /// γ — the two are not comparable number-for-number.
     Cpm,
-}
-
-impl Default for QualityFunction {
-    fn default() -> Self {
-        QualityFunction::Modularity
-    }
 }
 
 impl QualityFunction {
