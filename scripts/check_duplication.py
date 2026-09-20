@@ -532,6 +532,43 @@ def _load_report(
     return load_report(report, out_dir=out_dir, formats=formats, roots=roots)
 
 
+# EH-308: the file-split extraction this program ran consistently rewrote
+# destructured locals into field access on a new per-handler context struct,
+# always through one of exactly three receiver names -- `req.id` became
+# `ctx.req.id`, `state` became `context.state`, `authority` became
+# `coordination.authority`.  That rewrite changes a fragment's raw token text
+# without changing the duplication it represents.  Nothing else about the
+# extraction is mechanical enough to normalise safely: local bindings were
+# also renamed and reshaped in the same series (verified by hand against
+# JSCPD-TRIAGE.md's samples), and canonalising those away would erase real
+# identifier information, not just an added receiver.
+_CONTEXT_RECEIVER_PREFIX = re.compile(r"\b(?:ctx|context|coordination)\.(?=[A-Za-z_])")
+
+
+def _normalise_fragment_identity(fragment: str) -> str:
+    """Canonicalise a clone fragment for IDENTITY purposes only.
+
+    This never touches the fragment a human reads in a failure report --
+    only the text fed to the identity digest.  Two normalisations, both
+    reversing a specific, named side effect of the 2.27.x file-split
+    extraction rather than a general code-shape opinion:
+
+    1. Per-line whitespace: a block that moved from a nested match arm/async
+       closure to a top-level function changes indentation without changing
+       its tokens; jscpd's own clone matching already ignores this, but this
+       script hashes the raw captured substring, so indentation alone used
+       to change the digest.
+    2. The receiver prefix added by the context-struct rewrite described
+       above, stripped only for the three known receiver names and only
+       when it prefixes a field access -- no other identifier is touched,
+       so two genuinely different fragments still hash differently.
+    """
+
+    lines = (line.strip() for line in fragment.splitlines())
+    text = "\n".join(line for line in lines if line)
+    return _CONTEXT_RECEIVER_PREFIX.sub("", text)
+
+
 def clone_key(clone: dict[str, Any], root: Path) -> tuple[str, str, frozenset[str]]:
     if not isinstance(clone.get("format"), str) or not clone["format"].strip():
         fail("jscpd duplicate has an invalid format")
@@ -547,7 +584,7 @@ def clone_key(clone: dict[str, Any], root: Path) -> tuple[str, str, frozenset[st
             fail("jscpd duplicate names the scan root, not a file")
         paths.append(relative)
     digest = hashlib.sha256(
-        clone["fragment"].encode("utf-8", "surrogatepass")
+        _normalise_fragment_identity(clone["fragment"]).encode("utf-8", "surrogatepass")
     ).hexdigest()
     return clone["format"], digest, frozenset(paths)
 
