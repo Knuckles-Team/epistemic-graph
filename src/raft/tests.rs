@@ -26,6 +26,7 @@ use tokio::sync::RwLock;
 
 use super::config::RaftClusterConfig;
 use super::harness::cluster::fixture;
+use super::multi::MultiRaft;
 use super::node::{self, StartedNode};
 use super::{NodeId, RaftRequest};
 use crate::protocol::{GraphType, Method};
@@ -99,6 +100,61 @@ fn cluster_cfg_with_groups(node_id: NodeId, ports: &[u16], groups: u64) -> RaftC
             super::config::RaftTransportSecret::from_material(&[0x5a; 32]).unwrap(),
         ),
     }
+}
+
+/// EH-286/EH-287: the choke point for every test in this module that constructs a
+/// `MultiRaft` handle DIRECTLY rather than through `node::start`/`cluster_cfg*`
+/// (membership/leader-rebalance/wire-transport tests that manage the handle by
+/// hand — `multi_node_group_join_then_leader_rebalance` among them, which is one of
+/// the two tests EH-286 exists to make diagnosable). `cluster_cfg_with_groups`'s
+/// `trace_capture::init()` call never runs on this path, so it is repeated here.
+/// Every direct `MultiRaft::start` call site in this module goes through this
+/// wrapper instead, for the same reason `cluster_cfg_with_groups` is the one place
+/// for the `node::start` path: one choke point, not N call sites remembering to
+/// opt in.
+async fn start_multi(
+    node_id: NodeId,
+    bind_addr: String,
+    backend: Arc<dyn PersistenceBackend>,
+    ctx: super::AppCtx,
+) -> Result<Arc<MultiRaft>, String> {
+    super::harness::trace_capture::init();
+    MultiRaft::start(node_id, bind_addr, backend, ctx).await
+}
+
+/// EH-287 proof, not assertion: drives the SAME direct-construction primitive
+/// (`start_multi` / `MultiRaft::start`) that `multi_node_group_join_then_leader_rebalance`
+/// uses, then checks trace capture actually turned on for it. `MultiRaft::start`
+/// itself logs at `epistemic_graph::raft::multi` during startup (e.g. "Raft
+/// multi-group RPC listener started"), so that target's presence in the GLOBAL
+/// dump is direct evidence `start_multi` reached `trace_capture::init()` on this
+/// path -- not the `node::start`/`cluster_cfg_with_groups` one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn direct_multi_raft_construction_reaches_trace_capture() {
+    // Opens a durable store, so the ambient encryption env must hold still for
+    // this whole body. READ guard: it excludes only a key MUTATOR, never another
+    // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let dir = fresh_dir("trace-capture-direct-construction");
+    let backend: Arc<dyn PersistenceBackend> =
+        Arc::new(RedbBackend::open(dir.clone(), 4096).expect("open redb"));
+    let state = make_state_with_backend(&dir, backend.clone()).await;
+    let ctx = unscoped_context(state);
+    let port = free_ports(1)[0];
+
+    let multi = start_multi(1, format!("127.0.0.1:{port}"), backend, ctx)
+        .await
+        .expect("start multi via the direct-construction choke point");
+
+    let dump = super::harness::trace_capture::render_dump();
+    assert!(
+        dump.contains("epistemic_graph::raft::multi"),
+        "trace capture must be initialized by the direct MultiRaft::start path \
+         (start_multi), the same primitive multi_node_group_join_then_leader_rebalance \
+         uses: {dump}"
+    );
+
+    multi.stop_listener();
 }
 
 /// Pick three currently-free localhost ports by binding then dropping.
@@ -1514,7 +1570,6 @@ async fn two_groups_one_node_commit_independently() {
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
     // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    use super::multi::MultiRaft;
 
     let dir = fresh_dir("twogroups");
     let backend = fixture::open_backend(&dir).expect("open redb");
@@ -1525,7 +1580,7 @@ async fn two_groups_one_node_commit_independently() {
     let peers: BTreeMap<NodeId, BasicNode> =
         [(node_id, BasicNode::new(format!("127.0.0.1:{port}")))].into();
 
-    let multi = MultiRaft::start(node_id, format!("127.0.0.1:{port}"), backend.clone(), ctx)
+    let multi = start_multi(node_id, format!("127.0.0.1:{port}"), backend.clone(), ctx)
         .await
         .expect("start multi");
     // Two groups on the SAME node + SAME shared listener + SAME redb DB.
@@ -1939,7 +1994,6 @@ async fn coalesced_batch_round_trips_on_one_connection() {
     // this whole body. READ guard: it excludes only a key MUTATOR, never another
     // opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    use super::multi::MultiRaft;
     use super::network::{GroupRpc, GroupRpcReply, HeartbeatCoalescer, PeerPool};
 
     let dir = fresh_dir("hbbatch");
@@ -1952,7 +2006,7 @@ async fn coalesced_batch_round_trips_on_one_connection() {
     // A node with its shared listener up but NO groups: each demuxed sub-RPC gets a
     // "no group here" reply — enough to prove the batch envelope demuxes + replies in
     // order over ONE connection (the transport contract, independent of election).
-    let multi = MultiRaft::start(1, addr.clone(), backend.clone(), ctx)
+    let multi = start_multi(1, addr.clone(), backend.clone(), ctx)
         .await
         .expect("start multi");
 
@@ -2059,7 +2113,7 @@ async fn multi_node_group_join_then_leader_rebalance() {
             state: state.clone(),
             router: None,
         };
-        let multi = MultiRaft::start(i, addr(i as usize), backend, ctx)
+        let multi = start_multi(i, addr(i as usize), backend, ctx)
             .await
             .expect("start multi");
         if i == 1 {
@@ -2283,7 +2337,7 @@ async fn multi_add_group_learner_attaches_non_voting_learner_then_promotes() {
             state,
             router: None,
         };
-        let multi = MultiRaft::start(i, addr(i as usize), backend, ctx)
+        let multi = start_multi(i, addr(i as usize), backend, ctx)
             .await
             .expect("start multi");
         if i == 1 {
@@ -2453,7 +2507,7 @@ async fn wire_raft_add_learner_and_change_membership_resolve_through_dispatch() 
             state: state.clone(),
             router: None,
         };
-        let multi = MultiRaft::start(i, addr(i as usize), backend, ctx)
+        let multi = start_multi(i, addr(i as usize), backend, ctx)
             .await
             .expect("start multi");
         if i == 1 {

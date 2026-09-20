@@ -39,10 +39,35 @@
 //!
 //! [`init`] is idempotent and installs (once per test binary): the capturing
 //! subscriber as the process's global default `tracing` dispatcher, and a panic hook
-//! that dumps [`render_dump`] to stderr after the normal panic message. It is called
-//! from `super::super::tests::cluster_cfg_with_groups` — the one place every cluster
-//! test in that module already passes through to start a node — so this is the
-//! DEFAULT for cluster tests, not something a human must remember to opt into.
+//! that dumps [`render_dump`] to stderr after the normal panic message. `node::start`
+//! is not the ONLY way a test builds a raft node in this crate, so `init()` is called
+//! from every construction path this crate's own `raft::tests` module uses, found by
+//! grepping it for `MultiRaft::` and `node::start`, not just one:
+//! * `super::super::tests::cluster_cfg_with_groups` — every `node::start` call in
+//!   `raft::tests` (directly, or via `cluster_cfg`, which forwards to it). Covers
+//!   `placement_admin_wire_rpcs_move_data_across_a_real_three_node_cluster`, one of
+//!   EH-286's two named examples.
+//! * `super::super::tests::start_multi` — every DIRECT `MultiRaft::start` call in
+//!   `raft::tests` that bypasses `node::start` entirely (membership/leader-rebalance
+//!   tests that manage a `MultiRaft` handle by hand). Covers
+//!   `multi_node_group_join_then_leader_rebalance`, EH-286's other named example.
+//!
+//! A single test reaching either of these reaches the same idempotent `init()`, so
+//! this is the default across every way `raft::tests` starts a raft node or a bare
+//! `MultiRaft`, not something a human must remember to opt into on a new one.
+//!
+//! **NOT covered:** `src/raft/harness/cluster.rs`'s own private `node::start` path
+//! (`Cluster::start` and its post-kill restart, used by `gauntlet_test`/
+//! `catchup_test` and five other `harness::cluster` consumers). That file is already
+//! at its `statements_per_file` cap (257 of 250 — a pre-existing, tolerated
+//! violation) before any change here; adding the one statement this wiring needs
+//! measurably regresses an already-over-cap file, which this program's build
+//! contract treats as forbidden regardless of the file already being over cap
+//! (`grep`-verified: 257 statements at `HEAD`, 258 with the one-line
+//! `super::trace_capture::init();` addition attempted and reverted). Splitting
+//! `cluster.rs` to make room is a legitimate follow-up but a separate, larger
+//! refactor outside this file's own layout, not a one-line addition; escalated
+//! rather than forced through. Neither of EH-286's two named tests uses this path.
 //!
 //! ## Known limitation: one buffer, whole test binary
 //!
