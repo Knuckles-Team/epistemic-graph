@@ -4,6 +4,22 @@
 //! translation. This module owns only the provider-independent state machine
 //! boundary: one local job value, one handle registry, program preparation, and
 //! the synchronous polling policy shared by IBM, Braket, and Azure.
+//!
+//! **Every item in this module exists only to be consumed by `ibm`/`braket`/
+//! `azure`** (`lib.rs` gates the `mod registry;` declaration itself behind
+//! `#[cfg(any(feature = "ibm", feature = "braket", feature = "azure"))]` for
+//! exactly this reason — `grep -rn "registry::" src/` confirms nothing outside
+//! those three modules names anything here). `cargo clippy --workspace
+//! --features full` (which does not enable this crate's `quantum-hardware`
+//! facade, so none of `ibm`/`braket`/`azure` are on) previously reported
+//! several individually-unreachable items here as dead code one at a time
+//! (`impl_hardware_backend!`, `HardwareResult`, `JobSubmission`,
+//! `ConfiguredQuota`, ...) as each got fixed piecemeal. Gating the whole
+//! module once, at its declaration, is the actual fix: every item here is
+//! reachable under `ibm`/`braket`/`azure` (proved by `cargo check -p
+//! eg-quantum-hardware --features ibm,braket,azure --all-targets`) and
+//! unreachable, correctly, under every other build — there is no third item
+//! left to gate individually.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -155,9 +171,9 @@ impl HardwareJob {
         result
     }
 
-    pub(crate) fn resolve_result<F>(&mut self, fetch: F) -> Result<QuantumResult, HardwareError>
+    pub(crate) fn resolve_result<F>(&mut self, fetch: F) -> HardwareResult
     where
-        F: FnOnce(&HardwareJob) -> Result<QuantumResult, HardwareError>,
+        F: FnOnce(&HardwareJob) -> HardwareResult,
     {
         if let Some(result) = self.cached_result() {
             return Ok(result);
@@ -474,7 +490,7 @@ pub(crate) fn fetch_result<F>(
     record: &mut HardwareJob,
     request: F,
     mapping: ResultMapping,
-) -> Result<QuantumResult, HardwareError>
+) -> HardwareResult
 where
     F: FnOnce(&HardwareJob) -> Result<HttpResponse, HardwareError>,
 {
@@ -575,6 +591,10 @@ where
 /// `refresh_status`, `fetch_result`, and `cancel_job` methods. This macro owns the
 /// trait boundary shared by all adapters, including handle allocation, terminal
 /// state checks, error mapping, and bounded `run()` polling.
+///
+/// No cfg gate of its own needed: the whole `registry` module is gated in
+/// `lib.rs` behind `#[cfg(any(feature = "ibm", feature = "braket", feature =
+/// "azure"))]` — this module's own doc comment has the full explanation.
 macro_rules! impl_hardware_backend {
     (
         $backend:ident,
@@ -584,13 +604,14 @@ macro_rules! impl_hardware_backend {
         status_mapping = $status_mapping:expr,
         // Optional trailing comma. Every call site (`ibm.rs`, `braket.rs`,
         // `azure.rs`) has written one since this macro was introduced
-        // (`fee79043`, 2026-08-30) and the matcher has never accepted it, so
-        // `eg-quantum-hardware` has never compiled under ANY of its `ibm` /
-        // `braket` / `azure` features -- all three are outside its (empty)
-        // `default`, and nothing compiled them: the everyday clippy hook selects
-        // only the root package, and the `--workspace --all-features
-        // --all-targets` leg that would have caught it runs solely at
-        // pre-push/CI.
+        // (`fee79043`, 2026-08-30); the `$(,)?` below accepts it. Confirmed live
+        // (EH-322-class registry.rs cleanup, 2026-09-20): `cargo check -p
+        // eg-quantum-hardware --features ibm,braket,azure --all-targets`
+        // compiles clean. All three features are still outside this crate's
+        // (empty) `default` and outside root's `full`, so the everyday clippy
+        // hook (root package only) and the `--features full` workspace leg both
+        // still never build this path -- only an explicit `--features
+        // ibm,braket,azure` (or root's separate `quantum-hardware` facade) does.
         result_mapping = $result_mapping:expr
         $(,)?
     ) => {

@@ -55,10 +55,39 @@
 //! construction with a real encoder once Q2 lands, without touching any of this
 //! crate's trait-boundary/quota/credential machinery.
 
+// CRATE-BOUNDARY NOTE (established by walking every module's real consumers,
+// `git -C crates/eg-quantum-hardware grep -n '\b<module>::'` for each of
+// credentials/error/quota/transport/registry): this whole crate exists only to
+// serve the `ibm`/`braket`/`azure` provider adapters. Nothing outside this
+// crate names anything in it either (`grep -rln eg_quantum_hardware` from the
+// workspace root matches only this crate's own files) -- the root package's
+// `quantum-hardware` facade is the ONLY thing that links it at all, and that
+// facade always turns on all three providers together, so "linked with zero
+// providers" is a state that never occurs in a real build; it is purely an
+// artifact of `cargo ... --workspace` compiling every member crate with its
+// own (empty) `default` features regardless of what the root package asked
+// for. `credentials`/`error`/`quota`/`transport` each say so in their own
+// module doc ("Credential resolution for Q10 provider adapters", "Errors
+// internal to this crate's adapters", "the generic mechanism every Q10
+// provider adapter ... uses") -- none has a purpose independent of at least
+// one provider, exactly like `registry` (whose own doc has the detailed
+// per-item confirmation). Fixing them one at a time as `cargo clippy
+// --workspace` surfaced each next "unused" item (first `registry`'s macro,
+// then the rest of `registry`, then `transport::ProviderHttp`) kept moving
+// the same finding one module over; gating the whole set once, here, is the
+// actual fix. `sigv4` already had its own narrower feature for the same
+// reason (below). If a genuinely provider-independent item is ever added to
+// this crate, it takes its own ungated module -- this gate is deliberately
+// crate-boundary-shaped, not a blanket "hide everything" switch.
+#[cfg(any(feature = "ibm", feature = "braket", feature = "azure"))]
 pub mod credentials;
+#[cfg(any(feature = "ibm", feature = "braket", feature = "azure"))]
 pub mod error;
+#[cfg(any(feature = "ibm", feature = "braket", feature = "azure"))]
 pub mod quota;
+#[cfg(any(feature = "ibm", feature = "braket", feature = "azure"))]
 pub(crate) mod registry;
+#[cfg(any(feature = "ibm", feature = "braket", feature = "azure"))]
 pub mod transport;
 
 #[cfg(feature = "sigv4")]
