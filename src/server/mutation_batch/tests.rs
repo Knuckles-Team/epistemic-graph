@@ -726,6 +726,51 @@ fn classifier_source_map_agrees_with_domain_for() {
     );
 }
 
+/// EH-319 regression: `KvPut`, `BlobBegin`, `SqlSourceBatch` and the Broker
+/// family are wire-unconditional -- `eg-capabilities` forces their `eg-types`
+/// features on for ANY `server` build (see `write_classification.rs`'s module
+/// doc for the full mechanism) -- so `domain_for` must classify them correctly
+/// with NO `#[cfg]` gate of its own needed for these constructions to compile,
+/// including under `--no-default-features --features server` (the exact
+/// profile that used to fail to compile here at all with
+/// `error[E0004]: non-exhaustive patterns` once a `broker`-off build reached
+/// this match).
+#[test]
+fn owner_domain_classifies_wire_unconditional_methods_regardless_of_this_crates_own_feature() {
+    use crate::mutation_batch::DurabilityDomain;
+    use crate::server::mutation_batch::domain_for;
+
+    assert_eq!(
+        domain_for(
+            &Method::KvPut {
+                namespace: "ns".into(),
+                key: "k".into(),
+                value: vec![1],
+            },
+            MutationSurface::Other,
+        ),
+        DurabilityDomain::KvStore,
+    );
+    assert_eq!(
+        domain_for(
+            &Method::BlobBegin { chunk_size: 1 },
+            MutationSurface::Other,
+        ),
+        DurabilityDomain::BlobStore,
+    );
+    assert_eq!(
+        domain_for(
+            &Method::StreamPublish {
+                stream: "s1".into(),
+                payload: vec![1],
+                now_ms: 0,
+            },
+            MutationSurface::Other,
+        ),
+        DurabilityDomain::Broker,
+    );
+}
+
 #[cfg(feature = "kv")]
 #[test]
 fn graph_routed_compiler_refuses_a_store_authoritative_method() {

@@ -53,14 +53,19 @@ fn owner_domain(method: &Method) -> Option<DurabilityDomain> {
         Method::CreateGraph { .. } | Method::DeleteGraph { .. } => DurabilityDomain::Lifecycle,
         Method::MultiGraphBatchUpdate { .. } => DurabilityDomain::MultiGraph,
         Method::Commit { .. } => DurabilityDomain::CrossModal,
-        #[cfg(feature = "blob")]
+        // Wire-unconditional, same reason as the `datascience`/`finance`/etc.
+        // notes below: `eg-capabilities` forces `eg-types/blob` on unconditionally
+        // for its policy ledger, regardless of whether this root crate's own
+        // `blob` feature is enabled -- a `blob`-off `server` build still carries
+        // these variants and must still claim them here (EH-319).
         Method::BlobBegin { .. }
         | Method::BlobChunkPut { .. }
         | Method::BlobCommit { .. }
         | Method::BlobRef { .. }
         | Method::BlobUnref { .. }
         | Method::BlobGc => DurabilityDomain::BlobStore,
-        #[cfg(feature = "kv")]
+        // Wire-unconditional, same reason as `blob` just above: `eg-capabilities`
+        // forces `eg-types/kv` on unconditionally too (EH-319).
         Method::KvPut { .. } | Method::KvDelete { .. } | Method::KvCas { .. } => {
             DurabilityDomain::KvStore
         }
@@ -117,11 +122,14 @@ fn service_owner_domain(method: &Method) -> Option<DurabilityDomain> {
         // `Sql` is likewise wire-unconditional (gated only downstream behind
         // `query`); see the `Ts*` note above -- same reason, same fix.
         (_, Method::Sql { .. }) => DurabilityDomain::SqlCatalog,
-        // Unlike `Sql`, `SqlSourceBatch` really is declared
-        // `#[cfg(feature = "query")]` in eg-types (method_07.rs) with nothing
-        // forcing that feature on unconditionally, so it keeps its own gate
-        // as a separate arm rather than sharing `Sql`'s now-unconditional one.
-        #[cfg(feature = "query")]
+        // EH-319 CORRECTION: this arm's previous comment claimed `query` is
+        // "nothing forcing that feature on unconditionally", but
+        // `eg-capabilities`'s `[dependencies.eg-types] features` list DOES
+        // include `"query"` (the same list that forces `rdf` on for
+        // `AddTriples`/etc. below) -- that was the mistaken assumption, not a
+        // real difference from `Sql`. `SqlSourceBatch` is wire-unconditional in
+        // any `server` build for the identical reason, so it keeps `Sql`'s
+        // unconditional arm rather than a separate feature-gated one.
         (_, Method::SqlSourceBatch { .. }) => DurabilityDomain::SqlCatalog,
         // Wire-unconditional, same reason as the `datascience`/`finance`/etc.
         // notes above: `full` does not list plain `rdf` (only `rdf-xml`/
@@ -130,7 +138,13 @@ fn service_owner_domain(method: &Method) -> Option<DurabilityDomain> {
         (_, Method::AddTriples { .. } | Method::RemoveTriples { .. } | Method::DropNamedGraph) => {
             DurabilityDomain::RdfDataset
         }
-        #[cfg(feature = "broker")]
+        // Wire-unconditional, same reason as `SqlSourceBatch` above:
+        // `eg-capabilities` forces `eg-types/broker` on unconditionally, so
+        // every Broker-family variant exists in any `server` build regardless
+        // of this root crate's own `broker` feature (EH-319; previously a
+        // `--no-default-features --features server` build failed to compile
+        // here with `non-exhaustive patterns` once the constrained-parallelism
+        // harness fix let the slim-server lint step run to completion).
         (Some(MethodWriteFamily::Broker), _) => DurabilityDomain::Broker,
         _ => return None,
     })
@@ -152,11 +166,13 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         // not a silent default.
         #[cfg(feature = "asr-whisper")]
         Method::Asr { .. } => default_mutation_domain(surface),
-        #[cfg(feature = "blob")]
+        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
+        // forces `eg-types/blob` on unconditionally (EH-319).
         Method::BlobFetchEnd { .. }
         | Method::BlobChunkGet { .. }
         | Method::BlobFetchBegin { .. } => default_mutation_domain(surface),
-        #[cfg(feature = "broker")]
+        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
+        // forces `eg-types/broker` on unconditionally (EH-319).
         Method::StreamCommittedOffset { .. } | Method::StreamRead { .. } => {
             default_mutation_domain(surface)
         }
@@ -188,7 +204,8 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::CreateMatView { .. }
         | Method::DistributedCompute { .. }
         | Method::RefreshMatView { .. } => default_mutation_domain(surface),
-        #[cfg(feature = "cost")]
+        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
+        // forces `eg-types/cost` on unconditionally (EH-319).
         Method::ResourceStatsPage { .. } => default_mutation_domain(surface),
         // Wire-unconditional: `eg-capabilities` forces `eg-types/datascience` on
         // unconditionally for its policy ledger (its `[dependencies.eg-types]`
@@ -198,7 +215,8 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         Method::DsFitEstimator { .. } | Method::DsPredictEstimator { .. } => {
             default_mutation_domain(surface)
         }
-        #[cfg(feature = "epistemic")]
+        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
+        // forces `eg-types/epistemic` on unconditionally (EH-319).
         Method::TxnMaterializeBelief { .. }
         | Method::StaleMaterializations
         | Method::MaterializationStatus { .. }
@@ -211,7 +229,8 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::RankByProvenance { .. }
         | Method::WhatChanged { .. }
         | Method::ResolveConflict { .. } => default_mutation_domain(surface),
-        #[cfg(feature = "federation")]
+        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
+        // forces `eg-types/federation` on unconditionally (EH-319).
         Method::RegisterForeignSource { .. } => default_mutation_domain(surface),
         // Wire-unconditional, same reason as `datascience` above: `full` does not
         // list `finance`, but `eg-capabilities` forces `eg-types/finance` on
@@ -225,13 +244,17 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         Method::GraphLearnPredict { .. } | Method::GraphLearnFit { .. } => {
             default_mutation_domain(surface)
         }
-        #[cfg(feature = "graphql")]
+        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
+        // forces `eg-types/graphql` on unconditionally (EH-319).
         Method::GraphQl { .. } => default_mutation_domain(surface),
         #[cfg(feature = "knowledge-batch")]
         Method::KnowledgeStream { .. } => default_mutation_domain(surface),
-        #[cfg(feature = "kv")]
+        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
+        // forces `eg-types/kv` on unconditionally (EH-319).
         Method::KvScan { .. } | Method::KvGet { .. } => default_mutation_domain(surface),
-        #[cfg(feature = "matview")]
+        // Wire-unconditional, same reason as `GetMatView`/etc. above and
+        // `datascience` below: `eg-capabilities` forces `eg-types/matview` on
+        // unconditionally too (EH-319).
         Method::PlanMatViewRefresh { .. }
         | Method::PlanMatViewGet { .. }
         | Method::PlanMatViewDefine { .. }
@@ -267,9 +290,11 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::MiningPipelineCompare { .. } => default_mutation_domain(surface),
         #[cfg(feature = "modality-serving")]
         Method::ServedModality { .. } => default_mutation_domain(surface),
-        #[cfg(feature = "obda")]
+        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
+        // forces `eg-types/obda` on unconditionally (EH-319).
         Method::SparqlVirtual { .. } => default_mutation_domain(surface),
-        #[cfg(feature = "owl")]
+        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
+        // forces `eg-types/owl` on unconditionally (EH-319).
         Method::OwlReasonDistributed { .. }
         | Method::OwlExplain { .. }
         | Method::OwlReason { .. }
@@ -289,7 +314,8 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         // `quantum-agent-api`.
         #[cfg(feature = "quantum-agent-api")]
         Method::Quantum { .. } => default_mutation_domain(surface),
-        #[cfg(feature = "query")]
+        // Wire-unconditional, same reason as `Sql`/`SqlSourceBatch` above:
+        // `eg-capabilities` forces `eg-types/query` on unconditionally (EH-319).
         Method::UnifiedQueryText { .. }
         | Method::TxnUnifiedQueryText { .. }
         | Method::TxnPlanWriteback { .. }
@@ -303,19 +329,23 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         // list plain `rdf` (only `rdf-xml`/`sparql-*`/etc.), but `eg-capabilities`
         // forces `eg-types/rdf` on regardless.
         Method::RunRules { .. } | Method::GetRdf => default_mutation_domain(surface),
-        #[cfg(feature = "security")]
+        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
+        // forces `eg-types/security` on unconditionally (EH-319).
         Method::AuditProveInclusion { .. } | Method::AuditVerify => {
             default_mutation_domain(surface)
         }
-        #[cfg(feature = "sparql")]
+        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
+        // forces `eg-types/sparql` on unconditionally (EH-319).
         Method::Sparql { .. } | Method::TxnConstruct { .. } => default_mutation_domain(surface),
-        #[cfg(feature = "sqlite-file")]
+        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
+        // forces `eg-types/sqlite-file` on unconditionally (EH-319).
         Method::ImportSqliteFile { .. } | Method::ExportSqliteFile { .. } => {
             default_mutation_domain(surface)
         }
         #[cfg(feature = "statechart")]
         Method::Statechart { .. } => default_mutation_domain(surface),
-        #[cfg(feature = "streaming")]
+        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
+        // forces `eg-types/streaming` on unconditionally (EH-319).
         Method::RegisterContinuousQuery { .. }
         | Method::CepUnsubscribe { .. }
         | Method::ReadContinuousQuery { .. }
@@ -330,7 +360,8 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::CdcRead { .. } => default_mutation_domain(surface),
         #[cfg(feature = "viz")]
         Method::Viz { .. } => default_mutation_domain(surface),
-        #[cfg(feature = "wasm-udf")]
+        // Wire-unconditional, same reason as `datascience` above: `eg-capabilities`
+        // forces `eg-types/wasm-udf` on unconditionally (EH-319).
         Method::RunUdf { .. } | Method::RegisterUdf { .. } => default_mutation_domain(surface),
         Method::ApplyMultisigMutation { .. }
         | Method::AddEmbedding { .. }
@@ -667,7 +698,9 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::RemoveTriples { .. }
         | Method::DropNamedGraph => owner_domain(method)
             .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
-        #[cfg(feature = "blob")]
+        // Wire-unconditional (`eg-capabilities` forces `eg-types/blob` on
+        // unconditionally), same reason as `Sql`/`AddTriples` above -- claimed
+        // by `owner_domain`'s own now-unconditional arm (EH-319).
         Method::BlobBegin { .. }
         | Method::BlobChunkPut { .. }
         | Method::BlobCommit { .. }
@@ -675,7 +708,8 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::BlobUnref { .. }
         | Method::BlobGc => owner_domain(method)
             .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
-        #[cfg(feature = "kv")]
+        // Wire-unconditional (`eg-capabilities` forces `eg-types/kv` on
+        // unconditionally), same reason as `blob` above (EH-319).
         Method::KvPut { .. } | Method::KvDelete { .. } | Method::KvCas { .. } => owner_domain(
             method,
         )
@@ -688,10 +722,17 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         // cfg gate here either).
         Method::DecisionFit { .. } | Method::DecisionEval { .. } => owner_domain(method)
             .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
-        #[cfg(feature = "query")]
+        // Wire-unconditional (`eg-capabilities` forces `eg-types/query` on
+        // unconditionally); claimed by `service_owner_domain`'s now-unconditional
+        // `SqlSourceBatch` arm (EH-319 -- see that arm's comment for why the
+        // previous "nothing forces `query` on" premise was wrong).
         Method::SqlSourceBatch { .. } => owner_domain(method)
             .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
-        #[cfg(feature = "broker")]
+        // Wire-unconditional (`eg-capabilities` forces `eg-types/broker` on
+        // unconditionally); claimed by `service_owner_domain`'s now-unconditional
+        // `MethodWriteFamily::Broker` arm (EH-319: this was the exact
+        // non-exhaustive-match compile failure under
+        // `--no-default-features --features server`).
         Method::DeclareExchange { .. }
         | Method::DeleteExchange { .. }
         | Method::BindQueue { .. }
@@ -756,7 +797,8 @@ pub(super) fn surface_for(method: &Method) -> Option<MutationSurface> {
                 ..
             },
         ) => Some(MutationSurface::Query),
-        #[cfg(feature = "graphql")]
+        // Wire-unconditional, same reason as `rdf` below: `eg-capabilities`
+        // forces `eg-types/graphql` on unconditionally (EH-319).
         (_, Method::GraphQl { .. }) => Some(MutationSurface::Query),
         // Wire-unconditional, same reason as the `datascience`/`finance`/etc.
         // notes above: `full` does not list plain `rdf` (only `rdf-xml`/
@@ -781,7 +823,8 @@ pub(super) fn surface_for(method: &Method) -> Option<MutationSurface> {
         (_, Method::QueryWorkItemReservation { .. } | Method::ResourceReservationStatus { .. }) => {
             Some(MutationSurface::Query)
         }
-        #[cfg(feature = "broker")]
+        // Wire-unconditional, same reason as `graphql` above: `eg-capabilities`
+        // forces `eg-types/broker` on unconditionally (EH-319).
         (Some(MethodWriteFamily::Broker), _) => Some(MutationSurface::Broker),
         _ => None,
     }
