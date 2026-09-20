@@ -569,27 +569,104 @@ def _normalise_fragment_identity(fragment: str) -> str:
     return _CONTEXT_RECEIVER_PREFIX.sub("", text)
 
 
-def clone_key(clone: dict[str, Any], root: Path) -> tuple[str, str, frozenset[str]]:
+# EH-308 follow-up: a file split also moves a duplicate's PATH, not just its
+# token text, and the gate's identity includes the literal path pair. Git's
+# own content-similarity rename/copy detection (`git diff -M -C
+# --find-copies-harder`) was tried and rejected: at any single similarity
+# threshold low enough to detect a large monolith split into many small
+# siblings (measured 8-19% for confirmed real splits, because a destination
+# file is only a small fraction of the source monolith's total size), the
+# SAME threshold also links semantically unrelated files that merely share
+# this codebase's common DTO boilerplate (`#[derive(..., Serialize,
+# Deserialize)]`, `serde(deny_unknown_fields)`, a `_SCHEMA_VERSION` constant)
+# -- confirmed by hand, e.g. `semantic_index/config.rs` (enum config types)
+# spuriously "matched" a dozen unrelated files like `solve/request.rs` and
+# `agent_component/content.rs` at 10-15% similarity, the identical range real
+# splits need. No fixed threshold separates the two populations, so no fixed
+# threshold is safe.
+#
+# `_build_split_provenance()` instead uses a structural signal specific to
+# this program's split convention, not content similarity at all: every
+# split observed in this series (`query.rs` -> `query/*.rs`, `consensus.rs`
+# -> `consensus/*.rs`, `redb_store/resource.rs` -> `resource/*.rs`, ...)
+# turned a monolith file `dir/X.ext` into a same-named sibling directory
+# `dir/X/`. A new HEAD path is attributed to the nearest ancestor directory
+# whose `<dir>.ext` sibling existed in the BASE tree -- a pure tree-listing
+# check, no percentage, no git rename heuristics, fully deterministic and
+# reproducible from `git ls-tree` alone. This cannot manufacture a false
+# digest match the way content-similarity can: attribution only changes
+# which PATH a fragment's key uses, and a pair is still only collapsed into
+# an existing one when its (normalised) fragment text ALSO hashes identically
+# to something already in the base tree at the attributed path -- genuinely
+# new content, wherever it is written, still gets a digest nothing in the
+# base tree has, so it is reported regardless of attribution.
+def _build_split_provenance(
+    before_paths: frozenset[str], after_paths: list[str]
+) -> dict[str, str]:
+    provenance: dict[str, str] = {}
+    for path in after_paths:
+        if path in before_paths:
+            continue
+        parts = path.split("/")
+        suffix = "." + parts[-1].rsplit(".", 1)[-1] if "." in parts[-1] else ""
+        for depth in range(len(parts) - 1, 0, -1):
+            candidate = "/".join([*parts[: depth - 1], parts[depth - 1] + suffix])
+            if candidate in before_paths:
+                provenance[path] = candidate
+                break
+    return provenance
+
+
+def _resolve_clone_side_path(
+    clone: dict[str, Any],
+    side: str,
+    root: Path,
+    provenance: dict[str, str] | None,
+) -> tuple[str, str]:
+    """Resolve one side of a clone pair to (actual path, attributed path)."""
+    try:
+        relative = scanner_contract.relative_to_root(clone[side]["name"], root)
+    except (KeyError, TypeError, ValueError) as exc:
+        fail(f"jscpd duplicate has a path outside scan root: {exc}")
+    if not relative:
+        fail("jscpd duplicate names the scan root, not a file")
+    mapped = relative if provenance is None else provenance.get(relative, relative)
+    return relative, mapped
+
+
+def clone_key(
+    clone: dict[str, Any],
+    root: Path,
+    *,
+    provenance: dict[str, str] | None = None,
+) -> tuple[tuple[str, str, frozenset[str]], tuple[str, str]]:
+    """Return the (possibly provenance-attributed) identity key, plus the
+    ACTUAL file paths jscpd reported -- never attributed -- so a caller can
+    print where a pair's duplication really lives even when the identity key
+    itself was resolved through a split's base-tree pre-image."""
     if not isinstance(clone.get("format"), str) or not clone["format"].strip():
         fail("jscpd duplicate has an invalid format")
     if not isinstance(clone.get("fragment"), str) or not clone["fragment"].strip():
         fail("jscpd duplicate has no fragment")
-    paths = []
+    actual_paths = []
+    mapped_paths = []
     for side in ("firstFile", "secondFile"):
-        try:
-            relative = scanner_contract.relative_to_root(clone[side]["name"], root)
-        except (KeyError, TypeError, ValueError) as exc:
-            fail(f"jscpd duplicate has a path outside scan root: {exc}")
-        if not relative:
-            fail("jscpd duplicate names the scan root, not a file")
-        paths.append(relative)
+        actual, mapped = _resolve_clone_side_path(clone, side, root, provenance)
+        actual_paths.append(actual)
+        mapped_paths.append(mapped)
     digest = hashlib.sha256(
         _normalise_fragment_identity(clone["fragment"]).encode("utf-8", "surrogatepass")
     ).hexdigest()
-    return clone["format"], digest, frozenset(paths)
+    key = (clone["format"], digest, frozenset(mapped_paths))
+    return key, (actual_paths[0], actual_paths[1])
 
 
-def keys(document: dict[str, Any], root: Path) -> set[tuple[str, str, frozenset[str]]]:
+def keys(
+    document: dict[str, Any],
+    root: Path,
+    *,
+    provenance: dict[str, str] | None = None,
+) -> set[tuple[str, str, frozenset[str]]]:
     duplicates = document.get("duplicates")
     if not isinstance(duplicates, list):
         fail("jscpd report has no duplicates array")
@@ -597,7 +674,31 @@ def keys(document: dict[str, Any], root: Path) -> set[tuple[str, str, frozenset[
     for clone in duplicates:
         if not isinstance(clone, dict):
             fail("jscpd report contains a non-object duplicate")
-        result.add(clone_key(clone, root))
+        key, _actual = clone_key(clone, root, provenance=provenance)
+        result.add(key)
+    return result
+
+
+def keyed_originals(
+    document: dict[str, Any],
+    root: Path,
+    *,
+    provenance: dict[str, str] | None = None,
+) -> dict[tuple[str, str, frozenset[str]], list[tuple[str, str]]]:
+    """Map each identity key to every ACTUAL file-path pair jscpd reported
+    under it. Used only for `enforce()`'s human-readable failure report, so a
+    NEW pair prints the real files a reviewer must look at even when several
+    split-sibling occurrences were attributed to the same base-tree identity.
+    """
+    duplicates = document.get("duplicates")
+    if not isinstance(duplicates, list):
+        fail("jscpd report has no duplicates array")
+    result: dict[tuple[str, str, frozenset[str]], list[tuple[str, str]]] = {}
+    for clone in duplicates:
+        if not isinstance(clone, dict):
+            fail("jscpd report contains a non-object duplicate")
+        key, actual = clone_key(clone, root, provenance=provenance)
+        result.setdefault(key, []).append(actual)
     return result
 
 
@@ -858,12 +959,24 @@ def _scan_tree(
     return document, paths
 
 
+def _log_provenance_summary(provenance: dict[str, str]) -> None:
+    if not provenance:
+        return
+    print(
+        f"jscpd gate [enforce]: {len(provenance)} after-tree path(s) "
+        "attributed to a base-tree split pre-image"
+    )
+
+
 def _enforce_snapshots(
     executable: str,
     contract: scanner_contract.ScannerContract,
     base_sha: str,
     merged_tree: str,
-) -> tuple[set[tuple[str, str, frozenset[str]]], set[tuple[str, str, frozenset[str]]]]:
+) -> tuple[
+    set[tuple[str, str, frozenset[str]]],
+    dict[tuple[str, str, frozenset[str]], list[tuple[str, str]]],
+]:
     with _temporary_directory(".cx-jscpd-enforce-", ROOT.parent) as scratch:
         before = scratch / "before"
         after = scratch / "after"
@@ -877,7 +990,37 @@ def _enforce_snapshots(
             f"jscpd gate [enforce]: {len(before_paths)} tracked before, "
             f"{len(after_paths)} tracked after"
         )
-        return keys(before_doc, before), keys(after_doc, after)
+        provenance = _build_split_provenance(frozenset(before_paths), after_paths)
+        _log_provenance_summary(provenance)
+        return keys(before_doc, before), keyed_originals(
+            after_doc, after, provenance=provenance
+        )
+
+
+def _print_new_pair_occurrences(
+    new_pairs: set[tuple[str, str, frozenset[str]]],
+    after_keyed: dict[tuple[str, str, frozenset[str]], list[tuple[str, str]]],
+) -> None:
+    # Print the ACTUAL file paths jscpd reported for every occurrence of a
+    # NEW identity, never the provenance-attributed key -- a reviewer needs
+    # to know which real files to open, not which base-tree monolith a split
+    # sibling was attributed to.
+    occurrences = [
+        (format_name, digest, left, right)
+        for format_name, digest, paths in new_pairs
+        for left, right in after_keyed[(format_name, digest, paths)]
+    ]
+    # Sort on the full, fully-ordered tuple -- not just the path pair -- so
+    # the printed order is deterministic regardless of `new_pairs`/dict
+    # iteration order, which Python does not guarantee across processes.
+    for format_name, digest, left, right in sorted(
+        occurrences,
+        key=lambda item: (*sorted((item[2], item[3])), item[0], item[1]),
+    ):
+        ordered = sorted((left, right))
+        print(
+            f"  [{format_name}] {ordered[0]} <-> {ordered[1]} (fragment {digest[:12]})"
+        )
 
 
 def enforce(
@@ -892,9 +1035,10 @@ def enforce(
         return 0
 
     merged_tree = _merge_tree(base_sha, head_sha)
-    before_keys, after_keys = _enforce_snapshots(
+    before_keys, after_keyed = _enforce_snapshots(
         executable, contract, base_sha, merged_tree
     )
+    after_keys = set(after_keyed)
 
     new_pairs = after_keys - before_keys
     print(
@@ -905,13 +1049,7 @@ def enforce(
         print("jscpd gate [enforce]: PASS: no new block duplication")
         return 0
     print("jscpd gate [enforce]: FAIL: new duplicate pairs:")
-    for format_name, digest, paths in sorted(
-        new_pairs, key=lambda item: sorted(item[2])
-    ):
-        ordered = sorted(paths)
-        left = ordered[0]
-        right = ordered[1] if len(ordered) > 1 else ordered[0]
-        print(f"  [{format_name}] {left} <-> {right} (fragment {digest[:12]})")
+    _print_new_pair_occurrences(new_pairs, after_keyed)
     return 1
 
 
