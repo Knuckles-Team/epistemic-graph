@@ -93,7 +93,7 @@ tier — see [the master-of-all engine](architecture/engine.md).)
 - **Durable by default (redb-authoritative).** A committed write is fsynced to redb
   *before* the client is acked (commit-before-ack); an acked write survives a hard
   crash. A restarted shard re-opens its authoritative redb store directly.
-- **EH-290 phase probe (R710 local ext4, 2026-09-20).** Sixty sequential 256-byte
+- **EH-290 phase probe (local ext4 reference host, 2026-09-20).** Sixty sequential 256-byte
   Raft-entry commits measured **17.757 ms median / 15.174 ms mean / 19.741 ms max**.
   Mean phases were 8.930 ms transaction admission, 0.048 ms row application,
   2.496 ms ledger finalization, and **3.668 ms Immediate commit**. This does not
