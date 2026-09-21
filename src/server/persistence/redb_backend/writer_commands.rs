@@ -452,9 +452,9 @@ macro_rules! writer_command_arms {
             done,
         } => {
             // Buffer into the SAME pending batch as M2 mutations; the awaited `done`
-            // makes this a commit-before-ack barrier, so the batch commits durably at
-            // the next boundary (or immediately, since has_barrier() is now true) and
-            // a concurrently-pending graph mutation rides the SAME fsync.
+            // makes this a commit-before-ack barrier, so the shallow batch gets one
+            // bounded micro-linger before committing durably; a concurrent append or
+            // graph mutation can therefore ride the SAME fsync.
             for (idx, blob) in entries {
                 pending.raft_log_ops.push((group_id, idx, blob));
             }

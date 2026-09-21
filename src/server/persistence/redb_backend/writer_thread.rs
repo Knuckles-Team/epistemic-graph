@@ -19,10 +19,9 @@ use crate::redb_store::{
 
 /// How long the writer waits for work before flushing whatever it holds.
 ///
-/// A commit-before-ack write never waits for this (a pending barrier commits the
-/// instant the channel drains), so it bounds only how long a NON-acknowledged
-/// internal batch sits unflushed. This is the fixed group-commit boundary; it
-/// never changes the Immediate durability level.
+/// A commit-before-ack write uses the much shorter adaptive micro-linger when its
+/// batch is shallow; this tick bounds how long a NON-acknowledged internal batch
+/// sits unflushed. Neither boundary changes the Immediate durability level.
 const GROUP_COMMIT_TICK: Duration = Duration::from_millis(100);
 
 pub(super) fn run(
@@ -181,10 +180,10 @@ fn maybe_linger(writer: &WriterLoop<'_>, pending: &mut Pending) -> LingerOutcome
 }
 
 fn can_linger(group_commit: &RedbGroupCommitConfig, pending: &Pending) -> bool {
+    let durable_work = pending.durable_work_len();
     group_commit.linger > Duration::ZERO
-        && pending.raft_log_ops.is_empty()
-        && !pending.ops.is_empty()
-        && pending.ops.len() < group_commit.shallow_threshold
+        && durable_work > 0
+        && durable_work < group_commit.shallow_threshold
 }
 
 fn finish_linger_command(
@@ -234,6 +233,17 @@ struct Pending {
 }
 
 impl Pending {
+    /// Logical rows competing for the next durability barrier.
+    ///
+    /// Raft appends are durability work just like graph mutations: excluding
+    /// them from the shallow-batch test forced a raft-only append to bypass the
+    /// micro-linger and pay one `Durability::Immediate` fsync even when another
+    /// append was already arriving. Counting both preserves the same bounded
+    /// policy while letting shallow raft batches share their existing barrier.
+    fn durable_work_len(&self) -> usize {
+        self.ops.len().saturating_add(self.raft_log_ops.len())
+    }
+
     fn has_barrier(&self) -> bool {
         !self.waiters.is_empty()
     }

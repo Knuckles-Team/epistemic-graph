@@ -93,6 +93,16 @@ tier — see [the master-of-all engine](architecture/engine.md).)
 - **Durable by default (redb-authoritative).** A committed write is fsynced to redb
   *before* the client is acked (commit-before-ack); an acked write survives a hard
   crash. A restarted shard re-opens its authoritative redb store directly.
+- **EH-290 phase probe (R710 local ext4, 2026-09-20).** Sixty sequential 256-byte
+  Raft-entry commits measured **17.757 ms median / 15.174 ms mean / 19.741 ms max**.
+  Mean phases were 8.930 ms transaction admission, 0.048 ms row application,
+  2.496 ms ledger finalization, and **3.668 ms Immediate commit**. This does not
+  reproduce the earlier loaded-deployment 1.31 s median, showing that magnitude
+  is storage/load dependent; it also shows healthy local redb is not spending the
+  whole call in fsync. The EH-290 correction therefore keeps Immediate durability
+  and lets shallow Raft appends enter the existing bounded group-commit window;
+  its deterministic regression folds two independently awaited append commands
+  into one physical commit while reopening proves both entries durable.
 - **HA with `cluster`.** `openraft` replicates the authoritative store across
   nodes with automatic leader failover, so a crashed node's graphs stay available on a
   replica.

@@ -79,6 +79,8 @@ mod commands;
 mod matview_api;
 #[cfg(feature = "raft")]
 mod raft_api;
+#[cfg(all(test, feature = "raft"))]
+mod raft_linger_tests;
 mod shard_writer;
 #[cfg(feature = "tsdb")]
 mod timeseries;
@@ -447,7 +449,10 @@ fn write_encryption_canary(
 ///
 /// This adds a bounded, adaptive linger: when about to commit a SHALLOW barrier
 /// batch, spend ONE `recv_timeout(linger)` letting more concurrent writers arrive,
-/// then drain again. It MIRRORS the in-memory write-coalescer's `max_linger`
+/// then drain again. "Shallow" counts both graph mutations and Raft log entries:
+/// both are rows in the same pending durable transaction, so excluding a raft-only
+/// append would restore the pathological one-append/one-fsync shape EH-290 measured.
+/// It MIRRORS the in-memory write-coalescer's `max_linger`
 /// (CONCEPT:EG-KG.sharding.per-graph-write-coalescer, `write_coalescer.rs`) but for the DURABLE tier — it does NOT
 /// touch the coalescer. Durability is unchanged: authoritative writes still commit
 /// `Durability::Immediate` BEFORE their `done` fires; we only widen the batch, never
@@ -526,8 +531,9 @@ pub struct RedbGroupCommitConfig {
     /// barrier batch. `Duration::ZERO` disables lingering entirely (commit-on-drain
     /// = today's behavior, used as the bench baseline).
     pub linger: Duration,
-    /// Only linger when `pending.ops.len()` is BELOW this — a deep batch already
-    /// coalesces well, so lingering buys nothing and just adds latency (adaptive).
+    /// Only linger when the pending graph-mutation + Raft-entry count is BELOW
+    /// this — a deep batch already coalesces well, so lingering buys nothing and
+    /// just adds latency (adaptive).
     pub shallow_threshold: usize,
     /// Test-only gate used to hold the writer at the start of the linger window
     /// while the fixture queues the rest of its burst. Production opens never set
@@ -540,8 +546,9 @@ impl RedbGroupCommitConfig {
     /// Resolve from env (Configuration discipline: read once at backend open).
     ///   * `EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US` — linger microseconds (default
     ///     `1000` = 1ms; `0` disables lingering / restores commit-on-drain).
-    ///   * `EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW` — shallow-batch op threshold
-    ///     (default `32`); the writer lingers only while `ops.len()` is under it.
+    ///   * `EPISTEMIC_GRAPH_REDB_GROUP_SHALLOW` — shallow durable-work threshold
+    ///     (default `32`); the writer lingers only while the pending graph-mutation
+    ///     plus Raft-entry count is under it.
     pub fn from_env() -> Self {
         let linger_us = std::env::var("EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US")
             .ok()

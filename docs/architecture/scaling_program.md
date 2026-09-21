@@ -84,9 +84,11 @@ into "K writers, batched fsyncs, parallel cores":
 - **Adaptive group-commit micro-linger** (`CONCEPT:EG-KG.backend.adaptive-linger-coalesce`) — when the `eg-redb-writer`
   is about to commit a *shallow* batch it spends ONE bounded `recv_timeout(linger)`
   (default 1 ms) letting concurrent in-flight authoritative writers fold into the SAME
-  fsync — the profiled write ceiling was ~1 op/fsync from serial awaits. Adaptive: a
+  fsync — the profiled write ceiling was ~1 op/fsync from serial awaits. The shallow
+  count includes graph mutations and Raft log entries; otherwise a raft-only append
+  bypasses the window and recreates the EH-290 one-append/one-fsync path. Adaptive: a
   deep batch already coalesces, so it commits immediately (no added latency). Durability
-  is unchanged.
+  is unchanged: every waiter is notified only after the shared Immediate commit.
 - **O(1) audit-chain tail cache** (`CONCEPT:EG-KG.storage.embedded-store`) — the EG-KG.sharding.row-level-security hash-chained `AUDIT`
   log appends in O(1) by caching the per-graph chain tail in-process, so a high-rate
   ingestion stream no longer pays a durable tail read on every audited write.
