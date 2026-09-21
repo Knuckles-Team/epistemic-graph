@@ -124,13 +124,13 @@ fn source_control_audit_line(method: &Method) -> Option<String> {
     }
 }
 
-fn write_back_operation(op: &eg_types::WriteBackOp) -> &'static str {
+fn write_back_operation(op: &eg_types::write_back::WriteBackOp) -> &'static str {
     match op {
-        eg_types::WriteBackOp::Create { .. } => "create",
-        eg_types::WriteBackOp::Get { .. } => "get",
-        eg_types::WriteBackOp::RecordAttempt { .. } => "record_attempt",
-        eg_types::WriteBackOp::RecordReconciliation { .. } => "record_reconciliation",
-        eg_types::WriteBackOp::Receipts { .. } => "receipts",
+        eg_types::write_back::WriteBackOp::Create { .. } => "create",
+        eg_types::write_back::WriteBackOp::Get { .. } => "get",
+        eg_types::write_back::WriteBackOp::RecordAttempt { .. } => "record_attempt",
+        eg_types::write_back::WriteBackOp::RecordReconciliation { .. } => "record_reconciliation",
+        eg_types::write_back::WriteBackOp::Receipts { .. } => "receipts",
     }
 }
 
