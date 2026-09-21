@@ -271,33 +271,7 @@ repos:
     stages: [pre-push, manual]
   - id: kiss-census
     name: KISS — tracked Rust census (advisory; no baseline)
-    entry: |-
-      bash -c '
-      set -euo pipefail
-      expected="$(PYTHONPATH=scripts python3 -c "from scanner_contract import load_contract; print(load_contract().kiss_version)")" || { echo "kiss census: invalid scanner contract" >&2; exit 2; }
-      kiss_bin="${KISS_BIN:-kiss}"
-      command -v "$kiss_bin" >/dev/null 2>&1 || { echo "kiss census: KISS is not installed; install the pinned tool before running hooks" >&2; exit 2; }
-      got="$("$kiss_bin" --version 2>/dev/null)" || { echo "kiss census: kiss --version failed" >&2; exit 2; }
-      [ "$got" = "kiss $expected" ] || { echo "kiss census: expected kiss $expected, got $got" >&2; exit 2; }
-      [ -f .kiss/kiss.toml ] || { echo "kiss census: missing .kiss/kiss.toml" >&2; exit 2; }
-      [ ! -e .kissconfig ] || { echo "kiss census: .kissconfig is forbidden because it disables measured rules" >&2; exit 2; }
-      mapfile -d "" files < <(python3 scripts/list_scanner_sources.py kiss)
-      [ "${#files[@]}" -gt 0 ] || { echo "kiss census: no tracked Rust source files" >&2; exit 2; }
-      total=0
-      for path in "${files[@]}"; do
-        set +e
-        output="$("$kiss_bin" check --config .kiss/kiss.toml --lang rust "$path" 2>&1)"
-        status=$?
-        set -e
-        if grep -q "Unknown config key" <<< "$output"; then printf "%s\\n" "$output" >&2; echo "kiss census: KISS rejected a config key" >&2; exit 2; fi
-        if [ "$status" -gt 1 ]; then printf "%s\\n" "$output" >&2; echo "kiss census: KISS failed on $path with exit $status" >&2; exit 2; fi
-        count="$(grep -c "^VIOLATION:" <<< "$output" || true)"
-        if { [ "$status" -eq 0 ] && [ "$count" -ne 0 ]; } || { [ "$status" -eq 1 ] && [ "$count" -eq 0 ]; }; then printf "%s\\n" "$output" >&2; echo "kiss census: exit status and report disagree for $path" >&2; exit 2; fi
-        total=$((total + count))
-      done
-      printf "kiss census: %s tracked Rust file(s), %s violation(s); findings are advisory\\n" "${#files[@]}" "$total"
-      exit 0
-      '
+    entry: python3 scripts/check_kiss_census.py
     language: system
     pass_filenames: false
     always_run: true
