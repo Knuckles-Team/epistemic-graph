@@ -269,6 +269,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
   forwards `SpawnDelegation.oidc_token` onto the envelope in `on`-mode delegation.
 
 ### Changed
+- **2.27 release-qualification disclosure (EH-308).** The differential
+  `jscpd` gate is intentionally red for this release by the 2026-09-20
+  operator ruling: against the publication base at `origin/main` it reports
+  306 new path-pair identities after the large module-splitting series. The
+  absolute census moves in the healthy direction at the same time — clone
+  percentage improves from 3.66% to 3.02% and clone count falls from 3,129
+  to 2,894 — so this is a disclosed measurement-identity exception, not an
+  allowance for growing duplication. EH-308 remains open for 2.28 to replace
+  or repair the differential identity so it survives rename-and-restructure;
+  every other 2.27 release gate remains binding.
 - **Breaking: typed result construction is now contract-governed** —
   `ResultPayload::raw` is no longer part of `eg-types`' supported public
   construction surface. External integrations must use a declared result marker
