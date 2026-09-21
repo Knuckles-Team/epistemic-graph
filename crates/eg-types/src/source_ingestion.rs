@@ -18,7 +18,7 @@ use crate::contract::{
 #[cfg(test)]
 mod tests;
 
-pub const SOURCE_INGESTION_CONTRACT_VERSION: u16 = 1;
+pub const SOURCE_INGESTION_CONTRACT_VERSION: u16 = 2;
 pub const MAX_SOURCE_RECORDS: usize = 1_024;
 pub const MAX_MAPPING_REFERENCE_BYTES: usize = 1_024;
 pub const MAX_SOURCE_TEXT_BYTES: usize = 8_192;
@@ -261,6 +261,9 @@ pub struct SourceIngestionReceipt {
     pub mapping_reference: String,
     pub mapping_digest: Digest256,
     pub connector_pack_digest: Digest256,
+    /// Exact served MCP catalog identity from the ConnectorPack head whose
+    /// manifest mapping authorized this ingestion.
+    pub catalog: crate::connector_pack::McpCatalogSnapshotBinding,
     pub raw_admissions: BoundedVec<RawAdmissionReceipt, MAX_SOURCE_RECORDS>,
     pub accepted_cursor: SourceCursor,
     pub accepted_cursor_digest: Digest256,

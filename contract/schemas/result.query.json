@@ -5128,6 +5128,10 @@
         "archive": {
           "$ref": "#/$defs/PackArchiveRef"
         },
+        "catalog": {
+          "$ref": "#/$defs/McpCatalogSnapshotBinding",
+          "description": "The exact served generation/digest observed by the catalog lister."
+        },
         "connector": {
           "type": "string"
         },
@@ -5163,6 +5167,7 @@
         "archive",
         "entries",
         "producer",
+        "catalog",
         "pack_digest"
       ],
       "type": "object"
@@ -11549,6 +11554,41 @@
       },
       "required": [
         "source_graph_version"
+      ],
+      "type": "object"
+    },
+    "McpCatalogSnapshotBinding": {
+      "additionalProperties": false,
+      "description": "Exact identity of the served MCP catalog snapshot this pack came from.\n\nThe pack digest binds this whole value. Consequently a stored resource can\nnever be mistaken for one observed under a different configuration,\nconnection or authorization scope even when its own body is byte-identical.",
+      "properties": {
+        "authorization_scope_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "catalog_generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "child_connection_generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "configuration_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "snapshot_digest": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "configuration_revision",
+        "catalog_generation",
+        "snapshot_digest",
+        "child_connection_generation",
+        "authorization_scope_digest"
       ],
       "type": "object"
     },
@@ -29686,6 +29726,8 @@
         "tool",
         "skill",
         "prompt",
+        "resource",
+        "resource_template",
         "ontology",
         "shapes",
         "model_profile",

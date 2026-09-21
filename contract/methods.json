@@ -11154,7 +11154,7 @@
         "GRAPH_META_SCHEMA_VERSION"
       ],
       "id": "SourceIngest",
-      "note": "RF-ADR-009 native ingestion authority: tenant-bound typed Connector Manifest mapping resolution and idempotent raw-CAS admission precede one atomic ChangeEnvelope commit for mapped graph material, provenance, cursor and receipt; unknown mapping, tenant or authority fails closed; internal until the integrated contract passes release gates",
+      "note": "RF-ADR-009 native ingestion authority: tenant-bound typed Connector Manifest mapping resolution and idempotent raw-CAS admission precede one atomic ChangeEnvelope commit for mapped graph material, provenance, cursor and receipt; unknown mapping, tenant or authority fails closed; exact MCP catalog generation and digest binding makes the generated consumer contract replay-safe",
       "policy": {
         "audited": true,
         "authz_action": "source:ingest",
@@ -11180,7 +11180,7 @@
         "schema": "contract/schemas/result.ingestion.json#/methods/SourceIngest",
         "selected_by": null
       },
-      "stability": "internal"
+      "stability": "stable"
     },
     {
       "consumer_profiles": [
@@ -16200,7 +16200,9 @@
       "stability": "internal"
     },
     {
-      "consumer_profiles": [],
+      "consumer_profiles": [
+        "python"
+      ],
       "domain": "storage",
       "error_set": [
         "INVALID_ARGUMENT",
@@ -16215,7 +16217,7 @@
         "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
       ],
       "id": "ConnectorPack",
-      "note": "RF-ADR-009 A2, runtime-conditional: status is an authenticated tenant-bound read snapshot, and its authz action is agent:pack-read; import commits the whole pack atomically, while bind/unbind/retire/reproject/reconcile_bodies and a mass-withdrawal import need admin:connector-pack. Pack head, members, component revisions, body holders, import record, receipt and outbox commit in one WTX; local-only authority, refused in clustered mode",
+      "note": "RF-ADR-009 A2 plus RF-021 durable catalog reconciliation; runtime-conditional: status is an authenticated tenant-bound read snapshot exposing the exact MCP catalog generation/digest binding; import atomically commits resources/templates, component revisions, CAS body holders, provenance, receipt and outbox. Bind/unbind/retire/reproject/reconcile_bodies and a mass-withdrawal import need admin:connector-pack; local-only authority, refused in clustered mode",
       "policy": {
         "audited": false,
         "authz_action": "agent:pack-control",
@@ -16265,7 +16267,7 @@
         "schema": "contract/schemas/result.storage.json#/methods/ConnectorPack",
         "selected_by": "op"
       },
-      "stability": "internal"
+      "stability": "stable"
     },
     {
       "consumer_profiles": [

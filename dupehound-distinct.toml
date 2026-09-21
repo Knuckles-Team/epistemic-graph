@@ -201,12 +201,22 @@ reason = """EH-264 review (file:line): crates/eg-types/src/agent_component.rs:16
 [[pair]]
 left_file = "crates/eg-types/src/connector_pack/digest.rs"
 left_name = "entry_kind_token"
-left_digest = "sha256:d5b18d6ce3ca24c90cf54229af6871f525930ac77a1d79e7b908194a831e2472"
+left_digest = "sha256:268730ffb69e07cb5d796b66e2ac7e8f684e1b5e727a3edaaed3047504315fc0"
 right_file = "crates/eg-plan/src/result_stream.rs"
 right_name = "as_str"
 right_digest = "sha256:1c032ec0c0a8de05330f80ed651215a4dfc7561631515272cd31d5c12c4396e9"
-reviewed_on = "2026-09-17"
-reason = """EH-264 review (file:line): crates/eg-types/src/connector_pack/digest.rs:43 vs crates/eg-plan/src/result_stream.rs:44. Same family as the pair above, and deliberately NOT shared with the component-kind renderer beside it either. This one renders the connector PACK entry kind (mcp_server, tool, skill, prompt, ontology, shapes, model_profile, a2a_card, manifest) and its output is a DIGEST INPUT: `entry_kind_token`'s own doc comment (digest.rs:41-42) says the token is framed into `entry_digest`, so changing it changes every pack's identity. This is the closest of the four to a genuine "different trust/consequence domain" argument: the left side feeds a content-addressed identity that other packs' signatures pin, while the right side is pure display for a result stream tag with no identity role -- folding them into one enum-to-string helper would put the pack's wire identity at the mercy of an edit made for an unrelated, non-identity-bearing enum. Right-hand side is the result-stream modality tag, an unrelated vocabulary in another crate. Kept as reviewed-distinct."""
+reviewed_on = "2026-09-21"
+reason = """EH-264 review refreshed for RF-021 (file:line): crates/eg-types/src/connector_pack/digest.rs:47 vs crates/eg-plan/src/result_stream.rs:44. The left vocabulary now also includes resource and resource_template, preserving the same exhaustive PACK entry-kind renderer shape. Its output remains a DIGEST INPUT framed into entry_digest; the right side remains pure display for an unrelated result-stream modality tag. Sharing the helper would still couple content-addressed connector-pack identity to a non-identity display vocabulary in another crate. Re-read both bodies after the RF-021 variants landed; the semantic distinction still holds, so the pair is re-pinned as reviewed-distinct."""
+
+[[pair]]
+left_file = "crates/eg-types/src/connector_pack/digest.rs"
+left_name = "entry_kind_token"
+left_digest = "sha256:268730ffb69e07cb5d796b66e2ac7e8f684e1b5e727a3edaaed3047504315fc0"
+right_file = "crates/eg-modality/src/tck.rs"
+right_name = "label"
+right_digest = "sha256:1128fcc65d645369f2a11250874fb76497fd8dba137a592c7909570bc1ababca"
+reviewed_on = "2026-09-21"
+reason = """RF-021 review (file:line): crates/eg-types/src/connector_pack/digest.rs:47 vs crates/eg-modality/src/tck.rs:138. Both are exhaustive enum-to-string renderers, but the connector-pack tokens are wire-stable DIGEST INPUTS that bind signed catalog content identities, while TckPoint::label is human-readable report prose. The enums, tokens, crates, consumers and compatibility consequences are disjoint. Consolidating would couple a cryptographic format identity to mutable presentation text, so the pair is reviewed-distinct."""
 
 [[pair]]
 left_file = "src/server/handlers/graph_ops/gateway_graph_routes.rs"

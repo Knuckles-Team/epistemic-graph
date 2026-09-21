@@ -528,6 +528,7 @@ fn import_record(
             .map_or(1, |head| head.binding_revision + 1),
         record_id,
         pack_digest: request.index.pack_digest.clone(),
+        catalog: request.index.catalog.clone(),
         previous_pack_digest: request
             .expected_head
             .as_ref()
@@ -709,6 +710,7 @@ impl DesiredBuilder<'_> {
         if entry.kind == PackEntryKind::Manifest {
             attributes.insert("connector.manifest".into(), "true".into());
         }
+        add_mcp_resource_attributes(&mut attributes, self.request, entry);
         let (native_provides, declared_provides) =
             partition_capabilities(entry.annotations.provides.as_slice());
         let (native_requires, declared_requires) =
@@ -786,6 +788,52 @@ fn component_attributes(
         attributes.insert("sdk.contract_pin".into(), pin.clone());
     }
     attributes
+}
+
+fn add_mcp_resource_attributes(
+    attributes: &mut BTreeMap<String, String>,
+    request: &ConnectorPackImportRequest,
+    entry: &PackEntry,
+) {
+    if !matches!(
+        entry.kind,
+        PackEntryKind::Resource | PackEntryKind::ResourceTemplate
+    ) {
+        return;
+    }
+    let catalog = &request.index.catalog;
+    attributes.insert(
+        "mcp.catalog_generation".into(),
+        catalog.catalog_generation.to_string(),
+    );
+    attributes.insert(
+        "mcp.snapshot_digest".into(),
+        catalog.snapshot_digest.to_hex(),
+    );
+    attributes.insert(
+        "mcp.configuration_revision".into(),
+        catalog.configuration_revision.to_string(),
+    );
+    attributes.insert(
+        "mcp.child_connection_generation".into(),
+        catalog.child_connection_generation.to_string(),
+    );
+    attributes.insert(
+        "mcp.authorization_scope_digest".into(),
+        catalog.authorization_scope_digest.to_hex(),
+    );
+    let resource_kind = if entry.kind == PackEntryKind::Resource {
+        "resource"
+    } else {
+        "resource_template"
+    };
+    attributes.insert("mcp.resource_kind".into(), resource_kind.into());
+    if let Some(schema) = &entry.input_schema {
+        attributes.insert("mcp.argument_schema_digest".into(), schema.sha256.to_hex());
+    }
+    if let Some(schema) = &entry.output_schema {
+        attributes.insert("mcp.result_schema_digest".into(), schema.sha256.to_hex());
+    }
 }
 
 fn partition_capabilities(values: &[String]) -> (Vec<String>, Vec<String>) {

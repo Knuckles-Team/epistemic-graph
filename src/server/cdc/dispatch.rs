@@ -246,6 +246,13 @@ fn marker_event_id(method: &Method) -> Option<&'static str> {
         Method::RunDatalogReasoning { .. } => Some("__run_datalog_reasoning"),
         Method::ClearLedger | Method::ApplyLedger { .. } => Some("__ledger"),
         Method::CompactNodesByType { .. } => Some("__compact_nodes_by_type"),
+        _ => source_ingestion_marker_event_id(method),
+    }
+}
+
+fn source_ingestion_marker_event_id(method: &Method) -> Option<&'static str> {
+    match method {
+        Method::SourceIngest { .. } => Some("__source_ingest"),
         _ => x9_marker_event_id(method),
     }
 }

@@ -8,6 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::connector_pack::McpCatalogSnapshotBinding;
 use crate::contract::{closed_error_codes, BoundedVec, Digest256, ResourceId};
 
 /// Why a pack was rejected. Screaming-snake on the wire, so the code a caller
@@ -117,6 +118,7 @@ pub struct PackImportReceipt {
     pub connector: ResourceId,
     pub binding_revision: u64,
     pub pack_digest: Digest256,
+    pub catalog: McpCatalogSnapshotBinding,
     #[serde(default)]
     pub previous_pack_digest: Option<Digest256>,
     pub record_id: String,
@@ -157,6 +159,7 @@ pub enum PackImportResult {
 pub struct PackHeadView {
     pub binding_revision: u64,
     pub pack_digest: Digest256,
+    pub catalog: McpCatalogSnapshotBinding,
     #[serde(default)]
     pub server_contract_version: Option<String>,
     pub server_package_version: String,

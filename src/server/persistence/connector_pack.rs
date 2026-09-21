@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 
 use eg_types::agent_library::AgentLibraryLifecycle;
 use eg_types::connector_pack::{
-    ConnectorPackStatus, ConnectorSchemaMapping, PackEntryKind, PackHeadView, PackImportReceipt,
-    PackMemberCounts, PackProjectionState,
+    ConnectorPackStatus, ConnectorSchemaMapping, McpCatalogSnapshotBinding, PackEntryKind,
+    PackHeadView, PackImportReceipt, PackMemberCounts, PackProjectionState,
 };
 use eg_types::contract::{BoundedVec, Digest256, ResourceId};
 
@@ -76,6 +76,7 @@ pub struct ResolvedConnectorSchemaMapping {
     pub body_sha256: Digest256,
     pub entry_revision: u64,
     pub pack_digest: Digest256,
+    pub catalog: McpCatalogSnapshotBinding,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -277,6 +278,7 @@ impl AgentLibraryStore {
             body_sha256: manifest.body_sha256,
             entry_revision: manifest.entry_revision,
             pack_digest: head.head.pack_digest,
+            catalog: head.head.catalog,
         })
     }
 

@@ -174,9 +174,10 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // `ConnectorPack`, `GraphSchema`, `GraphSchemaList`, `MutationOutbox`,
     // `Solve`, `AgentAssemble`, `DecisionCommit`, `DecisionEval`, `DecisionFit`.
     // 425 -> 426: RF-ADR-009's served `SourceIngest` raw-record authority.
+    // 426 -> 427: governed source-system `WriteBack` authority.
     assert_eq!(
         variants.len(),
-        426,
+        427,
         "the wire method census changed; update this exact count deliberately"
     );
 }

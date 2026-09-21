@@ -85,6 +85,7 @@ pub(crate) const ACCESS_RS_MUTATES_UNCONDITIONAL: &[&str] = &[
     "Rollback",
     "SetPose",
     "SqlSourceBatch",
+    "SourceIngest",
     "StartTrajectory",
     "SupersedeEdge",
     "SweepExpired",
@@ -408,6 +409,7 @@ pub(crate) const AUDIT_RS_AUDITED: &[&str] = &[
     "RenewWorkItemLease",
     "ReserveWorkItemResources",
     "RunDatalogReasoning",
+    "SourceIngest",
     "SetPose",
     "Sql",
     "SqlSourceBatch",
@@ -426,6 +428,7 @@ pub(crate) const AUDIT_RS_AUDITED: &[&str] = &[
     "FinishDevelopmentLane",
     "CleanupDevelopmentLane",
     "UpdateDevelopmentLaneQuota",
+    "WriteBack",
     #[cfg(feature = "modality-serving")]
     "ServedModality",
 ];
@@ -456,6 +459,7 @@ pub(crate) const CDC_RS_EMITS_CDC: &[&str] = &[
     "RemoveEdge",
     "RemoveNode",
     "RunDatalogReasoning",
+    "SourceIngest",
     #[cfg(feature = "modality-serving")]
     "ServedModality",
 ];

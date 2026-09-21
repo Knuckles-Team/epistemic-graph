@@ -55,6 +55,22 @@ fn validate_header(
             "pack entries must be sorted by unique URI",
         ));
     }
+    validate_catalog_binding(request, violations);
+}
+
+fn validate_catalog_binding(
+    request: &ConnectorPackImportRequest,
+    violations: &mut Vec<PackViolation>,
+) {
+    if request.index.catalog.catalog_generation == 0
+        || request.index.catalog.child_connection_generation == 0
+    {
+        violations.push(violation(
+            PackViolationCode::MalformedIndex,
+            None,
+            "catalog and child connection generations must be non-zero",
+        ));
+    }
 }
 
 struct IndexValidator<'a> {
@@ -129,13 +145,7 @@ impl<'a> IndexValidator<'a> {
                 "entry URI is duplicated",
             );
         }
-        if !entry.uri.starts_with(uri_prefix(entry.kind)) {
-            self.reject(
-                PackViolationCode::MalformedIndex,
-                Some(&entry.uri),
-                "entry URI scheme does not match its kind",
-            );
-        }
+        validate_uri_kind(self, entry);
         let expected_server = format!("mcp-server://{}", self.request.index.connector.as_str());
         if entry.kind == PackEntryKind::McpServer && entry.uri != expected_server {
             self.reject(
@@ -301,6 +311,7 @@ impl<'a> IndexValidator<'a> {
                 "tool input_schema is required",
             );
         }
+        validate_mcp_schemas(self, entry);
         for section in entry.input_schema.iter().chain(entry.output_schema.iter()) {
             self.validate_schema(entry, section);
         }
@@ -360,6 +371,46 @@ impl<'a> IndexValidator<'a> {
     }
 }
 
+fn validate_uri_kind(validator: &mut IndexValidator<'_>, entry: &PackEntry) {
+    if matches!(
+        entry.kind,
+        PackEntryKind::Resource | PackEntryKind::ResourceTemplate
+    ) {
+        if !generic_mcp_uri(&entry.uri) {
+            validator.reject(
+                PackViolationCode::MalformedIndex,
+                Some(&entry.uri),
+                "MCP resource URI/template must have an absolute URI scheme",
+            );
+        }
+    } else if !entry.uri.starts_with(uri_prefix(entry.kind)) {
+        validator.reject(
+            PackViolationCode::MalformedIndex,
+            Some(&entry.uri),
+            "entry URI scheme does not match its kind",
+        );
+    }
+}
+
+fn validate_mcp_schemas(validator: &mut IndexValidator<'_>, entry: &PackEntry) {
+    if entry.kind == PackEntryKind::Resource && entry.output_schema.is_none() {
+        validator.reject(
+            PackViolationCode::MalformedBody,
+            Some(&entry.uri),
+            "resource content schema is required",
+        );
+    }
+    if entry.kind == PackEntryKind::ResourceTemplate
+        && (entry.input_schema.is_none() || entry.output_schema.is_none())
+    {
+        validator.reject(
+            PackViolationCode::MalformedBody,
+            Some(&entry.uri),
+            "resource template argument and result schemas are required",
+        );
+    }
+}
+
 fn canonical_identity(entry: &PackEntry) -> bool {
     entry.uri.trim() == entry.uri
         && !entry.uri.is_empty()
@@ -367,6 +418,15 @@ fn canonical_identity(entry: &PackEntry) -> bool {
         && !entry.name.is_empty()
         && entry.name.len() <= 256
         && !entry.name.chars().any(char::is_control)
+}
+
+fn generic_mcp_uri(uri: &str) -> bool {
+    let scheme_end = uri.find(':').unwrap_or_default();
+    scheme_end > 0
+        && uri[..scheme_end].bytes().enumerate().all(|(index, byte)| {
+            byte.is_ascii_alphabetic()
+                || (index > 0 && (byte.is_ascii_digit() || matches!(byte, b'+' | b'-' | b'.')))
+        })
 }
 
 fn finish_validation(validator: &mut IndexValidator<'_>) {
@@ -416,7 +476,13 @@ fn rdf_invalid_code(kind: PackEntryKind) -> PackViolationCode {
 }
 
 fn text_kind(kind: PackEntryKind) -> bool {
-    !matches!(kind, PackEntryKind::A2aCard | PackEntryKind::ModelProfile)
+    !matches!(
+        kind,
+        PackEntryKind::A2aCard
+            | PackEntryKind::ModelProfile
+            | PackEntryKind::Resource
+            | PackEntryKind::ResourceTemplate
+    )
 }
 
 #[cfg(feature = "rdf")]
@@ -714,6 +780,25 @@ pub(super) fn section_bytes<'a>(
     archive
         .get(start..end)
         .ok_or_else(|| "section outside archive".to_string())
+}
+
+#[cfg(test)]
+mod mcp_resource_uri_tests {
+    use super::generic_mcp_uri;
+
+    #[test]
+    fn accepts_generic_absolute_resource_uris_and_templates() {
+        assert!(generic_mcp_uri("file:///srv/catalog/item.json"));
+        assert!(generic_mcp_uri("https://example.test/items/{item_id}"));
+        assert!(generic_mcp_uri("company+graph://tenant/{kind}/{id}"));
+    }
+
+    #[test]
+    fn rejects_relative_or_malformed_resource_uris() {
+        assert!(!generic_mcp_uri("resources/item.json"));
+        assert!(!generic_mcp_uri(":missing-scheme"));
+        assert!(!generic_mcp_uri("1invalid://item"));
+    }
 }
 fn valid_iri(value: &str) -> bool {
     value.contains(':')

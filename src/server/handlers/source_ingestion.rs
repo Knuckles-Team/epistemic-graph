@@ -35,6 +35,7 @@ pub(crate) struct PreparedSourceIngestion {
     mapping_reference: String,
     mapping_digest: Digest256,
     connector_pack_digest: Digest256,
+    catalog: eg_types::connector_pack::McpCatalogSnapshotBinding,
     raw_admissions: Vec<RawAdmissionReceipt>,
     accepted_cursor: eg_types::source_ingestion::SourceCursor,
     affected_count: u64,
@@ -113,6 +114,7 @@ pub(crate) async fn prepare(
         mapping_reference: resolved.mapping_reference,
         mapping_digest,
         connector_pack_digest: resolved.pack_digest,
+        catalog: resolved.catalog,
         raw_admissions: admitted.raw_admissions,
         accepted_cursor: batch.cursor.clone(),
         affected_count: batch.records.len() as u64,
@@ -347,6 +349,11 @@ fn receipt_method(
         "mapping_reference": batch.mapping_reference,
         "mapping_digest": mapping_digest.to_hex(),
         "connector_pack_digest": resolved.pack_digest.to_hex(),
+        "configuration_revision": resolved.catalog.configuration_revision,
+        "catalog_generation": resolved.catalog.catalog_generation,
+        "catalog_snapshot_digest": resolved.catalog.snapshot_digest.to_hex(),
+        "child_connection_generation": resolved.catalog.child_connection_generation,
+        "authorization_scope_digest": resolved.catalog.authorization_scope_digest.to_hex(),
         "cursor_digest": batch.cursor.digest()?.to_hex(),
         "record_count": batch.records.len(),
     });
@@ -494,6 +501,11 @@ pub(crate) fn finish(prepared: PreparedSourceIngestion, response: Response) -> R
             prepared.mapping_reference.as_bytes(),
             prepared.mapping_digest.as_bytes(),
             prepared.connector_pack_digest.as_bytes(),
+            &prepared.catalog.configuration_revision.to_be_bytes(),
+            &prepared.catalog.catalog_generation.to_be_bytes(),
+            prepared.catalog.snapshot_digest.as_bytes(),
+            &prepared.catalog.child_connection_generation.to_be_bytes(),
+            prepared.catalog.authorization_scope_digest.as_bytes(),
             &raw_receipt_bytes,
             accepted_cursor_digest.as_bytes(),
             &prepared.affected_count.to_be_bytes(),
@@ -512,6 +524,7 @@ pub(crate) fn finish(prepared: PreparedSourceIngestion, response: Response) -> R
                 mapping_reference: prepared.mapping_reference,
                 mapping_digest: prepared.mapping_digest,
                 connector_pack_digest: prepared.connector_pack_digest,
+                catalog: prepared.catalog,
                 raw_admissions,
                 accepted_cursor: prepared.accepted_cursor,
                 accepted_cursor_digest,
@@ -533,7 +546,7 @@ fn prepared_replay(
     validate_replay_authority(&ctx, batch_digest, &envelope)?;
     let batch_id = format!("source-ingest:{}", batch_digest.to_hex());
     let receipt = replay_receipt(&envelope, &batch_id)?;
-    let (mapping_digest, connector_pack_digest) = replay_metadata(batch, &receipt)?;
+    let (mapping_digest, connector_pack_digest, catalog) = replay_metadata(batch, &receipt)?;
     let raw_admissions = replay_admissions(&ctx, batch, &envelope)?;
     let committed_graph_version = replay_graph_version(&envelope)?;
     Ok(PreparedSourceIngestion {
@@ -542,6 +555,7 @@ fn prepared_replay(
         mapping_reference: batch.mapping_reference.clone(),
         mapping_digest,
         connector_pack_digest,
+        catalog,
         raw_admissions,
         accepted_cursor: batch.cursor.clone(),
         affected_count: batch.records.len() as u64,
@@ -597,7 +611,14 @@ fn replay_receipt(
 fn replay_metadata(
     batch: &eg_types::source_ingestion::SourceIngestionBatch,
     receipt: &serde_json::Value,
-) -> Result<(Digest256, Digest256), String> {
+) -> Result<
+    (
+        Digest256,
+        Digest256,
+        eg_types::connector_pack::McpCatalogSnapshotBinding,
+    ),
+    String,
+> {
     if replay_receipt_text(receipt, "mapping_reference")? != batch.mapping_reference {
         return Err("SOURCE_INGESTION_REPLAY_CONFLICT: mapping reference differs".into());
     }
@@ -608,7 +629,20 @@ fn replay_metadata(
     if replay_receipt_text(receipt, "cursor_digest")? != cursor_digest.to_hex() {
         return Err("SOURCE_INGESTION_REPLAY_CONFLICT: cursor differs".into());
     }
-    Ok((mapping_digest, connector_pack_digest))
+    let catalog = eg_types::connector_pack::McpCatalogSnapshotBinding {
+        configuration_revision: replay_receipt_u64(receipt, "configuration_revision")?,
+        catalog_generation: replay_receipt_u64(receipt, "catalog_generation")?,
+        snapshot_digest: Digest256::parse(replay_receipt_text(
+            receipt,
+            "catalog_snapshot_digest",
+        )?)?,
+        child_connection_generation: replay_receipt_u64(receipt, "child_connection_generation")?,
+        authorization_scope_digest: Digest256::parse(replay_receipt_text(
+            receipt,
+            "authorization_scope_digest",
+        )?)?,
+    };
+    Ok((mapping_digest, connector_pack_digest, catalog))
 }
 
 #[cfg(all(feature = "redb", feature = "blob"))]
@@ -672,6 +706,14 @@ fn replay_receipt_text<'a>(receipt: &'a serde_json::Value, field: &str) -> Resul
     receipt
         .get(field)
         .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| format!("SOURCE_INGESTION_REPLAY_INVALID: {field} is missing"))
+}
+
+#[cfg(all(feature = "redb", feature = "blob"))]
+fn replay_receipt_u64(receipt: &serde_json::Value, field: &str) -> Result<u64, String> {
+    receipt
+        .get(field)
+        .and_then(serde_json::Value::as_u64)
         .ok_or_else(|| format!("SOURCE_INGESTION_REPLAY_INVALID: {field} is missing"))
 }
 

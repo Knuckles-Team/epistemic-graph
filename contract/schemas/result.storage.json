@@ -3681,6 +3681,41 @@
       ],
       "type": "object"
     },
+    "McpCatalogSnapshotBinding": {
+      "additionalProperties": false,
+      "description": "Exact identity of the served MCP catalog snapshot this pack came from.\n\nThe pack digest binds this whole value. Consequently a stored resource can\nnever be mistaken for one observed under a different configuration,\nconnection or authorization scope even when its own body is byte-identical.",
+      "properties": {
+        "authorization_scope_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "catalog_generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "child_connection_generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "configuration_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "snapshot_digest": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "configuration_revision",
+        "catalog_generation",
+        "snapshot_digest",
+        "child_connection_generation",
+        "authorization_scope_digest"
+      ],
+      "type": "object"
+    },
     "ModalityFacts": {
       "additionalProperties": false,
       "description": "Which modalities a component consumes and produces.\n\nNative `eg:modality/*` IRIs, sorted and unique, so two components that\nspeak the same modalities digest identically whatever order they declared\nthem in.",
@@ -3898,6 +3933,9 @@
           "minimum": 0,
           "type": "integer"
         },
+        "catalog": {
+          "$ref": "#/$defs/McpCatalogSnapshotBinding"
+        },
         "committed_at_ms": {
           "format": "uint64",
           "minimum": 0,
@@ -3931,6 +3969,7 @@
       "required": [
         "binding_revision",
         "pack_digest",
+        "catalog",
         "server_package_version",
         "record_id",
         "committed_at_ms"
@@ -3948,6 +3987,9 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "catalog": {
+          "$ref": "#/$defs/McpCatalogSnapshotBinding"
         },
         "committed_version": {
           "format": "uint64",
@@ -3999,6 +4041,7 @@
         "connector",
         "binding_revision",
         "pack_digest",
+        "catalog",
         "record_id",
         "batch_id",
         "committed_version",

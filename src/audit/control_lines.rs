@@ -105,7 +105,32 @@ pub(super) fn change_envelope_audit_line(method: &Method) -> Option<String> {
         Method::ApplyChangeEnvelopes { envelopes } => {
             Some(format!("APPLY_CHANGE_ENVELOPES|{}", envelopes.len()))
         }
+        _ => source_control_audit_line(method),
+    }
+}
+
+fn source_control_audit_line(method: &Method) -> Option<String> {
+    match method {
+        Method::SourceIngest { request } => request
+            .batch_digest()
+            .ok()
+            .map(|digest| format!("SOURCE_INGEST|{digest}")),
+        Method::WriteBack { op } => Some(format!(
+            "WRITE_BACK|{}|{}",
+            op.tenant_id(),
+            write_back_operation(op)
+        )),
         _ => None,
+    }
+}
+
+fn write_back_operation(op: &eg_types::WriteBackOp) -> &'static str {
+    match op {
+        eg_types::WriteBackOp::Create { .. } => "create",
+        eg_types::WriteBackOp::Get { .. } => "get",
+        eg_types::WriteBackOp::RecordAttempt { .. } => "record_attempt",
+        eg_types::WriteBackOp::RecordReconciliation { .. } => "record_reconciliation",
+        eg_types::WriteBackOp::Receipts { .. } => "receipts",
     }
 }
 

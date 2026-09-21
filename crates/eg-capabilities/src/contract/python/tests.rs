@@ -147,6 +147,13 @@ receipt_payload = {
     "mapping_reference": request_data["mapping_reference"],
     "mapping_digest": digest,
     "connector_pack_digest": digest,
+    "catalog": {
+        "configuration_revision": 7,
+        "catalog_generation": 11,
+        "snapshot_digest": digest,
+        "child_connection_generation": 3,
+        "authorization_scope_digest": digest,
+    },
     "raw_admissions": [{
         "stream": "items",
         "record_id": "item-1",
@@ -335,6 +342,34 @@ fn agent_component_search_emits_typed_kind_only_adapter() {
     assert!(storage.contains(") -> AgentComponentSearchPage:"));
     assert!(storage.contains("len(request.cursor.encode(\"utf-8\")) > 16384"));
     assert!(storage.contains("return AgentComponentSearchPage.model_validate(payload)"));
+}
+
+#[test]
+fn connector_pack_status_emits_typed_catalog_reconciliation_adapter() {
+    let catalog = Catalog::collect();
+    let generated: BTreeMap<String, String> = artifacts(&catalog)
+        .into_iter()
+        .map(|artifact| {
+            (
+                artifact.path,
+                String::from_utf8(artifact.bytes).expect("generated Python is UTF-8"),
+            )
+        })
+        .collect();
+    let dto = generated
+        .get("epistemic_graph/generated/connector_pack.py")
+        .expect("connector-pack DTO module");
+    assert!(dto.contains("class McpCatalogSnapshotBinding(BaseModel):"));
+    assert!(dto.contains("class ConnectorPackStatus(BaseModel):"));
+
+    let storage = generated
+        .get("epistemic_graph/generated/storage.py")
+        .expect("storage domain module");
+    assert!(storage.contains(
+        "async def send_connector_pack_status(\n    client: Any,\n    request: ConnectorPackStatusRequest,"
+    ));
+    assert!(storage.contains(") -> ConnectorPackStatus:"));
+    assert!(storage.contains("return ConnectorPackStatus.model_validate(payload)"));
 }
 
 #[test]

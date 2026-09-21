@@ -7,7 +7,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::index::{PackEntryKind, PackProducer};
+use super::index::{McpCatalogSnapshotBinding, PackEntryKind, PackProducer};
 use super::result::{PackProjectionState, PackWarning};
 use crate::agent_component::ComponentDependency;
 use crate::contract::{BoundedVec, Digest256, ResourceId};
@@ -70,6 +70,7 @@ pub struct PackImportRecord {
     pub binding_revision: u64,
     pub record_id: String,
     pub pack_digest: Digest256,
+    pub catalog: McpCatalogSnapshotBinding,
     #[serde(default)]
     pub previous_pack_digest: Option<Digest256>,
     pub server: PackServerRecord,

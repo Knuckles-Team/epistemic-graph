@@ -10,7 +10,9 @@ The server executes one governed flow:
 1. Resolve the mapping from the verified tenant's current published Connector
    Manifest member row. Unknown, stale, withdrawn, headless, or ambiguous
    references fail closed before raw admission. Mapping content is persisted by
-   ConnectorPack import and is never supplied by this request.
+   ConnectorPack import and is never supplied by this request. The resolved
+   pack head also supplies the exact configuration/catalog/child/scope binding;
+   the ChangeEnvelope receipt node and terminal receipt preserve it.
 2. Capture each canonical raw record in Blob CAS and admit an idempotent
    owner-scoped holder. Content duplicates share CAS bytes without losing their
    per-source provenance binding.
@@ -30,4 +32,6 @@ admission leaves recoverable content-addressed material; it never advances the
 source cursor or produces a success receipt. The terminal
 `SourceIngestionReceipt` is returned only after the canonical commit. Its
 `receipt_digest` and committed content are stable on idempotent replay; only the
-response disposition changes from `committed` to `replayed`.
+response disposition changes from `committed` to `replayed`. GraphOS can join
+its refresh receipt to this ingestion receipt by the exact catalog generation
+and snapshot digest rather than inferring convergence from a latest pointer.

@@ -278,6 +278,7 @@ fn import_receipt(
         connector: plan.record.connector.clone(),
         binding_revision: plan.record.binding_revision,
         pack_digest: plan.record.pack_digest,
+        catalog: plan.record.catalog.clone(),
         previous_pack_digest: plan.record.previous_pack_digest,
         record_id: plan.record.record_id.clone(),
         batch_id,
@@ -404,6 +405,7 @@ fn apply_head(
         head: PackHeadView {
             binding_revision: plan.record.binding_revision,
             pack_digest: plan.record.pack_digest,
+            catalog: plan.record.catalog.clone(),
             server_contract_version: plan.record.server.contract_version.clone(),
             server_package_version: plan.record.server.package_version.clone(),
             record_id: plan.record.record_id.clone(),

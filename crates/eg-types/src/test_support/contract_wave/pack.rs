@@ -4,9 +4,10 @@ use crate::agent_component::DeclaredLatency;
 use crate::connector_pack::{
     ConnectorPackBindRequest, ConnectorPackImportRequest, ConnectorPackIndex, ConnectorPackOp,
     ConnectorPackReconcileRequest, ConnectorPackReprojectRequest, ConnectorPackRetireRequest,
-    ConnectorPackStatusRequest, ConnectorPackUnbindRequest, PackAnnotations, PackArchiveRef,
-    PackCost, PackDisposition, PackEntry, PackEntryKind, PackHeadRef, PackModelFacts, PackProducer,
-    PackRef, PackSection, PackViolationCode, PackWarningCode, CONNECTOR_PACK_SCHEMA_VERSION,
+    ConnectorPackStatusRequest, ConnectorPackUnbindRequest, McpCatalogSnapshotBinding,
+    PackAnnotations, PackArchiveRef, PackCost, PackDisposition, PackEntry, PackEntryKind,
+    PackHeadRef, PackModelFacts, PackProducer, PackRef, PackSection, PackViolationCode,
+    PackWarningCode, CONNECTOR_PACK_SCHEMA_VERSION,
 };
 use crate::contract::{Digest256, ResourceId};
 
@@ -86,6 +87,8 @@ pub fn index() -> ConnectorPackIndex {
         PackEntryKind::Tool,
         PackEntryKind::Skill,
         PackEntryKind::Prompt,
+        PackEntryKind::Resource,
+        PackEntryKind::ResourceTemplate,
         PackEntryKind::Ontology,
         PackEntryKind::Shapes,
         PackEntryKind::ModelProfile,
@@ -112,6 +115,13 @@ pub fn index() -> ConnectorPackIndex {
         producer: PackProducer {
             name: "agent-packages".to_string(),
             version: "0.9.0".to_string(),
+        },
+        catalog: McpCatalogSnapshotBinding {
+            configuration_revision: 7,
+            catalog_generation: 11,
+            snapshot_digest: raw_digest(0xc8),
+            child_connection_generation: 3,
+            authorization_scope_digest: raw_digest(0xc9),
         },
         pack_digest: raw_digest(0xc6),
     }

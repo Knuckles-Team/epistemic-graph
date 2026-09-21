@@ -363,6 +363,7 @@ METHOD_IDS = frozenset(
         "AgentGraph",
         "AgentComponent",
         "AgentTemplate",
+        "ConnectorPack",
         "WriteBack",
         "TsAppend",
         "TsRange",

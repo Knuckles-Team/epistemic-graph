@@ -26,9 +26,9 @@ pub mod record;
 pub mod result;
 
 /// Format identity (RF-ADR-006) of [`index::ConnectorPackIndex`].
-pub const CONNECTOR_PACK_SCHEMA_VERSION: u16 = 1;
+pub const CONNECTOR_PACK_SCHEMA_VERSION: u16 = 2;
 /// Format identity of [`record::PackImportRecord`].
-pub const PACK_IMPORT_RECORD_SCHEMA_VERSION: u16 = 1;
+pub const PACK_IMPORT_RECORD_SCHEMA_VERSION: u16 = 2;
 
 /// Most entries one pack may carry.
 pub const MAX_PACK_ENTRIES: usize = 1024;
@@ -67,8 +67,8 @@ pub struct ConnectorSchemaMapping {
 pub use annotations::{PackAnnotations, PackCost, PackModelFacts};
 pub use ids::{escape_pack_name, pack_component_id, PACK_COMPONENT_ID_PREFIX};
 pub use index::{
-    ConnectorPackIndex, PackArchiveRef, PackEntry, PackEntryKind, PackProducer, PackRef,
-    PackSection,
+    ConnectorPackIndex, McpCatalogSnapshotBinding, PackArchiveRef, PackEntry, PackEntryKind,
+    PackProducer, PackRef, PackSection,
 };
 pub use ops::{
     ConnectorPackBindRequest, ConnectorPackImportRequest, ConnectorPackOp,

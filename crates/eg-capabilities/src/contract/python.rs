@@ -47,12 +47,20 @@ struct TypedOperationAdapter {
     result_model: &'static str,
 }
 
-const TYPED_OPERATION_ADAPTERS: &[TypedOperationAdapter] = &[TypedOperationAdapter {
-    method: "AgentComponent",
-    operation: "search",
-    request_model: "AgentComponentSearchRequest",
-    result_model: "AgentComponentSearchPage",
-}];
+const TYPED_OPERATION_ADAPTERS: &[TypedOperationAdapter] = &[
+    TypedOperationAdapter {
+        method: "AgentComponent",
+        operation: "search",
+        request_model: "AgentComponentSearchRequest",
+        result_model: "AgentComponentSearchPage",
+    },
+    TypedOperationAdapter {
+        method: "ConnectorPack",
+        operation: "status",
+        request_model: "ConnectorPackStatusRequest",
+        result_model: "ConnectorPackStatus",
+    },
+];
 
 /// `AddNode` -> `add_node`. Collisions are asserted against in [`artifacts`].
 fn snake_case(id: &str) -> String {

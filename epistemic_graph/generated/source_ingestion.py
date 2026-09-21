@@ -16,6 +16,16 @@ from .digest import (
 )
 
 
+class McpCatalogSnapshotBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    authorization_scope_digest: Digest256
+    catalog_generation: Annotated[int, Field(ge=0)]
+    child_connection_generation: Annotated[int, Field(ge=0)]
+    configuration_revision: Annotated[int, Field(ge=0)]
+    snapshot_digest: Digest256
+
+
 class RawAdmissionReceipt(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -56,6 +66,7 @@ class SourceIngestionReceipt(BaseModel):
     accepted_cursor_digest: Digest256
     affected_count: Annotated[int, Field(ge=0)]
     batch_digest: Digest256
+    catalog: McpCatalogSnapshotBinding
     committed_graph_version: Annotated[int, Field(ge=0)]
     connector_pack_digest: Digest256
     disposition: SourceIngestionDisposition
@@ -160,6 +171,8 @@ Digest256 = Annotated[
 
 
 SourceJson = Any
+
+McpCatalogSnapshotBinding.model_rebuild()
 
 RawAdmissionReceipt.model_rebuild()
 

@@ -30,6 +30,7 @@ The **Feature** column is the Cargo feature that gates the surface; the
 |-----------|:------:|---------|----------|
 | `ApplyChangeEnvelope` | ✅ | `redb` | One redb transaction commits graph operations, immutable envelope/batch status, blobs/features/evidence/policy/lineage, typed content version and cursor, and projection/CDC outbox rows |
 | `SourceIngest` | 🔶 | `redb`, `blob` | Contract and native authority are implemented; it resolves a tenant-bound typed Connector Manifest mapping, admits raw CAS content, and delegates mapped graph/provenance/cursor/receipt publication to the existing `ChangeEnvelope` transaction authority. Integration and release gates remain pending |
+| `ConnectorPack` MCP catalog reconciliation | 🔶 | `redb`, `blob` | Atomic pack import durably records generic MCP resources and resource templates with body/schema CAS holders and the exact served configuration, catalog generation/snapshot digest, child generation, and authorization-scope digest. Generated Python `ConnectorPack.status` exposes the durable binding for GraphOS reconciliation; live refresh acceptance remains pending |
 | `GetChangeEnvelope` | ✅ | `redb` | Verified tenant-scoped reconciliation read of the immutable committed envelope |
 | `GetContentVersion` | ✅ | `redb` | Typed sequence, millisecond timestamp, or provider-opaque version; opaque values are never lexically ordered |
 | `GetChangeCursor` | ✅ | `redb` | Typed, tenant/graph/source/partition-scoped cursor with compare-and-advance fencing |

@@ -21,6 +21,11 @@ from .agent_component import (
     AgentComponentSearchPage,
     AgentComponentSearchRequest,
 )
+from .connector_pack import (
+    ConnectorPackOp,
+    ConnectorPackStatus,
+    ConnectorPackStatusRequest,
+)
 from .write_back import (
     WriteBackOp,
 )
@@ -602,6 +607,85 @@ async def send_agent_template(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("AgentTemplate", payload)
+
+
+class ConnectorPackRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        ConnectorPack
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/ConnectorPack
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: ConnectorPackOp
+
+
+async def send_connector_pack(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ConnectorPack
+    Authorization:
+        agent:pack-control
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/ConnectorPack
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    ConnectorPackRequest.model_validate(params or {})
+    payload = await client._send(
+        "ConnectorPack",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ConnectorPack", payload)
+
+
+async def send_connector_pack_status(
+    client: Any,
+    request: ConnectorPackStatusRequest,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> ConnectorPackStatus:
+    """Send typed ConnectorPack.status through the existing ConnectorPack method."""
+    request = ConnectorPackStatusRequest.model_validate(request)
+    params = {
+        "op": {
+            "op": "status",
+            "request": request.model_dump(mode="json", exclude_none=True),
+        },
+    }
+    payload = await client._send(
+        "ConnectorPack",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return ConnectorPackStatus.model_validate(payload)
 
 
 class WriteBackRequest(BaseModel):

@@ -462,6 +462,41 @@
       "description": "Validated graph or native-resource name with no filesystem semantics.",
       "type": "string"
     },
+    "McpCatalogSnapshotBinding": {
+      "additionalProperties": false,
+      "description": "Exact identity of the served MCP catalog snapshot this pack came from.\n\nThe pack digest binds this whole value. Consequently a stored resource can\nnever be mistaken for one observed under a different configuration,\nconnection or authorization scope even when its own body is byte-identical.",
+      "properties": {
+        "authorization_scope_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "catalog_generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "child_connection_generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "configuration_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "snapshot_digest": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "configuration_revision",
+        "catalog_generation",
+        "snapshot_digest",
+        "child_connection_generation",
+        "authorization_scope_digest"
+      ],
+      "type": "object"
+    },
     "MultimodalAssetRef": {
       "additionalProperties": false,
       "properties": {
@@ -2779,6 +2814,10 @@
         "batch_digest": {
           "$ref": "#/$defs/Digest256"
         },
+        "catalog": {
+          "$ref": "#/$defs/McpCatalogSnapshotBinding",
+          "description": "Exact served MCP catalog identity from the ConnectorPack head whose\nmanifest mapping authorized this ingestion."
+        },
         "committed_graph_version": {
           "format": "uint64",
           "minimum": 0,
@@ -2809,6 +2848,7 @@
         "mapping_reference",
         "mapping_digest",
         "connector_pack_digest",
+        "catalog",
         "raw_admissions",
         "accepted_cursor",
         "accepted_cursor_digest",

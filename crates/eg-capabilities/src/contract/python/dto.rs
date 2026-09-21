@@ -38,6 +38,18 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
         result_model: None,
         required: true,
     },
+    DtoSurface {
+        method: "ConnectorPack",
+        module: "connector_pack",
+        result_domain: "storage",
+        roots: &[
+            "ConnectorPackOp",
+            "ConnectorPackStatusRequest",
+            "ConnectorPackStatus",
+        ],
+        result_model: None,
+        required: true,
+    },
     // This row becomes live when the SourceIngestion protocol branch is composed.
     // It is optional in this isolated D18 branch so the generator remains runnable
     // before that independently owned Rust schema is present.

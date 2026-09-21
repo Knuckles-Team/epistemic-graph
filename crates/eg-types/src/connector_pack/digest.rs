@@ -17,7 +17,9 @@
 //! serves it unchanged, is the same pack.
 
 use super::annotations::{PackAnnotations, PackCost, PackModelFacts};
-use super::index::{ConnectorPackIndex, PackEntry, PackEntryKind, PackRef};
+use super::index::{
+    ConnectorPackIndex, McpCatalogSnapshotBinding, PackEntry, PackEntryKind, PackRef,
+};
 use crate::agent_component::DeclaredLatency;
 use crate::contract::Digest256;
 
@@ -30,7 +32,9 @@ pub const MODEL_FACTS_DIGEST_DOMAIN: &[u8] = b"eg/cp-model-facts/v1";
 /// Framing domain of one entry's outgoing references.
 pub const REFERENCES_DIGEST_DOMAIN: &[u8] = b"eg/connector-pack-references/v1";
 /// Framing domain of a whole pack.
-pub const PACK_DIGEST_DOMAIN: &[u8] = b"eg/connector-pack/v1";
+pub const PACK_DIGEST_DOMAIN: &[u8] = b"eg/connector-pack/v2";
+/// Framing domain for an exact served MCP catalog identity.
+pub const MCP_CATALOG_BINDING_DIGEST_DOMAIN: &[u8] = b"eg/mcp-catalog-binding/v1";
 
 const PROVIDES_DOMAIN: &[u8] = b"eg/cp-provides/v1";
 const REQUIRES_CAPABILITIES_DOMAIN: &[u8] = b"eg/cp-requires-capabilities/v1";
@@ -46,12 +50,28 @@ pub fn entry_kind_token(kind: PackEntryKind) -> &'static str {
         PackEntryKind::Tool => "tool",
         PackEntryKind::Skill => "skill",
         PackEntryKind::Prompt => "prompt",
+        PackEntryKind::Resource => "resource",
+        PackEntryKind::ResourceTemplate => "resource_template",
         PackEntryKind::Ontology => "ontology",
         PackEntryKind::Shapes => "shapes",
         PackEntryKind::ModelProfile => "model_profile",
         PackEntryKind::A2aCard => "a2a_card",
         PackEntryKind::Manifest => "manifest",
     }
+}
+
+/// Digest the complete served catalog identity without interpreting it.
+pub fn catalog_binding_digest(binding: &McpCatalogSnapshotBinding) -> Result<Digest256, String> {
+    Digest256::framed(
+        MCP_CATALOG_BINDING_DIGEST_DOMAIN,
+        &[
+            &binding.configuration_revision.to_be_bytes(),
+            &binding.catalog_generation.to_be_bytes(),
+            binding.snapshot_digest.as_bytes(),
+            &binding.child_connection_generation.to_be_bytes(),
+            binding.authorization_scope_digest.as_bytes(),
+        ],
+    )
 }
 
 /// `list(domain, items)`: the framed digest of a sorted, de-duplicated list.
@@ -224,6 +244,7 @@ pub fn entry_digest(entry: &PackEntry) -> Result<Digest256, String> {
 /// other entry's digest in URI order.
 pub fn pack_digest(index: &ConnectorPackIndex) -> Result<Digest256, String> {
     let server = entry_digest(&index.server)?;
+    let catalog = catalog_binding_digest(&index.catalog)?;
     let mut entries: Vec<&PackEntry> = index.entries.iter().collect();
     entries.sort_by(|left, right| left.uri.cmp(&right.uri));
     let digests = entries
@@ -233,6 +254,7 @@ pub fn pack_digest(index: &ConnectorPackIndex) -> Result<Digest256, String> {
     let count = (digests.len() as u64).to_be_bytes();
     let mut fields: Vec<&[u8]> = vec![
         index.connector.as_str().as_bytes(),
+        catalog.as_bytes(),
         server.as_bytes(),
         &count,
     ];

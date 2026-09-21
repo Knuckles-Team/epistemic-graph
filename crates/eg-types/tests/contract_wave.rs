@@ -316,6 +316,20 @@ fn the_pack_digest_layout_depends_on_every_rule_it_states() {
         pack_digests::pack_digest(&index).expect("digests"),
         "a server release that serves identical content is the same pack"
     );
+    index.catalog.catalog_generation += 1;
+    assert_ne!(
+        original,
+        pack_digests::pack_digest(&index).expect("digests"),
+        "a pack digest must bind the exact served catalog generation"
+    );
+    index.catalog.catalog_generation -= 1;
+    index.catalog.snapshot_digest = eg_types::contract::Digest256::from_bytes([0x5a; 32]);
+    assert_ne!(
+        original,
+        pack_digests::pack_digest(&index).expect("digests"),
+        "a pack digest must bind the exact served catalog digest"
+    );
+    index = pack::index();
     index.entries = eg_types::contract::BoundedVec::new(Vec::new()).expect("empty fits");
     assert_ne!(
         original,

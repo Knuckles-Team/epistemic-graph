@@ -19,11 +19,33 @@ pub enum PackEntryKind {
     Tool,
     Skill,
     Prompt,
+    // One concrete MCP resource. Its URI is the upstream URI, not an
+    // engine-invented `resource://` alias.
+    Resource,
+    // One MCP resource template. `uri` is the upstream URI template and the
+    // input/output sections pin its argument/result schemas.
+    ResourceTemplate,
     Ontology,
     Shapes,
     ModelProfile,
     A2aCard,
     Manifest,
+}
+
+/// Exact identity of the served MCP catalog snapshot this pack came from.
+///
+/// The pack digest binds this whole value. Consequently a stored resource can
+/// never be mistaken for one observed under a different configuration,
+/// connection or authorization scope even when its own body is byte-identical.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct McpCatalogSnapshotBinding {
+    pub configuration_revision: u64,
+    pub catalog_generation: u64,
+    pub snapshot_digest: Digest256,
+    pub child_connection_generation: u64,
+    pub authorization_scope_digest: Digest256,
 }
 
 /// One byte range of the archive, pinned by its own digest.
@@ -98,6 +120,8 @@ pub struct ConnectorPackIndex {
     pub archive: PackArchiveRef,
     pub entries: BoundedVec<PackEntry, 1024>,
     pub producer: PackProducer,
+    /// The exact served generation/digest observed by the catalog lister.
+    pub catalog: McpCatalogSnapshotBinding,
     /// The digest of everything above, recomputed by the engine before
     /// anything is committed.
     pub pack_digest: Digest256,

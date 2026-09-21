@@ -1,10 +1,9 @@
 """What the generated contract must say about the 2.27.x contract wave.
 
-The wave declares ten methods before any of them is served. That is only safe
-if the generated contract says so precisely: every one `internal`, none of them
-reachable from the Python client, every request and result body schematized,
-and both digest-vector files present so an SDK in another language can
-reproduce the bytes. Each assertion below is one of those claims.
+The original wave declared ten methods before any were served. ConnectorPack
+has now graduated with its durable handler and generated reconciliation client;
+the remaining refusal-only methods must stay internal. Every request and result
+body remains schematized and digest identities remain reproducible.
 """
 
 from __future__ import annotations
@@ -30,6 +29,8 @@ WAVE_METHODS = (
     "GraphSchemaList",
     "MutationOutbox",
 )
+
+INTERNAL_WAVE_METHODS = tuple(name for name in WAVE_METHODS if name != "ConnectorPack")
 
 #: `$defs` names the wave adds, one per module it introduces. Not the whole
 #: set: these are the entry points every other new type hangs off, so a missing
@@ -62,7 +63,7 @@ def _methods() -> dict:
 
 def test_every_wave_method_is_internal_with_no_consumer() -> None:
     methods = _methods()
-    for name in WAVE_METHODS:
+    for name in INTERNAL_WAVE_METHODS:
         entry = methods.get(name)
         assert entry is not None, f"{name} is absent from the generated contract"
         assert entry["stability"] == "internal", f"{name} must stay internal in S1"
@@ -74,7 +75,7 @@ def test_no_wave_method_is_reachable_from_the_python_client() -> None:
     dispatch = (ROOT / "epistemic_graph/generated/__init__.py").read_text(
         encoding="utf-8"
     )
-    for name in WAVE_METHODS:
+    for name in INTERNAL_WAVE_METHODS:
         assert f'"{name}"' not in ids, f"{name} must not appear in METHOD_IDS yet"
         assert f'"{name}"' not in dispatch, f"{name} must not be sendable yet"
 
@@ -118,21 +119,21 @@ def test_the_agent_component_request_grows_a_content_branch() -> None:
 def test_the_receipt_counts_match_the_wave() -> None:
     for copy in ("contract/receipt.json", "epistemic_graph/contract/receipt.json"):
         receipt = _json(copy)
-        assert receipt["method_count"] == 425, copy
-        assert receipt["internal_only_methods"] == 29, copy
-        assert receipt["python_client_methods"] == 396, copy
+        assert receipt["method_count"] == 427, copy
+        assert receipt["internal_only_methods"] == 28, copy
+        assert receipt["python_client_methods"] == 399, copy
         classification = receipt["result_classification"]
-        assert classification["schematized"] == 412, copy
+        assert classification["schematized"] == 414, copy
         assert classification["unclassified"] == 0, copy
-        assert sum(classification.values()) == 425, copy
+        assert sum(classification.values()) == 427, copy
 
 
 def test_the_receipt_declares_every_new_format_identity() -> None:
     identities = _json("contract/receipt.json")["format_identities"]
     expected = {
         "COMPONENT_CONTENT_SCHEMA_VERSION": "1",
-        "CONNECTOR_PACK_SCHEMA_VERSION": "1",
-        "PACK_IMPORT_RECORD_SCHEMA_VERSION": "1",
+        "CONNECTOR_PACK_SCHEMA_VERSION": "2",
+        "PACK_IMPORT_RECORD_SCHEMA_VERSION": "2",
         "DECISION_RECORD_SCHEMA_VERSION": "1",
         "STATISTICAL_DECISION_RECORD_SCHEMA_VERSION": "2",
         "DECISION_POLICY_SCHEMA_VERSION": "1",

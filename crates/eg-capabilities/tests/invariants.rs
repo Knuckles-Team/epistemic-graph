@@ -379,9 +379,9 @@ fn contract_wave_rows_declare_their_static_policy() {
     }
 }
 
-/// Every contract-wave method and op is `Internal` with no consumer until its
-/// handler lands, which is the ONLY shape the reachability gate accepts for a
-/// refusal-only dispatch arm.
+/// Every still-unserved contract-wave method and op is `Internal` with no
+/// consumer until its handler lands. `ConnectorPack` graduated once its durable
+/// handler and generated reconciliation client landed.
 #[test]
 fn contract_wave_rows_are_internal_with_no_consumer() {
     let wave = [
@@ -391,7 +391,6 @@ fn contract_wave_rows_are_internal_with_no_consumer() {
         "DecisionFit",
         "DecisionEval",
         "Solve",
-        "ConnectorPack",
         "GraphSchema",
         "GraphSchemaList",
         "MutationOutbox",
