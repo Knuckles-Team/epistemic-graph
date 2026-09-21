@@ -53,6 +53,9 @@ pub(crate) mod admin;
 pub(crate) mod decide;
 // X10 — the mutation-outbox operator surface.
 pub(crate) mod mutation_outbox;
+// RF-ADR-009 D18 — EG-owned governed source change sets and receipts.
+#[cfg(feature = "redb")]
+pub(crate) mod write_back;
 // The general bounded 0-1 integer programme.
 pub(crate) mod solve;
 // Read-only query surface: SQL (CONCEPT:EG-KG.query.read-only-sql-query, DataFusion behind `query`),
@@ -116,6 +119,9 @@ pub(crate) mod federation;
 // Closed typed SQL source batches append through the native SQL owner gate.
 #[cfg(feature = "query")]
 pub(crate) mod source_batch;
+// RF-ADR-009 native raw-source authority. Present in every server build so a
+// build lacking redb/blob can return a named refusal for the wire method.
+pub(crate) mod source_ingestion;
 
 // SQLite `.db` FILE import/export (CONCEPT:EG-KG.query.eg-feature/EG-332, feature `sqlite-file`). The
 // ImportSqliteFile/ExportSqliteFile methods move rows between an on-disk `sqlite3` `.db`

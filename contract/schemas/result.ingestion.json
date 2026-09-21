@@ -105,6 +105,13 @@
       ],
       "type": "object"
     },
+    "BoundedVec_RawAdmissionReceipt_1024": {
+      "items": {
+        "$ref": "#/$defs/RawAdmissionReceipt"
+      },
+      "maxItems": 1024,
+      "type": "array"
+    },
     "CanonicalTextAssetRef": {
       "additionalProperties": false,
       "properties": {
@@ -191,6 +198,13 @@
           "type": "object"
         }
       ]
+    },
+    "Digest256": {
+      "description": "32 bytes of SHA-256 as lowercase hexadecimal",
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
     },
     "DiscoverHit": {
       "description": "One ranked node of `Method::Discover`, hydrated with its human-readable text.",
@@ -524,6 +538,7 @@
           "type": "integer"
         },
         "lease_until_ms": {
+          "description": "EXCLUSIVE upper bound, mirroring `eg_transaction::outbox::rows::\nOutboxDelivery::lease_until_ms` (the durable row this lease is\nissued over): valid while `now_ms < lease_until_ms`, expired once\n`now_ms >= lease_until_ms`. `now_ms == lease_until_ms` is already\nexpired, not still valid.",
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -1184,6 +1199,31 @@
         "weight",
         "probability",
         "rank"
+      ],
+      "type": "object"
+    },
+    "RawAdmissionReceipt": {
+      "additionalProperties": false,
+      "description": "One raw artifact admitted to content-addressed storage and bound to its\nsource identity. `deduplicated` reports an earlier identical artifact in\nthis batch (stable across replay); the CAS may also reuse bytes admitted by\nprior batches. Every record retains its own durable provenance binding.",
+      "properties": {
+        "deduplicated": {
+          "type": "boolean"
+        },
+        "raw_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "record_id": {
+          "type": "string"
+        },
+        "stream": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "stream",
+        "record_id",
+        "raw_digest",
+        "deduplicated"
       ],
       "type": "object"
     },
@@ -2686,6 +2726,102 @@
       ],
       "type": "object"
     },
+    "SourceCursor": {
+      "additionalProperties": false,
+      "properties": {
+        "pending_watermark": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "position": {
+          "$ref": "#/$defs/SourceJson"
+        },
+        "stream": {
+          "type": "string"
+        },
+        "watermark": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "stream",
+        "position"
+      ],
+      "type": "object"
+    },
+    "SourceIngestionDisposition": {
+      "enum": [
+        "committed",
+        "replayed"
+      ],
+      "type": "string"
+    },
+    "SourceIngestionReceipt": {
+      "additionalProperties": false,
+      "description": "Terminal receipt returned only after canonical mutation, raw references,\nprovenance and cursor state have committed.  Its stable `receipt_digest`\nis the replay currency for the same batch digest.",
+      "properties": {
+        "accepted_cursor": {
+          "$ref": "#/$defs/SourceCursor"
+        },
+        "accepted_cursor_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "affected_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "batch_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "committed_graph_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "connector_pack_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "disposition": {
+          "$ref": "#/$defs/SourceIngestionDisposition"
+        },
+        "mapping_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "mapping_reference": {
+          "type": "string"
+        },
+        "raw_admissions": {
+          "$ref": "#/$defs/BoundedVec_RawAdmissionReceipt_1024"
+        },
+        "receipt_digest": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "disposition",
+        "batch_digest",
+        "mapping_reference",
+        "mapping_digest",
+        "connector_pack_digest",
+        "raw_admissions",
+        "accepted_cursor",
+        "accepted_cursor_digest",
+        "affected_count",
+        "committed_graph_version",
+        "receipt_digest"
+      ],
+      "type": "object"
+    },
+    "SourceJson": {
+      "additionalProperties": true,
+      "type": "object"
+    },
     "SqlColumnRef": {
       "additionalProperties": false,
       "properties": {
@@ -3404,6 +3540,18 @@
         }
       },
       "selected_by": "op"
+    },
+    "SourceIngest": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SourceIngestionReceipt"
+          }
+        }
+      },
+      "selected_by": null
     },
     "Viz": {
       "bodies": {

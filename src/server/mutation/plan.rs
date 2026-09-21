@@ -536,6 +536,7 @@ const METHOD_NAME_RESOLVERS: &[fn(&Method) -> Option<&'static str>] = &[
     modality_method_name,
     cluster_admin_method_name,
     native_local_only_method_name,
+    write_back_method_name,
 ];
 
 /// Extract a `Method` variant's name as a `&'static str`, covering exactly
@@ -634,6 +635,7 @@ pub const LOCAL_ONLY_METHODS: &[&str] = &[
     "AgentLibrary",
     "AgentTemplate",
     "ConnectorPack",
+    "WriteBack",
     "DecisionCommit",
     "DecisionEval",
     "DecisionFit",
@@ -642,7 +644,7 @@ pub const LOCAL_ONLY_METHODS: &[&str] = &[
     "SqlSourceBatch",
 ];
 
-/// The nine local-only names that are NOT gateway-routed.
+/// The local-only names that are NOT gateway-routed.
 ///
 /// `GraphSchema` is deliberately absent: it resolves through
 /// [`graph_control_method_name`] because it IS gateway-routed, and naming it
@@ -658,6 +660,16 @@ fn native_local_only_method_name(m: &Method) -> Option<&'static str> {
         Method::DecisionEval { .. } => Some("DecisionEval"),
         Method::DecisionFit { .. } => Some("DecisionFit"),
         Method::MutationOutbox { .. } => Some("MutationOutbox"),
+        _ => None,
+    }
+}
+
+/// Governed connector write-back is local-only until its control owner has a
+/// replicated ordering protocol. It remains a separate semantic resolver from
+/// the agent/decision catalog group above.
+fn write_back_method_name(m: &Method) -> Option<&'static str> {
+    match m {
+        Method::WriteBack { .. } => Some("WriteBack"),
         _ => None,
     }
 }
@@ -738,12 +750,17 @@ fn local_only_route(method: &Method) -> Option<ClusterMutationRoute> {
 /// `None` when `method` is none of these (the caller falls through to
 /// [`cluster_mutation_route_consensus`]).
 fn cluster_mutation_route_admin(method: &Method) -> Option<ClusterMutationRoute> {
-    if matches!(method, Method::Shutdown) {
-        return Some(ClusterMutationRoute::VolatileControl);
-    }
-    // The dedicated adapter validates explicit Local/Multi/Missing placement
+    // RF-ADR-009 performs tenant-bound mapping/raw admission locally, then
+    // routes its sole graph effect through the existing ChangeEnvelope
+    // consensus authority. Proposing SourceIngest itself as a native command
+    // would either require caller records in a second command language or
+    // double-propose the lowered envelope.
+    // KgDelegate likewise validates explicit Local/Multi/Missing placement
     // authority before lowering to the existing replicated WorkItem command.
-    if matches!(method, Method::KgDelegate { .. }) {
+    if matches!(
+        method,
+        Method::Shutdown | Method::KgDelegate { .. } | Method::SourceIngest { .. }
+    ) {
         return Some(ClusterMutationRoute::VolatileControl);
     }
     if matches!(

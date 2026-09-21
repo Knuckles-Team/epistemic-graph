@@ -11,6 +11,7 @@ use crate::semantic_index::{
     SemanticBinding, SemanticBindingPage, SemanticSqlSourceManifest, SemanticStageIntent,
     SemanticStageLeasePage, SemanticStageTransition,
 };
+use crate::source_ingestion::SourceIngestionReceipt;
 #[cfg(feature = "modality-serving")]
 mod modality;
 mod semantic;
@@ -43,6 +44,7 @@ method_results! {
     IndexRepository(IndexRepository) => Json<IndexResult>;
     ObserveScreen(ObserveScreen) => Json<ScreenObservationResult>;
     AddEmbedding(AddEmbedding) => Text<String>;
+    SourceIngest(SourceIngest) => Raw<SourceIngestionReceipt>;
     // `(node_id, weighted_similarity)` pairs, best first.
     SemanticSearch(SemanticSearch) => Raw<Vec<(String, f32)>>;
     Discover(Discover) => Json<Vec<DiscoverHit>>;

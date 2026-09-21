@@ -1,6 +1,6 @@
 //! Scalar fidelity and bounded structured content for SQL source submissions.
 
-use crate::contract::{BoundedVec, MAX_RECORD_BYTES};
+use crate::contract::{BoundedVec, BoundedWriter, MAX_RECORD_BYTES};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
@@ -166,48 +166,17 @@ impl<'de> Deserialize<'de> for SqlSourceText {
     }
 }
 
-/// Serialization caps apply while writing, before an oversized temporary is built.
-struct CappedBuffer {
-    bytes: Vec<u8>,
-    maximum: usize,
-}
-
-impl CappedBuffer {
-    fn new(maximum: usize) -> Self {
-        Self {
-            bytes: Vec::new(),
-            maximum,
-        }
-    }
-}
-
-impl std::io::Write for CappedBuffer {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        if bytes.len() > self.maximum.saturating_sub(self.bytes.len()) {
-            return Err(std::io::Error::other(
-                "SQL source content byte limit exceeded",
-            ));
-        }
-        self.bytes.extend_from_slice(bytes);
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
 fn bounded_json(value: &Value) -> Result<Vec<u8>, String> {
-    let mut buffer = CappedBuffer::new(MAX_RECORD_BYTES);
+    let mut buffer = BoundedWriter::new(MAX_RECORD_BYTES, "SQL source content byte limit exceeded");
     serde_json::to_writer(&mut buffer, value).map_err(|_| "SQL source JSON byte limit exceeded")?;
-    Ok(buffer.bytes)
+    Ok(buffer.into_bytes())
 }
 
 pub(super) fn bounded_msgpack(value: &impl Serialize, maximum: usize) -> Result<Vec<u8>, String> {
-    let mut buffer = CappedBuffer::new(maximum);
+    let mut buffer = BoundedWriter::new(maximum, "SQL source batch byte limit exceeded");
     let mut serializer = rmp_serde::Serializer::new(&mut buffer).with_struct_map();
     value
         .serialize(&mut serializer)
         .map_err(|_| "SQL source batch byte limit exceeded")?;
-    Ok(buffer.bytes)
+    Ok(buffer.into_bytes())
 }

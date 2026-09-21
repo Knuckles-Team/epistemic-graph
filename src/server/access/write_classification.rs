@@ -100,6 +100,13 @@ fn requires_write_decision_surface(method: &Method) -> Option<bool> {
     }
 }
 
+fn requires_write_back_surface(method: &Method) -> Option<bool> {
+    match method {
+        Method::WriteBack { op } => Some(op.is_mutation()),
+        _ => None,
+    }
+}
+
 fn requires_write_native_surface(method: &Method) -> Option<bool> {
     // `modality-serving` genuinely does not exist without this crate's own
     // feature (see the module doc); this is the one arm here that keeps its
@@ -323,6 +330,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
     const CONDITIONAL: &[fn(&Method) -> Option<bool>] = &[
         requires_write_agent_surface,
         requires_write_decision_surface,
+        requires_write_back_surface,
         requires_write_native_surface,
         requires_write_query_surface,
         requires_write_mining_surface,
@@ -365,6 +373,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
                 | Method::RunDatalogReasoning { .. }
                 | Method::ApplyChangeEnvelope { .. }
                 | Method::ApplyChangeEnvelopes { .. }
+                | Method::SourceIngest { .. }
                 | Method::Reconcile { .. }
                 | Method::ApplyMutation { .. }
                 | Method::ApplyMultisigMutation { .. }
@@ -433,7 +442,9 @@ mod eh316_eh319_slim_profile_tests {
 
     #[test]
     fn import_sqlite_file_requires_write_regardless_of_sqlite_file_feature() {
-        let m = Method::ImportSqliteFile { path: "x.db".into() };
+        let m = Method::ImportSqliteFile {
+            path: "x.db".into(),
+        };
         assert!(
             requires_write(&m),
             "a wire-unconditional sqlite-file import must require write \

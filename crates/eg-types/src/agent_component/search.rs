@@ -30,9 +30,10 @@ const MAX_SEARCH_KINDS: usize = 16;
 
 /// Find components by what they can do.
 ///
-/// The wire form of *"what does an agent trying to do XYZ need?"*. Either
-/// `task` (resolved to capabilities through the native ontology) or explicit
-/// `capabilities` may be given; giving both intersects them.
+/// The wire form of *"what does an agent trying to do XYZ need?"*. A caller
+/// supplies a `task` (resolved through the native ontology), explicit
+/// `capabilities`, or at least one `kind`. A kind-only request is the bounded,
+/// paginated catalog-listing form; a request with no selector is refused.
 ///
 /// # Why this is paginated
 ///
@@ -96,12 +97,14 @@ impl AgentComponentSearchRequest {
         if self.kinds.len() > MAX_SEARCH_KINDS {
             return Err("agent component search names too many kinds".to_string());
         }
-        if self.task.is_none() && self.capabilities.is_empty() {
-            return Err(
-                "agent component search needs a task or at least one capability".to_string(),
-            );
+        if !self.has_selector() {
+            return Err("agent component search needs a task, capability, or kind".to_string());
         }
         Ok(())
+    }
+
+    fn has_selector(&self) -> bool {
+        self.task.is_some() || !self.capabilities.is_empty() || !self.kinds.is_empty()
     }
 
     /// How much of the result set one call may take, and where it resumes.
@@ -143,6 +146,20 @@ impl AgentComponentSearchRequest {
 
     /// Whether one component answers this search.
     pub fn matches(&self, component: &AgentComponentEntry) -> bool {
+        if !self.matches_static_filters(component) {
+            return false;
+        }
+        // ANY, not ALL: a component is a part. A research agent needs
+        // retrieval AND summarization, and no single tool provides both --
+        // requiring every capability of a task would return nothing.
+        let required = self.required_capabilities();
+        required.is_empty()
+            || required
+                .iter()
+                .any(|capability| component.satisfies_capability(capability))
+    }
+
+    fn matches_static_filters(&self, component: &AgentComponentEntry) -> bool {
         if component.lifecycle != AgentLibraryLifecycle::Published {
             return false;
         }
@@ -152,12 +169,7 @@ impl AgentComponentSearchRequest {
         if self.read_only && component.is_side_effecting() {
             return false;
         }
-        // ANY, not ALL: a component is a part. A research agent needs
-        // retrieval AND summarization, and no single tool provides both --
-        // requiring every capability of a task would return nothing.
-        self.required_capabilities()
-            .iter()
-            .any(|required| component.satisfies_capability(required))
+        true
     }
 }
 
@@ -273,3 +285,31 @@ pub fn decode_search_cursor(tenant_id: &str, cursor: &str) -> Result<String, Str
 }
 
 const SEARCH_CURSOR_TAG_BYTES: usize = 16;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn request(kinds: Vec<AgentComponentKind>) -> AgentComponentSearchRequest {
+        AgentComponentSearchRequest {
+            tenant_id: "tenant-a".to_string(),
+            task: None,
+            capabilities: Vec::new(),
+            kinds,
+            read_only: false,
+            limit: Some(10),
+            cursor: None,
+        }
+    }
+
+    #[test]
+    fn kind_only_listing_is_a_valid_bounded_search() {
+        request(vec![AgentComponentKind::Tool]).validate().unwrap();
+    }
+
+    #[test]
+    fn unfiltered_listing_remains_refused() {
+        let error = request(Vec::new()).validate().unwrap_err();
+        assert!(error.contains("task, capability, or kind"));
+    }
+}

@@ -1931,6 +1931,7 @@ mod tests {
         // write, not a `(ctx, plan, method, apply)` graph mutation, and each
         // has process-local ordering only (see `plan::LOCAL_ONLY_METHODS`).
         ("ConnectorPack", "native MutationBatch in agent_library.redb: pack head, members, component revisions, body holders, import record, receipt and outbox in one WTX; local-only authority"),
+        ("WriteBack", "native MutationBatch in agent_library.redb: immutable source change set plus append-only attempt and reconciliation receipts; local-only authority"),
         ("DecisionCommit", "native MutationBatch in agent_library.redb: one DecisionRecord component revision, receipt and outbox in one WTX after re-derivation and catalog compare-and-set; local-only authority"),
         ("DecisionFit", "native MutationBatch in jobs.redb: decision job row and receipt; the draft artifact is an engine-held Blob CAS body; local-only authority"),
         ("DecisionEval", "native MutationBatch in jobs.redb: evaluation job row and receipt; local-only authority"),
@@ -2060,6 +2061,7 @@ mod tests {
         ("MultiGraphBatchUpdate", "cluster placement fanout emits one typed graph command per child; standalone mode uses a durable parent saga"),
         ("ApplyChangeEnvelope", "governed envelope coordinator commits typed graph/object/provenance rows, cursor, version, and outbox through one native MutationBatch"),
         ("ApplyChangeEnvelopes", "batch envelope coordinator groups envelopes by graph and commits each graph's page as one coalesced native MutationBatch transaction; fans out per graph like MultiGraphBatchUpdate"),
+        ("SourceIngest", "RF-ADR-009 stages raw CAS and an authoritative Connector Manifest mapping, then delegates its sole canonical graph/provenance/cursor commit to ApplyChangeEnvelope"),
         ("RecomputeMaterialization", "fenced reasoning-projection coordinator resolves authoritative graph provenance and fsyncs its projection watermark"),
         // ── Server lifecycle: TxnParticipation::None, not a graph mutation. ──
         ("Shutdown", "server-lifecycle control-plane action, not a graph mutation"),
@@ -2220,6 +2222,7 @@ mod tests {
         covered.extend(SELF_ROUTED_ADMIN_METHODS.iter().copied());
         covered.extend(plan::LOCAL_ONLY_METHODS.iter().copied());
         covered.insert("ApplyChangeEnvelope");
+        covered.insert("SourceIngest");
         covered.insert("ServedModality");
         covered.insert("Shutdown");
         covered.insert("KgDelegate");

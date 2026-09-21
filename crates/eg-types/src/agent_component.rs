@@ -56,7 +56,7 @@ mod validation;
 
 pub use content::{
     AgentComponentContentRequest, AgentComponentContentResult, COMPONENT_CONTENT_SCHEMA_VERSION,
-    DEFAULT_COMPONENT_MEDIA_TYPE, MAX_COMPONENT_BODY_BYTES,
+    COMPONENT_MEDIA_TYPE_ATTRIBUTE, DEFAULT_COMPONENT_MEDIA_TYPE, MAX_COMPONENT_BODY_BYTES,
 };
 pub use facts::{
     AgentComponentFacts, CostFacts, DeclaredCost, DeclaredLatency, FactQuality, ModalityFacts,

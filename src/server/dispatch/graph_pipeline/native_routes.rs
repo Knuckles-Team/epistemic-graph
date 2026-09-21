@@ -172,7 +172,7 @@ pub(super) async fn route_native_store_ops(
     let persistence = ctx.persistence;
     #[cfg(feature = "raft")]
     let routed_raft = ctx.routed_raft;
-    let method = match route_native_resource_ops(ctx, method).await {
+    let method = match route_source_ingestion_or_resources(ctx, method).await {
         Ok(response) => return Ok(response),
         Err(method) => method,
     };
@@ -202,6 +202,62 @@ pub(super) async fn route_native_store_ops(
         .await);
     }
     Err(method)
+}
+
+/// RF-ADR-009 source ingestion is graph-scoped and therefore reaches this
+/// route only after graph ACL, tenant binding, lazy-open and placement lookup.
+/// It prepares raw CAS + one ChangeEnvelope, then delegates the actual commit
+/// to the existing ChangeEnvelope authority. Non-source methods continue into
+/// the resource router without duplicating the dispatch-chain control flow.
+async fn route_source_ingestion_or_resources(
+    ctx: GraphOpRouting<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    let Method::SourceIngest { request } = method else {
+        return route_native_resource_ops(ctx, method).await;
+    };
+    #[cfg(feature = "raft")]
+    let (placement_epoch, fencing_token) = if let Some(routed) = ctx.routed_raft.as_ref() {
+        let leader = routed.handle.current_leader().await;
+        if leader != Some(routed.handle.node_id) {
+            return Ok(Response::stale_route(
+                ctx.req_id,
+                ctx.graph_name,
+                routed.group_id,
+                routed.epoch,
+                leader,
+                "Source ingestion requires the current placement leader",
+            ));
+        }
+        (routed.epoch, Some(routed.group_id))
+    } else {
+        (0, None)
+    };
+    #[cfg(not(feature = "raft"))]
+    let (placement_epoch, fencing_token) = (0, None);
+
+    let prepared = match handlers::source_ingestion::prepare(
+        handlers::source_ingestion::PrepareContext {
+            state: ctx.state,
+            request_id: ctx.req_id,
+            graph_name: ctx.graph_name,
+            tenant_scope: ctx.tenant_scope,
+            verified: ctx.verified_context,
+            graph_version: ctx.core.version(),
+            placement_epoch,
+            fencing_token,
+        },
+        *request,
+    )
+    .await
+    {
+        Ok(prepared) => prepared,
+        Err(error) => return Ok(Response::err(ctx.req_id, error)),
+    };
+    let envelope = prepared.envelope.clone();
+    let response =
+        crate::server::dispatch::change_envelope::apply_one_change_envelope(ctx, envelope).await;
+    Ok(handlers::source_ingestion::finish(prepared, response))
 }
 
 /// The remaining authority-bearing surfaces, all resolved AFTER graph ACL,

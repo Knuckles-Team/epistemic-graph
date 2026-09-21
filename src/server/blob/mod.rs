@@ -13,6 +13,7 @@
 //!   protocol handler drives, with a TTL reaper mirroring the OCC-txn `open_txns`
 //!   pattern.
 
+pub mod engine_bodies;
 pub mod store;
 
 // Content-defined chunking (CONCEPT:EG-KG.storage.backward-manifest-read): the Gear/FastCDC rolling-hash splitter

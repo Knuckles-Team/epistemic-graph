@@ -67,7 +67,9 @@ class MethodPolicyRow:
 # `AgentAssemble`, `DecisionCommit`, `Decide`, `DecisionFit`, `DecisionEval`,
 # `Solve`, `ConnectorPack`, `GraphSchema`, `GraphSchemaList` and
 # `MutationOutbox`.
-EXPECTED_METHOD_POLICY_ROWS = 425
+# 425 -> 426: RF-ADR-009's served `SourceIngest` raw-record authority.
+# 426 -> 427: governed connector `WriteBack` authority.
+EXPECTED_METHOD_POLICY_ROWS = 427
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",

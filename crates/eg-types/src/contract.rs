@@ -4,11 +4,13 @@
 //! separate cryptographic scalars, canonical identifiers/domain tokens, and
 //! bounded collections without creating competing schemas or public aliases.
 
+mod bounded_writer;
 mod collections;
 mod crypto;
 mod error_code;
 mod identifiers;
 
+pub(crate) use bounded_writer::BoundedWriter;
 pub use collections::{BoundedVec, RecordBytes};
 pub use crypto::{Digest256, Ed25519Signature, Nonce};
 pub(crate) use error_code::closed_error_codes;

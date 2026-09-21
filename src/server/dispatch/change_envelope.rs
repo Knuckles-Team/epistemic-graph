@@ -437,6 +437,19 @@ async fn try_replicate_change_envelope(
     })
 }
 
+#[cfg(feature = "raft")]
+async fn try_replicate_new_change_envelope(
+    known_replay: bool,
+    ctx: ChangeEnvelopeReplicaCtx<'_>,
+    envelope: &eg_types::change_envelope::ChangeEnvelope,
+    committed_at_ms: u64,
+) -> Option<Response> {
+    if known_replay {
+        return None;
+    }
+    try_replicate_change_envelope(ctx, envelope, committed_at_ms).await
+}
+
 /// The resolved graph context a single-envelope `ApplyChangeEnvelope` commit
 /// runs against: the live core, its durability backend, the placement route and
 /// the tenant authority. Bundled to keep the dispatcher at the documented
@@ -541,7 +554,7 @@ pub(super) async fn route_change_envelope_ops(
     }
 }
 
-async fn apply_one_change_envelope(
+pub(super) async fn apply_one_change_envelope(
     ctx: GraphOpRouting<'_>,
     envelope: eg_types::change_envelope::ChangeEnvelope,
 ) -> Response {
@@ -572,36 +585,25 @@ async fn apply_one_change_envelope(
     }
 
     let _mutation_guard = crate::server::mutation_batch::lock_graph(graph_name).await;
-    match envelope.mutation.version_expectation {
-        crate::mutation_batch::VersionExpectation::Graph(expected) => {
-            if expected != core.version() {
-                return Response::err(
-                    req_id,
-                    format!(
-                        "STALE_GRAPH_VERSION: expected {expected}, current {}",
-                        core.version()
-                    ),
-                );
-            }
-        }
-        _ => {
-            return Response::err(
-                req_id,
-                "ApplyChangeEnvelope requires a graph version expectation",
-            );
-        }
-    }
-    let committed_at_ms = authoritative_now_ms().max(envelope.mutation.created_at_ms);
-    let Some(backend) = persistence.as_ref() else {
-        return Response::err(
-            req_id,
-            "ApplyChangeEnvelope requires a configured persistence backend",
-        );
-    };
     let fname = crate::persist::sanitize(graph_name);
+    let (backend, known_replay) = match prepare_change_envelope_commit(
+        persistence.as_ref(),
+        &fname,
+        &envelope,
+        core.version(),
+    )
+    .await
+    {
+        Ok(prepared) => prepared,
+        Err(error) => return Response::err(req_id, error),
+    };
+    #[cfg(not(feature = "raft"))]
+    let _ = known_replay;
+    let committed_at_ms = authoritative_now_ms().max(envelope.mutation.created_at_ms);
 
     #[cfg(feature = "raft")]
-    if let Some(resp) = try_replicate_change_envelope(
+    if let Some(resp) = try_replicate_new_change_envelope(
+        known_replay,
         ChangeEnvelopeReplicaCtx {
             state,
             req_id,
@@ -641,6 +643,65 @@ async fn apply_one_change_envelope(
         req_id,
         ResultPayload::of::<txn_results::ApplyChangeEnvelope>(result),
     )
+}
+
+async fn prepare_change_envelope_commit(
+    backend: Option<&Arc<dyn crate::server::persistence::PersistenceBackend>>,
+    graph_fname: &str,
+    envelope: &eg_types::change_envelope::ChangeEnvelope,
+    current_version: u64,
+) -> Result<
+    (
+        Arc<dyn crate::server::persistence::PersistenceBackend>,
+        bool,
+    ),
+    String,
+> {
+    let backend = backend.cloned().ok_or_else(|| {
+        "ApplyChangeEnvelope requires a configured persistence backend".to_string()
+    })?;
+    let known_replay = change_envelope_is_known_replay(&backend, graph_fname, envelope).await?;
+    validate_change_envelope_version(envelope, current_version, known_replay)?;
+    Ok((backend, known_replay))
+}
+
+/// A retry may arrive after unrelated graph writes advanced the serving
+/// version. Recover the exact durable envelope before applying the live
+/// version fence; byte-identical content is a replay, while the same id with
+/// different content remains a conflict in the backend ledger.
+async fn change_envelope_is_known_replay(
+    backend: &Arc<dyn crate::server::persistence::PersistenceBackend>,
+    graph_fname: &str,
+    envelope: &eg_types::change_envelope::ChangeEnvelope,
+) -> Result<bool, String> {
+    let record = backend
+        .read_change_envelope(graph_fname, &envelope.envelope_id)
+        .await
+        .map_err(|error| format!("ApplyChangeEnvelope replay lookup failed: {error}"))?;
+    let Some(record) = record else {
+        return Ok(false);
+    };
+    let stored = rmp_serde::to_vec_named(&record.envelope).ok();
+    let submitted = rmp_serde::to_vec_named(envelope).ok();
+    Ok(stored.is_some() && stored == submitted)
+}
+
+fn validate_change_envelope_version(
+    envelope: &eg_types::change_envelope::ChangeEnvelope,
+    current_version: u64,
+    known_replay: bool,
+) -> Result<(), String> {
+    let crate::mutation_batch::VersionExpectation::Graph(expected) =
+        envelope.mutation.version_expectation
+    else {
+        return Err("ApplyChangeEnvelope requires a graph version expectation".to_string());
+    };
+    if expected != current_version && !known_replay {
+        return Err(format!(
+            "STALE_GRAPH_VERSION: expected {expected}, current {current_version}"
+        ));
+    }
+    Ok(())
 }
 
 async fn apply_change_envelope_batch(

@@ -52,11 +52,14 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use super::engine_bodies::{EngineBody, StoredEngineBody};
+
 pub(crate) mod format;
 mod gc;
 mod holders;
 mod killpoint;
-mod manifest;
+pub(super) mod manifest;
+mod native;
 mod policy;
 #[cfg(feature = "blob-s3")]
 mod sidecar;
@@ -200,6 +203,17 @@ pub trait ChunkStore: Send + Sync {
         _committed_at_ms: u64,
     ) -> Result<ReconcileStats, String> {
         Err("blob backend does not provide holder-scoped references".to_string())
+    }
+
+    /// Copy a bounded set of connector-pack bodies into the engine-owned CAS
+    /// and acquire their idempotent pack holders in one blob-owner write.
+    fn put_engine_bodies(
+        &self,
+        _tenant_id: &str,
+        _bodies: &[EngineBody],
+        _committed_at_ms: u64,
+    ) -> Result<Vec<StoredEngineBody>, String> {
+        Err("blob backend does not provide engine-owned body batches".to_string())
     }
 }
 
@@ -424,220 +438,6 @@ fn chunk_is_stored(
         #[cfg(feature = "blob-s3")]
         ChunkAuthority::External => Ok(true),
     }
-}
-
-impl ChunkStore for RedbChunkStore {
-    fn put_chunk(&self, bytes: &[u8]) -> Result<(String, bool), String> {
-        let digest = manifest::chunk_digest(bytes)?;
-        let mut batch = self.batch.lock();
-        // Dedup: already staged in this window, or already committed to `cas_chunks`.
-        if batch.pending.contains_key(&digest) || self.chunk_present(&digest)? {
-            return Ok((digest, false));
-        }
-        batch.pending.insert(digest.clone(), bytes.to_vec());
-        // Group-commit boundary: flush every `group` staged chunks so the resident
-        // chunk bodies (peak RAM) never exceed the group window — independent of the
-        // blob size. One admitted mutation amortizes the whole group.
-        if batch.pending.len() >= batch.group {
-            self.commit_group(&mut batch)?;
-        }
-        Ok((digest, true))
-    }
-
-    fn get_chunk(&self, digest: &str) -> Result<Option<Vec<u8>>, String> {
-        // A read must see all committed chunks: flush the open group first so a
-        // just-uploaded chunk is durable + visible (a staged group is not yet a row).
-        self.flush_chunks()?;
-        self.shared_read()?.chunk_bytes(digest)
-    }
-
-    fn put_manifest(&self, blob_digest: &str, manifest: &BlobManifest) -> Result<(), String> {
-        // BlobCommit lands here: flush the upload's final partial chunk group first
-        // (the manifest's chunks must all be durable before the manifest references
-        // them), then write the manifest as its own admitted maintenance mutation.
-        self.flush_chunks()?;
-        manifest::encode_manifest(blob_digest, manifest)?;
-        let at = crate::server::dispatch::authoritative_now_ms();
-        self.maintain("blob_put_manifest_v1", blob_digest, at, |wtx| {
-            let shared = shared_write(wtx, &self.shared)?;
-            let stored = |chunk: &str| chunk_is_stored(self.chunks, &shared, chunk);
-            manifest::record_manifest(wtx, &stored, blob_digest, manifest, at)
-        })
-    }
-
-    fn get_manifest(&self, blob_digest: &str) -> Result<Option<BlobManifest>, String> {
-        self.flush_chunks()?;
-        validate_digest(blob_digest)?;
-        let read = self.read()?;
-        let t = read.open_owner_table(CAS_BLOBS)?;
-        let row = t.get(blob_digest).map_err(|e| e.to_string())?;
-        // Bind before returning: the guard borrows `t` (E0597 otherwise).
-        let decoded = row
-            .map(|g| manifest::decode_manifest(g.value()))
-            .transpose();
-        decoded
-    }
-
-    fn incref(&self, blob_digest: &str) -> Result<u64, String> {
-        maintain_counted_reference(self, blob_digest, 1)
-    }
-
-    fn decref(&self, blob_digest: &str) -> Result<u64, String> {
-        maintain_counted_reference(self, blob_digest, -1)
-    }
-
-    fn refcount(&self, blob_digest: &str) -> Result<u64, String> {
-        self.flush_chunks()?;
-        self.shared_read()?.refcount(blob_digest)
-    }
-
-    fn sweep(&self) -> Result<SweepStats, String> {
-        self.flush_chunks()?;
-        let at = crate::server::dispatch::authoritative_now_ms();
-        self.maintain("blob_sweep_v1", "all", at, |wtx| {
-            sweep_in(self, wtx, &SweepRequest::default(), at)
-        })
-    }
-
-    fn chunk_count(&self) -> Result<u64, String> {
-        self.flush_chunks()?;
-        self.shared_read()?.table_rows::<CasChunkRows>()
-    }
-
-    fn blob_count(&self) -> Result<u64, String> {
-        self.flush_chunks()?;
-        let read = self.read()?;
-        read.open_owner_table(CAS_BLOBS)?
-            .len()
-            .map_err(|e| e.to_string())
-    }
-
-    fn mutation_version(&self, tenant: &str, graph: &str) -> Result<u64, String> {
-        let identity = blob_scope_identity(ScopeTenantId::new(tenant.to_string())?, graph)?;
-        let owner = self.scope_handle(&identity)?;
-        eg_transaction::version(&self.kernel.read_scope(&owner)?)
-    }
-
-    fn sweep_batch(
-        &self,
-        request: &SweepRequest,
-        batch: &MutationBatch,
-        committed_at_ms: u64,
-    ) -> Result<SweepStats, String> {
-        self.flush_chunks()?;
-        self.commit_native_batch(batch, committed_at_ms, |wtx| {
-            sweep_in(self, wtx, request, committed_at_ms)
-        })
-    }
-
-    fn begin_upload_batch(
-        &self,
-        cursor: u64,
-        chunk_size: u32,
-        owner_scope: &str,
-        batch: &MutationBatch,
-        committed_at_ms: u64,
-    ) -> Result<u64, String> {
-        self.flush_chunks()?;
-        if chunk_size == 0 || chunk_size as usize > MAX_BLOB_CHUNK_BYTES {
-            return Err("blob chunk size exceeds resource limits".to_string());
-        }
-        self.commit_native_batch(batch, committed_at_ms, |wtx| {
-            uploads::begin_upload(wtx, cursor, chunk_size, owner_scope, committed_at_ms)
-        })
-    }
-
-    fn put_upload_chunk_batch(
-        &self,
-        cursor: u64,
-        bytes: &[u8],
-        batch: &MutationBatch,
-        committed_at_ms: u64,
-    ) -> Result<(String, u32), String> {
-        self.flush_chunks()?;
-        let digest = manifest::chunk_digest(bytes)?;
-        self.commit_native_batch(batch, committed_at_ms, |wtx| {
-            let shared = shared_write(wtx, &self.shared)?;
-            let chunk = (digest.as_str(), bytes);
-            uploads::put_upload_chunk(
-                wtx,
-                &shared,
-                cursor,
-                chunk,
-                &batch.batch_id,
-                committed_at_ms,
-            )
-        })
-    }
-
-    fn load_upload(&self, cursor: u64) -> Result<Option<BlobManifest>, String> {
-        self.flush_chunks()?;
-        let read = self.read()?;
-        let table = read.open_owner_table(CAS_UPLOADS)?;
-        let row = table.get(cursor).map_err(|e| e.to_string())?;
-        // Bind before returning: the guard borrows `table` (E0597 otherwise).
-        let manifest = row
-            .map(|value| uploads::decode_upload(value.value()).map(|upload| upload.manifest()))
-            .transpose();
-        manifest
-    }
-
-    fn commit_upload_batch(
-        &self,
-        cursor: u64,
-        batch: &MutationBatch,
-        committed_at_ms: u64,
-    ) -> Result<String, String> {
-        self.flush_chunks()?;
-        self.commit_native_batch(batch, committed_at_ms, |wtx| {
-            let shared = shared_write(wtx, &self.shared)?;
-            let stored = |chunk: &str| chunk_is_stored(self.chunks, &shared, chunk);
-            uploads::commit_upload(wtx, &stored, cursor, committed_at_ms)
-        })
-    }
-
-    fn upload_cursor_high_water(&self) -> Result<u64, String> {
-        self.flush_chunks()?;
-        let read = self.read()?;
-        uploads::upload_cursor_high_water(&read.open_owner_table(CAS_COUNTERS)?)
-    }
-
-    fn holder_batch(
-        &self,
-        change: &HolderChange,
-        batch: &MutationBatch,
-        committed_at_ms: u64,
-    ) -> Result<HolderOutcome, String> {
-        self.flush_chunks()?;
-        self.commit_native_batch(batch, committed_at_ms, |wtx| {
-            let shared = shared_write(wtx, &self.shared)?;
-            holders::apply_holder_change(wtx, &shared, change, committed_at_ms)
-        })
-    }
-
-    fn reconcile_holders_batch(
-        &self,
-        request: &HolderReconcile,
-        batch: &MutationBatch,
-        committed_at_ms: u64,
-    ) -> Result<ReconcileStats, String> {
-        self.flush_chunks()?;
-        self.commit_native_batch(batch, committed_at_ms, |wtx| {
-            holders::reconcile_holders(wtx, &shared_write(wtx, &self.shared)?, request)
-        })
-    }
-}
-
-/// One sweep pass inside an admitted write of `store`.
-fn sweep_in(
-    store: &RedbChunkStore,
-    wtx: &AdmittedOwnerWrite<'_, BlobOwner>,
-    request: &SweepRequest,
-    at_ms: u64,
-) -> Result<SweepStats, String> {
-    let shared = shared_write(wtx, &store.shared)?;
-    let stored = |chunk: &str| chunk_is_stored(store.chunks, &shared, chunk);
-    gc::sweep_rows(wtx, &shared, &stored, request, at_ms)
 }
 
 /// `incref`/`decref` as one admitted owner maintenance mutation (RF-RULING-005 —

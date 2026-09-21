@@ -108,6 +108,7 @@ pub(crate) const ACCESS_RS_MUTATES_CONDITIONAL: &[&str] = &[
     "DecisionEval",
     "DecisionFit",
     "MutationOutbox",
+    "WriteBack",
     // Publish/Retire write; Current/History/Status remain authenticated reads.
     // All four RF-ADR-008 agent-hierarchy layers have this shape: each
     // delegates `access::requires_write` to its own op's `is_mutation()`,
@@ -254,6 +255,10 @@ pub(crate) const NATIVE_GRAPHREDB_DURABLE: &[&str] = &[
     // so its real durability is AddNode's own MUTATION_APPLY_DURABLE_GRAPHREDB entry.
     "RegisterServer",
     "RunDatalogReasoning",
+    // RF-ADR-009: SourceIngest prepares one governed ChangeEnvelope and calls
+    // the existing ApplyChangeEnvelope authority. It owns no parallel graph
+    // applier or native command; this inventory records that adapter lowering.
+    "SourceIngest",
     "Sql",
     "TouchNodes",
     "UpdateResourceHost",

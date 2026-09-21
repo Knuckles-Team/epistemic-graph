@@ -2897,7 +2897,7 @@
     },
     "CostFacts": {
       "additionalProperties": false,
-      "description": "What one invocation costs, exactly, in a named currency.\n\nInteger micros, never a float: a budget comparison that depends on binary\nrounding is a budget that decides differently on two hosts.",
+      "description": "What one invocation costs, plus who says so and how strongly.",
       "properties": {
         "currency": {
           "description": "ISO 4217: exactly three ASCII uppercase letters.",
@@ -4686,6 +4686,89 @@
       ],
       "type": "object"
     },
+    "ReconciliationReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "type": "string"
+        },
+        "authorization": {
+          "$ref": "#/$defs/WriteBackAuthorizationDecision"
+        },
+        "change_set_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "change_set_id": {
+          "type": "string"
+        },
+        "connector_observation_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "effect_status": {
+          "$ref": "#/$defs/WriteBackEffectStatus"
+        },
+        "evidence_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "observed_source_version": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "provenance_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "receipt_id": {
+          "type": "string"
+        },
+        "recorded_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "retry_allowed": {
+          "type": "boolean"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "receipt_id",
+        "sequence",
+        "change_set_id",
+        "change_set_digest",
+        "tenant_id",
+        "actor",
+        "authorization",
+        "policy_digest",
+        "idempotency_key",
+        "observed_source_version",
+        "effect_status",
+        "retry_allowed",
+        "evidence_digest",
+        "connector_observation_digest",
+        "provenance_digest",
+        "recorded_at_ms"
+      ],
+      "type": "object"
+    },
     "RecoveryStoreCounts": {
       "additionalProperties": false,
       "description": "Integrity census of one physical recovery owner file: the row count of every\nrecovery-relevant table, as the storage kernel validated it.",
@@ -5098,6 +5181,106 @@
       "required": [
         "algorithm",
         "node_budget"
+      ],
+      "type": "object"
+    },
+    "SourceChangeSet": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "type": "string"
+        },
+        "authorization": {
+          "$ref": "#/$defs/WriteBackAuthorizationDecision"
+        },
+        "base_source_version": {
+          "type": "string"
+        },
+        "change_set_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "change_set_id": {
+          "type": "string"
+        },
+        "connector_id": {
+          "type": "string"
+        },
+        "desired_patch": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "field_provenance": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "field_scope": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "purpose": {
+          "type": "string"
+        },
+        "reconciliation_procedure": {
+          "type": "string"
+        },
+        "required_capability": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_instance_id": {
+          "type": "string"
+        },
+        "source_of_truth_rule": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "change_set_id",
+        "change_set_digest",
+        "tenant_id",
+        "actor",
+        "purpose",
+        "connector_id",
+        "source_instance_id",
+        "entity_id",
+        "field_scope",
+        "base_source_version",
+        "desired_patch",
+        "source_of_truth_rule",
+        "field_provenance",
+        "required_capability",
+        "policy_digest",
+        "authorization",
+        "idempotency_key",
+        "expires_at_ms",
+        "reconciliation_procedure"
       ],
       "type": "object"
     },
@@ -5699,6 +5882,229 @@
         "slot"
       ],
       "type": "object"
+    },
+    "WriteBackAttemptKind": {
+      "enum": [
+        "dry_run",
+        "apply"
+      ],
+      "type": "string"
+    },
+    "WriteBackAuthorizationDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "authorization_ref": {
+          "type": "string"
+        },
+        "authorized": {
+          "type": "boolean"
+        },
+        "decision_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "input_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "mode": {
+          "$ref": "#/$defs/WriteBackAuthorizationMode"
+        },
+        "output_digest": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "mode",
+        "authorization_ref",
+        "decision_digest",
+        "input_digest",
+        "output_digest",
+        "authorized"
+      ],
+      "type": "object"
+    },
+    "WriteBackAuthorizationMode": {
+      "enum": [
+        "proposal_approval",
+        "standing_policy",
+        "manual_trigger"
+      ],
+      "type": "string"
+    },
+    "WriteBackEffectStatus": {
+      "enum": [
+        "no_effect",
+        "applied",
+        "outcome_uncertain"
+      ],
+      "type": "string"
+    },
+    "WriteBackOutcome": {
+      "enum": [
+        "dry_run_ready",
+        "applied",
+        "conflict",
+        "rejected",
+        "outcome_uncertain"
+      ],
+      "type": "string"
+    },
+    "WriteBackReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "type": "string"
+        },
+        "applied_field_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "authorization": {
+          "$ref": "#/$defs/WriteBackAuthorizationDecision"
+        },
+        "change_set_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "change_set_id": {
+          "type": "string"
+        },
+        "connector_observation_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "effect_status": {
+          "$ref": "#/$defs/WriteBackEffectStatus"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "input_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "kind": {
+          "$ref": "#/$defs/WriteBackAttemptKind"
+        },
+        "outcome": {
+          "$ref": "#/$defs/WriteBackOutcome"
+        },
+        "output_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "policy_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "post_source_version": {
+          "type": "string"
+        },
+        "pre_source_version": {
+          "type": "string"
+        },
+        "provenance_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "receipt_id": {
+          "type": "string"
+        },
+        "recorded_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "receipt_id",
+        "sequence",
+        "change_set_id",
+        "change_set_digest",
+        "tenant_id",
+        "actor",
+        "authorization",
+        "policy_digest",
+        "idempotency_key",
+        "kind",
+        "input_digest",
+        "output_digest",
+        "pre_source_version",
+        "post_source_version",
+        "applied_field_digest",
+        "outcome",
+        "effect_status",
+        "connector_observation_digest",
+        "provenance_digest",
+        "recorded_at_ms"
+      ],
+      "type": "object"
+    },
+    "WriteBackReceiptPage": {
+      "additionalProperties": false,
+      "properties": {
+        "next_sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "receipts": {
+          "items": {
+            "$ref": "#/$defs/WriteBackReceiptRecord"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "receipts"
+      ],
+      "type": "object"
+    },
+    "WriteBackReceiptRecord": {
+      "oneOf": [
+        {
+          "properties": {
+            "receipt": {
+              "$ref": "#/$defs/WriteBackReceipt"
+            },
+            "receipt_kind": {
+              "const": "attempt",
+              "type": "string"
+            }
+          },
+          "required": [
+            "receipt_kind",
+            "receipt"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "receipt": {
+              "$ref": "#/$defs/ReconciliationReceipt"
+            },
+            "receipt_kind": {
+              "const": "reconciliation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "receipt_kind",
+            "receipt"
+          ],
+          "type": "object"
+        }
+      ]
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -6518,6 +6924,53 @@
         }
       },
       "selected_by": null
+    },
+    "WriteBack": {
+      "bodies": {
+        "create": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SourceChangeSet"
+          }
+        },
+        "get": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SourceChangeSet"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "receipts": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/WriteBackReceiptPage"
+          }
+        },
+        "record_attempt": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/WriteBackReceipt"
+          }
+        },
+        "record_reconciliation": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ReconciliationReceipt"
+          }
+        }
+      },
+      "selected_by": "op"
     }
   },
   "title": "storage method results"

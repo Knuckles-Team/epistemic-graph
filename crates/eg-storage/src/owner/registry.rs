@@ -233,6 +233,33 @@ pub const AGENT_TEMPLATE_REVISIONS: TableDefinition<'static, (&str, &str, u64), 
 /// Current head revision for each `(tenant, template)` pair.
 pub const AGENT_TEMPLATE_HEADS: TableDefinition<'static, (&str, &str), u64> =
     TableDefinition::new("agent_template_heads");
+/// Current ConnectorPack head and last receipt per tenant and connector.
+pub const CONNECTOR_PACK_HEADS: TableDefinition<'static, (&str, &str), &[u8]> =
+    TableDefinition::new("connector_pack_heads");
+/// Current ConnectorPack membership per tenant, connector and entry URI.
+pub const CONNECTOR_PACK_MEMBERS: TableDefinition<'static, (&str, &str, &str), &[u8]> =
+    TableDefinition::new("connector_pack_members");
+/// Immutable import provenance per tenant, connector and binding revision.
+pub const CONNECTOR_PACK_IMPORTS: TableDefinition<'static, (&str, &str, u64), &[u8]> =
+    TableDefinition::new("connector_pack_imports");
+/// Revision-scoped liveness links to engine-owned component bodies.
+pub const CONNECTOR_PACK_BODY_HOLDERS: TableDefinition<'static, (&str, &str, &str, u64), &[u8]> =
+    TableDefinition::new("connector_pack_body_holders");
+/// Administrative importer binding per tenant and connector.
+pub const CONNECTOR_PACK_BINDINGS: TableDefinition<'static, (&str, &str), &[u8]> =
+    TableDefinition::new("connector_pack_bindings");
+/// D18 source change sets are immutable after creation.
+pub const WRITE_BACK_CHANGE_SETS: TableDefinition<'static, (&str, &str), &[u8]> =
+    TableDefinition::new("write_back_change_sets");
+/// One tenant-scoped idempotency binding per source effect.
+pub const WRITE_BACK_IDEMPOTENCY: TableDefinition<'static, (&str, &str), &[u8]> =
+    TableDefinition::new("write_back_idempotency");
+/// Append-only write-back and reconciliation receipt stream.
+pub const WRITE_BACK_RECEIPTS: TableDefinition<'static, (&str, &str, u64), &[u8]> =
+    TableDefinition::new("write_back_receipts");
+/// Next append position for one change set's receipt stream.
+pub const WRITE_BACK_RECEIPT_HEADS: TableDefinition<'static, (&str, &str), u64> =
+    TableDefinition::new("write_back_receipt_heads");
 
 macro_rules! visit_owner_tables {
     ($layout:expr, $visit:ident) => {{
@@ -337,6 +364,15 @@ macro_rules! visit_owner_tables {
                 $visit!(AGENT_COMPONENT_HEADS);
                 $visit!(AGENT_TEMPLATE_REVISIONS);
                 $visit!(AGENT_TEMPLATE_HEADS);
+                $visit!(CONNECTOR_PACK_HEADS);
+                $visit!(CONNECTOR_PACK_MEMBERS);
+                $visit!(CONNECTOR_PACK_IMPORTS);
+                $visit!(CONNECTOR_PACK_BODY_HOLDERS);
+                $visit!(CONNECTOR_PACK_BINDINGS);
+                $visit!(WRITE_BACK_CHANGE_SETS);
+                $visit!(WRITE_BACK_IDEMPOTENCY);
+                $visit!(WRITE_BACK_RECEIPTS);
+                $visit!(WRITE_BACK_RECEIPT_HEADS);
             }
         }
     }};
@@ -558,6 +594,15 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
             "agent_component_heads",
             "agent_template",
             "agent_template_heads",
+            "connector_pack_heads",
+            "connector_pack_members",
+            "connector_pack_imports",
+            "connector_pack_body_holders",
+            "connector_pack_bindings",
+            "write_back_change_sets",
+            "write_back_idempotency",
+            "write_back_receipts",
+            "write_back_receipt_heads",
         ],
     }
 }

@@ -65,6 +65,10 @@ mod agent_revision;
 pub mod agent_row;
 #[cfg(feature = "redb")]
 pub mod agent_template;
+#[cfg(feature = "redb")]
+pub mod connector_pack;
+#[cfg(feature = "redb")]
+pub mod write_back;
 
 #[cfg(feature = "redb")]
 pub mod redb_backend;

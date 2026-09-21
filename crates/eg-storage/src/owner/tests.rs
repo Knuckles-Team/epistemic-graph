@@ -57,12 +57,14 @@ fn owner_layout_registry_has_frozen_cardinality() {
     assert_eq!(owner_table_names(OwnerLayout::NodeInfo).len(), 2);
     assert_eq!(owner_table_names(OwnerLayout::ClusterHierarchy).len(), 1);
     // Eight, not two: `agent_library.redb` is ONE physical authority carrying
-    // all four RF-ADR-008 layers, each as a revisions+heads pair --
+    // all four RF-ADR-008 layers, each as a revisions+heads pair, plus the
+    // ConnectorPack catalog's five tables and governed write-back's four --
     // `agent_library`, `agent_graph`, `agent_component` (all three landed
     // 2026-09-10) and `agent_template` (item C). Splitting any of them into
     // its own owner file would split one authority in two (RF-RULING-004), so
-    // this count grows by two per layer by design.
-    assert_eq!(owner_table_names(OwnerLayout::AgentLibrary).len(), 8);
+    // this combined successor has one 17-table census and one frozen 8-table
+    // predecessor; no ConnectorPack-only or write-back-only intermediate.
+    assert_eq!(owner_table_names(OwnerLayout::AgentLibrary).len(), 17);
     // The authoritative graph shard `graph-N.redb`: 53 tables. That is the
     // complete physical census of the shard file (39 in `redb_store.rs`, 4
     // capacity-lease, 3 work-item-capability, 10 development-lane, plus

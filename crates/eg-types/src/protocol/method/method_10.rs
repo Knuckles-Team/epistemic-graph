@@ -85,6 +85,18 @@ $($variants)*
         op: Box<crate::connector_pack::ConnectorPackOp>,
     },
 
+    /// RF-ADR-009 native ingestion authority. Resolves the exact Connector
+    /// Manifest mapping under the verified tenant, admits raw records to CAS,
+    /// maps them and atomically commits graph material, provenance and cursor.
+    SourceIngest {
+        request: Box<crate::source_ingestion::SourceIngestionRequest>,
+    },
+    /// EG-owned D18 source change sets and append-only write-back receipts.
+    /// The engine records governed observations; it never calls a vendor API.
+    WriteBack {
+        op: Box<crate::write_back::WriteBackOp>,
+    },
+
     // ── Graph schema sources and the mutation outbox (X9, X10) ─────────────
     /// Attach, replace or detach one keyed schema source on the request graph.
     GraphSchema {

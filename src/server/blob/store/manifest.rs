@@ -107,7 +107,9 @@ pub(super) fn encode_manifest(
 }
 
 /// Encode a validated manifest; its digest is `hex_digest` of the result.
-pub(super) fn encode_manifest_bytes(manifest: &BlobManifest) -> Result<Vec<u8>, String> {
+pub(in crate::server::blob) fn encode_manifest_bytes(
+    manifest: &BlobManifest,
+) -> Result<Vec<u8>, String> {
     manifest.validate()?;
     encode_blob_value(manifest, "blob manifest")
 }

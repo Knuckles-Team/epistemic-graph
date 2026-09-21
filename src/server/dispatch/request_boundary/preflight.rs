@@ -188,6 +188,18 @@ fn preflight_feature_surface_msgpack(method: &Method) -> Option<Result<(), &'sta
     }
 }
 
+fn preflight_source_ingestion_msgpack(method: &Method) -> Option<Result<(), &'static str>> {
+    let Method::SourceIngest { request } = method else {
+        return None;
+    };
+    Some(
+        request
+            .canonical_bytes()
+            .map(|_| ())
+            .map_err(|_| "source ingestion batch exceeds its canonical byte bound"),
+    )
+}
+
 /// Validate every MessagePack-typed binary field reachable from a request before
 /// routing. Raw source/blob/KV/broker/WASM bytes are intentionally excluded: they
 /// are opaque binary, not nested MessagePack. Operation handlers still enforce
@@ -197,6 +209,7 @@ pub(crate) fn preflight_request_msgpack(method: &Method) -> Result<(), &'static 
         .or_else(|| preflight_memory_msgpack(method))
         .or_else(|| preflight_batch_msgpack(method))
         .or_else(|| preflight_sql_source_msgpack(method))
+        .or_else(|| preflight_source_ingestion_msgpack(method))
         .or_else(|| preflight_feature_surface_msgpack(method))
         .unwrap_or(Ok(()))
 }

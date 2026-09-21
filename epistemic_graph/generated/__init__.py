@@ -5,17 +5,21 @@
 """Generated engine-contract client surface (RF-RULING-003)."""
 
 from . import (
+    agent_component,
     cluster,
     compute,
     coordination,
+    digest,
     graph,
     ingestion,
     messaging,
     query,
     reasoning,
     security,
+    source_ingestion,
     storage,
     transactions,
+    write_back,
 )
 from ._ids import METHOD_IDS
 from ._runtime import (
@@ -30,17 +34,21 @@ __all__ = [
     "OpaqueResult",
     "SEND_BY_METHOD",
     "send_by_id",
+    "agent_component",
     "cluster",
     "compute",
     "coordination",
+    "digest",
     "graph",
     "ingestion",
     "messaging",
     "query",
     "reasoning",
     "security",
+    "source_ingestion",
     "storage",
     "transactions",
+    "write_back",
 ]
 
 # method id -> the generated coroutine that sends it.
@@ -386,6 +394,7 @@ SEND_BY_METHOD = {
     "ServedModality": ingestion.send_served_modality,
     "ShaclValidate": reasoning.send_shacl_validate,
     "Shutdown": cluster.send_shutdown,
+    "SourceIngest": ingestion.send_source_ingest,
     "Sparql": reasoning.send_sparql,
     "SparqlVirtual": reasoning.send_sparql_virtual,
     "Sql": query.send_sql,
@@ -447,4 +456,5 @@ SEND_BY_METHOD = {
     "Viz": ingestion.send_viz,
     "Watch": messaging.send_watch,
     "WhatChanged": query.send_what_changed,
+    "WriteBack": storage.send_write_back,
 }

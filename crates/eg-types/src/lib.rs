@@ -143,6 +143,10 @@ pub mod result_contract;
 // storage, queues, handlers, and surface projections live in crates above this
 // bottom-of-DAG owner and must consume these exact operation and identity DTOs.
 pub mod semantic_index;
+// RF-ADR-009 — raw connector records, exact manifest mapping reference, cursor
+// CAS and the terminal native ingestion receipt. Runtime authority lives in the
+// server; these are bounded pure wire types.
+pub mod source_ingestion;
 #[cfg(feature = "statechart")]
 pub mod statechart;
 pub mod storage_wire;
@@ -171,6 +175,9 @@ pub mod work_item_command_log;
 #[cfg(feature = "viz")]
 pub mod viz;
 pub mod wire;
+// RF-ADR-009 D18 — EG-owned versioned source change sets and append-only
+// write-back/reconciliation receipts. Connector transports remain in the SDK.
+pub mod write_back;
 
 // CONCEPT:EG-KG.query.compound-predicate-decode — the serializable compound-WHERE predicate AST lives at the
 // bottom of the DAG so `eg-core` can evaluate it; `eg-query` decodes SQL into it.

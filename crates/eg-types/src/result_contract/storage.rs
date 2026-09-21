@@ -21,6 +21,9 @@ use crate::decision::{AssemblyResult, DecisionCommitResult};
 #[cfg(feature = "query")]
 use crate::storage_wire::SqlSourceBatchResult;
 use crate::storage_wire::{BackupReceipt, RestoreReceipt, SqliteExportReport, SqliteImportReport};
+use crate::write_back::{
+    ReconciliationReceipt, SourceChangeSet, WriteBackReceipt, WriteBackReceiptPage,
+};
 
 method_results! {
     visit_storage;
@@ -96,6 +99,11 @@ method_results! {
     ConnectorPackRetire(ConnectorPack / "retire") => Raw<PackRetireResult>;
     ConnectorPackReproject(ConnectorPack / "reproject") => Raw<PackImportReceipt>;
     ConnectorPackReconcileBodies(ConnectorPack / "reconcile_bodies") => Raw<PackBodyReconcileReport>;
+    WriteBackCreate(WriteBack / "create") => Raw<SourceChangeSet>;
+    WriteBackGet(WriteBack / "get") => Raw<Option<SourceChangeSet>>;
+    WriteBackRecordAttempt(WriteBack / "record_attempt") => Raw<WriteBackReceipt>;
+    WriteBackRecordReconciliation(WriteBack / "record_reconciliation") => Raw<ReconciliationReceipt>;
+    WriteBackReceipts(WriteBack / "receipts") => Raw<WriteBackReceiptPage>;
     ImportSqliteFile(ImportSqliteFile) => Json<SqliteImportReport>;
     ExportSqliteFile(ExportSqliteFile) => Json<SqliteExportReport>;
 }

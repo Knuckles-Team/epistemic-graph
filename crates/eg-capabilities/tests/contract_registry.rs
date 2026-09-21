@@ -173,9 +173,10 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 415 -> 425: the 2.27.x contract wave's ten new methods -- `Decide`,
     // `ConnectorPack`, `GraphSchema`, `GraphSchemaList`, `MutationOutbox`,
     // `Solve`, `AgentAssemble`, `DecisionCommit`, `DecisionEval`, `DecisionFit`.
+    // 425 -> 426: RF-ADR-009's served `SourceIngest` raw-record authority.
     assert_eq!(
         variants.len(),
-        425,
+        426,
         "the wire method census changed; update this exact count deliberately"
     );
 }

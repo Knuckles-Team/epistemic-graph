@@ -443,6 +443,15 @@ fn connector_pack_policy(op: &eg_types::connector_pack::ConnectorPackOp) -> Meth
     )
 }
 
+fn write_back_policy(op: &eg_types::write_back::WriteBackOp) -> MethodPolicy {
+    native_owner_policy(
+        op.is_mutation(),
+        DurabilityDomain::ControlRedb,
+        op.authz_action(),
+        TxnParticipation::Atomic,
+    )
+}
+
 /// One decision job's policy: `submit` writes a `jobs.redb` row, `status`
 /// reads one. Both jobs share this shape and differ only in their action, so
 /// the caller passes the action rather than the shape being written twice.
@@ -477,9 +486,21 @@ fn agent_family_policy(method: &Method) -> Option<MethodPolicy> {
         Method::AgentComponent { op } => Some(agent_component_policy(op)),
         Method::AgentTemplate { op } => Some(agent_template_policy(op)),
         Method::SemanticIndex { op } => Some(semantic_index_policy(op)),
-        Method::ConnectorPack { op } => Some(connector_pack_policy(op)),
         _ => None,
     }
+}
+
+/// Connector administration lives beside the agent hierarchy but has its own
+/// policy vocabulary. Keep it out of the hierarchy dispatcher so adding a new
+/// governed connector operation cannot make agent selection more complex.
+fn connector_family_policy(method: &Method) -> Option<MethodPolicy> {
+    if let Method::ConnectorPack { op } = method {
+        return Some(connector_pack_policy(op));
+    }
+    if let Method::WriteBack { op } = method {
+        return Some(write_back_policy(op));
+    }
+    None
 }
 
 /// The control family: the remaining runtime-conditional surfaces.
@@ -500,7 +521,7 @@ fn control_family_policy(method: &Method) -> Option<MethodPolicy> {
 }
 
 fn policy_for_method(method: &Method) -> MethodPolicy {
-    if let Some(policy) = agent_family_policy(method) {
+    if let Some(policy) = agent_family_policy(method).or_else(|| connector_family_policy(method)) {
         return policy;
     }
     if let Some(policy) = control_family_policy(method) {

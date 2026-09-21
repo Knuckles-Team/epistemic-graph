@@ -14,6 +14,65 @@ from ._runtime import (
     OpaqueResult,
     expect_string,
 )
+from .source_ingestion import (
+    SourceIngestionReceipt,
+    SourceIngestionRequest,
+)
+
+
+class SourceIngestRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        SourceIngest
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/SourceIngest
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: SourceIngestionRequest
+
+
+async def send_source_ingest(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> SourceIngestionReceipt:
+    """Send one engine-contract request.
+
+    Method:
+        SourceIngest
+    Authorization:
+        source:ingest
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.ingestion.json
+        #/methods/SourceIngest
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    SourceIngestRequest.model_validate(params or {})
+    payload = await client._send(
+        "SourceIngest",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return SourceIngestionReceipt.model_validate(payload)
 
 
 class ServedModalityRequest(BaseModel):

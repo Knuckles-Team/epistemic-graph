@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 425,
+  "method_count": 427,
   "methods": [
     {
       "consumer_profiles": [
@@ -11153,6 +11153,53 @@
         "GRAPH_SNAPSHOT_SCHEMA_VERSION",
         "GRAPH_META_SCHEMA_VERSION"
       ],
+      "id": "SourceIngest",
+      "note": "RF-ADR-009 native ingestion authority: tenant-bound typed Connector Manifest mapping resolution and idempotent raw-CAS admission precede one atomic ChangeEnvelope commit for mapped graph material, provenance, cursor and receipt; unknown mapping, tenant or authority fails closed; internal until the integrated contract passes release gates",
+      "policy": {
+        "audited": true,
+        "authz_action": "source:ingest",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": true,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Saga"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/SourceIngest"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.ingestion.json#/methods/SourceIngest",
+        "selected_by": null
+      },
+      "stability": "internal"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "ingestion",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
       "id": "ServedModality",
       "note": "runtime-conditional: authority/query/events/capabilities are verified read snapshots; ingest/delete/cold/restore commit an encrypted state-backed MutationBatch",
       "policy": {
@@ -16219,6 +16266,68 @@
         "selected_by": "op"
       },
       "stability": "internal"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "storage",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "RBAC_SCOPE_INCARNATION",
+        "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
+      ],
+      "id": "WriteBack",
+      "note": "RF-ADR-009 D18, runtime-conditional: create/record operations append tenant-bound change-set and receipt rows through the existing Agent Library ControlRedb mutation kernel; get/receipts are authenticated snapshots. EG records authorization and source observations and never calls vendor APIs",
+      "policy": {
+        "audited": true,
+        "authz_action": "connector:write-back",
+        "durability_domain": "ControlRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/WriteBack"
+      },
+      "result_schema": {
+        "bodies": {
+          "create": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "get": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "receipts": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "record_attempt": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "record_reconciliation": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.storage.json#/methods/WriteBack",
+        "selected_by": "op"
+      },
+      "stability": "stable"
     },
     {
       "consumer_profiles": [

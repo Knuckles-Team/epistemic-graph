@@ -51,6 +51,18 @@ pub const MAX_PACK_RECORD_BYTES: usize = 4 << 20;
 
 /// The outbox topic one committed import publishes on.
 pub const CONNECTOR_PACK_IMPORT_TOPIC: &str = "eg.connector-pack.import.v1";
+/// Typed mutation-result schema carried by a committed import receipt.
+pub const CONNECTOR_PACK_RESULT_SCHEMA_ID: &str = "connector-pack-import-result.v1";
+
+/// Closed mapping selected from a connector pack's authoritative manifest.
+/// Ingestion consumes this type and never parses caller-supplied manifest text.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ConnectorSchemaMapping {
+    pub ontology_class: String,
+    pub fields: std::collections::BTreeMap<String, String>,
+}
 
 pub use annotations::{PackAnnotations, PackCost, PackModelFacts};
 pub use ids::{escape_pack_name, pack_component_id, PACK_COMPONENT_ID_PREFIX};

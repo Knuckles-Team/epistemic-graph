@@ -272,7 +272,7 @@ fn component_verb(kind: AgentComponentMutationKind) -> RevisionVerb {
 pub(super) struct ComponentLayer;
 
 /// The component layer's head and revision tables.
-fn component_tables() -> RevisionTables {
+pub(super) fn component_tables() -> RevisionTables {
     RevisionTables {
         heads: eg_storage::AGENT_COMPONENT_HEADS,
         revisions: eg_storage::AGENT_COMPONENT_REVISIONS,
@@ -1168,15 +1168,38 @@ mod tests {
     }
 
     #[test]
-    fn a_search_with_neither_a_task_nor_a_capability_is_refused() {
+    fn a_search_with_no_selector_is_refused() {
         let (_dir, store) = open_store();
         let error = store
             .search_components(&search("tenant-a", None, false))
             .expect_err("an unconstrained search must be refused");
-        assert!(
-            error.contains("task or at least one capability"),
-            "got: {error}"
-        );
+        assert!(error.contains("task, capability, or kind"), "got: {error}");
+    }
+
+    #[test]
+    fn a_kind_only_search_lists_that_kind() {
+        let (_dir, store) = open_store();
+        seed_search_corpus(&store);
+        let mut request = search("tenant-a", None, false);
+        request.kinds = vec![AgentComponentKind::Tool];
+        request.limit = Some(2);
+
+        let first = store.search_components(&request).unwrap();
+        assert_eq!(first.entries.len(), 2);
+        assert!(first
+            .entries
+            .iter()
+            .all(|entry| entry.kind == AgentComponentKind::Tool));
+        assert!(first.next_cursor.is_some(), "the listing must paginate");
+
+        request.cursor = first.next_cursor;
+        let second = store.search_components(&request).unwrap();
+        assert_eq!(second.entries.len(), 2);
+        assert!(second
+            .entries
+            .iter()
+            .all(|entry| entry.kind == AgentComponentKind::Tool));
+        assert!(second.next_cursor.is_none());
     }
 
     // ---- pagination ----

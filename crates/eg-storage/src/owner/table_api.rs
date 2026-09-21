@@ -96,6 +96,15 @@ declared_owner_tables!(
     AgentComponentHeadRows: AgentLibraryOwner => ((String, String), u64, "agent_component_heads"),
     AgentTemplateRevisionRows: AgentLibraryOwner => ((String, String, u64), Vec<u8>, "agent_template"),
     AgentTemplateHeadRows: AgentLibraryOwner => ((String, String), u64, "agent_template_heads"),
+    ConnectorPackHeadRows: AgentLibraryOwner => ((String, String), Vec<u8>, "connector_pack_heads"),
+    ConnectorPackMemberRows: AgentLibraryOwner => ((String, String, String), Vec<u8>, "connector_pack_members"),
+    ConnectorPackImportRows: AgentLibraryOwner => ((String, String, u64), Vec<u8>, "connector_pack_imports"),
+    ConnectorPackBodyHolderRows: AgentLibraryOwner => ((String, String, String, u64), Vec<u8>, "connector_pack_body_holders"),
+    ConnectorPackBindingRows: AgentLibraryOwner => ((String, String), Vec<u8>, "connector_pack_bindings"),
+    WriteBackChangeSetRows: AgentLibraryOwner => ((String, String), Vec<u8>, "write_back_change_sets"),
+    WriteBackIdempotencyRows: AgentLibraryOwner => ((String, String), Vec<u8>, "write_back_idempotency"),
+    WriteBackReceiptRows: AgentLibraryOwner => ((String, String, u64), Vec<u8>, "write_back_receipts"),
+    WriteBackReceiptHeadRows: AgentLibraryOwner => ((String, String), u64, "write_back_receipt_heads"),
 );
 
 /// Closed dispatch over the declared owner tables. The `unreachable!` arm is a
@@ -164,7 +173,16 @@ pub(crate) fn owner_table_access(table: &str) -> OwnerTableAccess {
         | "agent_component"
         | "agent_component_heads"
         | "agent_template"
-        | "agent_template_heads" => OwnerTableAccess::DomainService,
+        | "agent_template_heads"
+        | "connector_pack_heads"
+        | "connector_pack_members"
+        | "connector_pack_imports"
+        | "connector_pack_body_holders"
+        | "connector_pack_bindings"
+        | "write_back_change_sets"
+        | "write_back_idempotency"
+        | "write_back_receipts"
+        | "write_back_receipt_heads" => OwnerTableAccess::DomainService,
         name if name.starts_with("__sql_") => OwnerTableAccess::DomainService,
         // Every graph-shard table is reached through the shard's own admitted
         // owner write, never as a shared service: one shard file is one

@@ -11,7 +11,40 @@ pub(super) async fn dispatch_decision_plane_methods(
     method: Method,
 ) -> ControlFlow<Response, Method> {
     let method = dispatch_decision_methods(ctx, method).await?;
+    let method = dispatch_write_back_method(ctx, method).await?;
     dispatch_catalog_admin_methods(ctx, method).await
+}
+
+async fn dispatch_write_back_method(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let Method::WriteBack { op } = method else {
+        return ControlFlow::Continue(method);
+    };
+    #[cfg(feature = "redb")]
+    {
+        ControlFlow::Break(
+            dispatch_boxed(async {
+                handlers::write_back::handle_write_back(
+                    ctx.state,
+                    ctx.req.id,
+                    ctx.verified_context,
+                    *op,
+                )
+                .await
+            })
+            .await,
+        )
+    }
+    #[cfg(not(feature = "redb"))]
+    {
+        let _ = (ctx.state, ctx.verified_context, op);
+        ControlFlow::Break(Response::err(
+            ctx.req.id,
+            "write-back requires the `redb` feature",
+        ))
+    }
 }
 
 /// The four Decide methods and the solver. None carries a `#[cfg]`: the wire
@@ -67,8 +100,8 @@ async fn dispatch_decision_methods(
     })
 }
 
-/// The two catalog-administration surfaces: connector packs and the mutation
-/// outbox.
+/// Catalog administration: connector packs, governed write-back records and
+/// the mutation outbox.
 async fn dispatch_catalog_admin_methods(
     ctx: DispatchCtx<'_>,
     method: Method,

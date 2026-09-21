@@ -895,7 +895,7 @@
     },
     "AgentComponentSearchRequest": {
       "additionalProperties": false,
-      "description": "Find components by what they can do.\n\nThe wire form of *\"what does an agent trying to do XYZ need?\"*. Either\n`task` (resolved to capabilities through the native ontology) or explicit\n`capabilities` may be given; giving both intersects them.\n\n# Why this is paginated\n\nThis is the capability-discovery query the whole component layer exists to\nserve, so it is the one read whose result set grows with the tenant rather\nthan with the request. An unpaginated form has two failure modes and no\nrecovery from either: the response size is bounded only by the corpus, and a\ntenant whose component count passes the scan bound is refused on EVERY\nsearch forever. [`AgentComponentSearchPage`] exists so neither is possible,\nand it is an object rather than a bare array because turning an array into\nan object later is a read-side wire break.",
+      "description": "Find components by what they can do.\n\nThe wire form of *\"what does an agent trying to do XYZ need?\"*. A caller\nsupplies a `task` (resolved through the native ontology), explicit\n`capabilities`, or at least one `kind`. A kind-only request is the bounded,\npaginated catalog-listing form; a request with no selector is refused.\n\n# Why this is paginated\n\nThis is the capability-discovery query the whole component layer exists to\nserve, so it is the one read whose result set grows with the tenant rather\nthan with the request. An unpaginated form has two failure modes and no\nrecovery from either: the response size is bounded only by the corpus, and a\ntenant whose component count passes the scan bound is refused on EVERY\nsearch forever. [`AgentComponentSearchPage`] exists so neither is possible,\nand it is an object rather than a bare array because turning an array into\nan object later is a read-side wire break.",
       "properties": {
         "capabilities": {
           "default": [],
@@ -3056,6 +3056,13 @@
         "$ref": "#/$defs/SlotAssignment"
       },
       "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_SourceRecord_1024": {
+      "items": {
+        "$ref": "#/$defs/SourceRecord"
+      },
+      "maxItems": 1024,
       "type": "array"
     },
     "BoundedVec_SqlSourceCell_256": {
@@ -5775,7 +5782,7 @@
     },
     "CostFacts": {
       "additionalProperties": false,
-      "description": "What one invocation costs, exactly, in a named currency.\n\nInteger micros, never a float: a budget comparison that depends on binary\nrounding is a budget that decides differently on two hosts.",
+      "description": "What one invocation costs, plus who says so and how strongly.",
       "properties": {
         "currency": {
           "description": "ISO 4217: exactly three ASCII uppercase letters.",
@@ -6525,6 +6532,47 @@
       },
       "required": [
         "nodes"
+      ],
+      "type": "object"
+    },
+    "DeclaredCost": {
+      "additionalProperties": false,
+      "description": "What one invocation costs, exactly, in a named currency.\n\nInteger micros, never a float: a budget comparison that depends on binary\nrounding is a budget that decides differently on two hosts. The same\nshape a connector pack entry declares for itself\n([`crate::connector_pack::PackCost`]) — one owner for \"what does this\ninvocation cost\", whether the number arrived via a pack import or was\notherwise declared.",
+      "properties": {
+        "currency": {
+          "description": "ISO 4217: exactly three ASCII uppercase letters.",
+          "type": "string"
+        },
+        "input_per_mtok_micros": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "output_per_mtok_micros": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "per_call_micros": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "currency"
       ],
       "type": "object"
     },
@@ -27383,6 +27431,60 @@
         },
         {
           "additionalProperties": false,
+          "description": "RF-ADR-009 native ingestion authority. Resolves the exact Connector\nManifest mapping under the verified tenant, admits raw records to CAS,\nmaps them and atomically commits graph material, provenance and cursor.",
+          "properties": {
+            "method": {
+              "const": "SourceIngest",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/SourceIngestionRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "EG-owned D18 source change sets and append-only write-back receipts.\nThe engine records governed observations; it never calls a vendor API.",
+          "properties": {
+            "method": {
+              "const": "WriteBack",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "op": {
+                  "$ref": "#/$defs/WriteBackOp"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "Attach, replace or detach one keyed schema source on the request graph.",
           "properties": {
             "method": {
@@ -27791,6 +27893,7 @@
           "type": "integer"
         },
         "lease_until_ms": {
+          "description": "EXCLUSIVE upper bound, mirroring `eg_transaction::outbox::rows::\nOutboxDelivery::lease_until_ms` (the durable row this lease is\nissued over): valid while `now_ms < lease_until_ms`, expired once\n`now_ms >= lease_until_ms`. `now_ms == lease_until_ms` is already\nexpired, not still valid.",
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -29389,7 +29492,7 @@
         "cost": {
           "anyOf": [
             {
-              "$ref": "#/$defs/PackCost"
+              "$ref": "#/$defs/DeclaredCost"
             },
             {
               "type": "null"
@@ -29499,46 +29602,6 @@
         "blob_digest",
         "length",
         "sha256"
-      ],
-      "type": "object"
-    },
-    "PackCost": {
-      "additionalProperties": false,
-      "description": "Declared per-invocation prices, in integer micros.",
-      "properties": {
-        "currency": {
-          "type": "string"
-        },
-        "input_per_mtok_micros": {
-          "default": null,
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "output_per_mtok_micros": {
-          "default": null,
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "per_call_micros": {
-          "default": null,
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "currency"
       ],
       "type": "object"
     },
@@ -31284,6 +31347,54 @@
         "source_graph_version",
         "fence_epoch",
         "projection_pending"
+      ],
+      "type": "object"
+    },
+    "ReconciliationObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "change_set_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "change_set_id": {
+          "type": "string"
+        },
+        "connector_observation_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "effect_status": {
+          "$ref": "#/$defs/WriteBackEffectStatus"
+        },
+        "evidence_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "observed_source_version": {
+          "type": "string"
+        },
+        "provenance_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "retry_allowed": {
+          "type": "boolean"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "change_set_id",
+        "change_set_digest",
+        "idempotency_key",
+        "observed_source_version",
+        "effect_status",
+        "retry_allowed",
+        "evidence_digest",
+        "connector_observation_digest",
+        "provenance_digest"
       ],
       "type": "object"
     },
@@ -35797,6 +35908,240 @@
       ],
       "type": "object"
     },
+    "SourceChangeSet": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "type": "string"
+        },
+        "authorization": {
+          "$ref": "#/$defs/WriteBackAuthorizationDecision"
+        },
+        "base_source_version": {
+          "type": "string"
+        },
+        "change_set_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "change_set_id": {
+          "type": "string"
+        },
+        "connector_id": {
+          "type": "string"
+        },
+        "desired_patch": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "entity_id": {
+          "type": "string"
+        },
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "field_provenance": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "field_scope": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "policy_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "purpose": {
+          "type": "string"
+        },
+        "reconciliation_procedure": {
+          "type": "string"
+        },
+        "required_capability": {
+          "type": "string"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source_instance_id": {
+          "type": "string"
+        },
+        "source_of_truth_rule": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "change_set_id",
+        "change_set_digest",
+        "tenant_id",
+        "actor",
+        "purpose",
+        "connector_id",
+        "source_instance_id",
+        "entity_id",
+        "field_scope",
+        "base_source_version",
+        "desired_patch",
+        "source_of_truth_rule",
+        "field_provenance",
+        "required_capability",
+        "policy_digest",
+        "authorization",
+        "idempotency_key",
+        "expires_at_ms",
+        "reconciliation_procedure"
+      ],
+      "type": "object"
+    },
+    "SourceCursor": {
+      "additionalProperties": false,
+      "properties": {
+        "pending_watermark": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "position": {
+          "$ref": "#/$defs/SourceJson"
+        },
+        "stream": {
+          "type": "string"
+        },
+        "watermark": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "stream",
+        "position"
+      ],
+      "type": "object"
+    },
+    "SourceIngestionBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "connector": {
+          "type": "string"
+        },
+        "cursor": {
+          "$ref": "#/$defs/SourceCursor"
+        },
+        "expected_previous_cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceCursor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`None` is valid only when no cursor has ever committed for this source.\nOtherwise the authoritative transaction compares this exact digest with\nthe stored cursor and rejects stale/concurrent pages."
+        },
+        "mapping_reference": {
+          "description": "Opaque exact reference resolved by the tenant's Agent Library.  Mapping\ncontent is intentionally absent from this request.",
+          "type": "string"
+        },
+        "records": {
+          "$ref": "#/$defs/BoundedVec_SourceRecord_1024"
+        }
+      },
+      "required": [
+        "connector",
+        "mapping_reference",
+        "records",
+        "cursor"
+      ],
+      "type": "object"
+    },
+    "SourceIngestionRequest": {
+      "$ref": "#/$defs/SourceIngestionBatch",
+      "description": "A request whose structural invariants and byte bound were checked during\nconstruction/deserialization.  Tenant, auth, mapping existence and the\npersisted cursor are deliberately server-side authority checks."
+    },
+    "SourceJson": {
+      "additionalProperties": true,
+      "type": "object"
+    },
+    "SourceRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "payload": {
+          "$ref": "#/$defs/SourceJson"
+        },
+        "provenance": {
+          "$ref": "#/$defs/SourceRecordProvenance"
+        },
+        "record_id": {
+          "type": "string"
+        },
+        "stream": {
+          "type": "string"
+        },
+        "updated_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "stream",
+        "record_id",
+        "payload",
+        "provenance"
+      ],
+      "type": "object"
+    },
+    "SourceRecordProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter_kind": {
+          "type": "string"
+        },
+        "connector": {
+          "type": "string"
+        },
+        "server": {
+          "type": "string"
+        },
+        "source_uri": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        },
+        "tool_schema_sha256": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "connector",
+        "adapter_kind",
+        "server",
+        "tool",
+        "tool_schema_sha256",
+        "source_uri"
+      ],
+      "type": "object"
+    },
     "SpatialOpKind": {
       "description": "SPATIAL — the constructive geometry op applied by `Op::SpatialOp` (CONCEPT:EG-KG.ontology.concept-9).\nPure serde here (Pi-safe, no eg-geo dep); the executor maps it to eg-geo's `algebra`\nbehind eg-plan's `geo` gate. Unary ops (`Buffer`/`ConvexHull`/`Simplify`/`Centroid`)\nderive from the row geometry alone; binary ops (`Union`/`Intersection`/`Difference`)\ntake the second operand as a WKT literal.",
       "oneOf": [
@@ -38235,6 +38580,245 @@
         "capability"
       ],
       "type": "object"
+    },
+    "WriteBackAttempt": {
+      "additionalProperties": false,
+      "properties": {
+        "applied_field_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "change_set_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "change_set_id": {
+          "type": "string"
+        },
+        "connector_observation_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "effect_status": {
+          "$ref": "#/$defs/WriteBackEffectStatus"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "input_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "kind": {
+          "$ref": "#/$defs/WriteBackAttemptKind"
+        },
+        "outcome": {
+          "$ref": "#/$defs/WriteBackOutcome"
+        },
+        "output_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "post_source_version": {
+          "type": "string"
+        },
+        "pre_source_version": {
+          "type": "string"
+        },
+        "provenance_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "change_set_id",
+        "change_set_digest",
+        "idempotency_key",
+        "kind",
+        "input_digest",
+        "output_digest",
+        "pre_source_version",
+        "post_source_version",
+        "applied_field_digest",
+        "outcome",
+        "effect_status",
+        "connector_observation_digest",
+        "provenance_digest"
+      ],
+      "type": "object"
+    },
+    "WriteBackAttemptKind": {
+      "enum": [
+        "dry_run",
+        "apply"
+      ],
+      "type": "string"
+    },
+    "WriteBackAuthorizationDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "authorization_ref": {
+          "type": "string"
+        },
+        "authorized": {
+          "type": "boolean"
+        },
+        "decision_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "input_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "mode": {
+          "$ref": "#/$defs/WriteBackAuthorizationMode"
+        },
+        "output_digest": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "mode",
+        "authorization_ref",
+        "decision_digest",
+        "input_digest",
+        "output_digest",
+        "authorized"
+      ],
+      "type": "object"
+    },
+    "WriteBackAuthorizationMode": {
+      "enum": [
+        "proposal_approval",
+        "standing_policy",
+        "manual_trigger"
+      ],
+      "type": "string"
+    },
+    "WriteBackEffectStatus": {
+      "enum": [
+        "no_effect",
+        "applied",
+        "outcome_uncertain"
+      ],
+      "type": "string"
+    },
+    "WriteBackOp": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "change_set": {
+              "$ref": "#/$defs/SourceChangeSet"
+            },
+            "op": {
+              "const": "create",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "change_set"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "change_set_id": {
+              "type": "string"
+            },
+            "op": {
+              "const": "get",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "change_set_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "attempt": {
+              "$ref": "#/$defs/WriteBackAttempt"
+            },
+            "op": {
+              "const": "record_attempt",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "attempt"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "observation": {
+              "$ref": "#/$defs/ReconciliationObservation"
+            },
+            "op": {
+              "const": "record_reconciliation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "observation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "after_sequence": {
+              "default": 0,
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "change_set_id": {
+              "type": "string"
+            },
+            "limit": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "op": {
+              "const": "receipts",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "change_set_id",
+            "limit"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "WriteBackOutcome": {
+      "enum": [
+        "dry_run_ready",
+        "applied",
+        "conflict",
+        "rejected",
+        "outcome_uncertain"
+      ],
+      "type": "string"
     },
     "YearData": {
       "description": "One fiscal year of standardized financial-statement inputs (forensic scores).",

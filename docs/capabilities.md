@@ -29,6 +29,7 @@ The **Feature** column is the Cargo feature that gates the surface; the
 | Operation | Status | Feature | Evidence |
 |-----------|:------:|---------|----------|
 | `ApplyChangeEnvelope` | ✅ | `redb` | One redb transaction commits graph operations, immutable envelope/batch status, blobs/features/evidence/policy/lineage, typed content version and cursor, and projection/CDC outbox rows |
+| `SourceIngest` | 🔶 | `redb`, `blob` | Contract and native authority are implemented; it resolves a tenant-bound typed Connector Manifest mapping, admits raw CAS content, and delegates mapped graph/provenance/cursor/receipt publication to the existing `ChangeEnvelope` transaction authority. Integration and release gates remain pending |
 | `GetChangeEnvelope` | ✅ | `redb` | Verified tenant-scoped reconciliation read of the immutable committed envelope |
 | `GetContentVersion` | ✅ | `redb` | Typed sequence, millisecond timestamp, or provider-opaque version; opaque values are never lexically ordered |
 | `GetChangeCursor` | ✅ | `redb` | Typed, tenant/graph/source/partition-scoped cursor with compare-and-advance fencing |
@@ -410,6 +411,7 @@ See [governed modality serving](architecture/modality_serving.md).
 | Tiered hot/warm/cold KV-block cache (LRU + importance/recency; RAM → compressed-RAM → redb/blob; auto promote/demote) | ✅ | survives OOM by offloading (CONCEPT:EG-KG.memory.byte-bounded-tiers); warm tier uses real **zstd** (optional lz4) compression, not RLE (CONCEPT:EG-KG.storage.rle-codec-default) |
 | Shared multi-instance KV backend (content-addressed, dedup, ref-count; lookup/publish by token-hash) | ✅ | `SharedKvBackend` (CONCEPT:EG-KG.enrichment.content-address-separation) |
 | HTTP endpoint (GET/PUT/EXISTS a block by token-hash + stats) + vLLM/LMCache remote-backend connector contract | ✅ | `kvcache-server`, in the main build (CONCEPT:EG-KG.backend.is-configured-so-co) |
+| Governed connector write-back change sets and append-only attempt/reconciliation receipts | ✅ | `Method::WriteBack`; [architecture contract](architecture/write_back.md) |
 
 ## OBDA / virtual graphs (`federation` + `eg-rdf`)
 

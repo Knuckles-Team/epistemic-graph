@@ -153,7 +153,9 @@ fn ledger_key_type(name: &str) -> Option<&'static str> {
 }
 
 fn owner_key_type(name: &str) -> Option<&'static str> {
-    jobs_key_type(name).or_else(|| domain_owner_key_type(name))
+    jobs_key_type(name)
+        .or_else(|| connector_owner_key_type(name))
+        .or_else(|| domain_owner_key_type(name))
 }
 
 fn jobs_key_type(name: &str) -> Option<&'static str> {
@@ -214,6 +216,21 @@ fn domain_owner_key_type(name: &str) -> Option<&'static str> {
     }
 }
 
+/// Key shapes for the connector-pack and governed write-back owner tables.
+fn connector_owner_key_type(name: &str) -> Option<&'static str> {
+    match name {
+        "connector_pack_heads"
+        | "connector_pack_bindings"
+        | "write_back_change_sets"
+        | "write_back_idempotency"
+        | "write_back_receipt_heads" => Some("(&str,&str)"),
+        "connector_pack_members" => Some("(&str,&str,&str)"),
+        "connector_pack_imports" | "write_back_receipts" => Some("(&str,&str,u64)"),
+        "connector_pack_body_holders" => Some("(&str,&str,&str,u64)"),
+        _ => None,
+    }
+}
+
 /// The SQL catalog/row store owned by `eg-query`.
 fn sql_key_type(name: &str) -> Option<&'static str> {
     match name {
@@ -265,7 +282,8 @@ fn value_type_id(name: &str) -> &'static str {
         "agent_library_heads"
         | "agent_graph_heads"
         | "agent_component_heads"
-        | "agent_template_heads" => "u64",
+        | "agent_template_heads"
+        | "write_back_receipt_heads" => "u64",
         "analytics_job_active_totals_by_tenant" => "(u64,u64)",
         "mutation_outbox_topic_index"
         | "analytics_job_ready_by_priority"
@@ -333,7 +351,15 @@ fn value_type_id(name: &str) -> &'static str {
         | "agent_library"
         | "agent_graph"
         | "agent_component"
-        | "agent_template" => "&[u8]",
+        | "agent_template"
+        | "connector_pack_heads"
+        | "connector_pack_members"
+        | "connector_pack_imports"
+        | "connector_pack_body_holders"
+        | "connector_pack_bindings"
+        | "write_back_change_sets"
+        | "write_back_idempotency"
+        | "write_back_receipts" => "&[u8]",
         name => graph_shard::value_type(name)
             .unwrap_or_else(|| unreachable!("table outside closed owner manifest: {name}")),
     }
@@ -377,9 +403,24 @@ fn ledger_and_job_codec(name: &str) -> Option<&'static str> {
     Some(match name {
         "ledger_private_payloads" => "authenticated-sealed-bytes-v1",
         "eg_ann" | "eg_kvcache_cold" | "cold_graphs" => "raw-bytes-v1",
-        "path_index" | "viz_provenance" | "tenant_catalog" | "node_info" | "node_info_meta"
-        | "cluster_hierarchy" | "agent_library" | "agent_graph" | "agent_component"
-        | "agent_template" => "msgpack-v1",
+        "path_index"
+        | "viz_provenance"
+        | "tenant_catalog"
+        | "node_info"
+        | "node_info_meta"
+        | "cluster_hierarchy"
+        | "agent_library"
+        | "agent_graph"
+        | "agent_component"
+        | "agent_template"
+        | "connector_pack_heads"
+        | "connector_pack_members"
+        | "connector_pack_imports"
+        | "connector_pack_body_holders"
+        | "connector_pack_bindings"
+        | "write_back_change_sets"
+        | "write_back_idempotency"
+        | "write_back_receipts" => "msgpack-v1",
         "rbac" => "json-utf8-v1",
         "kv" | "cas_chunks" => "raw-bytes-v1",
         "series_chunks" => "packed-timeseries-chunk-v1",
@@ -406,7 +447,8 @@ fn ledger_and_job_codec(name: &str) -> Option<&'static str> {
         | "agent_library_heads"
         | "agent_graph_heads"
         | "agent_component_heads"
-        | "agent_template_heads" => "redb-scalar-v1",
+        | "agent_template_heads"
+        | "write_back_receipt_heads" => "redb-scalar-v1",
         _ => return None,
     })
 }
@@ -591,6 +633,21 @@ fn agent_capabilities(name: &str) -> Option<u16> {
         | "agent_graph_heads"
         | "agent_component_heads"
         | "agent_template_heads" => CAP_READ | CAP_INSERT | CAP_UPDATE,
+        _ => return connector_capabilities(name),
+    })
+}
+
+fn connector_capabilities(name: &str) -> Option<u16> {
+    Some(match name {
+        "connector_pack_imports"
+        | "connector_pack_body_holders"
+        | "write_back_change_sets"
+        | "write_back_idempotency"
+        | "write_back_receipts" => CAP_READ | CAP_INSERT,
+        "connector_pack_heads" | "connector_pack_members" | "write_back_receipt_heads" => {
+            CAP_READ | CAP_INSERT | CAP_UPDATE
+        }
+        "connector_pack_bindings" => CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE,
         _ => return None,
     })
 }

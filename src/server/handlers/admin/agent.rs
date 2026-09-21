@@ -172,7 +172,10 @@ pub(crate) async fn handle_agent_component(
         AgentComponentOp::Status { request } => component_status(&store, req_id, verified, request),
         AgentComponentOp::Search { request } => component_search(&store, req_id, request),
         AgentComponentOp::Content { request } => {
-            super::component_content::handle_component_content(&store, req_id, verified, request)
+            super::component_content::handle_component_content(
+                state, &store, req_id, verified, request,
+            )
+            .await
         }
     }
 }

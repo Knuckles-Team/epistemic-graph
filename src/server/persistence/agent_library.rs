@@ -41,13 +41,30 @@ mod write;
 
 pub(super) use batch::native_lifecycle_batch;
 use history::read_history;
-pub(super) use receipt::{owner_receipt, OwnerReceiptInput};
+pub(super) use receipt::{owner_batch_receipt, owner_receipt, OwnerReceiptInput};
 use replay::{receipt_result, record_result, replay_record};
 
 /// Persist-dir file for the EG-owned Agent Library.
 pub const AGENT_LIBRARY_FILE: &str = "agent_library.redb";
 /// Stable physical identity used by staged backup adoption.
 pub(crate) const AGENT_LIBRARY_PHYSICAL_STORE: &str = "epistemic-graph:agent-library";
+const AGENT_LIBRARY_BEFORE_CONNECTOR_PACKS_AND_WRITE_BACK: eg_storage::LayoutPredecessor =
+    eg_storage::LayoutPredecessor {
+        layout: eg_storage::OwnerLayout::AgentLibrary,
+        label: "Agent Library before connector packs and governed write-back",
+        owner_tables: &[
+            "agent_library",
+            "agent_library_heads",
+            "agent_graph",
+            "agent_graph_heads",
+            "agent_component",
+            "agent_component_heads",
+            "agent_template",
+            "agent_template_heads",
+        ],
+        data_lost: "its pre-ConnectorPack and governed-write-back Agent Library rows are intentionally not upgraded",
+        file_name: AGENT_LIBRARY_FILE,
+    };
 const AGENT_LIBRARY_SCOPE_RESOURCE: &str = "agent-library";
 const AGENT_LIBRARY_SCOPE_INCARNATION: &str = "agent-library:v1";
 const AGENT_LIBRARY_BOOTSTRAP_TENANT: &str = "agent-library-bootstrap";
@@ -85,6 +102,10 @@ impl AgentLibraryStore {
         }
         let physical = PhysicalStoreIdentity::new(AGENT_LIBRARY_PHYSICAL_STORE)?;
         let kernel = if path.exists() {
+            eg_storage::refuse_known_predecessor(
+                &path,
+                &AGENT_LIBRARY_BEFORE_CONNECTOR_PACKS_AND_WRITE_BACK,
+            )?;
             StorageKernel::open_owner::<eg_storage::AgentLibraryOwner>(&path, physical, None)
         } else {
             StorageKernel::create_owner::<eg_storage::AgentLibraryOwner>(&path, physical, None)

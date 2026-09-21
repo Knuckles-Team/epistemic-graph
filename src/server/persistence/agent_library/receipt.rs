@@ -78,6 +78,75 @@ pub(in crate::server::persistence) fn owner_receipt(
     Ok(receipt)
 }
 
+/// Receipt for a batch whose complete effect is several outbox intents. The
+/// fold binds intent order as well as every topic, key, payload and header, so
+/// omitting one per-component event changes the receipt effect digest.
+pub(in crate::server::persistence) fn owner_batch_receipt(
+    operation: &eg_types::authority::OperationReplayIdentity,
+    nonce: &eg_types::authority::NonceReplayKey,
+    batch: &MutationBatch,
+    slug: &str,
+    mutation_result: MutationResult,
+    committed_version: u64,
+    committed_at_ms: u64,
+) -> Result<MutationReceipt, String> {
+    use eg_types::contract::{MutationDisposition, OpaqueId, UtcUnixNanos};
+
+    let operation_digest = operation.digest()?;
+    let nonce_digest = nonce.digest()?;
+    let context_digest = batch
+        .envelope
+        .operation()
+        .map(|envelope| envelope.authority.context_digest)
+        .unwrap_or(operation_digest);
+    let effect_digest = batch.outbox.iter().enumerate().try_fold(
+        eg_types::contract::Digest256::framed(b"eg/agent-library-effects/v1", &[])?,
+        |prior, (ordinal, intent)| {
+            let intent_digest = agent_library_effect_digest(
+                &intent.topic,
+                &intent.key,
+                &intent.payload,
+                &intent.headers,
+            )?;
+            eg_types::contract::Digest256::framed(
+                b"eg/agent-library-effect-item/v1",
+                &[
+                    prior.as_bytes(),
+                    &(ordinal as u64).to_be_bytes(),
+                    intent_digest.as_bytes(),
+                ],
+            )
+        },
+    )?;
+    let suffix = operation_digest.to_hex();
+    let recorded_at = committed_at_ms
+        .checked_mul(1_000_000)
+        .and_then(|value| i64::try_from(value).ok())
+        .map(UtcUnixNanos::new)
+        .ok_or_else(|| "agent library receipt time exceeds the supported range".to_string())?;
+    let receipt = MutationReceipt {
+        receipt_id: OpaqueId::new(format!("{slug}-receipt-{suffix}"))?,
+        mutation_id: OpaqueId::new(format!("{slug}-mutation-{suffix}"))?,
+        scope: operation.authority_scope.clone(),
+        authority_receipt_id: OpaqueId::new(format!("{slug}-authority-{suffix}"))?,
+        authority_evidence_digest: context_digest,
+        disposition: MutationDisposition::new("committed")?,
+        operation_replay_digest: operation_digest,
+        nonce_replay_digest: nonce_digest,
+        envelope_digest: context_digest,
+        effect_id: Some(OpaqueId::new(format!("{slug}-effect-{suffix}"))?),
+        effect_digest: Some(effect_digest),
+        result_digest: mutation_result.digest()?,
+        commit_id: Some(OpaqueId::new(format!(
+            "{slug}-commit-{suffix}-{committed_version}"
+        ))?),
+        result: mutation_result,
+        recorded_at,
+    };
+    receipt.validate()?;
+    Ok(receipt)
+}
+
 pub(super) fn agent_library_effect_digest(
     topic: &str,
     key: &str,

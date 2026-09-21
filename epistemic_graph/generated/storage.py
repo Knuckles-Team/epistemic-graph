@@ -16,6 +16,14 @@ from ._runtime import (
     expect_count,
     expect_string,
 )
+from .agent_component import (
+    AgentComponentOp,
+    AgentComponentSearchPage,
+    AgentComponentSearchRequest,
+)
+from .write_back import (
+    WriteBackOp,
+)
 
 
 class ToMsgpackRequest(BaseModel):
@@ -464,7 +472,7 @@ class AgentComponentRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    op: Any
+    op: AgentComponentOp
 
 
 async def send_agent_component(
@@ -505,6 +513,40 @@ async def send_agent_component(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("AgentComponent", payload)
+
+
+async def send_agent_component_search(
+    client: Any,
+    request: AgentComponentSearchRequest,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> AgentComponentSearchPage:
+    """Send typed AgentComponent.search through the existing AgentComponent method."""
+    request = AgentComponentSearchRequest.model_validate(request)
+    if request.task is not None or request.capabilities or not request.kinds:
+        raise ValueError(
+            "AgentComponent.Search requires kinds and no task/capabilities"
+        )
+    if request.limit is not None and not 1 <= request.limit <= 256:
+        raise ValueError("AgentComponent.Search limit must be in 1..=256")
+    if request.cursor is not None and (
+        not request.cursor or len(request.cursor.encode("utf-8")) > 16384
+    ):
+        raise ValueError("AgentComponent.Search cursor is outside its byte bound")
+    params = {
+        "op": {
+            "op": "search",
+            "request": request.model_dump(mode="json", exclude_none=True),
+        },
+    }
+    payload = await client._send(
+        "AgentComponent",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return AgentComponentSearchPage.model_validate(payload)
 
 
 class AgentTemplateRequest(BaseModel):
@@ -560,6 +602,61 @@ async def send_agent_template(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("AgentTemplate", payload)
+
+
+class WriteBackRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        WriteBack
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/WriteBack
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: WriteBackOp
+
+
+async def send_write_back(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        WriteBack
+    Authorization:
+        connector:write-back
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/WriteBack
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    WriteBackRequest.model_validate(params or {})
+    payload = await client._send(
+        "WriteBack",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("WriteBack", payload)
 
 
 class TsAppendRequest(BaseModel):

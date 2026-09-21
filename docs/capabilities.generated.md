@@ -278,6 +278,7 @@
 | `AddTriples` | true | GraphRedb | `rdf:write` | false | true | false | Atomic |  |
 | `RemoveTriples` | true | GraphRedb | `rdf:write` | true | true | false | Atomic |  |
 | `DropNamedGraph` | true | GraphRedb | `rdf:write` | true | true | false | Atomic |  |
+| `SourceIngest` | true | GraphRedb | `source:ingest` | true | true | true | Saga | RF-ADR-009 native ingestion authority: tenant-bound typed Connector Manifest mapping resolution and idempotent raw-CAS admission precede one atomic ChangeEnvelope commit for mapped graph material, provenance, cursor and receipt; unknown mapping, tenant or authority fails closed; internal until the integrated contract passes release gates |
 | `ServedModality` | ~true | GraphRedb | `modality:write` | false | true | true | Atomic | runtime-conditional: authority/query/events/capabilities are verified read snapshots; ingest/delete/cold/restore commit an encrypted state-backed MutationBatch |
 | `ParseFile` | false | None | `compute:parse` | true | false | false | None |  |
 | `ParseFiles` | false | None | `compute:parse` | true | false | false | None |  |
@@ -393,6 +394,7 @@
 | `AgentAssemble` | false | None | `agent:assemble-read` | true | false | false | Snapshot | RF-ADR-010 A1. Reads ONE tenant-bound agent_library.redb snapshot and proves an agent graph against it; commits nothing. The record it answers with is durable only if the caller then sends DecisionCommit |
 | `DecisionCommit` | true | ControlRedb | `agent:decision-write` | true | false | false | Atomic | native MutationBatch in agent_library.redb: one DecisionRecord component revision, its receipt and outbox in one WTX after re-derivation and a catalog compare-and-set; local-only authority, refused in clustered mode |
 | `ConnectorPack` | ~true | ControlRedb | `agent:pack-control` | true | false | false | Atomic | RF-ADR-009 A2, runtime-conditional: status is an authenticated tenant-bound read snapshot, and its authz action is agent:pack-read; import commits the whole pack atomically, while bind/unbind/retire/reproject/reconcile_bodies and a mass-withdrawal import need admin:connector-pack. Pack head, members, component revisions, body holders, import record, receipt and outbox commit in one WTX; local-only authority, refused in clustered mode |
+| `WriteBack` | ~true | ControlRedb | `connector:write-back` | true | true | false | Atomic | RF-ADR-009 D18, runtime-conditional: create/record operations append tenant-bound change-set and receipt rows through the existing Agent Library ControlRedb mutation kernel; get/receipts are authenticated snapshots. EG records authorization and source observations and never calls vendor APIs |
 | `TsAppend` | true | SeriesRedb | `timeseries:write` | false | false | false | Atomic | graph ACL + placement policy precede the tenant/graph/series-scoped series.redb write |
 | `TsRange` | false | None | `timeseries:read` | true | false | false | Snapshot |  |
 | `TsAsofJoin` | false | None | `timeseries:read` | true | false | false | Snapshot |  |
