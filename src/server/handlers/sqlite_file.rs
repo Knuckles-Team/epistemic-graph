@@ -767,6 +767,9 @@ fn render_vector(v: &[f32]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::{Arc, Barrier};
+
     use eg_query::tables::schema::ArrayElemType;
 
     use super::*;
@@ -785,6 +788,14 @@ mod tests {
             ),
         )
         .unwrap()
+    }
+
+    /// A 2-party rendezvous barrier plus a zeroed counter, the setup shared by
+    /// every `run_transfer_job` concurrency test in this module: one party is
+    /// the test itself, the other is the spawned transfer job it holds at
+    /// [`meet`] to observe an in-progress state before releasing it.
+    fn rendezvous_and_counter() -> (Arc<Barrier>, Arc<AtomicUsize>) {
+        (Arc::new(Barrier::new(2)), Arc::new(AtomicUsize::new(0)))
     }
 
     #[test]
@@ -936,11 +947,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn transfer_job_runs_once_off_the_current_thread_reactor() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        use std::sync::{Arc, Barrier};
+        use std::sync::atomic::Ordering;
 
-        let barrier = Arc::new(Barrier::new(2));
-        let executions = Arc::new(AtomicUsize::new(0));
+        let (barrier, executions) = rendezvous_and_counter();
         let completions = Arc::new(AtomicUsize::new(0));
         let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
         let worker_barrier = Arc::clone(&barrier);
@@ -984,11 +993,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn cancelled_waiter_does_not_cancel_owned_transfer_job() {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        use std::sync::{Arc, Barrier};
+        use std::sync::atomic::Ordering;
 
-        let barrier = Arc::new(Barrier::new(2));
-        let completions = Arc::new(AtomicUsize::new(0));
+        let (barrier, completions) = rendezvous_and_counter();
         let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
         let (completed_tx, completed_rx) = tokio::sync::oneshot::channel();
         let worker_barrier = Arc::clone(&barrier);

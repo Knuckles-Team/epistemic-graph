@@ -1667,6 +1667,19 @@ fn build_envelope(
     Ok(envelope)
 }
 
+/// Slim build (no `redb`+`blob`): `prepare` above refuses every request, so no
+/// `PreparedSourceIngestion` is ever produced and this is unreachable in practice.
+/// It still refuses by the same code rather than panicking, and it exists so the
+/// shared dispatch route compiles identically in every feature profile.
+#[cfg(not(all(feature = "redb", feature = "blob")))]
+pub(crate) fn finish(_prepared: PreparedSourceIngestion, response: Response) -> Response {
+    Response::err(
+        response.id,
+        "SOURCE_INGESTION_UNAVAILABLE: native source ingestion requires redb and blob support",
+    )
+}
+
+#[cfg(all(feature = "redb", feature = "blob"))]
 pub(crate) fn finish(prepared: PreparedSourceIngestion, response: Response) -> Response {
     let response_id = response.id;
     if let Some(error) = response.error {
