@@ -71,13 +71,13 @@ pub(super) async fn dispatch_cluster_admin_methods(
         // ── Fleet server registry (CONCEPT:EG-KG.sharding.server-registry, W2.5) ──────
         // Self-routing, like `ClusterMembers` above, but for the
         // OPPOSITE reason: those are cluster-wide and NOT graph nodes, while this
-        // writes a REAL `:Server` graph node into `__commons__` -- self-routes
-        // here (rather than resolving `req.graph`) because a fleet server's
-        // registration is a fleet-wide singleton concept, never tenant-scoped,
-        // exactly like `ApplyMultisigMutation` self-routes before translating
-        // into `Method::ApplyMutation` against `req.graph`. See
-        // `handle_register_server`'s doc comment.
-                method @ Method::RegisterServer { .. } => dispatch_cluster_admin_methods_arm_4(ctx, method).await,
+        // owns REAL `:Server` graph nodes in `__commons__` -- self-routes here
+        // (rather than resolving `req.graph`) because both registration and the
+        // typed live-list read are fleet-wide singleton concepts, never
+        // request-graph-scoped. RegisterServer translates into AddNode;
+        // ListRegisteredServers forces __commons__ and applies its verified
+        // caller's ACL + per-row RLS predicate before returning typed rows.
+                method @ (Method::RegisterServer { .. } | Method::ListRegisteredServers { .. }) => dispatch_cluster_admin_methods_arm_4(ctx, method).await,
         other => return ControlFlow::Continue(other),
     })
 }
@@ -251,6 +251,12 @@ async fn dispatch_cluster_admin_methods_arm_4(ctx: DispatchCtx<'_>, method: Meth
                     )
                     .await
                 }
+            })
+            .await
+        }
+        Method::ListRegisteredServers { request } => {
+            dispatch_boxed(async {
+                handle_list_registered_servers(state, req.id, verified_context, request).await
             })
             .await
         }

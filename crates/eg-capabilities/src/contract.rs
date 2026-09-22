@@ -51,6 +51,10 @@ const HAND_WRITTEN_INPUTS: &[&str] = &[
     "crates/eg-types/src",
     "crates/eg-types/Cargo.toml",
     "epistemic_graph/client.py",
+    // This helper implements the Rust-owned ConnectorPack framed identity and
+    // deterministic replay key consumed by the SDK. A wheel that changes it is
+    // not the same client contract even when its generated DTOs are unchanged.
+    "epistemic_graph/connector_pack.py",
     "pyproject.toml",
 ];
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from ._runtime import (
     OpaqueResult,
@@ -17,14 +17,20 @@ from ._runtime import (
     expect_string,
 )
 from .agent_component import (
+    AgentComponentContentRequest,
+    AgentComponentContentResult,
+    AgentComponentEntry,
     AgentComponentOp,
+    AgentComponentOpCurrent,
     AgentComponentSearchPage,
     AgentComponentSearchRequest,
 )
 from .connector_pack import (
+    ConnectorPackImportRequest,
     ConnectorPackOp,
     ConnectorPackStatus,
     ConnectorPackStatusRequest,
+    PackImportResult,
 )
 from .write_back import (
     WriteBackOp,
@@ -554,6 +560,49 @@ async def send_agent_component_search(
     return AgentComponentSearchPage.model_validate(payload)
 
 
+async def send_agent_component_content(
+    client: Any,
+    request: AgentComponentContentRequest,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> AgentComponentContentResult:
+    """Send typed AgentComponent.content through the existing AgentComponent method."""
+    request = AgentComponentContentRequest.model_validate(request)
+    params = {
+        "op": {
+            "op": "content",
+            "request": request.model_dump(mode="json", exclude_none=True),
+        },
+    }
+    payload = await client._send(
+        "AgentComponent",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return AgentComponentContentResult.model_validate(payload)
+
+
+async def send_agent_component_current(
+    client: Any,
+    request: AgentComponentOpCurrent,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> AgentComponentEntry | None:
+    """Send typed AgentComponent.current through the existing AgentComponent method."""
+    request = AgentComponentOpCurrent.model_validate(request)
+    params = {"op": request.model_dump(mode="json", exclude_none=True)}
+    payload = await client._send(
+        "AgentComponent",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return TypeAdapter(AgentComponentEntry | None).validate_python(payload)
+
+
 class AgentTemplateRequest(BaseModel):
     """Validate one engine-contract request body.
 
@@ -686,6 +735,30 @@ async def send_connector_pack_status(
         idempotency_key=idempotency_key,
     )
     return ConnectorPackStatus.model_validate(payload)
+
+
+async def send_connector_pack_import(
+    client: Any,
+    request: ConnectorPackImportRequest,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> PackImportResult:
+    """Send typed ConnectorPack.import through the existing ConnectorPack method."""
+    request = ConnectorPackImportRequest.model_validate(request)
+    params = {
+        "op": {
+            "op": "import",
+            "request": request.model_dump(mode="json", exclude_none=True),
+        },
+    }
+    payload = await client._send(
+        "ConnectorPack",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return TypeAdapter(PackImportResult).validate_python(payload)
 
 
 class WriteBackRequest(BaseModel):

@@ -1,5 +1,8 @@
 use super::change_envelope::{dispatch_change_envelopes, multi_graph_batch_update};
-use super::consensus::{handle_register_server, replicated_identity_bootstrap_authorized};
+use super::consensus::{
+    handle_list_registered_servers, handle_register_server,
+    replicated_identity_bootstrap_authorized,
+};
 use super::graph_pipeline::dispatch_graph_op;
 #[cfg(feature = "knowledge-batch")]
 use super::graph_pipeline::dispatch_knowledge_stream;

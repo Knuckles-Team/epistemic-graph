@@ -16,7 +16,7 @@ mod transaction;
 
 #[cfg(all(feature = "raft", feature = "jobs"))]
 use publication::{execute_consensus_job_publication, JobPublicationExecution};
-pub(super) use registry::handle_register_server;
+pub(super) use registry::{handle_list_registered_servers, handle_register_server};
 #[cfg(feature = "raft")]
 use replicated::capability_authority_unavailable;
 #[cfg(not(feature = "raft"))]

@@ -21,6 +21,18 @@ _CONTRACT = _ROOT / "contract" / "methods.json"
 _GENERATED = _ROOT / "epistemic_graph" / "generated"
 _CLIENT = _ROOT / "epistemic_graph" / "client.py"
 
+# One engine method may expose operation-specific typed adapters in addition to
+# its mandatory generic sender. These names are generated from Rust's
+# TYPED_OPERATION_ADAPTERS registry; keeping the static wheel audit explicit
+# makes an accidental, hand-written extra sender fail closed.
+_TYPED_OPERATION_SENDS = {
+    "send_agent_component_content",
+    "send_agent_component_current",
+    "send_agent_component_search",
+    "send_connector_pack_import",
+    "send_connector_pack_status",
+}
+
 
 def _snake(name: str) -> str:
     out: list[str] = []
@@ -210,7 +222,7 @@ class GeneratedClientContract(unittest.TestCase):
             f"send_{_snake(d['id'])}"
             for d in self.descriptors
             if "python" in d["consumer_profiles"]
-        }
+        } | _TYPED_OPERATION_SENDS
         self.assertEqual(
             expected,
             set(self.sends),

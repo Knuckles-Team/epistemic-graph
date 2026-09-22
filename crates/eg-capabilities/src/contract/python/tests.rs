@@ -360,7 +360,14 @@ fn connector_pack_status_emits_typed_catalog_reconciliation_adapter() {
         .get("epistemic_graph/generated/connector_pack.py")
         .expect("connector-pack DTO module");
     assert!(dto.contains("class McpCatalogSnapshotBinding(BaseModel):"));
+    assert!(dto.contains("CONNECTOR_PACK_SCHEMA_VERSION = 2"));
     assert!(dto.contains("class ConnectorPackStatus(BaseModel):"));
+    assert!(dto.contains("class PackImportResultImported(BaseModel):"));
+    assert!(dto.contains("class PackImportResultUnchanged(BaseModel):"));
+    assert!(dto.contains("class PackImportResultRejected(BaseModel):"));
+    assert!(dto.contains("PackImportResult = Annotated["));
+    assert!(dto.contains("class PackWriteErrorCode(str, Enum):"));
+    assert!(dto.contains("    PACK_HEAD_CONFLICT = \"PACK_HEAD_CONFLICT\""));
 
     let storage = generated
         .get("epistemic_graph/generated/storage.py")
@@ -370,6 +377,97 @@ fn connector_pack_status_emits_typed_catalog_reconciliation_adapter() {
     ));
     assert!(storage.contains(") -> ConnectorPackStatus:"));
     assert!(storage.contains("return ConnectorPackStatus.model_validate(payload)"));
+    assert!(storage.contains(
+        "async def send_connector_pack_import(\n    client: Any,\n    request: ConnectorPackImportRequest,"
+    ));
+    assert!(storage.contains(") -> PackImportResult:"));
+    assert!(storage.contains("return TypeAdapter(PackImportResult).validate_python(payload)"));
+}
+
+#[test]
+fn agent_component_content_emits_typed_body_adapter() {
+    let catalog = Catalog::collect();
+    let generated: BTreeMap<String, String> = artifacts(&catalog)
+        .into_iter()
+        .map(|artifact| {
+            (
+                artifact.path,
+                String::from_utf8(artifact.bytes).expect("generated Python is UTF-8"),
+            )
+        })
+        .collect();
+    let dto = generated
+        .get("epistemic_graph/generated/agent_component.py")
+        .expect("agent-component DTO module");
+    assert!(dto.contains("class AgentComponentContentRequest(BaseModel):"));
+    assert!(dto.contains("class AgentComponentContentResult(BaseModel):"));
+    assert!(dto.contains("    body: bytes"));
+
+    let storage = generated
+        .get("epistemic_graph/generated/storage.py")
+        .expect("storage domain module");
+    assert!(storage.contains(
+        "async def send_agent_component_content(\n    client: Any,\n    request: AgentComponentContentRequest,"
+    ));
+    assert!(storage.contains(") -> AgentComponentContentResult:"));
+    assert!(storage.contains("return AgentComponentContentResult.model_validate(payload)"));
+}
+
+#[test]
+fn agent_component_current_uses_the_exact_flattened_operation_shape() {
+    let catalog = Catalog::collect();
+    let generated: BTreeMap<String, String> = artifacts(&catalog)
+        .into_iter()
+        .map(|artifact| {
+            (
+                artifact.path,
+                String::from_utf8(artifact.bytes).expect("generated Python is UTF-8"),
+            )
+        })
+        .collect();
+    let storage = generated
+        .get("epistemic_graph/generated/storage.py")
+        .expect("storage domain module");
+    assert!(storage.contains(
+        "async def send_agent_component_current(\n    client: Any,\n    request: AgentComponentOpCurrent,"
+    ));
+    assert!(storage.contains(
+        "params = {\"op\": request.model_dump(mode=\"json\", exclude_none=True)}"
+    ));
+    assert!(storage.contains(
+        "return TypeAdapter(AgentComponentEntry | None).validate_python(payload)"
+    ));
+}
+
+#[test]
+fn registered_server_list_emits_typed_request_page_and_sender() {
+    let catalog = Catalog::collect();
+    let generated: BTreeMap<String, String> = artifacts(&catalog)
+        .into_iter()
+        .map(|artifact| {
+            (
+                artifact.path,
+                String::from_utf8(artifact.bytes).expect("generated Python is UTF-8"),
+            )
+        })
+        .collect();
+    let dto = generated
+        .get("epistemic_graph/generated/server_registry.py")
+        .expect("server-registry DTO module");
+    assert!(dto.contains("class RegisteredServerListRequest(BaseModel):"));
+    assert!(dto.contains("class RegisteredServerCursor(BaseModel):"));
+    assert!(dto.contains("class RegisteredServerView(BaseModel):"));
+    assert!(dto.contains("class RegisteredServerListPage(BaseModel):"));
+
+    let cluster = generated
+        .get("epistemic_graph/generated/cluster.py")
+        .expect("cluster domain module");
+    assert!(cluster.contains("    request: RegisteredServerListRequest"));
+    assert!(cluster.contains(
+        "async def send_list_registered_servers(\n    client: Any,"
+    ));
+    assert!(cluster.contains(") -> RegisteredServerListPage:"));
+    assert!(cluster.contains("return RegisteredServerListPage.model_validate(payload)"));
 }
 
 #[test]

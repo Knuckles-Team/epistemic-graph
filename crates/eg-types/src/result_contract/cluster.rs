@@ -1,10 +1,12 @@
 //! Declared results of the `cluster` contract domain.
 
 mod lifecycle;
+mod registry;
 mod sharding;
 mod topology;
 
 pub use lifecycle::*;
+pub use registry::*;
 pub use sharding::*;
 pub use topology::*;
 
@@ -28,6 +30,7 @@ method_results! {
     ClusterMembers(ClusterMembers) => Json<ClusterDiscoverySnapshot>;
     // The acknowledgement of the `__commons__` server-row write it performs.
     RegisterServer(RegisterServer) => Text<String>;
+    ListRegisteredServers(ListRegisteredServers) => Raw<RegisteredServerListPage>;
     PlacementAssign(PlacementAdmin / "assign") => Json<PlacementEpoch>;
     PlacementMove(PlacementAdmin / "move") => Json<PlacementMoveResult>;
     PlacementAbortMove(PlacementAdmin / "abort_move") => Bool<bool>;

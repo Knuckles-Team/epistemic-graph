@@ -11,6 +11,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+CONNECTOR_PACK_SCHEMA_VERSION = 2
+
 
 class AgentLibraryMutationContext(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -301,6 +303,36 @@ class PackImportReceipt(BaseModel):
     warnings: BoundedVec_PackWarning_256
 
 
+class PackImportResultImported(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    receipt: PackImportReceipt
+    result: Literal["imported"]
+
+
+class PackImportResultUnchanged(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    binding_revision: Annotated[int, Field(ge=0)]
+    pack_digest: Digest256
+    result: Literal["unchanged"]
+
+
+class PackImportResultRejected(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    budget_exhausted: bool
+    pack_digest: Digest256 | None = None
+    result: Literal["rejected"]
+    violations: BoundedVec_PackViolation_256
+
+
+PackImportResult = Annotated[
+    PackImportResultImported | PackImportResultUnchanged | PackImportResultRejected,
+    Field(discriminator="result"),
+]
+
+
 class PackMemberCounts(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -379,6 +411,42 @@ class PackSection(BaseModel):
     sha256: Digest256
 
 
+class PackViolation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    code: PackViolationCode
+    detail: str
+    uri: Any | None = None
+
+
+class PackViolationCode(str, Enum):
+    MALFORMED_INDEX = "MALFORMED_INDEX"
+    UNKNOWN_ENTRY_KIND = "UNKNOWN_ENTRY_KIND"
+    PACK_TOO_LARGE = "PACK_TOO_LARGE"
+    ARCHIVE_MISSING = "ARCHIVE_MISSING"
+    ARCHIVE_DIGEST_MISMATCH = "ARCHIVE_DIGEST_MISMATCH"
+    MALFORMED_SECTIONS = "MALFORMED_SECTIONS"
+    PACK_DIGEST_MISMATCH = "PACK_DIGEST_MISMATCH"
+    DUPLICATE_COMPONENT_ID = "DUPLICATE_COMPONENT_ID"
+    FORBIDDEN_ENTRY_KIND = "FORBIDDEN_ENTRY_KIND"
+    MALFORMED_BODY = "MALFORMED_BODY"
+    MISSING_TOOL_SCHEMA = "MISSING_TOOL_SCHEMA"
+    UNKNOWN_CAPABILITY_IRI = "UNKNOWN_CAPABILITY_IRI"
+    INVALID_ANNOTATION = "INVALID_ANNOTATION"
+    INVALID_FACTS = "INVALID_FACTS"
+    ONTOLOGY_INVALID = "ONTOLOGY_INVALID"
+    SHAPES_INVALID = "SHAPES_INVALID"
+    ONTOLOGY_INCONSISTENT = "ONTOLOGY_INCONSISTENT"
+    VALIDATION_BUDGET_EXCEEDED = "VALIDATION_BUDGET_EXCEEDED"
+    SHACL_VIOLATION = "SHACL_VIOLATION"
+    UNRESOLVED_REFERENCE = "UNRESOLVED_REFERENCE"
+    REFERENCE_CYCLE = "REFERENCE_CYCLE"
+    INVALID_COMPONENT = "INVALID_COMPONENT"
+    IMPORTER_MISMATCH = "IMPORTER_MISMATCH"
+    PACK_MASS_WITHDRAWAL = "PACK_MASS_WITHDRAWAL"
+    RETIRED_ENTRY_RETURNED = "RETIRED_ENTRY_RETURNED"
+
+
 class PackWarning(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -393,10 +461,21 @@ class PackWarningCode(str, Enum):
     DUPLICATE_SHAPE_IRI = "DUPLICATE_SHAPE_IRI"
 
 
+class PackWriteErrorCode(str, Enum):
+    PACK_HEAD_CONFLICT = "PACK_HEAD_CONFLICT"
+    PACK_PLAN_STALE = "PACK_PLAN_STALE"
+    BODY_MISSING = "BODY_MISSING"
+    RESERVED_COMPONENT_ID = "RESERVED_COMPONENT_ID"
+    IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT"
+
+
 BoundedVec_PackEntry_1024 = list[PackEntry]
 
 
 BoundedVec_PackRef_64 = list[PackRef]
+
+
+BoundedVec_PackViolation_256 = list[PackViolation]
 
 
 BoundedVec_PackWarning_256 = list[PackWarning]
@@ -474,6 +553,12 @@ PackHeadView.model_rebuild()
 
 PackImportReceipt.model_rebuild()
 
+PackImportResultImported.model_rebuild()
+
+PackImportResultUnchanged.model_rebuild()
+
+PackImportResultRejected.model_rebuild()
+
 PackMemberCounts.model_rebuild()
 
 PackModelFacts.model_rebuild()
@@ -491,5 +576,7 @@ PackProjectionStateFailed.model_rebuild()
 PackRef.model_rebuild()
 
 PackSection.model_rebuild()
+
+PackViolation.model_rebuild()
 
 PackWarning.model_rebuild()

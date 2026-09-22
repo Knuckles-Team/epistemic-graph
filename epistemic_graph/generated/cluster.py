@@ -16,6 +16,10 @@ from ._runtime import (
     expect_count,
     expect_string,
 )
+from .server_registry import (
+    RegisteredServerListPage,
+    RegisteredServerListRequest,
+)
 
 
 class CreateGraphRequest(BaseModel):
@@ -834,6 +838,57 @@ async def send_register_server(
         idempotency_key=idempotency_key,
     )
     return expect_string("RegisterServer", payload)
+
+
+class ListRegisteredServersRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        ListRegisteredServers
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/ListRegisteredServers
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: RegisteredServerListRequest
+
+
+async def send_list_registered_servers(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> RegisteredServerListPage:
+    """Send one engine-contract request.
+
+    Method:
+        ListRegisteredServers
+    Authorization:
+        registry:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.cluster.json
+        #/methods/ListRegisteredServers
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    ListRegisteredServersRequest.model_validate(params or {})
+    payload = await client._send(
+        "ListRegisteredServers",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return RegisteredServerListPage.model_validate(payload)
 
 
 class PlacementAdminRequest(BaseModel):

@@ -20,6 +20,18 @@ class AgentComponentContentRequest(BaseModel):
     tenant_id: str
 
 
+class AgentComponentContentResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    body: bytes
+    component_id: str
+    content_digest: str
+    definition_digest: str
+    entry_revision: Annotated[int, Field(ge=0)]
+    media_type: str
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+
+
 class AgentComponentDraft(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -423,6 +435,8 @@ AgentComponentMutationKind = str | Literal["withdraw"] | Literal["republish"]
 Nonce = Annotated[str, Field(pattern="^[0-9a-f]{64}$", min_length=64, max_length=64)]
 
 AgentComponentContentRequest.model_rebuild()
+
+AgentComponentContentResult.model_rebuild()
 
 AgentComponentDraft.model_rebuild()
 

@@ -108,6 +108,12 @@ fn requires_write_back_surface(method: &Method) -> Option<bool> {
 }
 
 fn requires_write_native_surface(method: &Method) -> Option<bool> {
+    // The fleet registry page is a forced-`__commons__`, RLS-projected read.
+    // Keep it explicit even though the classifier's default is read so a later
+    // family-wide rule cannot silently promote it to write admission.
+    if matches!(method, Method::ListRegisteredServers { .. }) {
+        return Some(false);
+    }
     // `modality-serving` genuinely does not exist without this crate's own
     // feature (see the module doc); this is the one arm here that keeps its
     // cfg gate.
@@ -424,6 +430,17 @@ mod eh316_eh319_slim_profile_tests {
             "a wire-unconditional Broker-family method must require write \
              regardless of this crate's own `broker` feature"
         );
+    }
+
+    #[test]
+    fn list_registered_servers_is_a_read() {
+        let method = Method::ListRegisteredServers {
+            request: eg_types::result_contract::cluster::RegisteredServerListRequest {
+                limit: None,
+                cursor: None,
+            },
+        };
+        assert!(!requires_write(&method));
     }
 
     #[test]

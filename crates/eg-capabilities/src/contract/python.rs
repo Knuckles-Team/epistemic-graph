@@ -45,6 +45,9 @@ struct TypedOperationAdapter {
     operation: &'static str,
     request_model: &'static str,
     result_model: &'static str,
+    /// Tagged union aliases need pydantic's `TypeAdapter`; concrete models
+    /// expose `model_validate` directly.
+    result_is_union: bool,
 }
 
 const TYPED_OPERATION_ADAPTERS: &[TypedOperationAdapter] = &[
@@ -53,12 +56,38 @@ const TYPED_OPERATION_ADAPTERS: &[TypedOperationAdapter] = &[
         operation: "search",
         request_model: "AgentComponentSearchRequest",
         result_model: "AgentComponentSearchPage",
+        result_is_union: false,
+    },
+    TypedOperationAdapter {
+        method: "AgentComponent",
+        operation: "content",
+        request_model: "AgentComponentContentRequest",
+        result_model: "AgentComponentContentResult",
+        result_is_union: false,
+    },
+    TypedOperationAdapter {
+        method: "AgentComponent",
+        operation: "current",
+        // Current's Rust wire variant carries its fields directly instead of
+        // nesting a separate request DTO. Reuse that generated operation type
+        // so Python cannot mint a second shape for the same contract.
+        request_model: "AgentComponentOpCurrent",
+        result_model: "AgentComponentEntry | None",
+        result_is_union: true,
     },
     TypedOperationAdapter {
         method: "ConnectorPack",
         operation: "status",
         request_model: "ConnectorPackStatusRequest",
         result_model: "ConnectorPackStatus",
+        result_is_union: false,
+    },
+    TypedOperationAdapter {
+        method: "ConnectorPack",
+        operation: "import",
+        request_model: "ConnectorPackImportRequest",
+        result_model: "PackImportResult",
+        result_is_union: true,
     },
 ];
 
@@ -369,21 +398,35 @@ fn push_typed_operation_adapter(out: &mut String, adapter: &TypedOperationAdapte
             "        raise ValueError(\"AgentComponent.Search cursor is outside its byte bound\")\n",
         );
     }
-    let _ = writeln!(out, "    params = {{");
-    let _ = writeln!(out, "        \"op\": {{");
-    let _ = writeln!(out, "            \"op\": {operation:?},");
-    let _ = writeln!(
-        out,
-        "            \"request\": request.model_dump(mode=\"json\", exclude_none=True),"
-    );
-    let _ = writeln!(out, "        }},");
-    let _ = writeln!(out, "    }}");
+    if method == "AgentComponent" && operation == "current" {
+        let _ = writeln!(
+            out,
+            "    params = {{\"op\": request.model_dump(mode=\"json\", exclude_none=True)}}"
+        );
+    } else {
+        let _ = writeln!(out, "    params = {{");
+        let _ = writeln!(out, "        \"op\": {{");
+        let _ = writeln!(out, "            \"op\": {operation:?},");
+        let _ = writeln!(
+            out,
+            "            \"request\": request.model_dump(mode=\"json\", exclude_none=True),"
+        );
+        let _ = writeln!(out, "        }},");
+        let _ = writeln!(out, "    }}");
+    }
     let _ = writeln!(out, "    payload = await client._send(");
     let _ = writeln!(out, "        {method:?},");
     out.push_str(
         "        params,\n        graph,\n        idempotency_key=idempotency_key,\n    )\n",
     );
-    let _ = writeln!(out, "    return {result}.model_validate(payload)");
+    if adapter.result_is_union {
+        let _ = writeln!(
+            out,
+            "    return TypeAdapter({result}).validate_python(payload)"
+        );
+    } else {
+        let _ = writeln!(out, "    return {result}.model_validate(payload)");
+    }
 }
 
 fn domain_module(
@@ -400,6 +443,9 @@ fn domain_module(
     );
     out.push_str("\nfrom __future__ import annotations\n\nfrom typing import Any\n\n");
     push_domain_imports(&mut out, descriptors, &body);
+    let import_end = out.trim_end_matches('\n').len();
+    out.truncate(import_end);
+    out.push('\n');
     out.push_str(&body);
     out
 }
@@ -431,8 +477,13 @@ fn domain_body(
 fn push_domain_imports(out: &mut String, descriptors: &[MethodDescriptor], body: &str) {
     // `Field` is imported only where an aliased keyword field actually uses it: an
     // unused import is a ruff F401 on every other module.
-    let pydantic_import = if body.contains(" = Field(") {
+    let type_adapter = body.contains("TypeAdapter(");
+    let pydantic_import = if body.contains(" = Field(") && type_adapter {
+        "from pydantic import BaseModel, ConfigDict, Field, TypeAdapter\n\n"
+    } else if body.contains(" = Field(") {
         "from pydantic import BaseModel, ConfigDict, Field\n\n"
+    } else if type_adapter {
+        "from pydantic import BaseModel, ConfigDict, TypeAdapter\n\n"
     } else {
         "from pydantic import BaseModel, ConfigDict\n\n"
     };
@@ -450,15 +501,24 @@ fn push_domain_imports(out: &mut String, descriptors: &[MethodDescriptor], body:
     // Always the exploded, magic-trailing-comma form: the one-line form exceeds the
     // formatter's width once a module uses several checkers, and a formatter that
     // rewrites generated output would fight `--check` forever.
+    let mut emitted_local_import = false;
     if !imports.is_empty() {
         out.push_str("from ._runtime import (\n");
         for name in &imports {
             let _ = writeln!(out, "    {name},");
         }
         out.push_str(")\n");
+        emitted_local_import = true;
     }
-    for surface in DTO_SURFACES {
+    let mut surfaces: Vec<_> = DTO_SURFACES.iter().collect();
+    surfaces.sort_unstable_by_key(|surface| surface.module);
+    for surface in surfaces {
+        let before = out.len();
         push_surface_import(out, descriptors, body, surface);
+        emitted_local_import |= out.len() != before;
+    }
+    if emitted_local_import {
+        out.push('\n');
     }
 }
 
@@ -480,7 +540,28 @@ fn push_surface_import(
         .filter(|root| body.contains(**root))
         .copied()
         .collect();
+    for adapter in TYPED_OPERATION_ADAPTERS
+        .iter()
+        .filter(|adapter| adapter.method == surface.method)
+    {
+        for name in [adapter.request_model, adapter.result_model]
+            .into_iter()
+            .flat_map(|model| {
+                model.split(|character: char| {
+                    !(character.is_ascii_alphanumeric() || character == '_')
+                })
+            })
+            .filter(|name| {
+                name.chars().next().is_some_and(char::is_uppercase) && *name != "None"
+            })
+        {
+            if body.contains(name) {
+                roots.push(name);
+            }
+        }
+    }
     roots.sort_unstable();
+    roots.dedup();
     if roots.is_empty() {
         return;
     }
@@ -549,6 +630,18 @@ fn merged_definitions(
             }
         }
     }
+    // Closed error codes travel on the error response, not inside a successful
+    // result body, so they are intentionally absent from both method and result
+    // documents.  They remain Rust-owned wire types and the typed Python seam
+    // must generate them from that authority rather than copy string literals.
+    let write_codes = serde_json::json!({
+        "type": "string",
+        "enum": eg_types::connector_pack::PackWriteErrorCode::ALL
+            .iter()
+            .map(|code| code.as_str())
+            .collect::<Vec<_>>(),
+    });
+    definitions.insert("PackWriteErrorCode".to_string(), write_codes);
     definitions
 }
 

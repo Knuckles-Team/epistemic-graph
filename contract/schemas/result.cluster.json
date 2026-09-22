@@ -1,6 +1,13 @@
 {
   "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
   "$defs": {
+    "BoundedVec_RegisteredServerView_256": {
+      "items": {
+        "$ref": "#/$defs/RegisteredServerView"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
     "CatalogListing": {
       "description": "`CatalogList`.",
       "properties": {
@@ -232,6 +239,13 @@
         "rotation_epoch"
       ],
       "type": "object"
+    },
+    "Digest256": {
+      "description": "32 bytes of SHA-256 as lowercase hexadecimal",
+      "maxLength": 64,
+      "minLength": 64,
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
     },
     "DiscoveryAuthBinding": {
       "description": "Digests of the verified request context a discovery snapshot is signed for.",
@@ -798,6 +812,128 @@
       ],
       "type": "object"
     },
+    "RegisteredServerCursor": {
+      "additionalProperties": false,
+      "description": "Stable continuation over one complete live registry snapshot.",
+      "properties": {
+        "after_name": {
+          "description": "Exclusive server-name lower bound for the next page.",
+          "type": "string"
+        },
+        "registry_digest": {
+          "$ref": "#/$defs/Digest256",
+          "description": "Canonical digest of every live, visible typed server in that image."
+        },
+        "registry_revision": {
+          "description": "`GraphCore::version()` of the `__commons__` image that produced the page.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "after_name",
+        "registry_revision",
+        "registry_digest"
+      ],
+      "type": "object"
+    },
+    "RegisteredServerListPage": {
+      "additionalProperties": false,
+      "description": "One revision- and digest-fenced live registry page.",
+      "properties": {
+        "entries": {
+          "$ref": "#/$defs/BoundedVec_RegisteredServerView_256"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RegisteredServerCursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "observed_at_ms": {
+          "description": "Server-authoritative wall-clock observation used for lease filtering.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "registry_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "registry_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total_live": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "entries",
+        "observed_at_ms",
+        "total_live",
+        "registry_revision",
+        "registry_digest"
+      ],
+      "type": "object"
+    },
+    "RegisteredServerView": {
+      "additionalProperties": false,
+      "description": "One currently live, well-typed `:Server` row.",
+      "properties": {
+        "last_heartbeat_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "lease_expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "registered_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "resources": true,
+        "ttl_secs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "url",
+        "resources",
+        "ttl_secs",
+        "registered_at_ms",
+        "last_heartbeat_ms",
+        "lease_expires_at_ms"
+      ],
+      "type": "object"
+    },
     "ShardLoadSummary": {
       "description": "The load of one shard the plan was computed against.",
       "properties": {
@@ -1042,6 +1178,18 @@
               "$ref": "#/$defs/GraphListing"
             },
             "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ListRegisteredServers": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/RegisteredServerListPage"
           }
         }
       },

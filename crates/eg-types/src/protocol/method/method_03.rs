@@ -74,6 +74,20 @@ $($variants)*
         ttl_secs: u64,
     },
 
+    /// List the live fleet server registry from the engine-owned `__commons__`
+    /// graph. The request graph is never an authority input: the server forces
+    /// `__commons__`, applies the verified caller's graph ACL and row-level
+    /// projection, and returns a keyset page sorted by UTF-8 server name. A
+    /// continuation cursor is fenced by both the graph revision and a canonical
+    /// digest of the complete live typed snapshot; a changed/expired row makes
+    /// the cursor stale and requires a restart. In the single-node/full runtime
+    /// this is an authoritative local committed read. A clustered deployment
+    /// must not describe it as cluster-linearizable until a cluster read barrier
+    /// is added to this route.
+    ListRegisteredServers {
+        request: crate::result_contract::cluster::RegisteredServerListRequest,
+    },
+
 
     // ── Placement-catalog wire consumption (CONCEPT:EG-KG.sharding.placement-route-rpc, DIST-P2-4) ──
     // Exposes the engine's sole placement authority over the wire. The response is

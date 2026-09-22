@@ -21,6 +21,7 @@ METHOD_IDS = frozenset(
         "RaftChangeMembership",
         "ClusterMembers",
         "RegisterServer",
+        "ListRegisteredServers",
         "PlacementAdmin",
         "Ping",
         "Health",

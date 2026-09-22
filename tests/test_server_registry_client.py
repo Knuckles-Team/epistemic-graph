@@ -1,134 +1,102 @@
-"""ServerRegistryClient.register sends the RegisterServer RPC
-(CONCEPT:EG-KG.sharding.server-registry, W2.5)."""
-
 from __future__ import annotations
 
-from typing import Any
+import asyncio
+from typing import Any, cast
 
 import pytest
-from _untyped import untyped
 
+import epistemic_graph
 from epistemic_graph.client import EpistemicGraphClient, ServerRegistryClient
-from epistemic_graph.generated._runtime import ContractViolation
 
-# Pure client-side logic over a `_FakeClient` -- never a real connection.
 pytestmark = pytest.mark.no_engine
 
+_DIGEST = "ab" * 32
 
-class _FakeClient(EpistemicGraphClient):
-    def __init__(self, result: Any = "ok") -> None:
-        self.sent: list[tuple[str, dict[str, Any] | None]] = []
-        self._result = result
+
+def _entry(name: str) -> dict[str, Any]:
+    return {
+        "name": name,
+        "url": f"mcp-ref://{name}",
+        "resources": {"tools": [name]},
+        "ttl_secs": 60,
+        "registered_at_ms": 1,
+        "last_heartbeat_ms": 2,
+        "lease_expires_at_ms": 60_002,
+    }
+
+
+class _RegistryTransport:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any] | None, str | None]] = []
 
     async def _send(
         self,
         method: str,
-        params: dict[str, Any] | None = None,
-        graph: str | None = None,
+        params: dict[str, Any] | None,
+        graph: str | None,
         *,
-        idempotency_key: str | None = None,
-    ) -> Any:
-        self.sent.append((method, params))
-        return self._result
+        idempotency_key: str | None,
+    ) -> dict[str, Any]:
+        assert idempotency_key is None
+        self.calls.append((method, params, graph))
+        request = (params or {})["request"]
+        after = (request.get("cursor") or {}).get("after_name")
+        if after is None:
+            entries = [_entry("alpha")]
+            next_cursor: dict[str, Any] | None = {
+                "after_name": "alpha",
+                "registry_revision": 7,
+                "registry_digest": _DIGEST,
+            }
+        else:
+            entries = [_entry("bravo")]
+            next_cursor = None
+        return {
+            "schema_version": 1,
+            "entries": entries,
+            "next_cursor": next_cursor,
+            "observed_at_ms": 3,
+            "total_live": 2,
+            "registry_revision": 7,
+            "registry_digest": _DIGEST,
+        }
 
 
-@pytest.mark.asyncio
-async def test_register_sends_bounded_rpc_with_no_resources() -> None:
-    fake = _FakeClient()
-    src = ServerRegistryClient(fake)
-    out = await src.register("portainer-agent", "mcp-ref://deadbeef", ttl_secs=120)
-    assert fake.sent == [
-        (
-            "RegisterServer",
-            {
-                "name": "portainer-agent",
-                "url": "mcp-ref://deadbeef",
-                "resources_json": "",
-                "ttl_secs": 120,
-            },
-        )
-    ]
-    assert out is True
-
-
-@pytest.mark.asyncio
-async def test_register_encodes_resources_as_sorted_opaque_json() -> None:
-    fake = _FakeClient()
-    src = ServerRegistryClient(fake)
-    await src.register(
-        "graph-os",
-        "mcp-ref://cafef00d",
-        resources={"b": 2, "a": 1},
-        ttl_secs=300,
-    )
-    assert fake.sent == [
-        (
-            "RegisterServer",
-            {
-                "name": "graph-os",
-                "url": "mcp-ref://cafef00d",
-                "resources_json": '{"a":1,"b":2}',
-                "ttl_secs": 300,
-            },
-        )
+def test_page_uses_only_the_generated_native_registry_method() -> None:
+    transport = _RegistryTransport()
+    client = ServerRegistryClient(cast(EpistemicGraphClient, transport))
+    page = asyncio.run(client.page(limit=1))
+    assert [entry.name for entry in page.entries] == ["alpha"]
+    assert transport.calls == [
+        ("ListRegisteredServers", {"request": {"limit": 1}}, None)
     ]
 
 
-@pytest.mark.asyncio
-async def test_register_default_ttl_is_a_positive_heartbeat_interval() -> None:
-    fake = _FakeClient()
-    src = ServerRegistryClient(fake)
-    await src.register("default-ttl-server", "mcp-ref://0000")
-    ((_, params),) = fake.sent
-    assert params is not None
-    assert isinstance(params["ttl_secs"], int) and params["ttl_secs"] > 0
+def test_list_all_exhausts_one_revision_and_digest_fenced_snapshot() -> None:
+    transport = _RegistryTransport()
+    client = ServerRegistryClient(cast(EpistemicGraphClient, transport))
+    entries = asyncio.run(client.list_all(page_size=1))
+    assert [entry.name for entry in entries] == ["alpha", "bravo"]
+    assert len(transport.calls) == 2
+    assert transport.calls[1][1] == {
+        "request": {
+            "limit": 1,
+            "cursor": {
+                "after_name": "alpha",
+                "registry_revision": 7,
+                "registry_digest": _DIGEST,
+            },
+        }
+    }
 
 
-@pytest.mark.asyncio
-async def test_register_rejects_empty_name() -> None:
-    fake = _FakeClient()
-    src = ServerRegistryClient(fake)
-    with pytest.raises(ValueError):
-        await src.register("", "mcp-ref://deadbeef")
-    assert fake.sent == []
-
-
-@pytest.mark.asyncio
-async def test_register_rejects_empty_url() -> None:
-    fake = _FakeClient()
-    src = ServerRegistryClient(fake)
-    with pytest.raises(ValueError):
-        await src.register("some-server", "")
-    assert fake.sent == []
-
-
-@pytest.mark.asyncio
-async def test_register_rejects_non_positive_ttl() -> None:
-    fake = _FakeClient()
-    src = ServerRegistryClient(fake)
-    with pytest.raises(ValueError):
-        await src.register("some-server", "mcp-ref://deadbeef", ttl_secs=0)
-    with pytest.raises(ValueError):
-        await src.register("some-server", "mcp-ref://deadbeef", ttl_secs=-5)
-    assert fake.sent == []
-
-
-@pytest.mark.asyncio
-async def test_register_rejects_non_mapping_resources() -> None:
-    fake = _FakeClient()
-    src = ServerRegistryClient(fake)
-    with pytest.raises(ValueError):
-        await src.register(
-            "some-server",
-            "mcp-ref://deadbeef",
-            resources=untyped(["not", "a", "dict"]),
-        )
-    assert fake.sent == []
-
-
-@pytest.mark.asyncio
-async def test_register_rejects_a_non_string_engine_result() -> None:
-    fake = _FakeClient(result=False)
-    src = ServerRegistryClient(fake)
-    with pytest.raises(ContractViolation, match="ResultPayload::String"):
-        await src.register("some-server", "mcp-ref://deadbeef")
+def test_registry_types_and_client_are_wheel_root_exports() -> None:
+    for name in (
+        "RegisteredServerCursor",
+        "RegisteredServerListPage",
+        "RegisteredServerListRequest",
+        "RegisteredServerView",
+        "ServerRegistryClient",
+    ):
+        assert name in epistemic_graph.__all__
+        assert getattr(epistemic_graph, name) is not None

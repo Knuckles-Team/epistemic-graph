@@ -13878,6 +13878,61 @@
         }
       ]
     },
+    "RegisteredServerCursor": {
+      "additionalProperties": false,
+      "description": "Stable continuation over one complete live registry snapshot.",
+      "properties": {
+        "after_name": {
+          "description": "Exclusive server-name lower bound for the next page.",
+          "type": "string"
+        },
+        "registry_digest": {
+          "$ref": "#/$defs/Digest256",
+          "description": "Canonical digest of every live, visible typed server in that image."
+        },
+        "registry_revision": {
+          "description": "`GraphCore::version()` of the `__commons__` image that produced the page.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "after_name",
+        "registry_revision",
+        "registry_digest"
+      ],
+      "type": "object"
+    },
+    "RegisteredServerListRequest": {
+      "additionalProperties": false,
+      "description": "Request for a bounded page of registered servers.",
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RegisteredServerCursor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "limit": {
+          "default": null,
+          "description": "`None` selects the maximum/default page size of 256.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
     "Relation": {
       "description": "Relation of a linear row's left-hand side to its right-hand side.",
       "oneOf": [
@@ -29869,6 +29924,33 @@
       },
       "required": [
         "method"
+      ],
+      "type": "object"
+    },
+    "ListRegisteredServers": {
+      "additionalProperties": false,
+      "description": "List the live fleet server registry from the engine-owned `__commons__`\ngraph. The request graph is never an authority input: the server forces\n`__commons__`, applies the verified caller's graph ACL and row-level\nprojection, and returns a keyset page sorted by UTF-8 server name. A\ncontinuation cursor is fenced by both the graph revision and a canonical\ndigest of the complete live typed snapshot; a changed/expired row makes\nthe cursor stale and requires a restart. In the single-node/full runtime\nthis is an authoritative local committed read. A clustered deployment\nmust not describe it as cluster-linearizable until a cluster read barrier\nis added to this route.",
+      "properties": {
+        "method": {
+          "const": "ListRegisteredServers",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "request": {
+              "$ref": "#/$defs/RegisteredServerListRequest"
+            }
+          },
+          "required": [
+            "request"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
       ],
       "type": "object"
     },

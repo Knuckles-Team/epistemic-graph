@@ -29,6 +29,7 @@ from .client import (
     ServedModalityEvent,
     ServedModalityPage,
     ServedModalityStats,
+    ServerRegistryClient,
     StaleRouteError,
     SyncEpistemicGraphClient,
     validate_request_context,
@@ -41,6 +42,26 @@ from .client_capabilities import (
     client_build_identity,
     client_capability_manifest,
     require_client_capabilities,
+)
+from .connector_pack import (
+    ConnectorPackArchive,
+    ConnectorPackArchiveBuilder,
+    ConnectorPackClient,
+    ConnectorPackEntryContent,
+    ConnectorPackWriteError,
+    PackImportResult,
+    PackImportResultImported,
+    PackImportResultRejected,
+    PackImportResultUnchanged,
+    PackWriteErrorCode,
+    connector_pack_import_key,
+    pack_digest,
+)
+from .generated.server_registry import (
+    RegisteredServerCursor,
+    RegisteredServerListPage,
+    RegisteredServerListRequest,
+    RegisteredServerView,
 )
 from .parser import RustASTParser
 
@@ -69,6 +90,23 @@ _add_editable_native_overlay()
 
 __all__ = [
     "EpistemicGraphClient",
+    "ConnectorPackClient",
+    "ConnectorPackArchive",
+    "ConnectorPackArchiveBuilder",
+    "ConnectorPackEntryContent",
+    "ConnectorPackWriteError",
+    "PackImportResult",
+    "PackImportResultImported",
+    "PackImportResultRejected",
+    "PackImportResultUnchanged",
+    "PackWriteErrorCode",
+    "connector_pack_import_key",
+    "pack_digest",
+    "RegisteredServerCursor",
+    "RegisteredServerListPage",
+    "RegisteredServerListRequest",
+    "RegisteredServerView",
+    "ServerRegistryClient",
     "SyncEpistemicGraphClient",
     "KnowledgeStreamClient",
     "KnowledgeStreamQuery",

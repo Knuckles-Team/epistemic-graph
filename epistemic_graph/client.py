@@ -33,6 +33,13 @@ from typing import Any, Literal, NamedTuple, NoReturn, TypedDict, cast
 import msgpack
 
 from . import generated as _gen
+from .connector_pack import ConnectorPackClient
+from .generated.server_registry import (
+    RegisteredServerCursor,
+    RegisteredServerListPage,
+    RegisteredServerListRequest,
+    RegisteredServerView,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -7938,6 +7945,64 @@ class ServerRegistryClient:
         )
         return bool(result)
 
+    async def page(
+        self,
+        *,
+        limit: int | None = None,
+        cursor: RegisteredServerCursor | None = None,
+    ) -> RegisteredServerListPage:
+        """Read one bounded, revision/digest-fenced live registry page."""
+        request = RegisteredServerListRequest(limit=limit, cursor=cursor)
+        return await _gen.cluster.send_list_registered_servers(
+            self._client,
+            {"request": request.model_dump(mode="json", exclude_none=True)},
+        )
+
+    async def list_all(
+        self, *, page_size: int | None = None
+    ) -> tuple[RegisteredServerView, ...]:
+        """Read one live registry snapshot to exhaustion without Cypher fallback."""
+        cursor: RegisteredServerCursor | None = None
+        expected: tuple[int, str, int] | None = None
+        seen_cursors: set[tuple[str, int, str]] = set()
+        seen_names: set[str] = set()
+        entries: list[RegisteredServerView] = []
+        while True:
+            page = await self.page(limit=page_size, cursor=cursor)
+            identity = (
+                page.registry_revision,
+                page.registry_digest,
+                page.total_live,
+            )
+            if expected is None:
+                expected = identity
+            elif identity != expected:
+                raise RuntimeError(
+                    "registered-server page identity changed during exhaustive read"
+                )
+            for entry in page.entries:
+                if entry.name in seen_names:
+                    raise RuntimeError(
+                        f"registered-server page repeated entry {entry.name!r}"
+                    )
+                seen_names.add(entry.name)
+                entries.append(entry)
+            cursor = page.next_cursor
+            if cursor is None:
+                if len(entries) != page.total_live:
+                    raise RuntimeError(
+                        "registered-server pages did not exhaust declared live count"
+                    )
+                return tuple(entries)
+            cursor_identity = (
+                cursor.after_name,
+                cursor.registry_revision,
+                cursor.registry_digest,
+            )
+            if cursor_identity in seen_cursors:
+                raise RuntimeError("registered-server pagination repeated a cursor")
+            seen_cursors.add(cursor_identity)
+
 
 class RaftAdminClient:
     """CONCEPT:EG-KG.storage.kg-kg-2 — Raft cluster-membership admin namespace
@@ -14692,6 +14757,7 @@ class EpistemicGraphClient:
         self.obda = ObdaClient(self)
         self.streaming = StreamingClient(self)
         self.blob = BlobClient(self)
+        self.connector_packs = ConnectorPackClient(self)
         # CONCEPT:EG-KG.ingest.broker-streams-namespaces — B1.7 multi-lang client
         # drivers: broker/streams (EG-275..284/314),
         # RBAC admin (EG-092), backup/restore (EG-090). NlQuery (EG-080) lives on

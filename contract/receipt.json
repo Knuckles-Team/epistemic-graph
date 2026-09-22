@@ -2,30 +2,30 @@
   "artifact_digests": {
     "contract/fixtures/connector_pack_digest_vectors.json": "b1fe4660272ca12419349fd1e1c57a6f54db762e24b4b47d2d1f8fd46016588a",
     "contract/fixtures/decision_digest_vectors.json": "b2cb368964340e05b58f65d8d226343d08cf48f0912fe7b560d619d19b2641c8",
-    "contract/methods.json": "3b7f02ecc9da213390c1092a4a46d1b2b8fa2858cdde31dbc9f48677c37bce22",
-    "contract/schemas/method.request.json": "3a242b12243e5a2301df9b803b46adc77b94f8bf9d4b3e32de20a4bfeba7391c",
-    "contract/schemas/result.cluster.json": "daa015c68e2a0e7780d0e24bfecc1c9ce7bd3288c6c05fc974098a022e03a8d4",
+    "contract/methods.json": "acb2ed049ad97ae21f1d66bd12303ba9d9fdca65ebb01e13f7b0f8df30f2caa6",
+    "contract/schemas/method.request.json": "0646d97b49e51a8456198f3cb448c1d1e059d29db7154bff68b01a15b84cb33e",
+    "contract/schemas/result.cluster.json": "7d91b463ac26c476e6641219aaa7cbc5b4ee7ae1b6127a5922d1ed263b138c08",
     "contract/schemas/result.compute.json": "2522ca588ef3e4ea8af402faa167dee281cb33e5df901d5124404ec5bc0504db",
     "contract/schemas/result.coordination.json": "3aae05c614507d229c1021e2fdb802d5de9049f3c4465e64c48f4a1f3189c3a2",
     "contract/schemas/result.graph.json": "71d2305b12cdc37b83f1e04559e86a553040adec483e8cdc8e8202a1af2f2cbe",
     "contract/schemas/result.ingestion.json": "166f3182933183fcc58786e88210afb2b9960cce76566c4d96483bb5082b75cf",
     "contract/schemas/result.messaging.json": "eaa28f229255ef4b26195218eac9f34ecf2c35b196f1784baefef1aa7179aa3e",
     "contract/schemas/result.payload.json": "1bd5261c36024a16810f262e65449f3cf81de819c1d8189abd68a75133cae8c8",
-    "contract/schemas/result.query.json": "7ee67d1c88f1be955483210fdf72d8d3c866a7f04701b8fda80716a00c5ba2e3",
+    "contract/schemas/result.query.json": "ca97751e526a06a3588eac2d65a32ff45e0cd47878647b533e7aba9069cdf5fa",
     "contract/schemas/result.reasoning.json": "204c5001a08e1379f46f224a4fa85c1f196dac2759b66b49798e7cd0ed0efe52",
     "contract/schemas/result.security.json": "af85883a336f9b8d93f2fba7e6f0b47cccd1697deeb9fb92c7565cf58417267c",
     "contract/schemas/result.storage.json": "c0e9f5d92633a3274782cf322a83a64058b4f896d1ca50646caf56bcfd4d129a",
     "contract/schemas/result.transactions.json": "0b7de622e70a7fe478270c3109bbf787caaba6d34f2633873e44b3789d6c6033",
-    "crates/eg-capabilities/generated/method_catalog.rs": "6be9043780239c30924df731fa47f53c7b4aa4a83e7d2ccdbf0962ce9a1deadb",
-    "docs/capabilities.generated.md": "bcdd048790ca9176cfa8fe9dafd970436b79f702ba129525277bf04a21d5dc32",
+    "crates/eg-capabilities/generated/method_catalog.rs": "745232d3baf283f459c12469a445801c6df2b3fa4c1f02681e7255e0712f7a8e",
+    "docs/capabilities.generated.md": "61facc330e45b5243a6baf2f42d03bb549c05bbad9e98cabc9299df0c85428af",
     "epistemic_graph/contract/__init__.py": "0484338d63b99278f479a60dca4830f54a5e81d8fe98b6720e808d4c008c7be7",
-    "epistemic_graph/generated/__init__.py": "211a5d44d4fdeb454817bb4f225f9abd5a517cd6ebfde030eb0080545248bd32",
-    "epistemic_graph/generated/_ids.py": "e09fd50851ab7c8fda17873e42982cf44b0bbc584e81cc4d2a3dd378960a6c9d",
+    "epistemic_graph/generated/__init__.py": "bfcdc98a279860cdfac50a039f658ccccebb92b07bd4e26ac3dac44e87946367",
+    "epistemic_graph/generated/_ids.py": "131bbf9627684c5b20ab098018c1ef9c1935cd617f73be1c5088c6ae2c07f11d",
     "epistemic_graph/generated/_runtime.py": "74ed6fd21563ae75c27757676cd4e633c7a2f29215199574bc4ddbe8d59fdebc",
-    "epistemic_graph/generated/agent_component.py": "c491a1b778539bcfdbfed48822da6558d616341e79945c32650678b65170dff5",
-    "epistemic_graph/generated/cluster.py": "6215352c31f018fb25329f1aec6150d635314ef360962ec953d895e808117432",
+    "epistemic_graph/generated/agent_component.py": "7d2d258d99dfa803de1d4d2d4cf4dba9373a4a2e4b3896b2f875338251f3031a",
+    "epistemic_graph/generated/cluster.py": "ef085b1d7c261dbde620fb13f7656af25af3244be4680bd65023515dc6807726",
     "epistemic_graph/generated/compute.py": "7c80667caaa1861e4b1f18ce933dc8b5427cd9be01df1ef669c5af3b6c895da0",
-    "epistemic_graph/generated/connector_pack.py": "c4427fe515c33747c1f67b2f7e2a4f3a59b0351c02533962753d341cf7b678ca",
+    "epistemic_graph/generated/connector_pack.py": "79db528dc459a30b85fdf4c088bef3a2ae9f0960fafd1ad104bcc40bed1269b2",
     "epistemic_graph/generated/coordination.py": "2e11c19497338cfab2e4ef847ee98576e80a0db9a25e67ac29d48e4eadac46a6",
     "epistemic_graph/generated/digest.py": "9bed03c1dea1300e68e962f517b67abf42881ae32f2208e254ac42ffac928290",
     "epistemic_graph/generated/graph.py": "5950eb8afad54feb8d45e34f414458fd0ccad7560d674dd620edb0b3f7d97be7",
@@ -34,13 +34,14 @@
     "epistemic_graph/generated/query.py": "1adee9d07089cc64a2c8d48b3aa34ce5ff80f7b9c52df357794a04071cd527f4",
     "epistemic_graph/generated/reasoning.py": "ffc3885ae7adf421c23125994a6a29169e7bde51c32f7a6bdbe292a1d0188ac0",
     "epistemic_graph/generated/security.py": "571745314a4957a0b0ec9c007212dd4f67d196e113dab36e26df9e825e319c39",
+    "epistemic_graph/generated/server_registry.py": "a87bfbe24c21105d867b4075d8bfafe6284d9740779e8d39a73d80fd5924f27f",
     "epistemic_graph/generated/source_ingestion.py": "4443d7957a5732dde8413af6532963e8f64de59875a8ab406abcb2bd8cc0f673",
-    "epistemic_graph/generated/storage.py": "366a95e6a7e78a4b343338918e2edc54f8a70cdccd36ddf34be83d00e19aedd6",
+    "epistemic_graph/generated/storage.py": "7b3b04232fff6204dec1a1ef989c1595b888a6d802b6821a54b78948297da4d5",
     "epistemic_graph/generated/transactions.py": "0bf478adf1635161340242db05401621756deb4ccb0bce6736fe8e64c8253047",
     "epistemic_graph/generated/write_back.py": "c868b15220120b674554101d583bf8719cf84467f2adcc8dd1d3f1c53d623127"
   },
   "cargo_lock_sha256": "7a21df362ba52b5c1c8cb0d6267d9d2f4932856eebd9b8b2ee0b9b88f79ff25b",
-  "contract_digest": "e407718d902e4a18566d33c80e4a45e665c002894cf1bc7957a4d364c3b63f23",
+  "contract_digest": "c0f5d73e53d5e1a7cbd44ebfc74f3e4f79478c502a0fe36140e5afd1c7df25d2",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -412,6 +413,13 @@
         "value": "\"rbac-security-control:v1\""
       }
     ],
+    "REGISTERED_SERVER_LIST_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/result_contract/cluster/registry.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
     "REPLAY_SCOPE_INCARNATION": [
       {
         "file": "src/server/request_replay.rs",
@@ -513,13 +521,13 @@
   },
   "generator": "eg-capabilities/gen_contract",
   "internal_only_methods": 28,
-  "method_count": 427,
-  "python_client_methods": 399,
+  "method_count": 428,
+  "python_client_methods": 400,
   "result_classification": {
     "declared_dynamic": 12,
     "mixed": 1,
-    "schematized": 414,
+    "schematized": 415,
     "unclassified": 0
   },
-  "source_tree_oid": "0bbdf3d8e9b3507de1e8315f7651ce8022aa4e0889942d5336672b6909f5e626"
+  "source_tree_oid": "a99f97d44c38aba2e1c0ea449ac719c7c6884428a8f79f36242fc57ac54989ab"
 }

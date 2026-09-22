@@ -528,6 +528,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::FinancePairsTrading { .. }
         | Method::DegreeCentralityAll
         | Method::ClusterMembers
+        | Method::ListRegisteredServers { .. }
         | Method::FinanceMicropriceSeries { .. }
         | Method::TsRange { .. }
         | Method::IcvConfigure { .. }

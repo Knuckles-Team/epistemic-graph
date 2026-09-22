@@ -119,6 +119,7 @@ pub(super) const RLS_ROUTED: &[&str] = &[
     "IndexRepository",
     "KnowledgeStream",
     "ListGraphs",
+    "ListRegisteredServers",
     "ListTriggers",
     "MatchOntologyTerms",
     "MaterializationStatus",

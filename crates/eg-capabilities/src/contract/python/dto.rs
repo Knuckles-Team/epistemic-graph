@@ -15,20 +15,41 @@ pub(super) struct DtoSurface {
     pub(super) roots: &'static [&'static str],
     pub(super) result_model: Option<&'static str>,
     pub(super) required: bool,
+    /// Public wire-format identities owned by the Rust contract. Keeping them
+    /// generated prevents a Python builder from copying a release number.
+    pub(super) constants: &'static [(&'static str, u64)],
 }
 
 pub(super) const DTO_SURFACES: &[DtoSurface] = &[
+    DtoSurface {
+        method: "ListRegisteredServers",
+        module: "server_registry",
+        result_domain: "cluster",
+        roots: &[
+            "RegisteredServerListRequest",
+            "RegisteredServerCursor",
+            "RegisteredServerView",
+            "RegisteredServerListPage",
+        ],
+        result_model: Some("RegisteredServerListPage"),
+        required: true,
+        constants: &[],
+    },
     DtoSurface {
         method: "AgentComponent",
         module: "agent_component",
         result_domain: "storage",
         roots: &[
             "AgentComponentOp",
+            "AgentComponentEntry",
+            "AgentComponentContentRequest",
+            "AgentComponentContentResult",
             "AgentComponentSearchRequest",
             "AgentComponentSearchPage",
         ],
         result_model: None,
         required: true,
+        constants: &[],
     },
     DtoSurface {
         method: "WriteBack",
@@ -37,6 +58,7 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
         roots: &["WriteBackOp", "WriteBackReceiptPage"],
         result_model: None,
         required: true,
+        constants: &[],
     },
     DtoSurface {
         method: "ConnectorPack",
@@ -44,11 +66,18 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
         result_domain: "storage",
         roots: &[
             "ConnectorPackOp",
+            "ConnectorPackImportRequest",
             "ConnectorPackStatusRequest",
             "ConnectorPackStatus",
+            "PackImportResult",
+            "PackWriteErrorCode",
         ],
         result_model: None,
         required: true,
+        constants: &[(
+            "CONNECTOR_PACK_SCHEMA_VERSION",
+            eg_types::connector_pack::CONNECTOR_PACK_SCHEMA_VERSION as u64,
+        )],
     },
     // This row becomes live when the SourceIngestion protocol branch is composed.
     // It is optional in this isolated D18 branch so the generator remains runnable
@@ -60,6 +89,7 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
         roots: &["SourceIngestionRequest", "SourceIngestionReceipt"],
         result_model: Some("SourceIngestionReceipt"),
         required: false,
+        constants: &[],
     },
 ];
 /// Schema-specific digest projections rendered as model methods. Framing and
@@ -248,7 +278,21 @@ fn dto_base_type(node: &serde_json::Value) -> String {
 
 fn dto_array_type(node: &serde_json::Value) -> String {
     node.get("items")
-        .map(|items| format!("list[{}]", dto_python_type(items)))
+        .map(|items| {
+            // `serde_bytes::ByteBuf` is an integer array in JSON Schema but a
+            // MessagePack binary value on the Python client's live transport.
+            // Preserve that wire type instead of forcing callers through an
+            // SDK-owned conversion DTO.
+            if items.get("type").and_then(|value| value.as_str()) == Some("integer")
+                && items.get("format").and_then(|value| value.as_str()) == Some("uint8")
+                && items.get("minimum").and_then(|value| value.as_u64()) == Some(0)
+                && items.get("maximum").and_then(|value| value.as_u64()) == Some(255)
+            {
+                "bytes".to_string()
+            } else {
+                format!("list[{}]", dto_python_type(items))
+            }
+        })
         .unwrap_or_else(|| "list[Any]".to_string())
 }
 
@@ -626,6 +670,12 @@ pub(super) fn dto_module(
     );
     out.push_str("\nfrom __future__ import annotations\n\n");
     push_dto_imports(&mut out, &body);
+    if !surface.constants.is_empty() {
+        out.push('\n');
+    }
+    for (name, value) in surface.constants {
+        let _ = writeln!(out, "{name} = {value}");
+    }
     out.push_str(&body);
     for model in models {
         let _ = writeln!(out, "\n{model}.model_rebuild()");

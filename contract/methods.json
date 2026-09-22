@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 427,
+  "method_count": 428,
   "methods": [
     {
       "consumer_profiles": [
@@ -657,6 +657,45 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.cluster.json#/methods/RegisterServer",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "cluster",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
+      "id": "ListRegisteredServers",
+      "note": "typed, RLS-projected live :Server snapshot forced to __commons__; revision+digest-fenced keyset pages; authoritative on the single-node/full route (no cluster read barrier is claimed)",
+      "policy": {
+        "audited": false,
+        "authz_action": "registry:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/ListRegisteredServers"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/ListRegisteredServers",
         "selected_by": null
       },
       "stability": "stable"
