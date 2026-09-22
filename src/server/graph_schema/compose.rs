@@ -48,6 +48,37 @@ pub(crate) fn validate_and_compose(sources: &GraphSchemaSources) -> Result<Compo
     compose_validated_sources(sources)
 }
 
+/// Search steps (deterministic rule rounds and explored branches, see
+/// `eg_rdf::tableau::is_consistent_within`) the full-ABox tableau may spend where schema
+/// ENTERS a graph. Measured 2026-09-22 on the build host: the shipped core corpus
+/// (1 384 individuals, 3 521 role assertions) is decided within 10⁶ steps and not
+/// within 10⁵; this allows ten times the corpus for the attached documents.
+const SCHEMA_ENTRY_ABOX_STEPS: u64 = 10_000_000;
+
+/// [`SCHEMA_ENTRY_ABOX_STEPS`] as a budget; beyond it the attach fails closed.
+const SCHEMA_ENTRY_ABOX_BUDGET: eg_rdf::owl::DerivationBudget =
+    eg_rdf::owl::DerivationBudget::new(SCHEMA_ENTRY_ABOX_STEPS);
+
+/// [`validate_and_compose`] plus the full-ABox tableau consistency check (EH-355
+/// operator ruling, option (c)): run where schema ENTERS a graph — `GraphSchema`
+/// attach and ConnectorPack projection — but not on restore, which replays schema that
+/// already passed here and checks the terminology only. Bounded by
+/// [`SCHEMA_ENTRY_ABOX_BUDGET`]: an ABox the tableau cannot decide within it is refused
+/// with `VALIDATION_BUDGET_EXCEEDED`, never admitted undecided.
+pub(crate) fn validate_entering_schema(
+    sources: &GraphSchemaSources,
+) -> Result<ComposedSchema, String> {
+    let composed = validate_and_compose(sources)?;
+    match eg_rdf::tableau::abox_consistency_within(&composed.ontology, SCHEMA_ENTRY_ABOX_BUDGET) {
+        Ok(true) => Ok(composed),
+        Ok(false) => Err(
+            "ONTOLOGY_INCONSISTENT: the composed schema's individual assertions have no model"
+                .to_string(),
+        ),
+        Err(exhausted) => Err(exhausted.to_string()),
+    }
+}
+
 fn compose_validated_sources(sources: &GraphSchemaSources) -> Result<ComposedSchema, String> {
     let shapes = compose_documents(sources.shapes(), true)?;
     let ontology = compose_documents(sources.ontologies(), false)?;
@@ -61,7 +92,13 @@ fn compose_validated_sources(sources: &GraphSchemaSources) -> Result<ComposedSch
         shape_graph.insert(triple);
     }
     let ontology: Vec<Triple> = ontology.into_iter().map(|(_, triple)| triple).collect();
-    let classification = eg_rdf::tableau::reason_dl(&ontology);
+    // TERMINOLOGY scope (EH-355, operator ruling (c)): this composition runs on every
+    // restore and read, and decides whether the composed SCHEMA is coherent — the
+    // unsatisfiable classes it reports below. The EL/RL completion still sees every
+    // triple, but it classifies classes, not individuals; the individual assertions are
+    // decided by the full-ABox tableau where schema enters a graph
+    // ([`validate_entering_schema`]), not again on each restore.
+    let classification = eg_rdf::tableau::reason_dl_terminology(&ontology);
     if !classification.consistent {
         let nothing = "<http://www.w3.org/2002/07/owl#Nothing>";
         let unsatisfiable: Vec<&str> = classification
