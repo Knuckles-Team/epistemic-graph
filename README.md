@@ -1,4 +1,4 @@
-# epistemic-graph
+# Epistemic Graph
 
 <p align="center">
   <strong>The durable knowledge and reasoning engine for the Knuckles ecosystem.</strong><br>
