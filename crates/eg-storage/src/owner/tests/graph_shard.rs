@@ -427,24 +427,36 @@ fn scope_rows_yields_one_scopes_rows_and_never_a_neighbours() {
             seen.iter().all(|(g, _)| g == graph),
             "{graph} saw another scope's rows"
         );
-        // The seek form starts AT its key and keeps the same confinement: from
-        // `n2`, `graph-a` yields only its own `n2` -- never `graph-ab`'s rows,
-        // which sort immediately after -- and a start key naming another scope
-        // is refused rather than read.
-        let resumed: Vec<String> = table
-            .scope_rows_from((*graph, "n2"))
-            .unwrap()
-            .map(|row| row.unwrap().0.value().1.to_string())
-            .collect();
-        let expected_resumed = if *graph == "graph-empty" {
-            Vec::new()
-        } else {
-            vec!["n2".to_string()]
-        };
-        assert_eq!(resumed, expected_resumed, "{graph} resumed");
-        assert!(
-            table.scope_rows_from(("graph-other", "n1")).is_err(),
-            "{graph} seeked into another scope"
-        );
+        assert_seek_is_confined(&table, graph, &expected);
     }
+}
+
+/// The seek form starts AT its key and keeps `scope_rows`' confinement: from
+/// `n2`, `graph-a` yields only its own tail -- never `graph-ab`'s rows, which
+/// sort immediately after -- and a start key naming another scope is refused
+/// rather than read.
+fn assert_seek_is_confined(
+    table: &crate::scoped::ScopedOwnerTable<(&'static str, &'static str), &'static [u8]>,
+    graph: &str,
+    expected: &[(String, String)],
+) {
+    let resumed: Vec<(String, String)> = table
+        .scope_rows_from((graph, "n2"))
+        .unwrap()
+        .map(|row| {
+            let (key, _) = row.unwrap();
+            let (g, n) = key.value();
+            (g.to_string(), n.to_string())
+        })
+        .collect();
+    let tail: Vec<(String, String)> = expected
+        .iter()
+        .filter(|(_, node)| node.as_str() >= "n2")
+        .cloned()
+        .collect();
+    assert_eq!(resumed, tail, "{graph} resumed");
+    assert!(
+        table.scope_rows_from(("graph-other", "n1")).is_err(),
+        "{graph} seeked into another scope"
+    );
 }

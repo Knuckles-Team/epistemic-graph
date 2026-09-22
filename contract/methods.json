@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 434,
+  "method_count": 435,
   "methods": [
     {
       "consumer_profiles": [
@@ -7609,6 +7609,45 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.coordination.json#/methods/ListWorkItems",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
+      "id": "GetWorkItemOutcome",
+      "note": "tenant-bound terminal WorkItem plus the provenance its native commit bound; the OutcomeEvaluation receipt is digest-verified",
+      "policy": {
+        "audited": false,
+        "authz_action": "work:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/GetWorkItemOutcome"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/GetWorkItemOutcome",
         "selected_by": null
       },
       "stability": "stable"

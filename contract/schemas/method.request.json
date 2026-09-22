@@ -5456,9 +5456,10 @@
         }
       ]
     },
-    "ControlLeaseEnd": {
-      "description": "The terminal state a transition moves an active lease to.",
+    "ControlLeaseTarget": {
+      "description": "The state a transition moves a lease to.",
       "enum": [
+        "consumed",
         "revoked",
         "expired"
       ],
@@ -19981,7 +19982,7 @@
     },
     "TransitionControlLeaseRequest": {
       "additionalProperties": false,
-      "description": "`TransitionControlLease`: end an active lease, CAS on its read revision.",
+      "description": "`TransitionControlLease`: consume or end a lease, CAS on its read revision.",
       "properties": {
         "expected_revision": {
           "description": "The `revision` of the view the caller decided on.",
@@ -20001,7 +20002,7 @@
           "type": "string"
         },
         "to": {
-          "$ref": "#/$defs/ControlLeaseEnd"
+          "$ref": "#/$defs/ControlLeaseTarget"
         }
       },
       "required": [
@@ -29433,6 +29434,37 @@
       ],
       "type": "object"
     },
+    "GetWorkItemOutcome": {
+      "additionalProperties": false,
+      "description": "A terminal WorkItem of `tenant` and the provenance (RunTrace /\nToolCall refs and the verified OutcomeEvaluation receipt) its native\n`CommitWorkItemResult { outcome_extension }` bound, or `null` when the\nitem is not visible or carries no committed outcome (graph-os EG-3).",
+      "properties": {
+        "method": {
+          "const": "GetWorkItemOutcome",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "tenant": {
+              "type": "string"
+            },
+            "work_item_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "tenant",
+            "work_item_id"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
     "GraphColoring": {
       "additionalProperties": false,
       "properties": {
@@ -35932,7 +35964,7 @@
     },
     "TransitionControlLease": {
       "additionalProperties": false,
-      "description": "End one active control lease (`revoked` or `expired`), compare-and-set\non the revision the caller read. A lease never returns to `active`.",
+      "description": "Move one control lease along a legal edge (`active -> consumed |\nrevoked | expired`, `consumed -> revoked | expired`), compare-and-set\non the revision the caller read. A lease never returns to `active`.",
       "properties": {
         "method": {
           "const": "TransitionControlLease",

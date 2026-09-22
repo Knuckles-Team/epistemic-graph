@@ -9,8 +9,8 @@
 
 use eg_types::control_lease::{
     is_tenant_control_lease, validate_control_lease_get, ControlLeaseIssueOutcome,
-    ControlLeaseIssued, ControlLeaseStatus, ControlLeaseTransition, ControlLeaseTransitionOutcome,
-    ControlLeaseView, IssueControlLeaseRequest, TransitionControlLeaseRequest,
+    ControlLeaseIssued, ControlLeaseTransition, ControlLeaseTransitionOutcome, ControlLeaseView,
+    IssueControlLeaseRequest, TransitionControlLeaseRequest,
 };
 use eg_types::result_contract::coordination::{IssueControlLease, TransitionControlLease};
 
@@ -30,6 +30,25 @@ fn load_row(
         .transpose()?
         .map(|bytes| decode_durable(&bytes))
         .transpose()
+}
+
+/// The control-lease arm of the WorkItem-family applier: `None` for any
+/// method that is not a control-lease write.
+pub(crate) fn apply_control_lease_rows(
+    graph: &str,
+    method: &Method,
+    nodes: &mut ScopedOwnerTableMut<'_, (&'static str, &'static str), &'static [u8]>,
+    crypto: DurableCrypto<'_>,
+) -> Result<Option<crate::protocol::ResultPayload>, String> {
+    match method {
+        Method::IssueControlLease { request } => {
+            apply_issue_control_lease_row(graph, request, nodes, crypto)
+        }
+        Method::TransitionControlLease { request } => {
+            apply_transition_control_lease_row(graph, request, nodes, crypto)
+        }
+        _ => Ok(None),
+    }
 }
 
 /// Issue one active lease; a row already holding the id is a `collision`,
@@ -59,7 +78,8 @@ pub(crate) fn apply_issue_control_lease_row(
     .map(Some)
 }
 
-/// End one active lease, compare-and-set on the revision the caller read.
+/// Consume or end one lease along a legal edge, compare-and-set on the
+/// revision the caller read.
 pub(crate) fn apply_transition_control_lease_row(
     graph: &str,
     request: &TransitionControlLeaseRequest,
@@ -73,8 +93,7 @@ pub(crate) fn apply_transition_control_lease_row(
         return transition_result(ControlLeaseTransitionOutcome::NotFound, None, false);
     };
     let current = ControlLeaseView::from_row(&request.lease_id, &row)?;
-    if current.status != ControlLeaseStatus::Active || current.revision != request.expected_revision
-    {
+    if !request.to.allowed_from(current.status) || current.revision != request.expected_revision {
         return transition_result(
             ControlLeaseTransitionOutcome::Conflict,
             Some(current),
@@ -115,17 +134,10 @@ pub(crate) fn read_control_lease(
     crypto: DurableCrypto<'_>,
 ) -> Result<Option<ControlLeaseView>, String> {
     validate_control_lease_get(tenant, lease_id)?;
-    let handle = shard.graph(graph)?;
-    let read = shard.read(&handle)?;
-    let nodes = read.scoped_owner_table(NODES)?;
-    let Some(value) = nodes.get((graph, lease_id))? else {
-        return Ok(None);
-    };
-    let row: NodeRow = decode_durable(&crypto.unseal(value.value())?)?;
-    if !is_tenant_control_lease(&row, tenant) {
-        return Ok(None);
-    }
-    ControlLeaseView::from_row(lease_id, &row).map(Some)
+    let (_, row) = super::read::snapshot_row(shard, graph, lease_id, crypto)?;
+    row.filter(|row| is_tenant_control_lease(row, tenant))
+        .map(|row| ControlLeaseView::from_row(lease_id, &row))
+        .transpose()
 }
 
 #[cfg(test)]

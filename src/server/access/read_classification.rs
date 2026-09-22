@@ -318,7 +318,7 @@ pub(super) const REASON_DECIDE_LIBRARY_SNAPSHOT: &str =
 // its `tenant` field, not per-node `_owner`/`_visibility`/`_grants`; the projection returns only
 // the caller view (no lease owner/epoch/fencing token).
 pub(super) const REASON_NATIVE_WORK_ITEM_TENANT_READ: &str =
-    "native_routes::route_work_item_reads routes GetWorkItem/ListWorkItems/GetControlLease (placement leader + read barrier under raft) to handlers::work_item_read, which refuses any request tenant other than the verified carrier tenant, then reads redb node rows via redb_store::work_item::{read_work_item, list_work_items, read_control_lease} and projects only rows whose `tenant` equals it -- never a GraphView/core.analysis_snapshot() row read; lease owner/epoch/fencing token are never projected";
+    "native_routes::route_work_item_reads routes GetWorkItem/ListWorkItems/GetWorkItemOutcome/GetControlLease (placement leader + read barrier under raft) to handlers::work_item_read, which refuses any request tenant other than the verified carrier tenant, then reads redb node rows via redb_store::work_item::{read_work_item, list_work_items, read_work_item_outcome, read_control_lease} and projects only rows whose `tenant` equals it -- never a GraphView/core.analysis_snapshot() row read; lease owner/epoch/fencing token are never projected";
 
 pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     // REASON_DECIDE_LIBRARY_SNAPSHOT
@@ -485,6 +485,7 @@ pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("GetWorkItem", REASON_NATIVE_WORK_ITEM_TENANT_READ),
     ("ListWorkItems", REASON_NATIVE_WORK_ITEM_TENANT_READ),
     ("GetControlLease", REASON_NATIVE_WORK_ITEM_TENANT_READ),
+    ("GetWorkItemOutcome", REASON_NATIVE_WORK_ITEM_TENANT_READ),
 ];
 
 // L-RLS-1 burn-down (CONCEPT:EPI-P3-3/P3-6): the 5 methods this pass covered (see the

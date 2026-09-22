@@ -981,12 +981,21 @@
     },
     "ControlLeaseStatus": {
       "description": "Where a control lease is in its one-way lifecycle.",
-      "enum": [
-        "active",
-        "revoked",
-        "expired"
-      ],
-      "type": "string"
+      "oneOf": [
+        {
+          "enum": [
+            "active",
+            "revoked",
+            "expired"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "consumed",
+          "description": "A single-use grant that has been spent; still live until it is\nrevoked or expires.",
+          "type": "string"
+        }
+      ]
     },
     "ControlLeaseTransition": {
       "additionalProperties": false,
@@ -1029,7 +1038,7 @@
         },
         {
           "const": "conflict",
-          "description": "The lease is no longer active, or moved past `expected_revision`.",
+          "description": "The edge is not legal from the lease's current status, or the lease\nmoved past `expected_revision`.",
           "type": "string"
         },
         {
@@ -1069,7 +1078,7 @@
           "type": "string"
         },
         "revision": {
-          "description": "Row revision: 1 at issue, bumped by the transition.",
+          "description": "Row revision: 1 at issue, bumped by every transition.",
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
@@ -5991,6 +6000,41 @@
       ],
       "type": "object"
     },
+    "WorkItemOutcomeView": {
+      "additionalProperties": false,
+      "description": "`GetWorkItemOutcome`: a terminal WorkItem and the provenance its commit\nbound (graph-os EG-3). `outcome` is the OutcomeEvaluation receipt's stored\nproperties, verified against the digest the commit recorded -- `None` when\nthe bundle committed without one (a `degraded` outcome).",
+      "properties": {
+        "outcome": {
+          "additionalProperties": true,
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "outcome_ref": {
+          "type": "string"
+        },
+        "tool_call_refs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "trace_ref": {
+          "type": "string"
+        },
+        "work_item": {
+          "$ref": "#/$defs/WorkItemView"
+        }
+      },
+      "required": [
+        "work_item",
+        "trace_ref",
+        "tool_call_refs",
+        "outcome_ref"
+      ],
+      "type": "object"
+    },
     "WorkItemPage": {
       "additionalProperties": false,
       "description": "One page of `ListWorkItems`.",
@@ -6510,6 +6554,25 @@
             "anyOf": [
               {
                 "$ref": "#/$defs/WorkItemView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GetWorkItemOutcome": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/WorkItemOutcomeView"
               },
               {
                 "type": "null"

@@ -40,6 +40,22 @@ pub const MAX_WORK_ITEM_LIST_CURSOR_BYTES: usize = 16 * 1024;
 /// read side projects it as [`WorkItemView::version`].
 pub const WORK_ITEM_ROW_REVISION: &str = "row_revision";
 
+/// The WorkItem-row properties a terminal commit with a `TerminalOutcomeExtension`
+/// binds its provenance under (graph-os EG-3). Written only by the native
+/// commit, refused to generic writers, and read by `GetWorkItemOutcome`.
+pub const WORK_ITEM_OUTCOME_REF: &str = "outcome_ref";
+pub const WORK_ITEM_OUTCOME_DIGEST: &str = "outcome_digest";
+pub const WORK_ITEM_TRACE_REF: &str = "trace_ref";
+pub const WORK_ITEM_TOOL_CALL_REFS: &str = "tool_call_refs";
+/// Every WorkItem-row property only the native kernel may write.
+pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 5] = [
+    WORK_ITEM_ROW_REVISION,
+    WORK_ITEM_OUTCOME_REF,
+    WORK_ITEM_OUTCOME_DIGEST,
+    WORK_ITEM_TRACE_REF,
+    WORK_ITEM_TOOL_CALL_REFS,
+];
+
 /// `SubmitWorkItem`'s own bound on a WorkItem id, reused for the tenant.
 const MAX_WORK_ITEM_ID_BYTES: usize = 512;
 
@@ -167,6 +183,58 @@ pub struct WorkItemPage {
     /// `Some` when more of the graph remains to be scanned; hand it back
     /// unmodified to continue. A page may be empty and still carry one.
     pub next_cursor: Option<String>,
+}
+
+/// `GetWorkItemOutcome`: a terminal WorkItem and the provenance its commit
+/// bound (graph-os EG-3). `outcome` is the OutcomeEvaluation receipt's stored
+/// properties, verified against the digest the commit recorded -- `None` when
+/// the bundle committed without one (a `degraded` outcome).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct WorkItemOutcomeView {
+    pub work_item: WorkItemView,
+    pub trace_ref: String,
+    pub tool_call_refs: Vec<String>,
+    pub outcome_ref: String,
+    pub outcome: Option<Map<String, Value>>,
+}
+
+/// The provenance references a native terminal commit bound to a WorkItem row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommittedOutcomeRefs {
+    pub trace_ref: String,
+    pub tool_call_refs: Vec<String>,
+    pub outcome_ref: String,
+    /// SHA-256 of the OutcomeEvaluation receipt's stored properties, when the
+    /// bundle carried that receipt.
+    pub outcome_digest: Option<String>,
+}
+
+impl CommittedOutcomeRefs {
+    /// The references on `row`, `None` when it carries no committed bundle.
+    pub fn from_row(row: &Map<String, Value>) -> Option<Self> {
+        let outcome_ref = row.get(WORK_ITEM_OUTCOME_REF)?.as_str()?.to_string();
+        let tool_call_refs = row
+            .get(WORK_ITEM_TOOL_CALL_REFS)
+            .and_then(Value::as_array)
+            .map(|refs| {
+                refs.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+        Some(Self {
+            trace_ref: text(row, WORK_ITEM_TRACE_REF).to_string(),
+            tool_call_refs,
+            outcome_ref,
+            outcome_digest: row
+                .get(WORK_ITEM_OUTCOME_DIGEST)
+                .and_then(Value::as_str)
+                .map(str::to_string),
+        })
+    }
 }
 
 /// Validate a `GetWorkItem` request's own fields.

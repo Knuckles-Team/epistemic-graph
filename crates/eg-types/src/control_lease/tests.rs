@@ -22,11 +22,11 @@ fn every_status_round_trips_through_its_stored_text() {
         assert_eq!(ControlLeaseStatus::from_stored(text), Some(status));
     }
     assert_eq!(
-        ControlLeaseEnd::Revoked.status(),
+        ControlLeaseTarget::Revoked.status(),
         ControlLeaseStatus::Revoked
     );
     assert_eq!(
-        ControlLeaseEnd::Expired.status(),
+        ControlLeaseTarget::Expired.status(),
         ControlLeaseStatus::Expired
     );
     assert_eq!(ControlLeaseStatus::from_stored("renewed"), None);
@@ -81,10 +81,25 @@ fn transition_and_get_requests_are_bounded() {
         tenant: "tenant-a".into(),
         lease_id: "browserlease_1".into(),
         expected_revision: 1,
-        to: ControlLeaseEnd::Revoked,
+        to: ControlLeaseTarget::Revoked,
         idempotency_key: String::new(),
     };
     assert!(transition.validate().is_err());
     assert!(validate_control_lease_get("tenant-a", "").is_err());
     validate_control_lease_get("tenant-a", "browserlease_1").unwrap();
+}
+
+#[test]
+fn only_the_declared_edges_are_legal() {
+    use ControlLeaseStatus::{Active, Consumed, Expired, Revoked};
+    use ControlLeaseTarget as To;
+    for from in [Active, Consumed, Revoked, Expired] {
+        for to in [To::Consumed, To::Revoked, To::Expired] {
+            let legal = matches!(
+                (from, to),
+                (Active, _) | (Consumed, To::Revoked | To::Expired)
+            );
+            assert_eq!(to.allowed_from(from), legal, "{from:?} -> {to:?}");
+        }
+    }
 }

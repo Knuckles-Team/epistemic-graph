@@ -298,6 +298,7 @@ SEND_BY_METHOD = {
     "GetSubgraph": graph.send_get_subgraph,
     "GetSuccessors": graph.send_get_successors,
     "GetWorkItem": coordination.send_get_work_item,
+    "GetWorkItemOutcome": coordination.send_get_work_item_outcome,
     "GraphColoring": compute.send_graph_coloring,
     "GraphLearnFit": compute.send_graph_learn_fit,
     "GraphLearnPredict": compute.send_graph_learn_predict,

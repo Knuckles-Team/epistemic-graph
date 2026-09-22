@@ -2,49 +2,49 @@
   "artifact_digests": {
     "contract/fixtures/connector_pack_digest_vectors.json": "b1fe4660272ca12419349fd1e1c57a6f54db762e24b4b47d2d1f8fd46016588a",
     "contract/fixtures/decision_digest_vectors.json": "b2cb368964340e05b58f65d8d226343d08cf48f0912fe7b560d619d19b2641c8",
-    "contract/methods.json": "21426d67d1febfe8030f46b4e162084ba179cffb9c79a0df43842e824106d15d",
-    "contract/schemas/method.request.json": "a6827551a6e5003d7679a93e54f66881f599cd97f3c4f74e173f30e9c49ba8cb",
+    "contract/methods.json": "b50c086954f6190ab0547040f93532527b8042538dfe74e1e1e63489d38d23be",
+    "contract/schemas/method.request.json": "a869b7e2062c37e5857ad5f8b091191836316f643ed04dba0473ff077e6e4885",
     "contract/schemas/result.cluster.json": "7d91b463ac26c476e6641219aaa7cbc5b4ee7ae1b6127a5922d1ed263b138c08",
     "contract/schemas/result.compute.json": "2522ca588ef3e4ea8af402faa167dee281cb33e5df901d5124404ec5bc0504db",
-    "contract/schemas/result.coordination.json": "6b5a62557e26853df95c7346851c9684c7ffe6a2f74a7c02e2d98a6122763d4c",
+    "contract/schemas/result.coordination.json": "0f558c107c46fb0458ad7b374f7a58ec628004f4746479e838f6e8764aa0ae3c",
     "contract/schemas/result.graph.json": "71d2305b12cdc37b83f1e04559e86a553040adec483e8cdc8e8202a1af2f2cbe",
     "contract/schemas/result.ingestion.json": "33b88b5728252a24f66d0c201eac9bd548810a428631a4ab9705e01ccce3e415",
     "contract/schemas/result.messaging.json": "eaa28f229255ef4b26195218eac9f34ecf2c35b196f1784baefef1aa7179aa3e",
     "contract/schemas/result.payload.json": "1bd5261c36024a16810f262e65449f3cf81de819c1d8189abd68a75133cae8c8",
-    "contract/schemas/result.query.json": "58451fa6d655cea94b586b9a11db73f73400a8de79d5c86b308a2e78c394e3c2",
+    "contract/schemas/result.query.json": "453b3897a94bb86390bd9031278a75f2183d475168102e6ce31ba8dc1ccef782",
     "contract/schemas/result.reasoning.json": "208ed85f87ad7515d0c9cbd5d99c96e3ada406ab2e8d81e32c93ac29b4331a18",
     "contract/schemas/result.security.json": "af85883a336f9b8d93f2fba7e6f0b47cccd1697deeb9fb92c7565cf58417267c",
     "contract/schemas/result.storage.json": "c0e9f5d92633a3274782cf322a83a64058b4f896d1ca50646caf56bcfd4d129a",
     "contract/schemas/result.transactions.json": "0b7de622e70a7fe478270c3109bbf787caaba6d34f2633873e44b3789d6c6033",
-    "crates/eg-capabilities/generated/method_catalog.rs": "08560b2f8ac4abd4b4e344dedeeded221c05e2b6ba30a0ee9819e8860c4fc696",
-    "docs/capabilities.generated.md": "772264c33b6ddfad82030d394e668d491c0abc52719db22c6d34fe5d0364184c",
+    "crates/eg-capabilities/generated/method_catalog.rs": "0cf5dfef98ee9de22a3ab81de4745c8c0ea2b04421786536bbbe0abde9fdea01",
+    "docs/capabilities.generated.md": "c8f4677a714a268cd477fc219cadc1c38675b6fd55cc331820a3e790021f6553",
     "epistemic_graph/contract/__init__.py": "0484338d63b99278f479a60dca4830f54a5e81d8fe98b6720e808d4c008c7be7",
-    "epistemic_graph/generated/__init__.py": "a845acf657ae9be114ee227e53c31e3243f4806c1a65e77d0b4eeff8b681c079",
-    "epistemic_graph/generated/_ids.py": "bcc7b19660ba782ccd1398d9ebe1d22e52d4ff708eac152a143c13eeff3d780a",
+    "epistemic_graph/generated/__init__.py": "78904f53e3b6bc0a7800395e9a038e1e27c35ef85c39655a6ec32d4b735a71d8",
+    "epistemic_graph/generated/_ids.py": "8bda94f978e1bc1879eb4bd410c0214ea811bbec0db666753f984a88545f31d7",
     "epistemic_graph/generated/_runtime.py": "74ed6fd21563ae75c27757676cd4e633c7a2f29215199574bc4ddbe8d59fdebc",
     "epistemic_graph/generated/agent_component.py": "20c6e78cf2049745540a9cd0dd5ffc6623da415123c1bda480bb797d0b84fcb3",
     "epistemic_graph/generated/cluster.py": "96501b448f3f51c84fccbefd84b0adcc10992c8a8c1e708b46e2edc64847e921",
     "epistemic_graph/generated/compute.py": "24ba19612e692a2f269d97b313e2b25cdf9c6b319770c757653d7bbb127ff238",
     "epistemic_graph/generated/connector_pack.py": "7260b16a62b6a3aa2c7369bf106e6f41b9f4897398cc924f43ba9005603e6cbd",
-    "epistemic_graph/generated/coordination.py": "61c4cb3aded56836641007f42e80a222afb647130b97038f9c2f600cb3fb5e37",
+    "epistemic_graph/generated/coordination.py": "b9a0f509afe4763be0554fca077f257dd113ba67dbe06bb6ed6d7f04e0896145",
     "epistemic_graph/generated/digest.py": "9bed03c1dea1300e68e962f517b67abf42881ae32f2208e254ac42ffac928290",
     "epistemic_graph/generated/graph.py": "99c595f2555d985d99ce76ec4895aa531092c9a701241cf0add330b2e8023370",
     "epistemic_graph/generated/graph_schema.py": "69c7ee5ee08174a8df54d982005ec169f48117670c5a7b0cbb367382f120e213",
     "epistemic_graph/generated/index_repository.py": "6292f8817baf8522859eba8b8e3ad9fcb571e824da5fb7d7a83504988588da29",
     "epistemic_graph/generated/ingestion.py": "b22b34cec9af217df099e951158b0defc1a3f9baa26d773789d4a3be24ac9822",
     "epistemic_graph/generated/messaging.py": "a14c93fc32c0544b0bbac539d7d0dee4f2d65fa4db9199e82b91bcdcf02f3db4",
-    "epistemic_graph/generated/query.py": "38994cc7f500f809313c9491d6e23d6f1643900f686e2993678158ae18f321a3",
+    "epistemic_graph/generated/query.py": "1adee9d07089cc64a2c8d48b3aa34ce5ff80f7b9c52df357794a04071cd527f4",
     "epistemic_graph/generated/rdf_report.py": "335d39aef990e532d62bf89bfd343174c9004eaba5406ddc70089b029002cf71",
     "epistemic_graph/generated/reasoning.py": "d5311434dd6c90a2d6c45e4c5f1da502d9f583ec91f73c1fe0c8bcadfeee7a10",
     "epistemic_graph/generated/security.py": "7a3720962fd1f226da2c5ebcc0a4fbab747f18cd0ec31e3aa95b44e5ec3d0ab9",
     "epistemic_graph/generated/server_registry.py": "95a4a2709ac6459fac8eb949aaa5ac3524bd896fc405e089ee9fc55c6f7a8fcc",
     "epistemic_graph/generated/source_ingestion.py": "b98e48919aab0aeec188a3ca5bcf864f5a1f83aabec10612b1ff4833d3bd9285",
-    "epistemic_graph/generated/storage.py": "a9983a2aa6690357e2d762b3bcfb5a2bfc6a1c4f2b196a824908e5dc2c523a6d",
+    "epistemic_graph/generated/storage.py": "2d307b5c7cd4e6b5b0a5b36a46b709cb856473569e7c0ead75dca388f9dd6a21",
     "epistemic_graph/generated/transactions.py": "29172b0f7938e6c31f88a8def3676631fbfc08135607207919544aa7446cec68",
     "epistemic_graph/generated/write_back.py": "211f28015a9c510a06c939f6ad5da01dba2567d7a01bd56e3bd3d286728fba3d"
   },
   "cargo_lock_sha256": "7a21df362ba52b5c1c8cb0d6267d9d2f4932856eebd9b8b2ee0b9b88f79ff25b",
-  "contract_digest": "d90ed4623fe01fc6b60fda9ea221549589a65cee2b52146cf6ed5777bef46639",
+  "contract_digest": "24632a815c997ec56aa8fcc25df332fd94090df115d879da6622bdcd97e8f52b",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -199,13 +199,6 @@
         "value": "1"
       }
     ],
-    "DECISION_HEAD_SCHEMA_VERSION": [
-      {
-        "file": "crates/eg-types/src/decision/statistical/head.rs",
-        "scope": "",
-        "value": "1"
-      }
-    ],
     "DECISION_JOB_SCHEMA_VERSION": [
       {
         "file": "crates/eg-types/src/decision.rs",
@@ -251,13 +244,6 @@
     "ENCRYPTION_KEY_BINDING_FORMAT_VERSION": [
       {
         "file": "src/crypto.rs",
-        "scope": "",
-        "value": "1"
-      }
-    ],
-    "FEATURE_SCHEMA_VERSION": [
-      {
-        "file": "crates/eg-types/src/decision/statistical/features.rs",
         "scope": "",
         "value": "1"
       }
@@ -311,13 +297,6 @@
         "value": "1"
       }
     ],
-    "LABELLED_DATASET_SCHEMA_VERSION": [
-      {
-        "file": "crates/eg-types/src/decision/statistical/dataset.rs",
-        "scope": "",
-        "value": "1"
-      }
-    ],
     "MEMBERSHIP_SHRINK_SCHEMA_VERSION": [
       {
         "file": "src/raft/membership_shrink.rs",
@@ -342,13 +321,6 @@
     "NATIVE_CONTROL_SCHEMA_VERSION": [
       {
         "file": "crates/eg-types/src/native_control.rs",
-        "scope": "",
-        "value": "1"
-      }
-    ],
-    "NL_TEMPLATE_SCHEMA_VERSION": [
-      {
-        "file": "crates/eg-types/src/decision/statistical/nl.rs",
         "scope": "",
         "value": "1"
       }
@@ -551,14 +523,14 @@
     ]
   },
   "generator": "eg-capabilities/gen_contract",
-  "internal_only_methods": 23,
-  "method_count": 429,
-  "python_client_methods": 406,
+  "internal_only_methods": 26,
+  "method_count": 435,
+  "python_client_methods": 409,
   "result_classification": {
     "declared_dynamic": 12,
     "mixed": 1,
-    "schematized": 416,
+    "schematized": 422,
     "unclassified": 0
   },
-  "source_tree_oid": "b4104989b9bba2742b40fc15e9cf2d6cb3b28d041bdda2d3e59d8404aca3a7f5"
+  "source_tree_oid": "6160261bd6300e71d3cfbc80eb92f58e777f497da5a6e69cc17e531c33225569"
 }

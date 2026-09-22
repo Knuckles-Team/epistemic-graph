@@ -4365,24 +4365,33 @@ class WorkItemClient:
         result_ref: str | None = None,
         error_ref: str | None = None,
         retryable: bool = False,
+        outcome_extension: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        """Commit a leased item's terminal result under its fence.
+
+        ``outcome_extension`` (a ``TerminalOutcomeExtension``: the outcome
+        bundle, its RunTrace/ToolCall/OutcomeEvaluation receipt nodes and the
+        RunEvent) commits the provenance atomically with the result; read it
+        back with :meth:`get_outcome`.
+        """
+        params: dict[str, Any] = {
+            "tenant": tenant,
+            "work_item_id": work_item_id,
+            "worker_id": worker_id,
+            "lease_epoch": int(lease_epoch),
+            "fencing_token": int(fencing_token),
+            "idempotency_key": idempotency_key,
+            "outcome": outcome,
+            "result_ref": result_ref,
+            "error_ref": error_ref,
+            "retryable": bool(retryable),
+            "now_ms": int(now_ms),
+        }
+        if outcome_extension is not None:
+            params["outcome_extension"] = outcome_extension
         return (
             await _gen.coordination.send_commit_work_item_result(
-                self._client,
-                {
-                    "tenant": tenant,
-                    "work_item_id": work_item_id,
-                    "worker_id": worker_id,
-                    "lease_epoch": int(lease_epoch),
-                    "fencing_token": int(fencing_token),
-                    "idempotency_key": idempotency_key,
-                    "outcome": outcome,
-                    "result_ref": result_ref,
-                    "error_ref": error_ref,
-                    "retryable": bool(retryable),
-                    "now_ms": int(now_ms),
-                },
-                idempotency_key=idempotency_key,
+                self._client, params, idempotency_key=idempotency_key
             )
         ).payload
 
@@ -4654,6 +4663,33 @@ class WorkItemClient:
             return None
         return _work_item_view(value)
 
+    async def get_outcome(
+        self, *, tenant: str, work_item_id: str
+    ) -> dict[str, Any] | None:
+        """Return a terminal WorkItem and the provenance its commit bound:
+        ``{"work_item", "trace_ref", "tool_call_refs", "outcome_ref",
+        "outcome"}`` -- ``outcome`` is the OutcomeEvaluation receipt's stored
+        properties, verified by the engine against the committed digest.
+        ``None`` when the item is not visible to ``tenant`` or has no bundle.
+        """
+        value = (
+            await _gen.coordination.send_get_work_item_outcome(
+                self._client,
+                {
+                    "tenant": _string("GetWorkItemOutcome.tenant", tenant),
+                    "work_item_id": _string(
+                        "GetWorkItemOutcome.work_item_id", work_item_id
+                    ),
+                },
+            )
+        ).payload
+        if value is None:
+            return None
+        if not isinstance(value, dict) or set(value) != _WORK_ITEM_OUTCOME_FIELDS:
+            raise RuntimeError("WorkItem outcome does not match the typed contract")
+        _work_item_view(value["work_item"])
+        return value
+
     async def list(
         self,
         *,
@@ -4688,6 +4724,9 @@ class WorkItemClient:
         }
 
 
+_WORK_ITEM_OUTCOME_FIELDS = frozenset(
+    {"work_item", "trace_ref", "tool_call_refs", "outcome_ref", "outcome"}
+)
 _WORK_ITEM_VIEW_FIELDS = frozenset(
     {
         "work_item_id",
@@ -4714,7 +4753,8 @@ class ControlLeaseClient:
 
     A control lease is a tenant-bound, time-boxed GRANT record -- an immutable
     grant body plus ``issued_at_ms``/``expires_at_ms``/``hard_expires_at_ms`` --
-    with a one-way lifecycle: ``active``, then ``revoked`` or ``expired``. Only
+    with a one-way lifecycle: ``active``, optionally ``consumed`` (single use),
+    then ``revoked`` or ``expired``. Only
     these methods write it; generic node writes are refused by the engine.
     ``tenant`` must equal the verified request tenant on every call.
     """
@@ -4782,15 +4822,19 @@ class ControlLeaseClient:
         tenant: str,
         lease_id: str,
         expected_revision: int,
-        to: Literal["revoked", "expired"],
+        to: Literal["consumed", "revoked", "expired"],
         idempotency_key: str,
     ) -> dict[str, Any]:
-        """End an active lease, compare-and-set on ``expected_revision`` (the
-        ``revision`` of the view the caller decided on). Answers
+        """Move a lease along a legal edge -- ``active -> consumed | revoked |
+        expired`` or ``consumed -> revoked | expired`` -- compare-and-set on
+        ``expected_revision`` (the ``revision`` of the view the caller decided
+        on). ``consumed`` happens at most once (single-use receipt). Answers
         ``{"outcome": "applied"|"conflict"|"not_found", "lease": view|None,
         ...}``; on ``conflict`` the lease is the CURRENT view."""
-        if to not in ("revoked", "expired"):
-            raise ValueError("TransitionControlLease.to must be revoked or expired")
+        if to not in ("consumed", "revoked", "expired"):
+            raise ValueError(
+                "TransitionControlLease.to must be consumed, revoked or expired"
+            )
         request = {
             "tenant": _string("TransitionControlLease.tenant", tenant),
             "lease_id": _string("TransitionControlLease.lease_id", lease_id),
@@ -4827,7 +4871,7 @@ _CONTROL_LEASE_VIEW_FIELDS = frozenset(
 def _control_lease_view(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict) or set(value) != _CONTROL_LEASE_VIEW_FIELDS:
         raise RuntimeError("control lease view does not match the typed contract")
-    if value["status"] not in ("active", "revoked", "expired"):
+    if value["status"] not in ("active", "consumed", "revoked", "expired"):
         raise RuntimeError("control lease view carries an unknown status")
     return value
 

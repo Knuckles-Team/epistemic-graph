@@ -184,6 +184,7 @@ METHOD_IDS = frozenset(
         "CasWorkItemMetadata",
         "GetWorkItem",
         "ListWorkItems",
+        "GetWorkItemOutcome",
         "IssueControlLease",
         "TransitionControlLease",
         "GetControlLease",
