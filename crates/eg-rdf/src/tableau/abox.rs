@@ -49,13 +49,6 @@ impl SearchBudget {
         self.used.set(self.used.get() + 1);
         true
     }
-
-    fn verdict(&self, max_steps: u64, consistent: bool) -> Result<bool, BudgetExhausted> {
-        if self.exhausted.get() {
-            return Err(BudgetExhausted { max_steps });
-        }
-        Ok(consistent)
-    }
 }
 
 /// **Ontology consistency within a search budget** (TBox + ABox). `Err` when the
@@ -64,9 +57,54 @@ pub fn is_consistent_within(
     ont: &DlOntology,
     budget: DerivationBudget,
 ) -> Result<bool, BudgetExhausted> {
+    inconsistency_within(ont, budget).map(|witness| witness.is_none())
+}
+
+/// Why [`check_pack_ontology`] refused a document set.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BoundedCheckRefusal {
+    /// A named class is unsatisfiable (`witness` is its IRI), or the individual
+    /// assertions have no model (`witness` is the least individual of the first
+    /// inconsistent ABox component, or `owl:Thing` for an unsatisfiable TBox).
+    Inconsistent { witness: String },
+    /// The deterministic step budget ran out before a verdict.
+    BudgetExceeded { steps: u64 },
+}
+
+/// The bounded reasoning check for ontology that is about to ENTER a graph (pack
+/// import G14, EH-355 ruling (c)): the EL⁺/RL classification (no unsatisfiable named
+/// class) and then the full-ABox tableau, each within `max_steps` deterministic steps —
+/// the same verdict on every host.
+pub fn check_pack_ontology(triples: &[Triple], max_steps: u64) -> Result<(), BoundedCheckRefusal> {
+    let budget = DerivationBudget::new(max_steps);
+    let exceeded = |_: BudgetExhausted| BoundedCheckRefusal::BudgetExceeded { steps: max_steps };
+    let classification = crate::owl::Reasoner::from_triples(triples)
+        .classify_within(budget)
+        .map_err(exceeded)?;
+    let witness = match classification.unsatisfiable.first() {
+        Some(class) => Some(class.clone()),
+        None => inconsistency_within(&parse_dl_ontology(triples), budget).map_err(exceeded)?,
+    };
+    match witness {
+        Some(witness) => Err(BoundedCheckRefusal::Inconsistent { witness }),
+        None => Ok(()),
+    }
+}
+
+/// The first inconsistent ABox component's least individual (`owl:Thing` for an
+/// unsatisfiable TBox with no ABox), within the budget.
+fn inconsistency_within(
+    ont: &DlOntology,
+    budget: DerivationBudget,
+) -> Result<Option<String>, BudgetExhausted> {
     let meter = Rc::new(SearchBudget::limited(budget));
-    let consistent = consistent_with(ont, &meter);
-    meter.verdict(budget.max_steps(), consistent)
+    let witness = first_inconsistency(ont, &meter);
+    if meter.exhausted.get() {
+        return Err(BudgetExhausted {
+            max_steps: budget.max_steps(),
+        });
+    }
+    Ok(witness)
 }
 
 /// [`is_consistent_within`] over a parsed triple set: the full-ABox check run where
@@ -81,13 +119,19 @@ pub fn abox_consistency_within(
 /// Every component must be consistent; stops at the first that is not (or when the
 /// budget is spent).
 pub(super) fn consistent_with(ont: &DlOntology, meter: &Rc<SearchBudget>) -> bool {
+    first_inconsistency(ont, meter).is_none()
+}
+
+fn first_inconsistency(ont: &DlOntology, meter: &Rc<SearchBudget>) -> Option<String> {
     let parts = components(ont);
     if parts.is_empty() {
-        return decide(ont, &BTreeSet::new(), meter).consistent;
+        let consistent = decide(ont, &BTreeSet::new(), meter).consistent;
+        return (!consistent).then(|| "<http://www.w3.org/2002/07/owl#Thing>".to_string());
     }
     parts
         .iter()
-        .all(|part| decide(&part.ontology, &part.individuals, meter).consistent)
+        .find(|part| !decide(&part.ontology, &part.individuals, meter).consistent)
+        .map(|part| part.individuals.first().cloned().unwrap_or_default())
 }
 
 /// One independent part of the ABox: its individuals and the ontology restricted to
@@ -362,6 +406,39 @@ mod tests {
         ont.different_from.push((ind("x"), ind("y")));
         assert_eq!(components(&ont).len(), 1);
         assert!(!super::super::is_consistent(&ont));
+    }
+
+    /// The pack check names what is wrong: an unsatisfiable class, an inconsistent
+    /// individual, or a spent budget.
+    #[test]
+    fn check_pack_ontology_reports_a_typed_refusal() {
+        let ttl = |body: &str| {
+            crate::mapping::parse_turtle(&format!(
+                "@prefix ex: <http://example.org/> .\n\
+                 @prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+                 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n{body}"
+            ))
+            .unwrap()
+        };
+        let clean = ttl("ex:A rdfs:subClassOf ex:B . ex:x a ex:A .");
+        assert_eq!(check_pack_ontology(&clean, 10_000), Ok(()));
+
+        let unsat = ttl("ex:A rdfs:subClassOf ex:B, ex:C . ex:B owl:disjointWith ex:C .");
+        assert_eq!(
+            check_pack_ontology(&unsat, 10_000),
+            Err(BoundedCheckRefusal::Inconsistent { witness: ind("A") })
+        );
+
+        let abox = ttl("ex:B owl:disjointWith ex:C . ex:y a ex:B, ex:C . ex:x a ex:B .");
+        assert_eq!(
+            check_pack_ontology(&abox, 10_000),
+            Err(BoundedCheckRefusal::Inconsistent { witness: ind("y") })
+        );
+
+        assert_eq!(
+            check_pack_ontology(&clean, 1),
+            Err(BoundedCheckRefusal::BudgetExceeded { steps: 1 })
+        );
     }
 
     /// The budget fails closed with a typed outcome; enough budget decides.
