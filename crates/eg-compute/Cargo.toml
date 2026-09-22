@@ -84,15 +84,23 @@ ast-extended = [
     "dep:tree-sitter-bash",
     "dep:tree-sitter-scala",
     "dep:tree-sitter-lua",
-    # CONCEPT:EH-281 grammar expansion. HTML/CSS/JSON are deliberately NOT
-    # here: see the "no extractor consumes them" note above the ABI-pin
-    # comment block below.
     "dep:tree-sitter-kotlin-ng",
     "dep:tree-sitter-objc",
     "dep:tree-sitter-zig",
     "dep:tree-sitter-groovy",
     "dep:tree-sitter-swift",
     "dep:tree-sitter-verilog",
+    "dep:tree-sitter-julia",
+    "dep:tree-sitter-elixir",
+    "dep:tree-sitter-powershell",
+    "dep:tree-sitter-fortran",
+    "dep:tree-sitter-pascal",
+    # HTML/CSS/JSON register and parse but the generic walker extracts no
+    # symbols from them (no function/class concept) — see the ABI-pin
+    # comment block below.
+    "dep:tree-sitter-html",
+    "dep:tree-sitter-css",
+    "dep:tree-sitter-json",
 ]
 
 [dependencies]
@@ -164,22 +172,19 @@ tree-sitter-lua = { version = "0.2", optional = true }
 # ABI 15 with no older ABI-14 release, and CUDA source is a C++ superset
 # anyway, so `tree_sitter.rs` routes `.cu`/`.cuh` through `tree-sitter-cpp`
 # instead (see the CUDA row in `CORE_LANGUAGES`). No Terraform/HCL crate is
-# pinned for the same reason: `tree-sitter-hcl` only ever published 1.1.0,
-# which is ABI 15. No HTML/CSS/JSON crate is pinned either, though
-# ABI-14-compatible releases exist (tree-sitter-html 0.23.2, tree-sitter-css
-# 0.23.2, tree-sitter-json 0.24.8): none of these languages have a
-# function/class concept, so the generic AST walker's `class_like_kind`/
-# `function_like_kind` vocabulary (elements/selectors/keys are structurally
-# nothing like a declaration) would extract exactly zero symbols from any of
-# them. Registering the grammar now would only inflate the supported-
-# extension count for no capability, and would very likely start feeding
-# these (currently skipped) files into the parse pipeline via the Python
-# file-discovery walk that mirrors `SUPPORTED_EXTENSIONS` for nothing in
-# return. They need a DEDICATED structural extractor first — element
-# attributes for HTML, selector/property pairs for CSS, key paths for
-# JSON — the same shape SQL DDL already has via `tree_sitter_sql.rs`, which
-# is architecture work for a follow-up lane, not a grammar-table row. See
-# the lane WRAPUP for the full reasoning.
+# pinned: `tree-sitter-hcl` has published exactly ONE release ever, 1.1.0,
+# and it is ABI 15 (re-verified 2026-09-22); no fork or alternate maintained
+# crate (`tree-sitter-terraform`, `tree-sitter-tf`, ...) exists on crates.io.
+# No DreamMaker crate is pinned either: `tree-sitter-dm` (feudeytf, MIT,
+# `crates.io` description "DreamMaker grammar" — the earlier "no maintained
+# grammar at all" finding was a name-only miss, checked against the WRONG
+# package name `tree-sitter-dreammaker`) exists and IS actively maintained
+# (4 releases, latest 2026-09-06), but all 4 published versions (0.25.0
+# through 0.25.4) are ABI 15 — re-verified 2026-09-22, `src/parser.c`'s
+# `LANGUAGE_VERSION` = 15 on every one. No ABI-14 release exists for either
+# language, so neither can load against this crate's pinned tree-sitter 0.23
+# core; bumping the core to pick up ABI 15 is out of scope here (it would
+# invalidate every other ABI-14 pin in this list).
 tree-sitter-kotlin-ng = { version = "=1.0.1", optional = true }
 tree-sitter-objc = { version = "=3.0.2", optional = true }
 tree-sitter-zig = { version = "=1.1.2", optional = true }
@@ -189,6 +194,25 @@ tree-sitter-swift = { version = "=0.6.0", optional = true }
 # Verilog/SystemVerilog (CONCEPT:EH-281). ABI 14 (`src/parser.c`'s
 # `LANGUAGE_VERSION` = 14) — verified the same way as every other pin above.
 tree-sitter-verilog = { version = "=1.0.3", optional = true }
+# Julia. Newest release (0.23.1) is already ABI 14, MIT.
+tree-sitter-julia = { version = "=0.23.1", optional = true }
+# Elixir. Every release ever published (up to 0.3.5) is ABI 14, Apache-2.0.
+tree-sitter-elixir = { version = "=0.3.5", optional = true }
+# PowerShell. 0.26.x+ moved to ABI 15; 0.25.9 is the newest ABI-14 release, MIT.
+tree-sitter-powershell = { version = "=0.25.9", optional = true }
+# Fortran. 0.6.0 moved to ABI 15; 0.5.1 is the newest ABI-14 release, MIT.
+tree-sitter-fortran = { version = "=0.5.1", optional = true }
+# Pascal/Delphi. Newest release (0.10.2) is already ABI 14, MIT.
+tree-sitter-pascal = { version = "=0.10.2", optional = true }
+# HTML/CSS/JSON (CONCEPT:EH-281 follow-up): registered for real parsing —
+# content_digest/parser_capability_digest and future dedicated structural
+# extraction — even though the generic declaration walker extracts zero
+# symbols from any of them today (see `grammars_extended`'s module doc).
+# CSS 0.25.0+ and JSON's pre-0.24.3 line moved to/started above ABI 15; the
+# versions below are each the newest ABI-14 release, all MIT.
+tree-sitter-html = { version = "=0.23.2", optional = true }
+tree-sitter-css = { version = "=0.23.2", optional = true }
+tree-sitter-json = { version = "=0.24.8", optional = true }
 
 # Criterion harness for the AST parse-throughput baseline bench (CONCEPT:EG-012).
 # DEV-only — never linked into the engine binary.

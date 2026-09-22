@@ -280,6 +280,17 @@ fn visit_node(
     qual: &[String],
     state: &mut WalkState,
 ) -> String {
+    // Elixir (CONCEPT:EH-281): its grammar has no dedicated declaration node
+    // kinds at all — `defmodule`/`def`/`defp` all parse as a plain `call`
+    // node, distinguishable from an arbitrary function call only by the
+    // call's TARGET TEXT, which `class_like_kind`/`function_like_kind`
+    // structurally cannot see (they take a bare node-kind string). Handled
+    // as its own path rather than stretched into those shared tables.
+    if state.language == "elixir" {
+        if let Some(scope) = elixir_call_scope(node, source, scope, qual, state) {
+            return scope;
+        }
+    }
     if let Some(detail) = class_like_kind(node.kind()) {
         return emit_class_symbol(node, source, detail, scope, qual, state);
     }
@@ -291,6 +302,126 @@ fn visit_node(
     scope.to_string()
 }
 
+/// Elixir `call` dispatch (CONCEPT:EH-281): recognizes `defmodule` (class-
+/// like), `def`/`defp`/`defmacro`/`defmacrop` (function-like), and
+/// `import`/`alias`/`require` (a raw dependency edge) by the call's `target`
+/// identifier TEXT. Returns `None` for every other call (an ordinary
+/// function call, or one of Elixir's other `def*` forms this lane didn't
+/// reach — `defprotocol`/`defimpl`/`defstruct`/`defexception` — an honest,
+/// undetected gap rather than a wrong extraction), letting the caller fall
+/// through to the normal kind-based path (which also yields nothing for a
+/// bare `call` node, so this changes no existing behaviour for those).
+fn elixir_call_scope(
+    node: Node,
+    source: &[u8],
+    scope: &str,
+    qual: &[String],
+    state: &mut WalkState,
+) -> Option<String> {
+    if node.kind() != "call" {
+        return None;
+    }
+    let target = node.child_by_field_name("target")?;
+    if target.kind() != "identifier" {
+        return None;
+    }
+    match get_node_text(target, source).as_str() {
+        "defmodule" => Some(emit_elixir_module(node, source, scope, qual, state)),
+        "def" | "defp" | "defmacro" | "defmacrop" => {
+            emit_elixir_function(node, source, scope, qual, state);
+            Some(scope.to_string())
+        }
+        "import" | "alias" | "require" => {
+            if let Some(dep) = elixir_first_argument_name(node, source) {
+                append_raw_edge(dep, "depends_on_raw", state);
+            }
+            Some(scope.to_string())
+        }
+        _ => None,
+    }
+}
+
+/// A `call` node's `arguments` child — an unnamed positional child (kind
+/// `"arguments"`), NOT a field; Elixir's `call` grammar production declares
+/// only `target` as a field (confirmed against `node-types.json`, not
+/// assumed from it — the same "field list isn't grammar structure" lesson
+/// this lane's Verilog fallback already ran into once).
+fn elixir_arguments(node: Node) -> Option<Node> {
+    (0..node.child_count())
+        .filter_map(|i| node.child(i))
+        .find(|c| c.kind() == "arguments")
+}
+
+/// The `defmodule Foo.Bar do ... end` call's first `arguments` child: an
+/// `alias` node holding the full dotted module name verbatim (e.g.
+/// `Foo.Bar`) — kept whole rather than split to a bare last segment, since
+/// Elixir programmers address a module by its full alias, not a bare tail.
+fn elixir_first_argument_name(node: Node, source: &[u8]) -> Option<String> {
+    let args = elixir_arguments(node)?;
+    let mut cursor = args.walk();
+    let found = args.children(&mut cursor).find(|c| c.is_named());
+    found.map(|c| get_node_text(c, source))
+}
+
+fn emit_elixir_module(
+    node: Node,
+    source: &[u8],
+    scope: &str,
+    qual: &[String],
+    state: &mut WalkState,
+) -> String {
+    let Some(name) = elixir_first_argument_name(node, source) else {
+        return scope.to_string();
+    };
+    let qualified = join_qualified(qual, &name, state.language);
+    emit_symbol(
+        node,
+        source,
+        "Class",
+        "module",
+        name,
+        qualified,
+        HashMap::new(),
+        state,
+    );
+    scope.to_string()
+}
+
+/// `def area(w, h) do ... end`'s first `arguments` child is itself a nested
+/// `call` (`area(w, h)`) whose own `target` is the function name; a
+/// zero-parenthesis definition (`def helper do ... end`) instead puts a bare
+/// `identifier` directly in `arguments`.
+fn elixir_call_name(node: Node, source: &[u8]) -> Option<String> {
+    let args = elixir_arguments(node)?;
+    let mut cursor = args.walk();
+    let head = args.children(&mut cursor).find(|c| c.is_named())?;
+    match head.kind() {
+        "call" => head
+            .child_by_field_name("target")
+            .map(|t| get_node_text(t, source)),
+        "identifier" => Some(get_node_text(head, source)),
+        _ => None,
+    }
+}
+
+fn emit_elixir_function(
+    node: Node,
+    source: &[u8],
+    scope: &str,
+    qual: &[String],
+    state: &mut WalkState,
+) {
+    let Some(name) = elixir_call_name(node, source) else {
+        return;
+    };
+    let mut extra = HashMap::new();
+    extra.insert("scope".to_string(), scope.to_string());
+    let qualified = join_qualified(qual, &name, state.language);
+    emit_symbol(
+        node, source, "Function", "function", name, qualified, extra, state,
+    );
+}
+
 fn emit_class_symbol(
     node: Node,
     source: &[u8],
@@ -299,7 +430,7 @@ fn emit_class_symbol(
     qual: &[String],
     state: &mut WalkState,
 ) -> String {
-    let Some(name) = symbol_name(node, source).filter(|n| !n.is_empty()) else {
+    let Some(name) = symbol_name(node, source, state.language).filter(|n| !n.is_empty()) else {
         return scope.to_string();
     };
     let mut extra = HashMap::new();
@@ -346,7 +477,7 @@ fn emit_function_symbol(
     qual: &[String],
     state: &mut WalkState,
 ) {
-    let Some(name) = symbol_name(node, source).filter(|n| !n.is_empty()) else {
+    let Some(name) = symbol_name(node, source, state.language).filter(|n| !n.is_empty()) else {
         return;
     };
     let mut extra = HashMap::new();
@@ -443,8 +574,24 @@ fn emit_raw_edge(node: Node, source: &[u8], state: &mut WalkState) {
         | "import_declaration"
         | "import_spec"
         | "use_declaration"
+        | "using_statement" // Julia (CONCEPT:EH-281).
+        | "use_statement" // Fortran (CONCEPT:EH-281).
         | "preproc_include" => import_module(node, source)
             .map(|module| append_raw_edge(module, "depends_on_raw", state)),
+        // Pascal `uses a, b;` (CONCEPT:EH-281) — one edge per comma-separated
+        // unit, unlike every other import kind above which names exactly one
+        // module; handled here rather than stretching `import_module`'s
+        // single-`Option<String>` contract.
+        "declUses" => {
+            let mut cursor = node.walk();
+            for unit in node
+                .children(&mut cursor)
+                .filter(|c| c.kind() == "moduleName")
+            {
+                append_raw_edge(get_node_text(unit, source), "depends_on_raw", state);
+            }
+            None
+        }
         _ => None,
     };
 }

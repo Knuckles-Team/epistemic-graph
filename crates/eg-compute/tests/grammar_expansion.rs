@@ -24,13 +24,31 @@
 //! `class_identifier`/`interface_identifier`/`function_identifier` child,
 //! not a field, which the same `identifier_child_name` fallback resolves.
 //!
-//! HTML/CSS/JSON are deliberately NOT registered by this lane, even though
-//! ABI-14-compatible crates exist for all three: they have no function/class
-//! concept, so no vocabulary addition to the generic walker could ever
-//! extract anything from them, and registering the grammar alone (with
-//! nothing to consume elements/selectors/keys) would only inflate the
-//! supported-extension count for zero capability. `html_css_json_not_yet_registered`
-//! below is a regression guard for that decision, not a symbol test.
+//! Julia, Fortran, Pascal, and PowerShell (CONCEPT:EH-281 follow-up) needed
+//! real walker vocabulary work — their identifiers sit one or two levels
+//! deeper than any existing fallback reaches, in language-specific wrapper
+//! shapes (`signature`/`type_head` for Julia, a `*_statement` child for
+//! Fortran, a `header`/`genericDot` chain for Pascal, a leaf
+//! `function_name`/`simple_name` child for PowerShell) resolved by the new
+//! `extended_symbol_name` dispatch in `tree_sitter_ast.rs`, one small
+//! per-language function each.
+//!
+//! Elixir (CONCEPT:EH-281 follow-up) is structurally different again: its
+//! grammar has NO dedicated declaration node kinds — `defmodule`/`def`/
+//! `defp` all parse as a plain `call`, distinguishable only by the call's
+//! `target` TEXT. `class_like_kind`/`function_like_kind` take a bare
+//! node-kind string and can't see that, so Elixir is handled by a dedicated
+//! `elixir_call_scope` in `tree_sitter_walk.rs` instead.
+//!
+//! HTML/CSS/JSON ARE now registered (CONCEPT:EH-281 follow-up), but
+//! contribute no new vocabulary: none of the three has a function/class
+//! concept, so the generic walker extracts zero symbols from any of them —
+//! `html_css_json_parse_with_zero_symbols` below proves the grammar is
+//! genuinely registered (parses real markup/CSS/JSON without error) while
+//! confirming that non-extraction, rather than replacing the old
+//! "unregistered" test with a fake claim of capability. A future lane can
+//! still add a dedicated structural extractor (element/attribute, selector/
+//! property, key path) without needing to touch grammar registration again.
 #![cfg(feature = "ast-extended")]
 
 use eg_compute::parser::tree_sitter::parse_file;
@@ -200,19 +218,249 @@ fn swift_class_and_function() {
 }
 
 #[test]
-fn html_css_json_not_yet_registered() {
-    // Deliberate exclusion, not an oversight (CONCEPT:EH-281 — see this
-    // file's module doc and the exclusion note in `grammars_extended`):
-    // registering a grammar with no extractor that can consume its node
-    // kinds would inflate the supported-extension count for zero capability.
-    // This is a regression guard on that decision — if a future lane adds a
-    // dedicated structural extractor and registers these grammars for real,
-    // this test should be replaced with one that asserts genuine extraction,
-    // not updated to keep expecting "Unsupported file extension".
-    for path in ["index.html", "styles.css", "data.json"] {
-        let err = parse_file(path, b"").expect_err("not registered yet");
-        assert_eq!(err, "Unsupported file extension");
+fn html_css_json_parse_with_zero_symbols() {
+    // CONCEPT:EH-281 follow-up — registered for real (see this file's
+    // module doc): each parses successfully (no "Unsupported file
+    // extension", no parse error) but extracts zero symbols, since none of
+    // the three has a function/class concept the generic walker's vocabulary
+    // covers. If a future lane adds a dedicated structural extractor, this
+    // test should be replaced with one asserting genuine extraction.
+    let html = parse_file("index.html", b"<div class=\"a\"><p>hi</p></div>")
+        .unwrap_or_else(|e| panic!("html parse failed: {e}"));
+    assert_eq!(html.symbols_extracted, 0);
+
+    let css = parse_file("styles.css", b".widget { width: 10px; color: red; }")
+        .unwrap_or_else(|e| panic!("css parse failed: {e}"));
+    assert_eq!(css.symbols_extracted, 0);
+
+    let json = parse_file("data.json", b"{\"a\": 1, \"b\": [1, 2, 3]}")
+        .unwrap_or_else(|e| panic!("json parse failed: {e}"));
+    assert_eq!(json.symbols_extracted, 0);
+}
+
+#[test]
+fn julia_module_struct_abstract_function_and_macro() {
+    let src = r#"
+module MyMod
+
+using Base.Threads
+import Statistics: mean
+
+struct Point
+    x::Float64
+    y::Float64
+end
+
+abstract type Shape end
+
+function area(p::Point)
+    return p.x * p.y
+end
+
+macro mymacro(x)
+    return x
+end
+
+end
+"#;
+    let m = sym("MyMod.jl", src, "MyMod");
+    assert_eq!(m["symbol_type"], "Class");
+    assert_eq!(m["kind_detail"], "module");
+    assert_eq!(m["language"], "julia");
+
+    let p = sym("MyMod.jl", src, "Point");
+    assert_eq!(p["symbol_type"], "Class");
+    assert_eq!(p["kind_detail"], "struct");
+
+    let s = sym("MyMod.jl", src, "Shape");
+    assert_eq!(s["kind_detail"], "abstract_type");
+
+    let a = sym("MyMod.jl", src, "area");
+    assert_eq!(a["symbol_type"], "Function");
+    assert_eq!(a["kind_detail"], "function");
+
+    let mac = sym("MyMod.jl", src, "mymacro");
+    assert_eq!(mac["symbol_type"], "Function");
+    assert_eq!(mac["kind_detail"], "macro");
+}
+
+#[test]
+fn elixir_module_functions_and_imports() {
+    let src = r#"
+defmodule MyApp.Widget do
+  import Enum, only: [map: 2]
+  alias MyApp.Helper
+  require Logger
+
+  def area(w, h) do
+    w * h
+  end
+
+  defp zero_arg do
+    :ok
+  end
+end
+"#;
+    let r = parse_file("widget.ex", src.as_bytes()).unwrap_or_else(|e| panic!("parse failed: {e}"));
+
+    let module = r
+        .nodes
+        .iter()
+        .find(|n| n.properties.get("name").map(String::as_str) == Some("MyApp.Widget"))
+        .unwrap_or_else(|| panic!("no MyApp.Widget symbol: {r:?}"));
+    assert_eq!(module.properties["symbol_type"], "Class");
+    assert_eq!(module.properties["kind_detail"], "module");
+    assert_eq!(module.properties["language"], "elixir");
+
+    let area = r
+        .nodes
+        .iter()
+        .find(|n| n.properties.get("name").map(String::as_str) == Some("area"))
+        .unwrap_or_else(|| panic!("no area symbol: {r:?}"));
+    assert_eq!(area.properties["symbol_type"], "Function");
+
+    let zero_arg = r
+        .nodes
+        .iter()
+        .find(|n| n.properties.get("name").map(String::as_str) == Some("zero_arg"))
+        .unwrap_or_else(|| panic!("no zero_arg symbol: {r:?}"));
+    assert_eq!(zero_arg.properties["symbol_type"], "Function");
+
+    let raw_deps: Vec<&str> = r
+        .edges
+        .iter()
+        .filter(|e| e.edge_type == "depends_on_raw")
+        .map(|e| e.target.as_str())
+        .collect();
+    assert!(raw_deps.contains(&"Enum"), "{raw_deps:?}");
+    assert!(raw_deps.contains(&"MyApp.Helper"), "{raw_deps:?}");
+    assert!(raw_deps.contains(&"Logger"), "{raw_deps:?}");
+}
+
+#[test]
+fn powershell_function_and_class() {
+    let src = r#"
+function Get-Area {
+    param($Width, $Height)
+    return $Width * $Height
+}
+
+class Widget {
+    [int]$Width
+    [int]$Height
+
+    [int] Area() {
+        return $this.Width * $this.Height
     }
+}
+"#;
+    let f = sym("widget.ps1", src, "Get-Area");
+    assert_eq!(f["symbol_type"], "Function");
+    assert_eq!(f["language"], "powershell");
+
+    let c = sym("widget.ps1", src, "Widget");
+    assert_eq!(c["symbol_type"], "Class");
+    assert_eq!(c["kind_detail"], "class");
+
+    let m = sym("widget.ps1", src, "Area");
+    assert_eq!(m["symbol_type"], "Function");
+    assert_eq!(m["kind_detail"], "method");
+}
+
+#[test]
+fn fortran_module_function_subroutine_and_use() {
+    let src = r#"
+module mymod
+  use iso_fortran_env
+  implicit none
+
+contains
+
+  function area(w, h) result(a)
+    real :: w, h, a
+    a = w * h
+  end function area
+
+  subroutine greet(name)
+    character(len=*) :: name
+    print *, name
+  end subroutine greet
+
+end module mymod
+"#;
+    let r = parse_file("mymod.f90", src.as_bytes()).unwrap_or_else(|e| panic!("parse failed: {e}"));
+
+    let m = sym("mymod.f90", src, "mymod");
+    assert_eq!(m["symbol_type"], "Class");
+    assert_eq!(m["kind_detail"], "module");
+    assert_eq!(m["language"], "fortran");
+
+    let a = sym("mymod.f90", src, "area");
+    assert_eq!(a["symbol_type"], "Function");
+    assert_eq!(a["kind_detail"], "function");
+
+    let g = sym("mymod.f90", src, "greet");
+    assert_eq!(g["symbol_type"], "Function");
+    assert_eq!(g["kind_detail"], "subroutine");
+
+    let raw_deps: Vec<&str> = r
+        .edges
+        .iter()
+        .filter(|e| e.edge_type == "depends_on_raw")
+        .map(|e| e.target.as_str())
+        .collect();
+    assert!(raw_deps.contains(&"iso_fortran_env"), "{raw_deps:?}");
+}
+
+#[test]
+fn pascal_function_method_and_uses() {
+    let src = r#"
+unit MyUnit;
+
+interface
+
+uses SysUtils, Classes;
+
+function Add(a, b: Integer): Integer;
+
+type
+  TPoint = class
+  public
+    function Area: Integer;
+  end;
+
+implementation
+
+function Add(a, b: Integer): Integer;
+begin
+  Result := a + b;
+end;
+
+function TPoint.Area: Integer;
+begin
+  Result := 1;
+end;
+
+end.
+"#;
+    let r =
+        parse_file("mounit.pas", src.as_bytes()).unwrap_or_else(|e| panic!("parse failed: {e}"));
+
+    let add = sym("mounit.pas", src, "Add");
+    assert_eq!(add["symbol_type"], "Function");
+    assert_eq!(add["language"], "pascal");
+
+    let area = sym("mounit.pas", src, "Area");
+    assert_eq!(area["symbol_type"], "Function");
+
+    let raw_deps: Vec<&str> = r
+        .edges
+        .iter()
+        .filter(|e| e.edge_type == "depends_on_raw")
+        .map(|e| e.target.as_str())
+        .collect();
+    assert!(raw_deps.contains(&"SysUtils"), "{raw_deps:?}");
+    assert!(raw_deps.contains(&"Classes"), "{raw_deps:?}");
 }
 
 #[test]
