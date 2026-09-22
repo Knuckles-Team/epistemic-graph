@@ -289,11 +289,16 @@ $($variants)*
     /// unsupported, and error dispositions plus content/parser-capability
     /// digests for every submitted file. Use this (not `ParseFiles`) to ingest a
     /// repo's symbol graph; use `ParseFiles` only when per-file raw results are
-    /// wanted.
+    /// wanted. With `scope` (EH-280) the batch is branch-aware and
+    /// blob-deduplicated: every submitted file is one unique blob, parsed once,
+    /// and the result also projects `:Blob`, `:FileVersion` and `:Branch`
+    /// membership (plus tombstones) for the declared refs.
     IndexRepository {
         #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]
         files_msgpack: Vec<u8>,
+        #[serde(default)]
+        scope: Option<Box<crate::ingestion_wire::IndexRepositoryScope>>,
     },
 
 

@@ -52,6 +52,36 @@ class IndexFileStatus(str, Enum):
     ERROR = "error"
 
 
+class IndexFileVersion(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    blob_digest: str
+    path: str
+    ref_name: str
+
+
+class IndexRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    ref_name: str
+    revision_id: str
+    status: IndexRefStatus
+
+
+class IndexRefStatus(str, Enum):
+    LIVE = "live"
+    DELETED = "deleted"
+
+
+class IndexRepositoryScope(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    file_versions: BoundedVec_IndexFileVersion_262144 | None = None
+    refs: BoundedVec_IndexRef_4096
+    repository_id: str
+    tombstones: BoundedVec_IndexTombstone_262144 | None = None
+
+
 class IndexResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -71,7 +101,35 @@ class IndexResult(BaseModel):
     symbols_extracted: Annotated[int, Field(ge=0)]
 
 
+class IndexTombstone(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    path: str
+    prior_blob_digest: str
+    ref_name: str
+    successor_path: str | None = None
+
+
 BoundedVec_IndexDiagnostic_8 = Annotated[list[IndexDiagnostic], Field(max_length=8)]
+
+
+BoundedVec_IndexFileVersion_262144 = Annotated[
+    list[IndexFileVersion],
+    Field(
+        max_length=262144,
+    ),
+]
+
+
+BoundedVec_IndexRef_4096 = Annotated[list[IndexRef], Field(max_length=4096)]
+
+
+BoundedVec_IndexTombstone_262144 = Annotated[
+    list[IndexTombstone],
+    Field(
+        max_length=262144,
+    ),
+]
 
 ExtractedEdge.model_rebuild()
 
@@ -81,4 +139,12 @@ IndexDiagnostic.model_rebuild()
 
 IndexFileOutcome.model_rebuild()
 
+IndexFileVersion.model_rebuild()
+
+IndexRef.model_rebuild()
+
+IndexRepositoryScope.model_rebuild()
+
 IndexResult.model_rebuild()
+
+IndexTombstone.model_rebuild()

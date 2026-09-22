@@ -3002,6 +3002,27 @@
       "maxItems": 64,
       "type": "array"
     },
+    "BoundedVec_IndexFileVersion_262144": {
+      "items": {
+        "$ref": "#/$defs/IndexFileVersion"
+      },
+      "maxItems": 262144,
+      "type": "array"
+    },
+    "BoundedVec_IndexRef_4096": {
+      "items": {
+        "$ref": "#/$defs/IndexRef"
+      },
+      "maxItems": 4096,
+      "type": "array"
+    },
+    "BoundedVec_IndexTombstone_262144": {
+      "items": {
+        "$ref": "#/$defs/IndexTombstone"
+      },
+      "maxItems": 262144,
+      "type": "array"
+    },
     "BoundedVec_ObjectiveLevelKind_8": {
       "items": {
         "$ref": "#/$defs/ObjectiveLevelKind"
@@ -10172,6 +10193,113 @@
       "required": [
         "selected",
         "objective"
+      ],
+      "type": "object"
+    },
+    "IndexFileVersion": {
+      "description": "`ref_name` contains `path` bound to the blob whose content digest is\n`blob_digest` (`sha256:<hex>`). The blob may have been submitted in this\nbatch or in an earlier one: a `:FileVersion` needs only the digest.",
+      "properties": {
+        "blob_digest": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "ref_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ref_name",
+        "path",
+        "blob_digest"
+      ],
+      "type": "object"
+    },
+    "IndexRef": {
+      "description": "One branch/tag ref pinned to an immutable commit.",
+      "properties": {
+        "ref_name": {
+          "type": "string"
+        },
+        "revision_id": {
+          "description": "Lowercase 40- or 64-hex Git commit id, never a mutable ref name.",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/IndexRefStatus"
+        }
+      },
+      "required": [
+        "ref_name",
+        "revision_id",
+        "status"
+      ],
+      "type": "object"
+    },
+    "IndexRefStatus": {
+      "description": "Whether a declared ref still exists at the indexed revision (EH-280).",
+      "oneOf": [
+        {
+          "const": "live",
+          "description": "The ref resolves to `revision_id`; its memberships ride in `file_versions`.",
+          "type": "string"
+        },
+        {
+          "const": "deleted",
+          "description": "The ref no longer exists; `revision_id` is the last admitted revision and\nevery prior membership arrives as a tombstone.",
+          "type": "string"
+        }
+      ]
+    },
+    "IndexRepositoryScope": {
+      "description": "Branch-aware, blob-deduplicated scope of one `IndexRepository` batch\n(EH-280). With a scope, each submitted file is ONE unique blob (named by\none of the paths it occurs at): the engine parses it exactly once, attaches\nits symbols to `:Blob`, and projects `:FileVersion` (path + blob) and\n`:Branch -> :FileVersion` membership for every ref in the batch.",
+      "properties": {
+        "file_versions": {
+          "$ref": "#/$defs/BoundedVec_IndexFileVersion_262144",
+          "default": []
+        },
+        "refs": {
+          "$ref": "#/$defs/BoundedVec_IndexRef_4096"
+        },
+        "repository_id": {
+          "type": "string"
+        },
+        "tombstones": {
+          "$ref": "#/$defs/BoundedVec_IndexTombstone_262144",
+          "default": []
+        }
+      },
+      "required": [
+        "repository_id",
+        "refs"
+      ],
+      "type": "object"
+    },
+    "IndexTombstone": {
+      "description": "`path` (bound to `prior_blob_digest`) left `ref_name` since the preceding\nadmitted revision; `successor_path` names the rename target when known.",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "prior_blob_digest": {
+          "type": "string"
+        },
+        "ref_name": {
+          "type": "string"
+        },
+        "successor_path": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "ref_name",
+        "path",
+        "prior_blob_digest"
       ],
       "type": "object"
     },
@@ -17890,7 +18018,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Parse a batch AND resolve cross-file call/import edges in one round-trip\n(CONCEPT:EG-KG.compute.turn-each-project). The blob is the same MessagePack `Vec<(file_path,\nsource_bytes)>` as `ParseFiles`, but the batch is treated as one\nresolution scope (a repository, or a delta set): the response is a SINGLE\nresolved `IndexResult` whose `calls`/`depends_on` edges point at real node\nids, not bare names. Its ordered `file_outcomes` preserve success,\nunsupported, and error dispositions plus content/parser-capability\ndigests for every submitted file. Use this (not `ParseFiles`) to ingest a\nrepo's symbol graph; use `ParseFiles` only when per-file raw results are\nwanted.",
+          "description": "Parse a batch AND resolve cross-file call/import edges in one round-trip\n(CONCEPT:EG-KG.compute.turn-each-project). The blob is the same MessagePack `Vec<(file_path,\nsource_bytes)>` as `ParseFiles`, but the batch is treated as one\nresolution scope (a repository, or a delta set): the response is a SINGLE\nresolved `IndexResult` whose `calls`/`depends_on` edges point at real node\nids, not bare names. Its ordered `file_outcomes` preserve success,\nunsupported, and error dispositions plus content/parser-capability\ndigests for every submitted file. Use this (not `ParseFiles`) to ingest a\nrepo's symbol graph; use `ParseFiles` only when per-file raw results are\nwanted. With `scope` (EH-280) the batch is branch-aware and\nblob-deduplicated: every submitted file is one unique blob, parsed once,\nand the result also projects `:Blob`, `:FileVersion` and `:Branch`\nmembership (plus tombstones) for the declared refs.",
           "properties": {
             "method": {
               "const": "IndexRepository",
@@ -17907,6 +18035,17 @@
                     "type": "integer"
                   },
                   "type": "array"
+                },
+                "scope": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/IndexRepositoryScope"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
                 }
               },
               "required": [

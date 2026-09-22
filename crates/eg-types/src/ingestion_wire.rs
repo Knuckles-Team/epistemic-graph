@@ -131,6 +131,72 @@ pub struct IndexResult {
     pub imports_unresolved: usize,
 }
 
+/// Upper bound on refs one branch-aware `IndexRepository` batch may declare.
+pub const MAX_INDEX_SCOPE_REFS: usize = 4_096;
+/// Upper bound on ref memberships (or tombstones) in one branch-aware batch.
+pub const MAX_INDEX_SCOPE_FILE_VERSIONS: usize = 262_144;
+
+/// Whether a declared ref still exists at the indexed revision (EH-280).
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum IndexRefStatus {
+    /// The ref resolves to `revision_id`; its memberships ride in `file_versions`.
+    Live,
+    /// The ref no longer exists; `revision_id` is the last admitted revision and
+    /// every prior membership arrives as a tombstone.
+    Deleted,
+}
+
+/// One branch/tag ref pinned to an immutable commit.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct IndexRef {
+    pub ref_name: String,
+    /// Lowercase 40- or 64-hex Git commit id, never a mutable ref name.
+    pub revision_id: String,
+    pub status: IndexRefStatus,
+}
+
+/// `ref_name` contains `path` bound to the blob whose content digest is
+/// `blob_digest` (`sha256:<hex>`). The blob may have been submitted in this
+/// batch or in an earlier one: a `:FileVersion` needs only the digest.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct IndexFileVersion {
+    pub ref_name: String,
+    pub path: String,
+    pub blob_digest: String,
+}
+
+/// `path` (bound to `prior_blob_digest`) left `ref_name` since the preceding
+/// admitted revision; `successor_path` names the rename target when known.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct IndexTombstone {
+    pub ref_name: String,
+    pub path: String,
+    pub prior_blob_digest: String,
+    #[serde(default)]
+    pub successor_path: Option<String>,
+}
+
+/// Branch-aware, blob-deduplicated scope of one `IndexRepository` batch
+/// (EH-280). With a scope, each submitted file is ONE unique blob (named by
+/// one of the paths it occurs at): the engine parses it exactly once, attaches
+/// its symbols to `:Blob`, and projects `:FileVersion` (path + blob) and
+/// `:Branch -> :FileVersion` membership for every ref in the batch.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct IndexRepositoryScope {
+    pub repository_id: String,
+    pub refs: BoundedVec<IndexRef, MAX_INDEX_SCOPE_REFS>,
+    #[serde(default)]
+    pub file_versions: BoundedVec<IndexFileVersion, MAX_INDEX_SCOPE_FILE_VERSIONS>,
+    #[serde(default)]
+    pub tombstones: BoundedVec<IndexTombstone, MAX_INDEX_SCOPE_FILE_VERSIONS>,
+}
+
 /// Result of `Method::ObserveScreen`: one captured frame as session/frame/UI-element
 /// graph entities.
 #[derive(Serialize, Deserialize, Debug)]

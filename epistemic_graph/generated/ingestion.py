@@ -15,6 +15,7 @@ from ._runtime import (
     expect_string,
 )
 from .index_repository import (
+    IndexRepositoryScope,
     IndexResult,
 )
 from .source_ingestion import (
@@ -303,6 +304,7 @@ class IndexRepositoryRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     files_msgpack: bytes
+    scope: IndexRepositoryScope | None = None
 
 
 async def send_index_repository(
