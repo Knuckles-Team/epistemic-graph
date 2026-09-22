@@ -67,7 +67,9 @@ mod search;
 mod store;
 mod terminology;
 use abox::classify_instances_for;
-pub use abox::{abox_consistency_within, is_consistent_within};
+pub use abox::{
+    abox_consistency_within, check_pack_ontology, is_consistent_within, BoundedCheckRefusal,
+};
 use absorption::{build_tbox, deterministic_consequences, Tbox};
 pub use terminology::reason_dl_terminology;
 
