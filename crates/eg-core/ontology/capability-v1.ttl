@@ -183,9 +183,9 @@ hydration pipeline's CAPABILITY_REGISTRY to classify connectors.""" ;
     rdfs:label "derived from" ;
     rdfs:comment """Diff-snapshot-chain edge: a WarmSnapshot derived from a base WarmSnapshot
 (adds a layer on top of the base's resident state). Transitive, so a chain head's full ancestry
-is inferable; the registry walks it to find a reusable superset parent (CONCEPT:ORCH-1.86).""" ;
-    rdfs:domain :WarmSnapshot ;
-    rdfs:range :WarmSnapshot .
+is inferable; the registry walks it to find a reusable superset parent (CONCEPT:ORCH-1.86).
+The shared kg:derivedFrom's domain and range are owned by the core foundation; a capability-local
+rdfs:domain/rdfs:range here would retype every derivedFrom edge in the graph as a WarmSnapshot.""" .
 
 :hasPurpose a owl:ObjectProperty ;
     rdfs:label "has purpose" ;

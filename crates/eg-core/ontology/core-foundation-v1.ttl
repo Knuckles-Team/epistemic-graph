@@ -1067,4 +1067,4 @@ bfo:0000001 a owl:Class ;
     owl:members ( bfo:0000004 bfo:0000031 bfo:0000015 bfo:0000008 ) .
 
 [] a owl:AllDisjointClasses ;
-    owl:members ( :Person :Organization :Server :Incident :Event ) .
+    owl:members ( :Person :Organization :Server :Event ) .
