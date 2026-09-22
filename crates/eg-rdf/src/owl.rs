@@ -2870,12 +2870,15 @@ fn is_schema_statement(predicate: &str) -> bool {
     )
 }
 
+type PropertyFact = (String, String, String);
+type PropertyChainMatch = (String, Vec<PropertyFact>);
+
 fn insert_property_fact(
-    facts: &mut BTreeMap<(String, String, String), PropertyEntailment>,
-    fact: (String, String, String),
+    facts: &mut BTreeMap<PropertyFact, PropertyEntailment>,
+    fact: PropertyFact,
     rule: &str,
     axiom: Option<String>,
-    premises: Vec<(String, String, String)>,
+    premises: Vec<PropertyFact>,
 ) -> bool {
     if facts.contains_key(&fact) {
         return false;
@@ -2896,7 +2899,7 @@ fn insert_property_fact(
 }
 
 fn property_fact_index<'a>(
-    facts: impl Iterator<Item = &'a (String, String, String)>,
+    facts: impl Iterator<Item = &'a PropertyFact>,
 ) -> BTreeMap<String, Vec<(String, String)>> {
     let mut index = BTreeMap::<String, Vec<(String, String)>>::new();
     for (subject, predicate, object) in facts {
@@ -2913,8 +2916,8 @@ fn follow_property_chain(
     chain: &[String],
     offset: usize,
     current: &str,
-    premises: &mut Vec<(String, String, String)>,
-    out: &mut Vec<(String, Vec<(String, String, String)>)>,
+    premises: &mut Vec<PropertyFact>,
+    out: &mut Vec<PropertyChainMatch>,
 ) {
     if offset == chain.len() {
         out.push((current.to_string(), premises.clone()));
