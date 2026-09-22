@@ -14,6 +14,23 @@
 [![PyPI - Version](https://img.shields.io/pypi/v/epistemic-graph)](https://pypi.org/project/epistemic-graph/)
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-526cff)](https://knuckles-team.github.io/epistemic-graph/)
 [![GitHub license](https://img.shields.io/github/license/Knuckles-Team/epistemic-graph)](LICENSE)
+[![Version](https://img.shields.io/badge/version-2.27.0-blue)](https://github.com/Knuckles-Team/epistemic-graph/releases)
+[![Build](https://github.com/Knuckles-Team/epistemic-graph/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/Knuckles-Team/epistemic-graph/actions/workflows/release.yml)
+[![GitHub Repo stars](https://img.shields.io/github/stars/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/stargazers)
+[![GitHub forks](https://img.shields.io/github/forks/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/forks)
+[![GitHub contributors](https://img.shields.io/github/contributors/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/graphs/contributors)
+[![GitHub last commit (by committer)](https://img.shields.io/github/last-commit/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/commits/main)
+[![GitHub pull requests](https://img.shields.io/github/issues-pr/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/pulls)
+[![GitHub closed pull requests](https://img.shields.io/github/issues-pr-closed/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/pulls?q=is%3Apr+is%3Aclosed)
+[![GitHub issues](https://img.shields.io/github/issues/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/issues)
+[![GitHub top language](https://img.shields.io/github/languages/top/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph)
+[![GitHub language count](https://img.shields.io/github/languages/count/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph)
+[![GitHub repo size](https://img.shields.io/github/repo-size/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph)
+[![GitHub repo file count (file type)](https://img.shields.io/github/directory-file-count/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph)
+[![PyPI - Downloads](https://img.shields.io/pypi/dd/epistemic-graph)](https://pypi.org/project/epistemic-graph/)
+[![PyPI - License](https://img.shields.io/pypi/l/epistemic-graph)](https://pypi.org/project/epistemic-graph/)
+[![PyPI - Wheel](https://img.shields.io/pypi/wheel/epistemic-graph)](https://pypi.org/project/epistemic-graph/)
+[![PyPI - Implementation](https://img.shields.io/pypi/implementation/epistemic-graph)](https://pypi.org/project/epistemic-graph/)
 
 </p>
 
@@ -53,29 +70,6 @@ their respective ecosystem projects.
 Check the [capability matrix](https://knuckles-team.github.io/epistemic-graph/capabilities/)
 and [generated method ledger](https://knuckles-team.github.io/epistemic-graph/capabilities.generated/)
 for the current behavior of each operation.
-
-<details>
-<summary>Project telemetry</summary>
-
-[![Version](https://img.shields.io/badge/version-2.27.0-blue)](https://github.com/Knuckles-Team/epistemic-graph/releases)
-[![Build](https://github.com/Knuckles-Team/epistemic-graph/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/Knuckles-Team/epistemic-graph/actions/workflows/release.yml)
-[![GitHub Repo stars](https://img.shields.io/github/stars/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/forks)
-[![GitHub contributors](https://img.shields.io/github/contributors/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/graphs/contributors)
-[![GitHub last commit (by committer)](https://img.shields.io/github/last-commit/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/commits/main)
-[![GitHub pull requests](https://img.shields.io/github/issues-pr/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/pulls)
-[![GitHub closed pull requests](https://img.shields.io/github/issues-pr-closed/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/pulls?q=is%3Apr+is%3Aclosed)
-[![GitHub issues](https://img.shields.io/github/issues/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph/issues)
-[![GitHub top language](https://img.shields.io/github/languages/top/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph)
-[![GitHub language count](https://img.shields.io/github/languages/count/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph)
-[![GitHub repo size](https://img.shields.io/github/repo-size/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph)
-[![GitHub repo file count (file type)](https://img.shields.io/github/directory-file-count/Knuckles-Team/epistemic-graph)](https://github.com/Knuckles-Team/epistemic-graph)
-[![PyPI - Downloads](https://img.shields.io/pypi/dd/epistemic-graph)](https://pypi.org/project/epistemic-graph/)
-[![PyPI - License](https://img.shields.io/pypi/l/epistemic-graph)](https://pypi.org/project/epistemic-graph/)
-[![PyPI - Wheel](https://img.shields.io/pypi/wheel/epistemic-graph)](https://pypi.org/project/epistemic-graph/)
-[![PyPI - Implementation](https://img.shields.io/pypi/implementation/epistemic-graph)](https://pypi.org/project/epistemic-graph/)
-
-</details>
 
 ## Documentation
 
