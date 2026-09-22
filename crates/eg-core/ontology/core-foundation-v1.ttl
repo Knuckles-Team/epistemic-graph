@@ -697,11 +697,11 @@ CONCEPT:AU-KG.identity.asset-occurrence.""" ;
 
 :Skill a owl:Class ;
     rdfs:label "Skill" ;
-    rdfs:comment "A reusable agent skill or capability." ;
+    rdfs:comment "A capacity an agent can realize: a BFO disposition, i.e. a specifically dependent continuant borne by the agent that has it. A document describing a skill (a SKILL.md, an A2A skill card) is not the skill but a separate information content entity that is about it." ;
     rdfs:subClassOf [ a owl:Restriction ;
             owl:allValuesFrom :Skill ;
             owl:onProperty :dependsOn ],
-        bfo:0000004 .
+        bfo:0000016 .
 
 :SourceObject a owl:Class ;
     rdfs:label "Source Object" ;
@@ -953,6 +953,16 @@ bfo:0000020 a owl:Class ;
     rdfs:label "Specifically Dependent Continuant" ;
     rdfs:comment "BFO:SpecificallyDependentContinuant — depends on a specific bearer." ;
     rdfs:subClassOf bfo:0000002 .
+
+bfo:0000017 a owl:Class ;
+    rdfs:label "Realizable Entity" ;
+    rdfs:comment "BFO:RealizableEntity — a specifically dependent continuant whose instances can be realized in processes." ;
+    rdfs:subClassOf bfo:0000020 .
+
+bfo:0000016 a owl:Class ;
+    rdfs:label "Disposition" ;
+    rdfs:comment "BFO:Disposition — a realizable entity its bearer has in virtue of its own physical make-up." ;
+    rdfs:subClassOf bfo:0000017 .
 
 :Artifact a owl:Class ;
     rdfs:label "Artifact" ;
