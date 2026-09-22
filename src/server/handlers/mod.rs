@@ -18,6 +18,10 @@ pub(crate) mod graph_ops;
 // RF-020 — authenticated Agent Library delegation lowers through native WorkItem admission.
 pub(crate) mod delegation;
 pub(crate) mod work_item;
+// EH-219 typed WorkItem reads (`GetWorkItem`/`ListWorkItems`): the verified
+// carrier tenant rule plus the native redb snapshot read.
+#[cfg(feature = "redb")]
+pub(crate) mod work_item_read;
 // Native development-lane hold/quota authority. All six writes and both reads
 // are enumerated in the handler; dispatch does not classify this domain or use
 // a wildcard commit arm.

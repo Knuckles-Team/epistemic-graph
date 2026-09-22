@@ -338,8 +338,8 @@ fn write_exhausted_claim_rows(
     nodes: &mut ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
-    for (node_id, props) in exhausted {
-        write_work_item_props(nodes, graph, &node_id, &props, crypto)?;
+    for (node_id, mut props) in exhausted {
+        write_work_item_props(nodes, graph, &node_id, &mut props, crypto)?;
     }
     Ok(())
 }
@@ -386,7 +386,7 @@ fn apply_claimed_work_item(
         serde_json::json!({}),
         Some("leased"),
     );
-    write_work_item_props(nodes, graph, &node_id, &props, crypto)?;
+    write_work_item_props(nodes, graph, &node_id, &mut props, crypto)?;
     work_item_capability::record_native_claim_in_wtx(
         native_work_items,
         graph,

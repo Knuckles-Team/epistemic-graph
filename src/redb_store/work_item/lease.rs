@@ -84,7 +84,7 @@ pub(crate) fn apply_renew_work_item_lease_row(
         serde_json::json!({ "fence_valid": true }),
         Some("running"),
     );
-    write_work_item_props(nodes, graph, work_item_id, &props, crypto)?;
+    write_work_item_props(nodes, graph, work_item_id, &mut props, crypto)?;
     lease_renewed(
         work_item_id,
         lease_epoch,
@@ -338,7 +338,7 @@ pub(crate) fn apply_cas_work_item_metadata_row(
 
     let now_s = now_ms as f64 / 1000.0;
     props.insert("updated_at".into(), serde_json::Value::from(now_s));
-    write_work_item_props(nodes, graph, work_item_id, &props, crypto)?;
+    write_work_item_props(nodes, graph, work_item_id, &mut props, crypto)?;
     respond(
         CasWorkItemMetadataOutcome::Applied,
         vec![work_item_id.clone()],

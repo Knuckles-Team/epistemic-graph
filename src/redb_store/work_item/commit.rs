@@ -163,7 +163,7 @@ pub(crate) fn commit_work_item_release_downstream(
             child_props.insert("status".into(), serde_json::Value::String("ready".into()));
         }
         child_props.insert("updated_at".into(), serde_json::Value::from(now_s));
-        write_work_item_props(nodes, graph, child, &child_props, crypto)?;
+        write_work_item_props(nodes, graph, child, &mut child_props, crypto)?;
         changed.push(child.to_string());
     }
     Ok(())
@@ -324,7 +324,7 @@ pub(crate) fn apply_commit_work_item_result_row(
         input.nodes,
         input.graph,
         input.work_item_id,
-        &props,
+        &mut props,
         input.crypto,
     )?;
 

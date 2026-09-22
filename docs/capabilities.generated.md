@@ -196,6 +196,8 @@
 | `CancelWorkItem` | true | GraphRedb | `work:write` | true | true | false | Atomic | pending cancellation never steals an active lease |
 | `DeferWorkItem` | true | GraphRedb | `work:write` | true | true | false | Atomic | fenced lease release schedules retry without consuming an attempt |
 | `CasWorkItemMetadata` | true | GraphRedb | `work:write` | true | true | false | Atomic | BUG-111: atomic single-field CAS on non-authority scheduling metadata (checkpoint_id/metadata/prio_bucket); status/lease/tenant are fenced but never written |
+| `GetWorkItem` | false | None | `work:read` | true | false | false | Snapshot | tenant-bound native WorkItem row view; lease owner/epoch/fencing token never projected |
+| `ListWorkItems` | false | None | `work:read` | true | false | false | Snapshot | bounded tenant-bound WorkItem page; limit/scan/byte bounds each resume through an opaque tenant-bound cursor |
 | `ReserveWorkItemResources` | true | GraphRedb | `resource:reserve` | true | true | false | Atomic | controller-only atomic host admission and WorkItem fence validation |
 | `ReleaseWorkItemResources` | true | GraphRedb | `resource:reserve` | true | true | false | Atomic | controller-only lifecycle release with retained tombstone |
 | `ReclaimWorkItemResources` | true | GraphRedb | `resource:reserve` | true | true | false | Atomic | controller-only expiry/supersession reclaim with retained tombstone |

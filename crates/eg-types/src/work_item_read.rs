@@ -1,0 +1,290 @@
+//! Typed, tenant-bound reads of native WorkItem rows: `GetWorkItem` and
+//! `ListWorkItems` (EH-219).
+//!
+//! A WorkItem row carries two kinds of state. The CALLER's view -- what was
+//! submitted, where it is in its lifecycle, which revision of the row this is
+//! -- is what these reads answer. The WORKER's authority -- the lease owner,
+//! lease epoch and fencing token a worker presents to prove it still holds a
+//! lease -- is never part of the view: handing it to a reader would let any
+//! reader impersonate the lease holder on the next fenced transition.
+//!
+//! Both reads are bound to the verified request tenant by the server; a row of
+//! another tenant is simply not visible, never an error that names it.
+//!
+//! # Paging
+//!
+//! `ListWorkItems` pages with the three-bound rule `AgentComponent.Search`
+//! established: a page stops at whichever comes first of the caller's limit,
+//! the rows-examined bound and the bytes-examined bound, and any early stop
+//! returns an opaque tenant-bound cursor. WorkItems share their graph's node
+//! table with every other node, so the scan bound applies to rows EXAMINED and
+//! a page may be empty yet still carry a cursor. Callers loop until
+//! `next_cursor` is `None`, not until a page is empty.
+
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
+
+use crate::native_control::MAX_SUBMIT_REF_BYTES;
+use crate::tenant_cursor::CursorFamily;
+
+/// Most WorkItems one `ListWorkItems` page may return.
+pub const MAX_WORK_ITEM_LIST_LIMIT: u32 = 100;
+/// Most node rows one page may examine. Rows of other node types count: they
+/// are what makes an empty-but-resumable page possible.
+pub const MAX_WORK_ITEM_LIST_SCAN: usize = 1_024;
+/// Most stored row bytes one page may examine (the response-size bound).
+pub const MAX_WORK_ITEM_LIST_BYTES: usize = 4 * 1024 * 1024;
+/// Longest opaque cursor a caller may hand back.
+pub const MAX_WORK_ITEM_LIST_CURSOR_BYTES: usize = 16 * 1024;
+/// The row property the native WorkItem writer bumps on every row write. The
+/// read side projects it as [`WorkItemView::version`].
+pub const WORK_ITEM_ROW_REVISION: &str = "row_revision";
+
+/// `SubmitWorkItem`'s own bound on a WorkItem id, reused for the tenant.
+const MAX_WORK_ITEM_ID_BYTES: usize = 512;
+
+/// The `ListWorkItems` cursor family.
+pub const WORK_ITEM_LIST_CURSOR: CursorFamily = CursorFamily {
+    domain: b"eg/work-item-list-cursor/v1",
+    max_bytes: MAX_WORK_ITEM_LIST_CURSOR_BYTES,
+    noun: "WorkItem list",
+};
+
+/// Where a WorkItem is in its lifecycle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum WorkItemStatus {
+    /// Admitted, waiting on dependencies.
+    Submitted,
+    /// Claimable.
+    Ready,
+    /// Claimed under a live lease, not yet started.
+    Leased,
+    /// Executing under a live lease.
+    Running,
+    Succeeded,
+    Failed,
+    Cancelled,
+    /// A retryable failure that exhausted its attempts.
+    DeadLetter,
+}
+
+/// The stored `status` text of each lifecycle state. A table rather than a
+/// match so the wire enum and the row vocabulary are read off one list.
+const STORED_STATUS: [(&str, WorkItemStatus); 8] = [
+    ("submitted", WorkItemStatus::Submitted),
+    ("ready", WorkItemStatus::Ready),
+    ("leased", WorkItemStatus::Leased),
+    ("running", WorkItemStatus::Running),
+    ("succeeded", WorkItemStatus::Succeeded),
+    ("failed", WorkItemStatus::Failed),
+    ("cancelled", WorkItemStatus::Cancelled),
+    ("dead_letter", WorkItemStatus::DeadLetter),
+];
+
+impl WorkItemStatus {
+    /// The lifecycle state a stored row's `status` names, if it names one.
+    pub fn from_stored(stored: &str) -> Option<Self> {
+        STORED_STATUS
+            .iter()
+            .find(|(text, _)| *text == stored)
+            .map(|(_, status)| *status)
+    }
+}
+
+/// The caller's view of one WorkItem row.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct WorkItemView {
+    pub work_item_id: String,
+    pub kind: String,
+    pub status: WorkItemStatus,
+    /// The `input_ref` the item was submitted with.
+    pub input_ref: String,
+    /// The caller-owned scheduling metadata, as last written.
+    pub metadata: Map<String, Value>,
+    /// Row revision: 1 at submission, bumped by every native write of the row.
+    /// A reader compares two views of the same item by it.
+    pub version: u64,
+    pub updated_at_ms: u64,
+}
+
+impl WorkItemView {
+    /// Project one stored node row to the caller's view -- `None` when the
+    /// row is not a WorkItem of `tenant`, which is how another tenant's item
+    /// stays invisible rather than refused by name.
+    pub fn from_tenant_row(
+        work_item_id: &str,
+        row: &Map<String, Value>,
+        tenant: &str,
+    ) -> Result<Option<Self>, String> {
+        if text(row, "node_type") != "WorkItem" || text(row, "tenant") != tenant {
+            return Ok(None);
+        }
+        let stored = text(row, "status");
+        let status = WorkItemStatus::from_stored(stored).ok_or_else(|| {
+            format!("WorkItem '{work_item_id}' carries an unrecognized status '{stored}'")
+        })?;
+        Ok(Some(Self {
+            work_item_id: work_item_id.to_string(),
+            kind: text(row, "kind").to_string(),
+            status,
+            input_ref: text(row, "payload_ref").to_string(),
+            metadata: row
+                .get("metadata")
+                .and_then(Value::as_object)
+                .cloned()
+                .unwrap_or_default(),
+            // A row written before the revision counter existed is revision 1.
+            version: row
+                .get(WORK_ITEM_ROW_REVISION)
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+                .max(1),
+            updated_at_ms: seconds_to_ms(row.get("updated_at").and_then(Value::as_f64)),
+        }))
+    }
+}
+
+fn text<'a>(row: &'a Map<String, Value>, key: &str) -> &'a str {
+    row.get(key).and_then(Value::as_str).unwrap_or("")
+}
+
+/// Stored timestamps are float seconds; the view answers integer milliseconds.
+fn seconds_to_ms(seconds: Option<f64>) -> u64 {
+    // `as` saturates: a missing, negative or NaN timestamp reads as 0.
+    (seconds.unwrap_or(0.0) * 1000.0).round() as u64
+}
+
+/// One page of `ListWorkItems`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct WorkItemPage {
+    pub items: Vec<WorkItemView>,
+    /// `Some` when more of the graph remains to be scanned; hand it back
+    /// unmodified to continue. A page may be empty and still carry one.
+    pub next_cursor: Option<String>,
+}
+
+/// Validate a `GetWorkItem` request's own fields.
+pub fn validate_work_item_get(tenant: &str, work_item_id: &str) -> Result<(), String> {
+    bounded("tenant", tenant, MAX_WORK_ITEM_ID_BYTES)?;
+    bounded("work_item_id", work_item_id, MAX_WORK_ITEM_ID_BYTES)
+}
+
+/// A `ListWorkItems` request, assembled from the method's wire fields.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkItemListRequest {
+    pub tenant: String,
+    pub cursor: Option<String>,
+    pub limit: u32,
+    pub kind: Option<String>,
+}
+
+impl WorkItemListRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        bounded("tenant", &self.tenant, MAX_WORK_ITEM_ID_BYTES)?;
+        if let Some(kind) = &self.kind {
+            bounded("kind", kind, MAX_SUBMIT_REF_BYTES)?;
+        }
+        if self.limit == 0 || self.limit > MAX_WORK_ITEM_LIST_LIMIT {
+            return Err(format!(
+                "ListWorkItems limit must be 1..={MAX_WORK_ITEM_LIST_LIMIT}"
+            ));
+        }
+        Ok(())
+    }
+
+    /// The row key a cursor resumes strictly after, refused by name when it
+    /// was minted for another tenant or is malformed.
+    pub fn resume_after(&self) -> Result<Option<String>, String> {
+        self.cursor
+            .as_deref()
+            .map(|cursor| WORK_ITEM_LIST_CURSOR.decode(&self.tenant, cursor, is_row_key))
+            .transpose()
+    }
+}
+
+fn is_row_key(key: &str) -> bool {
+    !key.is_empty()
+}
+
+fn bounded(field: &str, value: &str, max_bytes: usize) -> Result<(), String> {
+    if value.trim().is_empty() || value.len() > max_bytes {
+        return Err(format!("WorkItem read {field} is outside native bounds"));
+    }
+    Ok(())
+}
+
+/// One `ListWorkItems` page under construction, fed rows in key order.
+///
+/// Every bound is checked BEFORE a row is consumed, never after, so the
+/// cursor always resumes strictly after a row the caller has already been
+/// shown (or skipped as not theirs).
+pub struct WorkItemPageScan<'r> {
+    request: &'r WorkItemListRequest,
+    items: Vec<WorkItemView>,
+    scanned: usize,
+    bytes: usize,
+    last_consumed: Option<String>,
+    truncated: bool,
+}
+
+impl<'r> WorkItemPageScan<'r> {
+    pub fn new(request: &'r WorkItemListRequest) -> Self {
+        Self {
+            request,
+            items: Vec::new(),
+            scanned: 0,
+            bytes: 0,
+            last_consumed: None,
+            truncated: false,
+        }
+    }
+
+    /// Whether the page may examine one more row. `false` closes the page:
+    /// the caller stops scanning and the page will carry a cursor.
+    pub fn admits_another_row(&mut self) -> bool {
+        let full = self.items.len() >= self.request.limit as usize
+            || self.scanned >= MAX_WORK_ITEM_LIST_SCAN
+            || (self.scanned > 0 && self.bytes >= MAX_WORK_ITEM_LIST_BYTES);
+        self.truncated |= full;
+        !full
+    }
+
+    /// Consume one examined row of `row_bytes` stored bytes.
+    pub fn consume(
+        &mut self,
+        row_id: &str,
+        row_bytes: usize,
+        row: &Map<String, Value>,
+    ) -> Result<(), String> {
+        self.scanned += 1;
+        self.bytes = self.bytes.saturating_add(row_bytes);
+        let view = WorkItemView::from_tenant_row(row_id, row, &self.request.tenant)?;
+        let wanted = self.request.kind.as_deref();
+        if let Some(view) = view.filter(|view| wanted.is_none_or(|kind| view.kind == kind)) {
+            self.items.push(view);
+        }
+        self.last_consumed = Some(row_id.to_string());
+        Ok(())
+    }
+
+    /// Close the page, minting a cursor when a bound stopped it early.
+    pub fn finish(self) -> WorkItemPage {
+        let next_cursor = self
+            .last_consumed
+            .filter(|_| self.truncated)
+            .map(|row_id| WORK_ITEM_LIST_CURSOR.encode(&self.request.tenant, &row_id));
+        WorkItemPage {
+            items: self.items,
+            next_cursor,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

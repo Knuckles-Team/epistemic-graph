@@ -67,15 +67,45 @@ def test_kind_only_search_is_typed_and_uses_existing_method() -> None:
     "search_request",
     [
         _request(kinds=[]),
-        _request(task="eg:task/research"),
-        _request(capabilities=["eg:capability/retrieval"]),
         _request(limit=0),
         _request(limit=257),
         _request(cursor="x" * 16_385),
     ],
 )
-def test_kind_only_adapter_enforces_selection_and_page_bounds(
+def test_adapter_enforces_selection_and_page_bounds(
     search_request: AgentComponentSearchRequest,
 ) -> None:
     with pytest.raises(ValueError):
         asyncio.run(send_agent_component_search(_Client(), search_request))
+
+
+@pytest.mark.parametrize(
+    ("selector", "wire"),
+    [
+        ({"task": "eg:task/research"}, {"task": "eg:task/research"}),
+        (
+            {"capabilities": ["eg:capability/retrieval"]},
+            {"capabilities": ["eg:capability/retrieval"]},
+        ),
+        (
+            {"task": "eg:task/research", "kinds": [AgentComponentKind.SKILL]},
+            {"task": "eg:task/research", "kinds": ["skill"]},
+        ),
+    ],
+)
+def test_task_and_capability_selectors_reach_the_server(
+    selector: dict[str, object], wire: dict[str, object]
+) -> None:
+    client = _Client()
+    values: dict[str, object] = {"tenant_id": "tenant-a", "limit": 64}
+    values.update(selector)
+    request = AgentComponentSearchRequest.model_validate(values)
+    asyncio.run(send_agent_component_search(client, request))
+
+    assert client.sent is not None
+    params = client.sent[1]
+    assert isinstance(params, dict)
+    assert params["op"] == {
+        "op": "search",
+        "request": {"tenant_id": "tenant-a", "limit": 64, **wire},
+    }

@@ -55,13 +55,26 @@ pub(crate) fn property_string<'a>(
         .unwrap_or("")
 }
 
+/// Persist one WorkItem row, as its next row revision.
+///
+/// Every native write of a WorkItem row goes through here, so this is the one
+/// place the row's revision advances: `props` leaves carrying
+/// `eg_types::work_item_read::WORK_ITEM_ROW_REVISION` one past the revision it
+/// was read at (1 for a new row). `GetWorkItem`/`ListWorkItems` project it as
+/// the caller-visible `version`.
 pub(crate) fn write_work_item_props(
     nodes: &mut ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     graph: &str,
     node_id: &str,
-    props: &serde_json::Map<String, serde_json::Value>,
+    props: &mut serde_json::Map<String, serde_json::Value>,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
+    use eg_types::work_item_read::WORK_ITEM_ROW_REVISION;
+    let revision = property_u64(props, WORK_ITEM_ROW_REVISION).saturating_add(1);
+    props.insert(
+        WORK_ITEM_ROW_REVISION.into(),
+        serde_json::Value::from(revision),
+    );
     let bytes = rmp_serde::to_vec_named(props).map_err(|e| e.to_string())?;
     let sealed = crypto.seal(&bytes);
     nodes

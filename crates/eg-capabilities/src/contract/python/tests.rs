@@ -397,6 +397,11 @@ fn agent_component_search_emits_typed_kind_only_adapter() {
         ));
     assert!(storage.contains(") -> AgentComponentSearchPage:"));
     assert!(storage.contains("len(request.cursor.encode(\"utf-8\")) > 16384"));
+    // R3: a task- or capability-only search is the server's documented form;
+    // only a request with no selector at all is refused client-side.
+    assert!(storage
+        .contains("if request.task is None and not request.capabilities and not request.kinds:"));
+    assert!(!storage.contains("requires kinds and no task/capabilities"));
     assert!(storage.contains("return AgentComponentSearchPage.model_validate(payload)"));
 }
 

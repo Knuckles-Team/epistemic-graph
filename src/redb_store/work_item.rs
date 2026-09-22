@@ -63,11 +63,15 @@ mod claim;
 mod commit;
 mod dispatch;
 mod lease;
+mod read;
 mod submit;
+#[cfg(test)]
+mod test_shard;
 
 pub(crate) use cancel::*;
 pub(crate) use claim::*;
 pub(crate) use commit::*;
 pub(crate) use dispatch::*;
 pub(crate) use lease::*;
+pub(crate) use read::{list_work_items, read_work_item};
 pub(crate) use submit::*;

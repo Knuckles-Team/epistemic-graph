@@ -460,11 +460,13 @@ fn push_typed_operation_adapter(out: &mut String, adapter: &TypedOperationAdapte
     );
     let _ = writeln!(out, "    request = {request}.model_validate(request)");
     if method == "AgentComponent" && operation == "search" {
+        // The server's own selector rule: a task (resolved through the native
+        // ontology), capability terms, or kinds -- refused only when none is given.
         out.push_str(
-            "    if request.task is not None or request.capabilities or not request.kinds:\n",
+            "    if request.task is None and not request.capabilities and not request.kinds:\n",
         );
         out.push_str(
-            "        raise ValueError(\n            \"AgentComponent.Search requires kinds and no task/capabilities\"\n        )\n",
+            "        raise ValueError(\"AgentComponent.Search requires a task, capability, or kind\")\n",
         );
         out.push_str("    if request.limit is not None and not 1 <= request.limit <= 256:\n");
         out.push_str(

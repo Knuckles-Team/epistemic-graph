@@ -247,6 +247,26 @@ where
             .map_err(|error| error.to_string())?;
         Ok(bounded_to_scope(rows, self.scope_key.clone()))
     }
+
+    /// Every row of THIS scope from `start` onward, in key order.
+    ///
+    /// The seek form of [`Self::scope_rows`]: `start` must itself name this
+    /// read's scope, and the scan still stops at the first key of another
+    /// scope, so it adds a starting position and no reach. A keyset-paged read
+    /// resumes with it instead of re-skipping every row an earlier page
+    /// already returned -- the one thing `range_inclusive` cannot express for a
+    /// key whose trailing component is a `&str`, which has no maximum.
+    pub fn scope_rows_from<'k>(
+        &self,
+        start: K::SelfType<'k>,
+    ) -> Result<impl Iterator<Item = ScopeRow<'static, K, V>>, String> {
+        permit_owner_row(&start, &self.scope_key)?;
+        let rows = self
+            .table
+            .range(start..)
+            .map_err(|error| error.to_string())?;
+        Ok(bounded_to_scope(rows, self.scope_key.clone()))
+    }
 }
 
 /// One scope-prefixed owner table opened for writing and restricted to one

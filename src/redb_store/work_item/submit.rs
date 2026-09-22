@@ -568,7 +568,7 @@ pub(crate) fn update_submit_work_item_downstream_row(
     let insert_downstream =
         insert_submit_work_item_downstream_id(&mut parent, dependency, work_item_id)?;
     if insert_downstream {
-        write_work_item_props(nodes, graph, dependency, &parent, crypto)?;
+        write_work_item_props(nodes, graph, dependency, &mut parent, crypto)?;
     }
     Ok(())
 }
@@ -627,7 +627,7 @@ pub(crate) fn write_submit_work_item_node_and_edges(
         edges,
         crypto,
     } = input;
-    let props = build_submit_work_item_props(
+    let mut props = build_submit_work_item_props(
         context_tenant,
         request,
         dependencies,
@@ -636,7 +636,7 @@ pub(crate) fn write_submit_work_item_node_and_edges(
         now_s,
         status,
     )?;
-    write_work_item_props(nodes, graph, work_item_id, &props, crypto)?;
+    write_work_item_props(nodes, graph, work_item_id, &mut props, crypto)?;
     write_submit_work_item_dependency_edges(
         graph,
         work_item_id,

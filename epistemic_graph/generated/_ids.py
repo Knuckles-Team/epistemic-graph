@@ -181,6 +181,8 @@ METHOD_IDS = frozenset(
         "CancelWorkItem",
         "DeferWorkItem",
         "CasWorkItemMetadata",
+        "GetWorkItem",
+        "ListWorkItems",
         "ReserveWorkItemResources",
         "ReleaseWorkItemResources",
         "ReclaimWorkItemResources",

@@ -34,6 +34,7 @@ mod method_07;
 mod method_08;
 mod method_09;
 mod method_10;
+mod method_11;
 mod method_finish;
 
 pub(crate) use method_00::__eg_method_chunk_0;
@@ -47,6 +48,7 @@ pub(crate) use method_07::__eg_method_chunk_7;
 pub(crate) use method_08::__eg_method_chunk_8;
 pub(crate) use method_09::__eg_method_chunk_9;
 pub(crate) use method_10::__eg_method_chunk_10;
+pub(crate) use method_11::__eg_method_chunk_11;
 pub(crate) use method_finish::__eg_method_finish;
 
 __eg_method_chunk_0!();
