@@ -94,6 +94,15 @@ fn result_contract_mapping_and_private_sagas_fail_closed() {
     })
     .unwrap();
     assert_eq!(contract, AdminSagaResultContract::ShardReshardReport);
+    #[cfg(feature = "graphql")]
+    assert_eq!(
+        AdminSagaResultContract::for_method(&Method::GraphQl {
+            query: "mutation { beginTransaction { txnId } }".into(),
+            variables: None,
+        })
+        .unwrap(),
+        AdminSagaResultContract::GraphQlResponse
+    );
     assert_eq!(
         AdminSagaResultContract::for_private_event("sparql_http_recovery_plan_v1").unwrap(),
         AdminSagaResultContract::SparqlRecoveryOutcome
@@ -102,6 +111,7 @@ fn result_contract_mapping_and_private_sagas_fail_closed() {
         AdminSagaResultContract::Bool,
         AdminSagaResultContract::Count,
         AdminSagaResultContract::Text,
+        AdminSagaResultContract::GraphQlResponse,
         AdminSagaResultContract::ShardReshardReport,
         AdminSagaResultContract::RebalanceExecution,
         AdminSagaResultContract::RestoreReceipt,
