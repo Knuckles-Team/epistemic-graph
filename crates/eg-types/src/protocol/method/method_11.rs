@@ -25,6 +25,15 @@ $($variants)*
         kind: Option<String>,
     },
 
+    /// A terminal WorkItem of `tenant` and the provenance (RunTrace /
+    /// ToolCall refs and the verified OutcomeEvaluation receipt) its native
+    /// `CommitWorkItemResult { outcome_extension }` bound, or `null` when the
+    /// item is not visible or carries no committed outcome (graph-os EG-3).
+    GetWorkItemOutcome {
+        tenant: String,
+        work_item_id: String,
+    },
+
     // ── Native control leases (graph-os EG-2) ──────────────────────────────
     /// Issue one active control lease: an immutable, time-boxed grant record.
     /// A row already holding the id answers `collision` and is left untouched.
@@ -33,7 +42,8 @@ $($variants)*
     IssueControlLease {
         request: crate::control_lease::IssueControlLeaseRequest,
     },
-    /// End one active control lease (`revoked` or `expired`), compare-and-set
+    /// Move one control lease along a legal edge (`active -> consumed |
+    /// revoked | expired`, `consumed -> revoked | expired`), compare-and-set
     /// on the revision the caller read. A lease never returns to `active`.
     TransitionControlLease {
         request: crate::control_lease::TransitionControlLeaseRequest,

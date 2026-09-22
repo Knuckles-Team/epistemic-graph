@@ -1,7 +1,8 @@
 //! Store-level proof of the control-lease lifecycle over a real shard.
 
 use super::*;
-use eg_types::control_lease::ControlLeaseEnd;
+use eg_types::control_lease::ControlLeaseStatus;
+use eg_types::control_lease::ControlLeaseTarget;
 
 use super::super::test_shard::{open, with_nodes, GRAPH};
 
@@ -23,14 +24,14 @@ fn issue(lease_id: &str, tenant: &str) -> IssueControlLeaseRequest {
 fn end(
     lease_id: &str,
     expected_revision: u64,
-    to: ControlLeaseEnd,
+    to: ControlLeaseTarget,
 ) -> TransitionControlLeaseRequest {
     TransitionControlLeaseRequest {
         tenant: "tenant-a".into(),
         lease_id: lease_id.into(),
         expected_revision,
         to,
-        idempotency_key: format!("end:{lease_id}:{expected_revision}"),
+        idempotency_key: format!("end:{lease_id}:{expected_revision}:{to:?}"),
     }
 }
 
@@ -90,7 +91,7 @@ fn a_lease_ends_once_on_its_read_revision_and_never_reactivates() {
     let stale = transitioned(
         &temp.shard,
         "stale",
-        end("lease-2", 7, ControlLeaseEnd::Revoked),
+        end("lease-2", 7, ControlLeaseTarget::Revoked),
     );
     assert_eq!(stale.outcome, ControlLeaseTransitionOutcome::Conflict);
     assert_eq!(stale.lease.map(|lease| lease.revision), Some(1));
@@ -98,7 +99,7 @@ fn a_lease_ends_once_on_its_read_revision_and_never_reactivates() {
     let revoked = transitioned(
         &temp.shard,
         "revoke",
-        end("lease-2", 1, ControlLeaseEnd::Revoked),
+        end("lease-2", 1, ControlLeaseTarget::Revoked),
     );
     assert_eq!(revoked.outcome, ControlLeaseTransitionOutcome::Applied);
     assert_eq!(revoked.changed_work_item_ids, ["lease-2"]);
@@ -111,7 +112,7 @@ fn a_lease_ends_once_on_its_read_revision_and_never_reactivates() {
     let expire = transitioned(
         &temp.shard,
         "expire",
-        end("lease-2", 2, ControlLeaseEnd::Expired),
+        end("lease-2", 2, ControlLeaseTarget::Expired),
     );
     assert_eq!(
         expire.outcome,
@@ -122,7 +123,40 @@ fn a_lease_ends_once_on_its_read_revision_and_never_reactivates() {
     let missing = transitioned(
         &temp.shard,
         "missing",
-        end("lease-9", 1, ControlLeaseEnd::Expired),
+        end("lease-9", 1, ControlLeaseTarget::Expired),
     );
     assert_eq!(missing.outcome, ControlLeaseTransitionOutcome::NotFound);
+}
+
+#[test]
+fn a_single_use_lease_is_consumed_once_and_can_still_be_revoked() {
+    let temp = open("lease-consume");
+    issued(&temp.shard, "issue", issue("arm-1", "tenant-a"));
+    let consumed = transitioned(
+        &temp.shard,
+        "consume",
+        end("arm-1", 1, ControlLeaseTarget::Consumed),
+    );
+    assert_eq!(consumed.outcome, ControlLeaseTransitionOutcome::Applied);
+    let again = transitioned(
+        &temp.shard,
+        "again",
+        end("arm-1", 2, ControlLeaseTarget::Consumed),
+    );
+    assert_eq!(
+        again.outcome,
+        ControlLeaseTransitionOutcome::Conflict,
+        "single use"
+    );
+    let revoked = transitioned(
+        &temp.shard,
+        "revoke",
+        end("arm-1", 2, ControlLeaseTarget::Revoked),
+    );
+    assert_eq!(revoked.outcome, ControlLeaseTransitionOutcome::Applied);
+    let view = get(&temp.shard, "tenant-a", "arm-1").unwrap();
+    assert_eq!(
+        (view.status, view.revision),
+        (ControlLeaseStatus::Revoked, 3)
+    );
 }

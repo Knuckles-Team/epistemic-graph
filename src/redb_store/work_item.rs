@@ -73,11 +73,9 @@ mod test_shard;
 pub(crate) use cancel::*;
 pub(crate) use claim::*;
 pub(crate) use commit::*;
-pub(crate) use control_lease::{
-    apply_issue_control_lease_row, apply_transition_control_lease_row, read_control_lease,
-};
+pub(crate) use control_lease::{apply_control_lease_rows, read_control_lease};
 pub(crate) use dispatch::*;
 pub(crate) use lease::*;
-pub(crate) use read::{list_work_items, read_work_item};
+pub(crate) use read::{list_work_items, read_work_item, read_work_item_outcome};
 pub(crate) use row_guard::refuse_generic_native_row_write;
 pub(crate) use submit::*;

@@ -5,16 +5,17 @@
 //! * a `ControlLease` row (graph-os EG-2) -- its grant, timing and lifecycle.
 //!   A generic writer could otherwise re-activate a revoked lease, extend its
 //!   expiry, or plant a forged one;
-//! * the `row_revision` of a WorkItem row -- the `version` the typed reads
-//!   project, which a caller compares to detect change. (A lease's revision is
-//!   covered by the first rule.)
+//! * the kernel-owned fields of a WorkItem row -- `row_revision` (the `version`
+//!   the typed reads project) and the provenance references a terminal commit
+//!   binds (`outcome_ref`, `outcome_digest`, `trace_ref`, `tool_call_refs`,
+//!   graph-os EG-3). A lease's own fields are covered by the first rule.
 //!
 //! This guard runs beside `work_item_capability::validate_generic_method` in
 //! the generic row applier, so every generic node write -- single, batched or
 //! create-if-absent -- is checked in the same durable transaction it commits in.
 
 use eg_types::control_lease::is_control_lease_row;
-use eg_types::work_item_read::WORK_ITEM_ROW_REVISION;
+use eg_types::work_item_read::NATIVE_WORK_ITEM_ROW_KEYS;
 
 use super::*;
 
@@ -22,7 +23,8 @@ type NodeRows<'a> = ScopedOwnerTableMut<'a, (&'static str, &'static str), &'stat
 type NodeMap = serde_json::Map<String, serde_json::Value>;
 
 const LEASE_AUTHORITY: &str = "native control-lease authority required for a ControlLease row";
-const REVISION_AUTHORITY: &str = "native row authority required for row_revision";
+const NATIVE_KEY_AUTHORITY: &str =
+    "native WorkItem authority required for a kernel-owned row field";
 
 /// Refuse a generic node write that would create, change or remove native
 /// row authority.
@@ -76,8 +78,11 @@ impl RowGuard<'_, '_> {
             return Err(LEASE_AUTHORITY.to_string());
         }
         let native_row = stored.as_ref().is_some_and(is_work_item_row);
-        if native_row && incoming.contains_key(WORK_ITEM_ROW_REVISION) {
-            return Err(REVISION_AUTHORITY.to_string());
+        let owned = NATIVE_WORK_ITEM_ROW_KEYS
+            .iter()
+            .any(|key| incoming.contains_key(*key));
+        if native_row && owned {
+            return Err(NATIVE_KEY_AUTHORITY.to_string());
         }
         Ok(())
     }
@@ -179,6 +184,12 @@ mod tests {
             updates_msgpack: msgpack(serde_json::json!({"row_revision": 1})),
         };
         assert!(check(&temp.shard, "rewind", rewind).is_err());
+        let repoint = Method::CompareAndSetNodeFields {
+            node_id: "wi-1".into(),
+            conditions_msgpack: msgpack(serde_json::json!({})),
+            updates_msgpack: msgpack(serde_json::json!({"outcome_ref": "forged"})),
+        };
+        assert!(check(&temp.shard, "repoint", repoint).is_err());
 
         let ordinary = Method::AddNode {
             node_id: "plain".into(),

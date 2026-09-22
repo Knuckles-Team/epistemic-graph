@@ -172,16 +172,6 @@ pub(super) async fn route_native_store_ops(
     let persistence = ctx.persistence;
     #[cfg(feature = "raft")]
     let routed_raft = ctx.routed_raft;
-    #[cfg(feature = "redb")]
-    let method = match route_work_item_reads(ctx, method).await {
-        Ok(response) => return Ok(response),
-        Err(method) => method,
-    };
-    #[cfg(feature = "redb")]
-    let method = match refuse_foreign_control_lease_writes(ctx, method) {
-        Ok(response) => return Ok(response),
-        Err(method) => method,
-    };
     let method = match route_source_ingestion_or_resources(ctx, method).await {
         Ok(response) => return Ok(response),
         Err(method) => method,
@@ -214,6 +204,26 @@ pub(super) async fn route_native_store_ops(
     Err(method)
 }
 
+/// The typed native read/lease surfaces (EH-219, graph-os EG-2/EG-3), then the
+/// native resource/capacity routes. Sits in front of `route_native_resource_ops`
+/// so the existing router chain gains no branch.
+async fn route_native_typed_ops(
+    ctx: GraphOpRouting<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    #[cfg(feature = "redb")]
+    let method = match route_work_item_reads(ctx, method).await {
+        Ok(response) => return Ok(response),
+        Err(method) => method,
+    };
+    #[cfg(feature = "redb")]
+    let method = match refuse_foreign_control_lease_writes(ctx, method) {
+        Ok(response) => return Ok(response),
+        Err(method) => method,
+    };
+    route_native_resource_ops(ctx, method).await
+}
+
 /// EH-219 typed WorkItem reads. A native durable read, so under raft it runs
 /// on the current placement leader behind a read barrier -- the same gate the
 /// native reservation reads use -- before the handler applies the verified
@@ -244,6 +254,13 @@ async fn route_work_item_reads(
                 kind,
             },
         ),
+        Method::GetWorkItemOutcome {
+            tenant,
+            work_item_id,
+        } => handlers::work_item_read::WorkItemRead::Outcome {
+            tenant,
+            work_item_id,
+        },
         Method::GetControlLease { tenant, lease_id } => {
             handlers::work_item_read::WorkItemRead::ControlLease { tenant, lease_id }
         }
@@ -314,7 +331,7 @@ async fn route_source_ingestion_or_resources(
             Method::SourceIngestStatus { connector, stream } => SourceIngestionRoute::Status(
                 eg_types::source_ingestion::SourceIngestStatusRequest { connector, stream },
             ),
-            method => return route_native_resource_ops(ctx, method).await,
+            method => return route_native_typed_ops(ctx, method).await,
         };
     route_source_ingestion_dispatch(ctx, source_method).await
 }

@@ -78,12 +78,6 @@ pub(crate) fn apply_work_item_rows(
         Method::CasWorkItemMetadata { request } => {
             apply_cas_work_item_metadata_row(graph, request, nodes, crypto)
         }
-        Method::IssueControlLease { request } => {
-            apply_issue_control_lease_row(graph, request, nodes, crypto)
-        }
-        Method::TransitionControlLease { request } => {
-            apply_transition_control_lease_row(graph, request, nodes, crypto)
-        }
         Method::CommitWorkItemResult {
             tenant,
             work_item_id,
@@ -164,6 +158,8 @@ pub(crate) fn apply_work_item_rows(
             nodes: &mut *nodes,
             crypto,
         }),
-        _ => Ok(None),
+        // graph-os EG-2 control-lease writes share this kernel; anything else
+        // is not a WorkItem-family row transition and answers `None`.
+        other => apply_control_lease_rows(graph, other, nodes, crypto),
     }
 }

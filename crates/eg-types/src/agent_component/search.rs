@@ -93,17 +93,7 @@ impl AgentComponentSearchRequest {
     fn validate_selection(&self) -> Result<(), String> {
         validate_text("tenant_id", &self.tenant_id)?;
         if let Some(task) = &self.task {
-            validate_text("task", task)?;
-            // A task resolves to capabilities only through the native
-            // ontology. A term it does not know resolves to NOTHING, and an
-            // empty requirement set matches every published component -- so an
-            // unknown task is refused by name rather than silently widened
-            // into an unfiltered listing.
-            if crate::agent_ontology::capabilities_for_task(task).is_empty() {
-                return Err(format!(
-                    "agent component search task '{task}' is not a native task term"
-                ));
-            }
+            validate_task(task)?;
         }
         validate_names("capabilities", &self.capabilities, MAX_CAPABILITIES)?;
         if self.kinds.len() > MAX_SEARCH_KINDS {
@@ -183,6 +173,20 @@ impl AgentComponentSearchRequest {
         }
         true
     }
+}
+
+/// A task resolves to capabilities only through the native ontology. A term it
+/// does not know resolves to NOTHING, and an empty requirement set matches
+/// every published component -- so an unknown task is refused by name rather
+/// than silently widened into an unfiltered listing.
+fn validate_task(task: &str) -> Result<(), String> {
+    validate_text("task", task)?;
+    if crate::agent_ontology::capabilities_for_task(task).is_empty() {
+        return Err(format!(
+            "agent component search task '{task}' is not a native task term"
+        ));
+    }
+    Ok(())
 }
 
 /// One page of a capability search.

@@ -75,8 +75,6 @@ fn work_item_tenant_value(method: &Method) -> Result<String, String> {
         Method::SubmitWorkItems { request } => request.context.tenant_id.clone(),
         Method::ClaimWorkItem { request } => request.tenant_ref.clone(),
         Method::CasWorkItemMetadata { request } => request.tenant_ref.clone(),
-        Method::IssueControlLease { request } => request.tenant.clone(),
-        Method::TransitionControlLease { request } => request.tenant.clone(),
         Method::RenewWorkItemLease { tenant, .. }
         | Method::CommitWorkItemResult { tenant, .. }
         | Method::CancelWorkItem { tenant, .. }
@@ -85,9 +83,18 @@ fn work_item_tenant_value(method: &Method) -> Result<String, String> {
         | Method::ReleaseWorkItemResources { request }
         | Method::ReclaimWorkItemResources { request } => request.tenant_ref.clone(),
         Method::UpdateResourceHost { request } => request.tenant_ref.clone(),
-        _ => return Err("commit_work_item received a non-WorkItem operation".to_string()),
+        // graph-os EG-2 control-lease writes ride the same kernel.
+        other => return control_lease_tenant(other),
     };
     Ok(tenant)
+}
+
+fn control_lease_tenant(method: &Method) -> Result<String, String> {
+    match method {
+        Method::IssueControlLease { request } => Ok(request.tenant.clone()),
+        Method::TransitionControlLease { request } => Ok(request.tenant.clone()),
+        _ => Err("commit_work_item received a non-WorkItem operation".to_string()),
+    }
 }
 
 pub(crate) struct WorkItemCommitRequest<'a> {

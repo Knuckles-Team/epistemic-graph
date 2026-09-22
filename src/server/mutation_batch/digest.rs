@@ -157,44 +157,19 @@ pub(crate) fn work_item_batch_identity(
         Method::ReserveWorkItemResources { request }
         | Method::ReleaseWorkItemResources { request }
         | Method::ReclaimWorkItemResources { request } => Some(request.idempotency_key.clone()),
-        Method::IssueControlLease { request } => Some(request.idempotency_key.clone()),
-        Method::TransitionControlLease { request } => Some(request.idempotency_key.clone()),
         Method::UpdateResourceHost { request } => Some(format!(
             "resource-host:{}:{}",
             request.host_ref, request.revision
         )),
+        // graph-os EG-2 control-lease writes share the terminal identity rule.
         _ => {
-            return Err("WorkItem identity requires a WorkItem operation".to_string());
+            return control_lease_idempotency_key(method)
+                .and_then(|key| terminal_work_item_identity(graph, tenant, &key));
         }
     };
 
     if let Some(terminal_key) = terminal_key {
-        if terminal_key.trim().is_empty() {
-            return Err("terminal WorkItem mutation requires idempotency_key".to_string());
-        }
-        use sha2::{Digest, Sha256};
-        let mut digest = Sha256::new();
-        digest.update(b"epistemic-graph.work-item-terminal.v1");
-        for field in [graph.as_bytes(), tenant.as_bytes(), terminal_key.as_bytes()] {
-            digest.update((field.len() as u64).to_be_bytes());
-            digest.update(field);
-        }
-        let digest: [u8; 32] = digest.finalize().into();
-        let mut request_bytes = [0u8; 8];
-        request_bytes.copy_from_slice(&digest[..8]);
-        let durable_request_id = u64::from_be_bytes(request_bytes).max(1);
-        let digest = hex::encode(digest);
-        return Ok(WorkItemBatchIdentity {
-            batch_id: format!("work:{digest}"),
-            idempotency_key: format!("work-idem:{digest}"),
-            durable_request_id,
-            // SubmitWorkItem is a native transaction: its command sequence,
-            // dependency edges, and graph version advance are serialized by the
-            // same redb writer as the row-local fenced transitions. Keeping the
-            // stable command-key replay on the native-CAS path means a retry
-            // does not manufacture a new graph-version expectation.
-            uses_native_row_cas: true,
-        });
+        return terminal_work_item_identity(graph, tenant, &terminal_key);
     }
 
     let batch_id = opaque_request_key("work", graph, transport_request_id, method);
@@ -208,6 +183,51 @@ pub(crate) fn work_item_batch_identity(
         idempotency_key,
         durable_request_id: transport_request_id,
         uses_native_row_cas: false,
+    })
+}
+
+/// The body idempotency key of a control-lease write, or the refusal every
+/// non-WorkItem operation gets.
+fn control_lease_idempotency_key(method: &Method) -> Result<String, String> {
+    match method {
+        Method::IssueControlLease { request } => Ok(request.idempotency_key.clone()),
+        Method::TransitionControlLease { request } => Ok(request.idempotency_key.clone()),
+        _ => Err("WorkItem identity requires a WorkItem operation".to_string()),
+    }
+}
+
+/// The retry-stable identity of a terminal WorkItem-kernel write, derived from
+/// its caller-stable body key and bound to the graph and tenant.
+fn terminal_work_item_identity(
+    graph: &str,
+    tenant: &str,
+    terminal_key: &str,
+) -> Result<WorkItemBatchIdentity, String> {
+    use sha2::{Digest, Sha256};
+    if terminal_key.trim().is_empty() {
+        return Err("terminal WorkItem mutation requires idempotency_key".to_string());
+    }
+    let mut digest = Sha256::new();
+    digest.update(b"epistemic-graph.work-item-terminal.v1");
+    for field in [graph.as_bytes(), tenant.as_bytes(), terminal_key.as_bytes()] {
+        digest.update((field.len() as u64).to_be_bytes());
+        digest.update(field);
+    }
+    let digest: [u8; 32] = digest.finalize().into();
+    let mut request_bytes = [0u8; 8];
+    request_bytes.copy_from_slice(&digest[..8]);
+    let durable_request_id = u64::from_be_bytes(request_bytes).max(1);
+    let digest = hex::encode(digest);
+    Ok(WorkItemBatchIdentity {
+        batch_id: format!("work:{digest}"),
+        idempotency_key: format!("work-idem:{digest}"),
+        durable_request_id,
+        // SubmitWorkItem is a native transaction: its command sequence,
+        // dependency edges, and graph version advance are serialized by the
+        // same redb writer as the row-local fenced transitions. Keeping the
+        // stable command-key replay on the native-CAS path means a retry
+        // does not manufacture a new graph-version expectation.
+        uses_native_row_cas: true,
     })
 }
 

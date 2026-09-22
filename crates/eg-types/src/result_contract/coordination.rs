@@ -28,7 +28,7 @@ use crate::native_control::{
     CapacityAcquireResult, CapacityCellUpdateResult, CapacityMutationResult, CapacityReclaimResult,
     CapacityStatusResult, SubmitWorkItemResult, SubmitWorkItemsResult,
 };
-use crate::work_item_read::{WorkItemPage, WorkItemView};
+use crate::work_item_read::{WorkItemOutcomeView, WorkItemPage, WorkItemView};
 
 method_results! {
     visit_coordination;
@@ -56,6 +56,8 @@ method_results! {
     // visible to the verified tenant.
     GetWorkItem(GetWorkItem) => Raw<Option<WorkItemView>>;
     ListWorkItems(ListWorkItems) => Raw<WorkItemPage>;
+    // graph-os EG-3: `null` when the WorkItem is not visible or has no bundle.
+    GetWorkItemOutcome(GetWorkItemOutcome) => Raw<Option<WorkItemOutcomeView>>;
     // graph-os EG-2 native control leases. `null` when no lease with this id
     // is visible to the verified tenant.
     IssueControlLease(IssueControlLease) => Json<ControlLeaseIssued>;

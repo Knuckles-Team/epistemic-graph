@@ -179,3 +179,48 @@ def test_a_lease_answer_outside_the_contract_is_refused() -> None:
                 idempotency_key="k",
             )
         )
+
+
+# -- graph-os EG-3 committed provenance ---------------------------------------
+
+
+def test_get_outcome_returns_the_verified_provenance_view() -> None:
+    outcome = {
+        "work_item": VIEW,
+        "trace_ref": "rt-1",
+        "tool_call_refs": ["tc-1"],
+        "outcome_ref": "oe-1",
+        "outcome": {"status": "succeeded"},
+    }
+    engine = _Engine(outcome)
+    items = _work_items(engine)
+    assert asyncio.run(items.get_outcome(tenant="t", work_item_id="wi-1")) == outcome
+    assert engine.sent == [
+        ("GetWorkItemOutcome", {"tenant": "t", "work_item_id": "wi-1"})
+    ]
+    leaky = {**outcome, "work_item": {**VIEW, "lease_epoch": 3}}
+    with pytest.raises(RuntimeError):
+        asyncio.run(
+            _work_items(_Engine(leaky)).get_outcome(tenant="t", work_item_id="wi-1")
+        )
+
+
+def test_commit_result_carries_the_outcome_extension_only_when_given() -> None:
+    engine = _Engine({"status": "succeeded"})
+    common: dict[str, Any] = {
+        "tenant": "t",
+        "work_item_id": "wi-1",
+        "worker_id": "w",
+        "lease_epoch": 1,
+        "fencing_token": 1,
+        "idempotency_key": "k",
+        "outcome": "succeeded",
+        "now_ms": 5,
+    }
+    asyncio.run(_work_items(engine).commit_result(**common))
+    asyncio.run(
+        _work_items(engine).commit_result(**common, outcome_extension={"bundle": 1})
+    )
+    first, second = (params for _, params in engine.sent)
+    assert isinstance(first, dict) and "outcome_extension" not in first
+    assert isinstance(second, dict) and second["outcome_extension"] == {"bundle": 1}

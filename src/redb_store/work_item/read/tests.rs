@@ -125,3 +125,50 @@ fn listing_pages_resume_by_seek_and_skip_other_tenants_and_node_types() {
     let error = list_work_items(&temp.shard, GRAPH, &foreign, DurableCrypto::none()).unwrap_err();
     assert!(error.contains("not minted for this tenant"), "{error}");
 }
+
+#[test]
+fn an_outcome_read_returns_only_digest_verified_provenance_of_the_tenants_item() {
+    use sha2::{Digest, Sha256};
+    let temp = open("outcome");
+    let evaluation = rmp_serde::to_vec_named(&serde_json::json!({
+        "node_type": "OutcomeEvaluation",
+        "status": "succeeded",
+    }))
+    .unwrap();
+    let mut item = work_item("tenant-a", "browser.control.call", "succeeded");
+    item.insert("outcome_ref".into(), "oe-1".into());
+    item.insert(
+        "outcome_digest".into(),
+        hex::encode(Sha256::digest(&evaluation)).into(),
+    );
+    item.insert("trace_ref".into(), "rt-1".into());
+    item.insert("tool_call_refs".into(), serde_json::json!(["tc-1"]));
+    write_rows(&temp.shard, "item", vec![("wi-o", item)]);
+    let receipt = evaluation.clone();
+    with_nodes(&temp.shard, "receipt", |nodes| {
+        nodes.insert((GRAPH, "oe-1"), receipt.as_slice())?;
+        Ok(())
+    });
+
+    let read = |tenant: &str| {
+        read_work_item_outcome(&temp.shard, GRAPH, tenant, "wi-o", DurableCrypto::none())
+    };
+    let outcome = read("tenant-a")
+        .unwrap()
+        .expect("committed outcome is visible");
+    assert_eq!(outcome.work_item.work_item_id, "wi-o");
+    assert_eq!(
+        (outcome.trace_ref.as_str(), outcome.outcome_ref.as_str()),
+        ("rt-1", "oe-1")
+    );
+    assert_eq!(outcome.tool_call_refs, ["tc-1"]);
+    assert_eq!(outcome.outcome.unwrap()["status"], "succeeded");
+    assert_eq!(read("tenant-b").unwrap(), None, "cross-tenant outcome read");
+
+    let forged = rmp_serde::to_vec_named(&serde_json::json!({"status": "failed"})).unwrap();
+    with_nodes(&temp.shard, "forge", |nodes| {
+        nodes.insert((GRAPH, "oe-1"), forged.as_slice())?;
+        Ok(())
+    });
+    assert!(read("tenant-a").is_err(), "an altered receipt is refused");
+}

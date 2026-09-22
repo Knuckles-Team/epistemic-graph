@@ -1184,6 +1184,58 @@ async def send_list_work_items(
     return OpaqueResult("ListWorkItems", payload)
 
 
+class GetWorkItemOutcomeRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        GetWorkItemOutcome
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/GetWorkItemOutcome
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    tenant: str
+    work_item_id: str
+
+
+async def send_get_work_item_outcome(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        GetWorkItemOutcome
+    Authorization:
+        work:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/GetWorkItemOutcome
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    GetWorkItemOutcomeRequest.model_validate(params or {})
+    payload = await client._send(
+        "GetWorkItemOutcome",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("GetWorkItemOutcome", payload)
+
+
 class IssueControlLeaseRequest(BaseModel):
     """Validate one engine-contract request body.
 

@@ -320,6 +320,7 @@ pub(crate) fn apply_commit_work_item_result_row(
             Some(&authoritative_next),
         );
     }
+    record_outcome_refs(&mut props, committed_status, input.outcome_extension);
     write_work_item_props(
         input.nodes,
         input.graph,
@@ -504,6 +505,41 @@ fn ensure_receipt_rows_absent(
         }
     }
     Ok(())
+}
+
+/// Bind a terminal commit's provenance to the WorkItem row (graph-os EG-3), so
+/// `GetWorkItemOutcome` resolves it from the row rather than from a node id a
+/// caller names, and verifies the OutcomeEvaluation receipt against the digest
+/// recorded here. Skipped on a scheduled retry: receipts are written only with
+/// a real terminal transition.
+fn record_outcome_refs(
+    props: &mut serde_json::Map<String, serde_json::Value>,
+    committed_status: &str,
+    extension: Option<&eg_types::outcome_bundle::TerminalOutcomeExtension>,
+) {
+    use eg_types::work_item_read::{
+        WORK_ITEM_OUTCOME_DIGEST, WORK_ITEM_OUTCOME_REF, WORK_ITEM_TOOL_CALL_REFS,
+        WORK_ITEM_TRACE_REF,
+    };
+    let Some(extension) = extension.filter(|_| committed_status != "retry_scheduled") else {
+        return;
+    };
+    let bundle = &extension.outcome_bundle;
+    let outcome_digest = extension
+        .receipt_nodes
+        .iter()
+        .find(|receipt| receipt.node_id == bundle.outcome_ref)
+        .map(|receipt| receipt.payload_digest.clone());
+    props.insert(
+        WORK_ITEM_OUTCOME_REF.into(),
+        bundle.outcome_ref.clone().into(),
+    );
+    props.insert(WORK_ITEM_OUTCOME_DIGEST.into(), outcome_digest.into());
+    props.insert(WORK_ITEM_TRACE_REF.into(), bundle.trace_ref.clone().into());
+    props.insert(
+        WORK_ITEM_TOOL_CALL_REFS.into(),
+        serde_json::json!(bundle.tool_call_refs),
+    );
 }
 
 fn apply_receipt_rows(

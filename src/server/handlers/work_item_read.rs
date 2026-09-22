@@ -29,6 +29,11 @@ pub(crate) enum WorkItemRead {
         work_item_id: String,
     },
     List(WorkItemListRequest),
+    /// graph-os EG-3: a terminal WorkItem and its committed provenance.
+    Outcome {
+        tenant: String,
+        work_item_id: String,
+    },
     /// graph-os EG-2: one native control lease.
     ControlLease {
         tenant: String,
@@ -39,7 +44,7 @@ pub(crate) enum WorkItemRead {
 impl WorkItemRead {
     fn tenant(&self) -> &str {
         match self {
-            Self::Get { tenant, .. } => tenant,
+            Self::Get { tenant, .. } | Self::Outcome { tenant, .. } => tenant,
             Self::List(request) => &request.tenant,
             Self::ControlLease { tenant, .. } => tenant,
         }
@@ -79,7 +84,9 @@ async fn serve_native(
     persistence: &Option<Arc<dyn PersistenceBackend>>,
     read: WorkItemRead,
 ) -> Result<ResultPayload, String> {
-    use eg_types::result_contract::coordination::{GetControlLease, GetWorkItem, ListWorkItems};
+    use eg_types::result_contract::coordination::{
+        GetControlLease, GetWorkItem, GetWorkItemOutcome, ListWorkItems,
+    };
     let backend = persistence
         .as_ref()
         .and_then(|backend| backend.as_redb())
@@ -96,6 +103,14 @@ async fn serve_native(
         WorkItemRead::List(request) => {
             ResultPayload::of::<ListWorkItems>(backend.list_work_items(graph, request).await?)
         }
+        WorkItemRead::Outcome {
+            tenant,
+            work_item_id,
+        } => ResultPayload::of::<GetWorkItemOutcome>(
+            backend
+                .read_work_item_outcome(graph, &tenant, &work_item_id)
+                .await?,
+        ),
         WorkItemRead::ControlLease { tenant, lease_id } => ResultPayload::of::<GetControlLease>(
             backend
                 .read_control_lease(graph, &tenant, &lease_id)

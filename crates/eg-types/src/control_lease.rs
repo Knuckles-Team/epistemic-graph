@@ -1,5 +1,7 @@
-//! Native control leases (graph-os EG-2): a tenant-bound, time-boxed grant
-//! record with a one-way lifecycle -- `active`, then `revoked` or `expired`.
+//! Native control leases (graph-os EG-2/EG-3): a tenant-bound, time-boxed
+//! grant record with a one-way lifecycle -- `active`, optionally `consumed`
+//! (a single-use grant that has been spent but still binds its consumer), then
+//! `revoked` or `expired`.
 //!
 //! # Why not `CapacityLease`
 //!
@@ -16,8 +18,10 @@
 //!
 //! The record is written ONLY by the native methods here: generic node writes
 //! may not create, update or remove a `ControlLease` row. The grant body and
-//! the timing are immutable after issue; the only transition is `active` ->
-//! `revoked` | `expired`, compare-and-set on the row revision a caller read.
+//! the timing are immutable after issue; the only transitions are
+//! `active -> consumed | revoked | expired` and `consumed -> revoked | expired`,
+//! each compare-and-set on the row revision a caller read. `consumed` happens
+//! at most once, which is what makes a lease a single-use receipt.
 //! The expiry is authoritative in milliseconds, so a caller holding float
 //! seconds converts with `floor` -- which can shorten a lease by less than a
 //! millisecond and can never extend one.
@@ -42,31 +46,53 @@ const MAX_CONTROL_LEASE_REF_BYTES: usize = 512;
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ControlLeaseStatus {
     Active,
+    /// A single-use grant that has been spent; still live until it is
+    /// revoked or expires.
+    Consumed,
     Revoked,
     Expired,
 }
 
-/// The terminal state a transition moves an active lease to.
+/// The state a transition moves a lease to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub enum ControlLeaseEnd {
+pub enum ControlLeaseTarget {
+    Consumed,
     Revoked,
     Expired,
 }
 
-impl ControlLeaseEnd {
+/// Every legal `(from, to)` edge. A table so the lifecycle is read off one
+/// list; anything absent -- leaving `revoked`/`expired`, consuming twice,
+/// re-activating -- is a `conflict`.
+const LEGAL_TRANSITIONS: [(ControlLeaseStatus, ControlLeaseTarget); 5] = [
+    (ControlLeaseStatus::Active, ControlLeaseTarget::Consumed),
+    (ControlLeaseStatus::Active, ControlLeaseTarget::Revoked),
+    (ControlLeaseStatus::Active, ControlLeaseTarget::Expired),
+    (ControlLeaseStatus::Consumed, ControlLeaseTarget::Revoked),
+    (ControlLeaseStatus::Consumed, ControlLeaseTarget::Expired),
+];
+
+impl ControlLeaseTarget {
     pub fn status(self) -> ControlLeaseStatus {
         match self {
+            Self::Consumed => ControlLeaseStatus::Consumed,
             Self::Revoked => ControlLeaseStatus::Revoked,
             Self::Expired => ControlLeaseStatus::Expired,
         }
     }
+
+    /// Whether a lease currently in `from` may move to this target.
+    pub fn allowed_from(self, from: ControlLeaseStatus) -> bool {
+        LEGAL_TRANSITIONS.contains(&(from, self))
+    }
 }
 
 /// The stored `status` text of each lifecycle state.
-const STORED_STATUS: [(&str, ControlLeaseStatus); 3] = [
+const STORED_STATUS: [(&str, ControlLeaseStatus); 4] = [
     ("active", ControlLeaseStatus::Active),
+    ("consumed", ControlLeaseStatus::Consumed),
     ("revoked", ControlLeaseStatus::Revoked),
     ("expired", ControlLeaseStatus::Expired),
 ];
@@ -106,7 +132,7 @@ pub struct IssueControlLeaseRequest {
     pub idempotency_key: String,
 }
 
-/// `TransitionControlLease`: end an active lease, CAS on its read revision.
+/// `TransitionControlLease`: consume or end a lease, CAS on its read revision.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -116,7 +142,7 @@ pub struct TransitionControlLeaseRequest {
     pub lease_id: String,
     /// The `revision` of the view the caller decided on.
     pub expected_revision: u64,
-    pub to: ControlLeaseEnd,
+    pub to: ControlLeaseTarget,
     /// Caller-stable retry identity for this transition.
     pub idempotency_key: String,
 }
@@ -133,7 +159,7 @@ pub struct ControlLeaseView {
     pub issued_at_ms: u64,
     pub expires_at_ms: u64,
     pub hard_expires_at_ms: u64,
-    /// Row revision: 1 at issue, bumped by the transition.
+    /// Row revision: 1 at issue, bumped by every transition.
     pub revision: u64,
 }
 
@@ -153,7 +179,8 @@ pub enum ControlLeaseIssueOutcome {
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum ControlLeaseTransitionOutcome {
     Applied,
-    /// The lease is no longer active, or moved past `expected_revision`.
+    /// The edge is not legal from the lease's current status, or the lease
+    /// moved past `expected_revision`.
     Conflict,
     /// No lease with this id is visible to the tenant.
     NotFound,
