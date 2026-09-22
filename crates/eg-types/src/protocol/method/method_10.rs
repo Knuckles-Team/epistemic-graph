@@ -1,6 +1,6 @@
 macro_rules! __eg_method_chunk_10 {
     (@acc [$($variants:tt)*]) => {
-        __eg_method_finish!(@acc [
+        __eg_method_chunk_11!(@acc [
 $($variants)*
 
 

@@ -5834,6 +5834,67 @@
       ],
       "type": "object"
     },
+    "WorkItemPage": {
+      "additionalProperties": false,
+      "description": "One page of `ListWorkItems`.",
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/WorkItemView"
+          },
+          "type": "array"
+        },
+        "next_cursor": {
+          "description": "`Some` when more of the graph remains to be scanned; hand it back\nunmodified to continue. A page may be empty and still carry one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "type": "object"
+    },
+    "WorkItemStatus": {
+      "description": "Where a WorkItem is in its lifecycle.",
+      "oneOf": [
+        {
+          "enum": [
+            "succeeded",
+            "failed",
+            "cancelled"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "submitted",
+          "description": "Admitted, waiting on dependencies.",
+          "type": "string"
+        },
+        {
+          "const": "ready",
+          "description": "Claimable.",
+          "type": "string"
+        },
+        {
+          "const": "leased",
+          "description": "Claimed under a live lease, not yet started.",
+          "type": "string"
+        },
+        {
+          "const": "running",
+          "description": "Executing under a live lease.",
+          "type": "string"
+        },
+        {
+          "const": "dead_letter",
+          "description": "A retryable failure that exhausted its attempts.",
+          "type": "string"
+        }
+      ]
+    },
     "WorkItemTransition": {
       "description": "A terminal-direction WorkItem transition (`CommitWorkItemResult`,\n`CancelWorkItem`). The WorkItem id and fence are present once the item was found;\nthe fence is present only when the transition applied.",
       "properties": {
@@ -5913,6 +5974,51 @@
       "required": [
         "status",
         "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "WorkItemView": {
+      "additionalProperties": false,
+      "description": "The caller's view of one WorkItem row.",
+      "properties": {
+        "input_ref": {
+          "description": "The `input_ref` the item was submitted with.",
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "description": "The caller-owned scheduling metadata, as last written.",
+          "type": "object"
+        },
+        "status": {
+          "$ref": "#/$defs/WorkItemStatus"
+        },
+        "updated_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "version": {
+          "description": "Row revision: 1 at submission, bumped by every native write of the row.\nA reader compares two views of the same item by it.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "work_item_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "work_item_id",
+        "kind",
+        "status",
+        "input_ref",
+        "metadata",
+        "version",
+        "updated_at_ms"
       ],
       "type": "object"
     },
@@ -6219,6 +6325,25 @@
       },
       "selected_by": null
     },
+    "GetWorkItem": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/WorkItemView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "selected_by": null
+    },
     "KgDelegate": {
       "bodies": {
         "result": {
@@ -6226,6 +6351,18 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/KgDelegateResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ListWorkItems": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/WorkItemPage"
           }
         }
       },

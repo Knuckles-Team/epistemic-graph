@@ -172,6 +172,11 @@ pub(super) async fn route_native_store_ops(
     let persistence = ctx.persistence;
     #[cfg(feature = "raft")]
     let routed_raft = ctx.routed_raft;
+    #[cfg(feature = "redb")]
+    let method = match route_work_item_reads(ctx, method).await {
+        Ok(response) => return Ok(response),
+        Err(method) => method,
+    };
     let method = match route_source_ingestion_or_resources(ctx, method).await {
         Ok(response) => return Ok(response),
         Err(method) => method,
@@ -202,6 +207,61 @@ pub(super) async fn route_native_store_ops(
         .await);
     }
     Err(method)
+}
+
+/// EH-219 typed WorkItem reads. A native durable read, so under raft it runs
+/// on the current placement leader behind a read barrier -- the same gate the
+/// native reservation reads use -- before the handler applies the verified
+/// carrier-tenant rule and reads the redb snapshot.
+#[cfg(feature = "redb")]
+async fn route_work_item_reads(
+    ctx: GraphOpRouting<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    let read = match method {
+        Method::GetWorkItem {
+            tenant,
+            work_item_id,
+        } => handlers::work_item_read::WorkItemRead::Get {
+            tenant,
+            work_item_id,
+        },
+        Method::ListWorkItems {
+            tenant,
+            cursor,
+            limit,
+            kind,
+        } => handlers::work_item_read::WorkItemRead::List(
+            eg_types::work_item_read::WorkItemListRequest {
+                tenant,
+                cursor,
+                limit,
+                kind,
+            },
+        ),
+        other => return Err(other),
+    };
+    #[cfg(feature = "raft")]
+    if let Err(response) = enforce_native_read_leadership(
+        ctx.req_id,
+        ctx.graph_name,
+        ctx.multi_raft.as_ref(),
+        ctx.routed_raft.as_ref(),
+        "WorkItem reads require the current placement leader",
+        "WorkItem read linearizability barrier failed",
+    )
+    .await
+    {
+        return Ok(response);
+    }
+    Ok(handlers::work_item_read::answer(
+        ctx.req_id,
+        ctx.graph_name,
+        ctx.verified_context.tenant(),
+        ctx.persistence,
+        read,
+    )
+    .await)
 }
 
 /// RF-ADR-009 source ingestion is graph-scoped and therefore reaches this

@@ -543,10 +543,8 @@ async def send_agent_component_search(
 ) -> AgentComponentSearchPage:
     """Send typed AgentComponent.search through the existing AgentComponent method."""
     request = AgentComponentSearchRequest.model_validate(request)
-    if request.task is not None or request.capabilities or not request.kinds:
-        raise ValueError(
-            "AgentComponent.Search requires kinds and no task/capabilities"
-        )
+    if request.task is None and not request.capabilities and not request.kinds:
+        raise ValueError("AgentComponent.Search requires a task, capability, or kind")
     if request.limit is not None and not 1 <= request.limit <= 256:
         raise ValueError("AgentComponent.Search limit must be in 1..=256")
     if request.cursor is not None and (

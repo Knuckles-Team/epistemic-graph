@@ -5,7 +5,7 @@ use super::*;
 /// and `barrier_failure` name the surface in the two refusals so each caller's
 /// message is unchanged.
 #[cfg(feature = "raft")]
-async fn enforce_native_read_leadership(
+pub(super) async fn enforce_native_read_leadership(
     req_id: u64,
     graph_name: &str,
     multi_raft: Option<&std::sync::Arc<crate::raft::multi::MultiRaft>>,

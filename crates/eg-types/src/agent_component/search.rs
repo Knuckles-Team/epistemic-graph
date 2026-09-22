@@ -6,15 +6,15 @@
 //! definition digest.
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 
 use super::facts::{AgentComponentFacts, ToolEffect};
 use super::{
-    put_text, validate_names, validate_text, AgentComponentEntry, AgentComponentKind,
+    validate_names, validate_text, AgentComponentEntry, AgentComponentKind,
     AgentComponentMutationKind, AGENT_COMPONENT_SEARCH_CURSOR_DOMAIN,
     MAX_AGENT_COMPONENT_SEARCH_CURSOR_BYTES, MAX_AGENT_COMPONENT_SEARCH_LIMIT, MAX_CAPABILITIES,
 };
 use crate::agent_library::AgentLibraryLifecycle;
+use crate::tenant_cursor::CursorFamily;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -33,7 +33,9 @@ const MAX_SEARCH_KINDS: usize = 16;
 /// The wire form of *"what does an agent trying to do XYZ need?"*. A caller
 /// supplies a `task` (resolved through the native ontology), explicit
 /// `capabilities`, or at least one `kind`. A kind-only request is the bounded,
-/// paginated catalog-listing form; a request with no selector is refused.
+/// paginated catalog-listing form; a request with no selector is refused, and
+/// so is a `task` the native ontology does not know (it would resolve to no
+/// capability and widen into an unfiltered listing).
 ///
 /// # Why this is paginated
 ///
@@ -92,6 +94,16 @@ impl AgentComponentSearchRequest {
         validate_text("tenant_id", &self.tenant_id)?;
         if let Some(task) = &self.task {
             validate_text("task", task)?;
+            // A task resolves to capabilities only through the native
+            // ontology. A term it does not know resolves to NOTHING, and an
+            // empty requirement set matches every published component -- so an
+            // unknown task is refused by name rather than silently widened
+            // into an unfiltered listing.
+            if crate::agent_ontology::capabilities_for_task(task).is_empty() {
+                return Err(format!(
+                    "agent component search task '{task}' is not a native task term"
+                ));
+            }
         }
         validate_names("capabilities", &self.capabilities, MAX_CAPABILITIES)?;
         if self.kinds.len() > MAX_SEARCH_KINDS {
@@ -243,6 +255,14 @@ impl AgentComponentEntry {
     }
 }
 
+/// The capability search's cursor family. The framing and the tenant-bound
+/// tag are owned by [`crate::tenant_cursor`]; this row only names the search.
+const SEARCH_CURSOR: CursorFamily = CursorFamily {
+    domain: AGENT_COMPONENT_SEARCH_CURSOR_DOMAIN,
+    max_bytes: MAX_AGENT_COMPONENT_SEARCH_CURSOR_BYTES,
+    noun: "agent component search",
+};
+
 /// Mint the opaque cursor that resumes a search after `component_id`.
 ///
 /// The encoded form is a tenant-bound tag followed by the resume key. The tag
@@ -251,40 +271,15 @@ impl AgentComponentEntry {
 /// another tenant's rows, but it could silently resume at a meaningless offset,
 /// and a named refusal is better than a quiet wrong answer.
 pub fn encode_search_cursor(tenant_id: &str, component_id: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(AGENT_COMPONENT_SEARCH_CURSOR_DOMAIN);
-    put_text(&mut hasher, tenant_id);
-    put_text(&mut hasher, component_id);
-    let tag = hasher.finalize();
-    format!(
-        "{}{}",
-        hex::encode(&tag[..SEARCH_CURSOR_TAG_BYTES]),
-        hex::encode(component_id.as_bytes())
-    )
+    SEARCH_CURSOR.encode(tenant_id, component_id)
 }
 
 /// Recover the resume key from an opaque cursor, or refuse it by name.
 pub fn decode_search_cursor(tenant_id: &str, cursor: &str) -> Result<String, String> {
-    const TAG_HEX: usize = SEARCH_CURSOR_TAG_BYTES * 2;
-    if cursor.len() <= TAG_HEX
-        || cursor.len() > MAX_AGENT_COMPONENT_SEARCH_CURSOR_BYTES
-        || !cursor.len().is_multiple_of(2)
-    {
-        return Err("agent component search cursor is malformed".to_string());
-    }
-    let raw = hex::decode(&cursor[TAG_HEX..])
-        .map_err(|_| "agent component search cursor is malformed".to_string())?;
-    let component_id = String::from_utf8(raw)
-        .map_err(|_| "agent component search cursor is malformed".to_string())?;
-    validate_text("cursor component_id", &component_id)
-        .map_err(|_| "agent component search cursor is malformed".to_string())?;
-    if encode_search_cursor(tenant_id, &component_id) != cursor {
-        return Err("agent component search cursor was not minted for this tenant".to_string());
-    }
-    Ok(component_id)
+    SEARCH_CURSOR.decode(tenant_id, cursor, |component_id| {
+        validate_text("cursor component_id", component_id).is_ok()
+    })
 }
-
-const SEARCH_CURSOR_TAG_BYTES: usize = 16;
 
 #[cfg(test)]
 mod tests {
@@ -305,6 +300,18 @@ mod tests {
     #[test]
     fn kind_only_listing_is_a_valid_bounded_search() {
         request(vec![AgentComponentKind::Tool]).validate().unwrap();
+    }
+
+    #[test]
+    fn a_task_outside_the_native_ontology_is_refused_not_widened() {
+        let mut search = request(Vec::new());
+        search.task = Some("eg:task/research".to_string());
+        search.validate().unwrap();
+        search.task = Some("summarize the quarterly report".to_string());
+        let error = search.validate().unwrap_err();
+        assert!(error.contains("is not a native task term"), "{error}");
+        search.task = Some(crate::agent_ontology::TASK_ROOT.to_string());
+        assert!(search.validate().is_err());
     }
 
     #[test]

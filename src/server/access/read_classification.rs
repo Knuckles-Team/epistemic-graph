@@ -310,6 +310,16 @@ pub(super) const REASON_SOURCE_INGESTION_MARKER: &str =
 pub(super) const REASON_DECIDE_LIBRARY_SNAPSHOT: &str =
     "Decide reads its candidates and pinned catalog bodies from one tenant-bound agent_library.redb snapshot through AgentComponent.Search's accessor and refuses graph-sourced candidates before opening any graph -- never a GraphView/core.analysis_snapshot() row read";
 
+// EH-219: `GetWorkItem`/`ListWorkItems` route through `native_routes::route_work_item_reads`
+// (placement leader + read barrier under raft) to `handlers::work_item_read`, which refuses any
+// request tenant other than the VERIFIED carrier tenant and then reads the redb authority's
+// node rows through `redb_store::work_item::{read_work_item, list_work_items}` -- never a
+// `GraphView`/`core.analysis_snapshot()`. A WorkItem row is control-plane state whose scope is
+// its `tenant` field, not per-node `_owner`/`_visibility`/`_grants`; the projection returns only
+// the caller view (no lease owner/epoch/fencing token).
+pub(super) const REASON_NATIVE_WORK_ITEM_TENANT_READ: &str =
+    "native_routes::route_work_item_reads routes GetWorkItem/ListWorkItems (placement leader + read barrier under raft) to handlers::work_item_read, which refuses any request tenant other than the verified carrier tenant, then reads redb node rows via redb_store::work_item::{read_work_item, list_work_items} and projects only rows whose `tenant` equals it -- never a GraphView/core.analysis_snapshot() row read; lease owner/epoch/fencing token are never projected";
+
 pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     // REASON_DECIDE_LIBRARY_SNAPSHOT
     ("Decide", REASON_DECIDE_LIBRARY_SNAPSHOT),
@@ -471,6 +481,9 @@ pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     // REASON_NATIVE_DEVELOPMENT_LANE_READ
     ("DevelopmentLaneStatus", REASON_NATIVE_DEVELOPMENT_LANE_READ),
     ("QueryDevelopmentLane", REASON_NATIVE_DEVELOPMENT_LANE_READ),
+    // REASON_NATIVE_WORK_ITEM_TENANT_READ
+    ("GetWorkItem", REASON_NATIVE_WORK_ITEM_TENANT_READ),
+    ("ListWorkItems", REASON_NATIVE_WORK_ITEM_TENANT_READ),
 ];
 
 // L-RLS-1 burn-down (CONCEPT:EPI-P3-3/P3-6): the 5 methods this pass covered (see the

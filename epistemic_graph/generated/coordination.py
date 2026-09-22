@@ -1078,6 +1078,112 @@ async def send_cas_work_item_metadata(
     return OpaqueResult("CasWorkItemMetadata", payload)
 
 
+class GetWorkItemRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        GetWorkItem
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/GetWorkItem
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    tenant: str
+    work_item_id: str
+
+
+async def send_get_work_item(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        GetWorkItem
+    Authorization:
+        work:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/GetWorkItem
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    GetWorkItemRequest.model_validate(params or {})
+    payload = await client._send(
+        "GetWorkItem",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("GetWorkItem", payload)
+
+
+class ListWorkItemsRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        ListWorkItems
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/ListWorkItems
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    cursor: str | None = None
+    kind: str | None = None
+    limit: int
+    tenant: str
+
+
+async def send_list_work_items(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ListWorkItems
+    Authorization:
+        work:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/ListWorkItems
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    ListWorkItemsRequest.model_validate(params or {})
+    payload = await client._send(
+        "ListWorkItems",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ListWorkItems", payload)
+
+
 class ReserveWorkItemResourcesRequest(BaseModel):
     """Validate one engine-contract request body.
 

@@ -41,6 +41,8 @@ pub(super) use graph_dispatch::GraphOpRouting;
 use modality::*;
 use native_routes::*;
 use pipeline::*;
+#[cfg(feature = "raft")]
+use work_governance::enforce_native_read_leadership;
 use work_governance::{
     dispatch_op_capacity_ops, dispatch_op_resource_reservation_query,
     dispatch_op_workitem_claim_capability, dispatch_op_workitem_submission_or_resources,

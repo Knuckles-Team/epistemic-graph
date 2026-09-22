@@ -887,7 +887,7 @@
     },
     "AgentComponentSearchRequest": {
       "additionalProperties": false,
-      "description": "Find components by what they can do.\n\nThe wire form of *\"what does an agent trying to do XYZ need?\"*. A caller\nsupplies a `task` (resolved through the native ontology), explicit\n`capabilities`, or at least one `kind`. A kind-only request is the bounded,\npaginated catalog-listing form; a request with no selector is refused.\n\n# Why this is paginated\n\nThis is the capability-discovery query the whole component layer exists to\nserve, so it is the one read whose result set grows with the tenant rather\nthan with the request. An unpaginated form has two failure modes and no\nrecovery from either: the response size is bounded only by the corpus, and a\ntenant whose component count passes the scan bound is refused on EVERY\nsearch forever. [`AgentComponentSearchPage`] exists so neither is possible,\nand it is an object rather than a bare array because turning an array into\nan object later is a read-side wire break.",
+      "description": "Find components by what they can do.\n\nThe wire form of *\"what does an agent trying to do XYZ need?\"*. A caller\nsupplies a `task` (resolved through the native ontology), explicit\n`capabilities`, or at least one `kind`. A kind-only request is the bounded,\npaginated catalog-listing form; a request with no selector is refused, and\nso is a `task` the native ontology does not know (it would resolve to no\ncapability and widen into an unfiltered listing).\n\n# Why this is paginated\n\nThis is the capability-discovery query the whole component layer exists to\nserve, so it is the one read whose result set grows with the tenant rather\nthan with the request. An unpaginated form has two failure modes and no\nrecovery from either: the response size is bounded only by the corpus, and a\ntenant whose component count passes the scan bound is refused on EVERY\nsearch forever. [`AgentComponentSearchPage`] exists so neither is possible,\nand it is an object rather than a bare array because turning an array into\nan object later is a read-side wire break.",
       "properties": {
         "capabilities": {
           "default": [],
@@ -29644,6 +29644,37 @@
       ],
       "type": "object"
     },
+    "GetWorkItem": {
+      "additionalProperties": false,
+      "description": "The caller's view of one native WorkItem row, or `null` when no row with\nthis id is visible to `tenant`. `tenant` must equal the verified request\ntenant (`ACCESS_DENIED` otherwise); lease owner, epoch and fencing token\nare never returned. See [`crate::work_item_read`].",
+      "properties": {
+        "method": {
+          "const": "GetWorkItem",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "tenant": {
+              "type": "string"
+            },
+            "work_item_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "tenant",
+            "work_item_id"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
     "GraphColoring": {
       "additionalProperties": false,
       "properties": {
@@ -30479,6 +30510,53 @@
           },
           "required": [
             "graph"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "ListWorkItems": {
+      "additionalProperties": false,
+      "description": "One bounded page of `tenant`'s WorkItems, optionally of one `kind`.\nPages by the limit / scan / byte bounds of `AgentComponent.Search`; an\nempty page may still carry `next_cursor`. The cursor is opaque and\nbound to the tenant it was minted for.",
+      "properties": {
+        "method": {
+          "const": "ListWorkItems",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "cursor": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "limit": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "tenant": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "tenant",
+            "limit"
           ],
           "type": "object"
         }

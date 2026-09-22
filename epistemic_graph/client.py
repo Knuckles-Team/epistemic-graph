@@ -4452,7 +4452,7 @@ class WorkItemClient:
         *,
         tenant: str,
         work_item_id: str,
-        expected_status: list[str],
+        expected_status: builtins.list[str],
         now_ms: int,
         expected_lease: dict[str, Any] | None = None,
         expected_checkpoint_id: str | None = None,
@@ -4628,6 +4628,85 @@ class WorkItemClient:
             )
         ).payload
         return _resource_host_update_result(value)
+
+    # -- EH-219 typed caller-view reads -------------------------------------
+
+    async def get(self, *, tenant: str, work_item_id: str) -> dict[str, Any] | None:
+        """Return the caller's view of one WorkItem, or ``None`` when no
+        WorkItem with this id is visible to ``tenant``.
+
+        ``tenant`` must equal the verified request tenant; the engine refuses
+        any other with ``ACCESS_DENIED``. The view carries ``work_item_id``,
+        ``kind``, ``status``, ``input_ref``, ``metadata``, ``version`` (the row
+        revision) and ``updated_at_ms``; lease owner, epoch and fencing token
+        are never returned.
+        """
+        value = (
+            await _gen.coordination.send_get_work_item(
+                self._client,
+                {
+                    "tenant": _string("GetWorkItem.tenant", tenant),
+                    "work_item_id": _string("GetWorkItem.work_item_id", work_item_id),
+                },
+            )
+        ).payload
+        if value is None:
+            return None
+        return _work_item_view(value)
+
+    async def list(
+        self,
+        *,
+        tenant: str,
+        cursor: str | None = None,
+        limit: int = 100,
+        kind: str | None = None,
+    ) -> dict[str, Any]:
+        """Return one bounded page ``{"items": [...], "next_cursor": ...}`` of
+        ``tenant``'s WorkItems, optionally of one ``kind``.
+
+        A page stops at ``limit`` items or at the engine's scan/byte bound, so
+        a page may be EMPTY and still carry ``next_cursor``: loop until it is
+        ``None``. The cursor is opaque and bound to ``tenant``.
+        """
+        params: dict[str, Any] = {
+            "tenant": _string("ListWorkItems.tenant", tenant),
+            "cursor": cursor,
+            "limit": _integer("ListWorkItems.limit", limit, minimum=1, maximum=100),
+            "kind": kind,
+        }
+        value = (
+            await _gen.coordination.send_list_work_items(self._client, params)
+        ).payload
+        if not isinstance(value, dict) or not isinstance(value.get("items"), list):
+            raise RuntimeError("ListWorkItems returned a malformed page")
+        if len(value["items"]) > limit:
+            raise ValueError("ListWorkItems page exceeds the requested limit")
+        return {
+            "items": [_work_item_view(item) for item in value["items"]],
+            "next_cursor": value.get("next_cursor"),
+        }
+
+
+_WORK_ITEM_VIEW_FIELDS = frozenset(
+    {
+        "work_item_id",
+        "kind",
+        "status",
+        "input_ref",
+        "metadata",
+        "version",
+        "updated_at_ms",
+    }
+)
+
+
+def _work_item_view(value: Any) -> dict[str, Any]:
+    """Validate one engine WorkItem view: exactly the caller-view fields, so a
+    lease field can never reach a caller even from a misbehaving engine."""
+    if not isinstance(value, dict) or set(value) != _WORK_ITEM_VIEW_FIELDS:
+        raise RuntimeError("WorkItem view does not match the typed contract")
+    return value
 
 
 class CapacityLeaseClient:

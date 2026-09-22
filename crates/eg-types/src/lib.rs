@@ -163,6 +163,12 @@ pub mod compute_result;
 // `native_control`, `server::mutation_batch`, and `redb_store`. See
 // `plans/graph-os-completion-program/lanes/GOC-19-atomic-workitem-command-log.md`.
 pub mod work_item_command_log;
+// EH-219 — typed, tenant-bound WorkItem reads (`GetWorkItem`/`ListWorkItems`):
+// the caller's row view, its three-bound page scan, and its cursor family.
+pub mod work_item_read;
+// The opaque tenant-bound keyset cursor shared by every paged read
+// (`AgentComponent.Search`, `ListWorkItems`).
+pub mod tenant_cursor;
 // D-VZ-1 (lanes V4 "engine integration" / V6 "graph-native marks") — the native
 // visualization engine's wire op (`VizOp`), gated `viz`. Lives here (not in
 // `eg-viz-core`, which sits in a separate small leaf DAG, not below eg-types) for

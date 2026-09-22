@@ -186,7 +186,7 @@ pub(crate) fn apply_cancel_work_item_row(
         serde_json::json!({ "cancellable": true }),
         Some("cancelled"),
     );
-    write_work_item_props(nodes, graph, work_item_id, &props, crypto)?;
+    write_work_item_props(nodes, graph, work_item_id, &mut props, crypto)?;
     cancel_transition_result(
         eg_types::result_contract::coordination::WorkItemTransition {
             status: eg_types::result_contract::coordination::WorkItemCancelStatus::Cancelled,
@@ -315,7 +315,7 @@ pub(crate) fn apply_defer_work_item_row(
         serde_json::json!({ "fence_valid": true }),
         Some("ready"),
     );
-    write_work_item_props(nodes, graph, work_item_id, &props, crypto)?;
+    write_work_item_props(nodes, graph, work_item_id, &mut props, crypto)?;
     deferral_result(eg_types::result_contract::coordination::WorkItemDeferral {
         status: eg_types::result_contract::coordination::WorkItemDeferStatus::Deferred,
         work_item_id: Some(work_item_id.to_string()),

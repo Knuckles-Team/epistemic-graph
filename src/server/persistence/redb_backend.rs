@@ -92,6 +92,7 @@ mod trait_impl;
 mod trait_mutations;
 mod trait_native;
 mod trait_outbox;
+mod work_item_read;
 mod writer_commands;
 mod writer_thread;
 #[cfg(feature = "raft")]
