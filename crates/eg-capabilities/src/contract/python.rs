@@ -554,17 +554,7 @@ fn domain_body(
 fn push_domain_imports(out: &mut String, descriptors: &[MethodDescriptor], body: &str) {
     // `Field` is imported only where an aliased keyword field actually uses it: an
     // unused import is a ruff F401 on every other module.
-    let type_adapter = body.contains("TypeAdapter(");
-    let pydantic_import = if body.contains(" = Field(") && type_adapter {
-        "from pydantic import BaseModel, ConfigDict, Field, TypeAdapter\n\n"
-    } else if body.contains(" = Field(") {
-        "from pydantic import BaseModel, ConfigDict, Field\n\n"
-    } else if type_adapter {
-        "from pydantic import BaseModel, ConfigDict, TypeAdapter\n\n"
-    } else {
-        "from pydantic import BaseModel, ConfigDict\n\n"
-    };
-    out.push_str(pydantic_import);
+    out.push_str(pydantic_import(body));
     let mut imports: Vec<&str> = Vec::new();
     if body.contains("OpaqueResult(") {
         imports.push("OpaqueResult");
@@ -596,6 +586,19 @@ fn push_domain_imports(out: &mut String, descriptors: &[MethodDescriptor], body:
     }
     if emitted_local_import {
         out.push('\n');
+    }
+}
+
+fn pydantic_import(body: &str) -> &'static str {
+    let type_adapter = body.contains("TypeAdapter(");
+    if body.contains(" = Field(") && type_adapter {
+        "from pydantic import BaseModel, ConfigDict, Field, TypeAdapter\n\n"
+    } else if body.contains(" = Field(") {
+        "from pydantic import BaseModel, ConfigDict, Field\n\n"
+    } else if type_adapter {
+        "from pydantic import BaseModel, ConfigDict, TypeAdapter\n\n"
+    } else {
+        "from pydantic import BaseModel, ConfigDict\n\n"
     }
 }
 
@@ -739,11 +742,13 @@ pub(super) fn artifacts(catalog: &Catalog) -> Vec<Artifact> {
     out
 }
 
-fn python_inventory() -> (
+type PythonInventory = (
     BTreeMap<String, Vec<MethodDescriptor>>,
     Vec<&'static str>,
     BTreeMap<String, String>,
-) {
+);
+
+fn python_inventory() -> PythonInventory {
     let mut by_domain: BTreeMap<String, Vec<MethodDescriptor>> = BTreeMap::new();
     let mut published: Vec<&str> = Vec::new();
     let mut sends: BTreeMap<String, String> = BTreeMap::new();
@@ -793,7 +798,7 @@ fn push_domain_artifacts(
     for (domain, descriptors) in by_domain {
         out.push(Artifact {
             path: format!("epistemic_graph/generated/{domain}.py"),
-            bytes: normalize(domain_module(domain, descriptors, &schemas, catalog)),
+            bytes: normalize(domain_module(domain, descriptors, schemas, catalog)),
         });
     }
 }
@@ -805,7 +810,7 @@ fn push_dto_artifacts(
     catalog: &Catalog,
 ) {
     for surface in DTO_SURFACES {
-        let definitions = merged_definitions(&document, catalog, surface.result_domain);
+        let definitions = merged_definitions(document, catalog, surface.result_domain);
         let missing: Vec<_> = surface
             .roots
             .iter()
@@ -839,7 +844,7 @@ fn push_package_artifacts(
     modules.dedup();
     out.push(Artifact {
         path: "epistemic_graph/generated/__init__.py".to_string(),
-        bytes: normalize(init_module(&modules, &sends)),
+        bytes: normalize(init_module(modules, sends)),
     });
     out.push(Artifact {
         path: "epistemic_graph/contract/__init__.py".to_string(),

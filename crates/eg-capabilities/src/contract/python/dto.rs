@@ -875,7 +875,7 @@ fn validate_digest_spec(
     }
 }
 
-fn digest_paths<'a>(spec: &'a CanonicalDigestSpec) -> impl Iterator<Item = &'a str> {
+fn digest_paths(spec: &CanonicalDigestSpec) -> impl Iterator<Item = &str> {
     spec.canonical_json_paths
         .iter()
         .chain(spec.omit_none_paths)

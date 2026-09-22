@@ -7975,36 +7975,19 @@ class ServerRegistryClient:
         entries: list[RegisteredServerView] = []
         while True:
             page = await self.page(limit=page_size, cursor=cursor)
-            identity = (
-                page.registry_revision,
-                page.registry_digest,
-                page.total_live,
-            )
+            identity = _registered_server_page_identity(page)
             if expected is None:
                 expected = identity
             elif identity != expected:
                 raise RuntimeError(
                     "registered-server page identity changed during exhaustive read"
                 )
-            for entry in page.entries:
-                if entry.name in seen_names:
-                    raise RuntimeError(
-                        f"registered-server page repeated entry {entry.name!r}"
-                    )
-                seen_names.add(entry.name)
-                entries.append(entry)
+            _append_unique_registered_servers(entries, seen_names, page.entries)
             cursor = page.next_cursor
             if cursor is None:
-                if len(entries) != page.total_live:
-                    raise RuntimeError(
-                        "registered-server pages did not exhaust declared live count"
-                    )
+                _assert_registered_server_count(entries, page.total_live)
                 return tuple(entries)
-            cursor_identity = (
-                cursor.after_name,
-                cursor.registry_revision,
-                cursor.registry_digest,
-            )
+            cursor_identity = _registered_server_cursor_identity(cursor)
             if cursor_identity in seen_cursors:
                 raise RuntimeError("registered-server pagination repeated a cursor")
             seen_cursors.add(cursor_identity)
@@ -10965,6 +10948,39 @@ def _validate_register_server(
         raise ValueError("RegisterServer.ttl_secs must be a positive integer")
     if resources is not None and not isinstance(resources, dict):
         raise ValueError("RegisterServer.resources must be a mapping")
+
+
+def _registered_server_page_identity(
+    page: RegisteredServerListPage,
+) -> tuple[int, str, int]:
+    return page.registry_revision, page.registry_digest, page.total_live
+
+
+def _registered_server_cursor_identity(
+    cursor: RegisteredServerCursor,
+) -> tuple[str, int, str]:
+    return cursor.after_name, cursor.registry_revision, cursor.registry_digest
+
+
+def _append_unique_registered_servers(
+    destination: list[RegisteredServerView],
+    seen_names: set[str],
+    page_entries: tuple[RegisteredServerView, ...] | list[RegisteredServerView],
+) -> None:
+    for entry in page_entries:
+        if entry.name in seen_names:
+            raise RuntimeError(f"registered-server page repeated entry {entry.name!r}")
+        seen_names.add(entry.name)
+        destination.append(entry)
+
+
+def _assert_registered_server_count(
+    entries: list[RegisteredServerView], total_live: int
+) -> None:
+    if len(entries) != total_live:
+        raise RuntimeError(
+            "registered-server pages did not exhaust declared live count"
+        )
 
 
 _CERTIFICATE_FIELDS = {"id", "rotation_epoch", "not_before_ms", "not_after_ms"}

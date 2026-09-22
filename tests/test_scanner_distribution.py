@@ -81,9 +81,7 @@ def test_scanner_contract_versions_and_native_policy_files_exist():
 
 def test_precommit_has_staged_differential_census_and_architecture_profiles():
     hooks = _hooks()
-    config_source = (REPO / ".config" / "pre-commit.yaml").read_text(
-        encoding="utf-8"
-    )
+    config_source = (REPO / ".config" / "pre-commit.yaml").read_text(encoding="utf-8")
     assert hooks["check-status-page"]["entry"] == "python3 scripts/check_status_page.py"
     assert hooks["check-status-page"]["stages"] == ["pre-commit", "pre-push", "manual"]
     assert config_source.index("- id: check-status-page") < config_source.index(
@@ -143,9 +141,7 @@ def test_goc70_is_manual_only_until_execution_is_bounded():
     assert hooks["constrained-parallelism"]["stages"] == ["manual"]
 
 
-def test_release_scanner_job_is_full_history_advisory_and_pinned():
-    document = _workflow()
-    jobs = document["jobs"]
+def _assert_scanner_job(jobs, workflow_source):
     scanner = jobs["scanner-quality"]
     checkout = next(
         step
@@ -166,9 +162,6 @@ def test_release_scanner_job_is_full_history_advisory_and_pinned():
     assert node_setup["with"]["node-version"] == "22"
 
     all_runs = "\n".join(str(step["run"]) for step in scanner["steps"] if "run" in step)
-    workflow_source = (REPO / ".github/workflows/release.yml").read_text(
-        encoding="utf-8"
-    )
     for command in (
         "cccc-cli",
         "kiss-ai",
@@ -197,6 +190,17 @@ def test_release_scanner_job_is_full_history_advisory_and_pinned():
     )
     assert "disclosed as non-hermetic" in workflow_source
 
+    base_step = next(
+        step
+        for step in scanner["steps"]
+        if step.get("name") == "Resolve scanner base commit"
+    )
+    assert "github.event.pull_request.base.sha" in str(base_step["env"])
+    assert "github.event.before" in str(base_step["env"])
+    assert checkout["with"]["fetch-depth"] == 0
+
+
+def _assert_security_and_build_jobs(jobs):
     security = jobs["security"]
     assert "continue-on-error" not in security
     assert "security" in jobs["build"]["needs"]
@@ -215,6 +219,10 @@ def test_release_scanner_job_is_full_history_advisory_and_pinned():
     assert "continue-on-error" not in advisory_steps[0]
     assert jobs["build"]["continue-on-error"] == "${{ matrix.optional || false }}"
 
+    return security
+
+
+def _assert_runtime_contract_jobs(jobs, security):
     runtime_contracts = jobs["lint-and-architecture"]
     assert "continue-on-error" not in runtime_contracts
     assert "python3 scripts/check_p2_modality_architecture.py" in {
@@ -227,14 +235,16 @@ def test_release_scanner_job_is_full_history_advisory_and_pinned():
         step.get("run") for step in security["steps"]
     }
 
-    base_step = next(
-        step
-        for step in scanner["steps"]
-        if step.get("name") == "Resolve scanner base commit"
+
+def test_release_scanner_job_is_full_history_advisory_and_pinned():
+    document = _workflow()
+    jobs = document["jobs"]
+    workflow_source = (REPO / ".github/workflows/release.yml").read_text(
+        encoding="utf-8"
     )
-    assert "github.event.pull_request.base.sha" in str(base_step["env"])
-    assert "github.event.before" in str(base_step["env"])
-    assert checkout["with"]["fetch-depth"] == 0
+    _assert_scanner_job(jobs, workflow_source)
+    security = _assert_security_and_build_jobs(jobs)
+    _assert_runtime_contract_jobs(jobs, security)
 
 
 def test_ci_uses_central_exact_python_version():
