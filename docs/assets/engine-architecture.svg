@@ -2,19 +2,75 @@
   <title id="title">Epistemic Graph engine architecture</title>
   <desc id="description">Authenticated interfaces feed a unified planner. The planner composes connected data, semantic reasoning, analytics, temporal signals, and multimodal evidence over one authoritative durable store.</desc>
   <defs>
-    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b1020"/><stop offset="0.55" stop-color="#111936"/><stop offset="1" stop-color="#172554"/></linearGradient>
-    <linearGradient id="planner" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#7c3aed"/><stop offset="1" stop-color="#2563eb"/></linearGradient>
-    <linearGradient id="store" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#0f766e"/><stop offset="1" stop-color="#0891b2"/></linearGradient>
-    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%"><feDropShadow dx="0" dy="9" stdDeviation="12" flood-color="#020617" flood-opacity="0.45"/></filter>
-    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 10 5 0 10Z" fill="#93c5fd"/></marker>
-    <style>.eyebrow{font:600 14px ui-sans-serif,system-ui,sans-serif;letter-spacing:2.4px;fill:#93c5fd}.title{font:700 34px ui-sans-serif,system-ui,sans-serif;fill:#f8fafc}.subtitle{font:400 16px ui-sans-serif,system-ui,sans-serif;fill:#cbd5e1}.box-title{font:700 18px ui-sans-serif,system-ui,sans-serif;fill:#f8fafc}.copy{font:400 13px ui-sans-serif,system-ui,sans-serif;fill:#cbd5e1}.chip{font:600 12px ui-sans-serif,system-ui,sans-serif;fill:#dbeafe}</style>
+    <linearGradient id="planner" x1="0" y1="0" x2="1" y2="0">
+      <stop class="planner-start" offset="0"/>
+      <stop class="planner-end" offset="1"/>
+    </linearGradient>
+    <linearGradient id="store" x1="0" y1="0" x2="1" y2="0">
+      <stop class="store-start" offset="0"/>
+      <stop class="store-end" offset="1"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="6" stdDeviation="9" flood-color="#14243b" flood-opacity="0.16"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="arrow-head" d="M0 0 10 5 0 10Z"/>
+    </marker>
+    <style>
+      .planner-start{stop-color:#5b4cc4}.planner-end{stop-color:#174ea6}
+      .store-start{stop-color:#087f6d}.store-end{stop-color:#147a9c}
+      .panel{fill:#f4f7fb;stroke:#a8b9ce}.panel-blue{fill:#edf5ff;stroke:#7fa5d2}.panel-violet{fill:#f2efff;stroke:#9589d3}.panel-teal{fill:#edf9f6;stroke:#71aa9d}.panel-plum{fill:#f8f0fa;stroke:#ae87b5}.panel-slate{fill:#f2f5f9;stroke:#91a2b8}
+      .chip-bg{fill:#e7eef8}.connector{fill:none;stroke:#58769b}.arrow-head{fill:#58769b}
+      .eyebrow{font:700 14px ui-sans-serif,system-ui,sans-serif;letter-spacing:2.4px;fill:#174ea6}.title{font:700 34px ui-sans-serif,system-ui,sans-serif;fill:#15243a}.subtitle{font:400 16px ui-sans-serif,system-ui,sans-serif;fill:#40536d}.box-title{font:700 18px ui-sans-serif,system-ui,sans-serif;fill:#15243a}.copy{font:400 13px ui-sans-serif,system-ui,sans-serif;fill:#40536d}.chip{font:650 12px ui-sans-serif,system-ui,sans-serif;fill:#17375e}.on-accent{fill:#fff}
+      @media(prefers-color-scheme:dark){
+        .planner-start{stop-color:#7968e8}.planner-end{stop-color:#2c69ba}.store-start{stop-color:#149683}.store-end{stop-color:#258eaf}
+        .panel{fill:#1c2838;stroke:#596d87}.panel-blue{fill:#172b43;stroke:#507aa7}.panel-violet{fill:#292445;stroke:#7468a7}.panel-teal{fill:#173631;stroke:#4f8f82}.panel-plum{fill:#34263c;stroke:#886992}.panel-slate{fill:#263142;stroke:#667a94}
+        .chip-bg{fill:#26364b}.connector{stroke:#8da5c1}.arrow-head{fill:#8da5c1}
+        .eyebrow{fill:#b4d0ff}.title,.box-title{fill:#f1f5fb}.subtitle,.copy{fill:#d0daea}.chip{fill:#dbe9fb}.on-accent{fill:#fff}
+      }
+    </style>
   </defs>
-  <rect width="1200" height="620" rx="32" fill="url(#background)"/><circle cx="1090" cy="60" r="190" fill="#2563eb" opacity=".08"/><circle cx="95" cy="590" r="190" fill="#7c3aed" opacity=".08"/>
-  <text x="64" y="62" class="eyebrow">ONE ENGINE · ONE TRANSACTION BOUNDARY</text><text x="64" y="105" class="title">Connected knowledge, computed where it lives</text><text x="64" y="136" class="subtitle">Every interface reaches the same planner, policies, evidence, and durable state.</text>
-  <g filter="url(#shadow)"><rect x="64" y="172" width="1072" height="68" rx="18" fill="#172033" stroke="#334155"/><text x="88" y="198" class="eyebrow">AUTHENTICATED INTERFACES</text><g transform="translate(88 208)"><rect width="105" height="23" rx="12" fill="#1e3a5f"/><text x="52" y="16" text-anchor="middle" class="chip">Python</text><rect x="117" width="105" height="23" rx="12" fill="#1e3a5f"/><text x="169" y="16" text-anchor="middle" class="chip">UQL</text><rect x="234" width="105" height="23" rx="12" fill="#1e3a5f"/><text x="286" y="16" text-anchor="middle" class="chip">SQL</text><rect x="351" width="105" height="23" rx="12" fill="#1e3a5f"/><text x="403" y="16" text-anchor="middle" class="chip">SPARQL</text><rect x="468" width="105" height="23" rx="12" fill="#1e3a5f"/><text x="520" y="16" text-anchor="middle" class="chip">Cypher</text><rect x="585" width="105" height="23" rx="12" fill="#1e3a5f"/><text x="637" y="16" text-anchor="middle" class="chip">GraphQL</text><rect x="702" width="105" height="23" rx="12" fill="#1e3a5f"/><text x="754" y="16" text-anchor="middle" class="chip">Bolt</text><rect x="819" width="105" height="23" rx="12" fill="#1e3a5f"/><text x="871" y="16" text-anchor="middle" class="chip">Streams</text></g></g>
-  <path d="M600 240v24" stroke="#93c5fd" stroke-width="3" marker-end="url(#arrow)"/><g filter="url(#shadow)"><rect x="215" y="272" width="770" height="75" rx="20" fill="url(#planner)"/><text x="600" y="303" text-anchor="middle" class="box-title">Unified planner + governed mutation pipeline</text><text x="600" y="327" text-anchor="middle" class="copy">Plan across modalities · validate policy and schema · commit related changes atomically</text></g>
-  <path d="M600 347v24" stroke="#93c5fd" stroke-width="3" marker-end="url(#arrow)"/>
-  <g filter="url(#shadow)"><g transform="translate(64 380)"><rect width="196" height="91" rx="18" fill="#18243e" stroke="#334e75"/><text x="18" y="31" class="box-title">Connected data</text><text x="18" y="56" class="copy">Graph · RDF · relational</text><text x="18" y="76" class="copy">Vector · text</text></g><g transform="translate(280 380)"><rect width="196" height="91" rx="18" fill="#211b40" stroke="#51458f"/><text x="18" y="31" class="box-title">Reasoning</text><text x="18" y="56" class="copy">OWL · SHACL · ShEx</text><text x="18" y="76" class="copy">Claims · belief · provenance</text></g><g transform="translate(496 380)"><rect width="196" height="91" rx="18" fill="#172c3c" stroke="#276276"/><text x="18" y="31" class="box-title">Analytics</text><text x="18" y="56" class="copy">SQL · graph · vector</text><text x="18" y="76" class="copy">Numeric · programs</text></g><g transform="translate(712 380)"><rect width="196" height="91" rx="18" fill="#2b2337" stroke="#6b4f7f"/><text x="18" y="31" class="box-title">Signals + time</text><text x="18" y="56" class="copy">Events · streams · metrics</text><text x="18" y="76" class="copy">Bitemporal state · CDC</text></g><g transform="translate(928 380)"><rect width="208" height="91" rx="18" fill="#252a3c" stroke="#566179"/><text x="18" y="31" class="box-title">Multimodal</text><text x="18" y="56" class="copy">Document · image · audio</text><text x="18" y="76" class="copy">Video · blobs · evidence</text></g></g>
-  <g stroke="#64748b" stroke-width="2"><path d="M162 471v25M378 471v25M594 471v25M810 471v25M1032 471v25M162 496h870"/></g><path d="M600 496v21" stroke="#93c5fd" stroke-width="3" marker-end="url(#arrow)"/>
-  <g filter="url(#shadow)"><rect x="150" y="526" width="900" height="64" rx="20" fill="url(#store)"/><text x="600" y="553" text-anchor="middle" class="box-title">Authoritative durable store</text><text x="600" y="575" text-anchor="middle" class="copy">Commit-before-ack · audit · tenant isolation · read-through recovery · optional Raft replication</text></g>
+
+  <text x="64" y="62" class="eyebrow">ONE ENGINE · ONE TRANSACTION BOUNDARY</text>
+  <text x="64" y="105" class="title">Connected knowledge, computed where it lives</text>
+  <text x="64" y="136" class="subtitle">Every interface reaches the same planner, policies, evidence, and durable state.</text>
+
+  <g filter="url(#shadow)">
+    <rect class="panel" x="64" y="172" width="1072" height="68" rx="18"/>
+    <text x="88" y="198" class="eyebrow">AUTHENTICATED INTERFACES</text>
+    <g transform="translate(88 208)">
+      <rect class="chip-bg" width="105" height="23" rx="12"/><text x="52" y="16" text-anchor="middle" class="chip">Python</text>
+      <rect class="chip-bg" x="117" width="105" height="23" rx="12"/><text x="169" y="16" text-anchor="middle" class="chip">UQL</text>
+      <rect class="chip-bg" x="234" width="105" height="23" rx="12"/><text x="286" y="16" text-anchor="middle" class="chip">SQL</text>
+      <rect class="chip-bg" x="351" width="105" height="23" rx="12"/><text x="403" y="16" text-anchor="middle" class="chip">SPARQL</text>
+      <rect class="chip-bg" x="468" width="105" height="23" rx="12"/><text x="520" y="16" text-anchor="middle" class="chip">Cypher</text>
+      <rect class="chip-bg" x="585" width="105" height="23" rx="12"/><text x="637" y="16" text-anchor="middle" class="chip">GraphQL</text>
+      <rect class="chip-bg" x="702" width="105" height="23" rx="12"/><text x="754" y="16" text-anchor="middle" class="chip">Bolt</text>
+      <rect class="chip-bg" x="819" width="105" height="23" rx="12"/><text x="871" y="16" text-anchor="middle" class="chip">Streams</text>
+    </g>
+  </g>
+
+  <path class="connector" d="M600 240v24" stroke-width="3" marker-end="url(#arrow)"/>
+  <g filter="url(#shadow)">
+    <rect x="215" y="272" width="770" height="75" rx="20" fill="url(#planner)"/>
+    <text x="600" y="303" text-anchor="middle" class="box-title on-accent">Unified planner + governed mutation pipeline</text>
+    <text x="600" y="327" text-anchor="middle" class="copy on-accent">Plan across modalities · validate policy and schema · commit related changes atomically</text>
+  </g>
+  <path class="connector" d="M600 347v24" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <g filter="url(#shadow)">
+    <g transform="translate(64 380)"><rect class="panel-blue" width="196" height="91" rx="18"/><text x="18" y="31" class="box-title">Connected data</text><text x="18" y="56" class="copy">Graph · RDF · relational</text><text x="18" y="76" class="copy">Vector · text</text></g>
+    <g transform="translate(280 380)"><rect class="panel-violet" width="196" height="91" rx="18"/><text x="18" y="31" class="box-title">Reasoning</text><text x="18" y="56" class="copy">OWL · SHACL · ShEx</text><text x="18" y="76" class="copy">Claims · belief · provenance</text></g>
+    <g transform="translate(496 380)"><rect class="panel-teal" width="196" height="91" rx="18"/><text x="18" y="31" class="box-title">Analytics</text><text x="18" y="56" class="copy">SQL · graph · vector</text><text x="18" y="76" class="copy">Numeric · programs</text></g>
+    <g transform="translate(712 380)"><rect class="panel-plum" width="196" height="91" rx="18"/><text x="18" y="31" class="box-title">Signals + time</text><text x="18" y="56" class="copy">Events · streams · metrics</text><text x="18" y="76" class="copy">Bitemporal state · CDC</text></g>
+    <g transform="translate(928 380)"><rect class="panel-slate" width="208" height="91" rx="18"/><text x="18" y="31" class="box-title">Multimodal</text><text x="18" y="56" class="copy">Document · image · audio</text><text x="18" y="76" class="copy">Video · blobs · evidence</text></g>
+  </g>
+
+  <g class="connector" stroke-width="2"><path d="M162 471v25M378 471v25M594 471v25M810 471v25M1032 471v25M162 496h870"/></g>
+  <path class="connector" d="M600 496v21" stroke-width="3" marker-end="url(#arrow)"/>
+  <g filter="url(#shadow)">
+    <rect x="150" y="526" width="900" height="64" rx="20" fill="url(#store)"/>
+    <text x="600" y="553" text-anchor="middle" class="box-title on-accent">Authoritative durable store</text>
+    <text x="600" y="575" text-anchor="middle" class="copy on-accent">Commit-before-ack · audit · tenant isolation · read-through recovery · optional Raft replication</text>
+  </g>
 </svg>
