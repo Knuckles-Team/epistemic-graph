@@ -22,13 +22,13 @@ from .graph_schema import (
 from .rdf_report import (
     DatalogReasoningResult,
     OwlExplainResult,
-    OwlPropertyFact,
     OwlReasonResult,
-    ProofNodeWire,
-    ShaclSeverity,
     ShaclValidationReport,
-    ShaclValidationResult,
 )
+from .rdf_report import OwlPropertyFact as OwlPropertyFact
+from .rdf_report import ProofNodeWire as ProofNodeWire
+from .rdf_report import ShaclSeverity as ShaclSeverity
+from .rdf_report import ShaclValidationResult as ShaclValidationResult
 
 
 class RunDatalogReasoningRequest(BaseModel):
@@ -264,7 +264,7 @@ class OwlReasonRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     class_base: str | None = None
-    min_confidence: float | None = None
+    min_confidence: float
     ontology: str | None = None
     target_class: str | None = None
 

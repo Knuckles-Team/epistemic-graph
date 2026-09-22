@@ -813,6 +813,16 @@ pub(super) fn dto_module(
         let _ = writeln!(out, "{name} = {value}");
     }
     out.push_str(&body);
+    // Two blank lines after a trailing top-level class (E305 / the formatter);
+    // a trailing alias assignment is already followed by exactly one.
+    let ends_in_class = body
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty() && !line.starts_with(' '))
+        .is_some_and(|line| line.starts_with("class "));
+    if ends_in_class && !models.is_empty() {
+        out.push('\n');
+    }
     for model in models {
         let _ = writeln!(out, "\n{model}.model_rebuild()");
     }

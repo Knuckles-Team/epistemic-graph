@@ -24755,7 +24755,6 @@
                   "type": "string"
                 },
                 "min_confidence": {
-                  "default": 0.0,
                   "description": "Confidence threshold τ in `[0,1]` (CONCEPT:EG-KG.ontology.concept-13). The result carries a\nper-entailment confidence (axioms/facts may be uncertain; the closure\npropagates it — `eg:confidence` annotations × the per-node confidence ×\nEbbinghaus decay). Only entailments with `confidence ≥ min_confidence` are\nreturned. `0.0` keeps everything (and a HARD ontology yields all `1.0`).",
                   "format": "double",
                   "type": "number"
@@ -24771,6 +24770,9 @@
                   "type": "string"
                 }
               },
+              "required": [
+                "min_confidence"
+              ],
               "type": "object"
             }
           },

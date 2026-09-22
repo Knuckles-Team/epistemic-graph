@@ -18,9 +18,9 @@ from .index_repository import (
     IndexResult,
 )
 from .source_ingestion import (
-    SourceIngestStatus,
     SourceIngestionReceipt,
     SourceIngestionRequest,
+    SourceIngestStatus,
 )
 
 

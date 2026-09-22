@@ -620,11 +620,6 @@ fn push_surface_import(
         .filter(|root| body.contains(**root))
         .copied()
         .collect();
-    roots.extend(
-        PUBLIC_DOMAIN_REEXPORTS
-            .iter()
-            .filter_map(|(module, root)| (*module == surface.module).then_some(*root)),
-    );
     for adapter in TYPED_OPERATION_ADAPTERS
         .iter()
         .filter(|adapter| adapter.method == surface.method)
@@ -645,12 +640,54 @@ fn push_surface_import(
     }
     roots.sort_unstable();
     roots.dedup();
-    if roots.is_empty() {
+    // A public re-export the module body never references is an explicit
+    // `Name as Name` re-export (PEP 484), not a plain import ruff reports as F401;
+    // isort keeps aliased imports in their own statements after the plain one.
+    let mut reexports: Vec<_> = PUBLIC_DOMAIN_REEXPORTS
+        .iter()
+        .filter_map(|(module, root)| (*module == surface.module).then_some(*root))
+        .filter(|root| !roots.contains(root))
+        .collect();
+    reexports.sort_by_cached_key(|root| isort_key(root));
+    roots.extend(reexports.iter().filter(|root| body.contains(**root)));
+    write_import_block(
+        out,
+        surface.module,
+        roots.into_iter().map(str::to_owned).collect(),
+    );
+    // isort gives every aliased import its own single-name statement.
+    for root in reexports.into_iter().filter(|root| !body.contains(*root)) {
+        let _ = writeln!(out, "from .{} import {root} as {root}", surface.module);
+    }
+}
+
+/// ruff-isort order within one import: `order-by-type` (CONSTANTS, then
+/// CamelCase classes, then everything else), case-insensitive within a group.
+fn isort_key(name: &str) -> (u8, String) {
+    let constant = name.len() > 1
+        && name
+            .chars()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_');
+    let group = match (constant, name.starts_with(|c: char| c.is_ascii_uppercase())) {
+        (true, _) => 0,
+        (false, true) => 1,
+        (false, false) => 2,
+    };
+    (group, name.to_ascii_lowercase())
+}
+
+/// One exploded `from .module import (...)` statement in ruff-isort order:
+/// `force-sort-within-sections` off, `order-by-type` on (CONSTANTS, then
+/// CamelCase classes, then everything else), case-insensitive within a group.
+fn write_import_block(out: &mut String, module: &str, mut names: Vec<String>) {
+    if names.is_empty() {
         return;
     }
-    let _ = writeln!(out, "from .{} import (", surface.module);
-    for root in roots {
-        let _ = writeln!(out, "    {root},");
+    names.sort_by_cached_key(|name| isort_key(name));
+    names.dedup();
+    let _ = writeln!(out, "from .{module} import (");
+    for name in names {
+        let _ = writeln!(out, "    {name},");
     }
     out.push_str(")\n");
 }

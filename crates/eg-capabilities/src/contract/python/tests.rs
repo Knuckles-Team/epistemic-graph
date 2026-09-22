@@ -654,3 +654,33 @@ fn source_ingestion_digest_marker_matches_rust_contract_constants() {
     );
     assert_eq!(spec.omit_none_paths, SOURCE_INGESTION_OMIT_NONE_PATHS);
 }
+
+/// Generated imports must already be in ruff-isort form, or the repository's
+/// ruff hook rewrites generated output that `gen_contract --check` then rejects:
+/// case-insensitive order within a statement, and a public re-export the module
+/// never references emitted as an explicit `Name as Name`, one statement each
+/// (a plain import would be an unused-import F401).
+#[test]
+fn generated_imports_are_in_isort_form_with_explicit_reexports() {
+    let catalog = Catalog::collect();
+    let module = |path: &str| {
+        artifacts(&catalog)
+            .into_iter()
+            .find(|artifact| artifact.path == path)
+            .map(|artifact| String::from_utf8(artifact.bytes).expect("UTF-8"))
+            .unwrap_or_else(|| panic!("{path} is generated"))
+    };
+    let reasoning = module("epistemic_graph/generated/reasoning.py");
+    let reexport = "from .rdf_report import OwlPropertyFact as OwlPropertyFact\n";
+    assert!(reasoning.contains(&format!(")\n{reexport}")));
+    assert!(!reasoning.contains("    OwlPropertyFact,\n"));
+    let severity = reasoning.find("import ShaclSeverity as").expect("ShaclSeverity re-export");
+    let result = reasoning
+        .find("import ShaclValidationResult as")
+        .expect("ShaclValidationResult re-export");
+    assert!(severity < result, "re-exports must be in case-insensitive isort order");
+    let ingestion = module("epistemic_graph/generated/ingestion.py");
+    assert!(ingestion.contains(
+        "    SourceIngestionReceipt,\n    SourceIngestionRequest,\n    SourceIngestStatus,\n"
+    ));
+}
