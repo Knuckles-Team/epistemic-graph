@@ -173,6 +173,10 @@ pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     // walker extracts zero symbols from any of them today: see the
     // exclusion/registration note in `grammars_extended`'s module doc.
     "html", "htm", "css", "json",
+    // Terraform/HCL (zero symbols, same shape as HTML/CSS/JSON) and
+    // DreamMaker (real class/proc extraction) — CONCEPT:EH-281 ABI-15
+    // follow-up.
+    "tf", "hcl", "dm",
 ];
 
 const PARSER_CAPABILITY_DIGEST_DOMAIN: &[u8] = b"eg/index-repository-parser-capability/v1\0";
@@ -313,9 +317,12 @@ fn import_module(node: Node, source: &[u8]) -> Option<String> {
                 .map(|c| get_node_text(c, source));
             found
         }
-        // C/C++ `#include "x"` or `<x>`.
+        // C/C++ `#include "x"` or `<x>` (field `path`); DreamMaker
+        // `#include "x"` (CONCEPT:EH-281) shares this node KIND but uses a
+        // DIFFERENT field name (`file`) for the same thing.
         "preproc_include" => node
             .child_by_field_name("path")
+            .or_else(|| node.child_by_field_name("file"))
             .map(|n| get_node_text(n, source)),
         // Fortran `use a` (CONCEPT:EH-281) — no field; the module name is an
         // unnamed positional `module_name`-kinded child.
