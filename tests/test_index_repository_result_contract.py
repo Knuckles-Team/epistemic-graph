@@ -90,3 +90,48 @@ def test_diagnostics_bound_is_enforced_by_generated_type() -> None:
 
     with pytest.raises(ValidationError):
         IndexResult.model_validate(payload)
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_engine
+async def test_branch_aware_scope_travels_as_the_typed_wire_field() -> None:
+    from epistemic_graph.generated.index_repository import IndexRepositoryScope
+
+    scope = IndexRepositoryScope.model_validate(
+        {
+            "repository_id": "local-git:team/project",
+            "refs": [
+                {
+                    "ref_name": "refs/heads/main",
+                    "revision_id": "a" * 40,
+                    "status": "live",
+                }
+            ],
+            "file_versions": [
+                {
+                    "ref_name": "refs/heads/main",
+                    "path": "src/main.py",
+                    "blob_digest": _ZERO_DIGEST,
+                }
+            ],
+        }
+    )
+    client: Any = _Client()
+    await GraphOperationsClient(client).index_repository(
+        [("src/main.py", b""), ("README.txt", b"")], scope=scope
+    )
+
+    params = client.calls[0][1]
+    assert params["scope"] == {
+        "repository_id": "local-git:team/project",
+        "refs": [
+            {"ref_name": "refs/heads/main", "revision_id": "a" * 40, "status": "live"}
+        ],
+        "file_versions": [
+            {
+                "ref_name": "refs/heads/main",
+                "path": "src/main.py",
+                "blob_digest": _ZERO_DIGEST,
+            }
+        ],
+    }

@@ -19,9 +19,10 @@ pub(super) async fn dispatch_source_ingest_methods(
             dispatch_boxed(parse_files(ctx, files_msgpack)).await
         }
 
-        Method::IndexRepository { files_msgpack } => {
-            dispatch_boxed(index_repository(ctx, files_msgpack)).await
-        }
+        Method::IndexRepository {
+            files_msgpack,
+            scope,
+        } => dispatch_boxed(index_repository(ctx, files_msgpack, scope)).await,
 
         Method::ObserveScreen { obs_msgpack } => {
             dispatch_boxed(observe_screen(ctx, obs_msgpack)).await
@@ -90,7 +91,13 @@ async fn parse_files(ctx: DispatchCtx<'_>, files_msgpack: Vec<u8>) -> Response {
     }
 }
 
-async fn index_repository(ctx: DispatchCtx<'_>, files_msgpack: Vec<u8>) -> Response {
+type IndexScope = Option<Box<eg_types::ingestion_wire::IndexRepositoryScope>>;
+
+async fn index_repository(
+    ctx: DispatchCtx<'_>,
+    files_msgpack: Vec<u8>,
+    scope: IndexScope,
+) -> Response {
     let req_id = ctx.req.id;
     #[cfg(feature = "ast")]
     {
@@ -102,10 +109,9 @@ async fn index_repository(ctx: DispatchCtx<'_>, files_msgpack: Vec<u8>) -> Respo
         };
         // Off-reactor like ParseFiles: parse (rayon) + resolution are
         // CPU-bound over the whole batch. (CONCEPT:EG-KG.compute.turn-each-project)
-        let result = match compute_off_lock(req_id, move || {
-            crate::parser::resolve::index_repository(&owned)
-        })
-        .await
+        let result = match compute_off_lock(req_id, move || run_index(owned, scope))
+            .await
+            .and_then(|outcome| outcome.map_err(|error| Response::err(req_id, error)))
         {
             Ok(result) => result,
             Err(response) => return response,
@@ -117,9 +123,40 @@ async fn index_repository(ctx: DispatchCtx<'_>, files_msgpack: Vec<u8>) -> Respo
     }
     #[cfg(not(feature = "ast"))]
     {
-        let _ = files_msgpack;
+        let _ = (files_msgpack, scope);
         Response::err(req_id, "AST feature not enabled".to_string())
     }
+}
+
+/// One repository-index batch: the plain resolution scope, or the branch-aware
+/// blob-deduplicated scope (CONCEPT:EH-280) once its paths pass the boundary rule.
+#[cfg(feature = "ast")]
+fn run_index(
+    files: Vec<(String, Vec<u8>)>,
+    scope: IndexScope,
+) -> Result<crate::parser::resolve::IndexResult, String> {
+    match scope {
+        None => Ok(crate::parser::resolve::index_repository(&files)),
+        Some(scope) => {
+            validate_scope_paths(&scope)?;
+            crate::parser::branch_index::index_branches(files, &scope)
+        }
+    }
+}
+
+/// Every scope path obeys the same portable logical-path rule as a source name.
+#[cfg(feature = "ast")]
+fn validate_scope_paths(
+    scope: &eg_types::ingestion_wire::IndexRepositoryScope,
+) -> Result<(), String> {
+    let versions = scope.file_versions.iter().map(|item| item.path.as_str());
+    let removed = scope
+        .tombstones
+        .iter()
+        .flat_map(|item| std::iter::once(item.path.as_str()).chain(item.successor_path.as_deref()));
+    versions
+        .chain(removed)
+        .try_for_each(validate_ast_logical_path)
 }
 
 async fn observe_screen(ctx: DispatchCtx<'_>, obs_msgpack: Vec<u8>) -> Response {

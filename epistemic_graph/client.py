@@ -719,6 +719,15 @@ def _names_a_host_location(value: str) -> bool:
     )
 
 
+def _index_scope_param(
+    scope: _gen.index_repository.IndexRepositoryScope | None,
+) -> dict[str, Any]:
+    """The optional branch-aware ``scope`` field of an IndexRepository request."""
+    if scope is None:
+        return {}
+    return {"scope": scope.model_dump(mode="json", exclude_none=True)}
+
+
 def _logical_source_name(value: Any) -> str:
     """Return a portable source identifier that cannot expose a host path."""
 
@@ -6263,7 +6272,10 @@ class GraphOperationsClient:
         ).payload
 
     async def index_repository(
-        self, files: list[tuple[str, bytes]]
+        self,
+        files: list[tuple[str, bytes]],
+        *,
+        scope: _gen.index_repository.IndexRepositoryScope | None = None,
     ) -> _gen.index_repository.IndexResult:
         """Parse a batch AND resolve cross-file edges in ONE round-trip
         (CONCEPT:EG-KG.compute.turn-each-project).
@@ -6299,14 +6311,22 @@ class GraphOperationsClient:
         is shared by byte-identical declarations, which is what clone detection
         and ``similar_to`` are built on. ``occurrence_index`` carries the
         ordinal. ``nodes`` is one row per occurrence and is never deduplicated.
+
+        **Branch-aware scope (EH-280).** With ``scope`` every entry of ``files``
+        is one UNIQUE blob, named by one of the paths it occurs at, and
+        ``scope`` declares the refs plus the batch's ``(ref, path, blob
+        digest)`` memberships and tombstones. The engine parses each blob once,
+        attaches its symbols to ``Blob`` nodes (``blob:sha256:<hex>``), resolves
+        imports per ref between ``FileVersion`` nodes, and projects ``Branch
+        -hasFileVersion-> FileVersion -hasBlob-> Blob`` plus
+        ``removesFileVersion`` tombstone edges.
         """
         blob = msgpack.packb(
             [[_logical_source_name(fp), src] for fp, src in files],
             use_bin_type=True,
         )
-        return await _gen.ingestion.send_index_repository(
-            self._client, {"files_msgpack": blob}
-        )
+        params = {"files_msgpack": blob, **_index_scope_param(scope)}
+        return await _gen.ingestion.send_index_repository(self._client, params)
 
     async def observe_screen(
         self,

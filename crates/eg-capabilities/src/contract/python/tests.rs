@@ -538,6 +538,10 @@ fn index_repository_emits_typed_ordered_file_outcomes() {
         "class IndexFileOutcome(BaseModel):",
         "class IndexFileStatus(str, Enum):",
         "class IndexResult(BaseModel):",
+        "class IndexRepositoryScope(BaseModel):",
+        "class IndexFileVersion(BaseModel):",
+        "class IndexTombstone(BaseModel):",
+        "class IndexRefStatus(str, Enum):",
     ] {
         assert!(dto.contains(declaration), "missing {declaration}");
     }
@@ -550,8 +554,10 @@ fn index_repository_emits_typed_ordered_file_outcomes() {
     let ingestion = generated
         .get("epistemic_graph/generated/ingestion.py")
         .expect("ingestion domain module");
-    assert!(ingestion.contains("from .index_repository import (\n    IndexResult,"));
+    assert!(ingestion
+        .contains("from .index_repository import (\n    IndexRepositoryScope,\n    IndexResult,"));
     assert!(ingestion.contains("    files_msgpack: bytes"));
+    assert!(ingestion.contains("    scope: IndexRepositoryScope | None = None"));
     assert!(ingestion.contains(") -> IndexResult:"));
     assert!(ingestion.contains("return IndexResult.model_validate(payload)"));
 }

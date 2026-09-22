@@ -110,7 +110,7 @@ fn preflight_batch_msgpack(method: &Method) -> Option<Result<(), &'static str>> 
         Method::FromMsgpack { msgpack } | Method::Reconcile { msgpack, .. } => {
             Some(preflight_nested_msgpack(msgpack))
         }
-        Method::ParseFiles { files_msgpack } | Method::IndexRepository { files_msgpack } => {
+        Method::ParseFiles { files_msgpack } | Method::IndexRepository { files_msgpack, .. } => {
             Some(preflight_nested_msgpack(files_msgpack))
         }
         Method::Sql { params_msgpack, .. } => {
