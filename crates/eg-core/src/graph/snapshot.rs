@@ -520,8 +520,10 @@ impl GraphCore {
     /// Extract a subgraph (read view) containing only the specified node IDs.
     pub fn get_subgraph(&self, node_ids: &[String]) -> GraphView {
         let topo = self.topo.read();
-        let mut view = GraphView::default();
-        view.schema_sources = self.schema_sources();
+        let mut view = GraphView {
+            schema_sources: self.schema_sources(),
+            ..GraphView::default()
+        };
         // Both halves run under the SAME held topology read guard, exactly as the
         // single-body version did — neither takes a lock of its own.
         self.copy_subgraph_nodes(&topo, node_ids, &mut view);
