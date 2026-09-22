@@ -1,22 +1,34 @@
 # Ecosystem glossary
 
-## Agent WebUI
+## Agent Web UI
 
-The operator experience for working with agents and their runtime.
+The browser operator experience for working with agents and their runtime. Graph OS hosts it as a composed service.
 
-## GraphOS
+## Agent Terminal UI
 
-The public runtime gateway for client access, identity, routing, and runtime policy.
+The terminal and headless client for Graph OS REST operations.
 
-## agent-utilities
+## Geniusbot
+
+The desktop cockpit for chat, graph, fleet, health, and operator workflows. Its primary panels use the governed Graph OS gateway.
+
+## Messaging channels
+
+Chat and voice entrypoints hosted and supervised by Graph OS. The adapter registry, inbound router, and orchestration bridge are implemented by Agent Utilities.
+
+## Graph OS
+
+The governed runtime gateway and composition host for user interfaces, messaging channels, MCP, REST, and A2A clients.
+
+## Agent Utilities
 
 The agent control plane for orchestration, workflows, evaluation, and agent skills.
 
-## epistemic-graph
+## Epistemic Graph
 
 The durable multimodal knowledge and reasoning engine for graph data, evidence, and provenance.
 
-## agent-connector-sdk
+## Agent Connector SDK
 
 The governed source integration boundary for discovering, reading, and synchronizing external systems.
 

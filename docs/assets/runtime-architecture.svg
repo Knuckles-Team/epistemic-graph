@@ -1,55 +1,33 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 500" role="img" aria-labelledby="diagram-title diagram-description">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 700" role="img" aria-labelledby="diagram-title diagram-description">
   <title id="diagram-title">Knuckles-Team agent ecosystem runtime architecture</title>
-  <desc id="diagram-description">People and MCP or A2A clients enter through Agent WebUI or GraphOS. Agent WebUI is hosted and composed by GraphOS. GraphOS connects to the agent-utilities control plane, which uses epistemic-graph as its durable multimodal knowledge and reasoning engine. Source systems connect through agent-connector-sdk to epistemic-graph.</desc>
+  <desc id="diagram-description">People use Agent Web UI, Agent Terminal UI, Geniusbot, or messaging channels. MCP, REST, and A2A clients also enter through Graph OS. Graph OS is the governed gateway and composition host, Agent Utilities is the agent control plane, and Epistemic Graph is the durable knowledge and reasoning engine. Source systems connect through Agent Connector SDK.</desc>
   <defs>
-    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
-      <path d="M0 0 10 5 0 10z" fill="#365f93"/>
-    </marker>
+    <linearGradient id="gateway" x1="0" x2="1"><stop stop-color="#e5f4ff"/><stop offset="1" stop-color="#e7fff5"/></linearGradient>
+    <linearGradient id="core" x1="0" x2="1"><stop stop-color="#eef0ff"/><stop offset="1" stop-color="#f3eaff"/></linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M0 0 10 5 0 10z" fill="#365f93"/></marker>
     <style>
-      .box{fill:#f3f7fc;stroke:#365f93;stroke-width:2}
-      .box-accent{fill:#eaf1fb;stroke:#174ea6;stroke-width:2.5}
-      .label{font:700 19px system-ui,-apple-system,Segoe UI,sans-serif;fill:#15243a;text-anchor:middle}
-      .role{font:15px system-ui,-apple-system,Segoe UI,sans-serif;fill:#40536d;text-anchor:middle}
-      .arrow{fill:none;stroke:#365f93;stroke-width:3;marker-end:url(#arrow)}
+      .bg{fill:#fff}.box{fill:#f5f8fc;stroke:#58769b;stroke-width:2}.entry{fill:#f7fbff;stroke:#2f75b5;stroke-width:2}.gateway{fill:url(#gateway);stroke:#087f6d;stroke-width:3}.core{fill:url(#core);stroke:#5b4cc4;stroke-width:2.5}.label{font:700 18px system-ui,-apple-system,Segoe UI,sans-serif;fill:#14243b;text-anchor:middle}.role{font:14px system-ui,-apple-system,Segoe UI,sans-serif;fill:#435773;text-anchor:middle}.small{font:13px system-ui,-apple-system,Segoe UI,sans-serif;fill:#526780;text-anchor:middle}.arrow{fill:none;stroke:#58769b;stroke-width:2.5;marker-end:url(#arrow)}
+      @media(prefers-color-scheme:dark){.bg{fill:#0f1725}.box,.entry{fill:#172338}.label{fill:#f3f7ff}.role,.small{fill:#c5d2e3}}
     </style>
   </defs>
-  <rect width="1120" height="500" rx="18" fill="#fff"/>
+  <rect class="bg" width="1320" height="700" rx="24"/>
   <g class="arrow">
-    <path d="M260 113H325"/>
-    <path d="M260 145H290V190H530V143H555"/>
-    <path d="M480 113H555"/>
-    <path d="M710 113H785"/>
-    <path d="M935 188V235"/>
-    <path d="M260 375H325"/><path d="M710 375H750V293H785"/>
+    <path d="M120 90V135"/><path d="M120 90H310V135"/><path d="M120 90H500V135"/><path d="M120 90H690V135"/>
+    <path d="M210 180H825"/><path d="M400 180H825"/><path d="M590 180H825"/><path d="M780 180H825"/><path d="M610 285H825"/>
+    <path d="M1050 305V335"/><path d="M1050 435V485"/>
+    <path d="M255 590H445"/><path d="M705 590H825V548"/>
   </g>
   <g>
-    <rect class="box" x="35" y="88" width="225" height="82" rx="14"/>
-    <text class="label" x="147" y="122">People + clients</text>
-    <text class="role" x="147" y="148">MCP and A2A</text>
-
-    <rect class="box" x="325" y="72" width="155" height="82" rx="14"/>
-    <text class="label" x="402" y="106">Agent WebUI</text>
-    <text class="role" x="402" y="132">operator experience</text>
-
-    <rect class="box" x="555" y="72" width="155" height="82" rx="14"/>
-    <text class="label" x="632" y="106">GraphOS</text>
-    <text class="role" x="632" y="132">public runtime gateway</text>
-
-    <rect class="box-accent" x="785" y="72" width="300" height="116" rx="14"/>
-    <text class="label" x="935" y="112">agent-utilities</text>
-    <text class="role" x="935" y="141">agent control plane</text>
-
-    <rect class="box-accent" x="785" y="235" width="300" height="116" rx="14"/>
-    <text class="label" x="935" y="275">epistemic-graph</text>
-    <text class="role" x="935" y="304">durable multimodal knowledge</text>
-    <text class="role" x="935" y="327">and reasoning engine</text>
-
-    <rect class="box" x="35" y="334" width="225" height="82" rx="14"/>
-    <text class="label" x="147" y="368">Source systems</text>
-    <text class="role" x="147" y="394">governed external data</text>
-
-    <rect class="box" x="325" y="334" width="385" height="82" rx="14"/>
-    <text class="label" x="517" y="368">agent-connector-sdk</text>
-    <text class="role" x="517" y="394">governed source integration boundary</text>
+    <rect class="box" x="35" y="35" width="170" height="55" rx="14"/><text class="label" x="120" y="69">People</text>
+    <rect class="entry" x="35" y="135" width="170" height="90" rx="16"/><text class="label" x="120" y="172">Agent Web UI</text><text class="role" x="120" y="198">browser experience</text>
+    <rect class="entry" x="225" y="135" width="170" height="90" rx="16"/><text class="label" x="310" y="169">Agent Terminal UI</text><text class="role" x="310" y="198">REST operations</text>
+    <rect class="entry" x="415" y="135" width="170" height="90" rx="16"/><text class="label" x="500" y="172">Geniusbot</text><text class="role" x="500" y="198">desktop cockpit</text>
+    <rect class="entry" x="605" y="135" width="175" height="90" rx="16"/><text class="label" x="692" y="169">Messaging</text><text class="role" x="692" y="194">chat + voice channels</text><text class="small" x="692" y="214">hosted by Graph OS</text>
+    <rect class="box" x="415" y="245" width="390" height="80" rx="16"/><text class="label" x="610" y="280">MCP / REST / A2A clients</text><text class="role" x="610" y="305">external agents and applications</text>
+    <rect class="gateway" x="825" y="145" width="450" height="160" rx="22"/><text class="label" x="1050" y="198">Graph OS</text><text class="role" x="1050" y="230">governed runtime gateway</text><text class="role" x="1050" y="255">and composition host</text>
+    <rect class="core" x="825" y="335" width="450" height="100" rx="18"/><text class="label" x="1050" y="376">Agent Utilities</text><text class="role" x="1050" y="405">agent control plane</text>
+    <rect class="core" x="825" y="485" width="450" height="125" rx="18"/><text class="label" x="1050" y="528">Epistemic Graph</text><text class="role" x="1050" y="558">durable multimodal knowledge, evidence,</text><text class="role" x="1050" y="582">provenance, and reasoning engine</text>
+    <rect class="box" x="35" y="545" width="220" height="90" rx="16"/><text class="label" x="145" y="582">Source systems</text><text class="role" x="145" y="608">governed external data</text>
+    <rect class="box" x="445" y="545" width="260" height="90" rx="16"/><text class="label" x="575" y="582">Agent Connector SDK</text><text class="role" x="575" y="608">typed source integration</text>
   </g>
 </svg>

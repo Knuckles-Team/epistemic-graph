@@ -1,8 +1,12 @@
 # Epistemic Graph
 
 <p align="center">
-  <strong>The durable knowledge and reasoning engine for the Knuckles ecosystem.</strong><br>
-  <sub>Graph, SQL, RDF/OWL, vectors, time, evidence, and multimodal data under one Rust-native authority.</sub>
+  <img src="docs/assets/brands/epistemic-graph-logo-v1.png" alt="Epistemic Graph logo" width="176">
+</p>
+
+<p align="center">
+  <strong>A durable graph database and reasoning engine for connected, evidence-rich data.</strong><br>
+  <sub>Property graph · SQL · RDF/OWL · vectors · time · provenance · multimodal records</sub>
 </p>
 
 <p align="center">
@@ -22,36 +26,33 @@
 
 ## Overview
 
-`epistemic-graph` is a standalone database and compute engine for information
-whose meaning depends on connections. It keeps property graphs, relational
-tables, RDF/OWL knowledge, vectors, text, time-series, events, blobs, and
-multimodal evidence behind one durable transaction boundary.
+Epistemic Graph is a Rust-native database and compute engine for teams building
+knowledge systems, evidence-led applications, analytics, and agent memory. It
+stores and queries connected graph records, relational data, RDF/OWL knowledge,
+vectors, time-series, events, documents, and media through one engine.
 
-Alongside ordinary records, the engine represents claims, provenance,
-confidence, temporal validity, and contradiction. Applications can trace an
-answer to what was observed, where it came from, and when it was valid.
+Claims can retain their evidence, provenance, confidence, and time of validity,
+so applications can inspect why information is present and how it changes. Use
+Epistemic Graph directly through its clients and query interfaces, or as the
+durable knowledge layer beneath [Graph OS](https://knuckles-team.github.io/graph-os/)
+and [Agent Utilities](https://knuckles-team.github.io/agent-utilities/).
+Epistemic Graph is the database; agent execution and connector runtimes live in
+their respective ecosystem projects.
 
-It is a database, not an agent framework. Use it directly from an application,
-or place [GraphOS](https://knuckles-team.github.io/graph-os/) and
-[agent-utilities](https://knuckles-team.github.io/agent-utilities/) above it
-for public APIs, agent orchestration, and governed workflows.
+## Key capabilities
 
-## Key Capabilities
-
-| Area | Included in the main build |
+| Capability | What it provides |
 |---|---|
-| Connected data | Property graph, Cypher/Bolt, GraphQL, graph algorithms, and UQL |
-| Semantic knowledge | RDF, SPARQL, OWL reasoning, SHACL validation, and ShEx |
-| Search and analytics | Vector ANN, hybrid retrieval, full text, DataFusion SQL, and numeric kernels |
-| Evidence and memory | Claims, provenance, bitemporal validity, confidence, and truth maintenance |
-| Content and signals | Documents, images, audio, video, metrics, streams, events, and blobs |
-| Operations | Commit-before-ack durability, audit, CDC, tenant isolation, encryption, and observability |
-| Distribution | Single-node operation plus the cluster build's replication, placement, and cross-shard coordination |
+| One multi-model engine | Property graph, relational tables, RDF, vectors, time-series, events, blobs, and media |
+| Query across interfaces | UQL, SQL, SPARQL, Cypher/Bolt, GraphQL, and typed native clients |
+| Semantic constraints | OWL reasoning, SHACL validation, and ShEx shape validation |
+| Evidence-aware knowledge | Claims, provenance, confidence, contradiction handling, and bitemporal validity |
+| Durable operation | Commit-before-ack persistence, audit, change data capture, tenant isolation, and observability |
+| Distributed deployment | Single-node operation and an optional cluster build with replication and coordinated placement |
 
-Compatibility is tracked per operation rather than inferred from a protocol
-name. The [capability matrix](https://knuckles-team.github.io/epistemic-graph/capabilities/)
+Check the [capability matrix](https://knuckles-team.github.io/epistemic-graph/capabilities/)
 and [generated method ledger](https://knuckles-team.github.io/epistemic-graph/capabilities.generated/)
-state the current authority, durability, audit, CDC, and transaction behavior.
+for the current behavior of each operation.
 
 <details>
 <summary>Project telemetry</summary>
@@ -79,29 +80,37 @@ state the current authority, durability, audit, CDC, and transaction behavior.
 ## Documentation
 
 - [Start here](https://knuckles-team.github.io/epistemic-graph/) for a guided engine tour.
-- [Interfaces](https://knuckles-team.github.io/epistemic-graph/interfaces/) explains SQL, SPARQL, Cypher, GraphQL, vector, time-series, and native clients.
-- [Architecture](https://knuckles-team.github.io/epistemic-graph/architecture/) covers the commit model, planner, reasoning, storage, and distribution.
-- [Deploy](https://knuckles-team.github.io/epistemic-graph/standalone_deployment/) covers durable server, TLS, container, and cluster operation.
+- [Interfaces](https://knuckles-team.github.io/epistemic-graph/interfaces/) explains UQL, SQL, SPARQL, Cypher, GraphQL, vectors, time-series, and clients.
+- [Architecture](https://knuckles-team.github.io/epistemic-graph/architecture/) covers query execution, reasoning, storage, and distribution.
+- [Deploy Epistemic Graph](https://knuckles-team.github.io/epistemic-graph/standalone_deployment/) covers durable server, TLS, containers, and clusters.
 - [Operations](https://knuckles-team.github.io/epistemic-graph/operations/runbook/) covers day-two procedures and recovery.
 
 ## Architecture
 
 <p align="center">
-  <img src="docs/assets/runtime-architecture.svg" alt="Knuckles ecosystem runtime: clients enter through GraphOS, agent-utilities runs agents and workflows, epistemic-graph owns durable knowledge, and connector packages synchronize external systems." width="920">
+  <img src="docs/assets/runtime-architecture.svg" alt="People enter through Agent Web UI, Agent Terminal UI over REST, Geniusbot, or messaging services hosted by Graph OS. MCP, REST, and A2A clients also connect to Graph OS, which routes to Agent Utilities and Epistemic Graph. Source systems connect to Epistemic Graph through Agent Connector SDK." width="960">
 </p>
 
 <p align="center">
   <img src="docs/assets/engine-architecture.svg" alt="Epistemic Graph architecture: authenticated interfaces feed a unified planner, which composes graph, semantic, analytical, temporal, and multimodal engines over one durable store." width="920">
 </p>
 
-| This repository owns | Other repositories own |
-|---|---|
-| Durable graph and multimodal state, native reasoning, query planning, transaction semantics, and engine-level authorization | [GraphOS](https://knuckles-team.github.io/graph-os/) owns the public MCP/REST/A2A gateway and runtime policy |
-| Generated engine contracts and capability truth | [agent-utilities](https://knuckles-team.github.io/agent-utilities/) owns agents, workflows, skills, evaluation, and the control plane |
-| Source-ingestion admission, schema validation, evidence, and provenance commits | [agent-connector-sdk](https://knuckles-team.github.io/agent-connector-sdk/) owns connector execution and source-system adapters |
-| Database and compute execution | [agent-webui](https://knuckles-team.github.io/agent-webui/) owns the browser experience hosted by GraphOS |
+People use the **Agent Web UI**, **Agent Terminal UI** (through the Graph OS
+REST API), **Geniusbot**, or the messaging services hosted by **Graph OS**.
+External applications and agents connect through Graph OS using MCP, REST, or
+A2A. Graph OS governs the runtime boundary, **Agent Utilities** coordinates
+agents and workflows, and Epistemic Graph stores and reasons over their durable
+knowledge. Source systems enter through **Agent Connector SDK**, which commits
+typed source data to the graph.
 
-## Quick Start
+| This repository owns | Ecosystem projects own |
+|---|---|
+| Durable graph and multimodal state, query planning, semantic reasoning, transaction behavior, and engine authorization | [Graph OS](https://knuckles-team.github.io/graph-os/) owns MCP/REST/A2A entrypoints, runtime policy, messaging services, and frontend hosting |
+| Generated engine contracts and capability truth | [Agent Utilities](https://knuckles-team.github.io/agent-utilities/) owns agents, workflows, skills, evaluation, and the agent control plane |
+| Source-ingestion admission, schema validation, evidence, and provenance commits | [Agent Connector SDK](https://knuckles-team.github.io/agent-connector-sdk/) owns connector execution and source-system adapters |
+| Database and compute execution | [Agent Web UI](https://knuckles-team.github.io/agent-webui/), [Agent Terminal UI](https://github.com/Knuckles-Team/agent-terminal-ui), and [Geniusbot](https://github.com/Knuckles-Team/geniusbot) provide user-facing clients |
+
+## Quick start
 
 Install the release wheel and open an in-process graph. This mode is explicit,
 ephemeral, and needs no server or TLS configuration.
@@ -132,7 +141,7 @@ True 1
 ```
 
 For durable storage, authenticated clients, containers, TLS, or clustering,
-continue with [Deploy epistemic-graph](https://knuckles-team.github.io/epistemic-graph/standalone_deployment/).
+continue with [Deploy Epistemic Graph](https://knuckles-team.github.io/epistemic-graph/standalone_deployment/).
 
 ## Contributing
 
