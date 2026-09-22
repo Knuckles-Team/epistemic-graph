@@ -674,11 +674,16 @@ fn generated_imports_are_in_isort_form_with_explicit_reexports() {
     let reexport = "from .rdf_report import OwlPropertyFact as OwlPropertyFact\n";
     assert!(reasoning.contains(&format!(")\n{reexport}")));
     assert!(!reasoning.contains("    OwlPropertyFact,\n"));
-    let severity = reasoning.find("import ShaclSeverity as").expect("ShaclSeverity re-export");
+    let severity = reasoning
+        .find("import ShaclSeverity as")
+        .expect("ShaclSeverity re-export");
     let result = reasoning
         .find("import ShaclValidationResult as")
         .expect("ShaclValidationResult re-export");
-    assert!(severity < result, "re-exports must be in case-insensitive isort order");
+    assert!(
+        severity < result,
+        "re-exports must be in case-insensitive isort order"
+    );
     let ingestion = module("epistemic_graph/generated/ingestion.py");
     assert!(ingestion.contains(
         "    SourceIngestionReceipt,\n    SourceIngestionRequest,\n    SourceIngestStatus,\n"
