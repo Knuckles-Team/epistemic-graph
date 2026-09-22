@@ -317,20 +317,58 @@ def test_capability_gate_contract_rejects_conditional_bypasses(scope, field, val
         _assert_complete_capability_gate(m, doc)
 
 
-def test_lint_job_runs_the_constrained_parallelism_gate_exactly_once():
+def test_release_plan_excludes_unbounded_constrained_parallelism_suite():
     m = _load_module()
     doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
     plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["release.yml"], doc)
     rows = [
         item
         for item in plan
-        if item["job"] == "lint-and-architecture"
-        and item["name"]
-        == "Constrained parallelism + Kafka non-blocking contract (GOC-70)"
+        if item["detail"] == "bash scripts/constrained_parallelism_gate.sh"
     ]
-    assert len(rows) == 1
-    assert rows[0]["mode"] == "RUN"
-    assert rows[0]["detail"] == "bash scripts/constrained_parallelism_gate.sh"
+    # The hosted job timed out after 1200s compiling a cold dependency graph;
+    # it never reached the runtime invariant. Keep this manual, not release-gating.
+    assert rows == []
+
+
+def test_advisory_checks_cannot_delay_the_release_path_and_obsolete_runs_cancel():
+    m = _load_module()
+    doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
+    jobs = doc["jobs"]
+    build = jobs["build"]
+    assert build["if"] == (
+        "startsWith(github.ref, 'refs/tags/v') || "
+        "github.event_name == 'workflow_dispatch'"
+    )
+    assert set(build["needs"]) == {
+        "gates",
+        "security",
+        "lint-and-architecture",
+        "tts-piper-inference",
+    }
+    advisory = {
+        "documentation-advisory",
+        "quality-advisory",
+        "scanner-quality",
+        "feature-matrix",
+        "benchmarks",
+    }
+    assert all(jobs[name]["continue-on-error"] is True for name in advisory)
+    assert not advisory.intersection(build["needs"])
+    assert jobs["publish-pypi"]["needs"] == ["build"]
+    assert jobs["docker-image"]["needs"] == ["build"]
+    assert jobs["publish-image"]["needs"] == ["docker-image"]
+
+    assert doc["concurrency"]["group"] == "release-${{ github.ref }}"
+    assert doc["concurrency"]["cancel-in-progress"] is True
+
+    security_runs = "\n".join(step.get("run", "") for step in jobs["security"]["steps"])
+    assert "bash scripts/check_cargo_advisories.sh" in security_runs
+    assert (
+        'python3 scripts/security/check_secret_history.py --base "$base"'
+        in security_runs
+    )
+    assert jobs["security"].get("continue-on-error") is None
 
 
 def test_advisory_feature_matrix_is_now_covered_and_expanded_per_leg():

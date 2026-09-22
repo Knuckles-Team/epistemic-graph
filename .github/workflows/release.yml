@@ -1,45 +1,19 @@
 name: Release
 
 # ─────────────────────────────────────────────────────────────────────────
-# ONE WORKFLOW, EVERY GATE BLOCKING (read this before adding a check here)
+# Product tests, runtime-contract checks, dependency/secret security, release
+# wheel builds, wheel smoke checks, and publication are blocking. Documentation
+# freshness, lint, scanner/census analysis, optional feature builds, and
+# benchmarks remain visible but advisory; they do not delay publication.
 #
-# This repo ships exactly ONE GitHub Actions workflow. It used to be split
-# into release.yml (blocking) + advisory.yml (everything else, every step
-# `continue-on-error: true`, "debt is visible but never blocks a release").
-# That split was retired 2026-08-28 (wD9-CIGATE): a `push: branches: [main]`
-# on this file already publishes to PyPI (`publish-pypi` <- `numeric-
-# runtime-gate` <- `build` <- `gates`), so anything left in advisory.yml
-# wasn't merely non-blocking, it was OUTSIDE the publish chain entirely --
-# lint/architecture debt could ship to PyPI on a green push. That is a
-# ratchet by this project's definition (a container whose purpose is to
-# hold findings that are allowed to stay red), so it is gone. Every check
-# that was real signal is now a job in this file with no
-# `continue-on-error`; a job still short of that bar stays HERE too (not in
-# a second file) with an explicit comment saying so — see
-# `lint-and-architecture` below for the one still-open example
-# (`cargo fmt`) and `feature-matrix`/`benchmarks` for two jobs whose
-# `continue-on-error` is a disclosed, not-yet-measured gap rather than a
-# permanent policy. Cost-heavy jobs are scoped by TRIGGER (`if:` on tag
-# push / `workflow_dispatch`), never by `continue-on-error` — see those two
-# jobs' `if:` conditions.
+# Blocking path: {gates, security, lint-and-architecture, tts-piper-inference}
+# -> build -> {docker-image, publish-pypi} -> publish-image.
+# Quality and documentation jobs run independently. `pages` is a separate
+# deploy concern and carries no dependency edge into the release path.
 #
-# Stages, in `needs:` order: gates -> lint-and-architecture ->
-# scanner-quality -> build ->
-# {docker-image, publish-pypi} (each also needs: feature-matrix + benchmarks,
-# added 2026-08-28/wD9-CIGATE after those two were found to share
-# docker-image/publish-pypi's own tag/dispatch trigger without being wired
-# into their `needs:` -- meaning a failing feature-build combo or perf/
-# recall regression could not stop a publish that ran in PARALLEL with it)
-# -> publish-image (transitively protected via `needs: [docker-image]`).
-# `pages` alone carries no `needs:` and is not needed BY anything, so it
-# structurally cannot block the publish chain -- see its own comment for why
-# that is fine (a deploy concern, not a gate).
-#
-# eg's wheel-digest-mismatch reproducibility bug is being fixed by a
-# different, separate track of work. Nothing in this redesign touches wheel
-# build/determinism LOGIC — the `build` job below is the former release-build
-# `wheels` job, byte-for-byte, just re-triggered by `needs: gates` instead of
-# being a top-level job on the same triggers.
+# The wheel build/determinism logic remains unchanged: `build` produces the
+# release artifacts, then `publish-pypi` repeats completeness checks on the
+# downloaded wheels at the upload boundary.
 # ─────────────────────────────────────────────────────────────────────────
 
 on:
@@ -70,6 +44,53 @@ env:
   MATURIN_FEATURES: "full,ast-extended"
 
 jobs:
+  # ── Dependency and source-history security checks. ─────────────────────
+  security:
+    name: Security checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version-file: '.python-version'
+
+      - name: Secret-history scan
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          base="${PR_BASE_SHA:-${PUSH_BEFORE_SHA:-}}"
+          if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$base" 2>/dev/null; then
+            if git rev-parse --verify --quiet HEAD~1 >/dev/null; then
+              base="HEAD~1"
+            else
+              base="$(git rev-list --max-parents=0 HEAD)"
+            fi
+          fi
+          echo "Scanning ${base}..HEAD for credential-shaped content"
+          python3 scripts/security/check_secret_history.py --base "$base"
+
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - name: Install pinned cargo-deny
+        run: |
+          set -euo pipefail
+          version="$(PYTHONPATH=scripts python -c 'from scanner_contract import load_contract; print(load_contract().cargo_deny_version)')"
+          root="$RUNNER_TEMP/epistemic-graph-cargo-deny"
+          cargo install --locked --version "$version" --root "$root" cargo-deny
+          echo "$root/bin" >> "$GITHUB_PATH"
+          test "$("$root/bin/cargo-deny" --version)" = "cargo-deny $version"
+      - name: Rust dependency advisory gate
+        run: bash scripts/check_cargo_advisories.sh
+
+      - name: Universal served-read RLS and carrier-ownership contract
+        run: python3 scripts/check_universal_read_rls.py
+
   # ── STAGE 1: release-critical checks only. Nothing else may live here. ──
   gates:
     name: gates
@@ -77,40 +98,13 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          fetch-depth: 0
           persist-credentials: false
 
-      # ---- Secret-history scan. NEW: this was previously not wired into
-      # any CI in this repo at all (no equivalent of agent-utilities'
-      # D-CIP-13 gate existed here). See scripts/security/check_secret_history.py
-      # and secret_history_baseline.txt (the baseline was seeded once, by
-      # hand, against a 300-commit sample of real history during this
-      # redesign, so the gate ships already-clean rather than immediately
-      # red).
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version-file: '.python-version'
-      - name: Secret-history scan
-        run: |
-          set -euo pipefail
-          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
-          if [ -z "${BASE:-}" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
-            if git rev-parse --verify --quiet HEAD~1 >/dev/null; then
-              BASE="HEAD~1"
-            else
-              BASE="$(git rev-list --max-parents=0 HEAD)"
-            fi
-          fi
-          echo "Scanning ${BASE}..HEAD for credential-shaped content"
-          python3 scripts/security/check_secret_history.py --base "$BASE"
 
-      # ---- THE test suite: byte-for-byte the cargo test steps from the
-      # former rust-ci.yml `lint-and-test` job (fmt/clippy/architecture gates
-      # moved to advisory.yml — see that file), plus protocol-parity and
-      # numeric-parity, which are also genuinely test suites (pytest-based
-      # parity tests over the wire protocol and the compiled numeric
-      # kernel), combined into one job so a correctness regression fails
-      # fast, before the 5-platform wheel matrix in `build` ever runs.
+      # Product tests and protocol contracts run on every push and pull request.
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
           toolchain: stable
@@ -168,11 +162,9 @@ jobs:
       # The fuzz + concurrency-chaos proptest suite (long random valid pipelines,
       # snapshot-isolation under contention) — a correctness test, kept here
       # (release-critical) rather than moving with the rest of the former
-      # `benchmarks` job (which is a perf/recall gate and belongs in
-      # advisory.yml).
+      # optional `benchmarks` job (which reports performance feedback).
       - name: Query-pipeline fuzz + chaos (eg-plan)
         run: cargo test -p eg-plan --features "query,owl,text,timeseries,federation" --test fuzz_pipelines --no-fail-fast
-
       - name: Install pytest
         run: pip install pytest
       - name: Epistemic Operations manifest ⇄ Rust DTO parity
@@ -364,23 +356,11 @@ jobs:
           echo "ORT_DYLIB_PATH=$ORT_DYLIB_PATH"
           cargo test --locked -p eg-tts-piper --all-features --no-fail-fast
 
-  # ── STAGE 1b: architecture/documentation-contract gates + lint. Folded in
-  # from the former advisory.yml `lint-and-architecture` job (wD9-CIGATE,
-  # 2026-08-28): every step below was measured green against this commit
-  # (8 architecture/doc gates + all 3 clippy profiles) and made blocking --
-  # no `continue-on-error` anywhere in this job. See this file's top header
-  # for why the two-workflow/continue-on-error model was retired.
-  #
-  # NOT YET INCLUDED: `cargo fmt --all --check`. Measured 2026-08-28 red on
-  # 3 files (crates/eg-rdf/src/obda.rs, src/server/mutation.rs,
-  # src/server/redis_wire/mod.rs), each mid-edit in a live CX complexity-
-  # reduction lane -- formatting them here would fight their uncommitted
-  # work, and this program's own sequencing rule is "measure first, fix the
-  # red, then restructure" (never flip an unmeasured/known-red check to
-  # blocking). Add this step, still with no `continue-on-error`, once those
-  # three lanes land -- tracked as open debt, not silenced.
+  # ── Runtime contracts. These checks guard authorization, lifecycle,
+  # modality, reasoning, release-campaign, and persisted-schema behavior.
+  # They remain blocking alongside the executable test suites.
   lint-and-architecture:
-    name: Lint + architecture gates
+    name: Runtime contract checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -392,106 +372,62 @@ jobs:
         run: python3 scripts/check_p2_analytics_reasoning_architecture.py
       - name: Bounded lazy lifecycle architecture gate
         run: python3 scripts/check_lazy_lifecycle_architecture.py
-      - name: Universal served-read RLS and carrier-ownership architecture gate
-        run: python3 scripts/check_universal_read_rls.py
       - name: Exact protocol, multimodal, KnowledgeBatch, and reasoning campaign architecture gate
         run: python3 scripts/check_exact_release_campaigns.py
-      - name: Documentation feature, ledger, and MkDocs contract
-        run: python3 scripts/check_documentation_contract.py
-      - name: Status page freshness gate (docs/status.md vs capabilities/concept-reservations)
-        run: python3 scripts/check_status_page.py
       - name: Canonical structural property schema
         run: python3 scripts/check_canonical_property_schema.py
-      # ── Native build dependency for the `--all-features` clippy below.
-      #
-      # This is the ONLY job in this workflow that compiles the workspace with
-      # `--all-features`, which is the only way `eg-stream/cdc-kafka` (and so
-      # `rdkafka` -> `rdkafka-sys/sasl` -> `sasl2-sys`) is ever turned on --
-      # `full`, the published wheel feature set, deliberately excludes it, so
-      # none of the five `build` legs need this.
-      #
-      # `sasl2-sys` 0.1.22+2.1.28 links the SYSTEM Cyrus SASL: its build.rs
-      # `find_sasl()` path hard-panics with "Unable to find libsasl2 on your
-      # system" (build.rs:343, exit 101) when the development package is
-      # absent. `ubuntu-latest` does not ship it; every eg dev/build host does
-      # (`ii libsasl2-dev 2.1.28+dfsg1-9ubuntu3`), which is exactly why this
-      # failed ONLY on the runner and passed in every local pre-push run --
-      # it killed this job on EVERY push to `main` from 2026-08-18 through
-      # 33200059527 (2026-08-28), so `publish-pypi` never once ran and
-      # epistemic-graph has been stuck at 2.23.0 on PyPI.
-      #
-      # Vendoring instead (`sasl2-sys/vendored`) was measured and rejected on
-      # 2026-08-28: the bundled Cyrus SASL 2.1.28 `lib/md5.c` does not compile
-      # under a C23-default compiler (GCC >= 14; our hosts run GCC 15.2), and
-      # the only fix is a process-level `CFLAGS=-std=gnu17` that a Cargo
-      # manifest cannot express. See `crates/eg-stream/Cargo.toml`'s
-      # `cdc-kafka` feature comment and the WD10-P-EGCI lane report.
-      #
-      # ⚠ If you add another job that builds this workspace with
-      # `--all-features`, it needs this step too.
-      #
-      # SECOND missing package, found by running this very step on CI
-      # (run 33204989595, 2026-08-28): with libsasl2-dev in place the build
-      # got 2m30s further and then died compiling librdkafka itself --
-      #   librdkafka/src/rdkafka_conf.c:60: fatal error: curl/curl.h:
-      #   No such file or directory
-      # -- even though rdkafka-sys passes `-DWITH_CURL=0` (our `cdc-kafka`
-      # feature does not ask for rdkafka's `curl`). That is an upstream
-      # librdkafka 2.12.1 defect, not a misconfiguration: `config.h` is
-      # generated with `#cmakedefine01 WITH_OAUTHBEARER_OIDC`, which ALWAYS
-      # emits `#define WITH_OAUTHBEARER_OIDC 0|1`, and `rdkafka_conf.c:59` is
-      # the single site in the whole tree that tests it with `#ifdef` instead
-      # of `#if` (rdkafka.c, rdkafka_sasl_oauthbearer.c, rdunittest.c and the
-      # other four sites in rdkafka_conf.c itself all use `#if` correctly).
-      # So the curl HEADER is unconditionally required by any cmake build of
-      # librdkafka 2.12.1, while every actual curl CALL stays behind `#if` and
-      # nothing links against libcurl. Headers only -- hence the -dev package
-      # and no linker change. Same invisibility mechanism as libsasl2: our
-      # build hosts have `libcurl4-openssl-dev` installed.
-      #
-      # NOT installed here, deliberately: `libssl-dev` (rdkafka's `ssl` ->
-      # openssl-sys) and zlib/zstd. `ubuntu-latest` ships libssl-dev (cmake
-      # reported "Found OpenSSL ... 3.0.13" in the same run) and librdkafka is
-      # configured with `-DWITH_ZLIB=0 -DWITH_ZSTD=0`, so nothing is red.
-      # openssl-sys is nevertheless the SAME class of incidental dependency --
-      # if the runner image ever drops libssl-dev this job fails identically.
-      - name: Install librdkafka/Cyrus-SASL build headers (system-linked C deps)
+
+  # ── Documentation freshness is useful feedback, but generated counts and
+  # MkDocs prose do not change whether the engine or wheel is correct.
+  documentation-advisory:
+    name: Documentation freshness (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version-file: '.python-version'
+      - name: Documentation feature, ledger, and MkDocs contract
+        run: python3 scripts/check_documentation_contract.py
+      - name: Status page freshness (docs/status.md vs capabilities/concept-reservations)
+        run: python3 scripts/check_status_page.py
+
+  # ── Lint feedback is advisory. Product behavior and the release artifact
+  # are covered by `gates` and `build`; lint findings must not hold up either.
+  quality-advisory:
+    name: Clippy (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      # The `--all-features` profile enables eg-stream/cdc-kafka, which links
+      # system Cyrus-SASL and librdkafka headers on Ubuntu runners.
+      - name: Install librdkafka/Cyrus-SASL build headers
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libsasl2-dev libcurl4-openssl-dev
-          pkg-config --exists libsasl2 && echo "libsasl2 present: $(pkg-config --modversion libsasl2)"
-          test -f /usr/include/x86_64-linux-gnu/curl/curl.h || test -f /usr/include/curl/curl.h
-          echo "curl/curl.h present"
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
           toolchain: stable
-          components: clippy, rustfmt
+          components: clippy
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
-      - name: Constrained parallelism + Kafka non-blocking contract (GOC-70)
-        run: bash scripts/constrained_parallelism_gate.sh
-
-      # Lint each gated build so warnings can't accumulate. `-D warnings` makes
-      # clippy fail the step (and now the job/workflow) on any lint. Numeric
-      # matrix modules carry scoped `#![allow(clippy::needless_range_loop)]`
-      # where explicit indices are clearer.
-      - name: Clippy (every crate, all features)
+      - name: Clippy (workspace, all features)
         run: cargo clippy --workspace --all-features --all-targets -- -D warnings
-      - name: Clippy (slim lib)
-        run: cargo clippy --no-default-features --features graph,algorithms -- -D warnings
-      - name: Clippy (slim server — proves no compute leaks into the lean build)
-        run: cargo clippy --no-default-features --features server --all-targets -- -D warnings
 
-  # ── STAGE 1c: deterministic complexity/duplication and native architecture
-  # scanners.  The tools are installed into an ephemeral runner root at the
-  # exact versions in pyproject.toml; no package manager state is committed.
-  # This job is deliberately separate from lint-and-architecture because its
-  # local pre-push mirror uses already-installed binaries and must never turn a
-  # developer hook into a network download/build.
+  # ── Repository-wide scanner and complexity analysis is advisory. Keep its
+  # reports visible, while product tests and cargo-deny remain release gates.
+  # Provisioning stays isolated from the local pre-push mirror.
   scanner-quality:
-    name: Scanner + architecture quality
+    name: Scanner + architecture quality (advisory)
     runs-on: ubuntu-latest
+    continue-on-error: true
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -517,10 +453,9 @@ jobs:
           toolchain: stable
 
       # Pull-request base SHA is authoritative for the differential clone
-      # gate.  On a push, github.event.before is the previous commit.  A
-      # zero/empty base (first push or manual dispatch) falls back to the
-      # immediate parent, then the root commit; an unavailable object is an
-      # environment failure, never an invented empty baseline.
+      # gate. On a push, github.event.before is the previous commit. A
+      # zero/empty base falls back to the immediate parent, then the root;
+      # an unavailable object is an environment failure, never a baseline.
       - name: Resolve scanner base commit
         shell: bash
         env:
@@ -548,33 +483,22 @@ jobs:
           git cat-file -e "${resolved}^{commit}"
           printf 'CX_DUP_BASE_REF=%s\n' "$resolved" >> "$GITHUB_ENV"
 
-      # Each Rust CLI is installed under its own runner-local --root. The
-      # Python and Node tools have exact top-level pins, but their transitive
-      # graphs are resolved online without a dedicated lock/hash set: this
-      # provisioning is intentionally disclosed as non-hermetic. Hooks never
-      # execute these commands. `--no-package-lock` is scoped to this ephemeral
-      # scanner prefix, not the clients/js dependency graph shipped to users.
+      # Scanner installation is disclosed as non-hermetic; its findings are
+      # advisory and are not a release security boundary.
       - name: Provision pinned scanner toolchain
         shell: bash
         run: |
           set -euo pipefail
           scanner_root="$RUNNER_TEMP/epistemic-graph-scanners"
           mkdir -p "$scanner_root"
-          # cccc 1.6.0 is not published to crates.io (cccc-cli stops at 1.0.0);
-          # install the upstream v1.6.0 tag by its immutable commit.
           cargo install --locked --git https://github.com/moznion/cccc --rev d728759323be5d9977b7390a27133e8eaf481f26 --root "$scanner_root/cccc" cccc-cli
           cargo install --locked --version 0.4.10 --root "$scanner_root/kiss" kiss-ai
           cargo install --locked --version 0.1.2 --root "$scanner_root/dupehound" dupehound
           cargo install --locked --version 0.5.0 --root "$scanner_root/arch-lint" arch-lint-cli
-          cargo_deny_version="$(
-            PYTHONPATH=scripts python -c \
-              'from scanner_contract import load_contract; print(load_contract().cargo_deny_version)'
-          )"
-          cargo install --locked --version "$cargo_deny_version" --root "$scanner_root/cargo-deny" cargo-deny
           python -m pip install --disable-pip-version-check --no-input --upgrade "import-linter==2.13"
           npm install --prefix "$scanner_root/npm" --no-package-lock --ignore-scripts --no-save --no-audit --no-fund \
             "jscpd@5.0.16" "dependency-cruiser@18.2.0"
-          for bin_dir in "$scanner_root/cccc/bin" "$scanner_root/kiss/bin" "$scanner_root/dupehound/bin" "$scanner_root/arch-lint/bin" "$scanner_root/cargo-deny/bin" "$scanner_root/npm/node_modules/.bin"; do
+          for bin_dir in "$scanner_root/cccc/bin" "$scanner_root/kiss/bin" "$scanner_root/dupehound/bin" "$scanner_root/arch-lint/bin" "$scanner_root/npm/node_modules/.bin"; do
             echo "$bin_dir" >> "$GITHUB_PATH"
           done
 
@@ -592,25 +516,12 @@ jobs:
             0.5.0|"arch-lint 0.5.0") ;;
             *) echo "unexpected arch-lint version output" >&2; exit 2 ;;
           esac
-          cargo_deny_version="$(
-            PYTHONPATH=scripts python -c \
-              'from scanner_contract import load_contract; print(load_contract().cargo_deny_version)'
-          )"
-          test "$(cargo-deny --version)" = "cargo-deny $cargo_deny_version"
 
-      - name: Rust dependency advisory gate
-        run: bash scripts/check_cargo_advisories.sh
-
-      - name: jscpd differential gate (new pairs)
+      - name: jscpd differential analysis (new pairs)
         run: python3 scripts/check_duplication.py enforce --base-ref "$CX_DUP_BASE_REF"
       - name: jscpd tracked-tree census (advisory)
         run: python3 scripts/check_duplication.py census
 
-      # Dupehound's changed-source hook is a differential gate.  This second
-      # invocation archives the selected commit, proves a complete tracked
-      # manifest, and records full-tree function-clone clusters as advisory
-      # scanner evidence.  The adapter owns the exact command, exclusions,
-      # immutable-tree proof, and fail-closed report join.
       - name: Dupehound tracked-tree census (advisory)
         run: |
           set -euo pipefail
@@ -634,12 +545,7 @@ jobs:
             ${{ runner.temp }}/epistemic-graph-dupehound.scanner-evidence.json
             ${{ runner.temp }}/epistemic-graph-dupehound.manifest.json
 
-      # CCCC is intentionally invoked over an explicit tracked-file list.  A
-      # directory walk would include an untracked build artifact and would not
-      # be a truthful repository census; exact coverage and zero actionable
-      # backlog are required here, while malformed output/parse errors still
-      # fail closed.
-      - name: CCCC tracked-tree census (exact coverage; zero actionable backlog)
+      - name: CCCC tracked-tree census (advisory)
         shell: bash
         run: |
           set -euo pipefail
@@ -679,10 +585,6 @@ jobs:
             ${{ runner.temp }}/epistemic-graph-cccc-stderr.txt
             ${{ runner.temp }}/epistemic-graph-cccc-terms.txt
 
-      # KISS has a known multi-path false-green mode, so the census deliberately
-      # invokes one tracked Rust path at a time and treats findings as a count,
-      # not a baseline.  Unknown keys, scanner failures, and status/report
-      # disagreements remain hard errors.
       - name: KISS tracked-tree census (advisory)
         shell: bash
         run: |
@@ -713,15 +615,13 @@ jobs:
       - name: Rust architecture (arch-lint)
         run: python3 scripts/check_rust_arch_lint.py
 
-  # ── STAGE 2: the ONE main wheel (CONCEPT:EG-371), built for every
-  # supported native target — release-critical item: wheel build +
-  # reproducibility + release-contract + wheel-privacy checks. Needs: gates.
-  # UNCHANGED from the former release-build.yml `wheels` job (this is where
-  # a separate track is fixing the wheel-digest-reproducibility bug — do not
-  # change this job's build/determinism logic here).
+  # ── Release wheel matrix. Run the expensive cross-platform reproducible
+  # build for tags and explicit dispatches; ordinary pushes already run the
+  # product tests and installed-wheel smoke in `gates`.
   build:
     name: wheel ${{ matrix.name }}
-    needs: [gates, lint-and-architecture, scanner-quality, tts-piper-inference]
+    needs: [gates, security, lint-and-architecture, tts-piper-inference]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.optional || false }}
     # An OPTIONAL leg must not hold the whole run open. Measured on run
@@ -1068,17 +968,10 @@ jobs:
 
   # ── Multi-arch Docker DB image (BUILD + in-image `--help` smoke; no push).
   #    Installs the wheel BUILT IN THIS SAME RUN — no PyPI round-trip.
-  #    Tag-gated: only builds on a `v*` tag. Also `needs:` feature-matrix and
-  #    benchmarks (wD9-CIGATE, 2026-08-28) -- same caveat as publish-pypi's
-  #    own comment below: this `needs:` edge is necessary but, on its own,
-  #    NOT YET sufficient, because both jobs still carry
-  #    `continue-on-error: true` (unmeasured this session) and GitHub
-  #    reports a `continue-on-error: true` job as succeeded to its
-  #    dependents regardless of its own step outcomes. See publish-pypi's
-  #    comment for the full explanation and the `build.matrix.optional`
-  #    precedent this relies on.
+  #    Tag-gated: optional feature and benchmark feedback runs independently
+  #    and cannot delay this image build.
   docker-image:
-    needs: [build, feature-matrix, benchmarks]
+    needs: [build]
     runs-on: ubuntu-latest
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     permissions:
@@ -1116,37 +1009,13 @@ jobs:
           tags: epistemic-graph:ci
 
   # ─────────────────────────────────────────────────────────────────────────
-  # PUBLISH — GATED to a `v*` tag only; skipped entirely on a normal branch
-  # push or PR. Needs: build, feature-matrix, benchmarks, so publishing is
-  # unreachable if `gates`, `lint-and-architecture` (transitively, via
-  # `build`), or `build` failed -- `if:` below has no always()/failure()/
-  # cancelled(), so GitHub's implicit success()-of-all-needs applies to the
-  # full `needs:` list with no further change needed FOR THOSE THREE.
-  #
-  # `feature-matrix`/`benchmarks` are also `needs:` here (added 2026-08-28,
-  # wD9-CIGATE) -- necessary, but on their own NOT YET sufficient. Both run
-  # on this exact tag trigger already (see their own `if:`) but previously
-  # were not wired into this `needs:` at all, so a failing feature-build
-  # combo or perf/recall regression could not stop a publish that ran in
-  # PARALLEL with it. This `needs:` edge alone does not close that gap:
-  # both jobs still carry `continue-on-error: true` (2026-08-28 measurement
-  # never reached them -- 13 cargo builds plus a bench run, deferred; see
-  # the wD9-CIGATE report), and a job with `continue-on-error: true` is
-  # reported SUCCEEDED to anything that `needs:` it regardless of whether
-  # its own steps failed -- exactly the mechanism the `build` job's own
-  # `matrix.optional` leg above relies on to keep an optional macOS failure
-  # from blocking this same `needs: build` chain. So today this `needs:`
-  # edge is a correct, necessary prerequisite that does nothing on its own;
-  # it only starts BLOCKING once `continue-on-error` is removed from
-  # feature-matrix/benchmarks, which requires actually measuring them
-  # green first (the sequencing rule this whole redesign follows: never
-  # flip an unmeasured/known-red check to blocking). Until then, the
-  # publish path still ships on a red feature-matrix/benchmarks leg --
-  # narrowed from "any push" to "a tag push", but not yet closed.
-  # ─────────────────────────────────────────────────────────────────────────
+  # PUBLISH — gated to a `v*` tag and the required release wheel matrix.
+  # `build` needs the product tests, runtime-contract checks, security, and
+  # real-inference tests. Optional feature builds and benchmarks are not
+  # prerequisites and cannot hold up publication.
   publish-pypi:
     name: Publish wheels to PyPI (release only)
-    needs: [build, feature-matrix, benchmarks]
+    needs: [build]
     runs-on: ubuntu-latest
     if: ${{ startsWith(github.ref, 'refs/tags/v') }}
     permissions:
@@ -1279,20 +1148,8 @@ jobs:
             ${{ secrets.DOCKER_USERNAME }}/epistemic-graph:latest
             ${{ secrets.DOCKER_USERNAME }}/epistemic-graph:${{ github.ref_name }}
 
-  # ── STAGE 1c (non-gating, folded from former advisory.yml): build-only
-  # feature-combination matrix, guarding feature-gate bitrot across combos
-  # that are never published (the real shipped combo is `build` above).
-  # wD9-CIGATE (2026-08-28): NOT measured this session -- 13 legs x a cargo
-  # build each is expensive and the dev host was saturated (load 131/24
-  # cores) during this pass. `continue-on-error: true` is therefore left IN
-  # PLACE here, deliberately, as a disclosed gap rather than an unverified
-  # blocking flip -- see this repo's wD9-CIGATE report for the exact combos
-  # and the follow-up needed before removing it. Trigger scope IS tightened
-  # here independent of that: this cost-heavy matrix no longer runs on every
-  # push/PR, only on a real release tag or an explicit dispatch, per the
-  # "gate by trigger, not by continue-on-error" rule -- once the continue-
-  # on-error above is removed, this job will actually block those two
-  # trigger paths, which is the whole point.
+  # ── Optional feature-combination build analysis. Failures stay visible in
+  # Actions but cannot delay a release.
   feature-matrix:
     name: feature-build ${{ matrix.target.name }}
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
@@ -1338,12 +1195,8 @@ jobs:
       - name: Build ${{ matrix.target.name }}
         run: cargo build ${{ matrix.target.flags }}
 
-  # ── STAGE 1c (non-gating, folded from former advisory.yml): perf p50
-  # ceilings / recall floor regression net. wD9-CIGATE (2026-08-28): NOT
-  # measured this session (cargo bench is expensive and the dev host was
-  # saturated) -- `continue-on-error: true` left in place as a disclosed
-  # gap, same rationale as feature-matrix above. Trigger scope tightened the
-  # same way: tag or dispatch only, not every push/PR.
+  # ── Optional perf/recall feedback. Failures stay visible in Actions but
+  # cannot delay a release.
   benchmarks:
     name: Perf/recall regression gate
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'

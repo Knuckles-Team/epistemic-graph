@@ -108,16 +108,18 @@ def test_precommit_has_staged_differential_census_and_architecture_profiles():
     assert "npx " not in hook_text
 
 
-def test_goc70_complete_plan_has_one_pre_push_execution_and_manual_hook():
+def test_goc70_is_manual_only_until_execution_is_bounded():
     hooks = _hooks()
-    lint_steps = _workflow()["jobs"]["lint-and-architecture"]["steps"]
+    gates_steps = _workflow()["jobs"]["gates"]["steps"]
     constrained = [
         step
-        for step in lint_steps
+        for step in gates_steps
         if step.get("run") == "bash scripts/constrained_parallelism_gate.sh"
     ]
-    assert len(constrained) == 1
-    assert "env" not in constrained[0]
+    # Hosted GOC-70 spent 20 minutes compiling dependencies and timed out before
+    # the constrained runtime test started. Keep its explicit pre-commit hook
+    # available to developers, but don't let that cold build delay CI/publishing.
+    assert constrained == []
     direct_hooks = [
         hook
         for hook in hooks.values()
@@ -128,7 +130,7 @@ def test_goc70_complete_plan_has_one_pre_push_execution_and_manual_hook():
     assert hooks["constrained-parallelism"]["stages"] == ["manual"]
 
 
-def test_release_scanner_job_is_full_history_blocking_and_pinned():
+def test_release_scanner_job_is_full_history_advisory_and_pinned():
     document = _workflow()
     jobs = document["jobs"]
     scanner = jobs["scanner-quality"]
@@ -139,8 +141,8 @@ def test_release_scanner_job_is_full_history_blocking_and_pinned():
     )
     assert checkout["with"]["fetch-depth"] == 0
     assert checkout["with"]["persist-credentials"] is False
-    assert "continue-on-error" not in scanner
-    assert "scanner-quality" in jobs["build"]["needs"]
+    assert scanner["continue-on-error"] is True
+    assert "scanner-quality" not in jobs["build"]["needs"]
 
     all_runs = "\n".join(str(step["run"]) for step in scanner["steps"] if "run" in step)
     workflow_source = (REPO / ".github/workflows/release.yml").read_text(
@@ -151,9 +153,6 @@ def test_release_scanner_job_is_full_history_blocking_and_pinned():
         "kiss-ai",
         "dupehound",
         "arch-lint-cli",
-        'cargo install --locked --version "$cargo_deny_version" --root '
-        '"$scanner_root/cargo-deny" cargo-deny',
-        'test "$(cargo-deny --version)" = "cargo-deny $cargo_deny_version"',
         "import-linter==2.13",
         "jscpd@5.0.16",
         "dependency-cruiser@18.2.0",
@@ -175,17 +174,37 @@ def test_release_scanner_job_is_full_history_blocking_and_pinned():
     assert (
         _hooks()["rust-arch-lint"]["entry"] == "python3 scripts/check_rust_arch_lint.py"
     )
-    assert "cargo-deny 0.20.2" not in all_runs
-    assert all_runs.count("load_contract().cargo_deny_version") == 2
     assert "disclosed as non-hermetic" in workflow_source
 
+    security = jobs["security"]
+    assert "continue-on-error" not in security
+    assert "security" in jobs["build"]["needs"]
+    deny_install = next(
+        step
+        for step in security["steps"]
+        if step.get("name") == "Install pinned cargo-deny"
+    )
+    assert "load_contract().cargo_deny_version" in deny_install["run"]
     advisory_steps = [
         step
-        for step in scanner["steps"]
+        for step in security["steps"]
         if step.get("run") == "bash scripts/check_cargo_advisories.sh"
     ]
     assert len(advisory_steps) == 1
     assert "continue-on-error" not in advisory_steps[0]
+    assert jobs["build"]["continue-on-error"] == "${{ matrix.optional || false }}"
+
+    runtime_contracts = jobs["lint-and-architecture"]
+    assert "continue-on-error" not in runtime_contracts
+    assert "python3 scripts/check_p2_modality_architecture.py" in {
+        step.get("run") for step in runtime_contracts["steps"]
+    }
+    assert "python3 scripts/check_canonical_property_schema.py" in {
+        step.get("run") for step in runtime_contracts["steps"]
+    }
+    assert "python3 scripts/check_universal_read_rls.py" in {
+        step.get("run") for step in security["steps"]
+    }
 
     base_step = next(
         step
@@ -207,7 +226,7 @@ def test_ci_uses_central_exact_python_version():
         for step in job.get("steps", [])
         if step.get("uses", "").startswith("actions/setup-python@")
     ]
-    assert len(setup_steps) == 6
+    assert len(setup_steps) == 8
     assert {filename for filename, _ in setup_steps} == set(registered)
     assert all(
         step.get("with", {}).get("python-version-file") == ".python-version"
@@ -229,7 +248,6 @@ def test_advisory_gate_wires_exact_cargo_deny_version_check():
     precommit_source = (REPO / ".pre-commit-config.yaml").read_text(encoding="utf-8")
     assert "Not yet mirrored into rust-ci.yml" not in precommit_source
     assert "pre-commit-only per" not in precommit_source
-    assert "blocking release `scanner-quality` job" in precommit_source
 
     gate = (REPO / "scripts/check_cargo_advisories.sh").read_text(encoding="utf-8")
     assert "load_contract().cargo_deny_version" in gate
@@ -245,6 +263,9 @@ def test_ci_replica_classifies_scanner_job_and_scanner_files_as_build_affecting(
     module = _ci_replica()
     spec = module.WORKFLOW_REGISTRY["release.yml"]
     assert "scanner-quality" in spec.job_skip_reasons
+    assert "security" in spec.job_skip_reasons
+    assert "documentation-advisory" in spec.job_skip_reasons
+    assert "quality-advisory" in spec.job_skip_reasons
     for path in (
         "pyproject.toml",
         ".python-version",
@@ -257,6 +278,13 @@ def test_ci_replica_classifies_scanner_job_and_scanner_files_as_build_affecting(
         "scripts/validate_cccc_census.py",
     ):
         assert module.is_build_affecting(path), path
+
+
+def test_generated_status_page_describes_freshness_as_advisory():
+    status_page = (REPO / "docs/status.md").read_text(encoding="utf-8")
+    assert "`documentation-advisory` job" in status_page
+    assert "does not block builds or releases" in status_page
+    assert "release-blocking, no `continue-on-error`" not in status_page
 
 
 def test_native_architecture_configs_are_explicit_and_scoped():

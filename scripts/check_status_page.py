@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Assert docs/status.md's displayed totals match its source files.
 
-Lightweight CI gate (wired into .github/workflows/release.yml's
-`lint-and-architecture` job, release-blocking)
-for the Codex/status page: fails when `docs/status.md` is stale relative to
+Lightweight advisory CI check (wired into .github/workflows/release.yml's
+`documentation-advisory` job) for the Codex/status page: fails when
+`docs/status.md` is stale relative to
 `docs/capabilities.md`, `docs/capabilities.generated.md`, or
 `docs/concept_reservations.yaml`. Reuses `scripts/build_status_page.py`'s own
 render function rather than re-implementing the parsing/rendering logic — a

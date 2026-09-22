@@ -50,33 +50,30 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
     "release.yml": WorkflowSpec(
         filename="release.yml",
         blocking=True,
-        # `lint-and-architecture` folded in from the former advisory.yml
-        # 2026-08-28 (wD9-CIGATE) — it is now a real blocking job (no
-        # `continue-on-error`) and, like `gates`, is ordinary
-        # python3/cargo-clippy commands a local host can run.
-        #
-        # `feature-matrix`/`benchmarks` also folded in (same date) and stay
-        # in `executable_jobs`, unchanged from their old advisory.yml
-        # treatment (GAP 1's original point: an entire workflow was
-        # otherwise invisible locally until it broke in hosted CI) --
-        # ordinary `cargo build`/`cargo bench` commands once `${{ matrix... }}`
-        # is substituted. Each still carries its own literal
-        # `continue-on-error: true` in release.yml (a disclosed,
-        # not-yet-measured gap -- see the wD9-CIGATE report), which
-        # `build_plan_for_workflow` now reads PER-JOB to report
-        # `blocking: False` for their rows specifically, even though this
-        # whole file is otherwise `blocking=True` -- a failure there is run
-        # and reported loudly here, exactly like every other RUN step, but
-        # does not fail this local hook, matching what the real workflow
-        # does today. Re-scoped `if: startsWith(github.ref, 'refs/tags/v')
-        # || workflow_dispatch` in the real workflow (no longer runs on an
-        # ordinary push/PR at all), which this replica does not model --
-        # running the ordinary command locally on every invocation remains
-        # the safer, more-coverage default matching GAP 1's intent.
+        # The runtime-contract job remains blocking and is executable here;
+        # the security, documentation, lint, and scanner jobs are classified
+        # separately below because their CI setup is not a local shell check.
+        # Optional feature builds and benchmarks remain executable, but their
+        # literal `continue-on-error: true` is reflected per row by the planner.
         executable_jobs=frozenset(
             {"gates", "lint-and-architecture", "feature-matrix", "benchmarks"}
         ),
         job_skip_reasons={
+            "security": (
+                "Blocking CI security job: scans full Git history and installs the "
+                "repository-pinned cargo-deny tool into a runner-local root. The "
+                "pre-push cargo-deny hook covers dependency advisories locally; "
+                "the full-history scan is GitHub-specific."
+            ),
+            "documentation-advisory": (
+                "Non-blocking documentation freshness checks are reported by the "
+                "dedicated GitHub Actions job; they are not part of the local "
+                "release-gate replica."
+            ),
+            "quality-advisory": (
+                "Non-blocking all-features Clippy profile installs Ubuntu build "
+                "headers for librdkafka/Cyrus-SASL and runs as CI quality feedback."
+            ),
             "tts-piper-inference": (
                 "CI-only real-inference job: apt-installs the espeak-ng/bindgen native "
                 "build dependencies and downloads the pinned onnxruntime release via "

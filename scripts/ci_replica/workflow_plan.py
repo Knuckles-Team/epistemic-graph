@@ -197,11 +197,10 @@ def classify_step(step: dict) -> tuple[str, str]:
 
 def _job_blocking(spec_blocking: bool, job: dict) -> bool:
     """A job's own literal `continue-on-error: true` makes IT non-blocking
-    regardless of the file-level `spec.blocking` (release.yml carries both
-    truly-blocking jobs -- gates, lint-and-architecture -- and jobs that
-    still declare their own `continue-on-error: true` -- feature-matrix,
-    benchmarks -- as a disclosed, not-yet-measured gap; see WORKFLOW_REGISTRY
-    comments). Only the literal boolean `True` is recognized; an expression
+    regardless of the file-level `spec.blocking` (release.yml carries blocking
+    product, runtime-contract, and security jobs alongside advisory
+    documentation, lint, scanner, feature-matrix, and benchmark jobs). Only the
+    literal boolean `True` is recognized; an expression
     form (e.g. `${{ matrix.optional || false }}`, `build`'s macOS leg) is
     treated conservatively as blocking since it cannot be evaluated
     generically here -- `build` itself is not in any WorkflowSpec.

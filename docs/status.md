@@ -72,7 +72,7 @@ This page is produced by `scripts/build_status_page.py` from `docs/capabilities.
 python scripts/build_status_page.py --write
 ```
 
-`scripts/check_status_page.py` is wired into `.github/workflows/release.yml`'s `lint-and-architecture` job (release-blocking, no `continue-on-error`) and fails the release the moment this file drifts from its sources. Run it locally with:
+`scripts/check_status_page.py` is wired into `.github/workflows/release.yml`'s `documentation-advisory` job. Stale generated status is reported in CI but does not block builds or releases. Run it locally with:
 
 ```bash
 python scripts/check_status_page.py
