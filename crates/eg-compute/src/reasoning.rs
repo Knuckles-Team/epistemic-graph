@@ -23,6 +23,12 @@ use std::collections::{HashMap, HashSet};
 use crate::graph::GraphCore;
 use crate::reasoning_closure::{active_closure_backend, infer_semi_naive};
 
+type PropertyEndpoints = (String, String);
+type PropertyFact = (String, String, String);
+type PropertyChainPath = (String, String, Vec<PropertyFact>);
+type PropertyEdgeIndex = HashMap<String, Vec<PropertyEndpoints>>;
+type KnownPropertyFacts = HashSet<PropertyFact>;
+
 /// Extract the base type/property facts from `core` as flat `(node, type)` and
 /// `(src, tgt, prop)` lists (the input to the semi-naive evaluator).
 /// Every stored edge as `(src, tgt, relationship)`. The native graph keeps a `Vec` of
@@ -399,18 +405,15 @@ pub fn infer_domain_range(
 
 /// Follow one arbitrary-length property chain from every matching first edge.
 /// Each returned path includes the ordered premise triples used by the proof.
-fn chain_paths(
-    edges_by_type: &HashMap<String, Vec<(String, String)>>,
-    chain: &[String],
-) -> Vec<(String, String, Vec<(String, String, String)>)> {
+fn chain_paths(edges_by_type: &PropertyEdgeIndex, chain: &[String]) -> Vec<PropertyChainPath> {
     fn follow(
-        edges_by_type: &HashMap<String, Vec<(String, String)>>,
+        edges_by_type: &PropertyEdgeIndex,
         chain: &[String],
         offset: usize,
         start: &str,
         current: &str,
-        premises: &mut Vec<(String, String, String)>,
-        output: &mut Vec<(String, String, Vec<(String, String, String)>)>,
+        premises: &mut Vec<PropertyFact>,
+        output: &mut Vec<PropertyChainPath>,
     ) {
         if offset == chain.len() {
             output.push((start.to_string(), current.to_string(), premises.clone()));
@@ -489,14 +492,10 @@ pub fn infer_property_chain_axioms(
     inferred
 }
 
-type PropertyChainEdge = (String, String, String, Vec<(String, String, String)>, usize);
+type PropertyChainEdge = (String, String, String, Vec<PropertyFact>, usize);
+type IndexedPropertyEdges = (PropertyEdgeIndex, KnownPropertyFacts);
 
-fn indexed_property_edges(
-    core: &GraphCore,
-) -> (
-    HashMap<String, Vec<(String, String)>>,
-    HashSet<(String, String, String)>,
-) {
+fn indexed_property_edges(core: &GraphCore) -> IndexedPropertyEdges {
     let mut edges_by_type = HashMap::new();
     let mut known = HashSet::new();
     for (src, tgt, edge_type) in edge_relationship_facts(core) {
@@ -511,8 +510,8 @@ fn indexed_property_edges(
 
 fn infer_property_chain_fixpoint(
     chains: &[(Vec<String>, String)],
-    edges_by_type: &mut HashMap<String, Vec<(String, String)>>,
-    known: &mut HashSet<(String, String, String)>,
+    edges_by_type: &mut PropertyEdgeIndex,
+    known: &mut KnownPropertyFacts,
 ) -> (Vec<HashMap<String, String>>, Vec<PropertyChainEdge>) {
     let mut inferred = Vec::new();
     let mut new_edges = Vec::new();
@@ -528,8 +527,8 @@ fn infer_property_chain_fixpoint(
 
 fn infer_property_chain_round(
     chains: &[(Vec<String>, String)],
-    edges_by_type: &mut HashMap<String, Vec<(String, String)>>,
-    known: &mut HashSet<(String, String, String)>,
+    edges_by_type: &mut PropertyEdgeIndex,
+    known: &mut KnownPropertyFacts,
     inferred: &mut Vec<HashMap<String, String>>,
     new_edges: &mut Vec<PropertyChainEdge>,
 ) -> bool {
@@ -561,8 +560,8 @@ fn record_property_chain_fact(
     source: &str,
     target: &str,
     inferred_prop: &str,
-    premises: Vec<(String, String, String)>,
-    edges_by_type: &mut HashMap<String, Vec<(String, String)>>,
+    premises: Vec<PropertyFact>,
+    edges_by_type: &mut PropertyEdgeIndex,
     inferred: &mut Vec<HashMap<String, String>>,
     new_edges: &mut Vec<PropertyChainEdge>,
 ) {
