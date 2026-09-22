@@ -8,16 +8,13 @@
 // (`super::language_table_entry`) — same data shape, same linear scan, no
 // second dispatch mechanism invented for this tier.
 //
-// Every grammar below is pinned in `Cargo.toml` to a tree-sitter ABI-14
-// release (this crate's tree-sitter core accepts ABI 13..=14 only — see the
+// Every grammar below is pinned in `Cargo.toml` to a release whose ABI this
+// crate's tree-sitter core accepts (13..=15, since the core bump — see the
 // `tree-sitter-c-sharp` precedent in `CORE_LANGUAGES`'s file and the ABI note
-// above these dependencies in `Cargo.toml`). Two ledger-requested (EH-281)
-// languages are deliberately NOT here — no maintained, ABI-14-compatible
-// crates.io binding exists for either (re-verified 2026-09-22; see the
-// Cargo.toml comment above the dependency block for the full evidence):
-// Terraform/HCL (its one-ever release is ABI 15) and DreamMaker
-// (`tree-sitter-dm` exists and is actively maintained, but every one of its
-// 4 releases is also ABI 15).
+// above these dependencies in `Cargo.toml`). Every language up to JSON below
+// is ABI 14; Terraform/HCL and DreamMaker are ABI 15, and their existence is
+// the reason the core was bumped 0.23 -> 0.25 (no ABI-14 release exists for
+// either — see the Cargo.toml comment above the dependency block).
 //
 // Julia, Fortran, Pascal, and PowerShell needed real walker vocabulary work
 // (`tree_sitter_ast.rs`'s `class_like_kind`/`function_like_kind` plus a
@@ -48,6 +45,25 @@
 // CSS, key path for JSON — the same shape `tree_sitter_sql.rs` already has
 // for SQL DDL) — which remains architecture work for a follow-up lane, not
 // a grammar-table row.
+//
+// Terraform/HCL is the same shape as HTML/CSS/JSON: registered, zero new
+// vocabulary. HCL is a declarative config language (`resource`/`variable`/
+// `module` are all the SAME `block` node kind, distinguished only by a
+// label string, not by a function/class-shaped declaration) — a dedicated
+// structural extractor (block type + labels + attributes) is the same class
+// of follow-up work as SQL DDL's, not attempted here.
+//
+// DreamMaker is the opposite of HTML/CSS/JSON/HCL: a genuine OOP scripting
+// language, so it DID need real vocabulary work. `type_definition` (a path
+// like `/obj/item/weapon`, DM's class) has its name on the LAST segment of
+// an unnamed `type_path` child, not a field — new `dm_symbol_name` in
+// `tree_sitter_ast.rs`. `proc_definition` (a global proc) and
+// `type_proc_definition` (a proc nested in a type, DM's method) both
+// already carry a `name` field, so they needed only a
+// `function_like_kind` table row each, no new resolution code.
+// `preproc_include` (CONCEPT:EH-281) shares its node KIND with C/C++'s but
+// uses a DIFFERENT field name for the included path (`file`, not `path`) —
+// `import_module` tries both.
 
 use super::{language_table_entry, LangCtor};
 use tree_sitter::Language;
@@ -128,6 +144,11 @@ const EXTENDED_LANGUAGES: &[(&[&str], LangCtor, &str)] = &[
     ),
     (&["css"], || tree_sitter_css::LANGUAGE.into(), "css"),
     (&["json"], || tree_sitter_json::LANGUAGE.into(), "json"),
+    // Terraform/HCL (CONCEPT:EH-281 follow-up, ABI 15) — see this file's
+    // module doc: registered for real parsing, zero symbols extracted today.
+    (&["tf", "hcl"], || tree_sitter_hcl::LANGUAGE.into(), "hcl"),
+    // DreamMaker (CONCEPT:EH-281 follow-up, ABI 15).
+    (&["dm"], || tree_sitter_dm::LANGUAGE.into(), "dreammaker"),
 ];
 
 /// Resolve `ext` against the extended-language tier, or `None` if it isn't

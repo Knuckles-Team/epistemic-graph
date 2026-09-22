@@ -494,6 +494,9 @@ fn extended_class_kind(kind: &str) -> Option<&'static str> {
         // PowerShell `class Widget { ... }` (CONCEPT:EH-281); name resolved
         // by `powershell_symbol_name`.
         "class_statement" => "class",
+        // DreamMaker `/obj/item/weapon` (CONCEPT:EH-281 ABI-15 follow-up) —
+        // name resolved by `dm_symbol_name`.
+        "type_definition" => "class",
         _ => return None,
     }
     .into()
@@ -528,6 +531,11 @@ pub(super) fn function_like_kind(kind: &str) -> Option<&'static str> {
         // (CONCEPT:EH-281); name resolved by `powershell_symbol_name`.
         "function_statement" => "function",
         "class_method_definition" => "method",
+        // DreamMaker (CONCEPT:EH-281 ABI-15 follow-up). Both already carry a
+        // `name` field, so `symbol_name`'s first check resolves them — no
+        // `dm_symbol_name` involvement, unlike `type_definition`.
+        "proc_definition" => "function",
+        "type_proc_definition" => "method",
         _ => return None,
     })
 }
@@ -570,6 +578,7 @@ fn extended_symbol_name(node: Node, source: &[u8], language: &str) -> Option<Str
         "fortran" => fortran_symbol_name(node, source),
         "pascal" => pascal_symbol_name(node, source),
         "powershell" => powershell_symbol_name(node, source),
+        "dreammaker" => dm_symbol_name(node, source),
         _ => None,
     }
 }
@@ -668,6 +677,37 @@ fn powershell_symbol_name(node: Node, source: &[u8]) -> Option<String> {
     let found = node
         .children(&mut cursor)
         .find(|c| matches!(c.kind(), "function_name" | "simple_name"));
+    found.map(|c| get_node_text(c, source))
+}
+
+/// DreamMaker `type_definition` (CONCEPT:EH-281 ABI-15 follow-up) — a class
+/// path like `/obj/item/weapon`. The name is the LAST identifier-shaped
+/// segment of its `type_path` child (`weapon`), not a field: most segments
+/// are `type_identifier` leaves, but a single-segment path (`/obj`) has only
+/// a `primitive_type` wrapping its own `identifier` child, so that is the
+/// fallback last segment. (`proc_definition`/`type_proc_definition` — DM's
+/// functions/methods — both already carry a `name` field and never reach
+/// this function; see `function_like_kind`.)
+fn dm_symbol_name(node: Node, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let type_path = node
+        .children(&mut cursor)
+        .find(|c| c.kind() == "type_path")?;
+    let mut inner = type_path.walk();
+    let mut last = None;
+    for child in type_path.children(&mut inner) {
+        if matches!(child.kind(), "type_identifier" | "primitive_type") {
+            last = Some(child);
+        }
+    }
+    let last = last?;
+    if last.kind() == "type_identifier" {
+        return Some(get_node_text(last, source));
+    }
+    let mut inner2 = last.walk();
+    let found = last
+        .children(&mut inner2)
+        .find(|c| c.kind() == "identifier");
     found.map(|c| get_node_text(c, source))
 }
 

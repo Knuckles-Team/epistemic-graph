@@ -101,6 +101,10 @@ ast-extended = [
     "dep:tree-sitter-html",
     "dep:tree-sitter-css",
     "dep:tree-sitter-json",
+    # ABI-15 (CONCEPT:EH-281 follow-up — the `tree-sitter` core pin below was
+    # bumped 0.23 -> 0.25 to unlock these two): Terraform/HCL, DreamMaker.
+    "dep:tree-sitter-hcl",
+    "dep:tree-sitter-dm",
 ]
 
 [dependencies]
@@ -139,7 +143,19 @@ rand_chacha = { version = "0.3", optional = true }
 # needs no CUDA toolkit and runs (CPU fallback) on a GPU-less host. Pinned to eg-ann's
 # exact cudarc config so one process shares a single driver/context.
 cudarc = { version = "0.17", optional = true, default-features = false, features = ["driver", "nvrtc", "dynamic-loading", "cuda-12060"] }
-tree-sitter = { version = "0.23", optional = true }
+# CONCEPT:EH-281 follow-up: bumped 0.23 -> 0.25 to unlock Terraform/HCL and
+# DreamMaker, both ABI 15. Verified additive-only for this crate's own usage
+# before bumping: 0.25's core accepts ABI 13..=15 (a strict SUPERSET of
+# 0.23/0.24's 13..=14 — TREE_SITTER_MIN_COMPATIBLE_LANGUAGE_VERSION unchanged
+# at 13, TREE_SITTER_LANGUAGE_VERSION raised 14->15), so every ABI-14 grammar
+# pinned below still loads unchanged; every `pub fn` present in 0.24's Rust
+# binding is still present in 0.25 except `child_containing_descendant`,
+# which this crate never calls; `impl From<LanguageFn> for Language` (the
+# `tree_sitter_x::LANGUAGE.into()` pattern every table row below uses) is
+# unchanged; default features (`std` only, no `wasm`) are unchanged. This is
+# the ONLY place `tree-sitter` itself is pinned in the workspace (no
+# cross-crate version-unification risk).
+tree-sitter = { version = "0.25", optional = true }
 tree-sitter-python = { version = "0.23", optional = true }
 tree-sitter-rust = { version = "0.23", optional = true }
 tree-sitter-typescript = { version = "0.23", optional = true }
@@ -148,8 +164,11 @@ tree-sitter-go = { version = "0.23", optional = true }
 tree-sitter-java = { version = "0.23", optional = true }
 tree-sitter-c = { version = "0.23", optional = true }
 tree-sitter-cpp = { version = "0.23", optional = true }
-# Pinned to an ABI-14 grammar: 0.23.5 was regenerated with tree-sitter ABI 15,
-# which the 0.23 core runtime rejects ("Incompatible language version 15").
+# Pinned to an ABI-14 grammar: 0.23.5 was regenerated with tree-sitter ABI 15.
+# The core (above) now accepts ABI 15 too (bumped for Terraform/HCL and
+# DreamMaker — CONCEPT:EH-281 follow-up), so 0.23.5 would load fine today;
+# left unchanged here deliberately — bumping an unrelated already-working
+# grammar's pin is out of this pass's scope, not a leftover oversight.
 tree-sitter-c-sharp = { version = "=0.23.1", optional = true }
 # SQL DDL grammar (CONCEPT:KG-2.212) — derekstride's tree-sitter-sql, published as
 # `tree-sitter-sequel`. Parses CREATE TABLE/VIEW + FOREIGN KEY into the database
@@ -161,30 +180,25 @@ tree-sitter-php = { version = "0.23", optional = true }
 tree-sitter-bash = { version = "0.23", optional = true }
 tree-sitter-scala = { version = "0.23", optional = true }
 tree-sitter-lua = { version = "0.2", optional = true }
-# CONCEPT:EH-281 grammar expansion — every pin below was checked against this
-# crate's tree-sitter 0.23 core (ABI 14, `MIN_COMPATIBLE_LANGUAGE_VERSION..=
-# LANGUAGE_VERSION` = 13..=14) the same way `tree-sitter-c-sharp` above was:
-# download the crate, read `src/parser.c`'s `LANGUAGE_VERSION`, and pin the
-# newest release that is still 14, because a newer release generated at ABI 15
-# fails `Parser::set_language` at runtime ("Incompatible language version 15"),
-# not at compile time — cargo happily builds an ABI you can't actually parse
-# with. No CUDA crate is pinned: crates.io's only maintained one (0.21.2) is
-# ABI 15 with no older ABI-14 release, and CUDA source is a C++ superset
-# anyway, so `tree_sitter.rs` routes `.cu`/`.cuh` through `tree-sitter-cpp`
-# instead (see the CUDA row in `CORE_LANGUAGES`). No Terraform/HCL crate is
-# pinned: `tree-sitter-hcl` has published exactly ONE release ever, 1.1.0,
-# and it is ABI 15 (re-verified 2026-09-22); no fork or alternate maintained
-# crate (`tree-sitter-terraform`, `tree-sitter-tf`, ...) exists on crates.io.
-# No DreamMaker crate is pinned either: `tree-sitter-dm` (feudeytf, MIT,
-# `crates.io` description "DreamMaker grammar" — the earlier "no maintained
-# grammar at all" finding was a name-only miss, checked against the WRONG
-# package name `tree-sitter-dreammaker`) exists and IS actively maintained
-# (4 releases, latest 2026-09-06), but all 4 published versions (0.25.0
-# through 0.25.4) are ABI 15 — re-verified 2026-09-22, `src/parser.c`'s
-# `LANGUAGE_VERSION` = 15 on every one. No ABI-14 release exists for either
-# language, so neither can load against this crate's pinned tree-sitter 0.23
-# core; bumping the core to pick up ABI 15 is out of scope here (it would
-# invalidate every other ABI-14 pin in this list).
+# CONCEPT:EH-281 grammar expansion — every pin below was checked the same way
+# `tree-sitter-c-sharp` above was: download the crate, read `src/parser.c`'s
+# `LANGUAGE_VERSION` directly (never inferred from a crate's declared
+# `tree-sitter` dev-dependency range — that has been WRONG before), and pin
+# the release that matches this crate's core ABI range. No CUDA crate is
+# pinned: crates.io's only maintained one (0.21.2) is ABI 15 with no older
+# ABI-14 release AND CUDA source is a C++ superset anyway, so `tree_sitter.rs`
+# routes `.cu`/`.cuh` through `tree-sitter-cpp` instead (see the CUDA row in
+# `CORE_LANGUAGES`) — this one stays unpinned regardless of core ABI.
+#
+# Julia through JSON below are ABI 14 (this crate's core accepted 13..=14
+# before the ABI-15 bump a few lines up, so these predate it and needed no
+# change). Terraform/HCL and DreamMaker are ABI 15 — this crate's ONLY
+# ABI-15-only pins, which is exactly why the core bump happened: `tree-sitter-hcl`
+# has published exactly ONE release ever, 1.1.0, ABI 15, no fork or alternate
+# maintained crate exists; `tree-sitter-dm` (feudeytf, MIT, "DreamMaker
+# grammar" — the earlier "no maintained grammar at all" finding checked the
+# WRONG package name, `tree-sitter-dreammaker`) IS actively maintained (4
+# releases) but every one is ABI 15, no ABI-14 release ever published.
 tree-sitter-kotlin-ng = { version = "=1.0.1", optional = true }
 tree-sitter-objc = { version = "=3.0.2", optional = true }
 tree-sitter-zig = { version = "=1.1.2", optional = true }
@@ -213,6 +227,11 @@ tree-sitter-pascal = { version = "=0.10.2", optional = true }
 tree-sitter-html = { version = "=0.23.2", optional = true }
 tree-sitter-css = { version = "=0.23.2", optional = true }
 tree-sitter-json = { version = "=0.24.8", optional = true }
+# Terraform/HCL. ABI 15 — the reason the core was bumped. Its one-ever
+# release, Apache-2.0.
+tree-sitter-hcl = { version = "=1.1.0", optional = true }
+# DreamMaker. ABI 15. Newest release (0.25.4) is what's pinned, MIT.
+tree-sitter-dm = { version = "=0.25.4", optional = true }
 
 # Criterion harness for the AST parse-throughput baseline bench (CONCEPT:EG-012).
 # DEV-only — never linked into the engine binary.

@@ -49,6 +49,22 @@
 //! "unregistered" test with a fake claim of capability. A future lane can
 //! still add a dedicated structural extractor (element/attribute, selector/
 //! property, key path) without needing to touch grammar registration again.
+//!
+//! Terraform/HCL and DreamMaker (CONCEPT:EH-281 ABI-15 follow-up) needed the
+//! `tree-sitter` core bumped 0.23 -> 0.25 (both are ABI 15; every earlier
+//! grammar in this file is ABI 14 and needed no change). HCL is the same
+//! shape as HTML/CSS/JSON: `hcl_parses_with_zero_symbols` proves real
+//! parsing with zero extraction — `resource`/`variable`/`module` are all
+//! the SAME `block` node kind, distinguished only by a label string.
+//! DreamMaker is the opposite: a real OOP scripting language, so it got real
+//! vocabulary work — `dreammaker_type_proc_and_include` proves class (a
+//! `type_definition`'s dotted path, e.g. `/obj/item/weapon` -> `weapon`),
+//! method (`type_proc_definition`), function (`proc_definition`, a
+//! DIFFERENT node kind for a top-level proc), and import
+//! (`preproc_include`, sharing C/C++'s node kind but a different field name
+//! for the included path) extraction; `dreammaker_single_segment_type_path`
+//! covers the one-segment path shape (`/obj`) that has no `type_identifier`
+//! at all, only a `primitive_type` wrapping its own `identifier`.
 #![cfg(feature = "ast-extended")]
 
 use eg_compute::parser::tree_sitter::parse_file;
@@ -477,4 +493,82 @@ fn gradle_dsl_files_route_to_groovy_and_kotlin() {
     let kotlin_src = "class Config {\n    var value: Int = 1\n}\n";
     let k = sym("build.gradle.kts", kotlin_src, "Config");
     assert_eq!(k["language"], "kotlin");
+}
+
+#[test]
+fn dreammaker_type_proc_and_include() {
+    // CONCEPT:EH-281 ABI-15 follow-up. `/obj/item/weapon` is DM's class
+    // shape (a type path); `proc/attack` inside it is a method
+    // (type_proc_definition); a top-level `/proc/GlobalHelper` is a
+    // function (proc_definition, distinct node kind, also name-fielded).
+    let src = r#"
+#include "code\other.dm"
+
+/obj/item/weapon
+	name = "weapon"
+	var/damage = 10
+
+	proc/attack(mob/target)
+		target.health -= damage
+
+/proc/GlobalHelper(a, b)
+	return a + b
+"#;
+    let r = parse_file("weapon.dm", src.as_bytes()).unwrap_or_else(|e| panic!("parse failed: {e}"));
+
+    let weapon = sym("weapon.dm", src, "weapon");
+    assert_eq!(weapon["symbol_type"], "Class");
+    assert_eq!(weapon["kind_detail"], "class");
+    assert_eq!(weapon["language"], "dreammaker");
+
+    let attack = sym("weapon.dm", src, "attack");
+    assert_eq!(attack["symbol_type"], "Function");
+    assert_eq!(attack["kind_detail"], "method");
+
+    let helper = sym("weapon.dm", src, "GlobalHelper");
+    assert_eq!(helper["symbol_type"], "Function");
+    assert_eq!(helper["kind_detail"], "function");
+
+    let raw_deps: Vec<&str> = r
+        .edges
+        .iter()
+        .filter(|e| e.edge_type == "depends_on_raw")
+        .map(|e| e.target.as_str())
+        .collect();
+    assert!(
+        raw_deps.iter().any(|d| d.contains("other.dm")),
+        "{raw_deps:?}"
+    );
+}
+
+#[test]
+fn dreammaker_single_segment_type_path() {
+    // A single-segment path (`/obj`) has no `type_identifier` at all — only
+    // a `primitive_type` wrapping its own `identifier` child — the fallback
+    // branch `dm_symbol_name` needs.
+    let src = "/obj\n\tname = \"thing\"\n";
+    let obj = sym("thing.dm", src, "obj");
+    assert_eq!(obj["symbol_type"], "Class");
+}
+
+#[test]
+fn hcl_parses_with_zero_symbols() {
+    // Terraform/HCL (CONCEPT:EH-281 ABI-15 follow-up): registered for real
+    // parsing but, like HTML/CSS/JSON, contributes no new vocabulary —
+    // `resource`/`variable`/`module` are all the same `block` node kind,
+    // distinguished only by a label string, not a function/class-shaped
+    // declaration.
+    let src = r#"
+resource "aws_instance" "web" {
+  ami           = "ami-123456"
+  instance_type = "t2.micro"
+}
+
+variable "region" {
+  type    = string
+  default = "us-east-1"
+}
+"#;
+    let r = parse_file("main.tf", src.as_bytes()).unwrap_or_else(|e| panic!("parse failed: {e}"));
+    assert_eq!(r.symbols_extracted, 0);
 }
