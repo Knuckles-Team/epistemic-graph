@@ -25,7 +25,7 @@
 # wheel from; `crates/` is the 48-member cargo workspace of library crates
 # `src/` composes. Ported from the agent-utilities original of this gate per
 # CX-HYG-01; see that repo's own .repo-layout.toml for the shared conventions
-# (scripts/, .github, .security, .specify, ...).
+# (scripts/, .github, and .security).
 
 [dirs]
 src = "root epistemic-graph package: server binary (src/bin/main.rs) + PyO3 facade that maturin builds the wheel from"
@@ -46,7 +46,6 @@ tests = "the Rust integration test suite (adopt_*, characterization_*, advanced_
 ".github" = "GitHub Actions workflow definitions"
 ".kiss" = "hand-authored `kiss` structural-rule thresholds (.kiss/kiss.toml) read by scripts/run_kiss.sh; every other entry is a regenerated analysis cache and is gitignored"
 ".security" = "adversarial security-gate scripts (authenticated_negative.py, repository_fuzz.py) and security-contract.json read by the security CI gate"
-".specify" = "spec-kit state for SDD-governed feature work: reports/specs"
 
 [files]
 "AGENTS.md" = "agent-facing repo guide"

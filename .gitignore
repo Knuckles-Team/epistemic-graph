@@ -107,6 +107,7 @@ failed_tests.txt
 trace.txt
 
 # AI agent scratch (do not commit) — keep repo roots pristine
+/.specify/
 .agent/
 .agents/
 .agent_data/
