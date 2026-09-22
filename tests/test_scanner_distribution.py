@@ -176,13 +176,14 @@ def _assert_scanner_job(jobs, workflow_source):
         "--source-manifest",
         "--require-zero",
         "cccc --no-config --min 0",
-        "kiss check --config .kiss/kiss.toml --lang rust",
+        "python3 scripts/run_kiss_census.py --jobs 4",
         "lint-imports --config .importlinter --no-cache",
         "depcruise --validate --config .dependency-cruiser.cjs",
         "python3 scripts/check_rust_arch_lint.py",
     ):
         assert command in all_runs, f"scanner-quality is missing {command!r}"
     assert "arch-lint check" not in all_runs
+    assert 'for path in "${files[@]}"' not in workflow_source
     assert "Upload CCCC census evidence" in workflow_source
     assert "epistemic-graph-cccc-stderr.txt" in workflow_source
     assert (

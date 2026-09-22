@@ -592,26 +592,7 @@ jobs:
             ${{ runner.temp }}/epistemic-graph-cccc-terms.txt
 
       - name: KISS tracked-tree census (advisory)
-        shell: bash
-        run: |
-          set -euo pipefail
-          [ -f .kiss/kiss.toml ] || { echo "KISS census: missing .kiss/kiss.toml" >&2; exit 2; }
-          [ ! -e .kissconfig ] || { echo "KISS census: .kissconfig is forbidden" >&2; exit 2; }
-          mapfile -d "" files < <(python3 scripts/list_scanner_sources.py kiss)
-          [ "${#files[@]}" -gt 0 ] || { echo "KISS census: no tracked Rust source files" >&2; exit 2; }
-          total=0
-          for path in "${files[@]}"; do
-            set +e
-            output="$(kiss check --config .kiss/kiss.toml --lang rust "$path" 2>&1)"
-            status=$?
-            set -e
-            if grep -q "Unknown config key" <<< "$output"; then printf "%s\\n" "$output" >&2; echo "KISS census: KISS rejected a config key" >&2; exit 2; fi
-            if [ "$status" -gt 1 ]; then printf "%s\\n" "$output" >&2; echo "KISS census: KISS failed on $path with exit $status" >&2; exit 2; fi
-            count="$(grep -c "^VIOLATION:" <<< "$output" || true)"
-            if { [ "$status" -eq 0 ] && [ "$count" -ne 0 ]; } || { [ "$status" -eq 1 ] && [ "$count" -eq 0 ]; }; then printf "%s\\n" "$output" >&2; echo "KISS census: exit status and report disagree for $path" >&2; exit 2; fi
-            total=$((total + count))
-          done
-          printf "KISS census: %s tracked Rust file(s), %s violation(s); findings are advisory\\n" "${#files[@]}" "$total"
+        run: python3 scripts/run_kiss_census.py --jobs 4
 
       - name: Python import architecture (import-linter)
         run: lint-imports --config .importlinter --no-cache

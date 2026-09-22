@@ -8,11 +8,10 @@
 # ⚠ NEVER run bare `kiss check` here -- it writes a self-calibrating
 #   .kissconfig that also disables four global rules. ALWAYS pass
 #   `--config .kiss/kiss.toml` and ONE path per invocation (KISS 0.4.10 reports
-#   a false clean for a multi-path `check`). The two callers that do this
-#   correctly are scripts/check_kiss_staged.sh (the pre-commit hook) and the
-#   `kiss-census` hook in .config/pre-commit.yaml; go through one of them.
-#   (Corrected 2026-09-11: this header used to point at scripts/run_kiss.sh,
-#   which does not exist in this repository.)
+#   a false clean for a multi-path `check`). The supported callers preserve
+#   that invariant: scripts/check_kiss_staged.sh handles changed files
+#   individually, while scripts/run_kiss_census.py derives package roots from
+#   the tracked manifest and runs one root per bounded worker.
 #
 # Measured 2026-08-27, src/ + crates/ (811 files, 20,149 units).
 # Re-measured 2026-09-11, src/ + crates/ (1,279 tracked files, 20,011 units:
