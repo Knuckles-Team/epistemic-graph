@@ -66,6 +66,19 @@ nav:
   - Reference:
       - Capabilities: capabilities.md
       - Generated method ledger: capabilities.generated.md
+      - API reference: api/index.md
+      - Cluster API: api/cluster.md
+      - Compute API: api/compute.md
+      - Coordination API: api/coordination.md
+      - Graph API: api/graph.md
+      - Ingestion API: api/ingestion.md
+      - Messaging API: api/messaging.md
+      - Query API: api/query.md
+      - Reasoning API: api/reasoning.md
+      - Security API: api/security.md
+      - Storage API: api/storage.md
+      - Transactions API: api/transactions.md
+      - OpenAPI / Swagger UI: swagger-ui.md
       - Concepts: concepts.md
       - Cost and capacity: cost_model.md
       - Transport benchmarks: benchmarks.md

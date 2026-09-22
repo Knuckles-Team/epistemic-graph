@@ -29,6 +29,16 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [pre-commit, pre-push, manual]
+  # D7/D8: per-namespace API reference pages + OpenAPI document, generated
+  # from contract/. Same shape as check-status-page above.
+  # Regenerate with `python3 scripts/gen_api_docs.py --write`.
+  - id: api-contract-docs
+    name: API contract docs freshness (generated docs/api/, openapi.json; see gen_api_docs.py --write)
+    entry: python3 scripts/check_api_contract_docs.py
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-commit, pre-push, manual]
 - repo: https://github.com/pre-commit/pre-commit-hooks
   rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
   hooks:
