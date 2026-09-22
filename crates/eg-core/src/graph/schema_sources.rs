@@ -11,7 +11,7 @@ use std::sync::{Arc, OnceLock};
 
 use eg_types::contract::Digest256;
 
-use super::IntegrityPolicyV2;
+use super::LegacyIntegrityPolicy;
 
 /// Closed upper bound for one binary's immutable catalog.  The current catalog
 /// contains the aggregate document, foundation, 28 domain TBoxes, and the core
@@ -464,7 +464,7 @@ fn pack_record_sequence(record_id: &str) -> Option<(&str, u64)> {
 }
 
 pub fn lift_v2_integrity_policy(
-    policy: Option<IntegrityPolicyV2>,
+    policy: Option<LegacyIntegrityPolicy>,
 ) -> Result<Arc<GraphSchemaSources>, String> {
     let mut dynamic = BTreeMap::new();
     if let Some(policy) = policy {

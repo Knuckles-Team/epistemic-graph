@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::compute::semantic::SemanticStore;
 use crate::graph::{
     lift_v2_integrity_policy, GraphCore, GraphSchemaSources, GraphSnapshot, GraphTxn,
-    IntegrityPolicyV2,
+    LegacyIntegrityPolicy,
 };
 use crate::protocol::Method;
 
@@ -63,20 +63,20 @@ struct GraphRowDeltaCurrent {
 
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct GraphRowDeltaV2 {
+struct LegacyGraphRowDelta {
     schema_version: u16,
     operations: Vec<Method>,
     #[serde(deserialize_with = "deserialize_required_option")]
     ledger: Option<LedgerDelta>,
     #[serde(deserialize_with = "deserialize_required_option")]
-    integrity_policy: Option<IntegrityPolicyV2>,
+    integrity_policy: Option<LegacyIntegrityPolicy>,
 }
 
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum GraphRowDeltaWire {
     Current(GraphRowDeltaCurrent),
-    V2(GraphRowDeltaV2),
+    V2(LegacyGraphRowDelta),
 }
 
 impl<'de> Deserialize<'de> for GraphRowDelta {
@@ -728,11 +728,11 @@ mod tests {
     #[test]
     fn v2_delta_lifts_a_policy_but_preserves_none_as_unchanged() {
         const V2_DELTA_GOLDEN: &str = "84ae736368656d615f76657273696f6e02aa6f7065726174696f6e7390a66c6564676572c0b0696e746567726974795f706f6c69637981aa7368617065735f74746cd92b407072656669782073683a203c687474703a2f2f7777772e77332e6f72672f6e732f736861636c233e202e";
-        let with_policy = GraphRowDeltaV2 {
+        let with_policy = LegacyGraphRowDelta {
             schema_version: 2,
             operations: Vec::new(),
             ledger: None,
-            integrity_policy: Some(IntegrityPolicyV2 {
+            integrity_policy: Some(LegacyIntegrityPolicy {
                 shapes_ttl: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
             }),
         };
@@ -747,7 +747,7 @@ mod tests {
             .dynamic
             .contains_key(crate::graph::OPERATOR_SOURCE_ID));
 
-        let unchanged = GraphRowDeltaV2 {
+        let unchanged = LegacyGraphRowDelta {
             schema_version: 2,
             operations: Vec::new(),
             ledger: None,
