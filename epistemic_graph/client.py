@@ -4709,6 +4709,140 @@ def _work_item_view(value: Any) -> dict[str, Any]:
     return value
 
 
+class ControlLeaseClient:
+    """Engine-native control leases (graph-os EG-2).
+
+    A control lease is a tenant-bound, time-boxed GRANT record -- an immutable
+    grant body plus ``issued_at_ms``/``expires_at_ms``/``hard_expires_at_ms`` --
+    with a one-way lifecycle: ``active``, then ``revoked`` or ``expired``. Only
+    these methods write it; generic node writes are refused by the engine.
+    ``tenant`` must equal the verified request tenant on every call.
+    """
+
+    def __init__(self, client: EpistemicGraphClient) -> None:
+        self._client = client
+
+    async def issue(
+        self,
+        *,
+        tenant: str,
+        lease_id: str,
+        kind: str,
+        grant: dict[str, Any],
+        issued_at_ms: int,
+        expires_at_ms: int,
+        hard_expires_at_ms: int,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Issue one active lease: ``{"outcome": "issued"|"collision", "lease":
+        view|None, ...}``. An existing id is a ``collision``, never an overwrite.
+        """
+        if not isinstance(grant, dict):
+            raise TypeError("IssueControlLease.grant must be a mapping")
+        request = {
+            "tenant": _string("IssueControlLease.tenant", tenant),
+            "lease_id": _string("IssueControlLease.lease_id", lease_id),
+            "kind": _string("IssueControlLease.kind", kind),
+            "grant": grant,
+            "issued_at_ms": _integer("IssueControlLease.issued_at_ms", issued_at_ms),
+            "expires_at_ms": _integer("IssueControlLease.expires_at_ms", expires_at_ms),
+            "hard_expires_at_ms": _integer(
+                "IssueControlLease.hard_expires_at_ms", hard_expires_at_ms
+            ),
+            "idempotency_key": _string(
+                "IssueControlLease.idempotency_key", idempotency_key
+            ),
+        }
+        value = (
+            await _gen.coordination.send_issue_control_lease(
+                self._client, {"request": request}, idempotency_key=idempotency_key
+            )
+        ).payload
+        return _control_lease_answer(value, {"issued", "collision"})
+
+    async def get(self, *, tenant: str, lease_id: str) -> dict[str, Any] | None:
+        """Return one lease's view, or ``None`` when no control lease with this
+        id is visible to ``tenant``."""
+        value = (
+            await _gen.coordination.send_get_control_lease(
+                self._client,
+                {
+                    "tenant": _string("GetControlLease.tenant", tenant),
+                    "lease_id": _string("GetControlLease.lease_id", lease_id),
+                },
+            )
+        ).payload
+        if value is None:
+            return None
+        return _control_lease_view(value)
+
+    async def transition(
+        self,
+        *,
+        tenant: str,
+        lease_id: str,
+        expected_revision: int,
+        to: Literal["revoked", "expired"],
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """End an active lease, compare-and-set on ``expected_revision`` (the
+        ``revision`` of the view the caller decided on). Answers
+        ``{"outcome": "applied"|"conflict"|"not_found", "lease": view|None,
+        ...}``; on ``conflict`` the lease is the CURRENT view."""
+        if to not in ("revoked", "expired"):
+            raise ValueError("TransitionControlLease.to must be revoked or expired")
+        request = {
+            "tenant": _string("TransitionControlLease.tenant", tenant),
+            "lease_id": _string("TransitionControlLease.lease_id", lease_id),
+            "expected_revision": _integer(
+                "TransitionControlLease.expected_revision", expected_revision, minimum=1
+            ),
+            "to": to,
+            "idempotency_key": _string(
+                "TransitionControlLease.idempotency_key", idempotency_key
+            ),
+        }
+        value = (
+            await _gen.coordination.send_transition_control_lease(
+                self._client, {"request": request}, idempotency_key=idempotency_key
+            )
+        ).payload
+        return _control_lease_answer(value, {"applied", "conflict", "not_found"})
+
+
+_CONTROL_LEASE_VIEW_FIELDS = frozenset(
+    {
+        "lease_id",
+        "kind",
+        "status",
+        "grant",
+        "issued_at_ms",
+        "expires_at_ms",
+        "hard_expires_at_ms",
+        "revision",
+    }
+)
+
+
+def _control_lease_view(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != _CONTROL_LEASE_VIEW_FIELDS:
+        raise RuntimeError("control lease view does not match the typed contract")
+    if value["status"] not in ("active", "revoked", "expired"):
+        raise RuntimeError("control lease view carries an unknown status")
+    return value
+
+
+def _control_lease_answer(value: Any, outcomes: set[str]) -> dict[str, Any]:
+    if not isinstance(value, dict) or value.get("outcome") not in outcomes:
+        raise RuntimeError("control lease answer does not match the typed contract")
+    lease = value.get("lease")
+    return {
+        "outcome": value["outcome"],
+        "lease": None if lease is None else _control_lease_view(lease),
+        "changed_ids": list(value.get("changed_work_item_ids") or []),
+    }
+
+
 class CapacityLeaseClient:
     """Engine-native bounded CapacityCell/CapacityLease namespace."""
 
@@ -14830,6 +14964,7 @@ class EpistemicGraphClient:
         # Namespaced Sub-Clients (Composition)
         self.nodes = NodeClient(self)
         self.work_items = WorkItemClient(self)
+        self.control_leases = ControlLeaseClient(self)
         self.capacity_leases = CapacityLeaseClient(self)
         self.development_lanes = DevelopmentLaneClient(self)
         self.changes = ChangeEnvelopeClient(self)
@@ -15922,6 +16057,7 @@ class SyncEpistemicGraphClient:
         # We need to wrap the namespaces synchronously as well
         self.nodes = self._SyncWrapper(self._client.nodes, self._loop)
         self.work_items = self._SyncWrapper(self._client.work_items, self._loop)
+        self.control_leases = self._SyncWrapper(self._client.control_leases, self._loop)
         self.capacity_leases = self._SyncWrapper(
             self._client.capacity_leases, self._loop
         )

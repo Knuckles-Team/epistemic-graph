@@ -480,6 +480,8 @@ const CLASSIFICATION_GOLDEN: &[(&str, &str)] = &[
     ("CancelWorkItem", "ControlPlane"),
     ("DeferWorkItem", "ControlPlane"),
     ("CasWorkItemMetadata", "ControlPlane"),
+    ("IssueControlLease", "ControlPlane"),
+    ("TransitionControlLease", "ControlPlane"),
     ("ReserveWorkItemResources", "ControlPlane"),
     ("ReleaseWorkItemResources", "ControlPlane"),
     ("ReclaimWorkItemResources", "ControlPlane"),

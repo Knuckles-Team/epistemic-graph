@@ -7,7 +7,11 @@ from typing import Any, cast
 
 import pytest
 
-from epistemic_graph.client import EpistemicGraphClient, WorkItemClient
+from epistemic_graph.client import (
+    ControlLeaseClient,
+    EpistemicGraphClient,
+    WorkItemClient,
+)
 
 pytestmark = pytest.mark.no_engine
 
@@ -98,3 +102,80 @@ def test_list_refuses_a_limit_outside_the_engine_bound(limit: int) -> None:
     with pytest.raises(ValueError):
         asyncio.run(_work_items(engine).list(tenant="tenant-a", limit=limit))
     assert engine.sent == []
+
+
+# -- graph-os EG-2 native control leases -------------------------------------
+
+LEASE: dict[str, Any] = {
+    "lease_id": "browserlease_1",
+    "kind": "browser.control",
+    "status": "active",
+    "grant": {"tool_ids": ["click"]},
+    "issued_at_ms": 1_000,
+    "expires_at_ms": 301_000,
+    "hard_expires_at_ms": 901_000,
+    "revision": 1,
+}
+
+
+def _leases(engine: _Engine) -> ControlLeaseClient:
+    return ControlLeaseClient(cast(EpistemicGraphClient, engine))
+
+
+def test_issue_sends_the_typed_request_and_validates_the_answer() -> None:
+    engine = _Engine(
+        {"outcome": "issued", "lease": LEASE, "changed_work_item_ids": ["x"]}
+    )
+    answer = asyncio.run(
+        _leases(engine).issue(
+            tenant="tenant-a",
+            lease_id="browserlease_1",
+            kind="browser.control",
+            grant={"tool_ids": ["click"]},
+            issued_at_ms=1_000,
+            expires_at_ms=301_000,
+            hard_expires_at_ms=901_000,
+            idempotency_key="issue-1",
+        )
+    )
+    assert answer == {"outcome": "issued", "lease": LEASE, "changed_ids": ["x"]}
+    method, params = engine.sent[0]
+    assert method == "IssueControlLease"
+    assert isinstance(params, dict)
+    assert params["request"]["idempotency_key"] == "issue-1"
+
+
+def test_transition_and_get_round_trip_the_lease_view() -> None:
+    ended = {**LEASE, "status": "revoked", "revision": 2}
+    engine = _Engine(
+        {"outcome": "applied", "lease": ended, "changed_work_item_ids": []}
+    )
+    answer = asyncio.run(
+        _leases(engine).transition(
+            tenant="tenant-a",
+            lease_id="browserlease_1",
+            expected_revision=1,
+            to="revoked",
+            idempotency_key="end-1",
+        )
+    )
+    assert answer["lease"] == ended
+    assert asyncio.run(_leases(_Engine(None)).get(tenant="t", lease_id="l")) is None
+    assert asyncio.run(_leases(_Engine(LEASE)).get(tenant="t", lease_id="l")) == LEASE
+
+
+def test_a_lease_answer_outside_the_contract_is_refused() -> None:
+    with pytest.raises(RuntimeError):
+        asyncio.run(
+            _leases(_Engine({**LEASE, "extra": 1})).get(tenant="t", lease_id="l")
+        )
+    with pytest.raises(ValueError):
+        asyncio.run(
+            _leases(_Engine(None)).transition(
+                tenant="t",
+                lease_id="l",
+                expected_revision=1,
+                to=cast(Any, "active"),
+                idempotency_key="k",
+            )
+        )

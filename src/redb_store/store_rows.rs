@@ -167,6 +167,7 @@ pub(crate) fn apply_method_rows_ref(
         ..
     } = tables;
     work_item_capability::validate_generic_method(graph, method, nodes, native_work_items, crypto)?;
+    work_item::refuse_generic_native_row_write(graph, method, nodes, crypto)?;
     match method {
         Method::AddNode {
             node_id,

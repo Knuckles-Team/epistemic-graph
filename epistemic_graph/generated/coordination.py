@@ -1184,6 +1184,168 @@ async def send_list_work_items(
     return OpaqueResult("ListWorkItems", payload)
 
 
+class IssueControlLeaseRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        IssueControlLease
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/IssueControlLease
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: Any
+
+
+async def send_issue_control_lease(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        IssueControlLease
+    Authorization:
+        lease:write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/IssueControlLease
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    IssueControlLeaseRequest.model_validate(params or {})
+    payload = await client._send(
+        "IssueControlLease",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("IssueControlLease", payload)
+
+
+class TransitionControlLeaseRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        TransitionControlLease
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/TransitionControlLease
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: Any
+
+
+async def send_transition_control_lease(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        TransitionControlLease
+    Authorization:
+        lease:write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/TransitionControlLease
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    TransitionControlLeaseRequest.model_validate(params or {})
+    payload = await client._send(
+        "TransitionControlLease",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("TransitionControlLease", payload)
+
+
+class GetControlLeaseRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        GetControlLease
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/GetControlLease
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    lease_id: str
+    tenant: str
+
+
+async def send_get_control_lease(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        GetControlLease
+    Authorization:
+        lease:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/GetControlLease
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    GetControlLeaseRequest.model_validate(params or {})
+    payload = await client._send(
+        "GetControlLease",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("GetControlLease", payload)
+
+
 class ReserveWorkItemResourcesRequest(BaseModel):
     """Validate one engine-contract request body.
 

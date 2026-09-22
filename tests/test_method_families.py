@@ -63,6 +63,10 @@ _WORK_ITEM_METHODS = frozenset(
         "CancelWorkItem",
         "DeferWorkItem",
         "CasWorkItemMetadata",
+        # graph-os EG-2: native control-lease writes joined the WorkItemLease
+        # family after the base commit; every classifier selects them with it.
+        "IssueControlLease",
+        "TransitionControlLease",
     }
 )
 _RESOURCE_AND_CAPACITY_WRITES = frozenset(
@@ -116,6 +120,8 @@ _DURABLE_AT_BASE = (
         "CancelWorkItem",
         "DeferWorkItem",
         "CasWorkItemMetadata",
+        "IssueControlLease",
+        "TransitionControlLease",
         "ClearGraph",
         "AddEmbedding",
     }
@@ -143,6 +149,8 @@ _ATOMIC_BATCH_ROWS_AT_BASE = frozenset(
         "CancelWorkItem",
         "DeferWorkItem",
         "CasWorkItemMetadata",
+        "IssueControlLease",
+        "TransitionControlLease",
         "ReserveWorkItemResources",
         "ReleaseWorkItemResources",
         "ReclaimWorkItemResources",

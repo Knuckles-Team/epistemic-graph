@@ -466,9 +466,6 @@ const WORK_ITEM_AUTHORITY_KEYS: &[&str] = &[
     "result_ref",
     "error_ref",
     "completed_at",
-    // The native row revision (`GetWorkItem`/`ListWorkItems` `version`) is
-    // advanced only by the native row writer; a generic update may not forge it.
-    "row_revision",
 ];
 
 fn is_work_item(props: &serde_json::Map<String, serde_json::Value>) -> bool {

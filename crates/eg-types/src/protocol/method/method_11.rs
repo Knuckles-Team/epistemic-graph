@@ -24,6 +24,26 @@ $($variants)*
         #[serde(default)]
         kind: Option<String>,
     },
+
+    // ── Native control leases (graph-os EG-2) ──────────────────────────────
+    /// Issue one active control lease: an immutable, time-boxed grant record.
+    /// A row already holding the id answers `collision` and is left untouched.
+    /// `request.tenant` must equal the verified request tenant. See
+    /// [`crate::control_lease`].
+    IssueControlLease {
+        request: crate::control_lease::IssueControlLeaseRequest,
+    },
+    /// End one active control lease (`revoked` or `expired`), compare-and-set
+    /// on the revision the caller read. A lease never returns to `active`.
+    TransitionControlLease {
+        request: crate::control_lease::TransitionControlLeaseRequest,
+    },
+    /// The caller's view of one control lease, or `null` when no lease with
+    /// this id is visible to `tenant` (which must equal the verified tenant).
+    GetControlLease {
+        tenant: String,
+        lease_id: String,
+    },
         ]);
     };
 }

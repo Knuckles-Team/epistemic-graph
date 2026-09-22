@@ -169,6 +169,9 @@ pub mod work_item_read;
 // The opaque tenant-bound keyset cursor shared by every paged read
 // (`AgentComponent.Search`, `ListWorkItems`).
 pub mod tenant_cursor;
+// graph-os EG-2 — native control leases: a tenant-bound, time-boxed grant with
+// a one-way active -> revoked|expired lifecycle (not a capacity admission).
+pub mod control_lease;
 // D-VZ-1 (lanes V4 "engine integration" / V6 "graph-native marks") — the native
 // visualization engine's wire op (`VizOp`), gated `viz`. Lives here (not in
 // `eg-viz-core`, which sits in a separate small leaf DAG, not below eg-types) for

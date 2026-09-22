@@ -83,6 +83,10 @@ pub(super) fn append_native_work_item_ops(ops: &mut Vec<&'static str>, available
             // EH-219: the typed caller-view reads over the same native rows.
             "GetWorkItem",
             "ListWorkItems",
+            // graph-os EG-2: native control leases share the WorkItem kernel.
+            "IssueControlLease",
+            "TransitionControlLease",
+            "GetControlLease",
         ]);
     }
 }
@@ -434,12 +438,18 @@ mod native_resource_capability_tests {
     /// EH-219: `client.supports("GetWorkItem")` is how a caller learns the
     /// typed reads exist, so they ride the native WorkItem advertisement.
     #[test]
-    fn typed_work_item_reads_are_advertised_only_beside_native_submission() {
+    fn typed_work_item_and_lease_ops_are_advertised_only_beside_native_submission() {
         for available in [false, true] {
             let mut ops = Vec::new();
             append_native_work_item_ops(&mut ops, available);
-            for read in ["GetWorkItem", "ListWorkItems"] {
-                assert_eq!(ops.contains(&read), available, "{read} when {available}");
+            for op in [
+                "GetWorkItem",
+                "ListWorkItems",
+                "IssueControlLease",
+                "TransitionControlLease",
+                "GetControlLease",
+            ] {
+                assert_eq!(ops.contains(&op), available, "{op} when {available}");
             }
         }
     }

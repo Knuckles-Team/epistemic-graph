@@ -320,6 +320,15 @@ pub(super) fn work_item_audit_line(method: &Method) -> Option<String> {
             work_item_id,
             ..
         } => Some(format!("CANCEL_WORK_ITEM|{tenant}|{work_item_id}")),
+        // Never logs the grant body: identity and the lifecycle edge only.
+        Method::IssueControlLease { request } => Some(format!(
+            "ISSUE_CONTROL_LEASE|{}|{}|{}",
+            request.tenant, request.lease_id, request.kind
+        )),
+        Method::TransitionControlLease { request } => Some(format!(
+            "TRANSITION_CONTROL_LEASE|{}|{}|{}|{:?}",
+            request.tenant, request.lease_id, request.expected_revision, request.to
+        )),
         Method::DeferWorkItem {
             tenant,
             work_item_id,

@@ -24,7 +24,10 @@ pub(crate) struct HandleContext<'a> {
     pub(crate) routed_raft: &'a Option<crate::raft::multi::RoutedRaftHandle>,
 }
 
-/// Handle exactly the six result-producing WorkItem lifecycle transitions.
+/// Handle exactly the six result-producing WorkItem lifecycle transitions and
+/// the two native control-lease writes (graph-os EG-2), which share the same
+/// durable WorkItem MutationBatch kernel. Dispatch has already bound a lease
+/// write's tenant to the verified carrier (`route_control_lease_writes`).
 ///
 /// Submission and resource-reservation methods intentionally return `Err` and
 /// remain with their distinct admission/authority routes.
@@ -35,7 +38,9 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
         | Method::CommitWorkItemResult { .. }
         | Method::CancelWorkItem { .. }
         | Method::DeferWorkItem { .. }
-        | Method::CasWorkItemMetadata { .. }) => method,
+        | Method::CasWorkItemMetadata { .. }
+        | Method::IssueControlLease { .. }
+        | Method::TransitionControlLease { .. }) => method,
         other => return Err(other),
     };
 

@@ -157,6 +157,8 @@ pub(crate) fn work_item_batch_identity(
         Method::ReserveWorkItemResources { request }
         | Method::ReleaseWorkItemResources { request }
         | Method::ReclaimWorkItemResources { request } => Some(request.idempotency_key.clone()),
+        Method::IssueControlLease { request } => Some(request.idempotency_key.clone()),
+        Method::TransitionControlLease { request } => Some(request.idempotency_key.clone()),
         Method::UpdateResourceHost { request } => Some(format!(
             "resource-host:{}:{}",
             request.host_ref, request.revision

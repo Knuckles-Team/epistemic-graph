@@ -566,7 +566,9 @@ fn apply_one_native_operation_row(
         | Method::RenewWorkItemLease { .. }
         | Method::CancelWorkItem { .. }
         | Method::DeferWorkItem { .. }
-        | Method::CasWorkItemMetadata { .. }) => apply_native_work_item_family_operation(
+        | Method::CasWorkItemMetadata { .. }
+        | Method::IssueControlLease { .. }
+        | Method::TransitionControlLease { .. }) => apply_native_work_item_family_operation(
             graph_fname,
             method,
             tables,
