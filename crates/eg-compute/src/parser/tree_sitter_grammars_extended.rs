@@ -11,32 +11,43 @@
 // Every grammar below is pinned in `Cargo.toml` to a tree-sitter ABI-14
 // release (this crate's tree-sitter core accepts ABI 13..=14 only — see the
 // `tree-sitter-c-sharp` precedent in `CORE_LANGUAGES`'s file and the ABI note
-// above these dependencies in `Cargo.toml`). Three groups of ledger-requested
-// (EH-281) languages are deliberately NOT here — see the lane's WRAPUP for
-// the full evidence per language:
-//   * No maintained, ABI-compatible crates.io binding at all: Terraform/HCL
-//     (only release is ABI 15) and DreamMaker (no maintained grammar).
-//   * An ABI-14-compatible crate exists, but none of the language's
-//     declaration node kinds are covered by the existing generic AST
-//     walker's node-kind vocabulary (`tree_sitter_ast.rs`'s
-//     `class_like_kind`/`function_like_kind`) — registering them would
-//     silently extract zero symbols: Julia, Elixir, PowerShell, Fortran,
-//     Pascal. (Verilog and Objective-C used to be in this bucket too, but
-//     both are now registered below: their declaration KIND strings already
-//     matched the existing vocabulary — `class_declaration`/
-//     `interface_declaration`/`function_declaration` for Verilog,
-//     `class_interface`/`class_implementation` newly added for
-//     Objective-C — the only gap was `symbol_name()` not knowing how to read
-//     an identifier that's a positional child rather than a field, fixed by
-//     `identifier_child_name` in `tree_sitter_ast.rs`.)
-//   * An ABI-14-compatible crate exists and the walker gap is moot — these
-//     languages have no function/class concept at all, so no vocabulary
-//     addition to `class_like_kind`/`function_like_kind` could ever extract
-//     anything from them. They need a wholly separate DEDICATED extractor
-//     (element/attribute for HTML, selector/property for CSS, key path for
-//     JSON — the same shape `tree_sitter_sql.rs` already has for SQL DDL),
-//     which is architecture work for a follow-up lane, not a grammar-table
-//     row: HTML, CSS, JSON.
+// above these dependencies in `Cargo.toml`). Two ledger-requested (EH-281)
+// languages are deliberately NOT here — no maintained, ABI-14-compatible
+// crates.io binding exists for either (re-verified 2026-09-22; see the
+// Cargo.toml comment above the dependency block for the full evidence):
+// Terraform/HCL (its one-ever release is ABI 15) and DreamMaker
+// (`tree-sitter-dm` exists and is actively maintained, but every one of its
+// 4 releases is also ABI 15).
+//
+// Julia, Fortran, Pascal, and PowerShell needed real walker vocabulary work
+// (`tree_sitter_ast.rs`'s `class_like_kind`/`function_like_kind` plus a
+// language-scoped `symbol_name` fallback for each — their identifiers sit in
+// shapes the shared `identifier_child_name` positional-child fallback
+// doesn't cover: a nested `*_statement`/`type_head`/`signature` wrapper, not
+// a bare positional identifier). Elixir needed something structurally
+// different again: its grammar has NO dedicated declaration node kinds at
+// all (Elixir is homoiconic — `defmodule`/`def`/`defp` all parse as a plain
+// `call` node; the only way to tell one from an arbitrary function call is
+// the call's `target` TEXT, which `class_like_kind`/`function_like_kind`
+// cannot see since they take only a bare node-kind string). Elixir is
+// handled by a dedicated `elixir_call_scope` in `tree_sitter_walk.rs`
+// instead of the shared kind-string tables. (Verilog and Objective-C are the
+// precedent for "vocabulary looked missing but wasn't": both are registered
+// below with zero `class_like_kind`/`function_like_kind` additions — their
+// declaration KIND strings already matched the existing table; the only gap
+// was `symbol_name()` not knowing how to read an identifier that's a
+// positional child rather than a field, fixed by `identifier_child_name`.)
+//
+// HTML, CSS, and JSON are registered too, but contribute NO new vocabulary:
+// none of the three has a function/class concept, so the generic walker
+// extracts zero symbols from any of them (proven by
+// `html_css_json_parse_with_zero_symbols` in `tests/grammar_expansion.rs`).
+// Registering them still buys real capability — content_digest/
+// parser_capability_digest and a clean base for a future DEDICATED
+// structural extractor (element/attribute for HTML, selector/property for
+// CSS, key path for JSON — the same shape `tree_sitter_sql.rs` already has
+// for SQL DDL) — which remains architecture work for a follow-up lane, not
+// a grammar-table row.
 
 use super::{language_table_entry, LangCtor};
 use tree_sitter::Language;
@@ -84,6 +95,39 @@ const EXTENDED_LANGUAGES: &[(&[&str], LangCtor, &str)] = &[
         || tree_sitter_verilog::LANGUAGE.into(),
         "verilog",
     ),
+    (&["jl"], || tree_sitter_julia::LANGUAGE.into(), "julia"),
+    (
+        &["ex", "exs"],
+        || tree_sitter_elixir::LANGUAGE.into(),
+        "elixir",
+    ),
+    (
+        &["ps1", "psm1", "psd1"],
+        || tree_sitter_powershell::LANGUAGE.into(),
+        "powershell",
+    ),
+    // The classic fixed-form extensions (`.f`, `.for`) are deliberately not
+    // included: this grammar targets modern free-form Fortran (90+), and
+    // fixed-form column rules would need a separate validated pass.
+    (
+        &["f90", "f95", "f03", "f08"],
+        || tree_sitter_fortran::LANGUAGE.into(),
+        "fortran",
+    ),
+    (
+        &["pas", "pp", "dpr"],
+        || tree_sitter_pascal::LANGUAGE.into(),
+        "pascal",
+    ),
+    // HTML/CSS/JSON (CONCEPT:EH-281 follow-up) — see this file's module doc:
+    // registered for real parsing, zero symbols extracted today.
+    (
+        &["html", "htm"],
+        || tree_sitter_html::LANGUAGE.into(),
+        "html",
+    ),
+    (&["css"], || tree_sitter_css::LANGUAGE.into(), "css"),
+    (&["json"], || tree_sitter_json::LANGUAGE.into(), "json"),
 ];
 
 /// Resolve `ext` against the extended-language tier, or `None` if it isn't

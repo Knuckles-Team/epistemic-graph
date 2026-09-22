@@ -444,12 +444,16 @@ fn class_declaration_kind(kind: &str) -> Option<&'static str> {
         | "class_specifier"
         | "abstract_class_declaration" => "class",
         "interface_declaration" => "interface",
-        "struct_specifier" | "struct_item" | "struct_declaration" => "struct",
+        // `struct_definition` Julia (CONCEPT:EH-281).
+        "struct_specifier" | "struct_item" | "struct_declaration" | "struct_definition" => "struct",
         "enum_declaration" | "enum_item" | "enum_specifier" => "enum",
         // `trait_item` Rust, `trait_definition` Scala, `trait_declaration` PHP.
         "trait_item" | "trait_definition" | "trait_declaration" => "trait",
         "union_item" | "union_specifier" => "union",
         "record_declaration" | "record_struct_declaration" => "record",
+        // Julia `abstract type Shape end` (CONCEPT:EH-281) — a type with no
+        // fields/methods of its own, closest existing concept is `interface`.
+        "abstract_definition" => "abstract_type",
         _ => return None,
     }
     .into()
@@ -459,6 +463,9 @@ fn extended_class_kind(kind: &str) -> Option<&'static str> {
     match kind {
         "namespace_definition" => "namespace",
         // Ruby `class`/`module`; Scala `object_definition` (CONCEPT:AU-KG.compute.built-ast-extended).
+        // Fortran's own outer `module` container (CONCEPT:EH-281) reuses this
+        // same node-kind string; its name resolution differs (see
+        // `fortran_symbol_name`), so it needs no separate table row.
         "class" => "class",
         "module" => "module",
         "object_definition" => "object",
@@ -468,6 +475,25 @@ fn extended_class_kind(kind: &str) -> Option<&'static str> {
         // class name is an unnamed positional child, not a `name` field (see
         // `identifier_child_name`'s doc for why `symbol_name` still resolves it).
         "class_interface" | "class_implementation" => "class",
+        // Julia `module_definition` (CONCEPT:EH-281) — has a `name` field,
+        // resolved by `symbol_name`'s existing first check.
+        "module_definition" => "module",
+        // Pascal/Delphi's `unit` (whole-file container) is deliberately NOT
+        // mapped here (CONCEPT:EH-281): its own kind string, `"unit"`, is
+        // ALSO CSS's node kind for a length-unit token (`px` in `10px`) —
+        // confirmed via `tree-sitter-css`'s `node-types.json`, a real
+        // cross-grammar kind-string collision (every other shared kind
+        // string in this table, like `"class"`/`"module"`, means the same
+        // thing in both grammars that use it; this one doesn't). Harmless in
+        // practice (a CSS `unit` leaf has no name-bearing field or child, so
+        // `symbol_name` already resolves to `None` for it and no symbol is
+        // emitted either way) but not worth carrying: the Pascal `unit`'s
+        // own name is redundant with the file's path, so this lane extracts
+        // only its functions and imports (see `pascal_symbol_name`), not a
+        // Module symbol for the file container itself.
+        // PowerShell `class Widget { ... }` (CONCEPT:EH-281); name resolved
+        // by `powershell_symbol_name`.
+        "class_statement" => "class",
         _ => return None,
     }
     .into()
@@ -483,6 +509,25 @@ pub(super) fn function_like_kind(kind: &str) -> Option<&'static str> {
         // Ruby `method`/`singleton_method` (CONCEPT:AU-KG.compute.built-ast-extended).
         "method_definition" | "method_declaration" | "method" | "singleton_method" => "method",
         "constructor_declaration" => "constructor",
+        // Julia `macro mymacro(x) ... end` (CONCEPT:EH-281) — a compile-time
+        // callable, closest existing concept is a function.
+        "macro_definition" => "macro",
+        // Fortran's outer `function`/`subroutine` containers (CONCEPT:EH-281);
+        // name resolved by `fortran_symbol_name` (the field lives on the
+        // nested `function_statement`/`subroutine_statement`, not here).
+        "function" => "function",
+        "subroutine" => "subroutine",
+        // Pascal/Delphi `defProc` (CONCEPT:EH-281) — a DEFINING occurrence
+        // (header + body), the Pascal analogue of a C `function_definition`.
+        // The bare forward declaration (`declProc` alone, in an `interface`
+        // section) is deliberately NOT matched here, mirroring how a C
+        // prototype-only `declaration` never matches this table either —
+        // only the defining occurrence is extracted.
+        "defProc" => "function",
+        // PowerShell `function Get-Area { ... }` / a class method
+        // (CONCEPT:EH-281); name resolved by `powershell_symbol_name`.
+        "function_statement" => "function",
+        "class_method_definition" => "method",
         _ => return None,
     })
 }
@@ -492,8 +537,13 @@ pub(super) fn function_like_kind(kind: &str) -> Option<&'static str> {
 /// ``impl`` blocks use ``type``, so fall back to those. Some grammars
 /// (Verilog, Objective-C — CONCEPT:EH-281) carry the identifier as an
 /// unnamed POSITIONAL child instead of any field at all, so
-/// [`identifier_child_name`] is the last resort.
-pub(super) fn symbol_name(node: Node, source: &[u8]) -> Option<String> {
+/// [`identifier_child_name`] is tried next. A further tier of grammars
+/// (Julia, Fortran, Pascal, PowerShell — CONCEPT:EH-281) nest the identifier
+/// even deeper, inside a language-specific wrapper shape that doesn't fit
+/// [`identifier_child`]'s generic bounded descent, so [`extended_symbol_name`]
+/// is the last resort, dispatched by `language` since these wrapper shapes
+/// are not distinguishable by node kind alone across grammars.
+pub(super) fn symbol_name(node: Node, source: &[u8], language: &str) -> Option<String> {
     if let Some(n) = node.child_by_field_name("name") {
         return Some(get_node_text(n, source));
     }
@@ -505,7 +555,120 @@ pub(super) fn symbol_name(node: Node, source: &[u8]) -> Option<String> {
     if let Some(t) = node.child_by_field_name("type") {
         return Some(get_node_text(t, source));
     }
-    identifier_child_name(node, source)
+    identifier_child_name(node, source).or_else(|| extended_symbol_name(node, source, language))
+}
+
+/// Language-dispatched name resolution for declaration shapes
+/// [`identifier_child`]'s generic positional-child descent doesn't cover
+/// (CONCEPT:EH-281). A `match` (not a chain of `if let`s tried against every
+/// language) so this stays O(1) cyclomatic as the tier grows, and so a
+/// grammar with no special case here costs nothing (falls straight to the
+/// `_ => None` arm).
+fn extended_symbol_name(node: Node, source: &[u8], language: &str) -> Option<String> {
+    match language {
+        "julia" => julia_symbol_name(node, source),
+        "fortran" => fortran_symbol_name(node, source),
+        "pascal" => pascal_symbol_name(node, source),
+        "powershell" => powershell_symbol_name(node, source),
+        _ => None,
+    }
+}
+
+/// Julia (CONCEPT:EH-281): `function_definition`/`macro_definition` nest
+/// their name inside a `signature` child that is itself a `call_expression`
+/// (`function foo(x) ... end` parses exactly like a call to `foo`) — neither
+/// `signature` nor `call_expression` is a field, so this reaches two levels
+/// deep by node KIND. `struct_definition`/`abstract_definition` nest their
+/// name inside a `type_head` child instead. Does not resolve an
+/// operator-overload definition (`function Base.:+(a, b)`) or a `where`-
+/// clause generic signature — both leave the callee's `identifier` one
+/// level deeper than this reaches; an honest, undetected gap rather than a
+/// silently wrong name.
+fn julia_symbol_name(node: Node, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "type_head" => {
+                let mut inner = child.walk();
+                let found = child
+                    .children(&mut inner)
+                    .find(|c| c.kind() == "identifier");
+                if let Some(id) = found {
+                    return Some(get_node_text(id, source));
+                }
+            }
+            "signature" => {
+                let mut inner = child.walk();
+                let call = child
+                    .children(&mut inner)
+                    .find(|c| c.kind() == "call_expression")?;
+                let mut call_children = call.walk();
+                let found = call
+                    .children(&mut call_children)
+                    .find(|c| c.kind() == "identifier");
+                if let Some(id) = found {
+                    return Some(get_node_text(id, source));
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Fortran (CONCEPT:EH-281): the outer `module`/`function`/`subroutine`
+/// container (the node this is called on, spanning the whole declaration
+/// including its body) has no fields at all — the identifier lives one
+/// level down, on its first child, a `module_statement`/`function_statement`/
+/// `subroutine_statement` (the grammar's own naming convention: the
+/// container's FIRST child is always that container's own `*_statement`), as
+/// a child of kind `name`. That `name` child is field-tagged on
+/// `function_statement`/`subroutine_statement` but — a real grammar
+/// inconsistency, confirmed empirically, not by `node-types.json`'s field
+/// list, which claims otherwise — NOT on `module_statement`, so this matches
+/// by KIND rather than by field to cover both.
+fn fortran_symbol_name(node: Node, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let stmt = node
+        .children(&mut cursor)
+        .find(|c| c.kind().ends_with("_statement"))?;
+    let mut inner = stmt.walk();
+    let found = stmt.children(&mut inner).find(|c| c.kind() == "name");
+    found.map(|c| get_node_text(c, source))
+}
+
+/// Pascal/Delphi `defProc` (CONCEPT:EH-281) — a defining function/method
+/// occurrence. The name lives on its `header` field's own `name` field
+/// (`header` is a nested `declProc`). A free function's `name` field is a
+/// plain `identifier`; a method implementation's
+/// (`function TPoint.Area: Integer;`) is a `genericDot` (`TPoint.Area`)
+/// whose `rhs` field is the bare method name — `symbol_name` always returns
+/// the BARE name (qualification is a separate concern), so this reads `rhs`
+/// rather than the whole dotted text. (Pascal's own whole-file `unit`
+/// container is deliberately not resolved here — see the `extended_class_kind`
+/// comment on why it isn't registered as class-like at all.)
+fn pascal_symbol_name(node: Node, source: &[u8]) -> Option<String> {
+    let header = node.child_by_field_name("header")?;
+    let name = header.child_by_field_name("name")?;
+    match name.kind() {
+        "genericDot" => name
+            .child_by_field_name("rhs")
+            .map(|n| get_node_text(n, source)),
+        _ => Some(get_node_text(name, source)),
+    }
+}
+
+/// PowerShell (CONCEPT:EH-281): `function_statement`/`class_statement`/
+/// `class_method_definition` all carry their identifier as an unnamed
+/// positional child, but a LEAF one (`function_name`/`simple_name`) whose
+/// own text IS the name — no further descent needed, unlike
+/// [`identifier_child`]'s wrapper-then-identifier shape.
+fn powershell_symbol_name(node: Node, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    let found = node
+        .children(&mut cursor)
+        .find(|c| matches!(c.kind(), "function_name" | "simple_name"));
+    found.map(|c| get_node_text(c, source))
 }
 
 /// Fall back to an unnamed identifier-SHAPED child when no field
@@ -674,7 +837,7 @@ pub(super) fn qual_segment(node: Node, source: &[u8], language: &str) -> Option<
         }
     }
     if class_like_kind(kind).is_some() || function_like_kind(kind).is_some() {
-        return symbol_name(node, source)
+        return symbol_name(node, source, language)
             .map(|n| squash_ws(&n))
             .filter(|n| !n.is_empty());
     }

@@ -162,12 +162,17 @@ pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     "rb", "php", "sh", "bash", "scala", "sc", "lua",
     // CONCEPT:EH-281 grammar expansion (extended tier): Kotlin (+ Gradle Kotlin
     // DSL via `.kts`), Objective-C, Zig, Groovy (+ Gradle Groovy DSL via
-    // `.gradle` — Gradle needs no grammar of its own), Swift. HTML/CSS/JSON
-    // are deliberately NOT listed: see the exclusion note in
-    // `grammars_extended`'s module doc.
+    // `.gradle` — Gradle needs no grammar of its own), Swift.
     "kt", "kts", "m", "mm", "zig", "groovy", "gradle", "swift",
     // Verilog (CONCEPT:EH-281).
     "v", "vh",
+    // Julia, Elixir, PowerShell, Fortran (free-form 90+ only), Pascal/Delphi
+    // (CONCEPT:EH-281 follow-up).
+    "jl", "ex", "exs", "ps1", "psm1", "psd1", "f90", "f95", "f03", "f08", "pas", "pp", "dpr",
+    // HTML/CSS/JSON (CONCEPT:EH-281 follow-up) — parse, but the generic
+    // walker extracts zero symbols from any of them today: see the
+    // exclusion/registration note in `grammars_extended`'s module doc.
+    "html", "htm", "css", "json",
 ];
 
 const PARSER_CAPABILITY_DIGEST_DOMAIN: &[u8] = b"eg/index-repository-parser-capability/v1\0";
@@ -268,8 +273,10 @@ pub(super) fn get_node_text(node: Node, source: &[u8]) -> String {
 /// Extract the imported module/path string from an import-like node across
 /// grammars, or `None` when it can't be read. Python `import a.b` /
 /// `from a.b import x`, JS/TS `import … from "src"`, Go `import_spec` path,
-/// Rust `use a::b`, Java `import a.b.C`, C/C++ `#include "x"`. The raw string is
-/// resolved to a file downstream in [`super::resolve::resolve_import`].
+/// Rust `use a::b`, Java `import a.b.C`, C/C++ `#include "x"`, Julia
+/// `using a.b`/`import a: b` (CONCEPT:EH-281), Fortran `use a` (CONCEPT:EH-281).
+/// The raw string is resolved to a file downstream in
+/// [`super::resolve::resolve_import`].
 fn import_module(node: Node, source: &[u8]) -> Option<String> {
     match node.kind() {
         // Python `from <module_name> import …`.
@@ -278,10 +285,15 @@ fn import_module(node: Node, source: &[u8]) -> Option<String> {
             .map(|n| get_node_text(n, source)),
         // `import_statement` is shared but differs structurally: JS/TS expose a
         // `source` field (the string literal), Python a `name` field (dotted_name).
+        // Julia's own `import_statement` (CONCEPT:EH-281) has neither field — it
+        // falls through to `julia_import_target`.
         "import_statement" => node
             .child_by_field_name("source")
             .or_else(|| node.child_by_field_name("name"))
-            .map(|n| get_node_text(n, source)),
+            .map(|n| get_node_text(n, source))
+            .or_else(|| julia_import_target(node, source)),
+        // Julia `using a.b`/`using a: b` (CONCEPT:EH-281) — no field at all.
+        "using_statement" => julia_import_target(node, source),
         // Go `import_spec` carries the path string literal.
         "import_spec" => node
             .child_by_field_name("path")
@@ -305,8 +317,45 @@ fn import_module(node: Node, source: &[u8]) -> Option<String> {
         "preproc_include" => node
             .child_by_field_name("path")
             .map(|n| get_node_text(n, source)),
+        // Fortran `use a` (CONCEPT:EH-281) — no field; the module name is an
+        // unnamed positional `module_name`-kinded child.
+        "use_statement" => {
+            let mut cursor = node.walk();
+            let found = node
+                .children(&mut cursor)
+                .find(|c| c.kind() == "module_name");
+            found.map(|c| get_node_text(c, source))
+        }
         _ => None,
     }
+}
+
+/// Julia `using`/`import` target (CONCEPT:EH-281): neither statement has a
+/// `source`/`name` field. The target is an unnamed positional child, one of
+/// `scoped_identifier` (`using Base.Threads`), a bare `identifier`
+/// (`using Random`), `import_path`, or — for `import Statistics: mean` — a
+/// `selected_import` wrapper whose own first `identifier` child is the
+/// module (`Statistics`), not the selected name (`mean`).
+fn julia_import_target(node: Node, source: &[u8]) -> Option<String> {
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        match child.kind() {
+            "scoped_identifier" | "identifier" | "import_path" => {
+                return Some(get_node_text(child, source));
+            }
+            "selected_import" => {
+                let mut inner = child.walk();
+                let found = child
+                    .children(&mut inner)
+                    .find(|c| c.kind() == "identifier");
+                if let Some(id) = found {
+                    return Some(get_node_text(id, source));
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// Parse many files in one call (CONCEPT:EG-KG.compute.graph-compute-engine batch op). Files are parsed
