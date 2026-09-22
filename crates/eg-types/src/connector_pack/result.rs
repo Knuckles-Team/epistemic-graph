@@ -135,7 +135,7 @@ pub struct PackImportReceipt {
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum PackImportResult {
     Imported {
-        receipt: PackImportReceipt,
+        receipt: Box<PackImportReceipt>,
     },
     /// Byte-identical to the current head; nothing was written.
     Unchanged {

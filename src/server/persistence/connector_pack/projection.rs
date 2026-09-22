@@ -207,7 +207,7 @@ impl AgentLibraryStore {
                 "connector pack projection owner rows produced no receipt".to_string()
             })?;
             let result = PackImportResult::Imported {
-                receipt: updated.clone(),
+                receipt: Box::new(updated.clone()),
             };
             let mutation_result = crate::server::persistence::agent_row::domain_result(
                 &result,
@@ -415,7 +415,7 @@ fn decode_replayed_receipt(
         payload.as_slice(),
         "connector pack projection result",
     )? {
-        PackImportResult::Imported { receipt } => Ok(receipt),
+        PackImportResult::Imported { receipt } => Ok(*receipt),
         _ => Err("CORRUPT_MUTATION_LEDGER: projection replay is not imported".into()),
     }
 }
@@ -503,7 +503,7 @@ mod tests {
             })
             .unwrap()
         {
-            PackImportResult::Imported { receipt } => receipt,
+            PackImportResult::Imported { receipt } => *receipt,
             other => panic!("unexpected import result: {other:?}"),
         }
     }

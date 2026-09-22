@@ -98,7 +98,7 @@ impl AgentLibraryStore {
             )?;
             let receipt = import_receipt(&plan, batch_id, staged.committed_version)?;
             let result = PackImportResult::Imported {
-                receipt: receipt.clone(),
+                receipt: Box::new(receipt.clone()),
             };
             let mutation_result = crate::server::persistence::agent_row::domain_result(
                 &result,

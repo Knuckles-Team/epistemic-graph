@@ -1052,14 +1052,17 @@ mod tests {
 
     #[test]
     fn core_artifact_bytes_and_legacy_iri_namespace_are_pinned() {
+        // Pin the exact bytes compiled by `include_str!`, rather than a
+        // pre-write renderer buffer (which may retain an extra terminal blank
+        // line). Runtime source identities are derived from these bytes.
         let expected = [
             (
                 "a2a",
-                "4f40dd67ed1eb4e43c94ec0883a3ecde0fa0209518aa41c6de82aa12a8a953bd",
+                "db8625b47000ea604a589074c9c3047ade06f5a965ea54bfa90dbd06b6a9b73c",
             ),
             (
                 "action",
-                "0caab1bd94bbb6400621e79203890307bca9b4b454d1126f0e37ad6bd51199e2",
+                "ecbbd3b188a10d231920d30a66dc9c69ebc659c4cfd857cfbd888d5bbc71f24c",
             ),
             (
                 "archimate",
@@ -1071,11 +1074,11 @@ mod tests {
             ),
             (
                 "argumentation",
-                "28ff3919c4980fadb4187e57298b48ed1b78d4302443113d4355ccfdf201dc63",
+                "72b9f83c590e65272e289224610e9d3b1231e19886943d66767b6749f3fb9ea8",
             ),
             (
                 "calendar",
-                "7d99dfdb0b533f560d5da7dddb53ccd3ee00c0004a0cf6253af8c76861a6b311",
+                "edd7a9f1250ec68177849dfc99c6b2929f5644d821b89f2faabb4647340805fb",
             ),
             (
                 "catalog",
@@ -1083,15 +1086,15 @@ mod tests {
             ),
             (
                 "company",
-                "8aa9fdb642b0592f61a5ad6e7d2aa1e09d5355caf774b1321f667c472872aeab",
+                "c0565099b7afc506b7974c08be23f5c682898460d601cc5d1f5e31520fdfef7d",
             ),
             (
                 "company_infra",
-                "0657987bd3d6d09ab7895d32ed2cd30ede3861b54a51f184e65c880617ba655b",
+                "ff667dc263f525542925b1e0b8bc834d1a91815e99be091a5230d9068b7b3da7",
             ),
             (
                 "concepts",
-                "ed407ca369e706d7f1cf7f61e6835439e5a9bcd8595168b7255a120b58c8379f",
+                "297fad75a6d0ef0135a6f8026fcc72ea4cddadcc79531c9e62fb57d35eb5fa6a",
             ),
             (
                 "foundation",
@@ -1099,11 +1102,11 @@ mod tests {
             ),
             (
                 "documentation",
-                "a19f19a4a99e223650d90241e464dbdb3a0a0db6d21f70fc6f63ef7f16367280",
+                "39e2fafc6fe88ca477502ca78be6441abd30e9244ba8e5992b16a2f6e79b7c86",
             ),
             (
                 "energy_geopolitics",
-                "61a8f42107a85f1cc7a6b49a81c13f9cf5b8c6db92dac191874ba39a15a6a576",
+                "36f99061e8c71f8c4b3d0fdb4c26e1993fbbc31bf033028bab2dfd95d1d14d20",
             ),
             (
                 "enterprise",
@@ -1111,71 +1114,71 @@ mod tests {
             ),
             (
                 "governance-shapes",
-                "c8895377a350f58d78f73f329492a7ad65cb6d8d336fd5c62b6605234fb35791",
+                "8195ee0454e851d182b14c9d30e1bcfa2638b44719964cd51e08d75cdc13b12d",
             ),
             (
                 "government",
-                "0bdbdb86ed45a08bc0fbceafdd054efcbe5553ce7b641682902aed6aa39c777c",
+                "7f3f909c1d726d5394a189115782d4eb6e9fa04f736eda8e6e1be10c8eb98e71",
             ),
             (
                 "harness",
-                "a146018e130a8b0ad08f1acea9e1fedfd3a5aff27ae5bf165caf38793e7577a2",
+                "e762f8807d827551a37b6e3b6fd573fc66039b83310acdd63a3835be63168e91",
             ),
             (
                 "hr",
-                "8cbc3513fb4b0110db79b77f7bfa6bafbaf18ae77ad189552a45657a8f636058",
+                "b6a3c268d7a80a12ee0a055d31fdee3c55f50530f18b2ae78458150bf4eef221",
             ),
             (
                 "identity",
-                "b8458dac3c76c18a8d841a0c48767ce964468b7b6b52654f780012cd63306946",
+                "e69af699ed61f9f30abb5249985838c4770fa42d48e2191a5953bdbb1bc71038",
             ),
             (
                 "infrastructure",
-                "8994c97643e59e81aba6a4e694b988373d0ce8497461576e1db3057e3dd12e74",
+                "d60b853d6f272b55d05708f2ffe358859c9eb5ecaadd96178f6acfb18ca57076",
             ),
             (
                 "medical",
-                "9a3b0b73aff6d4420cf13e4c06711a6331fdaba135f15a9871b6cccc883019f7",
+                "2c2bb7e5a30f6efad697cb793343798ae42554aab107b42dbd88a5e76b6350cc",
             ),
             (
                 "native_source_connector",
-                "6059550cf741973318fe562a4fd0de47504a29143a936311a9217d83b5479ca4",
+                "aff5b66926ab41858fb8b549aae343f3286f317cf875534bb3e5e0cd89e9a35c",
             ),
             (
                 "orchestration",
-                "725d1932fc61eaffe263458a402eb56e6c78d3f5831389447beba99b63214b93",
+                "ea93ad168b8a6b14bac211ec2a59f2fc53a33a3056e5982c794ea7eccdaaff3b",
             ),
             (
                 "personal",
-                "91da060a39822336595a35bf8b493e3be9bd571f33ec531f862ff5d23ce2778b",
+                "27d8a095361a2f65bc2ee99ae32a149a2bc615aed67518284078b8ad7334c34d",
             ),
             (
                 "process_intelligence",
-                "90f5496af573556c58451e513e64b0aa16aea1d9aba15e2553c8e675f59e2743",
+                "3972c8d2ccb65009401a9b0f05d4e072cedfdebb4a11c534df6cdb924fb2697b",
             ),
             (
                 "sdd",
-                "2779d726d43ac4158c5e2a0aaabb2008be158a1284b2fa9650e4093a486a8491",
+                "8604de791d2a65517e4d11387aaeece9f47a8e8361b96fb17e7709aab929afb1",
             ),
             (
                 "sdlc_lifecycle",
-                "53ce870fe4ad732b6d3154467a09d1478c5f5fb1a425fd7cbb35c73b4d3156f6",
+                "e827ec559d1a86a7c007eaf8dbe362531f0c9164380b0d426cabbc50398ff9aa",
             ),
             (
                 "software",
-                "a50f4ea1082268c3c62089277a9f3ef653ed442a79020164c720f1c719f12a58",
+                "500322d880a84ab736dfb68a01daf2c1c1901fa89beade541b6b320f1b5349fb",
             ),
             (
                 "system",
-                "570f3722ecedacdc91c8494724a0261e9a9b5bb282d9c269662178a4f763bd1e",
+                "06cb25a6d2ef673cbfa25ceefb3d200f69ec6ab0d21fd7bb8bb049f0ed051824",
             ),
             (
                 "trm",
-                "60ce99874cdd37c8be1dfbf685e5db52f6b91cd834fd3f4e1d151b9dc4626f22",
+                "bbd832cfe283a552eaeaec49fc04bbf644279a64521203e9d730dfcd262f170d",
             ),
             (
                 "worldview",
-                "36b6110bafbd55b19ca0dac28a2c0f8e0348f9be601982bd579456f0e1481416",
+                "1c42096ed2fdbd70d2f65b1f7b0a40bba7f7c83f4929a8cc5f16090ba1903fb1",
             ),
         ];
         let catalog = current_core_catalog();

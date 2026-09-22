@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::OnceLock;
 
-use eg_rdf::oxrdf::{BlankNode, Graph, NamedOrBlankNode, Term, TermRef, Triple};
+use eg_rdf::oxrdf::{BlankNode, Graph, NamedOrBlankNode, Term, Triple};
 
 use crate::graph::{GraphSchemaSource, GraphSchemaSources, SchemaSourceOrigin};
 
@@ -398,7 +398,7 @@ mod tests {
             .shapes
             .iter()
             .filter_map(|triple| match &triple.object {
-                TermRef::BlankNode(node) => Some(node.as_str().to_string()),
+                eg_rdf::oxrdf::TermRef::BlankNode(node) => Some(node.as_str().to_string()),
                 _ => None,
             })
             .collect();

@@ -156,6 +156,14 @@ def test_release_scanner_job_is_full_history_advisory_and_pinned():
     assert checkout["with"]["persist-credentials"] is False
     assert scanner["continue-on-error"] is True
     assert "scanner-quality" not in jobs["build"]["needs"]
+    node_setup = next(
+        step
+        for step in scanner["steps"]
+        if step.get("uses", "").startswith("actions/setup-node@")
+    )
+    # dependency-cruiser 18 follows the active Node release lines and refuses
+    # Node 20 before it can print the pinned version.
+    assert node_setup["with"]["node-version"] == "22"
 
     all_runs = "\n".join(str(step["run"]) for step in scanner["steps"] if "run" in step)
     workflow_source = (REPO / ".github/workflows/release.yml").read_text(

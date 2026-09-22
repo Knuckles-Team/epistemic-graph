@@ -261,7 +261,7 @@ fn replay_or_unchanged(
                 && receipt.pack_digest == request.index.pack_digest
             {
                 return Ok(Some(eg_types::connector_pack::PackImportResult::Imported {
-                    receipt,
+                    receipt: Box::new(receipt),
                 }));
             }
         }

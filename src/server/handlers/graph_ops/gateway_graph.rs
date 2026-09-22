@@ -422,7 +422,7 @@ fn datalog_input_from_ontology(
             .into_iter()
             .filter_map(|(role, class_iri)| {
                 let role = relationship(&role);
-                (!role.is_empty()).then_some((role, class(&class_iri)?))
+                (!role.is_empty()).then_some((role, datalog_class(&class_iri)?))
             })
             .collect(),
         range_rules: ontology
@@ -430,7 +430,7 @@ fn datalog_input_from_ontology(
             .into_iter()
             .filter_map(|(role, class_iri)| {
                 let role = relationship(&role);
-                (!role.is_empty()).then_some((role, class(&class_iri)?))
+                (!role.is_empty()).then_some((role, datalog_class(&class_iri)?))
             })
             .collect(),
         property_chains,

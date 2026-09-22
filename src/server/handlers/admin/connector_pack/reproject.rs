@@ -92,7 +92,7 @@ async fn prepare_projection_request(
     request: eg_types::connector_pack::ConnectorPackReprojectRequest,
 ) -> Result<
     (
-        crate::server::persistence::agent_library::AgentLibraryStore,
+        Arc<crate::server::persistence::agent_library::AgentLibraryStore>,
         eg_types::agent_library::AgentLibraryMutationContext,
         ConnectorPackProjectionPlan,
     ),
