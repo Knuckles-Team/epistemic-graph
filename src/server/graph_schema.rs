@@ -354,7 +354,9 @@ fn compose_pack_documents(
                     document.uri
                 )
             })?;
-            rendered.insert(triple.to_string());
+            // `Triple`'s Display is the N-Triples statement WITHOUT its terminating
+            // ` .`; the projection is re-parsed as Turtle, so every line needs it.
+            rendered.insert(format!("{triple} ."));
         }
     }
     let mut body = rendered.into_iter().collect::<Vec<_>>().join("\n");
@@ -569,17 +571,21 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(
-            core_ids,
-            std::collections::BTreeSet::from([
-                "core:archimate@1",
-                "core:capability@1",
-                "core:catalog@1",
-                "core:enterprise@1",
-                "core:foundation@1",
-                "core:governance-shapes@1",
-            ])
-        );
+        // The listing reports exactly the immutable core catalog: all 31 core
+        // artifacts (30 ontologies and the governance shapes).
+        let catalog = core.schema_sources();
+        let catalog_ids: std::collections::BTreeSet<_> =
+            catalog.core.keys().map(String::as_str).collect();
+        assert_eq!(core_ids, catalog_ids);
+        assert_eq!(core_ids.len(), 31);
+        for anchor in [
+            "core:catalog@1",
+            "core:foundation@1",
+            "core:governance-shapes@1",
+            "core:software@1",
+        ] {
+            assert!(core_ids.contains(anchor), "missing {anchor}");
+        }
         assert!(initial
             .core_sources
             .iter()
