@@ -177,6 +177,11 @@ pub(super) async fn route_native_store_ops(
         Ok(response) => return Ok(response),
         Err(method) => method,
     };
+    #[cfg(feature = "redb")]
+    let method = match refuse_foreign_control_lease_writes(ctx, method) {
+        Ok(response) => return Ok(response),
+        Err(method) => method,
+    };
     let method = match route_source_ingestion_or_resources(ctx, method).await {
         Ok(response) => return Ok(response),
         Err(method) => method,
@@ -239,6 +244,9 @@ async fn route_work_item_reads(
                 kind,
             },
         ),
+        Method::GetControlLease { tenant, lease_id } => {
+            handlers::work_item_read::WorkItemRead::ControlLease { tenant, lease_id }
+        }
         other => return Err(other),
     };
     #[cfg(feature = "raft")]
@@ -262,6 +270,33 @@ async fn route_work_item_reads(
         read,
     )
     .await)
+}
+
+/// graph-os EG-2: a control-lease write names its tenant in the body, and that
+/// tenant must be the VERIFIED carrier tenant -- no aggregate or `kg:admin`
+/// exception. A matching write falls through (`Err`) to the WorkItem handler,
+/// which commits it through the shared durable WorkItem kernel.
+#[cfg(feature = "redb")]
+fn refuse_foreign_control_lease_writes(
+    ctx: GraphOpRouting<'_>,
+    method: Method,
+) -> Result<Response, Method> {
+    let named = match &method {
+        Method::IssueControlLease { request } => Some(request.tenant.as_str()),
+        Method::TransitionControlLease { request } => Some(request.tenant.as_str()),
+        _ => None,
+    };
+    let denied = named.and_then(|tenant| {
+        handlers::work_item_read::require_carrier_tenant(tenant, ctx.verified_context.tenant())
+            .err()
+    });
+    match denied {
+        Some(denied) => {
+            crate::metrics::access_denied();
+            Ok(Response::err(ctx.req_id, denied))
+        }
+        None => Err(method),
+    }
 }
 
 /// RF-ADR-009 source ingestion is graph-scoped and therefore reaches this

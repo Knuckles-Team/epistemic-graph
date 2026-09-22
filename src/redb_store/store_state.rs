@@ -149,6 +149,8 @@ pub(crate) fn compute_native_terminal_work_item_cas(batch: &MutationBatch) -> bo
                         &first.method,
                         Method::CancelWorkItem { .. }
                             | Method::DeferWorkItem { .. }
+                            | Method::IssueControlLease { .. }
+                            | Method::TransitionControlLease { .. }
                             | Method::ReserveWorkItemResources { .. }
                             | Method::ReleaseWorkItemResources { .. }
                             | Method::ReclaimWorkItemResources { .. }

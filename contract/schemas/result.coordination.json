@@ -933,6 +933,163 @@
       ],
       "type": "object"
     },
+    "ControlLeaseIssueOutcome": {
+      "description": "How an issue resolved.",
+      "oneOf": [
+        {
+          "enum": [
+            "issued"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "collision",
+          "description": "A row with this id already exists; nothing was written.",
+          "type": "string"
+        }
+      ]
+    },
+    "ControlLeaseIssued": {
+      "additionalProperties": false,
+      "description": "Result of `IssueControlLease`. `changed_work_item_ids` names the rows the\ncommit wrote, so the serving projection refreshes from authority exactly as\nit does for a WorkItem transition.",
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "lease": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ControlLeaseView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outcome": {
+          "$ref": "#/$defs/ControlLeaseIssueOutcome"
+        }
+      },
+      "required": [
+        "outcome",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "ControlLeaseStatus": {
+      "description": "Where a control lease is in its one-way lifecycle.",
+      "enum": [
+        "active",
+        "revoked",
+        "expired"
+      ],
+      "type": "string"
+    },
+    "ControlLeaseTransition": {
+      "additionalProperties": false,
+      "description": "Result of `TransitionControlLease`. On `conflict` the CURRENT view is\nreturned so a caller can decide again without a second read.",
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "lease": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ControlLeaseView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outcome": {
+          "$ref": "#/$defs/ControlLeaseTransitionOutcome"
+        }
+      },
+      "required": [
+        "outcome",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "ControlLeaseTransitionOutcome": {
+      "description": "How a transition resolved.",
+      "oneOf": [
+        {
+          "enum": [
+            "applied"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "conflict",
+          "description": "The lease is no longer active, or moved past `expected_revision`.",
+          "type": "string"
+        },
+        {
+          "const": "not_found",
+          "description": "No lease with this id is visible to the tenant.",
+          "type": "string"
+        }
+      ]
+    },
+    "ControlLeaseView": {
+      "additionalProperties": false,
+      "description": "The caller's view of one control lease.",
+      "properties": {
+        "expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "grant": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "hard_expires_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "issued_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "lease_id": {
+          "type": "string"
+        },
+        "revision": {
+          "description": "Row revision: 1 at issue, bumped by the transition.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/$defs/ControlLeaseStatus"
+        }
+      },
+      "required": [
+        "lease_id",
+        "kind",
+        "status",
+        "grant",
+        "issued_at_ms",
+        "expires_at_ms",
+        "hard_expires_at_ms",
+        "revision"
+      ],
+      "type": "object"
+    },
     "DecisionEvalReceipt": {
       "additionalProperties": false,
       "description": "The receipt a head must carry before it may be published.",
@@ -6325,6 +6482,25 @@
       },
       "selected_by": null
     },
+    "GetControlLease": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ControlLeaseView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "selected_by": null
+    },
     "GetWorkItem": {
       "bodies": {
         "result": {
@@ -6339,6 +6515,18 @@
                 "type": "null"
               }
             ]
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "IssueControlLease": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ControlLeaseIssued"
           }
         }
       },
@@ -6619,6 +6807,18 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/SubmitWorkItemsResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "TransitionControlLease": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/ControlLeaseTransition"
           }
         }
       },

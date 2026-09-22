@@ -19,6 +19,9 @@ WORK_ITEM_METHODS = {
     "CancelWorkItem",
     "DeferWorkItem",
     "CasWorkItemMetadata",
+    # graph-os EG-2: native control-lease writes share the WorkItem kernel.
+    "IssueControlLease",
+    "TransitionControlLease",
 }
 DEVELOPMENT_LANE_WRITES = {
     "ReserveDevelopmentLane",
@@ -35,7 +38,7 @@ def _owned_methods(path: Path) -> set[str]:
     return set(re.findall(r"Method::([A-Za-z0-9_]+)", path.read_text()))
 
 
-def test_work_item_handler_explicitly_owns_six_transitions() -> None:
+def test_work_item_handler_explicitly_owns_its_transitions() -> None:
     source = (HANDLERS / "work_item.rs").read_text()
     assert _owned_methods(HANDLERS / "work_item.rs") == WORK_ITEM_METHODS
     assert "mutation_batch::commit_work_item" in source

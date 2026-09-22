@@ -14,6 +14,7 @@ pub use resources::*;
 pub use statechart::*;
 pub use work_items::*;
 
+use crate::control_lease::{ControlLeaseIssued, ControlLeaseTransition, ControlLeaseView};
 use crate::decision::DecisionJobRecord;
 use crate::delegation::KgDelegateResult;
 use crate::epistemic_operations::{
@@ -55,6 +56,11 @@ method_results! {
     // visible to the verified tenant.
     GetWorkItem(GetWorkItem) => Raw<Option<WorkItemView>>;
     ListWorkItems(ListWorkItems) => Raw<WorkItemPage>;
+    // graph-os EG-2 native control leases. `null` when no lease with this id
+    // is visible to the verified tenant.
+    IssueControlLease(IssueControlLease) => Json<ControlLeaseIssued>;
+    TransitionControlLease(TransitionControlLease) => Json<ControlLeaseTransition>;
+    GetControlLease(GetControlLease) => Raw<Option<ControlLeaseView>>;
     ReserveWorkItemResources(ReserveWorkItemResources) => Raw<ResourceReservationResult>;
     ReleaseWorkItemResources(ReleaseWorkItemResources) => Raw<ResourceReservationResult>;
     ReclaimWorkItemResources(ReclaimWorkItemResources) => Raw<ResourceReservationResult>;

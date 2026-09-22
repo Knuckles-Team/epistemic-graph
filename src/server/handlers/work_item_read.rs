@@ -1,4 +1,5 @@
-//! EH-219 typed WorkItem reads: `GetWorkItem` and `ListWorkItems`.
+//! EH-219 typed WorkItem reads (`GetWorkItem`, `ListWorkItems`) and the
+//! graph-os EG-2 control-lease read (`GetControlLease`).
 //!
 //! Dispatch has already resolved the graph, its ACL and placement, and (under
 //! raft) made the read linearizable on the placement leader. What this module
@@ -28,6 +29,11 @@ pub(crate) enum WorkItemRead {
         work_item_id: String,
     },
     List(WorkItemListRequest),
+    /// graph-os EG-2: one native control lease.
+    ControlLease {
+        tenant: String,
+        lease_id: String,
+    },
 }
 
 impl WorkItemRead {
@@ -35,6 +41,7 @@ impl WorkItemRead {
         match self {
             Self::Get { tenant, .. } => tenant,
             Self::List(request) => &request.tenant,
+            Self::ControlLease { tenant, .. } => tenant,
         }
     }
 }
@@ -60,11 +67,9 @@ pub(crate) async fn answer(
 
 /// The request's tenant is a correlation, not an authority claim: it must be
 /// the tenant the verified carrier names.
-fn require_carrier_tenant(requested: &str, verified: &str) -> Result<(), String> {
+pub(crate) fn require_carrier_tenant(requested: &str, verified: &str) -> Result<(), String> {
     if verified.is_empty() || requested != verified {
-        return Err(
-            "ACCESS_DENIED: WorkItem read tenant must match verified request tenant".into(),
-        );
+        return Err("ACCESS_DENIED: request tenant must match verified request tenant".into());
     }
     Ok(())
 }
@@ -74,7 +79,7 @@ async fn serve_native(
     persistence: &Option<Arc<dyn PersistenceBackend>>,
     read: WorkItemRead,
 ) -> Result<ResultPayload, String> {
-    use eg_types::result_contract::coordination::{GetWorkItem, ListWorkItems};
+    use eg_types::result_contract::coordination::{GetControlLease, GetWorkItem, ListWorkItems};
     let backend = persistence
         .as_ref()
         .and_then(|backend| backend.as_redb())
@@ -91,6 +96,11 @@ async fn serve_native(
         WorkItemRead::List(request) => {
             ResultPayload::of::<ListWorkItems>(backend.list_work_items(graph, request).await?)
         }
+        WorkItemRead::ControlLease { tenant, lease_id } => ResultPayload::of::<GetControlLease>(
+            backend
+                .read_control_lease(graph, &tenant, &lease_id)
+                .await?,
+        ),
     }
 }
 

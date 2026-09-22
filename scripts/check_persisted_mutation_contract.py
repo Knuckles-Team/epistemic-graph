@@ -574,6 +574,9 @@ def _check_mutation_applier_inventory(
         "CancelWorkItem",
         "DeferWorkItem",
         "CasWorkItemMetadata",
+        # graph-os EG-2: native control-lease writes in the same WorkItem kernel.
+        "IssueControlLease",
+        "TransitionControlLease",
     }
     require(
         work_items == expected_work_items,

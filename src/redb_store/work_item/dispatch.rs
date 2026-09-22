@@ -78,6 +78,12 @@ pub(crate) fn apply_work_item_rows(
         Method::CasWorkItemMetadata { request } => {
             apply_cas_work_item_metadata_row(graph, request, nodes, crypto)
         }
+        Method::IssueControlLease { request } => {
+            apply_issue_control_lease_row(graph, request, nodes, crypto)
+        }
+        Method::TransitionControlLease { request } => {
+            apply_transition_control_lease_row(graph, request, nodes, crypto)
+        }
         Method::CommitWorkItemResult {
             tenant,
             work_item_id,

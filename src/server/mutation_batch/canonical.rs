@@ -633,9 +633,9 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::MutationOutbox { .. } => default_mutation_domain(surface),
         // EH-219 typed WorkItem reads: MVCC snapshot reads that commit nothing,
         // so like every other read they carry the surface-keyed default.
-        Method::GetWorkItem { .. } | Method::ListWorkItems { .. } => {
-            default_mutation_domain(surface)
-        }
+        Method::GetWorkItem { .. }
+        | Method::ListWorkItems { .. }
+        | Method::GetControlLease { .. } => default_mutation_domain(surface),
         // `DecisionFit`/`DecisionEval` are NOT surface-keyed: both commit a native
         // MutationBatch in jobs.redb -- the same job-plane store `AnalyticsJob`
         // owns -- so they carry its domain. They cannot join that arm directly
@@ -698,6 +698,8 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::CancelWorkItem { .. }
         | Method::DeferWorkItem { .. }
         | Method::CasWorkItemMetadata { .. }
+        | Method::IssueControlLease { .. }
+        | Method::TransitionControlLease { .. }
         | Method::ReserveWorkItemResources { .. }
         | Method::ReleaseWorkItemResources { .. }
         | Method::ReclaimWorkItemResources { .. }
