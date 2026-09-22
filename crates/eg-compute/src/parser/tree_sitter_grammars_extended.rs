@@ -19,9 +19,16 @@
 //   * An ABI-14-compatible crate exists, but none of the language's
 //     declaration node kinds are covered by the existing generic AST
 //     walker's node-kind vocabulary (`tree_sitter_ast.rs`'s
-//     `class_like_kind`/`function_like_kind`, owned by a different lane in
-//     this program) — registering them would silently extract zero symbols:
-//     Julia, Elixir, PowerShell, Fortran, Pascal, Verilog.
+//     `class_like_kind`/`function_like_kind`) — registering them would
+//     silently extract zero symbols: Julia, Elixir, PowerShell, Fortran,
+//     Pascal. (Verilog and Objective-C used to be in this bucket too, but
+//     both are now registered below: their declaration KIND strings already
+//     matched the existing vocabulary — `class_declaration`/
+//     `interface_declaration`/`function_declaration` for Verilog,
+//     `class_interface`/`class_implementation` newly added for
+//     Objective-C — the only gap was `symbol_name()` not knowing how to read
+//     an identifier that's a positional child rather than a field, fixed by
+//     `identifier_child_name` in `tree_sitter_ast.rs`.)
 //   * An ABI-14-compatible crate exists and the walker gap is moot — these
 //     languages have no function/class concept at all, so no vocabulary
 //     addition to `class_like_kind`/`function_like_kind` could ever extract
@@ -68,6 +75,15 @@ const EXTENDED_LANGUAGES: &[(&[&str], LangCtor, &str)] = &[
         "groovy",
     ),
     (&["swift"], || tree_sitter_swift::LANGUAGE.into(), "swift"),
+    // Verilog/SystemVerilog (CONCEPT:EH-281). `.v`/`.vh` are the classic
+    // Verilog extensions this grammar's own test suite targets; `.sv`/`.svh`
+    // (SystemVerilog) are NOT included — the grammar parses a meaningful
+    // subset of SystemVerilog but isn't validated against it here.
+    (
+        &["v", "vh"],
+        || tree_sitter_verilog::LANGUAGE.into(),
+        "verilog",
+    ),
 ];
 
 /// Resolve `ext` against the extended-language tier, or `None` if it isn't

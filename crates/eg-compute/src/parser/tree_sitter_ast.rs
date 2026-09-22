@@ -464,6 +464,10 @@ fn extended_class_kind(kind: &str) -> Option<&'static str> {
         "object_definition" => "object",
         // Go puts struct/interface names on the type_spec under a type_declaration.
         "type_spec" | "type_alias_declaration" => "type",
+        // Objective-C (CONCEPT:EH-281) `@interface`/`@implementation` — the
+        // class name is an unnamed positional child, not a `name` field (see
+        // `identifier_child_name`'s doc for why `symbol_name` still resolves it).
+        "class_interface" | "class_implementation" => "class",
         _ => return None,
     }
     .into()
@@ -485,7 +489,10 @@ pub(super) fn function_like_kind(kind: &str) -> Option<&'static str> {
 
 /// Best-effort symbol name across grammars. Most declarations expose a ``name``
 /// field; C/C++ functions nest the identifier under ``declarator`` and Rust
-/// ``impl`` blocks use ``type``, so fall back to those.
+/// ``impl`` blocks use ``type``, so fall back to those. Some grammars
+/// (Verilog, Objective-C — CONCEPT:EH-281) carry the identifier as an
+/// unnamed POSITIONAL child instead of any field at all, so
+/// [`identifier_child_name`] is the last resort.
 pub(super) fn symbol_name(node: Node, source: &[u8]) -> Option<String> {
     if let Some(n) = node.child_by_field_name("name") {
         return Some(get_node_text(n, source));
@@ -498,7 +505,57 @@ pub(super) fn symbol_name(node: Node, source: &[u8]) -> Option<String> {
     if let Some(t) = node.child_by_field_name("type") {
         return Some(get_node_text(t, source));
     }
-    None
+    identifier_child_name(node, source)
+}
+
+/// Fall back to an unnamed identifier-SHAPED child when no field
+/// (`name`/`declarator`/`type`) resolves a declaration's name.
+///
+/// Some grammars carry the identifier as a plain positional child rather
+/// than a field: Verilog's `class_declaration` nests a `class_identifier`
+/// child with no field name at all, and Objective-C's
+/// `class_interface`/`class_implementation` carry their name as a bare
+/// `identifier` child ahead of the `category`/`superclass` FIELDS (which are
+/// also `identifier`-kinded, but — unlike the name — carry a field name).
+/// Others nest the identifier one level DEEPER, inside a single
+/// signature-shaped wrapper production: Verilog's `function_declaration`
+/// wraps everything in `function_body_declaration`, and
+/// `interface_declaration` wraps its header in
+/// `interface_ansi_header`/`interface_nonansi_header`. [`identifier_child`]
+/// bounds that descent to 2 levels and only follows a child whose kind ends
+/// in `_header` or `_body_declaration` — never a statement/body child — so
+/// it can't wander into an unrelated identifier deep in a function's body.
+fn identifier_child_name(node: Node, source: &[u8]) -> Option<String> {
+    identifier_child(node, 2).map(|n| get_node_text(n, source))
+}
+
+fn identifier_child(node: Node, depth: u8) -> Option<Node> {
+    if depth == 0 {
+        return None;
+    }
+    let mut wrapper_child: Option<Node> = None;
+    let mut cursor = node.walk();
+    if !cursor.goto_first_child() {
+        return None;
+    }
+    loop {
+        if cursor.field_name().is_none() {
+            let child = cursor.node();
+            let kind = child.kind();
+            if kind == "identifier" || kind.ends_with("_identifier") {
+                return Some(child);
+            }
+            if wrapper_child.is_none()
+                && (kind.ends_with("_header") || kind.ends_with("_body_declaration"))
+            {
+                wrapper_child = Some(child);
+            }
+        }
+        if !cursor.goto_next_sibling() {
+            break;
+        }
+    }
+    wrapper_child.and_then(|w| identifier_child(w, depth - 1))
 }
 
 /// Descend a C/C++ declarator chain (pointer/function/array declarators) to the
