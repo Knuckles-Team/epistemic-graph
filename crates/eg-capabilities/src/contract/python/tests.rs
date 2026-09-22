@@ -431,12 +431,12 @@ fn agent_component_current_uses_the_exact_flattened_operation_shape() {
     assert!(storage.contains(
         "async def send_agent_component_current(\n    client: Any,\n    request: AgentComponentOpCurrent,"
     ));
-    assert!(storage.contains(
-        "params = {\"op\": request.model_dump(mode=\"json\", exclude_none=True)}"
-    ));
-    assert!(storage.contains(
-        "return TypeAdapter(AgentComponentEntry | None).validate_python(payload)"
-    ));
+    assert!(
+        storage.contains("params = {\"op\": request.model_dump(mode=\"json\", exclude_none=True)}")
+    );
+    assert!(
+        storage.contains("return TypeAdapter(AgentComponentEntry | None).validate_python(payload)")
+    );
 }
 
 #[test]
@@ -463,9 +463,7 @@ fn registered_server_list_emits_typed_request_page_and_sender() {
         .get("epistemic_graph/generated/cluster.py")
         .expect("cluster domain module");
     assert!(cluster.contains("    request: RegisteredServerListRequest"));
-    assert!(cluster.contains(
-        "async def send_list_registered_servers(\n    client: Any,"
-    ));
+    assert!(cluster.contains("async def send_list_registered_servers(\n    client: Any,"));
     assert!(cluster.contains(") -> RegisteredServerListPage:"));
     assert!(cluster.contains("return RegisteredServerListPage.model_validate(payload)"));
 }
@@ -501,6 +499,45 @@ fn generated_source_ingestion_imports_and_executes_with_rust_digest_parity() {
     assert!(domain.contains("return SourceIngestionReceipt.model_validate(payload)"));
 
     execute_source_ingestion_modules(&generated);
+}
+
+#[test]
+fn index_repository_emits_typed_ordered_file_outcomes() {
+    let catalog = Catalog::collect();
+    let generated: BTreeMap<String, String> = artifacts(&catalog)
+        .into_iter()
+        .map(|artifact| {
+            (
+                artifact.path,
+                String::from_utf8(artifact.bytes).expect("generated Python is UTF-8"),
+            )
+        })
+        .collect();
+
+    let dto = generated
+        .get("epistemic_graph/generated/index_repository.py")
+        .expect("IndexRepository DTO module");
+    for declaration in [
+        "class IndexDiagnostic(BaseModel):",
+        "class IndexFileOutcome(BaseModel):",
+        "class IndexFileStatus(str, Enum):",
+        "class IndexResult(BaseModel):",
+    ] {
+        assert!(dto.contains(declaration), "missing {declaration}");
+    }
+    assert!(dto.contains("SUCCESS = \"success\""));
+    assert!(dto.contains("UNSUPPORTED = \"unsupported\""));
+    assert!(dto.contains("ERROR = \"error\""));
+    assert!(dto.contains("file_outcomes: list[IndexFileOutcome]"));
+    assert!(dto.contains("max_length=8"));
+
+    let ingestion = generated
+        .get("epistemic_graph/generated/ingestion.py")
+        .expect("ingestion domain module");
+    assert!(ingestion.contains("from .index_repository import (\n    IndexResult,"));
+    assert!(ingestion.contains("    files_msgpack: bytes"));
+    assert!(ingestion.contains(") -> IndexResult:"));
+    assert!(ingestion.contains("return IndexResult.model_validate(payload)"));
 }
 
 #[test]

@@ -1,6 +1,12 @@
 use serde::{Deserialize, Serialize};
 use tree_sitter::{Language, Node, Parser};
 
+use eg_types::{
+    contract::BoundedVec,
+    ingestion_wire::{IndexDiagnostic, IndexFileOutcome, IndexFileStatus},
+};
+use sha2::{Digest, Sha256};
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct SymbolMetadata {
     pub name: String,
@@ -95,15 +101,19 @@ const CORE_LANGUAGES: &[(&[&str], LangCtor, &str)] = &[
 /// "show me all Java code" and compute per-language metrics). Returns ``None``
 /// for paths we don't have a grammar for.
 fn lang_for_path(file_path: &str) -> Option<(Language, &'static str)> {
-    let ext = file_path
-        .rsplit('.')
-        .next()
-        .unwrap_or("")
-        .to_ascii_lowercase();
+    let ext = normalized_extension(file_path);
     if let Some((ctor, label)) = core_language_entry(&ext) {
         return Some((ctor(), label));
     }
     lang_for_path_extended(&ext)
+}
+
+fn normalized_extension(file_path: &str) -> String {
+    file_path
+        .rsplit('.')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase()
 }
 
 /// Look up `ext` in a `(extensions, ctor, label)` table by linear scan — the
@@ -157,6 +167,73 @@ pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     // `grammars_extended`'s module doc.
     "kt", "kts", "m", "mm", "zig", "groovy", "gradle", "swift",
 ];
+
+const PARSER_CAPABILITY_DIGEST_DOMAIN: &[u8] = b"eg/index-repository-parser-capability/v1\0";
+
+fn sha256_digest(bytes: &[u8]) -> String {
+    format!("sha256:{}", hex::encode(Sha256::digest(bytes)))
+}
+
+/// Fingerprint the parser capability that classified one path. The normalized
+/// extension and resolved language make this feature-sensitive: a previously
+/// unsupported file gets a different digest when its grammar is compiled in.
+/// The versioned domain is bumped when parser semantics change.
+fn parser_capability_digest(file_path: &str) -> String {
+    let extension = normalized_extension(file_path);
+    let language = lang_for_path(file_path)
+        .map(|(_, label)| label)
+        .unwrap_or("unsupported");
+    let mut digest = Sha256::new();
+    digest.update(PARSER_CAPABILITY_DIGEST_DOMAIN);
+    digest.update(extension.as_bytes());
+    digest.update([0]);
+    digest.update(language.as_bytes());
+    format!("sha256:{}", hex::encode(digest.finalize()))
+}
+
+fn parse_outcome(file_path: &str, source: &[u8]) -> (ParseResult, IndexFileOutcome) {
+    let content_digest = sha256_digest(source);
+    let parser_capability_digest = parser_capability_digest(file_path);
+    let parser_supported = lang_for_path(file_path).is_some();
+    match parse_file(file_path, source) {
+        Ok(result) => (
+            result,
+            IndexFileOutcome {
+                file_path: file_path.to_string(),
+                status: IndexFileStatus::Success,
+                content_digest,
+                parser_capability_digest,
+                diagnostics: BoundedVec::new(Vec::new())
+                    .expect("an empty diagnostic list is bounded"),
+            },
+        ),
+        Err(message) => {
+            let (status, code) = if parser_supported {
+                (IndexFileStatus::Error, "parse_failed")
+            } else {
+                (IndexFileStatus::Unsupported, "unsupported_extension")
+            };
+            (
+                ParseResult {
+                    nodes: Vec::new(),
+                    edges: Vec::new(),
+                    symbols_extracted: 0,
+                },
+                IndexFileOutcome {
+                    file_path: file_path.to_string(),
+                    status,
+                    content_digest,
+                    parser_capability_digest,
+                    diagnostics: BoundedVec::new(vec![IndexDiagnostic {
+                        code: code.to_string(),
+                        message,
+                    }])
+                    .expect("one index diagnostic is bounded"),
+                },
+            )
+        }
+    }
+}
 
 pub fn parse_file(file_path: &str, source: &[u8]) -> Result<ParseResult, String> {
     let mut parser = Parser::new();
@@ -254,6 +331,18 @@ pub fn parse_files(files: &[(String, Vec<u8>)]) -> Vec<ParseResult> {
             })
         })
         .collect()
+}
+
+/// Parse one repository batch while preserving each input's exact disposition.
+/// Rayon indexed parallel iteration retains the submitted order.
+pub(super) fn parse_files_with_outcomes(
+    files: &[(String, Vec<u8>)],
+) -> (Vec<ParseResult>, Vec<IndexFileOutcome>) {
+    use rayon::prelude::*;
+    files
+        .par_iter()
+        .map(|(path, source)| parse_outcome(path, source))
+        .unzip()
 }
 
 // ── CONCEPT:EG-KG.compute.model-free-similar-code — model-free code-similarity signature ──────────────────

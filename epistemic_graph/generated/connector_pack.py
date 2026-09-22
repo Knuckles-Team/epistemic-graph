@@ -469,22 +469,22 @@ class PackWriteErrorCode(str, Enum):
     IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT"
 
 
-BoundedVec_PackEntry_1024 = list[PackEntry]
+BoundedVec_PackEntry_1024 = Annotated[list[PackEntry], Field(max_length=1024)]
 
 
-BoundedVec_PackRef_64 = list[PackRef]
+BoundedVec_PackRef_64 = Annotated[list[PackRef], Field(max_length=64)]
 
 
-BoundedVec_PackViolation_256 = list[PackViolation]
+BoundedVec_PackViolation_256 = Annotated[list[PackViolation], Field(max_length=256)]
 
 
-BoundedVec_PackWarning_256 = list[PackWarning]
+BoundedVec_PackWarning_256 = Annotated[list[PackWarning], Field(max_length=256)]
 
 
-BoundedVec_string_1024 = list[str]
+BoundedVec_string_1024 = Annotated[list[str], Field(max_length=1024)]
 
 
-BoundedVec_string_64 = list[str]
+BoundedVec_string_64 = Annotated[list[str], Field(max_length=64)]
 
 
 Digest256 = Annotated[

@@ -175,13 +175,13 @@ def test_ast_ingestion(clean_graph, tmp_path):
     result = clean_graph.graph.index_repository(
         [("model.py", py_file.read_bytes()), ("harness.js", js_file.read_bytes())]
     )
-    assert result["files_parsed"] == 2
-    assert result["symbols_extracted"] >= 3
-    assert {node["properties"]["file_path"] for node in result["nodes"]} == {
+    assert result.files_parsed == 2
+    assert result.symbols_extracted >= 3
+    assert {node.properties["file_path"] for node in result.nodes} == {
         "model.py",
         "harness.js",
     }
-    assert all(str(tmp_path) not in str(node) for node in result["nodes"])
+    assert all(str(tmp_path) not in str(node) for node in result.nodes)
 
 
 @pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")
@@ -289,17 +289,17 @@ def _index_repository_or_skip(graph, files):
         raise
 
 
-def _resolved_call_pairs(res: dict) -> set[tuple[str | None, str | None]]:
+def _resolved_call_pairs(res) -> set[tuple[str | None, str | None]]:
     """`(caller name, callee name)` for every resolved symbol→symbol `calls` edge."""
     name_by_id = {
-        n["node_id"]: n["properties"].get("name")
-        for n in res["nodes"]
-        if n["node_type"] == "SYMBOL"
+        n.node_id: n.properties.get("name")
+        for n in res.nodes
+        if n.node_type == "SYMBOL"
     }
     return {
-        (name_by_id.get(e["source"]), name_by_id.get(e["target"]))
-        for e in res["edges"]
-        if e["edge_type"] == "calls"
+        (name_by_id.get(e.source), name_by_id.get(e.target))
+        for e in res.edges
+        if e.edge_type == "calls"
     }
 
 
@@ -317,22 +317,22 @@ def test_index_repository_resolves_cross_file_edges(clean_graph):
     ]
     res = _index_repository_or_skip(clean_graph.graph, files)
 
-    assert res["files_parsed"] == 2
-    assert res["calls_resolved"] >= 1
-    assert res["imports_resolved"] >= 1
+    assert res.files_parsed == 2
+    assert res.calls_resolved >= 1
+    assert res.imports_resolved >= 1
 
     # run → shared resolved to a symbol→symbol calls edge.
     assert ("run", "shared") in _resolved_call_pairs(res)
 
     # Import resolved to a file→file depends_on edge.
     assert any(
-        e["edge_type"] == "depends_on"
-        and e["source"] == "file:pkg/app.py"
-        and e["target"] == "file:pkg/util.py"
-        for e in res["edges"]
+        e.edge_type == "depends_on"
+        and e.source == "file:pkg/app.py"
+        and e.target == "file:pkg/util.py"
+        for e in res.edges
     )
     # No raw placeholder edges leak through the resolved result.
-    assert not any(e["edge_type"].endswith("_raw") for e in res["edges"])
+    assert not any(e.edge_type.endswith("_raw") for e in res.edges)
 
 
 @pytest.mark.concept("CONCEPT:AU-KG.query.object-graph-mapper")

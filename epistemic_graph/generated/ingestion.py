@@ -14,6 +14,9 @@ from ._runtime import (
     OpaqueResult,
     expect_string,
 )
+from .index_repository import (
+    IndexResult,
+)
 from .source_ingestion import (
     SourceIngestionReceipt,
     SourceIngestionRequest,
@@ -254,7 +257,7 @@ async def send_index_repository(
     graph: str | None = None,
     *,
     idempotency_key: str | None = None,
-) -> OpaqueResult:
+) -> IndexResult:
     """Send one engine-contract request.
 
     Method:
@@ -281,7 +284,7 @@ async def send_index_repository(
         graph,
         idempotency_key=idempotency_key,
     )
-    return OpaqueResult("IndexRepository", payload)
+    return IndexResult.model_validate(payload)
 
 
 class ObserveScreenRequest(BaseModel):

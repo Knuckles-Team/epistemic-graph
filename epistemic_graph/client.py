@@ -6369,17 +6369,25 @@ class GraphOperationsClient:
             await _gen.ingestion.send_parse_files(self._client, {"files_msgpack": blob})
         ).payload
 
-    async def index_repository(self, files: list[tuple[str, bytes]]) -> dict[str, Any]:
+    async def index_repository(
+        self, files: list[tuple[str, bytes]]
+    ) -> _gen.index_repository.IndexResult:
         """Parse a batch AND resolve cross-file edges in ONE round-trip
         (CONCEPT:EG-KG.compute.turn-each-project).
 
         ``files`` is a list of ``(file_path, source_bytes)`` — the SAME blob as
         :meth:`parse_files`, but the batch is treated as one resolution scope (a
         repository, or a delta set). Unlike :meth:`parse_files` (one raw result
-        per file), this returns a SINGLE merged ``IndexResult`` dict::
+        per file), this returns one generated, validated ``IndexResult``::
 
             {"nodes": [...], "edges": [...],          # IMPLEMENTS + resolved
              "symbols_extracted": int, "files_parsed": int,
+             "file_outcomes": [                       # exact input order
+                 {"file_path": str,
+                  "status": "success" | "unsupported" | "error",
+                  "content_digest": "sha256:...",
+                  "parser_capability_digest": "sha256:...",
+                  "diagnostics": [...]}, ...],
              "calls_resolved": int, "calls_unresolved": int,
              "imports_resolved": int, "imports_unresolved": int}
 
@@ -6403,11 +6411,9 @@ class GraphOperationsClient:
             [[_logical_source_name(fp), src] for fp, src in files],
             use_bin_type=True,
         )
-        return (
-            await _gen.ingestion.send_index_repository(
-                self._client, {"files_msgpack": blob}
-            )
-        ).payload
+        return await _gen.ingestion.send_index_repository(
+            self._client, {"files_msgpack": blob}
+        )
 
     async def observe_screen(
         self,

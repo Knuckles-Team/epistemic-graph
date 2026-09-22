@@ -54,8 +54,14 @@ struct ClassDef {
     fields(n_files = files.len(), total_bytes = files.iter().map(|(_, b)| b.len()).sum::<usize>())
 )]
 pub fn index_repository(files: &[(String, Vec<u8>)]) -> IndexResult {
-    let results = super::tree_sitter::parse_files(files);
-    resolve(files, &results)
+    let (results, file_outcomes) = super::tree_sitter::parse_files_with_outcomes(files);
+    let mut indexed = resolve(files, &results);
+    indexed.files_parsed = file_outcomes
+        .iter()
+        .filter(|outcome| outcome.status == eg_types::ingestion_wire::IndexFileStatus::Success)
+        .count();
+    indexed.file_outcomes = file_outcomes;
+    indexed
 }
 
 /// Resolve already-parsed results against the file set they came from. Split out
@@ -1654,5 +1660,38 @@ mod tests {
         assert!(r.edges.iter().any(|e| e.edge_type == "IMPLEMENTS"));
         // No raw placeholder edges leak through.
         assert!(!r.edges.iter().any(|e| e.edge_type.ends_with("_raw")));
+    }
+
+    #[test]
+    fn file_outcome_golden_preserves_order_and_unsupported_status() {
+        let indexed = index_repository(&files(&[
+            ("a.py", "def a():\n    return 1\n"),
+            ("notes.txt", "not source"),
+        ]));
+
+        assert_eq!(indexed.files_parsed, 1);
+        assert_eq!(indexed.file_outcomes.len(), 2);
+        assert_eq!(
+            serde_json::to_value(&indexed.file_outcomes).unwrap(),
+            serde_json::json!([
+                {
+                    "file_path": "a.py",
+                    "status": "success",
+                    "content_digest": "sha256:0c2863d70c1f0e4d3682a1608c1e161ec2fad5bc4d911fc69e314677ca080149",
+                    "parser_capability_digest": "sha256:acf661ca1240e4d02fba05eb4c5bcb5c0ce0bf97f75021b14dcdbdfaaaa6dc03",
+                    "diagnostics": [],
+                },
+                {
+                    "file_path": "notes.txt",
+                    "status": "unsupported",
+                    "content_digest": "sha256:5fc7a6fc225b7cecc79a5a57accc951f49fdce477fe4d052016ee38b38b2322c",
+                    "parser_capability_digest": "sha256:0365ffd9e68eac821f548268fd83ecb33d7be25480e6dcfca4734550f48e1134",
+                    "diagnostics": [{
+                        "code": "unsupported_extension",
+                        "message": "Unsupported file extension",
+                    }],
+                },
+            ])
+        );
     }
 }

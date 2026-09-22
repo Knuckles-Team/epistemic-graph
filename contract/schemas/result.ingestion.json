@@ -105,6 +105,13 @@
       ],
       "type": "object"
     },
+    "BoundedVec_IndexDiagnostic_8": {
+      "items": {
+        "$ref": "#/$defs/IndexDiagnostic"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
     "BoundedVec_RawAdmissionReceipt_1024": {
       "items": {
         "$ref": "#/$defs/RawAdmissionReceipt"
@@ -331,6 +338,60 @@
       "description": "Opaque logical-generation identity. It is never derived from a resource name.",
       "type": "string"
     },
+    "IndexDiagnostic": {
+      "description": "One bounded, machine-readable diagnostic for a repository-index input.",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "type": "object"
+    },
+    "IndexFileOutcome": {
+      "description": "The exact outcome of one input file in an `IndexRepository` batch.\n\nOutcomes are returned one-for-one and in the same order as the submitted\nfiles. Both digests use the canonical `sha256:<lowercase-hex>` spelling.",
+      "properties": {
+        "content_digest": {
+          "type": "string"
+        },
+        "diagnostics": {
+          "$ref": "#/$defs/BoundedVec_IndexDiagnostic_8",
+          "description": "Bounded by the engine. The current parser emits at most one diagnostic\nfor an input, while the vector leaves room for richer parsers without a\nwire-shape change."
+        },
+        "file_path": {
+          "type": "string"
+        },
+        "parser_capability_digest": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/IndexFileStatus"
+        }
+      },
+      "required": [
+        "file_path",
+        "status",
+        "content_digest",
+        "parser_capability_digest",
+        "diagnostics"
+      ],
+      "type": "object"
+    },
+    "IndexFileStatus": {
+      "description": "Per-file disposition produced by [`IndexResult`].  It is deliberately\nseparate from `ParseResult`: an unsupported parser capability and a source\nfile containing no declarations are not the same outcome.",
+      "enum": [
+        "success",
+        "unsupported",
+        "error"
+      ],
+      "type": "string"
+    },
     "IndexResult": {
       "description": "Resolved, cross-file symbol graph for a batch of files — the response shape\nof the `IndexRepository` RPC. Unlike `ParseFiles` (one raw `ParseResult` per\nfile), this is a SINGLE merged graph whose `calls`/`inherits`/`realizes`/\n`depends_on` edges point at real node ids.",
       "properties": {
@@ -365,7 +426,15 @@
           },
           "type": "array"
         },
+        "file_outcomes": {
+          "description": "Exactly one outcome per submitted file, in input order. An unsupported\nextension is explicit and never represented as an empty success.",
+          "items": {
+            "$ref": "#/$defs/IndexFileOutcome"
+          },
+          "type": "array"
+        },
         "files_parsed": {
+          "description": "Successfully parsed inputs. This is not the submitted batch size: see\n`file_outcomes` for unsupported and failed inputs.",
           "format": "uint",
           "minimum": 0,
           "type": "integer"
@@ -418,6 +487,7 @@
         "edges",
         "symbols_extracted",
         "files_parsed",
+        "file_outcomes",
         "calls_resolved",
         "calls_unresolved",
         "calls_scope_resolved",

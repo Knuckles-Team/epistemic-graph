@@ -50,7 +50,12 @@ class RegisteredServerView(BaseModel):
     url: str
 
 
-BoundedVec_RegisteredServerView_256 = list[RegisteredServerView]
+BoundedVec_RegisteredServerView_256 = Annotated[
+    list[RegisteredServerView],
+    Field(
+        max_length=256,
+    ),
+]
 
 
 Digest256 = Annotated[

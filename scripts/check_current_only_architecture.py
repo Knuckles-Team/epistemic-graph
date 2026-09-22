@@ -167,7 +167,15 @@ def require_no_retired_graph_topology() -> None:
     command = ["rg", "-n", "-F", "--no-heading", "--color=never"]
     for needle in needles:
         command.extend(("-e", needle))
-    command.extend(("src", "crates", "epistemic_graph", "tests", "docs", ".specify"))
+    scan_roots = (
+        "src",
+        "crates",
+        "epistemic_graph",
+        "tests",
+        "docs",
+        ".specify",
+    )
+    command.extend(root for root in scan_roots if (ROOT / root).exists())
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
     require(result.returncode in {0, 1}, "retired-topology scan failed")
     require(not result.stdout, f"retired graph topology returned:\n{result.stdout}")

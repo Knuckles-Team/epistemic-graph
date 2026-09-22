@@ -285,8 +285,11 @@ $($variants)*
     /// source_bytes)>` as `ParseFiles`, but the batch is treated as one
     /// resolution scope (a repository, or a delta set): the response is a SINGLE
     /// resolved `IndexResult` whose `calls`/`depends_on` edges point at real node
-    /// ids, not bare names. Use this (not `ParseFiles`) to ingest a repo's symbol
-    /// graph; use `ParseFiles` only when per-file raw results are wanted.
+    /// ids, not bare names. Its ordered `file_outcomes` preserve success,
+    /// unsupported, and error dispositions plus content/parser-capability
+    /// digests for every submitted file. Use this (not `ParseFiles`) to ingest a
+    /// repo's symbol graph; use `ParseFiles` only when per-file raw results are
+    /// wanted.
     IndexRepository {
         #[cfg_attr(feature = "contract-schema", schemars(with = "Vec<u8>"))]
         #[serde(with = "serde_bytes")]

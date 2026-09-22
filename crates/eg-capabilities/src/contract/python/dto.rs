@@ -91,6 +91,15 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
         required: false,
         constants: &[],
     },
+    DtoSurface {
+        method: "IndexRepository",
+        module: "index_repository",
+        result_domain: "ingestion",
+        roots: &["IndexResult"],
+        result_model: Some("IndexResult"),
+        required: true,
+        constants: &[],
+    },
 ];
 /// Schema-specific digest projections rendered as model methods. Framing and
 /// MessagePack encoding live in the shared generated `digest` module; this row
@@ -304,6 +313,8 @@ fn constrained_annotation(node: &serde_json::Value, annotation: String) -> Strin
     for (schema_name, python_name) in [
         ("minLength", "min_length"),
         ("maxLength", "max_length"),
+        ("minItems", "min_length"),
+        ("maxItems", "max_length"),
         ("minimum", "ge"),
         ("maximum", "le"),
     ] {

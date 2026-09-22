@@ -154,10 +154,15 @@ class SourceIngestionRequest(SourceIngestionBatch):
         )
 
 
-BoundedVec_RawAdmissionReceipt_1024 = list[RawAdmissionReceipt]
+BoundedVec_RawAdmissionReceipt_1024 = Annotated[
+    list[RawAdmissionReceipt],
+    Field(
+        max_length=1024,
+    ),
+]
 
 
-BoundedVec_SourceRecord_1024 = list[SourceRecord]
+BoundedVec_SourceRecord_1024 = Annotated[list[SourceRecord], Field(max_length=1024)]
 
 
 Digest256 = Annotated[

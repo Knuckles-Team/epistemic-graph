@@ -9,6 +9,47 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::contract::BoundedVec;
+
+pub const MAX_INDEX_DIAGNOSTICS_PER_FILE: usize = 8;
+
+/// Per-file disposition produced by [`IndexResult`].  It is deliberately
+/// separate from `ParseResult`: an unsupported parser capability and a source
+/// file containing no declarations are not the same outcome.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum IndexFileStatus {
+    Success,
+    Unsupported,
+    Error,
+}
+
+/// One bounded, machine-readable diagnostic for a repository-index input.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct IndexDiagnostic {
+    pub code: String,
+    pub message: String,
+}
+
+/// The exact outcome of one input file in an `IndexRepository` batch.
+///
+/// Outcomes are returned one-for-one and in the same order as the submitted
+/// files. Both digests use the canonical `sha256:<lowercase-hex>` spelling.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct IndexFileOutcome {
+    pub file_path: String,
+    pub status: IndexFileStatus,
+    pub content_digest: String,
+    pub parser_capability_digest: String,
+    /// Bounded by the engine. The current parser emits at most one diagnostic
+    /// for an input, while the vector leaves room for richer parsers without a
+    /// wire-shape change.
+    pub diagnostics: BoundedVec<IndexDiagnostic, MAX_INDEX_DIAGNOSTICS_PER_FILE>,
+}
+
 /// An extracted graph node: the shape the AST and screen enrichments share, so the
 /// caller's persist path is one.
 #[derive(Serialize, Deserialize, Debug)]
@@ -64,7 +105,12 @@ pub struct IndexResult {
     /// `calls_raw`/`depends_on_raw` edges are dropped — they're superseded here.
     pub edges: Vec<ExtractedEdge>,
     pub symbols_extracted: usize,
+    /// Successfully parsed inputs. This is not the submitted batch size: see
+    /// `file_outcomes` for unsupported and failed inputs.
     pub files_parsed: usize,
+    /// Exactly one outcome per submitted file, in input order. An unsupported
+    /// extension is explicit and never represented as an empty success.
+    pub file_outcomes: Vec<IndexFileOutcome>,
     /// Call sites bound to a definition (numerator of call-resolution coverage).
     pub calls_resolved: usize,
     /// Call sites seen but not bound (external/stdlib/ambiguous) — the remainder.
