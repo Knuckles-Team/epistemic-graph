@@ -652,8 +652,9 @@ ex:parent a owl:AsymmetricProperty .
         let triples = eg_rdf::mapping::parse_turtle(foundation).unwrap();
         // 880 migrated triples less the two list-cell triples of `:Incident`, which
         // was removed from the Person/Organization/Server/Event disjointness because
-        // it is a subclass of `:Event` (EH-356).
-        assert_eq!(triples.len(), 878);
+        // it is a subclass of `:Event` (EH-356), plus the 8 triples declaring BFO
+        // realizable entity and disposition, the category of `:Skill`.
+        assert_eq!(triples.len(), 886);
         for required in [
             "http://knuckles.team/kg#Concept",
             "http://knuckles.team/kg#Evidence",
@@ -679,8 +680,9 @@ ex:parent a owl:AsymmetricProperty .
         // of the core :Skill (a2a) and :LegalEntity (company) — 2; `:Incident` in the
         // AllDisjointClasses list of its own superclass `:Event` — 2. Then +99: the
         // module-local domain/range of 12 other shared properties (and the double domain
-        // of infrastructure's :runsOn) moved onto 24 module-local sub-properties.
-        assert_eq!(composed.ontology.len(), 12_689);
+        // of infrastructure's :runsOn) moved onto 24 module-local sub-properties. Then
+        // +8: BFO realizable entity and disposition, declared for `:Skill`.
+        assert_eq!(composed.ontology.len(), 12_697);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -712,7 +714,7 @@ ex:parent a owl:AsymmetricProperty .
         // authority triples change.
         assert_eq!(ontology_subjects.len(), 30);
         assert_eq!(imports, 59);
-        assert_eq!(semantic_axioms, 12_534);
+        assert_eq!(semantic_axioms, 12_542);
 
         let count_type = |object: &str| {
             composed
@@ -761,7 +763,7 @@ ex:parent a owl:AsymmetricProperty .
                         && matches!(&triple.object, Term::NamedNode(_))
                 })
                 .count(),
-            377
+            379
         );
     }
 
@@ -789,6 +791,18 @@ ex:parent a owl:AsymmetricProperty .
             ]),
             "the BFO root must subsume nothing but itself and owl:Thing"
         );
+        // Operator ruling 2026-09-22: a skill is a capacity its bearer can realize — a
+        // BFO disposition (a specifically dependent continuant), not an independent
+        // continuant and not an information artifact.
+        let skill = &classification.subsumers["<http://knuckles.team/kg#Skill>"];
+        let bfo = |id: &str| format!("<http://purl.obolibrary.org/obo/BFO_{id}>");
+        assert!(
+            skill.contains(&bfo("0000016")),
+            "Skill ⊑ disposition: {skill:?}"
+        );
+        assert!(skill.contains(&bfo("0000020")));
+        assert!(!skill.contains(&bfo("0000004")));
+        assert!(!skill.contains(&bfo("0000031")));
     }
 
     /// A module must not constrain a shared property: OWL intersects every
