@@ -804,6 +804,21 @@ pub(super) fn section_bytes<'a>(
         .ok_or_else(|| "section outside archive".to_string())
 }
 
+fn valid_iri(value: &str) -> bool {
+    value.contains(':')
+        && !value
+            .bytes()
+            .any(|b| b.is_ascii_whitespace() || b.is_ascii_control())
+}
+
+fn violation(code: PackViolationCode, uri: Option<&str>, detail: &str) -> PackViolation {
+    PackViolation {
+        code,
+        uri: uri.map(str::to_string),
+        detail: detail.chars().take(1024).collect(),
+    }
+}
+
 #[cfg(test)]
 mod mcp_resource_uri_tests {
     use super::generic_mcp_uri;
@@ -820,19 +835,5 @@ mod mcp_resource_uri_tests {
         assert!(!generic_mcp_uri("resources/item.json"));
         assert!(!generic_mcp_uri(":missing-scheme"));
         assert!(!generic_mcp_uri("1invalid://item"));
-    }
-}
-fn valid_iri(value: &str) -> bool {
-    value.contains(':')
-        && !value
-            .bytes()
-            .any(|b| b.is_ascii_whitespace() || b.is_ascii_control())
-}
-
-fn violation(code: PackViolationCode, uri: Option<&str>, detail: &str) -> PackViolation {
-    PackViolation {
-        code,
-        uri: uri.map(str::to_string),
-        detail: detail.chars().take(1024).collect(),
     }
 }

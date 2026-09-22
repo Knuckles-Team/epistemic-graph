@@ -213,10 +213,14 @@ async fn route_source_ingestion_or_resources(
     ctx: GraphOpRouting<'_>,
     method: Method,
 ) -> Result<Response, Method> {
-    let source_method = match source_ingestion_route(method) {
-        Ok(route) => route,
-        Err(method) => return route_native_resource_ops(ctx, method).await,
-    };
+    let source_method =
+        match method {
+            Method::SourceIngest { request } => SourceIngestionRoute::Ingest(request),
+            Method::SourceIngestStatus { connector, stream } => SourceIngestionRoute::Status(
+                eg_types::source_ingestion::SourceIngestStatusRequest { connector, stream },
+            ),
+            method => return route_native_resource_ops(ctx, method).await,
+        };
     route_source_ingestion_dispatch(ctx, source_method).await
 }
 
@@ -236,16 +240,6 @@ async fn route_source_ingestion_dispatch(
         }
     };
     Ok(response)
-}
-
-fn source_ingestion_route(method: Method) -> Result<SourceIngestionRoute, Method> {
-    match method {
-        Method::SourceIngest { request } => Ok(SourceIngestionRoute::Ingest(request)),
-        Method::SourceIngestStatus { connector, stream } => Ok(SourceIngestionRoute::Status(
-            eg_types::source_ingestion::SourceIngestStatusRequest { connector, stream },
-        )),
-        method => Err(method),
-    }
 }
 
 async fn route_source_ingestion_status(

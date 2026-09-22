@@ -28,7 +28,7 @@ use super::validation::{entry_description, section_bytes, validate_index};
 
 pub(super) enum Prepared {
     Rejected(PackImportResult),
-    Ready(ReadyPlan),
+    Ready(Box<ReadyPlan>),
 }
 
 pub(super) struct ReadyPlan {
@@ -56,7 +56,7 @@ impl ReadyPlan {
                 "BODY_MISSING: engine body batch omitted a planned body".to_string()
             })?;
             holders.push(ConnectorPackHolderCommit {
-                body_sha256: sha256.clone(),
+                body_sha256: sha256,
                 component_id: component_id.clone(),
                 entry_revision,
                 row: ConnectorPackBodyHolderRow {
@@ -309,13 +309,10 @@ impl<'a> PlanCollector<'a> {
             kind: mutation,
             entry: component.clone(),
         });
-        self.holder_specs.push((
-            entry.body.sha256.clone(),
-            component.component_id.clone(),
-            revision,
-        ));
+        self.holder_specs
+            .push((entry.body.sha256, component.component_id.clone(), revision));
         self.body_inputs
-            .push((entry.body.sha256.clone(), wanted.body.clone()));
+            .push((entry.body.sha256, wanted.body.clone()));
         Ok((component, disposition))
     }
 
@@ -343,12 +340,12 @@ impl<'a> PlanCollector<'a> {
         self.members.push(ConnectorPackMemberRow {
             uri: entry.uri.clone(),
             kind: entry.kind,
-            entry_digest: digest.clone(),
+            entry_digest: *digest,
             component_id: component.component_id.clone(),
             entry_revision: component.entry_revision,
             definition_digest: component.definition_digest.clone(),
             lifecycle: AgentLibraryLifecycle::Published,
-            body_sha256: entry.body.sha256.clone(),
+            body_sha256: entry.body.sha256,
             engine_manifest_digest: prior_holder
                 .as_ref()
                 .map_or_else(String::new, |value| value.0.clone()),
@@ -412,15 +409,15 @@ impl<'a> PlanCollector<'a> {
         revision: u64,
     ) -> Result<(), String> {
         self.holder_specs
-            .push((old.body_sha256.clone(), old.component_id.clone(), revision));
+            .push((old.body_sha256, old.component_id.clone(), revision));
         let body = crate::server::blob::engine_bodies::read_engine_body(
             self.blob,
             &self.request.context.tenant_id,
             &old.engine_manifest_digest,
-            old.body_sha256.clone(),
+            old.body_sha256,
             old.body_length,
         )?;
-        self.body_inputs.push((old.body_sha256.clone(), body));
+        self.body_inputs.push((old.body_sha256, body));
         Ok(())
     }
 
@@ -460,14 +457,14 @@ impl<'a> PlanCollector<'a> {
             self.server_pin
                 .ok_or_else(|| "MALFORMED_INDEX: pack has no server".to_string())?,
         )?;
-        Ok(Prepared::Ready(ReadyPlan {
+        Ok(Prepared::Ready(Box::new(ReadyPlan {
             expected_head: self.request.expected_head.clone(),
             record,
             components: self.components,
             members: self.members,
             holder_specs: self.holder_specs,
             body_inputs: self.body_inputs,
-        }))
+        })))
     }
 }
 
@@ -502,16 +499,12 @@ fn disposition_for(
     }
 }
 
-fn manifest_projections(
-    entry: &PackEntry,
-    body: &[u8],
-) -> Result<
-    (
-        Option<BTreeMap<String, eg_types::connector_pack::ConnectorSchemaMapping>>,
-        Option<BTreeMap<String, eg_types::connector_pack::ConnectorRelationshipMapping>>,
-    ),
-    String,
-> {
+type ManifestProjections = (
+    Option<BTreeMap<String, eg_types::connector_pack::ConnectorSchemaMapping>>,
+    Option<BTreeMap<String, eg_types::connector_pack::ConnectorRelationshipMapping>>,
+);
+
+fn manifest_projections(entry: &PackEntry, body: &[u8]) -> Result<ManifestProjections, String> {
     if entry.kind != PackEntryKind::Manifest {
         return Ok((None, None));
     }
@@ -537,12 +530,9 @@ fn import_record(
             .as_ref()
             .map_or(1, |head| head.binding_revision + 1),
         record_id,
-        pack_digest: request.index.pack_digest.clone(),
+        pack_digest: request.index.pack_digest,
         catalog: request.index.catalog.clone(),
-        previous_pack_digest: request
-            .expected_head
-            .as_ref()
-            .map(|head| head.pack_digest.clone()),
+        previous_pack_digest: request.expected_head.as_ref().map(|head| head.pack_digest),
         server: PackServerRecord {
             name: request.index.server.name.clone(),
             contract_version: request.index.server.annotations.contract_version.clone(),
@@ -552,7 +542,7 @@ fn import_record(
         producer: request.index.producer.clone(),
         archive: PackArchiveFacts {
             length: request.index.archive.length,
-            sha256: request.index.archive.sha256.clone(),
+            sha256: request.index.archive.sha256,
         },
         importer: request.context.caller_principal.clone(),
         committed_at_ms: request.context.created_at_ms,
@@ -876,7 +866,7 @@ fn rejected(
     let exhausted = violations.len() > eg_types::connector_pack::MAX_PACK_VIOLATIONS;
     violations.truncate(eg_types::connector_pack::MAX_PACK_VIOLATIONS);
     Ok(Prepared::Rejected(PackImportResult::Rejected {
-        pack_digest: Some(request.index.pack_digest.clone()),
+        pack_digest: Some(request.index.pack_digest),
         violations: BoundedVec::new(violations)?,
         budget_exhausted: exhausted,
     }))

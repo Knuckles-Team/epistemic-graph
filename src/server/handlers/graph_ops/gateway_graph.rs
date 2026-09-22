@@ -301,10 +301,13 @@ fn resolve_datalog_input(
 }
 
 #[cfg(feature = "reasoning")]
+type DatalogInferenceRows = (Vec<String>, Vec<std::collections::HashMap<String, String>>);
+
+#[cfg(feature = "reasoning")]
 fn collect_datalog_inferences(
     core: &GraphCore,
     input: DatalogReasoningInput,
-) -> Result<(Vec<String>, Vec<std::collections::HashMap<String, String>>), String> {
+) -> Result<DatalogInferenceRows, String> {
     let DatalogReasoningInput {
         schema_digests,
         subclass_relations,

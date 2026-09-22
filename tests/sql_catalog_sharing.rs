@@ -91,6 +91,7 @@ fn dispatch_sources() -> Vec<PathBuf> {
 ///   * **more than one candidate**: the guard is AMBIGUOUS — the subject is
 ///     defined in more than one dispatch source, so "the" definition this
 ///     guard reasons about does not exist.
+///
 /// Only when exactly one candidate is found does this function return, and
 /// only then can a caller meaningfully ask about ordering within its body.
 fn defining_source(signature: &str) -> (PathBuf, String) {

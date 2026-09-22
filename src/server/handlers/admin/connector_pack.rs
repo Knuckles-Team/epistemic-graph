@@ -306,7 +306,7 @@ async fn read_import_archive(
     let owner = carrier.owner_scope().to_string();
     let expected_length = request.index.archive.length;
     let expected_sha = request.index.archive.sha256;
-    let archive_blob = Arc::clone(&blob);
+    let archive_blob = Arc::clone(blob);
     let archive = tokio::task::spawn_blocking(move || {
         let manifest = archive_blob
             .store

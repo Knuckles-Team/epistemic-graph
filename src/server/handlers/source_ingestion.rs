@@ -192,14 +192,16 @@ pub(crate) async fn prepare(
         &mut admitted,
     )?;
     admit_relationships(
-        &ctx,
-        batch,
-        &authority,
-        &resources.blob,
-        &resolved,
-        &policy_subject,
-        persistence.as_ref(),
-        &graph_fname,
+        RelationshipAdmissionContext {
+            ctx: &ctx,
+            batch,
+            authority: &authority,
+            blob: &resources.blob,
+            resolved: &resolved,
+            policy_subject: &policy_subject,
+            persistence: persistence.as_ref(),
+            graph_fname: &graph_fname,
+        },
         &mut admitted,
     )?;
     admit_tombstones(
@@ -237,13 +239,15 @@ pub(crate) async fn prepare(
     let envelope = build_envelope(
         batch,
         &batch_id,
-        batch_digest,
-        mutation,
-        admitted.blobs,
-        admitted.policies,
-        admitted.lineage,
-        reconciliation.entry_revision,
-        reconciliation.previous_batch_digest,
+        EnvelopeContents {
+            batch_digest,
+            mutation,
+            blobs: admitted.blobs,
+            policies: admitted.policies,
+            lineage: admitted.lineage,
+            mapping_revision: reconciliation.entry_revision,
+            previous_batch_digest: reconciliation.previous_batch_digest,
+        },
     )?;
     Ok(PreparedSourceIngestion {
         envelope,
@@ -986,17 +990,32 @@ fn admit_records(
 }
 
 #[cfg(all(feature = "redb", feature = "blob"))]
+struct RelationshipAdmissionContext<'a, 'ctx> {
+    ctx: &'a PrepareContext<'ctx>,
+    batch: &'a eg_types::source_ingestion::SourceIngestionBatch,
+    authority: &'a CarrierAuthority,
+    blob: &'a Arc<crate::server::blob::BlobCursors>,
+    resolved: &'a ResolvedIngestionMappings,
+    policy_subject: &'a str,
+    persistence: &'a dyn crate::server::persistence::PersistenceBackend,
+    graph_fname: &'a str,
+}
+
+#[cfg(all(feature = "redb", feature = "blob"))]
 fn admit_relationships(
-    ctx: &PrepareContext<'_>,
-    batch: &eg_types::source_ingestion::SourceIngestionBatch,
-    authority: &CarrierAuthority,
-    blob: &Arc<crate::server::blob::BlobCursors>,
-    resolved: &ResolvedIngestionMappings,
-    policy_subject: &str,
-    persistence: &dyn crate::server::persistence::PersistenceBackend,
-    graph_fname: &str,
+    context: RelationshipAdmissionContext<'_, '_>,
     admitted: &mut AdmittedRecords,
 ) -> Result<(), String> {
+    let RelationshipAdmissionContext {
+        ctx,
+        batch,
+        authority,
+        blob,
+        resolved,
+        policy_subject,
+        persistence,
+        graph_fname,
+    } = context;
     let mut raw_digests = BTreeSet::new();
     let submitted: BTreeMap<_, _> = batch
         .records
@@ -1568,9 +1587,7 @@ fn compile_mutation(
 }
 
 #[cfg(all(feature = "redb", feature = "blob"))]
-fn build_envelope(
-    batch: &eg_types::source_ingestion::SourceIngestionBatch,
-    batch_id: &str,
+struct EnvelopeContents {
     batch_digest: Digest256,
     mutation: eg_types::mutation_batch::MutationBatch,
     blobs: BTreeMap<String, eg_types::change_envelope::BlobReference>,
@@ -1578,7 +1595,23 @@ fn build_envelope(
     lineage: Vec<eg_types::change_envelope::LineageRecord>,
     mapping_revision: u64,
     previous_batch_digest: Option<Digest256>,
+}
+
+#[cfg(all(feature = "redb", feature = "blob"))]
+fn build_envelope(
+    batch: &eg_types::source_ingestion::SourceIngestionBatch,
+    batch_id: &str,
+    contents: EnvelopeContents,
 ) -> Result<eg_types::change_envelope::ChangeEnvelope, String> {
+    let EnvelopeContents {
+        batch_digest,
+        mutation,
+        blobs,
+        policies,
+        lineage,
+        mapping_revision,
+        previous_batch_digest,
+    } = contents;
     let checkpoint_digest = batch.provider_checkpoint.digest()?;
     let expected_previous = batch
         .expected_previous_checkpoint

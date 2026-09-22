@@ -380,8 +380,9 @@ fn contract_wave_rows_declare_their_static_policy() {
 }
 
 /// Every still-unserved contract-wave method and op is `Internal` with no
-/// consumer until its handler lands. `ConnectorPack` graduated once its durable
-/// handler and generated reconciliation client landed.
+/// consumer until its handler lands. `ConnectorPack`, `GraphSchema`, and
+/// `GraphSchemaList` graduated once their durable handlers and generated clients
+/// landed.
 #[test]
 fn contract_wave_rows_are_internal_with_no_consumer() {
     let wave = [
@@ -391,8 +392,6 @@ fn contract_wave_rows_are_internal_with_no_consumer() {
         "DecisionFit",
         "DecisionEval",
         "Solve",
-        "GraphSchema",
-        "GraphSchemaList",
         "MutationOutbox",
     ];
     let mut seen = 0;

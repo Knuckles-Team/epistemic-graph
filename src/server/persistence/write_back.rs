@@ -579,44 +579,38 @@ fn validate_attempt(attempt: &WriteBackAttempt) -> Result<(), String> {
     if attempt.pre_source_version.is_empty() || attempt.post_source_version.is_empty() {
         return Err("write-back attempt requires source versions".to_string());
     }
-    let valid = match (attempt.kind, attempt.outcome, attempt.effect_status) {
+    let valid = matches!(
+        (attempt.kind, attempt.outcome, attempt.effect_status),
         (
             WriteBackAttemptKind::DryRun,
             WriteBackOutcome::DryRunReady,
             WriteBackEffectStatus::NoEffect,
-        )
-        | (
+        ) | (
             WriteBackAttemptKind::DryRun,
             WriteBackOutcome::Conflict,
             WriteBackEffectStatus::NoEffect,
-        )
-        | (
+        ) | (
             WriteBackAttemptKind::DryRun,
             WriteBackOutcome::Rejected,
             WriteBackEffectStatus::NoEffect,
-        )
-        | (
+        ) | (
             WriteBackAttemptKind::Apply,
             WriteBackOutcome::Applied,
             WriteBackEffectStatus::Applied,
-        )
-        | (
+        ) | (
             WriteBackAttemptKind::Apply,
             WriteBackOutcome::Conflict,
             WriteBackEffectStatus::NoEffect,
-        )
-        | (
+        ) | (
             WriteBackAttemptKind::Apply,
             WriteBackOutcome::Rejected,
             WriteBackEffectStatus::NoEffect,
-        )
-        | (
+        ) | (
             WriteBackAttemptKind::Apply,
             WriteBackOutcome::OutcomeUncertain,
             WriteBackEffectStatus::OutcomeUncertain,
-        ) => true,
-        _ => false,
-    };
+        )
+    );
     valid
         .then_some(())
         .ok_or_else(|| "write-back outcome/effect combination is invalid".to_string())

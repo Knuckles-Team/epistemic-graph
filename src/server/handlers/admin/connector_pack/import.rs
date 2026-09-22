@@ -39,13 +39,13 @@ pub(super) async fn validate_and_commit(
         store.connector_pack_members(&request.context.tenant_id, &request.index.connector)?;
     let prepared = match prepare(&store, &*blob.store, &request, &archive, prior)? {
         Prepared::Rejected(result) => return Ok(result),
-        Prepared::Ready(ready) => ready,
+        Prepared::Ready(ready) => *ready,
     };
     let bodies = prepared
         .body_inputs
         .iter()
         .map(|(sha256, body)| EngineBody {
-            sha256: sha256.clone(),
+            sha256: *sha256,
             body: body.clone(),
         })
         .collect::<Vec<_>>();

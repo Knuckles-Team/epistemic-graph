@@ -108,7 +108,7 @@ jobs:
       # capability tests. Keep this runtime closure aligned with uv.lock so the
       # generated Python surface is exercised in hosted CI as well.
       - name: Install locked capability-test Python dependencies
-        run: python -m pip install --disable-pip-version-check pydantic==2.13.5 pydantic-core==2.46.5 annotated-types==0.8.0 typing-extensions==4.16.0 typing-inspection==0.4.4
+        run: python -m pip install --disable-pip-version-check msgpack==1.2.1 pydantic==2.13.5 pydantic-core==2.46.5 annotated-types==0.8.0 typing-extensions==4.16.0 typing-inspection==0.4.4
 
       # Product tests and protocol contracts run on every push and pull request.
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master

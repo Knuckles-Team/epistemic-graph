@@ -125,7 +125,7 @@ fn compose_documents<'a>(
             }
         }
     }
-    composed.sort_by(|left, right| left.1.to_string().cmp(&right.1.to_string()));
+    composed.sort_by_cached_key(|(_, triple)| triple.to_string());
     Ok(composed)
 }
 
