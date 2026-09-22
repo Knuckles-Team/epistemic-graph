@@ -382,7 +382,10 @@ async fn dedicated_recovery_key_unblocks_txn_commit_without_touching_existing_pl
     )
     .await;
     assert!(
-        matches!(commit.result, Some(ResultPayload::Bool(true))),
+        matches!(
+            commit.result,
+            Some(ResultPayload::Json(serde_json::Value::Bool(true)))
+        ),
         "compare-and-set-shaped multi-op commit must succeed with only the dedicated \
          recovery key configured: {:?}",
         commit.error
