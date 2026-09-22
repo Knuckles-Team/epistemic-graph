@@ -22,7 +22,7 @@
 //!   * `edges`          `(graph, src, tgt, ord) -> edge properties msgpack`
 //!   * `ledger`         `(graph, seq)           -> ledger line`
 //!   * `semantic_store` `graph                  -> semantic store blob (msgpack)`
-//!   * `graph_meta`     `graph                  -> identity + integrity-policy blob`
+//!   * `graph_meta`     `graph                  -> identity + keyed schema authority`
 
 mod store_prelude;
 use store_prelude::*;
@@ -2418,7 +2418,7 @@ mod mutation_batch_tests {
                 graph_type: GraphType::Global,
                 incarnation_id: "incarnation:test:duplicate-checkpoint".to_string(),
                 source_snapshot_version: 1,
-                integrity_policy: None,
+                schema_sources: std::sync::Arc::new(crate::graph::GraphSchemaSources::default()),
                 nodes: Vec::new(),
                 edges: Vec::new(),
                 ledger: Vec::new(),
@@ -2449,7 +2449,7 @@ mod mutation_batch_tests {
             graph_type: GraphType::Global,
             incarnation_id: "incarnation:test:native-authority-refusal".to_string(),
             source_snapshot_version: 1,
-            integrity_policy: None,
+            schema_sources: std::sync::Arc::new(crate::graph::GraphSchemaSources::default()),
             nodes: Vec::new(),
             edges: Vec::new(),
             ledger: Vec::new(),
@@ -4748,9 +4748,22 @@ mod mutation_batch_tests {
             .write()
             .add_embedding("a".to_string(), vec![0.25, 0.75])
             .unwrap();
-        after.set_integrity_policy(crate::graph::IntegrityPolicy {
-            shapes_ttl: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
-        });
+        let mut sources = (*after.schema_sources()).clone();
+        sources
+            .attach_dynamic(
+                crate::graph::OPERATOR_SOURCE_ID.to_string(),
+                crate::graph::GraphSchemaSource::new(
+                    crate::graph::SchemaSourceOrigin::Operator,
+                    Some(std::sync::Arc::from(
+                        "@prefix sh: <http://www.w3.org/ns/shacl#> .",
+                    )),
+                    None,
+                    0,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        after.install_schema_sources(std::sync::Arc::new(sources));
         let delta = crate::graph_delta::GraphRowDelta::between(&before_snapshot, &after.snapshot())
             .unwrap();
         let state = delta.to_msgpack().unwrap();
@@ -4763,7 +4776,7 @@ mod mutation_batch_tests {
             domain: DurabilityDomain::GraphSnapshot,
             method: Method::ApplyMutation {
                 event_type: "authoritative_state_operation".to_string(),
-                query: "sha256-row-delta-v2:opaque".to_string(),
+                query: "sha256-row-delta-schema-sources:opaque".to_string(),
             },
         }];
         mutation.authoritative_state = Some(crate::mutation_batch::MutationStateDescriptor {
@@ -4819,24 +4832,37 @@ mod mutation_batch_tests {
             vec![("a".to_string(), vec![0.25, 0.75])]
         );
         assert_eq!(dump.source_snapshot_version, 5);
-        assert_eq!(dump.integrity_policy, after.integrity_policy());
+        assert_eq!(dump.schema_sources, after.schema_sources());
         let _ = std::fs::remove_file(path);
     }
 
     #[test]
-    fn failed_row_delta_commit_does_not_publish_integrity_policy() {
+    fn failed_row_delta_commit_does_not_publish_schema_sources() {
         use sha2::{Digest, Sha256};
 
-        let path = temp_path("integrity-policy-rollback");
+        let path = temp_path("schema-sources-rollback");
         let db = open(&path);
         commit_at(&db, &batch("batch-policy-base", "idem-policy-base"), None).unwrap();
 
         let before = crate::graph::GraphCore::new();
         let before_snapshot = before.snapshot();
         let after = crate::graph::GraphCore::from_snapshot(before_snapshot.clone(), 0).unwrap();
-        after.set_integrity_policy(crate::graph::IntegrityPolicy {
-            shapes_ttl: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
-        });
+        let mut sources = (*after.schema_sources()).clone();
+        sources
+            .attach_dynamic(
+                crate::graph::OPERATOR_SOURCE_ID.to_string(),
+                crate::graph::GraphSchemaSource::new(
+                    crate::graph::SchemaSourceOrigin::Operator,
+                    Some(std::sync::Arc::from(
+                        "@prefix sh: <http://www.w3.org/ns/shacl#> .",
+                    )),
+                    None,
+                    0,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        after.install_schema_sources(std::sync::Arc::new(sources));
         let delta = crate::graph_delta::GraphRowDelta::between(&before_snapshot, &after.snapshot())
             .unwrap();
         let state = delta.to_msgpack().unwrap();
@@ -4893,7 +4919,7 @@ mod mutation_batch_tests {
         let dump = read_graph_dump(&db, "graph-a", DurableCrypto::none())
             .unwrap()
             .unwrap();
-        assert!(dump.integrity_policy.is_none());
+        assert!(dump.schema_sources.dynamic.is_empty());
         assert_eq!(read_mutation_graph_version(&db, "graph-a").unwrap(), 4);
         let _ = std::fs::remove_file(path);
     }

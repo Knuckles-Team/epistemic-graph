@@ -1,0 +1,242 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:ConfluencePage a owl:Class ;
+    rdfs:label "Confluence Page" ;
+    rdfs:comment "A Confluence wiki page mirrored as a full-text Document (CONCEPT:KG-2.123)." ;
+    rdfs:subClassOf :Document .
+
+:JiraIssue a owl:Class ;
+    rdfs:label "Jira Issue" ;
+    rdfs:comment "A Jira issue ingested from an Atlassian site (CONCEPT:KG-2.124)." ;
+    rdfs:subClassOf :Issue .
+
+:assertCount a owl:DatatypeProperty ;
+    rdfs:domain :Test ;
+    rdfs:range xsd:integer .
+
+:authored a owl:ObjectProperty ;
+    rdfs:label "authored" ;
+    rdfs:comment "An Author authored a Commit (CONCEPT:KG-2.282)." ;
+    rdfs:domain :Author ;
+    rdfs:range :Commit .
+
+:calls a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "calls" ;
+    rdfs:comment "Source symbol invokes target symbol; transitive call reachability." ;
+    rdfs:domain :Code ;
+    rdfs:range :Code .
+
+:changesWith a owl:ObjectProperty,
+        owl:SymmetricProperty ;
+    rdfs:label "changes with" ;
+    rdfs:comment "Two Files historically co-change in the same commits — hidden change-coupling the AST can't see; symmetric, weighted by support (CONCEPT:KG-2.104 / KG-2.282)." ;
+    rdfs:domain :File ;
+    rdfs:range :File .
+
+:covers a owl:ObjectProperty ;
+    rdfs:label "covers" ;
+    rdfs:comment "A Test exercises a Code symbol (test → code-under-test)." ;
+    rdfs:domain :Test ;
+    rdfs:range :Code .
+
+:dependsOn a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "depends on" ;
+    rdfs:comment "Transitive dependency between symbols / modules." ;
+    rdfs:domain :Code ;
+    rdfs:range :Code .
+
+:groundsTo a owl:ObjectProperty ;
+    rdfs:label "grounds to" ;
+    rdfs:comment "A GuiAction was grounded to (targeted) a UIElement rather than raw coordinates." ;
+    rdfs:domain :GuiAction ;
+    rdfs:range :UIElement .
+
+:hasElement a owl:ObjectProperty ;
+    rdfs:label "has element" ;
+    rdfs:comment "A ScreenObservation frame contains a grounded UIElement." ;
+    rdfs:domain :ScreenObservation ;
+    rdfs:range :UIElement .
+
+:hasObservation a owl:ObjectProperty ;
+    rdfs:label "has observation" ;
+    rdfs:comment "A ComputerUseSession captured a ScreenObservation frame." ;
+    rdfs:domain :ComputerUseSession ;
+    rdfs:range :ScreenObservation .
+
+:implementsPattern a owl:ObjectProperty ;
+    rdfs:label "implements pattern" ;
+    rdfs:comment "A Code symbol exhibits a design Pattern." ;
+    rdfs:domain :Code ;
+    rdfs:range :Pattern .
+
+:inherits a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "inherits" ;
+    rdfs:comment "A class symbol inherits from a base class; transitive over the inheritance chain (CONCEPT:KG-2.100)." ;
+    rdfs:domain :Code ;
+    rdfs:range :Code .
+
+:mockCount a owl:DatatypeProperty ;
+    rdfs:domain :Test ;
+    rdfs:range xsd:integer .
+
+:mutated a owl:ObjectProperty ;
+    rdfs:label "mutated" ;
+    rdfs:comment "A WorkspaceAction (file edit/write) changed a Code symbol — the grounding that makes failures attributable." ;
+    rdfs:domain :WorkspaceAction ;
+    rdfs:range :Code .
+
+:needsWork a owl:DatatypeProperty ;
+    rdfs:label "needs work" ;
+    rdfs:comment "True when the test trips a quality rule (mock-heavy, assertion-free, dormant)." ;
+    rdfs:domain :Test ;
+    rdfs:range xsd:boolean .
+
+:parentOf a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "parent of" ;
+    rdfs:comment "A Commit is the parent of another Commit — the commit DAG; transitive over ancestry (CONCEPT:KG-2.282)." ;
+    rdfs:domain :Commit ;
+    rdfs:range :Commit .
+
+:partOfFeature a owl:ObjectProperty ;
+    rdfs:label "part of feature" ;
+    rdfs:comment "A Code symbol belongs to a Feature cluster." ;
+    rdfs:domain :Code ;
+    rdfs:range :Feature .
+
+:produced a owl:ObjectProperty ;
+    rdfs:label "produced" ;
+    rdfs:comment "A WorkspaceAction produced a WorkspaceObservation." ;
+    rdfs:domain :WorkspaceAction ;
+    rdfs:range :WorkspaceObservation .
+
+:provisions a owl:ObjectProperty ;
+    rdfs:label "provisions" ;
+    rdfs:comment "An IaC Resource provisions a deployed Service (CONCEPT:KG-2.103)." ;
+    rdfs:domain :Resource .
+
+:realizes a owl:ObjectProperty ;
+    rdfs:label "realizes" ;
+    rdfs:comment "A class symbol realizes (implements) an interface/trait (CONCEPT:KG-2.100)." ;
+    rdfs:domain :Code ;
+    rdfs:range :Code .
+
+:resolvesFailure a owl:ObjectProperty ;
+    rdfs:label "resolves failure" ;
+    rdfs:comment "A WorkspaceAction sequence resolved a recorded failure/unresolved SWE-bench instance (AHE-3.23)." ;
+    rdfs:domain :WorkspaceAction .
+
+:servedBy a owl:ObjectProperty ;
+    rdfs:label "served by" ;
+    rdfs:comment "A Route is served by a deployed Service — the code↔ecosystem bridge OWL reasoning chains through (CONCEPT:KG-2.102)." ;
+    rdfs:domain :Route .
+
+:serves a owl:ObjectProperty ;
+    rdfs:label "serves" ;
+    rdfs:comment "A Code handler symbol serves an HTTP Route (CONCEPT:KG-2.102)." ;
+    rdfs:domain :Code ;
+    rdfs:range :Route .
+
+:similarTo a owl:ObjectProperty,
+        owl:SymmetricProperty ;
+    rdfs:label "similar to" ;
+    rdfs:comment "Two Code symbols are structurally similar (model-free MinHash/LSH near-clone); symmetric (CONCEPT:KG-2.101)." ;
+    rdfs:domain :Code ;
+    rdfs:range :Code .
+
+:succeededBy a owl:ObjectProperty ;
+    rdfs:label "succeeded by" ;
+    rdfs:comment "A ScreenObservation is followed by the next frame in the session (the frame-diff chain)." ;
+    rdfs:domain :ScreenObservation ;
+    rdfs:range :ScreenObservation .
+
+:summary a owl:DatatypeProperty ;
+    rdfs:comment "LLM capability-card summary: what it does and how." ;
+    rdfs:domain :Code ;
+    rdfs:range xsd:string .
+
+:touched a owl:ObjectProperty ;
+    rdfs:label "touched" ;
+    rdfs:comment "A Commit touched a File (added/modified/renamed it), carrying per-file insertions/deletions (CONCEPT:KG-2.282)." ;
+    rdfs:domain :Commit ;
+    rdfs:range :File .
+
+<http://knuckles.team/kg/software> a owl:Ontology ;
+    rdfs:label "Agent Intelligence Graph — Software Module" ;
+    rdfs:comment "Software domain extension (code, tests, assertions). Imported by the canonical <http://knuckles.team/kg> ontology; resolved to ontology_software.ttl by the local loader convention." .
+
+:Author a owl:Class ;
+    rdfs:label "Author" ;
+    rdfs:comment "A git commit author (name + email); links to the commits they authored (CONCEPT:KG-2.282)." .
+
+:ComputerUseSession a owl:Class ;
+    rdfs:label "Computer-Use Session" ;
+    rdfs:comment "A durable GUI computer-use session against a sandbox desktop; chains its screen observations (CONCEPT:KG-2.186)." .
+
+:Feature a owl:Class ;
+    rdfs:label "Feature" ;
+    rdfs:comment "A cohesive cluster of code symbols implementing a capability." .
+
+:GuiAction a owl:Class ;
+    rdfs:label "GUI Action" ;
+    rdfs:comment "A GUI input action (click/type/key/scroll/drag) the agent executed on a sandbox desktop (CONCEPT:ORCH-1.84)." ;
+    rdfs:subClassOf :WorkspaceAction .
+
+:Pattern a owl:Class ;
+    rdfs:label "Design Pattern" ;
+    rdfs:comment "A design-pattern / implementation-style tag." .
+
+:Resource a owl:Class ;
+    rdfs:label "IaC Resource" ;
+    rdfs:comment "An infrastructure resource declared in IaC (container image, K8s manifest, Terraform resource) (CONCEPT:KG-2.103)." .
+
+:Route a owl:Class ;
+    rdfs:label "HTTP Route" ;
+    rdfs:comment "An HTTP route (method + path) a Code handler serves (CONCEPT:KG-2.102)." .
+
+:UIElement a owl:Class ;
+    rdfs:label "UI Element" ;
+    rdfs:comment "A grounded interactive UI element (role/name/bounding-box) from the accessibility tree; the agent clicks it by reference (CONCEPT:KG-2.185)." .
+
+:WorkspaceObservation a owl:Class ;
+    rdfs:label "Workspace Observation" ;
+    rdfs:comment "The typed result a WorkspaceAction produced (command output, file content, test result)." .
+
+:File a owl:Class ;
+    rdfs:label "File" ;
+    rdfs:comment "A source file as a versioned artifact, carrying churn aggregates (commit_count, churn) for hotspot analysis; the change-coupling endpoint (CONCEPT:KG-2.282 / KG-2.104)." .
+
+:Commit a owl:Class ;
+    rdfs:label "Commit" ;
+    rdfs:comment "A git commit — sha, message, timestamp, parents — ingested so a repo's evolution is first-class graph data (CONCEPT:KG-2.282)." .
+
+:ScreenObservation a owl:Class ;
+    rdfs:label "Screen Observation" ;
+    rdfs:comment "A captured desktop frame (screenshot + grounded UI elements) the agent sees (CONCEPT:KG-2.185)." ;
+    rdfs:subClassOf :WorkspaceObservation .
+
+:Test a owl:Class ;
+    rdfs:label "Test" ;
+    rdfs:comment "A test function with quality-signal metrics." ;
+    rdfs:subClassOf :Code .
+
+:WorkspaceAction a owl:Class ;
+    rdfs:label "Workspace Action" ;
+    rdfs:comment "A typed action the SWE agent executed in the developer-workspace runtime (shell/file/test)." .
+
+:Code a owl:Class ;
+    rdfs:label "Code" ;
+    rdfs:comment "An application code symbol: function, class, or method." .

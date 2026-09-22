@@ -1,0 +1,35 @@
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+<http://knuckles.team/kg> a owl:Ontology ;
+    rdfs:label "Epistemic Graph Core Ontology Catalog" ;
+    rdfs:comment "Generated aggregate catalog for the immutable ontology modules shipped by epistemic-graph." ;
+    owl:imports <http://knuckles.team/kg/core>,
+        <http://knuckles.team/kg/a2a>,
+        <http://knuckles.team/kg/action>,
+        <http://knuckles.team/kg/argumentation>,
+        <http://knuckles.team/kg/capability>,
+        <http://knuckles.team/kg/archimate>,
+        <http://knuckles.team/kg/calendar>,
+        <http://knuckles.team/kg/company>,
+        <http://knuckles.team/kg/company_infra>,
+        <http://knuckles.team/kg/concepts>,
+        <http://knuckles.team/kg/documentation>,
+        <http://knuckles.team/kg/energy_geopolitics>,
+        <http://knuckles.team/kg/enterprise>,
+        <http://knuckles.team/kg/government>,
+        <http://knuckles.team/kg/harness>,
+        <http://knuckles.team/kg/hr>,
+        <http://knuckles.team/kg/identity>,
+        <http://knuckles.team/kg/infrastructure>,
+        <http://knuckles.team/kg/medical>,
+        <http://knuckles.team/kg/native_source_connector>,
+        <http://knuckles.team/kg/orchestration>,
+        <http://knuckles.team/kg/personal>,
+        <http://knuckles.team/kg/process_intelligence>,
+        <http://knuckles.team/kg/sdd>,
+        <http://knuckles.team/kg/sdlc_lifecycle>,
+        <http://knuckles.team/kg/software>,
+        <http://knuckles.team/kg/system>,
+        <http://knuckles.team/kg/trm>,
+        <http://knuckles.team/kg/worldview> .

@@ -1,0 +1,401 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:CHECKED_UNDER_PERSPECTIVE a owl:ObjectProperty ;
+    rdfs:label "checked under perspective" ;
+    rdfs:comment "Links a ConformanceRun to the versioned ProcessPerspective its traces were flattened under." ;
+    rdfs:domain :ConformanceRun ;
+    rdfs:range :ProcessPerspective .
+
+:DIRECTLY_FOLLOWS a owl:ObjectProperty ;
+    owl:equivalentProperty :directlyFollows .
+
+:HAS_DEVIATION a owl:ObjectProperty ;
+    rdfs:label "has deviation" ;
+    rdfs:comment "Links a ConformanceRun to one Deviation it found." ;
+    rdfs:domain :ConformanceRun ;
+    rdfs:range :Deviation .
+
+:HAS_EVENT a owl:ObjectProperty ;
+    owl:equivalentProperty :ocelHasEvent .
+
+:HAS_EVENT_TYPE a owl:ObjectProperty ;
+    rdfs:label "has OCEL event type" ;
+    rdfs:domain :ObjectCentricEventLog ;
+    rdfs:range :ProcessEventType .
+
+:HAS_OBJECT a owl:ObjectProperty ;
+    owl:equivalentProperty :ocelHasObject .
+
+:HAS_OBJECT_TYPE a owl:ObjectProperty ;
+    rdfs:label "has OCEL object type" ;
+    rdfs:domain :ObjectCentricEventLog ;
+    rdfs:range :BusinessObjectType .
+
+:HAS_PARTICIPATION a owl:ObjectProperty ;
+    owl:equivalentProperty :hasParticipation .
+
+:INSTANCE_OF_EVENT_TYPE a owl:ObjectProperty ;
+    rdfs:label "instance of OCEL event type" ;
+    rdfs:domain :ProcessEvent ;
+    rdfs:range :ProcessEventType .
+
+:INSTANCE_OF_OBJECT_TYPE a owl:ObjectProperty ;
+    rdfs:label "instance of OCEL object type" ;
+    rdfs:domain :BusinessObject ;
+    rdfs:range :BusinessObjectType .
+
+:OBSERVED_AT_STATE a owl:ObjectProperty ;
+    owl:equivalentProperty :observedAtState .
+
+:ProcessModelVersion a owl:Class ;
+    rdfs:label "Process Model Version" ;
+    rdfs:comment "A reproducible DFG, BPMN, OC-Petri-net, or other process model bound to a perspective and data version." ;
+    rdfs:subClassOf :ProcessModel,
+        prov:Entity .
+
+:artifact_ref a owl:DatatypeProperty ;
+    owl:equivalentProperty :artifactRef .
+
+:calibratedBy a owl:ObjectProperty ;
+    rdfs:label "calibrated by" ;
+    rdfs:domain :NeuralRelationPrediction ;
+    rdfs:range prov:Entity .
+
+:candidate_set_ref a owl:DatatypeProperty ;
+    owl:equivalentProperty :candidateSetRef .
+
+:derivedFromExtractionRun a owl:ObjectProperty ;
+    rdfs:label "derived from extraction run" ;
+    rdfs:range :ExtractionRun .
+
+:dimension a owl:DatatypeProperty ;
+    owl:equivalentProperty :representationDimension .
+
+:encoder_id a owl:DatatypeProperty ;
+    owl:equivalentProperty :encoderId .
+
+:encoder_version a owl:DatatypeProperty ;
+    owl:equivalentProperty :encoderVersion .
+
+:mapping_version a owl:DatatypeProperty ;
+    owl:equivalentProperty :mappingVersion .
+
+:object_type a owl:DatatypeProperty ;
+    owl:equivalentProperty :objectTypeName .
+
+:observed_at a owl:DatatypeProperty ;
+    owl:equivalentProperty :observedAt .
+
+:occurred_at a owl:DatatypeProperty ;
+    owl:equivalentProperty :processOccurredAt .
+
+:prediction_score a owl:DatatypeProperty ;
+    owl:equivalentProperty :predictionScore .
+
+:prediction_uncertainty a owl:DatatypeProperty ;
+    owl:equivalentProperty :predictionUncertainty .
+
+:qualifier a owl:DatatypeProperty ;
+    owl:equivalentProperty :participationQualifier .
+
+:requiresReview a owl:ObjectProperty ;
+    rdfs:label "requires review" ;
+    rdfs:domain prov:Entity .
+
+:source_graph_epoch a owl:DatatypeProperty ;
+    owl:equivalentProperty :sourceGraphEpoch .
+
+:source_record_id a owl:DatatypeProperty ;
+    owl:equivalentProperty :sourceRecordId .
+
+:valid_from a owl:DatatypeProperty ;
+    owl:equivalentProperty :validFrom .
+
+:valid_to a owl:DatatypeProperty ;
+    owl:equivalentProperty :validTo .
+
+<http://knuckles.team/kg/process_intelligence> a owl:Ontology ;
+    rdfs:label "Object-Centric Process and Neural Graph Intelligence Ontology" ;
+    rdfs:comment """CONCEPT:AU-KG.ingest.semantic-event-contract — canonical OCEL-shaped
+    event/object truth, temporal Event Knowledge Graph state, process perspectives,
+    and governed neural graph proposals. Symbolic source truth remains authoritative;
+    neural outputs are proposal-only until the existing review lifecycle accepts them.""" ;
+    owl:imports <http://knuckles.team/kg/core> .
+
+:Deviation a owl:Class ;
+    rdfs:label "Process Deviation" ;
+    rdfs:comment "Evidence-backed behavioral, participation, state, or temporal deviation found by a ConformanceRun." ;
+    rdfs:subClassOf prov:Entity .
+
+:EntityResolutionProposal a owl:Class ;
+    rdfs:label "Entity Resolution Proposal" ;
+    rdfs:comment "An ambiguous mention-to-entity candidate carrying blocking evidence and calibrated score." ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:cardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onProperty :PROPOSES_RESOLUTION ],
+        [ a owl:Restriction ;
+            owl:hasValue "proposed" ;
+            owl:onProperty :decision_status ],
+        prov:Entity .
+
+:ExtractionRun a owl:Class ;
+    rdfs:label "Extraction Run" ;
+    rdfs:comment "A deterministic or learned extraction execution bound to input hash, schema version, thresholds, and metrics." ;
+    rdfs:subClassOf prov:Activity .
+
+:HAS_NEURAL_REPRESENTATION a owl:ObjectProperty ;
+    owl:equivalentProperty :hasNeuralRepresentation .
+
+:PARTICIPATES_AS a owl:ObjectProperty ;
+    owl:equivalentProperty :participatesAs .
+
+:PREDICTS_OBJECT a owl:ObjectProperty ;
+    owl:equivalentProperty :predictsObject .
+
+:PREDICTS_SUBJECT a owl:ObjectProperty ;
+    owl:equivalentProperty :predictsSubject .
+
+:PROPOSES_RESOLUTION a owl:ObjectProperty ;
+    owl:equivalentProperty :proposesResolution .
+
+:ProcessPerspective a owl:Class ;
+    rdfs:label "Process Perspective" ;
+    rdfs:comment "A versioned selection of object types, qualifiers, temporal bounds, and derivation policy for one analytical question." ;
+    rdfs:subClassOf :Concept .
+
+:RELATION_SOURCE a owl:ObjectProperty ;
+    owl:equivalentProperty :relationSource .
+
+:RELATION_TARGET a owl:ObjectProperty ;
+    owl:equivalentProperty :relationTarget .
+
+:STATE_OF a owl:ObjectProperty ;
+    owl:equivalentProperty :stateOf .
+
+:artifactRef a owl:DatatypeProperty ;
+    rdfs:label "artifact reference" ;
+    rdfs:domain :NeuralRepresentation ;
+    rdfs:range xsd:string .
+
+:candidateSetRef a owl:DatatypeProperty ;
+    rdfs:label "candidate set reference" ;
+    rdfs:domain :NeuralRelationPrediction ;
+    rdfs:range xsd:string .
+
+:decisionStatus a owl:DatatypeProperty ;
+    rdfs:label "decision status" ;
+    rdfs:range xsd:string .
+
+:directlyFollows a owl:ObjectProperty ;
+    rdfs:label "directly follows" ;
+    rdfs:comment "A rebuildable object/perspective-qualified process derivation, never source truth." ;
+    rdfs:domain :ProcessEvent ;
+    rdfs:range :ProcessEvent .
+
+:encoderId a owl:DatatypeProperty ;
+    rdfs:label "encoder identifier" ;
+    rdfs:domain :NeuralRepresentation ;
+    rdfs:range xsd:string .
+
+:encoderVersion a owl:DatatypeProperty ;
+    rdfs:label "encoder version" ;
+    rdfs:domain :NeuralRepresentation ;
+    rdfs:range xsd:string .
+
+:hasNeuralRepresentation a owl:ObjectProperty ;
+    rdfs:label "has neural representation" ;
+    rdfs:range :NeuralRepresentation ;
+    owl:inverseOf :representationOf .
+
+:hasParticipation a owl:ObjectProperty ;
+    rdfs:label "has participation" ;
+    rdfs:domain :ProcessEvent ;
+    rdfs:range :EventObjectParticipation .
+
+:mappingVersion a owl:DatatypeProperty ;
+    rdfs:label "mapping version" ;
+    rdfs:range xsd:string .
+
+:objectTypeName a owl:DatatypeProperty ;
+    rdfs:label "object type name" ;
+    rdfs:range xsd:string .
+
+:observedAtState a owl:ObjectProperty ;
+    rdfs:label "observed at state" ;
+    rdfs:comment "Links an event to the valid object state selected as of event time." ;
+    rdfs:domain :ProcessEvent ;
+    rdfs:range :ObjectState .
+
+:ocelHasEvent a owl:ObjectProperty ;
+    rdfs:label "has OCEL event" ;
+    rdfs:domain :ObjectCentricEventLog ;
+    rdfs:range :ProcessEvent .
+
+:ocelHasObject a owl:ObjectProperty ;
+    rdfs:label "has OCEL object" ;
+    rdfs:domain :ObjectCentricEventLog ;
+    rdfs:range :BusinessObject .
+
+:participatesAs a owl:ObjectProperty ;
+    rdfs:label "participates as" ;
+    rdfs:domain :EventObjectParticipation ;
+    rdfs:range :BusinessObject .
+
+:participationQualifier a owl:DatatypeProperty ;
+    rdfs:label "participation qualifier" ;
+    rdfs:range xsd:string .
+
+:predictionScore a owl:DatatypeProperty ;
+    rdfs:label "prediction score" ;
+    rdfs:domain :NeuralRelationPrediction ;
+    rdfs:range xsd:decimal .
+
+:predictionUncertainty a owl:DatatypeProperty ;
+    rdfs:label "prediction uncertainty" ;
+    rdfs:domain :NeuralRelationPrediction ;
+    rdfs:range xsd:decimal .
+
+:predictsObject a owl:ObjectProperty ;
+    rdfs:label "predicts object" ;
+    rdfs:domain :NeuralRelationPrediction .
+
+:predictsSubject a owl:ObjectProperty ;
+    rdfs:label "predicts subject" ;
+    rdfs:domain :NeuralRelationPrediction .
+
+:processOccurredAt a owl:DatatypeProperty ;
+    rdfs:label "process occurred at" ;
+    rdfs:domain :ProcessEvent ;
+    rdfs:range xsd:dateTime .
+
+:proposesResolution a owl:ObjectProperty ;
+    rdfs:label "proposes resolution" ;
+    rdfs:domain :EntityResolutionProposal .
+
+:relationSource a owl:ObjectProperty ;
+    rdfs:label "relation source" ;
+    rdfs:domain :ObjectRelationship ;
+    rdfs:range :BusinessObject .
+
+:relationTarget a owl:ObjectProperty ;
+    rdfs:label "relation target" ;
+    rdfs:domain :ObjectRelationship ;
+    rdfs:range :BusinessObject .
+
+:representationDimension a owl:DatatypeProperty ;
+    rdfs:label "representation dimension" ;
+    rdfs:domain :NeuralRepresentation ;
+    rdfs:range xsd:positiveInteger .
+
+:representationOf a owl:ObjectProperty ;
+    rdfs:label "representation of" ;
+    rdfs:domain :NeuralRepresentation .
+
+:sourceGraphEpoch a owl:DatatypeProperty ;
+    rdfs:label "source graph epoch" ;
+    rdfs:domain :NeuralRepresentation ;
+    rdfs:range xsd:nonNegativeInteger .
+
+:sourceRecordId a owl:DatatypeProperty ;
+    rdfs:label "source record identifier" ;
+    rdfs:range xsd:string .
+
+:stateOf a owl:ObjectProperty ;
+    rdfs:label "state of" ;
+    rdfs:domain :ObjectState ;
+    rdfs:range :BusinessObject .
+
+:BusinessObjectType a owl:Class ;
+    rdfs:label "OCEL Object Type" ;
+    rdfs:comment "An OCEL 2.0 object-type declaration and its attribute schema." ;
+    rdfs:subClassOf prov:Entity .
+
+:ConformanceRun a owl:Class ;
+    rdfs:label "Conformance Run" ;
+    rdfs:comment "A versioned comparison of a process model with a frozen object-centric data slice." ;
+    rdfs:subClassOf prov:Activity .
+
+:EventObjectParticipation a owl:Class ;
+    rdfs:label "Event-Object Participation" ;
+    rdfs:comment "A reified qualified OCEL event-to-object relation." ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:cardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onProperty :PARTICIPATES_AS ],
+        bfo:0000020 .
+
+:ObjectRelationship a owl:Class ;
+    rdfs:label "Object Relationship" ;
+    rdfs:comment "A reified qualified and optionally temporal OCEL object-to-object relation." ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:cardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onProperty :RELATION_SOURCE ],
+        [ a owl:Restriction ;
+            owl:cardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onProperty :RELATION_TARGET ],
+        bfo:0000020 .
+
+:ObjectState a owl:Class ;
+    rdfs:label "Object State" ;
+    rdfs:comment "An immutable, bitemporal snapshot of a BusinessObject's attributes." ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:cardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onProperty :STATE_OF ],
+        prov:Entity .
+
+:ProcessEventType a owl:Class ;
+    rdfs:label "OCEL Event Type" ;
+    rdfs:comment "An OCEL 2.0 event-type declaration and its attribute schema." ;
+    rdfs:subClassOf prov:Entity .
+
+:decision_status a owl:DatatypeProperty ;
+    owl:equivalentProperty :decisionStatus .
+
+:ObjectCentricEventLog a owl:Class ;
+    rdfs:label "Object-Centric Event Log" ;
+    rdfs:comment "A versioned lossless event/object source slice; trace projections are derived views." ;
+    rdfs:subClassOf prov:Entity .
+
+:BusinessObject a owl:Class ;
+    rdfs:label "Business Object" ;
+    rdfs:comment "A source-qualified independent continuant participating in one or more process events." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:NeuralRelationPrediction a owl:Class ;
+    rdfs:label "Neural Relation Prediction" ;
+    rdfs:comment "A calibrated missing-relation candidate; never an asserted fact without governed review." ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:cardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onProperty :PREDICTS_SUBJECT ],
+        [ a owl:Restriction ;
+            owl:cardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onProperty :PREDICTS_OBJECT ],
+        [ a owl:Restriction ;
+            owl:hasValue "proposed" ;
+            owl:onProperty :decision_status ],
+        prov:Entity .
+
+:NeuralRepresentation a owl:Class ;
+    rdfs:label "Neural Representation" ;
+    rdfs:comment "A versioned latent representation artifact attached to symbolic graph truth." ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:cardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onProperty [ owl:inverseOf :HAS_NEURAL_REPRESENTATION ] ],
+        prov:Entity .
+
+:ProcessEvent a owl:Class ;
+    rdfs:label "Process Event" ;
+    rdfs:comment "A source event with immutable identity, activity, event time, attributes, and qualified object participation." ;
+    rdfs:subClassOf :Event,
+        prov:Activity .

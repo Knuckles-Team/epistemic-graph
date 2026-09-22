@@ -1,0 +1,476 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+:topic-aerospace-engineering a :Topic ;
+    rdfs:label "Aerospace Engineering" ;
+    skos:broader :topic-engineering ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Aerospace Engineering" .
+
+:topic-applied-mathematics a :Topic ;
+    rdfs:label "Applied Mathematics" ;
+    skos:broader :topic-mathematics ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Applied Mathematics" .
+
+:topic-artificial-intelligence-and-machine-learning a :Topic ;
+    rdfs:label "Artificial Intelligence & Machine Learning" ;
+    skos:broader :topic-technology-computing ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Artificial Intelligence & Machine Learning" .
+
+:topic-astronomy-and-space a :Topic ;
+    rdfs:label "Astronomy & Space" ;
+    skos:broader :topic-science ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Astronomy & Space" .
+
+:topic-biology a :Topic ;
+    rdfs:label "Biology" ;
+    skos:broader :topic-science ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Biology" .
+
+:topic-biotechnology-and-pharmaceuticals a :Topic ;
+    rdfs:label "Biotechnology & Pharmaceuticals" ;
+    skos:broader :topic-health-medicine ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Biotechnology & Pharmaceuticals" .
+
+:topic-chemistry a :Topic ;
+    rdfs:label "Chemistry" ;
+    skos:broader :topic-science ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Chemistry" .
+
+:topic-civil-engineering a :Topic ;
+    rdfs:label "Civil Engineering" ;
+    skos:broader :topic-engineering ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Civil Engineering" .
+
+:topic-climate-and-climate-change a :Topic ;
+    rdfs:label "Climate & Climate Change" ;
+    skos:broader :topic-environment-earth ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Climate & Climate Change" .
+
+:topic-clinical-medicine a :Topic ;
+    rdfs:label "Clinical Medicine" ;
+    skos:broader :topic-health-medicine ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Clinical Medicine" .
+
+:topic-competitive-sports a :Topic ;
+    rdfs:label "Competitive Sports" ;
+    skos:broader :topic-sports-recreation ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Competitive Sports" .
+
+:topic-compliance-and-regulatory-affairs a :Topic ;
+    rdfs:label "Compliance & Regulatory Affairs" ;
+    skos:broader :topic-law-governance ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Compliance & Regulatory Affairs" .
+
+:topic-computer-hardware a :Topic ;
+    rdfs:label "Computer Hardware" ;
+    skos:broader :topic-technology-computing ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Computer Hardware" .
+
+:topic-cybersecurity a :Topic ;
+    rdfs:label "Cybersecurity" ;
+    skos:broader :topic-technology-computing ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Cybersecurity" .
+
+:topic-data-and-analytics a :Topic ;
+    rdfs:label "Data & Analytics" ;
+    skos:broader :topic-technology-computing ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Data & Analytics" .
+
+:topic-demographics-and-social-issues a :Topic ;
+    rdfs:label "Demographics & Social Issues" ;
+    skos:broader :topic-society-politics ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Demographics & Social Issues" .
+
+:topic-design-and-architecture a :Topic ;
+    rdfs:label "Design & Architecture" ;
+    skos:broader :topic-arts-culture ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Design & Architecture" .
+
+:topic-ecology-and-biodiversity a :Topic ;
+    rdfs:label "Ecology & Biodiversity" ;
+    skos:broader :topic-environment-earth ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Ecology & Biodiversity" .
+
+:topic-education a :Topic ;
+    rdfs:label "Education" ;
+    skos:broader :topic-humanities-philosophy ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Education" .
+
+:topic-electrical-engineering a :Topic ;
+    rdfs:label "Electrical Engineering" ;
+    skos:broader :topic-engineering ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Electrical Engineering" .
+
+:topic-energy-and-natural-resources a :Topic ;
+    rdfs:label "Energy & Natural Resources" ;
+    skos:broader :topic-environment-earth ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Energy & Natural Resources" .
+
+:topic-entrepreneurship-and-startups a :Topic ;
+    rdfs:label "Entrepreneurship & Startups" ;
+    skos:broader :topic-economy-business ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Entrepreneurship & Startups" .
+
+:topic-film-and-television a :Topic ;
+    rdfs:label "Film & Television" ;
+    skos:broader :topic-arts-culture ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Film & Television" .
+
+:topic-finance-and-markets a :Topic ;
+    rdfs:label "Finance & Markets" ;
+    skos:broader :topic-economy-business ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Finance & Markets" .
+
+:topic-fitness-and-wellness-activities a :Topic ;
+    rdfs:label "Fitness & Wellness Activities" ;
+    skos:broader :topic-sports-recreation ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Fitness & Wellness Activities" .
+
+:topic-games-and-esports a :Topic ;
+    rdfs:label "Games & Esports" ;
+    skos:broader :topic-sports-recreation ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Games & Esports" .
+
+:topic-general-and-interdisciplinary-science a :Topic ;
+    rdfs:label "General & Interdisciplinary Science" ;
+    skos:broader :topic-science ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "General & Interdisciplinary Science" .
+
+:topic-geography-and-geology a :Topic ;
+    rdfs:label "Geography & Geology" ;
+    skos:broader :topic-environment-earth ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Geography & Geology" .
+
+:topic-geopolitics-and-international-relations a :Topic ;
+    rdfs:label "Geopolitics & International Relations" ;
+    skos:broader :topic-society-politics ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Geopolitics & International Relations" .
+
+:topic-governance-and-elections a :Topic ;
+    rdfs:label "Governance & Elections" ;
+    skos:broader :topic-society-politics ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Governance & Elections" .
+
+:topic-history a :Topic ;
+    rdfs:label "History" ;
+    skos:broader :topic-humanities-philosophy ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "History" .
+
+:topic-human-rights a :Topic ;
+    rdfs:label "Human Rights" ;
+    skos:broader :topic-law-governance ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Human Rights" .
+
+:topic-industrial-and-manufacturing-engineering a :Topic ;
+    rdfs:label "Industrial & Manufacturing Engineering" ;
+    skos:broader :topic-engineering ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Industrial & Manufacturing Engineering" .
+
+:topic-judicial-and-legal-systems a :Topic ;
+    rdfs:label "Judicial & Legal Systems" ;
+    skos:broader :topic-law-governance ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Judicial & Legal Systems" .
+
+:topic-labor-and-employment a :Topic ;
+    rdfs:label "Labor & Employment" ;
+    skos:broader :topic-economy-business ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Labor & Employment" .
+
+:topic-legislation-and-regulation a :Topic ;
+    rdfs:label "Legislation & Regulation" ;
+    skos:broader :topic-law-governance ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Legislation & Regulation" .
+
+:topic-linguistics a :Topic ;
+    rdfs:label "Linguistics" ;
+    skos:broader :topic-humanities-philosophy ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Linguistics" .
+
+:topic-literature a :Topic ;
+    rdfs:label "Literature" ;
+    skos:broader :topic-arts-culture ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Literature" .
+
+:topic-logic-and-foundations a :Topic ;
+    rdfs:label "Logic & Foundations" ;
+    skos:broader :topic-mathematics ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Logic & Foundations" .
+
+:topic-management-and-strategy a :Topic ;
+    rdfs:label "Management & Strategy" ;
+    skos:broader :topic-economy-business ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Management & Strategy" .
+
+:topic-mechanical-engineering a :Topic ;
+    rdfs:label "Mechanical Engineering" ;
+    skos:broader :topic-engineering ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Mechanical Engineering" .
+
+:topic-mental-health a :Topic ;
+    rdfs:label "Mental Health" ;
+    skos:broader :topic-health-medicine ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Mental Health" .
+
+:topic-music a :Topic ;
+    rdfs:label "Music" ;
+    skos:broader :topic-arts-culture ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Music" .
+
+:topic-networking-and-internet a :Topic ;
+    rdfs:label "Networking & Internet" ;
+    skos:broader :topic-technology-computing ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Networking & Internet" .
+
+:topic-nutrition-and-fitness a :Topic ;
+    rdfs:label "Nutrition & Fitness" ;
+    skos:broader :topic-health-medicine ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Nutrition & Fitness" .
+
+:topic-philosophy-and-ethics a :Topic ;
+    rdfs:label "Philosophy & Ethics" ;
+    skos:broader :topic-humanities-philosophy ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Philosophy & Ethics" .
+
+:topic-physics a :Topic ;
+    rdfs:label "Physics" ;
+    skos:broader :topic-science ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Physics" .
+
+:topic-public-administration a :Topic ;
+    rdfs:label "Public Administration" ;
+    skos:broader :topic-law-governance ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Public Administration" .
+
+:topic-public-health a :Topic ;
+    rdfs:label "Public Health" ;
+    skos:broader :topic-health-medicine ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Public Health" .
+
+:topic-public-policy a :Topic ;
+    rdfs:label "Public Policy" ;
+    skos:broader :topic-society-politics ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Public Policy" .
+
+:topic-pure-mathematics a :Topic ;
+    rdfs:label "Pure Mathematics" ;
+    skos:broader :topic-mathematics ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Pure Mathematics" .
+
+:topic-religion-and-belief-systems a :Topic ;
+    rdfs:label "Religion & Belief Systems" ;
+    skos:broader :topic-humanities-philosophy ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Religion & Belief Systems" .
+
+:topic-robotics-and-automation a :Topic ;
+    rdfs:label "Robotics & Automation" ;
+    skos:broader :topic-engineering ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Robotics & Automation" .
+
+:topic-social-movements-and-activism a :Topic ;
+    rdfs:label "Social Movements & Activism" ;
+    skos:broader :topic-society-politics ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Social Movements & Activism" .
+
+:topic-software-engineering a :Topic ;
+    rdfs:label "Software Engineering" ;
+    skos:broader :topic-technology-computing ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Software Engineering" .
+
+:topic-statistics-and-probability a :Topic ;
+    rdfs:label "Statistics & Probability" ;
+    skos:broader :topic-mathematics ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Statistics & Probability" .
+
+:topic-sustainability a :Topic ;
+    rdfs:label "Sustainability" ;
+    skos:broader :topic-environment-earth ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Sustainability" .
+
+:topic-trade-and-industry a :Topic ;
+    rdfs:label "Trade & Industry" ;
+    skos:broader :topic-economy-business ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Trade & Industry" .
+
+:topic-travel-and-leisure a :Topic ;
+    rdfs:label "Travel & Leisure" ;
+    skos:broader :topic-sports-recreation ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Travel & Leisure" .
+
+:topic-visual-arts a :Topic ;
+    rdfs:label "Visual Arts" ;
+    skos:broader :topic-arts-culture ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Visual Arts" .
+
+<http://knuckles.team/kg/worldview> a owl:Ontology ;
+    rdfs:label "WorldView Subject-Domain Ontology" ;
+    rdfs:comment """The canonical upper taxonomy of world-knowledge subject domains every
+:Topic classification hangs from. A curated, reasonably-MECE top level (Science,
+Technology & Computing, Engineering, Mathematics, Health & Medicine, Society &
+Politics, Economy & Business, Law & Governance, Environment & Earth, Arts &
+Culture, Humanities & Philosophy, Sports & Recreation), each with a first layer
+of sub-domains, expressed as a SKOS concept scheme. Documents are classified onto
+the most specific node they justify; deeper, context-derived sub-topics attach as
+skos:narrower beneath the nearest node here, so the whole ingested corpus
+organizes under one worldview instead of floating per-document tags.""" ;
+    owl:imports <http://knuckles.team/kg/core> .
+
+:topic-mathematics a :Topic,
+        :WorldViewDomain ;
+    rdfs:label "Mathematics" ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Mathematics" ;
+    skos:topConceptOf :WorldViewScheme .
+
+:topic-sports-recreation a :Topic,
+        :WorldViewDomain ;
+    rdfs:label "Sports & Recreation" ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Sports & Recreation" ;
+    skos:topConceptOf :WorldViewScheme .
+
+:topic-arts-culture a :Topic,
+        :WorldViewDomain ;
+    rdfs:label "Arts & Culture" ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Arts & Culture" ;
+    skos:topConceptOf :WorldViewScheme .
+
+:topic-economy-business a :Topic,
+        :WorldViewDomain ;
+    rdfs:label "Economy & Business" ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Economy & Business" ;
+    skos:topConceptOf :WorldViewScheme .
+
+:topic-environment-earth a :Topic,
+        :WorldViewDomain ;
+    rdfs:label "Environment & Earth" ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Environment & Earth" ;
+    skos:topConceptOf :WorldViewScheme .
+
+:topic-health-medicine a :Topic,
+        :WorldViewDomain ;
+    rdfs:label "Health & Medicine" ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Health & Medicine" ;
+    skos:topConceptOf :WorldViewScheme .
+
+:topic-humanities-philosophy a :Topic,
+        :WorldViewDomain ;
+    rdfs:label "Humanities & Philosophy" ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Humanities & Philosophy" ;
+    skos:topConceptOf :WorldViewScheme .
+
+:topic-law-governance a :Topic,
+        :WorldViewDomain ;
+    rdfs:label "Law & Governance" ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Law & Governance" ;
+    skos:topConceptOf :WorldViewScheme .
+
+:topic-science a :Topic,
+        :WorldViewDomain ;
+    rdfs:label "Science" ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Science" ;
+    skos:topConceptOf :WorldViewScheme .
+
+:topic-society-politics a :Topic,
+        :WorldViewDomain ;
+    rdfs:label "Society & Politics" ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Society & Politics" ;
+    skos:topConceptOf :WorldViewScheme .
+
+:topic-engineering a :Topic,
+        :WorldViewDomain ;
+    rdfs:label "Engineering" ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Engineering" ;
+    skos:topConceptOf :WorldViewScheme .
+
+:topic-technology-computing a :Topic,
+        :WorldViewDomain ;
+    rdfs:label "Technology & Computing" ;
+    skos:inScheme :WorldViewScheme ;
+    skos:prefLabel "Technology & Computing" ;
+    skos:topConceptOf :WorldViewScheme .
+
+:WorldViewDomain a owl:Class ;
+    rdfs:label "WorldView Domain" ;
+    rdfs:comment "One of the fixed top-level subject domains of the WorldView scheme. Every :Topic — including runtime-minted, context-derived sub-topics — is transitively skos:broader-linked up to exactly one WorldViewDomain." ;
+    rdfs:subClassOf :Topic .
+
+:WorldViewScheme a skos:ConceptScheme ;
+    rdfs:label "WorldView Subject-Domain Scheme" ;
+    skos:prefLabel "WorldView" .

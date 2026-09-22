@@ -660,7 +660,7 @@ impl EmbeddedEngine {
                                 graph_type: e.graph_type,
                                 incarnation_id: e.incarnation_id.clone(),
                                 source_snapshot_version: e.core.version(),
-                                integrity_policy: e.core.integrity_policy(),
+                                schema_sources: e.core.schema_sources(),
                                 nodes: e.core.get_nodes(),
                                 edges: e.core.get_edges(),
                                 ledger: e.core.get_ledger(),

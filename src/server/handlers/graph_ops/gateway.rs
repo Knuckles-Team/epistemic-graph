@@ -4,7 +4,7 @@ use super::*;
 /// gateway match does not embed one copy of the kernel future in every arm.
 /// Without this boundary the generated `try_handle_gateway` future exceeds
 /// Tokio's default worker-thread stack on ordinary mutation requests.
-pub(super) async fn commit_gateway<F>(
+pub(crate) async fn commit_gateway<F>(
     ctx: &MutationCtx<'_>,
     plan: &MutationPlan,
     method: &Method,
@@ -69,11 +69,13 @@ pub(super) fn mining_response_to_gateway_result(resp: Response) -> Result<Result
 /// router in `dispatch.rs`'s routing chain.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn try_handle_gateway(
+    state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     caller: Option<&str>,
     attempt_nonce: Option<eg_types::contract::Nonce>,
     idempotency_key: &str,
     tenant_scope: &str,
+    tenant_id: &str,
     graph_name: &str,
     core: &Arc<GraphCore>,
     materialization_manifest: Option<
@@ -149,7 +151,9 @@ pub(crate) async fn try_handle_gateway(
         materialization_manifest,
         write_coalescer,
     };
-    if let Some(resp) = super::gateway_graph::try_handle(&ctx, &plan, &method).await {
+    if let Some(resp) =
+        super::gateway_graph::try_handle(state, tenant_id, &ctx, &plan, &method).await
+    {
         return Ok(resp);
     }
     #[cfg(feature = "broker")]

@@ -44,11 +44,11 @@ cannot reach `cluster`/`full-extras` code -- never on doubt, never on error.
 itself is invoked BY git's real `pre-push` hook (it parses the pushed
 ref/sha pairs off stdin per git's pre-push protocol -- see
 `pre_commit/commands/hook_impl.py::_pre_push_ns`) -- never for a bare
-`pre-commit run --hook-stage pre-push`/`--hook-stage manual` from the CLI,
+`pre-commit run --config .config/pre-commit.yaml --hook-stage pre-push`/`--hook-stage manual` from the CLI,
 and never for a brand-new branch with no upstream ancestor (pre-commit
 itself falls back to `all_files=True` with no ref pair there). So the
 fail-closed path above -- not a separate stage check -- already covers
-`scripts/ci_parity.sh` (`pre-commit run --all-files --hook-stage
+`scripts/ci_parity.sh` (`pre-commit run --config .config/pre-commit.yaml --all-files --hook-stage
 pre-push`/`--hook-stage manual`, both CLI-invoked) and a from-scratch
 push: both run the heavy lint unconditionally, matching ci_parity.sh's own
 stated purpose, "the one command that answers 'would CI pass?'". Narrowing
@@ -61,7 +61,7 @@ not touch:
     `cargo clippy --workspace --all-features --all-targets -- -D warnings`
     on EVERY push and EVERY pull request against `main`, independent of
     what any local hook decided.
-  * `pre-commit run --all-files --hook-stage manual` / `--hook-stage
+  * `pre-commit run --config .config/pre-commit.yaml --all-files --hook-stage manual` / `--hook-stage
     pre-push` (`scripts/ci_parity.sh`, "would CI pass?") -- both CLI
     invocations lack a ref pair (see above), so this script always runs the
     heavy leg there, unconditionally, ignoring the diff.
@@ -277,7 +277,7 @@ def _decide_extras_reachability(rust_relevant: list[str]) -> int:
     _log("the everyday `cargo-clippy` (full,ast-extended) hook already ran above")
     _log(
         "the exhaustive leg still runs on every push/PR in rust-ci.yml, "
-        "and locally via `pre-commit run --all-files --hook-stage manual`"
+        "and locally via `pre-commit run --config .config/pre-commit.yaml --all-files --hook-stage manual`"
     )
     return 0
 

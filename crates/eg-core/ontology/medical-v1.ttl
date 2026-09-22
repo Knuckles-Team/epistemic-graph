@@ -1,0 +1,129 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:LabResult a owl:Class ;
+    rdfs:label "Lab Result" ;
+    rdfs:comment "A laboratory test result. Subclass of Observation. Aligned to LOINC." ;
+    rdfs:subClassOf :Observation .
+
+:codedAs a owl:ObjectProperty ;
+    rdfs:label "coded as" ;
+    rdfs:domain :ClinicalCondition ;
+    rdfs:range :DiagnosisCode .
+
+:consentScope a owl:DatatypeProperty ;
+    rdfs:label "consent scope" ;
+    rdfs:comment "Scope of consent: treatment, research, data_sharing." ;
+    rdfs:domain :ConsentRecord ;
+    rdfs:range xsd:string .
+
+:consentValidUntil a owl:DatatypeProperty ;
+    rdfs:label "consent valid until" ;
+    rdfs:domain :ConsentRecord ;
+    rdfs:range xsd:date .
+
+:contraindicatedWith a owl:ObjectProperty,
+        owl:SymmetricProperty ;
+    rdfs:label "contraindicated with" ;
+    rdfs:comment "Symmetric drug-drug contraindication." ;
+    rdfs:domain :Medication ;
+    rdfs:range :Medication .
+
+:diagnosedWith a owl:ObjectProperty ;
+    rdfs:label "diagnosed with" ;
+    rdfs:domain :Patient ;
+    rdfs:range :ClinicalCondition .
+
+:enrolledIn a owl:ObjectProperty ;
+    rdfs:label "enrolled in" ;
+    rdfs:domain :Patient ;
+    rdfs:range :ClinicalTrial .
+
+:followsPathway a owl:ObjectProperty ;
+    rdfs:label "follows pathway" ;
+    rdfs:domain :Patient ;
+    rdfs:range :CarePathway .
+
+:hasConsent a owl:ObjectProperty ;
+    rdfs:label "has consent" ;
+    rdfs:domain :Patient ;
+    rdfs:range :ConsentRecord .
+
+:icdCode a owl:DatatypeProperty ;
+    rdfs:label "ICD code" ;
+    rdfs:domain :DiagnosisCode ;
+    rdfs:range xsd:string .
+
+:prescribedMedication a owl:ObjectProperty ;
+    rdfs:label "prescribed medication" ;
+    rdfs:domain :Patient ;
+    rdfs:range :Medication .
+
+:rxnormCui a owl:DatatypeProperty ;
+    rdfs:label "RxNorm CUI" ;
+    rdfs:domain :Medication ;
+    rdfs:range xsd:string .
+
+:snomedId a owl:DatatypeProperty ;
+    rdfs:label "SNOMED CT id" ;
+    rdfs:domain :ClinicalCondition ;
+    rdfs:range xsd:string .
+
+:trialPhase a owl:DatatypeProperty ;
+    rdfs:label "trial phase" ;
+    rdfs:comment "Phase I, II, III, or IV." ;
+    rdfs:domain :ClinicalTrial ;
+    rdfs:range xsd:string .
+
+<http://knuckles.team/kg/medical> a owl:Ontology ;
+    rdfs:label "Medical & Healthcare Ontology" ;
+    rdfs:comment """Healthcare domain ontology. Provides BFO-aligned classes for
+clinical concepts, patient management, and research trials.
+Aligned to SNOMED-CT, ICD-10/11, LOINC, RxNorm, HL7 FHIR, CDISC.""" ;
+    owl:imports <http://knuckles.team/kg/core> .
+
+:CarePathway a owl:Class ;
+    rdfs:label "Care Pathway" ;
+    rdfs:comment "A clinical guideline as an executable process flow. BFO:Process via Procedure." ;
+    rdfs:subClassOf :Procedure .
+
+:ClinicalTrial a owl:Class ;
+    rdfs:label "Clinical Trial" ;
+    rdfs:comment "A medical research trial. Extends Experiment. Aligned to CDISC/CDASH." ;
+    rdfs:subClassOf :Experiment .
+
+:DiagnosisCode a owl:Class ;
+    rdfs:label "Diagnosis Code" ;
+    rdfs:comment "An ICD-10/11 diagnosis classification code. BFO:GDC." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:ClinicalCondition a owl:Class ;
+    rdfs:label "Clinical Condition" ;
+    rdfs:comment "A diagnosed medical condition. BFO:SpecificallyDependentContinuant. Aligned to SNOMED-CT." ;
+    rdfs:subClassOf bfo:0000020 .
+
+:ConsentRecord a owl:Class ;
+    rdfs:label "Consent Record" ;
+    rdfs:comment "Granular patient consent with temporal validity. Aligned to HL7 FHIR Consent." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Medication a owl:Class ;
+    rdfs:label "Medication" ;
+    rdfs:comment "A prescribed or administered drug. BFO:GDC. Aligned to RxNorm." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Patient a owl:Class ;
+    rdfs:label "Patient" ;
+    rdfs:comment """A person receiving medical care. Extends Person with PHI-protected
+attributes. HIPAA §164.312 technical safeguards apply.""" ;
+    rdfs:subClassOf :Person .

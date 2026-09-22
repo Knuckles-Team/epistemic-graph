@@ -313,13 +313,13 @@ class DeclareQueueRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    dl_exchange: Any | None = None
-    dl_routing_key: Any | None = None
-    max_delivery_count: Any | None = None
-    max_priority: Any | None = None
-    message_ttl_ms: Any | None = None
+    dl_exchange: str | None = None
+    dl_routing_key: str | None = None
+    max_delivery_count: int | None = None
+    max_priority: int | None = None
+    message_ttl_ms: int | None = None
     queue: str
-    queue_expiry_ms: Any | None = None
+    queue_expiry_ms: int | None = None
 
 
 async def send_declare_queue(
@@ -374,13 +374,13 @@ class PublishExRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    delay_ms: Any | None = None
+    delay_ms: int | None = None
     exchange: str
-    now_ms: Any | None = None
+    now_ms: int | None = None
     payload: bytes
     priority: int | None = None
     routing_key: str
-    ttl_ms: Any | None = None
+    ttl_ms: int | None = None
 
 
 async def send_publish_ex(
@@ -664,8 +664,8 @@ class StreamDeclareRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    max_age_ms: Any | None = None
-    max_messages: Any | None = None
+    max_age_ms: int | None = None
+    max_messages: int | None = None
     stream: str
 
 
@@ -996,13 +996,13 @@ class PublishConfirmedRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    delay_ms: Any | None = None
+    delay_ms: int | None = None
     exchange: str
-    now_ms: Any | None = None
+    now_ms: int | None = None
     payload: bytes
     priority: int | None = None
     routing_key: str
-    ttl_ms: Any | None = None
+    ttl_ms: int | None = None
 
 
 async def send_publish_confirmed(
@@ -1057,15 +1057,15 @@ class PublishIdempotentRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    delay_ms: Any | None = None
+    delay_ms: int | None = None
     exchange: str
-    now_ms: Any | None = None
+    now_ms: int | None = None
     payload: bytes
     priority: int | None = None
-    producer_id: Any | None = None
+    producer_id: str | None = None
     routing_key: str
     seq: int | None = None
-    ttl_ms: Any | None = None
+    ttl_ms: int | None = None
 
 
 async def send_publish_idempotent(
@@ -1463,8 +1463,8 @@ class CloseChannelRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     channel_id: str
-    summary_embedding: Any | None = None
-    topic_metadata: Any | None = None
+    summary_embedding: list[float] | None = None
+    topic_metadata: str | None = None
 
 
 async def send_close_channel(
@@ -1577,7 +1577,7 @@ class GetChannelMessagesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     channel_id: str
-    limit: Any | None = None
+    limit: int | None = None
 
 
 async def send_get_channel_messages(

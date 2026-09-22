@@ -32,7 +32,7 @@ Commit early and often; merge to `main` locally when done. Push only when asked.
 cargo test --features server --lib          # Rust unit tests
 pytest tests/                               # Python round-trip tests
 bash scripts/check_no_pyo3.sh               # the no-PyO3 gate
-pre-commit run --all-files
+pre-commit run --config .config/pre-commit.yaml --all-files
 ```
 
 The complexity (cccc) and KISS gates have written, measured terms of acceptance

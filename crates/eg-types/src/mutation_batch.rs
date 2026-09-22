@@ -182,14 +182,19 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn authoritative_state_accepts_only_product_v2_row_delta() {
+    fn authoritative_state_accepts_current_and_persisted_legacy_row_deltas() {
         let mut state_backed = batch();
         state_backed.authoritative_state = Some(MutationStateDescriptor {
-            algorithm: "sha256-row-delta-v2".into(),
+            algorithm: "sha256-row-delta-schema-sources".into(),
             digest: "0".repeat(64),
             source_graph_version: 9,
             target_graph_version: 10,
         });
+        state_backed
+            .reseal_envelope(crate::contract::Digest256::from_bytes([1_u8; 32]))
+            .expect("a fixture batch reseals its envelope over its final body");
+        state_backed.validate().unwrap();
+        state_backed.authoritative_state.as_mut().unwrap().algorithm = "sha256-row-delta-v2".into();
         state_backed
             .reseal_envelope(crate::contract::Digest256::from_bytes([1_u8; 32]))
             .expect("a fixture batch reseals its envelope over its final body");

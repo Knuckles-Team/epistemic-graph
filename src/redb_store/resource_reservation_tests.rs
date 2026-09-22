@@ -3287,21 +3287,22 @@ fn checkpoint_replaces_graph_rows_but_preserves_native_resource_domain() {
 
         let work_item_bytes = rmp_serde::to_vec_named(&work_item_props_for_request(&request))
             .expect("encode linked WorkItem");
-        let make_dump =
-            |incarnation_id: &str, source_snapshot_version: u64, nodes: Vec<(String, Vec<u8>)>| {
-                GraphDump::in_place_core_checkpoint(InPlaceCoreCheckpoint {
-                    graph: "graph-a".to_string(),
-                    name: "graph-a".to_string(),
-                    graph_type: GraphType::Global,
-                    incarnation_id: incarnation_id.to_string(),
-                    source_snapshot_version,
-                    integrity_policy: None,
-                    nodes,
-                    edges: Vec::new(),
-                    ledger: Vec::new(),
-                    semantic: Vec::new(),
-                })
-            };
+        let make_dump = |incarnation_id: &str,
+                         source_snapshot_version: u64,
+                         nodes: Vec<(String, Vec<u8>)>| {
+            GraphDump::in_place_core_checkpoint(InPlaceCoreCheckpoint {
+                graph: "graph-a".to_string(),
+                name: "graph-a".to_string(),
+                graph_type: GraphType::Global,
+                incarnation_id: incarnation_id.to_string(),
+                source_snapshot_version,
+                schema_sources: std::sync::Arc::new(crate::graph::GraphSchemaSources::default()),
+                nodes,
+                edges: Vec::new(),
+                ledger: Vec::new(),
+                semantic: Vec::new(),
+            })
+        };
 
         // Establish a valid image first.  The incoming snapshot contains the
         // exact live WorkItem linked by the native hold. Installed directly

@@ -91,6 +91,13 @@ $($variants)*
     SourceIngest {
         request: Box<crate::source_ingestion::SourceIngestionRequest>,
     },
+
+    /// Latest authoritative SourceIngest checkpoint for restart/failover CAS
+    /// recovery. Tenant and graph are taken only from verified request context.
+    SourceIngestStatus {
+        connector: crate::contract::ResourceId,
+        stream: crate::contract::ResourceId,
+    },
     /// EG-owned D18 source change sets and append-only write-back receipts.
     /// The engine records governed observations; it never calls a vendor API.
     WriteBack {

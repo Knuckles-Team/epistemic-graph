@@ -24,9 +24,17 @@
             "type": "object"
           },
           "type": "array"
+        },
+        "schema_digests": {
+          "description": "Exact committed GraphSchema identity used when the request omitted\nad-hoc rules. Explicit caller-supplied rule programs carry an empty set.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "required": [
+        "schema_digests",
         "inferred_count",
         "inferred_triples"
       ],
@@ -121,11 +129,18 @@
       "description": "The graph's whole schema-source set.",
       "properties": {
         "composed_digest": {
-          "default": null,
-          "type": [
-            "string",
-            "null"
-          ]
+          "description": "Identity of the exact core+dynamic composition.",
+          "type": "string"
+        },
+        "core_catalog_digest": {
+          "description": "Identity of the binary-owned catalog, independent of graph attachments.",
+          "type": "string"
+        },
+        "core_sources": {
+          "$ref": "#/$defs/BoundedVec_GraphSchemaSourceView_32"
+        },
+        "dynamic_sources": {
+          "$ref": "#/$defs/BoundedVec_GraphSchemaSourceView_32"
         },
         "graph": {
           "type": "string"
@@ -135,15 +150,15 @@
           "maximum": 65535,
           "minimum": 0,
           "type": "integer"
-        },
-        "sources": {
-          "$ref": "#/$defs/BoundedVec_GraphSchemaSourceView_32"
         }
       },
       "required": [
         "schema_version",
         "graph",
-        "sources"
+        "core_catalog_digest",
+        "composed_digest",
+        "core_sources",
+        "dynamic_sources"
       ],
       "type": "object"
     },
@@ -157,6 +172,13 @@
         "found": {
           "description": "Whether `sub ⊑ sup` holds under the classification (`tree.is_some()`).",
           "type": "boolean"
+        },
+        "schema_digests": {
+          "description": "Exact composed GraphSchema authority used to build this proof.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
         "tree": {
           "anyOf": [
@@ -178,9 +200,66 @@
         }
       },
       "required": [
+        "schema_digests",
         "found",
         "consistent",
         "unsatisfiable"
+      ],
+      "type": "object"
+    },
+    "OwlPropertyFact": {
+      "description": "Materialized result of a `Method::OwlReason` run (CONCEPT:EG-KG.ontology.incremental-materialization). Returned via\n`ResultPayload::raw`. The reasoner lives in eg-rdf; this is the wire projection.",
+      "properties": {
+        "asserted": {
+          "type": "boolean"
+        },
+        "axiom": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "object": {
+          "type": "string"
+        },
+        "predicate": {
+          "type": "string"
+        },
+        "premises": {
+          "description": "Ordered fact triples consumed by the first deterministic derivation.",
+          "items": {
+            "maxItems": 3,
+            "minItems": 3,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "rule": {
+          "description": "`asserted`, `RL-subPropertyOf`, `RL-symmetric`, `RL-inverseOf`, or\n`RL-propertyChain`.",
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject",
+        "predicate",
+        "object",
+        "asserted",
+        "rule",
+        "premises"
       ],
       "type": "object"
     },
@@ -190,6 +269,23 @@
         "consistent": {
           "description": "`true` iff the ontology is consistent (no class forced to subsume `owl:Nothing`).",
           "type": "boolean"
+        },
+        "direct_subclasses": {
+          "description": "Direct named `rdfs:subClassOf` axioms in the classified TBox, before\ntransitive closure. Capability routing uses these edges to preserve an\nexplainable shortest path while `subclasses` remains the full closure.",
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
         },
         "instance_conf": {
           "description": "Per-membership confidence in `[0,1]` (CONCEPT:EG-KG.ontology.concept-13), ALIGNED index-for-index\nwith `instances`: the type fact's confidence (per-node confidence × Ebbinghaus\ndecay) × the subsumption confidence — so an old/decayed or weakly-asserted fact\nyields a lower-confidence membership.",
@@ -213,6 +309,20 @@
               }
             ],
             "type": "array"
+          },
+          "type": "array"
+        },
+        "property_facts": {
+          "description": "Asserted and inferred object-property facts.  Inferred rows retain the\nrule, governing axiom and exact premise triples; `schema_digests` above\natomically binds every row to the composed ontology set used.",
+          "items": {
+            "$ref": "#/$defs/OwlPropertyFact"
+          },
+          "type": "array"
+        },
+        "schema_digests": {
+          "description": "Sorted, unique composed GraphSchema digests whose ontology sources were\nincluded in this classification. A single-graph call normally carries\none digest; a distributed call carries the exact set of graph schema\nauthorities it unioned. Consumers cache a derived hierarchy under this\nidentity rather than treating a copied ontology file as authority.",
+          "items": {
+            "type": "string"
           },
           "type": "array"
         },
@@ -250,10 +360,13 @@
         }
       },
       "required": [
+        "schema_digests",
+        "direct_subclasses",
         "subclasses",
         "subclass_conf",
         "instances",
         "instance_conf",
+        "property_facts",
         "consistent",
         "unsatisfiable"
       ],
@@ -381,6 +494,33 @@
       "oneOf": [
         {
           "additionalProperties": false,
+          "properties": {
+            "module": {
+              "type": "string"
+            },
+            "origin": {
+              "const": "core",
+              "type": "string"
+            },
+            "set_digest": {
+              "type": "string"
+            },
+            "version": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "origin",
+            "module",
+            "version",
+            "set_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "The pre-X9 integrity policy, lifted into a keyed source.",
           "properties": {
             "origin": {
@@ -468,6 +608,13 @@
     "ShaclValidationReport": {
       "description": "An `sh:ValidationReport` (`Method::ShaclValidate`).",
       "properties": {
+        "composed_digest": {
+          "description": "The request graph's composed digest when committed GraphSchema shapes\nwere used; absent only for explicit ad-hoc shapes.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "conforms": {
           "description": "`sh:conforms` -- true iff there are no results.",
           "type": "boolean"
@@ -478,9 +625,17 @@
             "$ref": "#/$defs/ShaclValidationResult"
           },
           "type": "array"
+        },
+        "schema_digests": {
+          "description": "Sorted unique document digests of every committed SHACL source used by\nthis validation. Explicit ad-hoc shapes carry none, so governance\nconsumers can fail closed rather than mistaking caller-supplied\nconstraints for committed authority.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "required": [
+        "schema_digests",
         "conforms",
         "results"
       ],

@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -16,7 +16,7 @@ class AgentComponentContentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     component_id: str
-    entry_revision: Annotated[Any, Field(ge=0)] | None = None
+    entry_revision: Annotated[int, Field(ge=0)] | None = None
     tenant_id: str
 
 
@@ -40,7 +40,7 @@ class AgentComponentDraft(BaseModel):
     classification: list[str] | None = None
     component_id: str
     content_digest: str
-    content_ref: Any | None = None
+    content_ref: str | None = None
     declared_capabilities: list[str] | None = None
     declared_required_capabilities: list[str] | None = None
     facts: AgentComponentFacts
@@ -66,7 +66,7 @@ class AgentComponentEntry(BaseModel):
     classification: list[str] | None = None
     component_id: str
     content_digest: str
-    content_ref: Any | None = None
+    content_ref: str | None = None
     created_at_ms: Annotated[int, Field(ge=0)]
     declared_capabilities: list[str] | None = None
     declared_required_capabilities: list[str] | None = None
@@ -120,16 +120,16 @@ class AgentComponentFactsTool(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     cost: CostFacts | None = None
-    destructive_hint: Any | None = None
+    destructive_hint: bool | None = None
     effect: ToolEffect
     facts: Literal["tool"]
-    idempotent_hint: Any | None = None
-    input_schema_digest: Any | None = None
+    idempotent_hint: bool | None = None
+    input_schema_digest: str | None = None
     latency_declared: DeclaredLatency | None = None
     modalities: ModalityFacts | None = None
-    open_world_hint: Any | None = None
-    output_schema_digest: Any | None = None
-    read_only_hint: Any | None = None
+    open_world_hint: bool | None = None
+    output_schema_digest: str | None = None
+    read_only_hint: bool | None = None
     required_scopes: list[str]
 
 
@@ -247,7 +247,7 @@ class AgentComponentPublishRequest(BaseModel):
 
     component: AgentComponentDraft
     context: AgentLibraryMutationContext
-    evaluation_receipt_digest: Any | None = None
+    evaluation_receipt_digest: str | None = None
 
 
 class AgentComponentRetireRequest(BaseModel):
@@ -261,18 +261,18 @@ class AgentComponentSearchPage(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     entries: list[AgentComponentEntry]
-    next_cursor: Any | None = None
+    next_cursor: str | None = None
 
 
 class AgentComponentSearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     capabilities: list[str] | None = None
-    cursor: Any | None = None
+    cursor: str | None = None
     kinds: list[AgentComponentKind] | None = None
-    limit: Annotated[Any, Field(ge=0)] | None = None
+    limit: Annotated[int, Field(ge=0)] | None = None
     read_only: bool | None = None
-    task: Any | None = None
+    task: str | None = None
     tenant_id: str
 
 
@@ -297,7 +297,7 @@ class AgentLibraryMutationContext(BaseModel):
     attempt_nonce: Nonce
     caller_principal: str
     created_at_ms: Annotated[int, Field(ge=0)]
-    expected_revision: Annotated[Any, Field(ge=0)] | None = None
+    expected_revision: Annotated[int, Field(ge=0)] | None = None
     idempotency_key: str
     policy_decision_id: str
     policy_digest: str
@@ -306,7 +306,7 @@ class AgentLibraryMutationContext(BaseModel):
     purpose_id: str
     request_id: Annotated[int, Field(ge=0)]
     tenant_id: str
-    trace_id: Any | None = None
+    trace_id: str | None = None
 
 
 class ComponentDependency(BaseModel):
@@ -351,9 +351,9 @@ class CostFacts(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     currency: str
-    input_per_mtok_micros: Annotated[Any, Field(ge=0)] | None = None
-    output_per_mtok_micros: Annotated[Any, Field(ge=0)] | None = None
-    per_call_micros: Annotated[Any, Field(ge=0)] | None = None
+    input_per_mtok_micros: Annotated[int, Field(ge=0)] | None = None
+    output_per_mtok_micros: Annotated[int, Field(ge=0)] | None = None
+    per_call_micros: Annotated[int, Field(ge=0)] | None = None
     price_source: PriceSource
     quality: FactQuality
 

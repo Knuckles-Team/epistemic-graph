@@ -163,6 +163,8 @@ fn route_handler(route: Route) -> RouteHandler {
 }
 
 pub(super) async fn try_handle(
+    state: &Arc<RwLock<ServerState>>,
+    tenant_id: &str,
     ctx: &MutationCtx<'_>,
     plan: &MutationPlan,
     method: &Method,
@@ -170,7 +172,7 @@ pub(super) async fn try_handle(
     let route = route_for(method);
     match route_handler(route) {
         RouteHandler::Core => try_handle_core(ctx, plan, method, route).await,
-        RouteHandler::Admin => try_handle_admin(ctx, plan, method, route).await,
+        RouteHandler::Admin => try_handle_admin(state, tenant_id, ctx, plan, method, route).await,
         RouteHandler::None => None,
     }
 }
@@ -192,6 +194,8 @@ async fn try_handle_core(
 }
 
 async fn try_handle_admin(
+    state: &Arc<RwLock<ServerState>>,
+    tenant_id: &str,
     ctx: &MutationCtx<'_>,
     plan: &MutationPlan,
     method: &Method,
@@ -202,7 +206,7 @@ async fn try_handle_admin(
         Route::Lifecycle => try_handle_lifecycle(ctx, plan, method).await,
         Route::Import => try_handle_import(ctx, plan, method).await,
         #[cfg(any(feature = "shacl", feature = "reasoning"))]
-        Route::Policy => try_handle_policy(ctx, plan, method).await,
+        Route::Policy => try_handle_policy(state, tenant_id, ctx, plan, method).await,
         Route::Analytics => try_handle_analytics(ctx, plan, method).await,
         _ => None,
     }
@@ -617,6 +621,8 @@ async fn try_handle_import(
 
 #[cfg(any(feature = "shacl", feature = "reasoning"))]
 async fn try_handle_policy(
+    state: &Arc<RwLock<ServerState>>,
+    tenant_id: &str,
     ctx: &MutationCtx<'_>,
     plan: &MutationPlan,
     method: &Method,
@@ -644,7 +650,8 @@ async fn try_handle_policy(
         }
         #[cfg(feature = "shacl")]
         Method::GraphSchema { op } => {
-            crate::server::graph_schema::handle_gateway(ctx, plan, method, op).await
+            crate::server::graph_schema::handle_gateway(state, tenant_id, ctx, plan, method, op)
+                .await
         }
         _ => return try_handle_reasoning_policy(ctx, plan, method).await,
     };
@@ -673,6 +680,7 @@ async fn try_handle_reasoning_policy(
             property_chains,
         } => {
             let input = DatalogReasoningInput {
+                schema_digests: Vec::new(),
                 subclass_relations: subclass_relations.clone(),
                 subproperty_relations: subproperty_relations.clone(),
                 symmetric_properties: symmetric_properties.clone(),
@@ -680,7 +688,10 @@ async fn try_handle_reasoning_policy(
                 inverse_properties: inverse_properties.clone(),
                 domain_rules: domain_rules.clone(),
                 range_rules: range_rules.clone(),
-                property_chains: property_chains.clone(),
+                property_chains: property_chains
+                    .iter()
+                    .map(|(first, second, sup)| (vec![first.clone(), second.clone()], sup.clone()))
+                    .collect(),
             };
             commit_gateway(ctx, plan, method, move |core| {
                 apply_run_datalog_reasoning(core, input)

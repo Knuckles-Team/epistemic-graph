@@ -12,7 +12,7 @@ macro_rules! persistence_graph_reads {
                 nodes: dump.nodes,
                 edges: dump.edges,
                 semantic: dump.semantic,
-                integrity_policy: dump.integrity_policy,
+                schema_sources: Some(dump.schema_sources),
                 incarnation_id: Some(dump.incarnation_id),
                 source_snapshot_version: Some(dump.source_snapshot_version),
             }))
@@ -60,7 +60,7 @@ macro_rules! persistence_graph_reads {
             Ok((
                 crate::graph::GraphSnapshot {
                     schema_version: crate::graph::GRAPH_SNAPSHOT_SCHEMA_VERSION,
-                    integrity_policy: dump.integrity_policy,
+                    schema_sources: dump.schema_sources,
                     nodes: dump
                         .nodes
                         .into_iter()
@@ -130,7 +130,7 @@ macro_rules! persistence_graph_reads {
                     nodes: page.nodes,
                     edges: page.edges,
                     semantic: page.semantic,
-                    integrity_policy: page.integrity_policy,
+                    schema_sources: page.schema_sources,
                     next_cursor,
                     incarnation_id: Some(page.incarnation_id),
                     source_snapshot_version: Some(page.source_snapshot_version),

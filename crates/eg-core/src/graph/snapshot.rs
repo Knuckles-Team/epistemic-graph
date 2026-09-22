@@ -5,7 +5,7 @@ use petgraph::visit::EdgeRef;
 
 #[cfg(feature = "result-cache")]
 use super::view::ProjectionScope;
-use super::{GraphCore, GraphView, Topology};
+use super::{lift_v2_integrity_policy, GraphCore, GraphSchemaSources, GraphView, Topology};
 
 /// Owned, serializable graph state used for isolated mutation staging and portable
 /// transfer (CONCEPT:EG-KG.storage.nonblocking-checkpoint). Two properties matter:
@@ -17,23 +17,14 @@ use super::{GraphCore, GraphView, Topology};
 ///   never detours through `serde_json::Value` or allocates a second property image.
 /// * **Strict persisted schema:** the mandatory version and unknown-field rejection
 ///   prevent a partial or differently shaped image from being accepted as current.
-pub const GRAPH_SNAPSHOT_SCHEMA_VERSION: u16 = 2;
+pub const GRAPH_SNAPSHOT_SCHEMA_VERSION: u16 = 3;
 
-/// Current graph-scoped integrity policy. Only the enforcing posture exists;
-/// storing the validated source document keeps `eg-core` independent of SHACL
-/// while allowing the server layer to compile it into its native guard.
+/// Exact legacy v2 graph-scoped integrity-policy shape, retained only by the
+/// read-old/write-current migration decoders.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct IntegrityPolicy {
+pub struct IntegrityPolicyV2 {
     pub shapes_ttl: String,
-}
-
-fn deserialize_required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: serde::Deserialize<'de>,
-{
-    <Option<T> as serde::Deserialize>::deserialize(deserializer)
 }
 
 /// KNOWN GAP (2026-08-12): does NOT carry `GraphCore::schema_refs` (the A18
@@ -41,20 +32,200 @@ where
 /// consequence (the mutation gateway's staged-commit pipeline silently drops
 /// schema marks for gateway-routed native writes) and why fixing it is a
 /// deliberately deferred, separately-scoped durable-schema migration.
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct GraphSnapshot {
     pub schema_version: u16,
-    /// Required current-schema field. `None` is an explicit fail-closed,
-    /// not-yet-provisioned policy state; omission is rejected by serde.
-    #[serde(deserialize_with = "deserialize_required_option")]
-    pub integrity_policy: Option<IntegrityPolicy>,
+    /// Required current-schema authority. Core entries are reconciled to the
+    /// running binary as one atomic set when an older engine image is loaded.
+    pub schema_sources: Arc<GraphSchemaSources>,
     // Arc-valued (Phase C-A): building a snapshot clones Arc pointers, not the
     // property bytes. The serialized current schema remains an owned byte array.
     pub nodes: Vec<(String, Arc<Vec<u8>>)>,
     pub edges: Vec<(String, String, Arc<Vec<u8>>)>,
     pub ledger: Vec<String>,
     pub semantic_store: crate::compute::semantic::SemanticStore,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphSnapshotCurrent {
+    schema_version: u16,
+    schema_sources: Arc<GraphSchemaSources>,
+    nodes: Vec<(String, Arc<Vec<u8>>)>,
+    edges: Vec<(String, String, Arc<Vec<u8>>)>,
+    ledger: Vec<String>,
+    semantic_store: crate::compute::semantic::SemanticStore,
+}
+
+/// Exact persisted v2 layout. This is deliberately private to decoding: new
+/// snapshots can only encode the current keyed authority.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphSnapshotV2 {
+    schema_version: u16,
+    integrity_policy: Option<IntegrityPolicyV2>,
+    nodes: Vec<(String, Arc<Vec<u8>>)>,
+    edges: Vec<(String, String, Arc<Vec<u8>>)>,
+    ledger: Vec<String>,
+    semantic_store: crate::compute::semantic::SemanticStore,
+}
+
+#[cfg(test)]
+mod schema_migration_tests {
+    use super::*;
+
+    #[cfg(feature = "ann")]
+    const V2_SNAPSHOT_GOLDEN: &str = "86ae736368656d615f76657273696f6e02b0696e746567726974795f706f6c69637981aa7368617065735f74746cd92b407072656669782073683a203c687474703a2f2f7777772e77332e6f72672f6e732f736861636c233e202ea56e6f6465739192a16e93010203a5656467657390a66c656467657291a56576656e74ae73656d616e7469635f73746f726584a364696d00a369647390a46461746190a57370616365c0";
+    #[cfg(not(feature = "ann"))]
+    const V2_SNAPSHOT_GOLDEN: &str = "86ae736368656d615f76657273696f6e02b0696e746567726974795f706f6c69637981aa7368617065735f74746cd92b407072656669782073683a203c687474703a2f2f7777772e77332e6f72672f6e732f736861636c233e202ea56e6f6465739192a16e93010203a5656467657390a66c656467657291a56576656e74ae73656d616e7469635f73746f726582aa656d62656464696e677380a57370616365c0";
+
+    #[test]
+    fn legacy_v2_snapshot_lifts_policy_into_operator_source() {
+        let legacy = GraphSnapshotV2 {
+            schema_version: 2,
+            integrity_policy: Some(IntegrityPolicyV2 {
+                shapes_ttl: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
+            }),
+            nodes: vec![("n".to_string(), Arc::new(vec![1, 2, 3]))],
+            edges: Vec::new(),
+            ledger: vec!["event".to_string()],
+            semantic_store: crate::compute::semantic::SemanticStore::new(),
+        };
+        let bytes = hex::decode(V2_SNAPSHOT_GOLDEN).unwrap();
+        assert_eq!(rmp_serde::to_vec_named(&legacy).unwrap(), bytes);
+        let decoded: GraphSnapshot = rmp_serde::from_slice(&bytes).unwrap();
+        assert_eq!(decoded.schema_version, GRAPH_SNAPSHOT_SCHEMA_VERSION);
+        assert!(decoded
+            .schema_sources
+            .dynamic
+            .contains_key(super::super::OPERATOR_SOURCE_ID));
+        assert!(!decoded.schema_sources.core.is_empty());
+        assert_eq!(decoded.nodes[0].0, "n");
+    }
+
+    #[test]
+    fn current_snapshot_restart_preserves_dynamic_sources_and_core_identity() {
+        let original = GraphCore::new();
+        let mut sources = (*original.schema_sources()).clone();
+        sources
+            .attach_dynamic(
+                "admin:restart".to_string(),
+                super::super::GraphSchemaSource::new(
+                    super::super::SchemaSourceOrigin::Admin {
+                        name: "restart".to_string(),
+                    },
+                    None,
+                    Some(Arc::from("@prefix owl: <http://www.w3.org/2002/07/owl#> .")),
+                    0,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        original.install_schema_sources(Arc::new(sources));
+
+        let bytes = original.to_msgpack().unwrap();
+        let restored = GraphCore::new();
+        restored.from_msgpack(&bytes).unwrap();
+        assert_eq!(restored.schema_sources(), original.schema_sources());
+        restored.schema_sources().validate().unwrap();
+    }
+
+    #[test]
+    fn invalid_snapshot_schema_source_is_an_atomic_noop() {
+        let live = GraphCore::new();
+        let before = live.schema_sources();
+        let mut snapshot = live.snapshot();
+        let mut sources = (*snapshot.schema_sources).clone();
+        let mut forged = super::super::GraphSchemaSource::new(
+            super::super::SchemaSourceOrigin::Admin {
+                name: "forged".to_string(),
+            },
+            Some(Arc::from("@prefix sh: <http://www.w3.org/ns/shacl#> .")),
+            None,
+            0,
+        )
+        .unwrap();
+        forged.shapes_sha256 = Some(eg_types::contract::Digest256::sha256(b"different"));
+        sources.dynamic.insert("admin:forged".to_string(), forged);
+        snapshot.schema_sources = Arc::new(sources);
+
+        assert!(live.replace_snapshot(snapshot).is_err());
+        assert_eq!(live.schema_sources(), before);
+    }
+
+    #[test]
+    fn oversized_v2_policy_is_a_typed_decode_error_not_a_panic() {
+        let legacy = GraphSnapshotV2 {
+            schema_version: 2,
+            integrity_policy: Some(IntegrityPolicyV2 {
+                shapes_ttl: "x".repeat(eg_types::graph_schema::MAX_SCHEMA_DOCUMENT_BYTES + 1),
+            }),
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            ledger: Vec::new(),
+            semantic_store: crate::compute::semantic::SemanticStore::new(),
+        };
+        let bytes = rmp_serde::to_vec_named(&legacy).unwrap();
+        assert!(rmp_serde::from_slice::<GraphSnapshot>(&bytes).is_err());
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum GraphSnapshotWire {
+    Current(GraphSnapshotCurrent),
+    V2(GraphSnapshotV2),
+}
+
+impl<'de> serde::Deserialize<'de> for GraphSnapshot {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error as _;
+
+        match GraphSnapshotWire::deserialize(deserializer)? {
+            GraphSnapshotWire::Current(value) => {
+                if value.schema_version != GRAPH_SNAPSHOT_SCHEMA_VERSION {
+                    return Err(D::Error::custom(format!(
+                        "unsupported graph snapshot schema version {}; expected {}",
+                        value.schema_version, GRAPH_SNAPSHOT_SCHEMA_VERSION
+                    )));
+                }
+                let schema_sources = Arc::new(
+                    Arc::unwrap_or_clone(value.schema_sources)
+                        .reconciled_current_core()
+                        .map_err(D::Error::custom)?,
+                );
+                Ok(Self {
+                    schema_version: value.schema_version,
+                    schema_sources,
+                    nodes: value.nodes,
+                    edges: value.edges,
+                    ledger: value.ledger,
+                    semantic_store: value.semantic_store,
+                })
+            }
+            GraphSnapshotWire::V2(value) => {
+                if value.schema_version != 2 {
+                    return Err(D::Error::custom(format!(
+                        "unsupported legacy graph snapshot schema version {}",
+                        value.schema_version
+                    )));
+                }
+                Ok(Self {
+                    schema_version: GRAPH_SNAPSHOT_SCHEMA_VERSION,
+                    schema_sources: lift_v2_integrity_policy(value.integrity_policy)
+                        .map_err(D::Error::custom)?,
+                    nodes: value.nodes,
+                    edges: value.edges,
+                    ledger: value.ledger,
+                    semantic_store: value.semantic_store,
+                })
+            }
+        }
+    }
 }
 
 // Snapshots may be substantially larger than one RPC frame, but they still cross
@@ -76,7 +247,7 @@ impl GraphSnapshot {
                 self.schema_version, GRAPH_SNAPSHOT_SCHEMA_VERSION
             ));
         }
-        Ok(())
+        self.schema_sources.validate()
     }
 }
 
@@ -90,7 +261,7 @@ struct PreparedGraphSnapshot {
     edge_properties: HashMap<(String, String), Vec<Arc<Vec<u8>>>>,
     ledger: Vec<String>,
     semantic_store: crate::compute::semantic::SemanticStore,
-    integrity_policy: Option<IntegrityPolicy>,
+    schema_sources: Arc<GraphSchemaSources>,
     node_bloom: crate::bloom::NodeBloomFilter,
 }
 
@@ -98,7 +269,7 @@ fn prepare_graph_snapshot(snapshot: GraphSnapshot) -> Result<PreparedGraphSnapsh
     snapshot.validate_schema()?;
     let GraphSnapshot {
         schema_version: _,
-        integrity_policy,
+        schema_sources,
         nodes,
         edges,
         ledger,
@@ -154,7 +325,7 @@ fn prepare_graph_snapshot(snapshot: GraphSnapshot) -> Result<PreparedGraphSnapsh
         edge_properties,
         ledger,
         semantic_store,
-        integrity_policy,
+        schema_sources,
         node_bloom,
     })
 }
@@ -176,7 +347,7 @@ impl GraphCore {
         // ~µs pointer copy, and removes the transient memory doubling.
         GraphSnapshot {
             schema_version: GRAPH_SNAPSHOT_SCHEMA_VERSION,
-            integrity_policy: self.integrity_policy.read().clone(),
+            schema_sources: Arc::clone(&self.schema_sources.read()),
             nodes: self.get_nodes_arc(),
             edges: self.get_edges_arc(),
             ledger: self.ledger.lock().clone(),
@@ -244,7 +415,7 @@ impl GraphCore {
             edge_properties,
             ledger,
             semantic_store,
-            integrity_policy,
+            schema_sources,
             node_bloom,
         } = prepare_graph_snapshot(snapshot)?;
 
@@ -265,7 +436,7 @@ impl GraphCore {
         }
         *self.ledger.lock() = ledger;
         *self.semantic_store.write() = semantic_store;
-        *self.integrity_policy.write() = integrity_policy;
+        *self.schema_sources.write() = schema_sources;
         drop(topo);
         self.invalidate_indexes();
         #[cfg(feature = "result-cache")]
@@ -350,6 +521,7 @@ impl GraphCore {
     pub fn get_subgraph(&self, node_ids: &[String]) -> GraphView {
         let topo = self.topo.read();
         let mut view = GraphView::default();
+        view.schema_sources = self.schema_sources();
         // Both halves run under the SAME held topology read guard, exactly as the
         // single-body version did — neither takes a lock of its own.
         self.copy_subgraph_nodes(&topo, node_ids, &mut view);
@@ -447,6 +619,7 @@ impl GraphCore {
             node_map: topo.node_map.clone(),
             node_properties: HashMap::new(),
             edge_properties: HashMap::new(),
+            schema_sources: self.schema_sources(),
             plan_stats_memo: OnceLock::new(),
             label_index_memo: OnceLock::new(),
             distinct_stats_memo: OnceLock::new(),
@@ -485,6 +658,7 @@ impl GraphCore {
                 .iter()
                 .map(|e| (e.key().clone(), e.value().clone()))
                 .collect(),
+            schema_sources: self.schema_sources(),
             plan_stats_memo: OnceLock::new(),
             label_index_memo: OnceLock::new(),
             distinct_stats_memo: OnceLock::new(),
@@ -527,6 +701,7 @@ impl GraphCore {
                 .iter()
                 .map(|e| (e.key().clone(), e.value().clone()))
                 .collect(),
+            schema_sources: self.schema_sources(),
             plan_stats_memo: OnceLock::new(),
             label_index_memo: OnceLock::new(),
             distinct_stats_memo: OnceLock::new(),

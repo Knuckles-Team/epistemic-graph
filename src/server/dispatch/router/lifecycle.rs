@@ -65,7 +65,7 @@ struct GraphLifecycleRequest {
     idempotency_key: String,
 }
 
-pub(super) async fn create_graph(
+pub(in crate::server::dispatch) async fn create_graph(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     req_agent_id: Option<String>,

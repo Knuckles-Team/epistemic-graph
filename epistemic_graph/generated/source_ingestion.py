@@ -35,23 +35,59 @@ class RawAdmissionReceipt(BaseModel):
     stream: str
 
 
-class SourceCursor(BaseModel):
+class RawRelationshipAdmissionReceipt(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    pending_watermark: Any | None = None
+    deduplicated: bool
+    raw_digest: Digest256
+    relationship_id: str
+
+
+class SourceCheckpoint(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    content_hash: Digest256 | None = None
+    pending_watermark: str | None = None
     position: SourceJson
     stream: str
-    watermark: Any | None = None
+    watermark: str | None = None
+
+
+class SourceEntityRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    record_id: str
+    stream: str
+
+
+class SourceIngestStatus(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    accepted_checkpoint: SourceCheckpoint | None = None
+    accepted_checkpoint_digest: Digest256 | None = None
+    committed_graph_version: Annotated[int, Field(ge=0)] | None = None
+    connector: str
+    content_hash: Digest256 | None = None
+    last_batch_digest: Digest256 | None = None
+    last_receipt_id: str | None = None
+    live_set_digest: Digest256 | None = None
+    relationship_live_set_digest: Digest256 | None = None
+    stream: str
 
 
 class SourceIngestionBatch(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    authoritative_live_ids: BoundedVec_SourceEntityRef_16384 | None = None
     connector: str
-    cursor: SourceCursor
-    expected_previous_cursor: SourceCursor | None = None
-    mapping_reference: str
+    empty_authoritative_approval: str | None = None
+    expected_previous_checkpoint: SourceCheckpoint | None = None
+    mode: SourceIngestionMode
+    provider_checkpoint: SourceCheckpoint
     records: BoundedVec_SourceRecord_1024
+    relationships: BoundedVec_SourceRelationship_4096 | None = None
+    strict_schema: bool
+    withdrawals: BoundedVec_SourceWithdrawal_1024 | None = None
 
 
 class SourceIngestionDisposition(str, Enum):
@@ -59,31 +95,61 @@ class SourceIngestionDisposition(str, Enum):
     REPLAYED = "replayed"
 
 
+class SourceIngestionMode(str, Enum):
+    FULL = "full"
+    DELTA = "delta"
+    RECONCILE = "reconcile"
+
+
 class SourceIngestionReceipt(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    accepted_cursor: SourceCursor
-    accepted_cursor_digest: Digest256
+    accepted_checkpoint: SourceCheckpoint
+    accepted_checkpoint_digest: Digest256
     affected_count: Annotated[int, Field(ge=0)]
     batch_digest: Digest256
-    catalog: McpCatalogSnapshotBinding
     committed_graph_version: Annotated[int, Field(ge=0)]
-    connector_pack_digest: Digest256
+    content_hash: Digest256 | None = None
     disposition: SourceIngestionDisposition
-    mapping_digest: Digest256
-    mapping_reference: str
+    live_set_digest: Digest256 | None = None
+    mappings: BoundedVec_SourceMappingReceipt_5120
+    mode: SourceIngestionMode
     raw_admissions: BoundedVec_RawAdmissionReceipt_1024
     receipt_digest: Digest256
+    receipt_id: str
+    relationship_count: Annotated[int, Field(ge=0)]
+    relationship_live_set_digest: Digest256 | None = None
+    relationship_raw_admissions: BoundedVec_RawRelationshipAdmissionReceipt_4096
+    relationship_tombstoned_count: Annotated[int, Field(ge=0)]
+    relationship_tombstones: BoundedVec_SourceRelationshipTombstoneReceipt_4096
+    tombstoned_count: Annotated[int, Field(ge=0)]
+    tombstones: BoundedVec_SourceTombstoneReceipt_16384
+
+
+class SourceMappingKind(str, Enum):
+    ENTITY = "entity"
+    RELATIONSHIP = "relationship"
+
+
+class SourceMappingReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    catalog: McpCatalogSnapshotBinding
+    connector_pack_digest: Digest256
+    kind: SourceMappingKind
+    mapping_digest: Digest256
+    mapping_reference: str
 
 
 class SourceRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    mapping_reference: str
     payload: SourceJson
     provenance: SourceRecordProvenance
     record_id: str
     stream: str
-    updated_at: Any | None = None
+    updated_at: str | None = None
 
 
 class SourceRecordProvenance(BaseModel):
@@ -97,35 +163,79 @@ class SourceRecordProvenance(BaseModel):
     tool_schema_sha256: Digest256
 
 
+class SourceRelationship(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    properties: SourceJson | None = None
+    provenance: SourceRecordProvenance
+    relation_reference: str
+    source: SourceEntityRef
+    target: SourceEntityRef
+
+
+class SourceRelationshipTombstoneReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    reason: str
+    relationship_id: str
+    source: SourceEntityRef
+    target: SourceEntityRef
+
+
+class SourceTombstoneReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    entity: SourceEntityRef
+    node_id: str
+    reason: str
+
+
+class SourceWithdrawal(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    entity: SourceEntityRef
+    reason: str
+
+
 class SourceIngestionRequest(SourceIngestionBatch):
     def canonical_digest(self) -> str:
         value = self.model_dump(mode="json")
         projection = {
             "connector": value["connector"],
-            "mapping_reference": value["mapping_reference"],
+            "mode": value["mode"],
+            "strict_schema": value["strict_schema"],
             "records": value["records"],
-            "cursor": value["cursor"],
-            "expected_previous_cursor": value["expected_previous_cursor"],
+            "relationships": value["relationships"],
+            "provider_checkpoint": value["provider_checkpoint"],
+            "expected_previous_checkpoint": value["expected_previous_checkpoint"],
+            "authoritative_live_ids": value["authoritative_live_ids"],
+            "empty_authoritative_approval": value["empty_authoritative_approval"],
+            "withdrawals": value["withdrawals"],
         }
         return framed_named_msgpack_digest(
-            b"eg/source-ingestion-batch/v1",
+            b"eg/source-ingestion-batch/v2",
             projection,
             canonical_json_paths={
                 "records[*].payload",
-                "cursor.position",
-                "expected_previous_cursor.position",
+                "relationships[*].properties",
+                "provider_checkpoint.position",
+                "expected_previous_checkpoint.position",
             },
             omit_none_paths={
                 "records[*].updated_at",
-                "cursor.watermark",
-                "cursor.pending_watermark",
-                "expected_previous_cursor.watermark",
-                "expected_previous_cursor.pending_watermark",
+                "relationships[*].properties",
+                "provider_checkpoint.content_hash",
+                "provider_checkpoint.watermark",
+                "provider_checkpoint.pending_watermark",
+                "expected_previous_checkpoint.content_hash",
+                "expected_previous_checkpoint.watermark",
+                "expected_previous_checkpoint.pending_watermark",
             },
             named_struct_paths={
                 "records[*]": (
                     "stream",
                     "record_id",
+                    "mapping_reference",
                     "payload",
                     "updated_at",
                     "provenance",
@@ -138,17 +248,54 @@ class SourceIngestionRequest(SourceIngestionBatch):
                     "tool_schema_sha256",
                     "source_uri",
                 ),
-                "cursor": (
+                "relationships[*]": (
+                    "source",
+                    "target",
+                    "relation_reference",
+                    "properties",
+                    "provenance",
+                ),
+                "relationships[*].source": (
+                    "stream",
+                    "record_id",
+                ),
+                "relationships[*].target": (
+                    "stream",
+                    "record_id",
+                ),
+                "relationships[*].provenance": (
+                    "connector",
+                    "adapter_kind",
+                    "server",
+                    "tool",
+                    "tool_schema_sha256",
+                    "source_uri",
+                ),
+                "provider_checkpoint": (
                     "stream",
                     "position",
+                    "content_hash",
                     "watermark",
                     "pending_watermark",
                 ),
-                "expected_previous_cursor": (
+                "expected_previous_checkpoint": (
                     "stream",
                     "position",
+                    "content_hash",
                     "watermark",
                     "pending_watermark",
+                ),
+                "authoritative_live_ids[*]": (
+                    "stream",
+                    "record_id",
+                ),
+                "withdrawals[*]": (
+                    "entity",
+                    "reason",
+                ),
+                "withdrawals[*].entity": (
+                    "stream",
+                    "record_id",
                 ),
             },
         )
@@ -162,7 +309,63 @@ BoundedVec_RawAdmissionReceipt_1024 = Annotated[
 ]
 
 
+BoundedVec_RawRelationshipAdmissionReceipt_4096 = Annotated[
+    list[RawRelationshipAdmissionReceipt],
+    Field(
+        max_length=4096,
+    ),
+]
+
+
+BoundedVec_SourceEntityRef_16384 = Annotated[
+    list[SourceEntityRef],
+    Field(
+        max_length=16384,
+    ),
+]
+
+
+BoundedVec_SourceMappingReceipt_5120 = Annotated[
+    list[SourceMappingReceipt],
+    Field(
+        max_length=5120,
+    ),
+]
+
+
 BoundedVec_SourceRecord_1024 = Annotated[list[SourceRecord], Field(max_length=1024)]
+
+
+BoundedVec_SourceRelationshipTombstoneReceipt_4096 = Annotated[
+    list[SourceRelationshipTombstoneReceipt],
+    Field(
+        max_length=4096,
+    ),
+]
+
+
+BoundedVec_SourceRelationship_4096 = Annotated[
+    list[SourceRelationship],
+    Field(
+        max_length=4096,
+    ),
+]
+
+
+BoundedVec_SourceTombstoneReceipt_16384 = Annotated[
+    list[SourceTombstoneReceipt],
+    Field(
+        max_length=16384,
+    ),
+]
+
+
+BoundedVec_SourceWithdrawal_1024 = Annotated[
+    list[SourceWithdrawal],
+    Field(
+        max_length=1024,
+    ),
+]
 
 
 Digest256 = Annotated[
@@ -181,14 +384,30 @@ McpCatalogSnapshotBinding.model_rebuild()
 
 RawAdmissionReceipt.model_rebuild()
 
-SourceCursor.model_rebuild()
+RawRelationshipAdmissionReceipt.model_rebuild()
+
+SourceCheckpoint.model_rebuild()
+
+SourceEntityRef.model_rebuild()
+
+SourceIngestStatus.model_rebuild()
 
 SourceIngestionBatch.model_rebuild()
 
 SourceIngestionReceipt.model_rebuild()
 
+SourceMappingReceipt.model_rebuild()
+
 SourceRecord.model_rebuild()
 
 SourceRecordProvenance.model_rebuild()
+
+SourceRelationship.model_rebuild()
+
+SourceRelationshipTombstoneReceipt.model_rebuild()
+
+SourceTombstoneReceipt.model_rebuild()
+
+SourceWithdrawal.model_rebuild()
 
 SourceIngestionRequest.model_rebuild()

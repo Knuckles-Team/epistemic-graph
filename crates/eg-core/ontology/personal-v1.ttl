@@ -1,0 +1,158 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix schema: <http://schema.org/> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:Correspondent a owl:Class ;
+    rdfs:label "Correspondent" ;
+    rdfs:comment """A Paperless-ngx correspondent — the sender/recipient organization or
+person a :Document is member_of (CONCEPT:KG-2.165).""" ;
+    rdfs:subClassOf :Organization .
+
+:Family a owl:Class ;
+    rdfs:label "Family" ;
+    rdfs:comment """A Gramps Web family — a kinship unit grouping the :Person members
+(parents + children) that are member_of it. A social grouping (CONCEPT:KG-2.166).""" ;
+    rdfs:subClassOf :Organization .
+
+:Tag a owl:Class ;
+    rdfs:label "Tag" ;
+    rdfs:comment """A Paperless-ngx tag — a classification label a :Document is tagged_with.
+A specialization of :Concept (CONCEPT:KG-2.165).""" ;
+    rdfs:subClassOf :Concept .
+
+:attachedFile a owl:ObjectProperty ;
+    rdfs:label "attached file" ;
+    rdfs:comment "Links a CalendarEvent or PersonalTask to associated files." ;
+    rdfs:domain :CalendarEvent ;
+    rdfs:range :File .
+
+:audioDurationSeconds a owl:DatatypeProperty ;
+    rdfs:label "audio duration (seconds)" ;
+    rdfs:domain :VoiceMessage ;
+    rdfs:range xsd:integer .
+
+:blockedByIncident a owl:ObjectProperty ;
+    rdfs:label "blocked by incident" ;
+    rdfs:comment """Links a CalendarEvent to an Incident that forces rescheduling.
+Cross-domain: personal schedule ↔ infrastructure.""" ;
+    rdfs:domain :CalendarEvent ;
+    rdfs:range :Incident .
+
+:eventEnd a owl:DatatypeProperty ;
+    rdfs:label "event end" ;
+    rdfs:domain :CalendarEvent ;
+    rdfs:range xsd:dateTime .
+
+:eventLocation a owl:DatatypeProperty ;
+    rdfs:label "event location" ;
+    rdfs:domain :CalendarEvent ;
+    rdfs:range xsd:string .
+
+:eventStart a owl:DatatypeProperty ;
+    rdfs:label "event start" ;
+    rdfs:domain :CalendarEvent ;
+    rdfs:range xsd:dateTime .
+
+:originatedFrom a owl:ObjectProperty ;
+    rdfs:label "originated from" ;
+    rdfs:comment """Links a PersonalTask to the CalendarEvent or Transcript
+that created it. Enables provenance: voice → text → task → calendar.""" ;
+    rdfs:domain :PersonalTask ;
+    rdfs:range :CalendarEvent .
+
+:recurrenceRule a owl:DatatypeProperty ;
+    rdfs:label "recurrence rule" ;
+    rdfs:comment "iCalendar RRULE string (RFC 5545)." ;
+    rdfs:domain :RecurringEvent ;
+    rdfs:range xsd:string .
+
+:scheduledFor a owl:ObjectProperty ;
+    rdfs:label "scheduled for" ;
+    rdfs:comment "Links a CalendarEvent to the Person it is scheduled for." ;
+    rdfs:domain :CalendarEvent ;
+    rdfs:range :Person .
+
+:spawnsTask a owl:ObjectProperty ;
+    rdfs:label "spawns task" ;
+    rdfs:comment "Links a Transcript to a PersonalTask extracted from its content." ;
+    rdfs:domain :Transcript ;
+    rdfs:range :PersonalTask .
+
+:taskDueDate a owl:DatatypeProperty ;
+    rdfs:label "task due date" ;
+    rdfs:domain :PersonalTask ;
+    rdfs:range xsd:date .
+
+:taskPriority a owl:DatatypeProperty ;
+    rdfs:label "task priority" ;
+    rdfs:comment "Values: low, medium, high, urgent." ;
+    rdfs:domain :PersonalTask ;
+    rdfs:range xsd:string .
+
+:transcribedFrom a owl:ObjectProperty ;
+    rdfs:label "transcribed from" ;
+    rdfs:comment "Links a Transcript to the VoiceMessage it was derived from." ;
+    rdfs:domain :Transcript ;
+    rdfs:range :VoiceMessage ;
+    rdfs:subPropertyOf prov:wasDerivedFrom .
+
+:transcriptionConfidence a owl:DatatypeProperty ;
+    rdfs:label "transcription confidence" ;
+    rdfs:comment "Whisper model confidence score (0.0–1.0)." ;
+    rdfs:domain :Transcript ;
+    rdfs:range xsd:float .
+
+<http://knuckles.team/kg/personal> a owl:Ontology ;
+    rdfs:label "Personal Productivity Ontology" ;
+    rdfs:comment """Personal productivity domain ontology bridging Nextcloud
+(calendar, tasks, files), audio transcription, and personal time
+management into the unified KG.
+
+Enables cross-domain reasoning: voice messages → tasks → calendar
+events → incident correlation.
+
+Standards alignment: schema:Event, iCalendar (RFC 5545),
+W3C PROV-O provenance.""" ;
+    owl:imports <http://knuckles.team/kg/core> .
+
+:RecurringEvent a owl:Class ;
+    rdfs:label "Recurring Event" ;
+    rdfs:comment "A calendar event that repeats on a schedule (daily, weekly, monthly)." ;
+    rdfs:subClassOf :CalendarEvent .
+
+:VoiceMessage a owl:Class ;
+    rdfs:label "Voice Message" ;
+    rdfs:comment """An audio voice message received or recorded. BFO:GDC.
+Serves as the source entity for transcription.""" ;
+    rdfs:subClassOf :CreativeWork .
+
+:Transcript a owl:Class ;
+    rdfs:label "Transcript" ;
+    rdfs:comment """A text transcription of a VoiceMessage generated by the audio
+transcriber. BFO:GenericallyDependentContinuant via Document.
+Linked to source audio via prov:wasDerivedFrom.""" ;
+    rdfs:seeAlso prov:Entity ;
+    rdfs:subClassOf :Document .
+
+:PersonalTask a owl:Class ;
+    rdfs:label "Personal Task" ;
+    rdfs:comment """A personal to-do item tracked in Nextcloud Tasks or similar.
+Distinct from professional :Task (Jira/Plane). BFO:GDC.""" ;
+    rdfs:subClassOf :Task .
+
+:CalendarEvent a owl:Class ;
+    rdfs:label "Calendar Event" ;
+    rdfs:comment """A scheduled event in a personal or shared calendar (Nextcloud,
+Google Calendar). BFO:Process via Event. Aligned to schema:Event.""" ;
+    rdfs:seeAlso schema:Event ;
+    rdfs:subClassOf :Event .

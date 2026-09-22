@@ -22,6 +22,7 @@ mod algorithms;
 mod broker;
 mod edges;
 mod gateway;
+pub(crate) use gateway::commit_gateway;
 #[cfg(feature = "broker")]
 mod gateway_broker;
 mod gateway_graph;

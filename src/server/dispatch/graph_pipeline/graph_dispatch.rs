@@ -205,6 +205,7 @@ pub(super) async fn dispatch_graph_op_inner(
             idempotency_key: capture.verified_context.idempotency_key(),
             read_authority: capture.read_authority.clone(),
             verified_actor: &capture.verified_actor,
+            tenant_id: capture.verified_context.tenant().to_string(),
             tenant_scope: capture.tenant_scope.clone(),
             gateway_authz_ctx: capture.gateway_authz_ctx.clone(),
             core: capture.core.clone(),

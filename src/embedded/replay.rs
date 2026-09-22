@@ -51,7 +51,7 @@ fn install_commons_dump(reg: &mut GraphRegistry, dump: GraphDump) -> Result<(), 
         graph_type,
         incarnation_id,
         source_snapshot_version,
-        integrity_policy,
+        schema_sources,
         nodes,
         edges,
         ledger,
@@ -67,7 +67,7 @@ fn install_commons_dump(reg: &mut GraphRegistry, dump: GraphDump) -> Result<(), 
             .map(|(source, target, properties)| (source, target, Arc::new(properties)))
             .collect(),
         schema_version: GRAPH_SNAPSHOT_SCHEMA_VERSION,
-        integrity_policy,
+        schema_sources,
         ledger,
         semantic_store,
     };
@@ -100,13 +100,13 @@ fn replay_graph_dump(reg: &mut GraphRegistry, dump: GraphDump) {
         return;
     };
     let GraphDump {
-        integrity_policy,
+        schema_sources,
         nodes,
         edges,
         semantic,
         ..
     } = dump;
-    core.install_integrity_policy(integrity_policy);
+    core.install_schema_sources(schema_sources);
     nodes
         .into_iter()
         .for_each(|(id, properties)| core.add_node(id, properties));

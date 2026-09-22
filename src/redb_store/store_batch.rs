@@ -56,7 +56,7 @@ pub(crate) fn apply_post_row_cleanup(
 /// Everything one batch's row phase needs that was resolved before the rows.
 pub(crate) struct MutationBatchPlan {
     pub(crate) staged_state: Option<AuthoritativeGraphState>,
-    pub(crate) integrity_policy_update: Option<Option<crate::graph::IntegrityPolicy>>,
+    pub(crate) schema_sources_update: Option<std::sync::Arc<crate::graph::GraphSchemaSources>>,
     pub(crate) lifecycle: Option<(bool, String, Option<GraphType>)>,
 }
 
@@ -84,7 +84,7 @@ pub(crate) fn prepare_and_validate_mutation_batch(
     } = *ctx;
     batch.validate_write_budget()?;
     let staged_state = resolve_mutation_authoritative_state(batch, authoritative_state_msgpack)?;
-    let integrity_policy_update = resolve_integrity_policy_update(staged_state.as_ref());
+    let schema_sources_update = resolve_schema_sources_update(staged_state.as_ref());
     validate_mutation_batch_route_and_lowering(
         batch,
         graph_fname,
@@ -101,7 +101,7 @@ pub(crate) fn prepare_and_validate_mutation_batch(
     validate_change_envelope_preconditions(write, graph_fname, change_tenant, change, crypto)?;
     Ok(MutationBatchPlan {
         staged_state,
-        integrity_policy_update,
+        schema_sources_update,
         lifecycle,
     })
 }
@@ -545,20 +545,20 @@ pub(crate) fn resolve_default_graph_meta_update(
     meta: &redb::Table<'_, &str, &[u8]>,
     graph_fname: &str,
     batch: &MutationBatch,
-    integrity_policy_update: Option<&Option<crate::graph::IntegrityPolicy>>,
+    schema_sources_update: Option<&std::sync::Arc<crate::graph::GraphSchemaSources>>,
 ) -> Result<Option<Vec<u8>>, String> {
     let existing = meta
         .get(graph_fname)
         .map_err(|e| e.to_string())?
         .map(|value| value.value().to_vec());
-    let encoded = match (existing, integrity_policy_update) {
-        (Some(existing), Some(policy)) => {
+    let encoded = match (existing, schema_sources_update) {
+        (Some(existing), Some(sources)) => {
             let record = decode_meta_record(graph_fname, &existing)?;
             Some(encode_meta_record(
                 &record.name,
                 record.graph_type,
                 &record.incarnation_id,
-                policy.as_ref(),
+                sources.as_ref(),
             )?)
         }
         (Some(_), None) => None,
@@ -566,12 +566,15 @@ pub(crate) fn resolve_default_graph_meta_update(
         // this point `shard::bind_caller_batch` has already rebound the batch to
         // `graph_scope_identity(graph_fname)` -- so that name is the durable KEY,
         // not the caller's logical name. See `catalog_display_name`.
-        (None, policy) => Some(encode_meta_record(
-            &catalog_display_name(mutation_batch_graph_name(batch)?),
-            GraphType::Global,
-            &batch.batch_id,
-            policy.and_then(Option::as_ref),
-        )?),
+        (None, sources) => {
+            let defaults = crate::graph::GraphSchemaSources::default();
+            Some(encode_meta_record(
+                &catalog_display_name(mutation_batch_graph_name(batch)?),
+                GraphType::Global,
+                &batch.batch_id,
+                sources.map(std::sync::Arc::as_ref).unwrap_or(&defaults),
+            )?)
+        }
     };
     Ok(encoded)
 }
@@ -581,7 +584,7 @@ pub(crate) fn write_mutation_batch_graph_meta_row(
     graph_fname: &str,
     batch: &MutationBatch,
     lifecycle: Option<(bool, String, Option<GraphType>)>,
-    integrity_policy_update: Option<Option<crate::graph::IntegrityPolicy>>,
+    schema_sources_update: Option<std::sync::Arc<crate::graph::GraphSchemaSources>>,
 ) -> Result<(), String> {
     let mut meta = write
         .control()
@@ -589,11 +592,12 @@ pub(crate) fn write_mutation_batch_graph_meta_row(
         .map_err(|e| e.to_string())?;
     match lifecycle {
         Some((true, graph_name, Some(graph_type))) => {
+            let defaults = crate::graph::GraphSchemaSources::default();
             let encoded = encode_meta_record(
                 &graph_name,
                 graph_type,
                 &batch.batch_id,
-                integrity_policy_update.as_ref().and_then(Option::as_ref),
+                schema_sources_update.as_deref().unwrap_or(&defaults),
             )?;
             meta.insert(graph_fname, encoded.as_slice())
                 .map_err(|e| e.to_string())?;
@@ -606,7 +610,7 @@ pub(crate) fn write_mutation_batch_graph_meta_row(
                 &meta,
                 graph_fname,
                 batch,
-                integrity_policy_update.as_ref(),
+                schema_sources_update.as_ref(),
             )?;
             if let Some(encoded) = encoded {
                 meta.insert(graph_fname, encoded.as_slice())

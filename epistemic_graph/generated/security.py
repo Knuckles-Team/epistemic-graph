@@ -130,7 +130,7 @@ class AuditProveInclusionRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    anchor_seq: Any | None = None
+    anchor_seq: int | None = None
     node_id: str
 
 

@@ -1215,11 +1215,12 @@ obda = ["sparql", "query", "eg-types/obda"]
 # edits this shared table. Implies `obda` -- the mapping/rewrite engine already exists.
 obda-wire = ["obda"]
 # SHACL Core validation (CONCEPT:EG-132) — the pure-Rust eg-shacl engine over the
-# RDF term/graph model. IMPLIES `rdf` (it validates RDF data against an RDF shapes
-# graph); the `Method::ShaclValidate` handler is gated on this feature. Pure Rust —
-# links NO C/native dep (regex rides eg-rdf's sparql stack) — and is included in the
-# one main build alongside rdf/sparql.
-shacl = ["rdf", "dep:eg-shacl"]
+# RDF term/graph model. IMPLIES `rdf` plus `owl-dl`: GraphSchema commits validate
+# the composed SHACL and mixed OWL authority atomically, so a SHACL-capable server
+# cannot accept a schema while silently dropping its DL restrictions. The
+# `Method::ShaclValidate` handler is gated on this feature. Pure Rust — links NO
+# C/native dep — and is included in the one main build alongside rdf/sparql.
+shacl = ["rdf", "owl-dl", "dep:eg-shacl"]
 # ShEx (Shape Expressions) Core validation (CONCEPT:EG-133) — the pure-Rust eg-shex
 # engine, the complement to `shacl`. IMPLIES `rdf` (it validates focus nodes of an RDF
 # data graph against a ShExJ schema); the `Method::ShexValidate` handler is gated on this

@@ -19,7 +19,8 @@ use crate::server::persistence::connector_pack::commit::{
     ConnectorPackCommitPlan, ConnectorPackComponentCommit, ConnectorPackHolderCommit,
 };
 use crate::server::persistence::connector_pack::{
-    decode_schema_mappings, ConnectorPackBodyHolderRow, ConnectorPackMemberRow,
+    decode_relationship_mappings, decode_schema_mappings, ConnectorPackBodyHolderRow,
+    ConnectorPackMemberRow,
 };
 
 use super::facts::{component_kind, facts};
@@ -338,6 +339,7 @@ impl<'a> PlanCollector<'a> {
     ) -> Result<(), String> {
         let prior_holder =
             prior.map(|member| (member.engine_manifest_digest.clone(), member.body_length));
+        let (schema_mappings, relationship_mappings) = manifest_projections(entry, &wanted.body)?;
         self.members.push(ConnectorPackMemberRow {
             uri: entry.uri.clone(),
             kind: entry.kind,
@@ -352,7 +354,8 @@ impl<'a> PlanCollector<'a> {
                 .map_or_else(String::new, |value| value.0.clone()),
             body_length: prior_holder.map_or(0, |value| value.1),
             last_record_id: self.record_id.clone(),
-            schema_mappings: manifest_mappings(entry, &wanted.body)?,
+            schema_mappings,
+            relationship_mappings,
         });
         Ok(())
     }
@@ -499,16 +502,23 @@ fn disposition_for(
     }
 }
 
-fn manifest_mappings(
+fn manifest_projections(
     entry: &PackEntry,
     body: &[u8],
-) -> Result<Option<BTreeMap<String, eg_types::connector_pack::ConnectorSchemaMapping>>, String> {
+) -> Result<
+    (
+        Option<BTreeMap<String, eg_types::connector_pack::ConnectorSchemaMapping>>,
+        Option<BTreeMap<String, eg_types::connector_pack::ConnectorRelationshipMapping>>,
+    ),
+    String,
+> {
     if entry.kind != PackEntryKind::Manifest {
-        return Ok(None);
+        return Ok((None, None));
     }
-    decode_schema_mappings(body)
-        .map(Some)
-        .map_err(|error| format!("MALFORMED_BODY: manifest {}: {error}", entry.uri))
+    let malformed = |error| format!("MALFORMED_BODY: manifest {}: {error}", entry.uri);
+    let schemas = decode_schema_mappings(body).map_err(malformed)?;
+    let relationships = decode_relationship_mappings(body).map_err(malformed)?;
+    Ok((Some(schemas), Some(relationships)))
 }
 
 fn import_record(

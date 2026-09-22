@@ -275,7 +275,36 @@ pub struct SparqlResult {
 #[cfg(feature = "owl")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct OwlPropertyFact {
+    pub subject: String,
+    pub predicate: String,
+    pub object: String,
+    pub asserted: bool,
+    /// `asserted`, `RL-subPropertyOf`, `RL-symmetric`, `RL-inverseOf`, or
+    /// `RL-propertyChain`.
+    pub rule: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub axiom: Option<String>,
+    /// Ordered fact triples consumed by the first deterministic derivation.
+    pub premises: Vec<(String, String, String)>,
+}
+
+/// Materialized result of a `Method::OwlReason` run (CONCEPT:EG-KG.ontology.incremental-materialization). Returned via
+/// `ResultPayload::raw`. The reasoner lives in eg-rdf; this is the wire projection.
+#[cfg(feature = "owl")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct OwlReasonResult {
+    /// Sorted, unique composed GraphSchema digests whose ontology sources were
+    /// included in this classification. A single-graph call normally carries
+    /// one digest; a distributed call carries the exact set of graph schema
+    /// authorities it unioned. Consumers cache a derived hierarchy under this
+    /// identity rather than treating a copied ontology file as authority.
+    pub schema_digests: Vec<String>,
+    /// Direct named `rdfs:subClassOf` axioms in the classified TBox, before
+    /// transitive closure. Capability routing uses these edges to preserve an
+    /// explainable shortest path while `subclasses` remains the full closure.
+    pub direct_subclasses: Vec<(String, String)>,
     /// Derived named-class subsumptions `(sub, sup)` (the reflexive/asserted ones are
     /// included; the closure is the full classification hierarchy).
     pub subclasses: Vec<(String, String)>,
@@ -294,6 +323,10 @@ pub struct OwlReasonResult {
     /// decay) × the subsumption confidence — so an old/decayed or weakly-asserted fact
     /// yields a lower-confidence membership.
     pub instance_conf: Vec<f64>,
+    /// Asserted and inferred object-property facts.  Inferred rows retain the
+    /// rule, governing axiom and exact premise triples; `schema_digests` above
+    /// atomically binds every row to the composed ontology set used.
+    pub property_facts: Vec<OwlPropertyFact>,
     /// `true` iff the ontology is consistent (no class forced to subsume `owl:Nothing`).
     pub consistent: bool,
     /// Named classes derived to be unsatisfiable (`A ⊑ ⊥`); empty when consistent.
@@ -327,6 +360,8 @@ pub struct ProofNodeWire {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct OwlExplainResult {
+    /// Exact composed GraphSchema authority used to build this proof.
+    pub schema_digests: Vec<String>,
     /// Whether `sub ⊑ sup` holds under the classification (`tree.is_some()`).
     pub found: bool,
     /// The reconstructed proof tree, or `None` when `sub ⊑ sup` does not hold.

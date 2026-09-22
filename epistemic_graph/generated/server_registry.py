@@ -35,7 +35,7 @@ class RegisteredServerListRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     cursor: RegisteredServerCursor | None = None
-    limit: Annotated[Any, Field(ge=0, le=65535)] | None = None
+    limit: Annotated[int, Field(ge=0, le=65535)] | None = None
 
 
 class RegisteredServerView(BaseModel):

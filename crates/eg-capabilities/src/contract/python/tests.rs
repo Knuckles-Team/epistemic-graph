@@ -3,18 +3,20 @@ use super::*;
 fn source_ingestion_digest_vector() -> String {
     use eg_types::contract::{BoundedVec, Digest256, ResourceId};
     use eg_types::source_ingestion::{
-        SourceCursor, SourceIngestionBatch, SourceIngestionRequest, SourceJson, SourceRecord,
-        SourceRecordProvenance,
+        SourceCheckpoint, SourceIngestionBatch, SourceIngestionMode, SourceIngestionRequest,
+        SourceJson, SourceRecord, SourceRecordProvenance,
     };
 
     let connector = ResourceId::new("demo-connector").expect("canonical connector id");
     let stream = ResourceId::new("items").expect("canonical stream id");
     let request = SourceIngestionRequest::new(SourceIngestionBatch {
         connector: connector.clone(),
-        mapping_reference: "manifest:demo-connector#schema_mappings/item".into(),
+        mode: SourceIngestionMode::Delta,
+        strict_schema: true,
         records: BoundedVec::new(vec![SourceRecord {
             stream: stream.clone(),
             record_id: "item-1".into(),
+            mapping_reference: "manifest:demo-connector#schema_mappings/item".into(),
             payload: SourceJson::new(serde_json::json!({"name": "one", "id": 1}))
                 .expect("bounded source JSON"),
             updated_at: Some("2026-09-20T00:00:00Z".into()),
@@ -28,19 +30,25 @@ fn source_ingestion_digest_vector() -> String {
             },
         }])
         .expect("bounded source records"),
-        cursor: SourceCursor {
+        relationships: BoundedVec::new(Vec::new()).expect("bounded source relationships"),
+        provider_checkpoint: SourceCheckpoint {
             stream: stream.clone(),
             position: SourceJson::new(serde_json::json!({"page": 2})).expect("bounded cursor JSON"),
+            content_hash: None,
             watermark: Some("2026-09-20T00:00:00Z".into()),
             pending_watermark: None,
         },
-        expected_previous_cursor: Some(SourceCursor {
+        expected_previous_checkpoint: Some(SourceCheckpoint {
             stream,
             position: SourceJson::new(serde_json::json!({"page": 1}))
                 .expect("bounded previous cursor JSON"),
+            content_hash: None,
             watermark: None,
             pending_watermark: None,
         }),
+        authoritative_live_ids: None,
+        empty_authoritative_approval: None,
+        withdrawals: BoundedVec::new(Vec::new()).expect("bounded source withdrawals"),
     })
     .expect("valid source ingestion request");
     request
@@ -69,6 +77,7 @@ fn execute_source_ingestion_modules(generated: &BTreeMap<String, String>) {
         "_ids",
         "_runtime",
         "digest",
+        "index_repository",
         "source_ingestion",
         "ingestion",
     ] {
@@ -88,17 +97,21 @@ import asyncio
 import sys
 
 from epistemic_graph.generated import ingestion
+from epistemic_graph.generated.ingestion import SourceIngestStatusRequest
 from epistemic_graph.generated.source_ingestion import (
+    SourceIngestStatus,
     SourceIngestionReceipt,
     SourceIngestionRequest,
 )
 
 request_data = {
     "connector": "demo-connector",
-    "mapping_reference": "manifest:demo-connector#schema_mappings/item",
+    "mode": "delta",
+    "strict_schema": True,
     "records": [{
         "stream": "items",
         "record_id": "item-1",
+        "mapping_reference": "manifest:demo-connector#schema_mappings/item",
         "payload": {"name": "one", "id": 1},
         "updated_at": "2026-09-20T00:00:00Z",
         "provenance": {
@@ -110,15 +123,19 @@ request_data = {
             "source_uri": "demo://items/item-1",
         },
     }],
-    "cursor": {
+    "relationships": [],
+    "provider_checkpoint": {
         "stream": "items",
         "position": {"page": 2},
         "watermark": "2026-09-20T00:00:00Z",
     },
-    "expected_previous_cursor": {
+    "expected_previous_checkpoint": {
         "stream": "items",
         "position": {"page": 1},
     },
+    "authoritative_live_ids": None,
+    "empty_authoritative_approval": None,
+    "withdrawals": [],
 }
 request = SourceIngestionRequest.model_validate(request_data)
 assert request.canonical_digest() == sys.argv[1]
@@ -130,50 +147,82 @@ assert request.model_dump(mode="json")["records"][0]["payload"] == {
 arbitrary_json = dict(request_data)
 arbitrary_json["records"] = [dict(request_data["records"][0])]
 arbitrary_json["records"][0]["payload"] = ["nested", {"value": True}]
-arbitrary_json["cursor"] = dict(request_data["cursor"])
-arbitrary_json["cursor"]["position"] = "opaque-cursor"
+arbitrary_json["provider_checkpoint"] = dict(request_data["provider_checkpoint"])
+arbitrary_json["provider_checkpoint"]["position"] = "opaque-cursor"
 arbitrary = SourceIngestionRequest.model_validate(arbitrary_json)
 dumped = arbitrary.model_dump(mode="json")
 assert dumped["records"][0]["payload"] == ["nested", {"value": True}]
-assert dumped["cursor"]["position"] == "opaque-cursor"
+assert dumped["provider_checkpoint"]["position"] == "opaque-cursor"
 initial_page = dict(request_data)
-initial_page["expected_previous_cursor"] = None
+initial_page["expected_previous_checkpoint"] = None
 assert len(SourceIngestionRequest.model_validate(initial_page).canonical_digest()) == 64
 
 digest = "00" * 32
 receipt_payload = {
+    "receipt_id": "source-ingest:" + sys.argv[1],
     "disposition": "committed",
+    "mode": "delta",
     "batch_digest": sys.argv[1],
-    "mapping_reference": request_data["mapping_reference"],
-    "mapping_digest": digest,
-    "connector_pack_digest": digest,
-    "catalog": {
-        "configuration_revision": 7,
-        "catalog_generation": 11,
-        "snapshot_digest": digest,
-        "child_connection_generation": 3,
-        "authorization_scope_digest": digest,
-    },
+    "mappings": [{
+        "kind": "entity",
+        "mapping_reference": request_data["records"][0]["mapping_reference"],
+        "mapping_digest": digest,
+        "connector_pack_digest": digest,
+        "catalog": {
+            "configuration_revision": 7,
+            "catalog_generation": 11,
+            "snapshot_digest": digest,
+            "child_connection_generation": 3,
+            "authorization_scope_digest": digest,
+        },
+    }],
     "raw_admissions": [{
         "stream": "items",
         "record_id": "item-1",
         "raw_digest": digest,
         "deduplicated": False,
     }],
-    "accepted_cursor": request_data["cursor"],
-    "accepted_cursor_digest": digest,
+    "relationship_raw_admissions": [],
+    "tombstones": [],
+    "relationship_tombstones": [],
+    "accepted_checkpoint": request_data["provider_checkpoint"],
+    "accepted_checkpoint_digest": digest,
+    "content_hash": None,
+    "live_set_digest": None,
+    "relationship_live_set_digest": None,
     "affected_count": 1,
+    "relationship_count": 0,
+    "tombstoned_count": 0,
+    "relationship_tombstoned_count": 0,
     "committed_graph_version": 7,
     "receipt_digest": digest,
 }
 
+status_payload = {
+    "connector": "demo-connector",
+    "stream": "items",
+    "accepted_checkpoint": request_data["provider_checkpoint"],
+    "accepted_checkpoint_digest": digest,
+    "content_hash": None,
+    "live_set_digest": None,
+    "relationship_live_set_digest": None,
+    "last_batch_digest": sys.argv[1],
+    "last_receipt_id": receipt_payload["receipt_id"],
+    "committed_graph_version": 7,
+}
+
 class Client:
     async def _send(self, method, params, graph, *, idempotency_key):
-        assert method == "SourceIngest"
-        assert params["request"]["connector"] == "demo-connector"
         assert graph == "source"
-        assert idempotency_key == "ingest-1"
-        return receipt_payload
+        if method == "SourceIngest":
+            assert params["request"]["connector"] == "demo-connector"
+            assert idempotency_key == "ingest-1"
+            return receipt_payload
+        assert method == "SourceIngestStatus"
+        assert params["connector"] == "demo-connector"
+        assert params == {"connector": "demo-connector", "stream": "items"}
+        assert idempotency_key is None
+        return status_payload
 
 receipt = asyncio.run(ingestion.send_source_ingest(
     Client(),
@@ -183,6 +232,13 @@ receipt = asyncio.run(ingestion.send_source_ingest(
 ))
 assert isinstance(receipt, SourceIngestionReceipt)
 assert receipt.committed_graph_version == 7
+status = asyncio.run(ingestion.send_source_ingest_status(
+    Client(),
+    SourceIngestStatusRequest(connector="demo-connector", stream="items"),
+    "source",
+))
+assert isinstance(status, SourceIngestStatus)
+assert status.last_receipt_id == receipt.receipt_id
 "#;
     let output = Command::new("python3")
         .arg("-c")
@@ -485,6 +541,8 @@ fn generated_source_ingestion_imports_and_executes_with_rust_digest_parity() {
         .get("epistemic_graph/generated/source_ingestion.py")
         .expect("source ingestion DTO module");
     assert!(dto.contains("SourceJson = Any"));
+    assert!(dto.contains("last_receipt_id: str | None = None"));
+    assert!(dto.contains("watermark: str | None = None"));
     let source_record = dto
         .find("class SourceRecord(BaseModel):")
         .expect("SourceRecord class");
@@ -497,6 +555,9 @@ fn generated_source_ingestion_imports_and_executes_with_rust_digest_parity() {
         .expect("ingestion domain module");
     assert!(domain.contains(") -> SourceIngestionReceipt:"));
     assert!(domain.contains("return SourceIngestionReceipt.model_validate(payload)"));
+    assert!(domain.contains("request: SourceIngestStatusRequest,"));
+    assert!(domain.contains(") -> SourceIngestStatus:"));
+    assert!(domain.contains("return SourceIngestStatus.model_validate(payload)"));
 
     execute_source_ingestion_modules(&generated);
 }
@@ -570,4 +631,26 @@ fn digest_projection_names_exact_source_change_set_fields() {
         .iter()
         .map(|path| path.split(['.', '[']).next().expect("nonempty path"))
         .all(|field| projected.contains(field)));
+}
+
+#[test]
+fn source_ingestion_digest_marker_matches_rust_contract_constants() {
+    use eg_types::source_ingestion::{
+        SOURCE_INGESTION_CANONICAL_JSON_PATHS, SOURCE_INGESTION_DIGEST_PROJECTION_FIELDS,
+        SOURCE_INGESTION_OMIT_NONE_PATHS,
+    };
+
+    let spec = CANONICAL_DIGEST_SPECS
+        .iter()
+        .find(|spec| spec.model == "SourceIngestionRequest")
+        .expect("SourceIngestionRequest digest projection");
+    assert_eq!(
+        spec.projection_fields,
+        SOURCE_INGESTION_DIGEST_PROJECTION_FIELDS
+    );
+    assert_eq!(
+        spec.canonical_json_paths,
+        SOURCE_INGESTION_CANONICAL_JSON_PATHS
+    );
+    assert_eq!(spec.omit_none_paths, SOURCE_INGESTION_OMIT_NONE_PATHS);
 }

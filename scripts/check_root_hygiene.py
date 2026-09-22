@@ -42,7 +42,7 @@ real tracked artifact sit unchallenged at a repo root:
    ``.liveness_baseline.json`` -- a self-writing ratchet, not a convention --
    sit at agent-utilities' root unchallenged. Dotfiles are now split: a
    conventional, self-describing dot-FILE (``.gitignore``,
-   ``.pre-commit-config.yaml``, ...) is enumerated in ``ALLOWED_DOTFILES``
+   ``.python-version``, ...) is enumerated in ``ALLOWED_DOTFILES``
    below; a dot-DIRECTORY (``.github``, ``.security``, ...) is repo-specific
    enough to need a stated reason, so it is declared in the manifest's
    ``[dirs]`` table like any other directory.
@@ -98,14 +98,12 @@ ALLOWED_DOTFILES: frozenset[str] = frozenset(
         ".bumpversion.cfg",  # release version bump config (bump2version)
         ".cargo-audit-allow.txt",  # risk-accepted RUSTSEC/OSV ledger (cargo-deny gate)
         ".security-audit-allow.txt",  # risk-accepted Python OSV ledger (dep-audit gate)
-        ".codespellignore",  # codespell false-positive word list
         ".dockerignore",  # Docker build-context exclusions
         ".env.example",  # non-secret catalog of explicit process-env keys
         ".gitattributes",  # git attributes (line endings, diff drivers, ...)
         ".gitignore",  # git exclusion patterns
         ".importlinter",  # import-linter contract config (import-linter-architecture)
         ".mergequeue.yaml",  # merge-queue config
-        ".pre-commit-config.yaml",  # pre-commit hook config
         ".python-version",  # exact Python patch used by local tooling and CI
         ".vulture_ignore",  # vulture dead-code false-positive whitelist
     }

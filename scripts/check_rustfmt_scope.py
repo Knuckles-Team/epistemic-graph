@@ -29,7 +29,7 @@ CONFIGURATION_FILES = frozenset({"Cargo.toml", "rust-toolchain.toml", "rustfmt.t
 GUARD_FILES = frozenset(
     {
         ".mergequeue.yaml",
-        ".pre-commit-config.yaml",
+        ".config/pre-commit.yaml",
         "scripts/check_rustfmt_scope.py",
     }
 )

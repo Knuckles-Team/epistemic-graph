@@ -98,7 +98,14 @@ const STRUCTURAL_PREDICATES: &[&str] = &[
     RDF_TYPE,
     RDFS_SUBCLASS_OF,
     RDFS_SUBPROPERTY_OF,
+    "http://www.w3.org/2000/01/rdf-schema#domain",
+    "http://www.w3.org/2000/01/rdf-schema#range",
+    "http://www.w3.org/2000/01/rdf-schema#label",
+    "http://www.w3.org/2000/01/rdf-schema#comment",
+    "http://www.w3.org/2000/01/rdf-schema#seeAlso",
+    "http://www.w3.org/2000/01/rdf-schema#isDefinedBy",
     OWL_EQUIVALENT_CLASS,
+    "http://www.w3.org/2002/07/owl#equivalentProperty",
     OWL_DISJOINT_WITH,
     OWL_INTERSECTION_OF,
     OWL_UNION_OF,
@@ -116,6 +123,13 @@ const STRUCTURAL_PREDICATES: &[&str] = &[
     OWL_QUALIFIED_CARDINALITY,
     OWL_ON_CLASS,
     OWL_INVERSE_OF,
+    "http://www.w3.org/2002/07/owl#propertyChainAxiom",
+    "http://www.w3.org/2002/07/owl#members",
+    "http://www.w3.org/2002/07/owl#imports",
+    "http://www.w3.org/2002/07/owl#deprecated",
+    "http://www.w3.org/2002/07/owl#priorVersion",
+    "http://www.w3.org/2002/07/owl#versionIRI",
+    "http://www.w3.org/2002/07/owl#versionInfo",
     OWL_SAME_AS,
     OWL_DIFFERENT_FROM,
     "http://www.w3.org/1999/02/22-rdf-syntax-ns#first",
@@ -1444,6 +1458,103 @@ pub fn classify_dl(ont: &DlOntology) -> BTreeMap<String, BTreeSet<String>> {
     out
 }
 
+/// Complete named-individual classification for the tableau profile.
+///
+/// EL/RL type propagation is sufficient only when membership follows from a
+/// named subclass path.  Cardinality, nominal, complement and union axioms can
+/// entail an instance membership without such a path, so a mixed-profile
+/// result must retain the tableau's ABox decisions as well as its TBox
+/// subsumers.  The result is deterministic and contains only named
+/// individuals/classes from the parsed ontology signature.
+pub fn classify_instances_dl(ont: &DlOntology) -> BTreeMap<String, BTreeSet<String>> {
+    classify_instances_for(ont, &ont.classes)
+}
+
+fn classify_instances_for(
+    ont: &DlOntology,
+    target_classes: &BTreeSet<String>,
+) -> BTreeMap<String, BTreeSet<String>> {
+    let mut out = BTreeMap::new();
+    for individual in &ont.individuals {
+        let mut classes = BTreeSet::new();
+        for class in target_classes {
+            if is_instance(ont, individual, class) {
+                classes.insert(class.clone());
+            }
+        }
+        if !classes.is_empty() {
+            out.insert(individual.clone(), classes);
+        }
+    }
+    out
+}
+
+fn contains_tableau_construct(concept: &Dl) -> bool {
+    match concept {
+        Dl::Not(_)
+        | Dl::Or(_)
+        | Dl::All(_, _)
+        | Dl::Min(_, _, _)
+        | Dl::Max(_, _, _)
+        | Dl::Nominal(_) => true,
+        Dl::And(parts) => parts.iter().any(contains_tableau_construct),
+        Dl::Some(_, filler) => contains_tableau_construct(filler),
+        Dl::Top | Dl::Bottom | Dl::Atom(_) => false,
+    }
+}
+
+fn tableau_relevant_classes(ont: &DlOntology) -> BTreeSet<String> {
+    let mut classes = BTreeSet::new();
+    for (sub, sup) in &ont.gcis {
+        if contains_tableau_construct(sub) || contains_tableau_construct(sup) {
+            collect_classes(sub, &mut classes);
+            collect_classes(sup, &mut classes);
+        }
+    }
+    classes
+}
+
+/// Named classes whose membership can be concluded in the reverse direction
+/// from a complex DL expression.  A one-way `Team ⊆ ≥1 hasMember` constrains
+/// Team instances but does not make every object with a member a Team; an
+/// equivalence contributes the reverse GCI and therefore appears here.
+fn tableau_instance_targets(ont: &DlOntology) -> BTreeSet<String> {
+    let mut targets = BTreeSet::new();
+    for (sub, sup) in &ont.gcis {
+        if !contains_tableau_construct(sub) {
+            continue;
+        }
+        if let Dl::Atom(class) = sup {
+            targets.insert(class.clone());
+        }
+    }
+    targets
+}
+
+fn classify_relevant_dl(ont: &DlOntology) -> BTreeMap<String, BTreeSet<String>> {
+    let relevant = tableau_relevant_classes(ont);
+    let thing = iri(OWL_THING);
+    let nothing = iri(OWL_NOTHING);
+    let mut out = BTreeMap::new();
+    for sub in &relevant {
+        let mut supers = BTreeSet::new();
+        for sup in &relevant {
+            if is_subsumed(ont, sub, sup) {
+                supers.insert(sup.clone());
+            }
+        }
+        supers.insert(sub.clone());
+        supers.insert(thing.clone());
+        if is_subsumed(ont, sub, &nothing) {
+            supers.insert(nothing.clone());
+        }
+        if !supers.is_empty() {
+            out.insert(sub.clone(), supers);
+        }
+    }
+    out
+}
+
 // ── The engine picker: EL⁺/RL fast path vs. tableau ──────────────────────────
 
 /// Which reasoning engine [`reason_dl`] chose.
@@ -1453,6 +1564,10 @@ pub enum DlEngine {
     ElRl,
     /// The OWL-DL tableau (this module).
     Tableau,
+    /// Certified mixed profile: EL/RL saturation is retained for property
+    /// semantics while the tableau decides the constructs outside that
+    /// envelope.  No ontology is routed wholesale to one engine.
+    Hybrid,
 }
 
 /// The result of [`reason_dl`]: which engine ran, the named-class subsumer hierarchy,
@@ -1461,6 +1576,15 @@ pub enum DlEngine {
 pub struct DlReasoningResult {
     pub engine: DlEngine,
     pub subsumers: BTreeMap<String, BTreeSet<String>>,
+    /// EL/RL role closure retained even when a DL construct also requires the
+    /// tableau.  The tableau has no inverse/arbitrary-chain implementation and
+    /// therefore must never replace this relation in a mixed profile.
+    pub roles: BTreeMap<String, BTreeSet<(String, String)>>,
+    /// Named ABox memberships decided by the tableau.  This is empty on the
+    /// pure EL/RL path, whose instance projection is already handled by the
+    /// completion reasoner; the mixed path must not drop cardinality/nominal
+    /// instance consequences.
+    pub instances: BTreeMap<String, BTreeSet<String>>,
     pub consistent: bool,
 }
 
@@ -1468,7 +1592,7 @@ pub struct DlReasoningResult {
 /// tableau is REQUIRED for completeness)? True on `complementOf`, `oneOf`, any
 /// cardinality restriction, or a `unionOf` used as a SUPERCLASS (`_ ⊑ [unionOf …]` /
 /// `_ ≡ [unionOf …]`) — the reasoning-by-cases direction the EL path deliberately drops.
-fn needs_tableau(triples: &[Triple]) -> bool {
+pub(crate) fn needs_tableau(triples: &[Triple]) -> bool {
     let idx = TripleIndex::build(triples);
     for t in triples {
         match t.predicate.as_str() {
@@ -1499,22 +1623,50 @@ fn needs_tableau(triples: &[Triple]) -> bool {
 /// the tableau is complete on the rest.
 pub fn reason_dl(triples: &[Triple]) -> DlReasoningResult {
     if needs_tableau(triples) {
-        let ont = parse_dl_ontology(triples);
-        let subsumers = classify_dl(&ont);
-        let consistent = is_consistent(&ont);
-        DlReasoningResult {
-            engine: DlEngine::Tableau,
-            subsumers,
-            consistent,
-        }
+        reason_hybrid_ontology(triples)
     } else {
-        let mut r = crate::owl::Reasoner::from_triples(triples);
-        let cls = r.classify();
-        DlReasoningResult {
-            engine: DlEngine::ElRl,
-            subsumers: cls.subsumers,
-            consistent: cls.consistent,
-        }
+        reason_el_rl_ontology(triples)
+    }
+}
+
+fn reason_hybrid_ontology(triples: &[Triple]) -> DlReasoningResult {
+    // Mixed ontologies must retain every EL/RL consequence. Running only the tableau
+    // would discard inverse/symmetric/property-chain semantics that it does not implement.
+    let mut rl = crate::owl::Reasoner::from_triples(triples);
+    let rl = rl.classify();
+    let ontology = parse_dl_ontology(triples);
+    let mut subsumers = rl.subsumers;
+    merge_relevant_dl_subsumers(&mut subsumers, classify_relevant_dl(&ontology));
+    let targets = tableau_instance_targets(&ontology);
+    let instances = classify_instances_for(&ontology, &targets);
+    let consistent = rl.consistent && is_consistent(&ontology);
+    DlReasoningResult {
+        engine: DlEngine::Hybrid,
+        subsumers,
+        roles: rl.roles,
+        instances,
+        consistent,
+    }
+}
+
+fn merge_relevant_dl_subsumers(
+    subsumers: &mut BTreeMap<String, BTreeSet<String>>,
+    additions: BTreeMap<String, BTreeSet<String>>,
+) {
+    for (sub, supers) in additions {
+        subsumers.entry(sub).or_default().extend(supers);
+    }
+}
+
+fn reason_el_rl_ontology(triples: &[Triple]) -> DlReasoningResult {
+    let mut reasoner = crate::owl::Reasoner::from_triples(triples);
+    let classification = reasoner.classify();
+    DlReasoningResult {
+        engine: DlEngine::ElRl,
+        subsumers: classification.subsumers,
+        roles: classification.roles,
+        instances: BTreeMap::new(),
+        consistent: classification.consistent,
     }
 }
 
@@ -1627,7 +1779,7 @@ ex:B rdfs:subClassOf ex:D .
         );
 
         // And reason_dl picks the tableau for this ontology.
-        assert_eq!(reason_dl(&triples).engine, DlEngine::Tableau);
+        assert_eq!(reason_dl(&triples).engine, DlEngine::Hybrid);
     }
 
     // ── nominals (oneOf / hasValue) ───────────────────────────────────────────
@@ -1719,5 +1871,69 @@ ex:B rdfs:subClassOf ex:D .
         let res = reason_dl(&triples);
         assert_eq!(res.engine, DlEngine::ElRl);
         assert!(res.subsumers[&ex("A")].contains(&ex("E")));
+    }
+
+    #[test]
+    fn mixed_profile_retains_rl_role_closure_while_tableau_handles_cardinality() {
+        let triples = parse_turtle(&format!(
+            r#"{PRE}
+ex:p rdf:type owl:SymmetricProperty .
+ex:A rdfs:subClassOf [ owl:onProperty ex:p ; owl:someValuesFrom ex:B ] .
+ex:X rdfs:subClassOf [ owl:onProperty ex:q ; owl:minCardinality "1"^^<http://www.w3.org/2001/XMLSchema#nonNegativeInteger> ] .
+"#
+        ))
+        .unwrap();
+        let result = reason_dl(&triples);
+        assert_eq!(result.engine, DlEngine::Hybrid);
+        let pairs = result.roles.get(&ex("p")).unwrap();
+        assert!(pairs.contains(&(ex("A"), ex("B"))));
+        assert!(pairs.contains(&(ex("B"), ex("A"))));
+        assert!(result.consistent);
+    }
+
+    #[test]
+    fn mixed_profile_reports_tableau_only_instance_membership() {
+        let triples = parse_turtle(&format!(
+            "{PRE}\n\
+             ex:TwoOrMore owl:equivalentClass [ owl:onProperty ex:r ; \
+                 owl:minCardinality \"2\"^^<http://www.w3.org/2001/XMLSchema#nonNegativeInteger> ] .\n\
+             ex:a ex:r ex:b, ex:c ."
+        ))
+        .unwrap();
+        let result = reason_dl(&triples);
+        assert_eq!(result.engine, DlEngine::Hybrid);
+        assert!(result
+            .instances
+            .get(&ex("a"))
+            .is_some_and(|classes| classes.contains(&ex("TwoOrMore"))));
+    }
+
+    #[test]
+    fn unchanged_capability_module_routes_to_certified_hybrid_profile() {
+        let document = include_str!("../../eg-core/ontology/capability-v1.ttl");
+        let triples = parse_turtle(document).unwrap();
+        let min_cardinality = triples
+            .iter()
+            .filter(|triple| triple.predicate.as_str() == OWL_MIN_CARDINALITY)
+            .count();
+        assert_eq!(min_cardinality, 5);
+        assert_eq!(
+            triples
+                .iter()
+                .filter(|triple| {
+                    triple.predicate.as_str() == "http://www.w3.org/2002/07/owl#propertyChainAxiom"
+                })
+                .count(),
+            2
+        );
+        let parsed = crate::owl::parse_ontology(&triples);
+        assert!(!parsed.inverses.is_empty());
+        assert!(!parsed.symmetric.is_empty());
+        assert!(parsed.chains.len() >= 2);
+
+        let result = reason_dl(&triples);
+        assert_eq!(result.engine, DlEngine::Hybrid);
+        assert!(result.consistent);
+        assert!(!result.roles.is_empty());
     }
 }

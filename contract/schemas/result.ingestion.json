@@ -119,6 +119,34 @@
       "maxItems": 1024,
       "type": "array"
     },
+    "BoundedVec_RawRelationshipAdmissionReceipt_4096": {
+      "items": {
+        "$ref": "#/$defs/RawRelationshipAdmissionReceipt"
+      },
+      "maxItems": 4096,
+      "type": "array"
+    },
+    "BoundedVec_SourceMappingReceipt_5120": {
+      "items": {
+        "$ref": "#/$defs/SourceMappingReceipt"
+      },
+      "maxItems": 5120,
+      "type": "array"
+    },
+    "BoundedVec_SourceRelationshipTombstoneReceipt_4096": {
+      "items": {
+        "$ref": "#/$defs/SourceRelationshipTombstoneReceipt"
+      },
+      "maxItems": 4096,
+      "type": "array"
+    },
+    "BoundedVec_SourceTombstoneReceipt_16384": {
+      "items": {
+        "$ref": "#/$defs/SourceTombstoneReceipt"
+      },
+      "maxItems": 16384,
+      "type": "array"
+    },
     "CanonicalTextAssetRef": {
       "additionalProperties": false,
       "properties": {
@@ -1327,6 +1355,26 @@
       "required": [
         "stream",
         "record_id",
+        "raw_digest",
+        "deduplicated"
+      ],
+      "type": "object"
+    },
+    "RawRelationshipAdmissionReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "deduplicated": {
+          "type": "boolean"
+        },
+        "raw_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "relationship_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "relationship_id",
         "raw_digest",
         "deduplicated"
       ],
@@ -2831,9 +2879,20 @@
       ],
       "type": "object"
     },
-    "SourceCursor": {
+    "SourceCheckpoint": {
       "additionalProperties": false,
       "properties": {
+        "content_hash": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Provider-owned content identity for the returned page or snapshot.\nEG binds it into checkpoint CAS and replay; it never invents a value."
+        },
         "pending_watermark": {
           "type": [
             "string",
@@ -2859,6 +2918,113 @@
       ],
       "type": "object"
     },
+    "SourceEntityRef": {
+      "additionalProperties": false,
+      "properties": {
+        "record_id": {
+          "type": "string"
+        },
+        "stream": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "stream",
+        "record_id"
+      ],
+      "type": "object"
+    },
+    "SourceIngestStatus": {
+      "additionalProperties": false,
+      "description": "Latest checkpoint accepted by the one EG ingestion authority for a source\npartition. `None` means no batch has committed; callers must not substitute\na local checkpoint in that case.",
+      "properties": {
+        "accepted_checkpoint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceCheckpoint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "accepted_checkpoint_digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "committed_graph_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "connector": {
+          "type": "string"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "last_batch_digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "last_receipt_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "live_set_digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "relationship_live_set_digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stream": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "connector",
+        "stream"
+      ],
+      "type": "object"
+    },
     "SourceIngestionDisposition": {
       "enum": [
         "committed",
@@ -2866,14 +3032,22 @@
       ],
       "type": "string"
     },
+    "SourceIngestionMode": {
+      "enum": [
+        "full",
+        "delta",
+        "reconcile"
+      ],
+      "type": "string"
+    },
     "SourceIngestionReceipt": {
       "additionalProperties": false,
       "description": "Terminal receipt returned only after canonical mutation, raw references,\nprovenance and cursor state have committed.  Its stable `receipt_digest`\nis the replay currency for the same batch digest.",
       "properties": {
-        "accepted_cursor": {
-          "$ref": "#/$defs/SourceCursor"
+        "accepted_checkpoint": {
+          "$ref": "#/$defs/SourceCheckpoint"
         },
-        "accepted_cursor_digest": {
+        "accepted_checkpoint_digest": {
           "$ref": "#/$defs/Digest256"
         },
         "affected_count": {
@@ -2884,52 +3058,183 @@
         "batch_digest": {
           "$ref": "#/$defs/Digest256"
         },
-        "catalog": {
-          "$ref": "#/$defs/McpCatalogSnapshotBinding",
-          "description": "Exact served MCP catalog identity from the ConnectorPack head whose\nmanifest mapping authorized this ingestion."
-        },
         "committed_graph_version": {
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
         },
-        "connector_pack_digest": {
-          "$ref": "#/$defs/Digest256"
+        "content_hash": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "disposition": {
           "$ref": "#/$defs/SourceIngestionDisposition"
         },
-        "mapping_digest": {
-          "$ref": "#/$defs/Digest256"
+        "live_set_digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
-        "mapping_reference": {
-          "type": "string"
+        "mappings": {
+          "$ref": "#/$defs/BoundedVec_SourceMappingReceipt_5120"
+        },
+        "mode": {
+          "$ref": "#/$defs/SourceIngestionMode"
         },
         "raw_admissions": {
           "$ref": "#/$defs/BoundedVec_RawAdmissionReceipt_1024"
         },
         "receipt_digest": {
           "$ref": "#/$defs/Digest256"
+        },
+        "receipt_id": {
+          "type": "string"
+        },
+        "relationship_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "relationship_live_set_digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "relationship_raw_admissions": {
+          "$ref": "#/$defs/BoundedVec_RawRelationshipAdmissionReceipt_4096"
+        },
+        "relationship_tombstoned_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "relationship_tombstones": {
+          "$ref": "#/$defs/BoundedVec_SourceRelationshipTombstoneReceipt_4096"
+        },
+        "tombstoned_count": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tombstones": {
+          "$ref": "#/$defs/BoundedVec_SourceTombstoneReceipt_16384"
         }
       },
       "required": [
+        "receipt_id",
         "disposition",
+        "mode",
         "batch_digest",
-        "mapping_reference",
-        "mapping_digest",
-        "connector_pack_digest",
-        "catalog",
+        "mappings",
         "raw_admissions",
-        "accepted_cursor",
-        "accepted_cursor_digest",
+        "relationship_raw_admissions",
+        "tombstones",
+        "relationship_tombstones",
+        "accepted_checkpoint",
+        "accepted_checkpoint_digest",
         "affected_count",
+        "relationship_count",
+        "tombstoned_count",
+        "relationship_tombstoned_count",
         "committed_graph_version",
         "receipt_digest"
       ],
       "type": "object"
     },
-    "SourceJson": {
-      "additionalProperties": true,
+    "SourceJson": {},
+    "SourceMappingKind": {
+      "enum": [
+        "entity",
+        "relationship"
+      ],
+      "type": "string"
+    },
+    "SourceMappingReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "catalog": {
+          "$ref": "#/$defs/McpCatalogSnapshotBinding"
+        },
+        "connector_pack_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "kind": {
+          "$ref": "#/$defs/SourceMappingKind"
+        },
+        "mapping_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "mapping_reference": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "mapping_reference",
+        "mapping_digest",
+        "connector_pack_digest",
+        "catalog"
+      ],
+      "type": "object"
+    },
+    "SourceRelationshipTombstoneReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "type": "string"
+        },
+        "relationship_id": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceEntityRef"
+        },
+        "target": {
+          "$ref": "#/$defs/SourceEntityRef"
+        }
+      },
+      "required": [
+        "relationship_id",
+        "source",
+        "target",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "SourceTombstoneReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "entity": {
+          "$ref": "#/$defs/SourceEntityRef"
+        },
+        "node_id": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "entity",
+        "node_id",
+        "reason"
+      ],
       "type": "object"
     },
     "SqlColumnRef": {
@@ -3658,6 +3963,18 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/SourceIngestionReceipt"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "SourceIngestStatus": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/SourceIngestStatus"
           }
         }
       },

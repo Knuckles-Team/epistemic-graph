@@ -258,10 +258,10 @@ that get this right are `scripts/check_kiss_staged.sh` (the pre-commit hook) and
 the `kiss-census` hook; go through one of them.
 
 ```bash
-pre-commit run complexity-staged --all-files   # cccc, on the diff
-pre-commit run kiss-changed-rust --all-files   # KISS, on the diff
-pre-commit run cccc-census --hook-stage manual # whole tree + the acceptance split
-pre-commit run kiss-census  --hook-stage manual
+pre-commit run --config .config/pre-commit.yaml complexity-staged --all-files   # cccc, on the diff
+pre-commit run --config .config/pre-commit.yaml kiss-changed-rust --all-files   # KISS, on the diff
+pre-commit run --config .config/pre-commit.yaml cccc-census --hook-stage manual --all-files # whole tree + the acceptance split
+pre-commit run --config .config/pre-commit.yaml kiss-census --hook-stage manual --all-files
 ```
 
 A whole-tree KISS census is ~9 minutes single-threaded; parallelise with

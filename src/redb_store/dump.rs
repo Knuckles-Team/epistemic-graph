@@ -364,7 +364,7 @@ pub(crate) fn read_graph_dump(
         graph_type: meta_record.graph_type,
         incarnation_id: meta_record.incarnation_id,
         source_snapshot_version,
-        integrity_policy: meta_record.integrity_policy,
+        schema_sources: meta_record.schema_sources,
         nodes: core.nodes,
         edges: core.edges,
         ledger: core.ledger,
@@ -389,7 +389,7 @@ pub(crate) struct GraphDumpPage {
     /// convention so a paged replay attaches the semantic store exactly once.
     pub semantic: Vec<u8>,
     /// Authoritative graph-control state, populated on the first page only.
-    pub integrity_policy: Option<crate::graph::IntegrityPolicy>,
+    pub schema_sources: Option<std::sync::Arc<crate::graph::GraphSchemaSources>>,
     pub nodes_exhausted: bool,
     pub edges_exhausted: bool,
     /// Effective durable keyset positions after this page. They preserve the
@@ -613,7 +613,7 @@ pub(crate) fn read_graph_dump_page(
         nodes,
         edges,
         semantic,
-        integrity_policy: first_page.then_some(meta_record.integrity_policy).flatten(),
+        schema_sources: first_page.then_some(meta_record.schema_sources),
         nodes_exhausted,
         edges_exhausted,
         node_after: next_node_after,
@@ -635,20 +635,18 @@ mod keyset_page_tests {
 
     #[test]
     fn graph_metadata_requires_the_current_version_and_complete_identity() {
-        let policy = crate::graph::IntegrityPolicy {
-            shapes_ttl: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
-        };
+        let sources = crate::graph::GraphSchemaSources::default();
         let encoded = encode_meta_record(
             "graph",
             GraphType::Global,
             "incarnation:test:current",
-            Some(&policy),
+            &sources,
         )
         .unwrap();
         let decoded = decode_meta_record("graph", &encoded).unwrap();
         assert_eq!(decoded.name, "graph");
         assert_eq!(decoded.incarnation_id, "incarnation:test:current");
-        assert_eq!(decoded.integrity_policy, Some(policy));
+        assert_eq!(decoded.schema_sources.as_ref(), &sources);
 
         let unversioned = rmp_serde::to_vec_named(&serde_json::json!({
             "name": "graph",
@@ -662,19 +660,19 @@ mod keyset_page_tests {
             "schema_version": GRAPH_META_SCHEMA_VERSION,
             "name": "graph",
             "graph_type": GraphType::Global,
-            "integrity_policy": null
+            "schema_sources": null
         }))
         .unwrap();
         assert!(decode_meta_record("graph", &missing_incarnation).is_err());
 
-        let missing_policy = rmp_serde::to_vec_named(&serde_json::json!({
+        let missing_sources = rmp_serde::to_vec_named(&serde_json::json!({
             "schema_version": GRAPH_META_SCHEMA_VERSION,
             "name": "graph",
             "graph_type": GraphType::Global,
             "incarnation_id": "incarnation:test:missing-policy"
         }))
         .unwrap();
-        assert!(decode_meta_record("graph", &missing_policy).is_err());
+        assert!(decode_meta_record("graph", &missing_sources).is_err());
     }
 
     fn temp_path() -> std::path::PathBuf {
@@ -707,7 +705,7 @@ mod keyset_page_tests {
                 graph_type: GraphType::Global,
                 incarnation_id: "incarnation:test:keyset".to_string(),
                 source_snapshot_version: 7,
-                integrity_policy: None,
+                schema_sources: std::sync::Arc::new(crate::graph::GraphSchemaSources::default()),
                 nodes: nodes.clone(),
                 edges: edges.clone(),
                 ledger: Vec::new(),
@@ -793,7 +791,7 @@ pub(crate) fn read_all_dumps(
             graph_type: record.graph_type,
             incarnation_id: record.incarnation_id,
             source_snapshot_version,
-            integrity_policy: record.integrity_policy,
+            schema_sources: record.schema_sources,
             nodes: core.nodes,
             edges: core.edges,
             ledger: core.ledger,
@@ -825,24 +823,30 @@ pub(crate) fn encode_meta_with_incarnation(
     gtype: GraphType,
     incarnation_id: &str,
 ) -> Result<Vec<u8>, String> {
-    encode_meta_record(name, gtype, incarnation_id, None)
+    encode_meta_record(
+        name,
+        gtype,
+        incarnation_id,
+        &crate::graph::GraphSchemaSources::default(),
+    )
 }
 
 pub(crate) fn encode_meta_record(
     name: &str,
     graph_type: GraphType,
     incarnation_id: &str,
-    integrity_policy: Option<&crate::graph::IntegrityPolicy>,
+    schema_sources: &crate::graph::GraphSchemaSources,
 ) -> Result<Vec<u8>, String> {
     if name.trim().is_empty() || incarnation_id.trim().is_empty() {
         return Err("graph metadata identity fields must not be empty".to_string());
     }
+    schema_sources.validate()?;
     rmp_serde::to_vec_named(&GraphMetaRecord {
         schema_version: GRAPH_META_SCHEMA_VERSION,
         name: name.to_string(),
         graph_type,
         incarnation_id: incarnation_id.to_string(),
-        integrity_policy: integrity_policy.cloned(),
+        schema_sources: std::sync::Arc::new(schema_sources.clone()),
     })
     .map_err(|error| format!("encode graph metadata: {error}"))
 }
@@ -853,17 +857,86 @@ pub(crate) fn encode_meta_record(
 /// only this module: the shard's own create/rename/rebind paths compare and
 /// re-encode `name`/`graph_type`/`incarnation_id`, and they live in the PARENT
 /// module, which a private field of a child would hide from.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GraphMetaRecord {
     pub(crate) schema_version: u16,
     pub(crate) name: String,
     pub(crate) graph_type: GraphType,
     pub(crate) incarnation_id: String,
-    /// Explicit `None` is the current fail-closed unconfigured state. Because
-    /// this field has no serde default, an older/incomplete record is rejected.
+    /// Required current graph schema authority.
+    pub(crate) schema_sources: std::sync::Arc<crate::graph::GraphSchemaSources>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphMetaRecordCurrent {
+    schema_version: u16,
+    name: String,
+    graph_type: GraphType,
+    incarnation_id: String,
+    schema_sources: std::sync::Arc<crate::graph::GraphSchemaSources>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphMetaRecordV2 {
+    schema_version: u16,
+    name: String,
+    graph_type: GraphType,
+    incarnation_id: String,
     #[serde(deserialize_with = "deserialize_required_option")]
-    pub(crate) integrity_policy: Option<crate::graph::IntegrityPolicy>,
+    integrity_policy: Option<crate::graph::IntegrityPolicyV2>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum GraphMetaRecordWire {
+    Current(GraphMetaRecordCurrent),
+    V2(GraphMetaRecordV2),
+}
+
+impl<'de> serde::Deserialize<'de> for GraphMetaRecord {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error as _;
+        match GraphMetaRecordWire::deserialize(deserializer)? {
+            GraphMetaRecordWire::Current(value)
+                if value.schema_version == GRAPH_META_SCHEMA_VERSION =>
+            {
+                let schema_sources = std::sync::Arc::new(
+                    std::sync::Arc::unwrap_or_clone(value.schema_sources)
+                        .reconciled_current_core()
+                        .map_err(D::Error::custom)?,
+                );
+                Ok(Self {
+                    schema_version: value.schema_version,
+                    name: value.name,
+                    graph_type: value.graph_type,
+                    incarnation_id: value.incarnation_id,
+                    schema_sources,
+                })
+            }
+            GraphMetaRecordWire::V2(value) if value.schema_version == 2 => Ok(Self {
+                schema_version: GRAPH_META_SCHEMA_VERSION,
+                name: value.name,
+                graph_type: value.graph_type,
+                incarnation_id: value.incarnation_id,
+                schema_sources: crate::graph::lift_v2_integrity_policy(value.integrity_policy)
+                    .map_err(D::Error::custom)?,
+            }),
+            GraphMetaRecordWire::Current(value) => Err(D::Error::custom(format!(
+                "unsupported graph metadata schema version {}",
+                value.schema_version
+            ))),
+            GraphMetaRecordWire::V2(value) => Err(D::Error::custom(format!(
+                "unsupported legacy graph metadata schema version {}",
+                value.schema_version
+            ))),
+        }
+    }
 }
 
 pub(crate) fn deserialize_required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
@@ -874,7 +947,7 @@ where
     <Option<T> as serde::Deserialize>::deserialize(deserializer)
 }
 
-pub(crate) const GRAPH_META_SCHEMA_VERSION: u16 = 2;
+pub(crate) const GRAPH_META_SCHEMA_VERSION: u16 = 3;
 
 /// The durable `graph_meta` schema version this build writes.
 pub(crate) fn graph_meta_schema_version() -> u16 {
@@ -889,7 +962,7 @@ pub(crate) fn graph_meta_schema_version() -> u16 {
 /// one case the architecture doc carves out, because a durable store cannot be
 /// updated by editing code. Without it a store written by any prior build is
 /// permanently unopenable: `GraphMetaRecord` is `deny_unknown_fields` and its
-/// `integrity_policy` has no serde default, so a legacy row cannot decode, the
+/// authoritative schema-source field has no serde default, so a legacy row cannot decode, the
 /// catalog load fails, and the engine refuses to start with
 /// "durable recovery failed; refusing availability". That is exactly what a 9.9G
 /// production store did.
@@ -972,9 +1045,8 @@ pub(crate) fn decode_meta_record(graph: &str, blob: &[u8]) -> Result<GraphMetaRe
 /// report the CURRENT format's decode error rather than masking genuine
 /// corruption as "not legacy".
 ///
-/// `integrity_policy` becomes `None` — its documented fail-closed unconfigured
-/// state, and a faithful reading of a store written before the field existed:
-/// no policy was ever configured, so none is asserted.
+/// The pre-versioned row gains this binary's immutable core catalog and no
+/// dynamic sources.
 pub(crate) fn decode_legacy_meta_record(graph: &str, blob: &[u8]) -> Option<GraphMetaRecord> {
     let legacy: LegacyGraphMetaRecord = decode_durable(blob).ok()?;
     if legacy.name.trim().is_empty() {
@@ -985,12 +1057,12 @@ pub(crate) fn decode_legacy_meta_record(graph: &str, blob: &[u8]) -> Option<Grap
         incarnation_id: legacy_incarnation_id(&legacy.name),
         name: legacy.name,
         graph_type: legacy.graph_type,
-        integrity_policy: None,
+        schema_sources: std::sync::Arc::new(crate::graph::GraphSchemaSources::default()),
     })
     .inspect(|_| {
         tracing::info!(
             "graph metadata for {graph} upgraded from the pre-versioned format \
-             (integrity policy unconfigured); it is rewritten in the current format"
+             (schema sources initialized); it is rewritten in the current format"
         )
     })
 }
@@ -1074,18 +1146,18 @@ pub(crate) fn upgrade_legacy_graph_meta(shard: &Shard) -> Result<usize, String> 
         for row in catalog.iter().map_err(|e| e.to_string())? {
             let (k, v) = row.map_err(|e| e.to_string())?;
             let key = k.value().to_string();
-            if decode_durable::<GraphMetaRecord>(v.value()).is_ok() {
-                continue; // already current
+            if graph_meta_record_is_current(v.value()) {
+                continue; // already physically current, including the core catalog
             }
-            let Some(record) = decode_legacy_meta_record(&key, v.value()) else {
-                // Neither format: leave it. The catalog load reports it properly.
+            let Ok(record) = decode_meta_record(&key, v.value()) else {
+                // Neither supported old format: leave it for catalog load to report.
                 continue;
             };
             let encoded = encode_meta_record(
                 &record.name,
                 record.graph_type,
                 &record.incarnation_id,
-                record.integrity_policy.as_ref(),
+                record.schema_sources.as_ref(),
             )?;
             stale.push((key, encoded));
         }
@@ -1112,6 +1184,13 @@ pub(crate) fn decode_graph_meta_identity(
     Ok((record.name, record.graph_type, record.incarnation_id))
 }
 
+fn graph_meta_record_is_current(blob: &[u8]) -> bool {
+    let Ok(record) = decode_durable::<GraphMetaRecordCurrent>(blob) else {
+        return false;
+    };
+    record.schema_version == GRAPH_META_SCHEMA_VERSION && record.schema_sources.validate().is_ok()
+}
+
 #[cfg(test)]
 mod graph_meta_migration_tests {
     //! The pre-versioned `graph_meta` format must stay openable, because a
@@ -1123,6 +1202,32 @@ mod graph_meta_migration_tests {
     /// The exact bytes a pre-versioned build wrote: `{"name", "graph_type"}`.
     fn legacy_blob(name: &str, gtype: GraphType) -> Vec<u8> {
         rmp_serde::to_vec_named(&serde_json::json!({"name": name, "graph_type": gtype})).unwrap()
+    }
+
+    fn v2_blob(name: &str, gtype: GraphType, incarnation_id: &str) -> Vec<u8> {
+        rmp_serde::to_vec_named(&GraphMetaRecordV2 {
+            schema_version: 2,
+            name: name.to_string(),
+            graph_type: gtype,
+            incarnation_id: incarnation_id.to_string(),
+            integrity_policy: Some(crate::graph::IntegrityPolicyV2 {
+                shapes_ttl: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
+            }),
+        })
+        .unwrap()
+    }
+
+    fn prior_core_blob(name: &str, gtype: GraphType, incarnation_id: &str) -> Vec<u8> {
+        let mut sources = crate::graph::GraphSchemaSources::default();
+        sources.core.pop_first();
+        rmp_serde::to_vec_named(&GraphMetaRecordCurrent {
+            schema_version: GRAPH_META_SCHEMA_VERSION,
+            name: name.to_string(),
+            graph_type: gtype,
+            incarnation_id: incarnation_id.to_string(),
+            schema_sources: std::sync::Arc::new(sources),
+        })
+        .unwrap()
     }
 
     fn open(dir: &std::path::Path) -> Shard {
@@ -1148,8 +1253,8 @@ mod graph_meta_migration_tests {
         let record = decode_meta_record("g", &legacy_blob("mygraph", GraphType::Global)).unwrap();
         assert_eq!(record.name, "mygraph");
         assert_eq!(record.schema_version, GRAPH_META_SCHEMA_VERSION);
-        // Faithful to a store written before the field existed: nothing was configured.
-        assert!(record.integrity_policy.is_none());
+        assert!(record.schema_sources.dynamic.is_empty());
+        assert!(!record.schema_sources.core.is_empty());
         assert!(!record.incarnation_id.trim().is_empty());
     }
 
@@ -1178,6 +1283,29 @@ mod graph_meta_migration_tests {
     }
 
     #[test]
+    fn a_v2_row_lifts_its_integrity_policy_into_the_operator_source() {
+        const V2_META_GOLDEN: &str = "85ae736368656d615f76657273696f6e02a46e616d65a167aa67726170685f74797065a6476c6f62616cae696e6361726e6174696f6e5f6964a6696e632d7632b0696e746567726974795f706f6c69637981aa7368617065735f74746cd92b407072656669782073683a203c687474703a2f2f7777772e77332e6f72672f6e732f736861636c233e202e";
+        let legacy = GraphMetaRecordV2 {
+            schema_version: 2,
+            name: "g".to_string(),
+            graph_type: GraphType::Global,
+            incarnation_id: "inc-v2".to_string(),
+            integrity_policy: Some(crate::graph::IntegrityPolicyV2 {
+                shapes_ttl: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
+            }),
+        };
+        let bytes = hex::decode(V2_META_GOLDEN).unwrap();
+        assert_eq!(rmp_serde::to_vec_named(&legacy).unwrap(), bytes);
+        let record = decode_meta_record("g", &bytes).unwrap();
+        assert_eq!(record.schema_version, GRAPH_META_SCHEMA_VERSION);
+        assert!(record
+            .schema_sources
+            .dynamic
+            .contains_key(crate::graph::OPERATOR_SOURCE_ID));
+        assert_eq!(record.incarnation_id, "inc-v2");
+    }
+
+    #[test]
     fn genuine_corruption_still_reports_the_current_format_error() {
         // The fallback must not mask real corruption as "not legacy".
         let error = match decode_meta_record("g", b"\xc1\xc1not-msgpack") {
@@ -1201,22 +1329,41 @@ mod graph_meta_migration_tests {
             "graph-b",
             &encode_meta_with_incarnation("graph-b", GraphType::Global, "inc-b").unwrap(),
         );
+        put(
+            &shard,
+            "graph-v2",
+            &v2_blob("graph-v2", GraphType::Global, "inc-v2"),
+        );
+        put(
+            &shard,
+            "graph-prior-core",
+            &prior_core_blob("graph-prior-core", GraphType::Global, "inc-prior-core"),
+        );
 
         assert_eq!(
             upgrade_legacy_graph_meta(&shard).unwrap(),
-            1,
-            "only the legacy row"
+            3,
+            "pre-versioned, v2, and prior-core rows need one atomic physical rewrite"
         );
         // Second run rewrites nothing — the migration is genuinely one-time.
         assert_eq!(upgrade_legacy_graph_meta(&shard).unwrap(), 0);
 
         let rows = read_all_graph_meta(&shard).unwrap();
-        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.len(), 4);
         // The converted row now decodes as current WITHOUT the legacy fallback.
         let control = shard.control_read().unwrap();
         let catalog = control.open_owner_table(GRAPH_META).unwrap();
         let raw = catalog.get("graph-a").unwrap().unwrap();
         assert!(decode_durable::<GraphMetaRecord>(raw.value()).is_ok());
+        let raw = catalog.get("graph-v2").unwrap().unwrap();
+        let migrated: GraphMetaRecord = decode_durable(raw.value()).unwrap();
+        assert!(migrated
+            .schema_sources
+            .dynamic
+            .contains_key(crate::graph::OPERATOR_SOURCE_ID));
+        let raw = catalog.get("graph-prior-core").unwrap().unwrap();
+        let migrated: GraphMetaRecord = decode_durable(raw.value()).unwrap();
+        migrated.schema_sources.validate().unwrap();
     }
 
     #[test]

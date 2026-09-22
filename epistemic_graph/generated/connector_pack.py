@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -21,7 +21,7 @@ class AgentLibraryMutationContext(BaseModel):
     attempt_nonce: Nonce
     caller_principal: str
     created_at_ms: Annotated[int, Field(ge=0)]
-    expected_revision: Annotated[Any, Field(ge=0)] | None = None
+    expected_revision: Annotated[int, Field(ge=0)] | None = None
     idempotency_key: str
     policy_decision_id: str
     policy_digest: str
@@ -30,7 +30,7 @@ class AgentLibraryMutationContext(BaseModel):
     purpose_id: str
     request_id: Annotated[int, Field(ge=0)]
     tenant_id: str
-    trace_id: Any | None = None
+    trace_id: str | None = None
 
 
 class ConnectorPackBindRequest(BaseModel):
@@ -151,7 +151,7 @@ class ConnectorPackStatus(BaseModel):
 
     connector: str
     head: PackHeadView | None = None
-    importer: Any | None = None
+    importer: str | None = None
     last_receipt: PackImportReceipt | None = None
     members: PackMemberCounts
     projection: PackProjectionState
@@ -178,9 +178,9 @@ class DeclaredCost(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     currency: str
-    input_per_mtok_micros: Annotated[Any, Field(ge=0)] | None = None
-    output_per_mtok_micros: Annotated[Any, Field(ge=0)] | None = None
-    per_call_micros: Annotated[Any, Field(ge=0)] | None = None
+    input_per_mtok_micros: Annotated[int, Field(ge=0)] | None = None
+    output_per_mtok_micros: Annotated[int, Field(ge=0)] | None = None
+    per_call_micros: Annotated[int, Field(ge=0)] | None = None
 
 
 class DeclaredLatency(BaseModel):
@@ -203,20 +203,20 @@ class McpCatalogSnapshotBinding(BaseModel):
 class PackAnnotations(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    contract_version: Any | None = None
+    contract_version: str | None = None
     cost: DeclaredCost | None = None
-    destructive_hint: Any | None = None
-    idempotent_hint: Any | None = None
+    destructive_hint: bool | None = None
+    idempotent_hint: bool | None = None
     latency_declared: DeclaredLatency | None = None
     modalities_in: BoundedVec_string_64 | None = None
     modalities_out: BoundedVec_string_64 | None = None
     model: PackModelFacts | None = None
-    open_world_hint: Any | None = None
+    open_world_hint: bool | None = None
     provides: BoundedVec_string_64 | None = None
-    read_only_hint: Any | None = None
+    read_only_hint: bool | None = None
     required_scopes: BoundedVec_string_64 | None = None
     requires_capabilities: BoundedVec_string_64 | None = None
-    sdk_contract_pin: Any | None = None
+    sdk_contract_pin: str | None = None
 
 
 class PackArchiveRef(BaseModel):
@@ -280,9 +280,9 @@ class PackHeadView(BaseModel):
     committed_at_ms: Annotated[int, Field(ge=0)]
     pack_digest: Digest256
     record_id: str
-    server_contract_version: Any | None = None
+    server_contract_version: str | None = None
     server_package_version: str
-    visible_record_id: Any | None = None
+    visible_record_id: str | None = None
 
 
 class PackImportReceipt(BaseModel):
@@ -348,9 +348,9 @@ class PackModelFacts(BaseModel):
     max_output_tokens: Annotated[int, Field(ge=0)]
     model_identity: str
     provider: str
-    supports_structured_output: Any | None = None
-    supports_tools: Any | None = None
-    supports_vision: Any | None = None
+    supports_structured_output: bool | None = None
+    supports_tools: bool | None = None
+    supports_vision: bool | None = None
 
 
 class PackProducer(BaseModel):
@@ -416,7 +416,7 @@ class PackViolation(BaseModel):
 
     code: PackViolationCode
     detail: str
-    uri: Any | None = None
+    uri: str | None = None
 
 
 class PackViolationCode(str, Enum):
@@ -452,7 +452,7 @@ class PackWarning(BaseModel):
 
     code: PackWarningCode
     detail: str
-    uri: Any | None = None
+    uri: str | None = None
 
 
 class PackWarningCode(str, Enum):

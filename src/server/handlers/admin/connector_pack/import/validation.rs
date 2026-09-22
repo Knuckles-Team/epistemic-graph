@@ -9,7 +9,9 @@ use eg_types::connector_pack::{
 use eg_types::contract::Digest256;
 use sha2::{Digest, Sha256};
 
-use crate::server::persistence::connector_pack::decode_schema_mappings;
+use crate::server::persistence::connector_pack::{
+    decode_relationship_mappings, decode_schema_mappings,
+};
 
 use super::facts::uri_prefix;
 use super::json::parse_bounded_json;
@@ -224,16 +226,27 @@ impl<'a> IndexValidator<'a> {
     }
 
     fn validate_body(&mut self, entry: &PackEntry, body: &[u8]) {
-        if text_kind(entry.kind) {
-            match std::str::from_utf8(body) {
-                Ok(text) if !text.starts_with('\u{feff}') => self.validate_text(entry, text),
-                _ => self.reject(
-                    PackViolationCode::MalformedBody,
-                    Some(&entry.uri),
-                    "text body must be UTF-8 without BOM",
-                ),
-            }
+        self.validate_text_body(entry, body);
+        self.validate_json_body(entry, body);
+        self.validate_manifest_body(entry, body);
+        self.validate_skill_body(entry, body);
+    }
+
+    fn validate_text_body(&mut self, entry: &PackEntry, body: &[u8]) {
+        if !text_kind(entry.kind) {
+            return;
         }
+        match std::str::from_utf8(body) {
+            Ok(text) if !text.starts_with('\u{feff}') => self.validate_text(entry, text),
+            _ => self.reject(
+                PackViolationCode::MalformedBody,
+                Some(&entry.uri),
+                "text body must be UTF-8 without BOM",
+            ),
+        }
+    }
+
+    fn validate_json_body(&mut self, entry: &PackEntry, body: &[u8]) {
         if json_kind(entry.kind) && parse_bounded_json(body).is_err() {
             self.reject(
                 PackViolationCode::MalformedBody,
@@ -241,13 +254,22 @@ impl<'a> IndexValidator<'a> {
                 "entry body is not bounded JSON",
             );
         }
-        if entry.kind == PackEntryKind::Manifest && decode_schema_mappings(body).is_err() {
+    }
+
+    fn validate_manifest_body(&mut self, entry: &PackEntry, body: &[u8]) {
+        if entry.kind != PackEntryKind::Manifest {
+            return;
+        }
+        if decode_schema_mappings(body).is_err() || decode_relationship_mappings(body).is_err() {
             self.reject(
                 PackViolationCode::MalformedBody,
                 Some(&entry.uri),
                 "connector manifest schema mappings are invalid",
             );
         }
+    }
+
+    fn validate_skill_body(&mut self, entry: &PackEntry, body: &[u8]) {
         if entry.kind == PackEntryKind::Skill && !valid_skill_frontmatter(body, &entry.name) {
             self.reject(
                 PackViolationCode::MalformedBody,

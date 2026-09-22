@@ -1,0 +1,39 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:attendedBy a owl:ObjectProperty ;
+    rdfs:label "attended by" ;
+    rdfs:comment "Links a calendar event to a Person attendee." ;
+    rdfs:domain :CalendarEvent ;
+    rdfs:range :Person .
+
+:eventLocation a owl:DatatypeProperty ;
+    rdfs:label "event location" ;
+    rdfs:range xsd:string .
+
+:scheduledEnd a owl:DatatypeProperty ;
+    rdfs:label "scheduled end" ;
+    rdfs:range xsd:dateTime .
+
+:scheduledStart a owl:DatatypeProperty ;
+    rdfs:label "scheduled start" ;
+    rdfs:range xsd:dateTime .
+
+<http://knuckles.team/kg/calendar> a owl:Ontology ;
+    rdfs:label "Calendar / Scheduling Ontology" ;
+    rdfs:comment "Calendar events as KG entities (CONCEPT:KG-2.9)." ;
+    owl:imports <http://knuckles.team/kg/core> .
+
+:CalendarEvent a owl:Class ;
+    rdfs:label "Calendar Event" ;
+    rdfs:comment "A scheduled calendar event (meeting, review, change window)." ;
+    rdfs:subClassOf :BusinessEvent .

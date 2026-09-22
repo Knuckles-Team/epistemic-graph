@@ -31,7 +31,7 @@ impl GraphCore {
             .collect();
         fork.ledger = Mutex::new(self.ledger.lock().clone());
         fork.semantic_store = RwLock::new(self.semantic_store.read().clone());
-        fork.integrity_policy = RwLock::new(self.integrity_policy.read().clone());
+        fork.schema_sources = RwLock::new(Arc::clone(&self.schema_sources.read()));
     }
 
     fn copy_fork_bloom(&self, fork: &mut GraphCore) {

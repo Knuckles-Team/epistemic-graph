@@ -283,11 +283,21 @@ fn native_catalog_is_complete_unique_and_has_domain_representatives() {
         .collect::<std::collections::BTreeSet<_>>();
     // `NodeInfoUpsert` moved behind the sealed native command envelope in
     // 7469acff; it is intentionally absent from the public method catalog.
-    assert_eq!(NATIVE_CONSENSUS_METHODS.len(), 99);
+    assert_eq!(NATIVE_CONSENSUS_METHODS.len(), 100);
     assert_eq!(unique.len(), NATIVE_CONSENSUS_METHODS.len());
     assert!(unique.iter().all(|name| !name.is_empty()));
 
     assert_native_round_trip(Method::ClearLedger, NativeMutationDomain::GraphState);
+    #[cfg(feature = "shacl")]
+    assert_native_round_trip(
+        Method::GraphSchema {
+            op: Box::new(eg_types::graph_schema::GraphSchemaOp::Detach {
+                source_id: "admin:policy".to_string(),
+                if_composed_digest: None,
+            }),
+        },
+        NativeMutationDomain::GraphState,
+    );
     assert_native_round_trip(
         Method::Rollback {
             txn_id: "txn".to_string(),

@@ -41,6 +41,7 @@ mod core_schema_analysis;
 mod core_state;
 mod core_stream_enqueue;
 mod core_trajectory;
+mod schema_sources;
 mod snapshot;
 mod txn_edges;
 mod txn_maintenance;
@@ -55,7 +56,12 @@ pub use analysis_support::{
     match_props, vf2_match_views, DEFAULT_VF2_MAX_RESULTS, DEFAULT_VF2_MAX_STEPS,
 };
 use core_helpers::{edge_endpoint_not_found, push_ledger_impl, HexLedger};
-pub use snapshot::{GraphSnapshot, IntegrityPolicy, GRAPH_SNAPSHOT_SCHEMA_VERSION};
+pub use schema_sources::{
+    current_core_set_digest, lift_v2_integrity_policy, GraphSchemaSource, GraphSchemaSources,
+    SchemaSourceOrigin, CORE_SOURCE_PREFIX, MAX_CORE_SCHEMA_SOURCES, MAX_SCHEMA_DOCUMENT_TRIPLES,
+    MAX_TOTAL_DYNAMIC_SCHEMA_BYTES, OPERATOR_SOURCE_ID,
+};
+pub use snapshot::{GraphSnapshot, IntegrityPolicyV2, GRAPH_SNAPSHOT_SCHEMA_VERSION};
 pub use view::GraphView;
 #[cfg(feature = "result-cache")]
 pub use view::ProjectionScope;
@@ -366,11 +372,10 @@ pub struct GraphCore {
     pub edge_properties: DashMap<(String, String), Vec<Arc<Vec<u8>>>>,
     pub ledger: Mutex<Vec<String>>,
     pub semantic_store: RwLock<crate::compute::semantic::SemanticStore>,
-    /// Authoritative closed-world integrity policy for this graph. The policy is
-    /// part of every graph snapshot and mutation delta; it is never process-global
-    /// derived state, so rollback, recovery, and Raft snapshot installation cannot
-    /// diverge from the data image it governs.
-    integrity_policy: RwLock<Option<IntegrityPolicy>>,
+    /// Authoritative keyed shapes and ontology sources for this graph. The
+    /// immutable core catalog and graph-local dynamic set are one snapshot value,
+    /// so rollback, recovery and Raft installation cannot mix schema versions.
+    schema_sources: RwLock<Arc<GraphSchemaSources>>,
     /// Has this serving projection changed since its last observer pass? Starts
     /// `true` so a freshly created or loaded graph is observed once; authoritative
     /// durability is handled separately at each mutation commit.
@@ -2386,7 +2391,7 @@ mod tests {
 
         let malformed = GraphSnapshot {
             schema_version: GRAPH_SNAPSHOT_SCHEMA_VERSION,
-            integrity_policy: None,
+            schema_sources: Arc::new(GraphSchemaSources::default()),
             nodes: vec![("replacement".to_string(), Arc::new(Vec::new()))],
             edges: vec![(
                 "replacement".to_string(),

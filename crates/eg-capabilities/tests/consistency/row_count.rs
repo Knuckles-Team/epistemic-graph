@@ -20,17 +20,18 @@
 /// the feature gate lives on the handler rather than on whether the method
 /// exists.
 /// 418 -> 419: RF-ADR-009's served `SourceIngest` raw-record authority.
-/// 419 -> 420: governed source-system `WriteBack` authority.
-/// 420 -> 421: typed, bounded live fleet `ListRegisteredServers` authority.
+/// 419 -> 420: authoritative source checkpoint/status recovery.
+/// 420 -> 421: governed source-system `WriteBack` authority.
+/// 421 -> 422: typed, bounded live fleet `ListRegisteredServers` authority.
 ///
 /// This is a tripwire against an unnoticed protocol edit, not a ratchet;
 /// `scripts/method_policy_inventory.py`'s `EXPECTED_METHOD_POLICY_ROWS` is the
 /// same count seen from the other side and the two must agree
-/// (421 + 7 feature rows = 428). Keep the formula aligned with the cfg rows in
+/// (422 + 7 feature rows = 429). Keep the formula aligned with the cfg rows in
 /// the domain row inventory so every supported feature combination checks the
 /// same coverage invariant.
 pub fn expected_method_policy_rows() -> usize {
-    421 + usize::from(cfg!(feature = "jobs"))
+    422 + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
         + usize::from(cfg!(feature = "knowledge-batch"))

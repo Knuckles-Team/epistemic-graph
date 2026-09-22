@@ -1,7 +1,7 @@
 # Push-gate execution evidence
 
 `ci_gate_replica.py` is the single producer for workflow-derived heavy checks in
-the pre-push gate. It parses the checked-in workflow files and builds one
+the local manual validation tier. It parses the checked-in workflow files and builds one
 bounded plan. Identical selections in that plan execute once per invocation;
 later consumers may reuse only a verified result from that same invocation (or
 an explicitly declared completed prior phase).
@@ -72,7 +72,7 @@ for the workflow replica's ordinary Cargo selection.
 ## Root validation
 
 The landing agent should inspect the complete source-level plan and run the
-focused admissibility tests before the repository's normal pre-push/CI gates.
+focused admissibility tests before the repository's explicit manual/hosted gates.
 The focused selector is:
 
 ```text

@@ -15,7 +15,7 @@ pub fn graph_schema_ops() -> Vec<(&'static str, GraphSchemaOp)> {
         (
             "GraphSchema.attach",
             GraphSchemaOp::Attach {
-                source_id: "operator".to_string(),
+                source_id: "admin:contract-sample".to_string(),
                 shapes_ttl: Some("@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string()),
                 ontology_ttl: Some("@prefix owl: <http://www.w3.org/2002/07/owl#> .".to_string()),
                 if_composed_digest: Some(super::digest_text(0xd1)),
@@ -31,7 +31,7 @@ pub fn graph_schema_ops() -> Vec<(&'static str, GraphSchemaOp)> {
         (
             "GraphSchema.detach",
             GraphSchemaOp::Detach {
-                source_id: "operator".to_string(),
+                source_id: "admin:contract-sample".to_string(),
                 if_composed_digest: Some(super::digest_text(0xd2)),
             },
         ),

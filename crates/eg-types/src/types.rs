@@ -285,6 +285,9 @@ pub struct CompactNodesResult {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct DatalogReasoningResult {
+    /// Exact committed GraphSchema identity used when the request omitted
+    /// ad-hoc rules. Explicit caller-supplied rule programs carry an empty set.
+    pub schema_digests: Vec<String>,
     pub inferred_count: usize,
     pub inferred_triples: Vec<std::collections::HashMap<String, String>>,
 }

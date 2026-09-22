@@ -12,8 +12,9 @@ use serde::{Deserialize, Serialize};
 
 use eg_types::agent_library::AgentLibraryLifecycle;
 use eg_types::connector_pack::{
-    ConnectorPackStatus, ConnectorSchemaMapping, McpCatalogSnapshotBinding, PackEntryKind,
-    PackHeadView, PackImportReceipt, PackMemberCounts, PackProjectionState,
+    ConnectorPackStatus, ConnectorRelationshipMapping, ConnectorSchemaMapping,
+    McpCatalogSnapshotBinding, PackEntryKind, PackHeadView, PackImportReceipt, PackMemberCounts,
+    PackProjectionState,
 };
 use eg_types::contract::{BoundedVec, Digest256, ResourceId};
 
@@ -21,8 +22,9 @@ use super::agent_library::AgentLibraryStore;
 
 pub(crate) mod commit;
 mod manifest;
+pub(crate) mod projection;
 
-pub use manifest::decode_schema_mappings;
+pub use manifest::{decode_relationship_mappings, decode_schema_mappings};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -47,6 +49,8 @@ pub(crate) struct ConnectorPackMemberRow {
     pub last_record_id: String,
     #[serde(default)]
     pub schema_mappings: Option<BTreeMap<String, ConnectorSchemaMapping>>,
+    #[serde(default)]
+    pub relationship_mappings: Option<BTreeMap<String, ConnectorRelationshipMapping>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -79,6 +83,35 @@ pub struct ResolvedConnectorSchemaMapping {
     pub catalog: McpCatalogSnapshotBinding,
 }
 
+/// One digest-verified semantic body selected from a connector's visible head.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ResolvedConnectorSchemaBody {
+    pub kind: PackEntryKind,
+    pub uri: String,
+    pub body_sha256: Digest256,
+    pub engine_manifest_digest: String,
+    pub length: u64,
+}
+
+/// Snapshot-bound inputs for GraphSchema.AttachPack. The body bytes remain in
+/// Blob CAS and are read+verified only after this Agent Library snapshot has
+/// fixed their exact visible record identity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ResolvedConnectorSchemaHead {
+    pub record_id: String,
+    pub bodies: Vec<ResolvedConnectorSchemaBody>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedConnectorRelationshipMapping {
+    pub relation_reference: String,
+    pub relation: ConnectorRelationshipMapping,
+    pub body_sha256: Digest256,
+    pub entry_revision: u64,
+    pub pack_digest: Digest256,
+    pub catalog: McpCatalogSnapshotBinding,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectorPackContentPointer {
     pub component_id: String,
@@ -91,6 +124,89 @@ pub struct ConnectorPackContentPointer {
 }
 
 impl AgentLibraryStore {
+    /// Resolve the current published Manifest revision for a checkpoint-only
+    /// source observation. Even an empty poll stays bound to a live,
+    /// tenant-owned connector authority without inventing a mapping receipt.
+    pub fn resolve_connector_ingestion_revision(
+        &self,
+        tenant_id: &str,
+        connector: &ResourceId,
+    ) -> Result<u64, String> {
+        eg_types::agent_library::validate_key(tenant_id, connector.as_str())?;
+        let (head, manifest) = self.current_connector_manifest(tenant_id, connector)?;
+        validate_current_manifest(&head, &manifest)?;
+        Ok(manifest.entry_revision)
+    }
+
+    /// Resolve all ontology/SHACL members of the current *visible* pack head in
+    /// one Agent Library snapshot. A committed-but-unprojected head is not
+    /// attachable: using it would let GraphSchema publish schema from a pack
+    /// whose component revision is still intentionally hidden.
+    pub(crate) fn resolve_visible_connector_schema_head(
+        &self,
+        tenant_id: &str,
+        connector: &ResourceId,
+    ) -> Result<ResolvedConnectorSchemaHead, String> {
+        eg_types::agent_library::validate_key(tenant_id, connector.as_str())?;
+        let read = self.read()?;
+        let heads = read.open_owner_table(eg_storage::CONNECTOR_PACK_HEADS)?;
+        let members = read.open_owner_table(eg_storage::CONNECTOR_PACK_MEMBERS)?;
+        let head = heads
+            .get((tenant_id, connector.as_str()))
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| {
+                "ATTACH_PACK_HEAD_UNAVAILABLE: connector has no pack head".to_string()
+            })?;
+        let head: ConnectorPackHeadRow =
+            super::agent_row::decode(head.value(), "connector pack head")?;
+        let visible_record_id = head.head.visible_record_id.as_deref().ok_or_else(|| {
+            "ATTACH_PACK_HEAD_NOT_VISIBLE: connector head has not completed projection".to_string()
+        })?;
+        if visible_record_id != head.head.record_id {
+            return Err(
+                "ATTACH_PACK_HEAD_NOT_VISIBLE: visible record is not the current head".to_string(),
+            );
+        }
+
+        let mut bodies = Vec::new();
+        for row in members
+            .range((tenant_id, connector.as_str(), "")..)
+            .map_err(|error| error.to_string())?
+        {
+            let (key, value) = row.map_err(|error| error.to_string())?;
+            let (row_tenant, row_connector, _) = key.value();
+            if row_tenant != tenant_id || row_connector != connector.as_str() {
+                break;
+            }
+            let member: ConnectorPackMemberRow =
+                super::agent_row::decode(value.value(), "connector pack member")?;
+            if member.lifecycle != AgentLibraryLifecycle::Published
+                || member.last_record_id != visible_record_id
+                || !matches!(member.kind, PackEntryKind::Ontology | PackEntryKind::Shapes)
+            {
+                continue;
+            }
+            bodies.push(ResolvedConnectorSchemaBody {
+                kind: member.kind,
+                uri: member.uri,
+                body_sha256: member.body_sha256,
+                engine_manifest_digest: member.engine_manifest_digest,
+                length: member.body_length,
+            });
+        }
+        bodies.sort_by(|left, right| left.uri.cmp(&right.uri));
+        if bodies.is_empty() {
+            return Err(
+                "ATTACH_PACK_SCHEMA_UNAVAILABLE: visible pack has no ontology or SHACL body"
+                    .to_string(),
+            );
+        }
+        Ok(ResolvedConnectorSchemaHead {
+            record_id: visible_record_id.to_string(),
+            bodies,
+        })
+    }
+
     /// Current durable membership rows for one connector, in URI order.
     ///
     /// Import planning uses this snapshot to derive withdrawals and to reject
@@ -282,6 +398,33 @@ impl AgentLibraryStore {
         })
     }
 
+    pub fn resolve_connector_relationship_mapping(
+        &self,
+        tenant_id: &str,
+        connector: &ResourceId,
+        relation_reference: &str,
+    ) -> Result<ResolvedConnectorRelationshipMapping, String> {
+        eg_types::agent_library::validate_key(tenant_id, connector.as_str())?;
+        let key = relationship_selector(connector, relation_reference)?;
+        let (head, manifest) = self.current_connector_manifest(tenant_id, connector)?;
+        validate_current_manifest(&head, &manifest)?;
+        let relations = manifest.relationship_mappings.as_ref().ok_or_else(|| {
+            "CONNECTOR_RELATIONSHIP_UNAVAILABLE: imported manifest has no decoded relations"
+                .to_string()
+        })?;
+        let relation = relations.get(&key).cloned().ok_or_else(|| {
+            "UNKNOWN_RELATIONSHIP_REFERENCE: manifest has no relation at that path".to_string()
+        })?;
+        Ok(ResolvedConnectorRelationshipMapping {
+            relation_reference: relation_reference.to_string(),
+            relation,
+            body_sha256: manifest.body_sha256,
+            entry_revision: manifest.entry_revision,
+            pack_digest: head.head.pack_digest,
+            catalog: head.head.catalog,
+        })
+    }
+
     fn current_connector_manifest(
         &self,
         tenant_id: &str,
@@ -381,6 +524,22 @@ fn mapping_selector<'a>(
         })
 }
 
+fn relationship_selector(
+    connector: &ResourceId,
+    relation_reference: &str,
+) -> Result<String, String> {
+    let prefix = format!("manifest:{}#resources/", connector.as_str());
+    let selected = relation_reference
+        .strip_prefix(&prefix)
+        .and_then(|suffix| suffix.split_once("/relations/"))
+        .filter(|(resource, relation)| valid_mapping_key(resource) && valid_mapping_key(relation));
+    selected
+        .map(|(resource, relation)| format!("{resource}/{relation}"))
+        .ok_or_else(|| {
+            "UNKNOWN_RELATIONSHIP_REFERENCE: relation reference is not current".to_string()
+        })
+}
+
 fn validate_current_manifest(
     head: &ConnectorPackHeadRow,
     manifest: &ConnectorPackMemberRow,
@@ -416,11 +575,11 @@ fn validate_selected_mapping(mapping: &ConnectorSchemaMapping) -> Result<(), Str
 }
 
 fn valid_mapping_key(key: &str) -> bool {
-    !key.is_empty()
-        && key.len() <= 256
-        && !key
-            .bytes()
-            .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace())
+    !key.is_empty() && key.len() <= 256 && !key.bytes().any(forbidden_mapping_key_byte)
+}
+
+fn forbidden_mapping_key_byte(byte: u8) -> bool {
+    byte.is_ascii_control() || byte.is_ascii_whitespace() || matches!(byte, b'/' | b'#')
 }
 
 #[cfg(test)]
@@ -442,7 +601,28 @@ mod tests {
     #[test]
     fn mapping_reference_keys_are_bounded_and_nonblank() {
         assert!(valid_mapping_key("orders-v1"));
-        assert!(!valid_mapping_key(""));
-        assert!(!valid_mapping_key("orders v1"));
+        assert_eq!(
+            ["", "orders v1", "orders/v1", "orders#v1"].map(valid_mapping_key),
+            [false; 4]
+        );
+    }
+
+    #[test]
+    fn relationship_reference_is_an_exact_manifest_resource_path() {
+        let connector = ResourceId::new("demo").unwrap();
+        assert_eq!(
+            relationship_selector(
+                &connector,
+                "manifest:demo#resources/Document/relations/contains"
+            )
+            .unwrap(),
+            "Document/contains"
+        );
+        assert!(relationship_selector(&connector, "manifest:demo#relations/contains").is_err());
+        assert!(relationship_selector(
+            &connector,
+            "manifest:other#resources/Document/relations/contains"
+        )
+        .is_err());
     }
 }

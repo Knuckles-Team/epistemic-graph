@@ -507,7 +507,7 @@ impl TenantManager {
             s.registry.get(graph_name).map(|e| e.core.clone())
         };
         let core = core.ok_or_else(|| format!("graph '{graph_name}' not found after recreate"))?;
-        rehydrate_core_from_dump(&core, &dump);
+        rehydrate_core_from_dump(&core, &dump)?;
         tracing::info!(n, "graph rehydrated from durable authority");
         Ok(n)
     }

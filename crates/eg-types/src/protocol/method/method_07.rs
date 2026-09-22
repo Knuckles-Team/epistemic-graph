@@ -210,6 +210,7 @@ $($variants)*
         /// propagates it — `eg:confidence` annotations × the per-node confidence ×
         /// Ebbinghaus decay). Only entailments with `confidence ≥ min_confidence` are
         /// returned. `0.0` keeps everything (and a HARD ontology yields all `1.0`).
+        #[serde(default)]
         min_confidence: f64,
     },
 
@@ -301,13 +302,18 @@ $($variants)*
     // through to the dispatch "not available in this build" catch-all. The fields are
     // inline Strings so the protocol crate (bottom of the DAG) carries no eg-shacl type;
     // the handler parses both documents and returns a `Json` report.
-    /// Validate `data_graph` against `shapes`, both RDF Turtle documents (CONCEPT:EG-KG.ontology.concept-6).
+    /// Validate `data_graph` against SHACL constraints (CONCEPT:EG-KG.ontology.concept-6).
+    /// Omitted or empty `shapes` selects the request graph's composed
+    /// GraphSchema shapes (immutable core plus its attached dynamic sources).
+    /// A non-empty document remains an explicit, ad-hoc shapes graph.
     /// An EMPTY `data_graph` validates against the LIVE RDF of the request's graph (the
     /// same triples `GetRdf` would export). Returns a `Json` `sh:ValidationReport`.
     /// Read-only. Handler gated `shacl` (implies `rdf`).
     ShaclValidate {
-        /// The shapes graph as a Turtle document.
-        shapes: String,
+        /// An explicit shapes graph as Turtle. Omitted/empty uses the request
+        /// graph's composed GraphSchema authority.
+        #[serde(default)]
+        shapes: Option<String>,
         /// The data graph as a Turtle document; empty ⇒ use the request's live graph.
         #[serde(default)]
         data_graph: String,

@@ -86,8 +86,8 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
             "scanner-quality": (
                 "CI-only scanner profile: provisions the exact CCCC/KISS/dupehound/"
                 "jscpd/import-linter/dependency-cruiser/arch-lint versions into an "
-                "ephemeral runner directory. The local pre-commit/pre-push profile "
-                "runs the same fail-closed wrappers and native architecture checks "
+                "ephemeral runner directory. Local pre-commit/pre-push and manual "
+                "profiles run fail-closed wrappers and native architecture checks "
                 "against preinstalled tools; replaying this job locally would "
                 "download and compile tools during a hook, which is forbidden. "
                 "Every step is therefore reported NOT VALIDATED LOCALLY rather than "
@@ -244,7 +244,7 @@ NON_BLOCKING_STATUSES = {"ENV_SETUP", "ARTIFACT_IO", "NOT_VALIDATED_LOCALLY", "D
 # ─────────────────────────────────────────────────────────────────────────
 # GAP 3 — the authoritative "does this diff affect the build" file set.
 # Defined ONCE, here, so a human or another script has one place to ask "is
-# skipping the (heavy, pre-push-only) ci-gate-replica hook safe for this
+# skipping the (heavy, manual-only) ci-gate-replica hook safe for this
 # diff" instead of an ad-hoc grep. The incident this closes: commit 652f91c
 # changed ONLY .cargo/config.toml — no `.rs`/Cargo.toml/Cargo.lock file — and
 # was judged safe to skip the replica on exactly that (too-narrow) pattern
@@ -259,7 +259,7 @@ BUILD_AFFECTING_FILE_PATTERNS: tuple[str, ...] = (
     ".python-version",
     "build.rs",
     ".github/workflows/**",
-    ".pre-commit-config.yaml",
+    ".config/pre-commit.yaml",
     # Scanner contracts and architecture policies are executable build/release
     # inputs.  A diff in one of these files must not permit callers to skip the
     # workflow-derived gate on the grounds that no Rust source changed.

@@ -239,6 +239,12 @@ include = ["epistemic_graph/contract/receipt.json"]
 # the old collision (every tier shared the same filename) is gone.
 features = ["full", "ast-extended"]
 
+[tool.pipelines_hooks.public_surface]
+repository = "Knuckles-Team/epistemic-graph"
+distribution = "epistemic-graph"
+pages_url = "https://knuckles-team.github.io/epistemic-graph/"
+mcp_server = false
+
 # ── Opt-in build LAYERS (not published as separate wheels) ──
 # The two heavier layers stack ON TOP of the main build and are built explicitly:
 #

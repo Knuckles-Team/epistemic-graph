@@ -18,36 +18,49 @@ use crate::contract::{
 #[cfg(test)]
 mod tests;
 
-pub const SOURCE_INGESTION_CONTRACT_VERSION: u16 = 2;
+pub const SOURCE_INGESTION_CONTRACT_VERSION: u16 = 3;
 pub const MAX_SOURCE_RECORDS: usize = 1_024;
+pub const MAX_SOURCE_RELATIONSHIPS: usize = 4_096;
+pub const MAX_SOURCE_WITHDRAWALS: usize = 1_024;
+pub const MAX_AUTHORITATIVE_LIVE_IDS: usize = 16_384;
+pub const MAX_SOURCE_MAPPING_RECEIPTS: usize = MAX_SOURCE_RECORDS + MAX_SOURCE_RELATIONSHIPS;
 pub const MAX_MAPPING_REFERENCE_BYTES: usize = 1_024;
 pub const MAX_SOURCE_TEXT_BYTES: usize = 8_192;
 /// Shared Rust/generated-client digest marker. The generated Python model must
 /// preserve this declaration order when producing named MessagePack.
-pub const SOURCE_INGESTION_DIGEST_DOMAIN: &str = "eg/source-ingestion-batch/v1";
+pub const SOURCE_INGESTION_DIGEST_DOMAIN: &str = "eg/source-ingestion-batch/v2";
 pub const SOURCE_INGESTION_DIGEST_PROJECTION_FIELDS: &[&str] = &[
     "connector",
-    "mapping_reference",
+    "mode",
+    "strict_schema",
     "records",
-    "cursor",
-    "expected_previous_cursor",
+    "relationships",
+    "provider_checkpoint",
+    "expected_previous_checkpoint",
+    "authoritative_live_ids",
+    "empty_authoritative_approval",
+    "withdrawals",
 ];
 /// Only these JSON-valued leaves are recursively key-sorted. Sorting their
 /// containing DTO maps would destroy Rust named-struct declaration order.
 pub const SOURCE_INGESTION_CANONICAL_JSON_PATHS: &[&str] = &[
     "records[*].payload",
-    "cursor.position",
-    "expected_previous_cursor.position",
+    "relationships[*].properties",
+    "provider_checkpoint.position",
+    "expected_previous_checkpoint.position",
 ];
 /// Optional leaves that Rust serde omits when absent. The top-level
-/// `expected_previous_cursor` is deliberately not listed: an initial page
+/// `expected_previous_checkpoint` is deliberately not listed: an initial page
 /// emits that field as MessagePack nil.
 pub const SOURCE_INGESTION_OMIT_NONE_PATHS: &[&str] = &[
     "records[*].updated_at",
-    "cursor.watermark",
-    "cursor.pending_watermark",
-    "expected_previous_cursor.watermark",
-    "expected_previous_cursor.pending_watermark",
+    "relationships[*].properties",
+    "provider_checkpoint.content_hash",
+    "provider_checkpoint.watermark",
+    "provider_checkpoint.pending_watermark",
+    "expected_previous_checkpoint.content_hash",
+    "expected_previous_checkpoint.watermark",
+    "expected_previous_checkpoint.pending_watermark",
 ];
 
 /// Canonical, bounded JSON used for raw record payloads and provider cursor
@@ -101,11 +114,8 @@ impl schemars::JsonSchema for SourceJson {
 
     fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
         let _ = generator;
-        schemars::Schema::try_from(serde_json::json!({
-            "type": "object",
-            "additionalProperties": true
-        }))
-        .expect("a JSON object schema is valid")
+        schemars::Schema::try_from(serde_json::json!({}))
+            .expect("an unconstrained JSON schema is valid")
     }
 }
 
@@ -127,31 +137,83 @@ pub struct SourceRecordProvenance {
 pub struct SourceRecord {
     pub stream: ResourceId,
     pub record_id: String,
+    /// Exact Connector Manifest schema-mapping reference for this entity.
+    pub mapping_reference: String,
     pub payload: SourceJson,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
     pub provenance: SourceRecordProvenance,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum SourceIngestionMode {
+    Full,
+    Delta,
+    Reconcile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SourceEntityRef {
+    pub stream: ResourceId,
+    pub record_id: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub struct SourceCursor {
+/// A provider-observed edge. EG derives its durable relationship identity from
+/// verified tenant/source authority, the exact relation reference and endpoints;
+/// the caller cannot supply a competing identity or digest.
+pub struct SourceRelationship {
+    pub source: SourceEntityRef,
+    pub target: SourceEntityRef,
+    /// Exact Connector Manifest resource-relation reference, for example
+    /// `manifest:demo#resources/Document/relations/contains`.
+    pub relation_reference: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub properties: Option<SourceJson>,
+    pub provenance: SourceRecordProvenance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SourceWithdrawal {
+    pub entity: SourceEntityRef,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SourceCheckpoint {
     pub stream: ResourceId,
     pub position: SourceJson,
+    /// Provider-owned content identity for the returned page or snapshot.
+    /// EG binds it into checkpoint CAS and replay; it never invents a value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_hash: Option<Digest256>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub watermark: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_watermark: Option<String>,
 }
 
-impl SourceCursor {
+impl SourceCheckpoint {
     pub fn digest(&self) -> Result<Digest256, String> {
         Digest256::framed(
-            b"eg/source-cursor/v1",
+            b"eg/source-checkpoint/v1",
             &[
                 self.stream.as_str().as_bytes(),
                 self.position.canonical_bytes(),
+                self.content_hash
+                    .as_ref()
+                    .map(|digest| digest.as_bytes().as_slice())
+                    .unwrap_or(&[]),
                 self.watermark.as_deref().unwrap_or_default().as_bytes(),
                 self.pending_watermark
                     .as_deref()
@@ -163,21 +225,35 @@ impl SourceCursor {
 }
 
 pub type SourceRecords = BoundedVec<SourceRecord, MAX_SOURCE_RECORDS>;
+pub type SourceRelationships = BoundedVec<SourceRelationship, MAX_SOURCE_RELATIONSHIPS>;
+pub type SourceWithdrawals = BoundedVec<SourceWithdrawal, MAX_SOURCE_WITHDRAWALS>;
+pub type AuthoritativeLiveIds = BoundedVec<SourceEntityRef, MAX_AUTHORITATIVE_LIVE_IDS>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SourceIngestionBatch {
     pub connector: ResourceId,
-    /// Opaque exact reference resolved by the tenant's Agent Library.  Mapping
-    /// content is intentionally absent from this request.
-    pub mapping_reference: String,
+    pub mode: SourceIngestionMode,
+    /// Reject source payload/property keys not selected by their manifest map.
+    pub strict_schema: bool,
     pub records: SourceRecords,
-    pub cursor: SourceCursor,
+    #[serde(default)]
+    pub relationships: SourceRelationships,
+    pub provider_checkpoint: SourceCheckpoint,
     /// `None` is valid only when no cursor has ever committed for this source.
     /// Otherwise the authoritative transaction compares this exact digest with
     /// the stored cursor and rejects stale/concurrent pages.
-    pub expected_previous_cursor: Option<SourceCursor>,
+    pub expected_previous_checkpoint: Option<SourceCheckpoint>,
+    /// Required only for `reconcile`. EG compares it with its prior durable
+    /// live-set marker and derives tombstones; callers never submit that diff.
+    pub authoritative_live_ids: Option<AuthoritativeLiveIds>,
+    /// Required with an empty authoritative live set. The verified request must
+    /// also carry the dedicated empty-reconciliation capability.
+    pub empty_authoritative_approval: Option<String>,
+    /// Provider-declared tombstones are accepted only for `delta`.
+    #[serde(default)]
+    pub withdrawals: SourceWithdrawals,
 }
 
 /// A request whose structural invariants and byte bound were checked during
@@ -249,6 +325,53 @@ pub struct RawAdmissionReceipt {
     pub deduplicated: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct RawRelationshipAdmissionReceipt {
+    pub relationship_id: String,
+    pub raw_digest: Digest256,
+    pub deduplicated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SourceMappingReceipt {
+    pub kind: SourceMappingKind,
+    pub mapping_reference: String,
+    pub mapping_digest: Digest256,
+    pub connector_pack_digest: Digest256,
+    pub catalog: crate::connector_pack::McpCatalogSnapshotBinding,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum SourceMappingKind {
+    Entity,
+    Relationship,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SourceTombstoneReceipt {
+    pub entity: SourceEntityRef,
+    pub node_id: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SourceRelationshipTombstoneReceipt {
+    pub relationship_id: String,
+    pub source: SourceEntityRef,
+    pub target: SourceEntityRef,
+    pub reason: String,
+}
+
 /// Terminal receipt returned only after canonical mutation, raw references,
 /// provenance and cursor state have committed.  Its stable `receipt_digest`
 /// is the replay currency for the same batch digest.
@@ -256,49 +379,75 @@ pub struct RawAdmissionReceipt {
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct SourceIngestionReceipt {
+    pub receipt_id: String,
     pub disposition: SourceIngestionDisposition,
+    pub mode: SourceIngestionMode,
     pub batch_digest: Digest256,
-    pub mapping_reference: String,
-    pub mapping_digest: Digest256,
-    pub connector_pack_digest: Digest256,
-    /// Exact served MCP catalog identity from the ConnectorPack head whose
-    /// manifest mapping authorized this ingestion.
-    pub catalog: crate::connector_pack::McpCatalogSnapshotBinding,
+    pub mappings: BoundedVec<SourceMappingReceipt, MAX_SOURCE_MAPPING_RECEIPTS>,
     pub raw_admissions: BoundedVec<RawAdmissionReceipt, MAX_SOURCE_RECORDS>,
-    pub accepted_cursor: SourceCursor,
-    pub accepted_cursor_digest: Digest256,
+    pub relationship_raw_admissions:
+        BoundedVec<RawRelationshipAdmissionReceipt, MAX_SOURCE_RELATIONSHIPS>,
+    pub tombstones: BoundedVec<SourceTombstoneReceipt, MAX_AUTHORITATIVE_LIVE_IDS>,
+    pub relationship_tombstones:
+        BoundedVec<SourceRelationshipTombstoneReceipt, MAX_SOURCE_RELATIONSHIPS>,
+    pub accepted_checkpoint: SourceCheckpoint,
+    pub accepted_checkpoint_digest: Digest256,
+    pub content_hash: Option<Digest256>,
+    pub live_set_digest: Option<Digest256>,
+    pub relationship_live_set_digest: Option<Digest256>,
     pub affected_count: u64,
+    pub relationship_count: u64,
+    pub tombstoned_count: u64,
+    pub relationship_tombstoned_count: u64,
     pub committed_graph_version: u64,
     pub receipt_digest: Digest256,
 }
 
-fn validate_batch(batch: &SourceIngestionBatch) -> Result<(), String> {
-    validate_batch_shape(batch)?;
-    validate_cursor_fields(
-        &batch.cursor,
-        "source cursor",
-        "cursor watermark",
-        "cursor pending watermark",
-    )?;
-    validate_previous_cursor(batch)?;
-    validate_records(batch)?;
-    Ok(())
+/// Read-only restart/failover key. Tenant and graph remain verified server
+/// authority and therefore never appear in this caller payload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SourceIngestStatusRequest {
+    pub connector: ResourceId,
+    pub stream: ResourceId,
 }
 
-fn validate_batch_shape(batch: &SourceIngestionBatch) -> Result<(), String> {
-    if batch.mapping_reference.is_empty()
-        || batch.mapping_reference.len() > MAX_MAPPING_REFERENCE_BYTES
-    {
-        return Err("source ingestion requires a bounded mapping reference".into());
-    }
-    if batch.records.is_empty() {
-        return Err("source ingestion requires at least one record".into());
-    }
+/// Latest checkpoint accepted by the one EG ingestion authority for a source
+/// partition. `None` means no batch has committed; callers must not substitute
+/// a local checkpoint in that case.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SourceIngestStatus {
+    pub connector: ResourceId,
+    pub stream: ResourceId,
+    pub accepted_checkpoint: Option<SourceCheckpoint>,
+    pub accepted_checkpoint_digest: Option<Digest256>,
+    pub content_hash: Option<Digest256>,
+    pub live_set_digest: Option<Digest256>,
+    pub relationship_live_set_digest: Option<Digest256>,
+    pub last_batch_digest: Option<Digest256>,
+    pub last_receipt_id: Option<String>,
+    pub committed_graph_version: Option<u64>,
+}
+
+fn validate_batch(batch: &SourceIngestionBatch) -> Result<(), String> {
+    validate_cursor_fields(
+        &batch.provider_checkpoint,
+        "provider checkpoint",
+        "checkpoint watermark",
+        "checkpoint pending watermark",
+    )?;
+    validate_previous_checkpoint(batch)?;
+    validate_records(batch)?;
+    validate_relationships(batch)?;
+    validate_reconciliation(batch)?;
     Ok(())
 }
 
 fn validate_cursor_fields(
-    cursor: &SourceCursor,
+    cursor: &SourceCheckpoint,
     cursor_field: &str,
     watermark_field: &str,
     pending_watermark_field: &str,
@@ -308,7 +457,7 @@ fn validate_cursor_fields(
 }
 
 fn validate_cursor_text_fields(
-    cursor: &SourceCursor,
+    cursor: &SourceCheckpoint,
     watermark_field: &str,
     pending_watermark_field: &str,
 ) -> Result<(), String> {
@@ -316,16 +465,16 @@ fn validate_cursor_text_fields(
     validate_text(cursor.pending_watermark.as_deref(), pending_watermark_field)
 }
 
-fn validate_previous_cursor(batch: &SourceIngestionBatch) -> Result<(), String> {
-    let Some(previous) = &batch.expected_previous_cursor else {
+fn validate_previous_checkpoint(batch: &SourceIngestionBatch) -> Result<(), String> {
+    let Some(previous) = &batch.expected_previous_checkpoint else {
         return Ok(());
     };
-    if previous.stream != batch.cursor.stream {
-        return Err("previous cursor stream must match the submitted cursor".into());
+    if previous.stream != batch.provider_checkpoint.stream {
+        return Err("previous checkpoint stream must match the submitted checkpoint".into());
     }
-    validate_cursor(previous, "previous cursor")?;
-    if previous.digest()? == batch.cursor.digest()? {
-        return Err("source cursor must differ from expected_previous_cursor".into());
+    validate_cursor(previous, "previous checkpoint")?;
+    if previous.digest()? == batch.provider_checkpoint.digest()? {
+        return Err("provider checkpoint must differ from expected_previous_checkpoint".into());
     }
     validate_cursor_text_fields(
         previous,
@@ -348,13 +497,14 @@ fn validate_record(
     batch: &SourceIngestionBatch,
     identities: &mut BTreeSet<(String, String)>,
 ) -> Result<(), String> {
-    if record.stream != batch.cursor.stream {
-        return Err("every source record stream must match the batch cursor".into());
+    if record.stream != batch.provider_checkpoint.stream {
+        return Err("every source record stream must match the provider checkpoint".into());
     }
     if record.provenance.connector != batch.connector {
         return Err("source record provenance connector must match the batch connector".into());
     }
     validate_required_text(&record.record_id, "source record id")?;
+    validate_mapping_reference(&record.mapping_reference)?;
     validate_text(record.updated_at.as_deref(), "source updated_at")?;
     validate_required_text(&record.provenance.server, "provenance server")?;
     validate_required_text(&record.provenance.tool, "provenance tool")?;
@@ -368,11 +518,194 @@ fn validate_record(
     Ok(())
 }
 
-fn validate_cursor(cursor: &SourceCursor, field: &str) -> Result<(), String> {
-    if !cursor.position.value()?.is_object() {
-        return Err(format!("{field} position must be a JSON object"));
+fn validate_relationships(batch: &SourceIngestionBatch) -> Result<(), String> {
+    let mut endpoint_pairs = BTreeSet::new();
+    for relationship in &batch.relationships {
+        validate_mapping_reference(&relationship.relation_reference)?;
+        validate_entity_ref(&relationship.source, &batch.provider_checkpoint.stream)?;
+        validate_entity_ref(&relationship.target, &batch.provider_checkpoint.stream)?;
+        if relationship.source == relationship.target {
+            return Err("source relationship endpoints must differ".into());
+        }
+        if relationship.provenance.connector != batch.connector {
+            return Err(
+                "source relationship provenance connector must match the batch connector".into(),
+            );
+        }
+        validate_required_text(
+            &relationship.provenance.server,
+            "relationship provenance server",
+        )?;
+        validate_required_text(
+            &relationship.provenance.tool,
+            "relationship provenance tool",
+        )?;
+        validate_required_text(
+            &relationship.provenance.source_uri,
+            "relationship provenance source_uri",
+        )?;
+        if relationship
+            .properties
+            .as_ref()
+            .is_some_and(|properties| !properties.value().is_ok_and(|value| value.is_object()))
+        {
+            return Err("source relationship properties must be a JSON object".into());
+        }
+        if !endpoint_pairs.insert((&relationship.source, &relationship.target)) {
+            return Err("source ingestion batch contains duplicate relationship endpoints".into());
+        }
     }
     Ok(())
+}
+
+fn validate_reconciliation(batch: &SourceIngestionBatch) -> Result<(), String> {
+    validate_mode_contract(batch)?;
+    let live = validated_live_ids(batch)?;
+    let withdrawals = validated_withdrawals(batch, &live)?;
+    validate_reconciliation_membership(batch, &live, &withdrawals)
+}
+
+fn validate_mode_contract(batch: &SourceIngestionBatch) -> Result<(), String> {
+    match batch.mode {
+        SourceIngestionMode::Full => validate_full_mode(batch),
+        SourceIngestionMode::Delta => validate_delta_mode(batch),
+        SourceIngestionMode::Reconcile => validate_reconcile_mode(batch),
+    }
+}
+
+fn validate_full_mode(batch: &SourceIngestionBatch) -> Result<(), String> {
+    if batch.authoritative_live_ids.is_some() || !batch.withdrawals.is_empty() {
+        return Err(
+            "full ingestion is non-authoritative and cannot declare reconciliation state".into(),
+        );
+    }
+    let empty = batch.records.is_empty() && batch.relationships.is_empty();
+    match (empty, batch.empty_authoritative_approval.as_deref()) {
+        (true, Some(approval)) => validate_required_text(approval, "empty authoritative approval"),
+        (true, None) => {
+            Err("empty full ingestion requires a governed authoritative-empty approval".into())
+        }
+        (false, Some(_)) => {
+            Err("empty authoritative approval is valid only for an empty full snapshot".into())
+        }
+        (false, None) => Ok(()),
+    }
+}
+
+fn validate_delta_mode(batch: &SourceIngestionBatch) -> Result<(), String> {
+    if batch.authoritative_live_ids.is_some() || batch.empty_authoritative_approval.is_some() {
+        Err("delta ingestion cannot declare an authoritative live set".into())
+    } else {
+        Ok(())
+    }
+}
+
+fn validate_reconcile_mode(batch: &SourceIngestionBatch) -> Result<(), String> {
+    if !batch.withdrawals.is_empty() {
+        return Err("reconcile ingestion derives tombstones and forbids caller withdrawals".into());
+    }
+    let live = batch
+        .authoritative_live_ids
+        .as_ref()
+        .ok_or_else(|| "reconcile ingestion requires authoritative_live_ids".to_string())?;
+    match (
+        live.is_empty(),
+        batch.empty_authoritative_approval.as_deref(),
+    ) {
+        (true, Some(approval)) => validate_required_text(approval, "empty authoritative approval"),
+        (true, None) => {
+            Err("empty authoritative reconciliation requires a governed approval".into())
+        }
+        (false, Some(_)) => {
+            Err("empty authoritative approval is valid only for an empty live set".into())
+        }
+        (false, None) => Ok(()),
+    }
+}
+
+fn validated_live_ids(batch: &SourceIngestionBatch) -> Result<BTreeSet<SourceEntityRef>, String> {
+    let mut live = BTreeSet::new();
+    for entity in batch.authoritative_live_ids.iter().flatten() {
+        validate_entity_ref(entity, &batch.provider_checkpoint.stream)?;
+        if !live.insert(entity.clone()) {
+            return Err("authoritative live ids must be unique".into());
+        }
+    }
+    Ok(live)
+}
+
+fn validated_withdrawals(
+    batch: &SourceIngestionBatch,
+    live: &BTreeSet<SourceEntityRef>,
+) -> Result<BTreeSet<SourceEntityRef>, String> {
+    let mut withdrawals = BTreeSet::new();
+    for withdrawal in &batch.withdrawals {
+        validate_entity_ref(&withdrawal.entity, &batch.provider_checkpoint.stream)?;
+        validate_required_text(&withdrawal.reason, "source withdrawal reason")?;
+        if !withdrawals.insert(withdrawal.entity.clone()) {
+            return Err("source withdrawals must be unique".into());
+        }
+        if live.contains(&withdrawal.entity) {
+            return Err("a source entity cannot be both live and withdrawn".into());
+        }
+    }
+    Ok(withdrawals)
+}
+
+fn validate_reconciliation_membership(
+    batch: &SourceIngestionBatch,
+    live: &BTreeSet<SourceEntityRef>,
+    withdrawals: &BTreeSet<SourceEntityRef>,
+) -> Result<(), String> {
+    let observed: BTreeSet<_> = batch
+        .records
+        .iter()
+        .map(|record| SourceEntityRef {
+            stream: record.stream.clone(),
+            record_id: record.record_id.clone(),
+        })
+        .collect();
+    if observed.iter().any(|entity| withdrawals.contains(entity)) {
+        return Err("a source entity cannot be both observed and withdrawn".into());
+    }
+    if batch.relationships.iter().any(|relationship| {
+        withdrawals.contains(&relationship.source) || withdrawals.contains(&relationship.target)
+    }) {
+        return Err("a source relationship cannot reference a withdrawn entity".into());
+    }
+    if batch.mode == SourceIngestionMode::Reconcile {
+        if observed.iter().any(|entity| !live.contains(entity)) {
+            return Err("every reconciled source record must be in authoritative_live_ids".into());
+        }
+        if batch.relationships.iter().any(|relationship| {
+            !live.contains(&relationship.source) || !live.contains(&relationship.target)
+        }) {
+            return Err("reconciled relationship endpoints must be authoritative live ids".into());
+        }
+    }
+    Ok(())
+}
+
+fn validate_entity_ref(entity: &SourceEntityRef, stream: &ResourceId) -> Result<(), String> {
+    if &entity.stream != stream {
+        return Err("source entity stream must match the provider checkpoint".into());
+    }
+    validate_required_text(&entity.record_id, "source entity record id")
+}
+
+fn validate_mapping_reference(reference: &str) -> Result<(), String> {
+    if reference.is_empty() || reference.len() > MAX_MAPPING_REFERENCE_BYTES {
+        return Err("source ingestion requires bounded mapping references".into());
+    }
+    Ok(())
+}
+
+fn validate_cursor(cursor: &SourceCheckpoint, field: &str) -> Result<(), String> {
+    cursor
+        .position
+        .value()
+        .map(|_| ())
+        .map_err(|error| format!("{field} position is invalid: {error}"))
 }
 
 fn validate_json_depth(value: &serde_json::Value, depth: usize) -> Result<(), String> {

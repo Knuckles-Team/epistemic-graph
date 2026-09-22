@@ -30,7 +30,7 @@ _QUERY_HANDLER = _ROOT / "src" / "server" / "handlers" / "query.rs"
 _RDF_HANDLER = _ROOT / "src" / "server" / "handlers" / "rdf.rs"
 _REDB_STORE = _ROOT / "src" / "redb_store.rs"
 _AMQP_WIRE = _ROOT / "src" / "server" / "amqp_wire" / "mod.rs"
-_HOOKS = _ROOT / ".pre-commit-config.yaml"
+_HOOKS = _ROOT / ".config" / "pre-commit.yaml"
 _RELEASE = _ROOT / ".github" / "workflows" / "release.yml"
 
 # A cargo subcommand that resolves dependencies can REWRITE Cargo.lock; `--locked` is

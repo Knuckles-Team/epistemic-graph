@@ -213,29 +213,68 @@ async fn route_source_ingestion_or_resources(
     ctx: GraphOpRouting<'_>,
     method: Method,
 ) -> Result<Response, Method> {
-    let Method::SourceIngest { request } = method else {
-        return route_native_resource_ops(ctx, method).await;
+    let source_method = match source_ingestion_route(method) {
+        Ok(route) => route,
+        Err(method) => return route_native_resource_ops(ctx, method).await,
     };
-    #[cfg(feature = "raft")]
-    let (placement_epoch, fencing_token) = if let Some(routed) = ctx.routed_raft.as_ref() {
-        let leader = routed.handle.current_leader().await;
-        if leader != Some(routed.handle.node_id) {
-            return Ok(Response::stale_route(
-                ctx.req_id,
-                ctx.graph_name,
-                routed.group_id,
-                routed.epoch,
-                leader,
-                "Source ingestion requires the current placement leader",
-            ));
-        }
-        (routed.epoch, Some(routed.group_id))
-    } else {
-        (0, None)
-    };
-    #[cfg(not(feature = "raft"))]
-    let (placement_epoch, fencing_token) = (0, None);
+    route_source_ingestion_dispatch(ctx, source_method).await
+}
 
+async fn route_source_ingestion_dispatch(
+    ctx: GraphOpRouting<'_>,
+    source_method: SourceIngestionRoute,
+) -> Result<Response, Method> {
+    let (placement_epoch, fencing_token) = match source_ingestion_route_fence(&ctx).await {
+        Ok(fence) => fence,
+        Err(response) => return Ok(response),
+    };
+
+    let response = match source_method {
+        SourceIngestionRoute::Status(request) => route_source_ingestion_status(ctx, request).await,
+        SourceIngestionRoute::Ingest(request) => {
+            route_source_ingestion_request(ctx, *request, placement_epoch, fencing_token).await
+        }
+    };
+    Ok(response)
+}
+
+fn source_ingestion_route(method: Method) -> Result<SourceIngestionRoute, Method> {
+    match method {
+        Method::SourceIngest { request } => Ok(SourceIngestionRoute::Ingest(request)),
+        Method::SourceIngestStatus { connector, stream } => Ok(SourceIngestionRoute::Status(
+            eg_types::source_ingestion::SourceIngestStatusRequest { connector, stream },
+        )),
+        method => Err(method),
+    }
+}
+
+async fn route_source_ingestion_status(
+    ctx: GraphOpRouting<'_>,
+    request: eg_types::source_ingestion::SourceIngestStatusRequest,
+) -> Response {
+    let Some(persistence) = ctx.persistence.as_ref() else {
+        return Response::err(
+            ctx.req_id,
+            "source ingestion status requires durable persistence",
+        );
+    };
+    handlers::source_ingestion::status(
+        ctx.req_id,
+        ctx.graph_name,
+        ctx.tenant_scope,
+        ctx.verified_context,
+        persistence,
+        request,
+    )
+    .await
+}
+
+async fn route_source_ingestion_request(
+    ctx: GraphOpRouting<'_>,
+    request: eg_types::source_ingestion::SourceIngestionRequest,
+    placement_epoch: u64,
+    fencing_token: Option<u64>,
+) -> Response {
     let prepared = match handlers::source_ingestion::prepare(
         handlers::source_ingestion::PrepareContext {
             state: ctx.state,
@@ -247,17 +286,50 @@ async fn route_source_ingestion_or_resources(
             placement_epoch,
             fencing_token,
         },
-        *request,
+        request,
     )
     .await
     {
         Ok(prepared) => prepared,
-        Err(error) => return Ok(Response::err(ctx.req_id, error)),
+        Err(error) => return Response::err(ctx.req_id, error),
     };
     let envelope = prepared.envelope.clone();
     let response =
         crate::server::dispatch::change_envelope::apply_one_change_envelope(ctx, envelope).await;
-    Ok(handlers::source_ingestion::finish(prepared, response))
+    handlers::source_ingestion::finish(prepared, response)
+}
+
+enum SourceIngestionRoute {
+    Ingest(Box<eg_types::source_ingestion::SourceIngestionRequest>),
+    Status(eg_types::source_ingestion::SourceIngestStatusRequest),
+}
+
+#[cfg(feature = "raft")]
+async fn source_ingestion_route_fence(
+    ctx: &GraphOpRouting<'_>,
+) -> Result<(u64, Option<u64>), Response> {
+    let Some(routed) = ctx.routed_raft.as_ref() else {
+        return Ok((0, None));
+    };
+    let leader = routed.handle.current_leader().await;
+    if leader != Some(routed.handle.node_id) {
+        return Err(Response::stale_route(
+            ctx.req_id,
+            ctx.graph_name,
+            routed.group_id,
+            routed.epoch,
+            leader,
+            "Source ingestion requires the current placement leader",
+        ));
+    }
+    Ok((routed.epoch, Some(routed.group_id)))
+}
+
+#[cfg(not(feature = "raft"))]
+async fn source_ingestion_route_fence(
+    _ctx: &GraphOpRouting<'_>,
+) -> Result<(u64, Option<u64>), Response> {
+    Ok((0, None))
 }
 
 /// The remaining authority-bearing surfaces, all resolved AFTER graph ACL,

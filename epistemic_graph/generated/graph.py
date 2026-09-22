@@ -303,7 +303,7 @@ class GetNodesByLabelRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    after: Any | None = None
+    after: str | None = None
     label: str
     limit: int
 
@@ -1023,9 +1023,9 @@ class AppendStepRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     action_msgpack: bytes
-    next_state_ref: Any | None = None
+    next_state_ref: str | None = None
     reward: float
-    state_ref: Any | None = None
+    state_ref: str | None = None
     t: int
     traj_id: str
 
@@ -1727,7 +1727,7 @@ class GetEdgesPageRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    after: Any | None = None
+    after: list[Any] | None = None
     limit: int
 
 

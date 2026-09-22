@@ -14,6 +14,21 @@ from ._runtime import (
     OpaqueResult,
     expect_bool,
 )
+from .graph_schema import (
+    GraphSchemaCommitted,
+    GraphSchemaOp,
+    GraphSchemaSourcesView,
+)
+from .rdf_report import (
+    DatalogReasoningResult,
+    OwlExplainResult,
+    OwlPropertyFact,
+    OwlReasonResult,
+    ProofNodeWire,
+    ShaclSeverity,
+    ShaclValidationReport,
+    ShaclValidationResult,
+)
 
 
 class RunDatalogReasoningRequest(BaseModel):
@@ -44,7 +59,7 @@ async def send_run_datalog_reasoning(
     graph: str | None = None,
     *,
     idempotency_key: str | None = None,
-) -> OpaqueResult:
+) -> DatalogReasoningResult:
     """Send one engine-contract request.
 
     Method:
@@ -75,7 +90,7 @@ async def send_run_datalog_reasoning(
         graph,
         idempotency_key=idempotency_key,
     )
-    return OpaqueResult("RunDatalogReasoning", payload)
+    return DatalogReasoningResult.model_validate(payload)
 
 
 class GetRdfRequest(BaseModel):
@@ -249,7 +264,7 @@ class OwlReasonRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     class_base: str | None = None
-    min_confidence: float
+    min_confidence: float | None = None
     ontology: str | None = None
     target_class: str | None = None
 
@@ -260,7 +275,7 @@ async def send_owl_reason(
     graph: str | None = None,
     *,
     idempotency_key: str | None = None,
-) -> OpaqueResult:
+) -> OwlReasonResult:
     """Send one engine-contract request.
 
     Method:
@@ -287,7 +302,7 @@ async def send_owl_reason(
         graph,
         idempotency_key=idempotency_key,
     )
-    return OpaqueResult("OwlReason", payload)
+    return OwlReasonResult.model_validate(payload)
 
 
 class OwlReasonDistributedRequest(BaseModel):
@@ -315,7 +330,7 @@ async def send_owl_reason_distributed(
     graph: str | None = None,
     *,
     idempotency_key: str | None = None,
-) -> OpaqueResult:
+) -> OwlReasonResult:
     """Send one engine-contract request.
 
     Method:
@@ -342,7 +357,7 @@ async def send_owl_reason_distributed(
         graph,
         idempotency_key=idempotency_key,
     )
-    return OpaqueResult("OwlReasonDistributed", payload)
+    return OwlReasonResult.model_validate(payload)
 
 
 class OwlExplainRequest(BaseModel):
@@ -368,7 +383,7 @@ async def send_owl_explain(
     graph: str | None = None,
     *,
     idempotency_key: str | None = None,
-) -> OpaqueResult:
+) -> OwlExplainResult:
     """Send one engine-contract request.
 
     Method:
@@ -395,7 +410,7 @@ async def send_owl_explain(
         graph,
         idempotency_key=idempotency_key,
     )
-    return OpaqueResult("OwlExplain", payload)
+    return OwlExplainResult.model_validate(payload)
 
 
 class ShaclValidateRequest(BaseModel):
@@ -411,7 +426,7 @@ class ShaclValidateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     data_graph: str | None = None
-    shapes: str
+    shapes: str | None = None
 
 
 async def send_shacl_validate(
@@ -420,7 +435,7 @@ async def send_shacl_validate(
     graph: str | None = None,
     *,
     idempotency_key: str | None = None,
-) -> OpaqueResult:
+) -> ShaclValidationReport:
     """Send one engine-contract request.
 
     Method:
@@ -447,7 +462,7 @@ async def send_shacl_validate(
         graph,
         idempotency_key=idempotency_key,
     )
-    return OpaqueResult("ShaclValidate", payload)
+    return ShaclValidationReport.model_validate(payload)
 
 
 class IcvConfigureRequest(BaseModel):
@@ -462,7 +477,7 @@ class IcvConfigureRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    graph: Any | None = None
+    graph: str | None = None
     mode: str
     shapes: str
 
@@ -505,3 +520,109 @@ async def send_icv_configure(
         idempotency_key=idempotency_key,
     )
     return expect_bool("IcvConfigure", payload)
+
+
+class GraphSchemaRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        GraphSchema
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/GraphSchema
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: GraphSchemaOp
+
+
+async def send_graph_schema(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> GraphSchemaCommitted:
+    """Send one engine-contract request.
+
+    Method:
+        GraphSchema
+    Authorization:
+        security:admin
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.reasoning.json
+        #/methods/GraphSchema
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    GraphSchemaRequest.model_validate(params or {})
+    payload = await client._send(
+        "GraphSchema",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return GraphSchemaCommitted.model_validate(payload)
+
+
+class GraphSchemaListRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        GraphSchemaList
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/GraphSchemaList
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Method::GraphSchemaList carries no request fields.
+
+
+async def send_graph_schema_list(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> GraphSchemaSourcesView:
+    """Send one engine-contract request.
+
+    Method:
+        GraphSchemaList
+    Authorization:
+        security:admin
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.reasoning.json
+        #/methods/GraphSchemaList
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    GraphSchemaListRequest.model_validate(params or {})
+    payload = await client._send(
+        "GraphSchemaList",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return GraphSchemaSourcesView.model_validate(payload)

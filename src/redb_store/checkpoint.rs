@@ -223,7 +223,7 @@ fn apply_checkpoint_dump(
         &dump.name,
         dump.graph_type,
         &dump.incarnation_id,
-        dump.integrity_policy.as_ref(),
+        dump.schema_sources.as_ref(),
     )?;
     write
         .control()

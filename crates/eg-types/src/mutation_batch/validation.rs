@@ -185,7 +185,10 @@ fn validate_authoritative_state(batch: &MutationBatch) -> Result<(), String> {
     let Some(state) = &batch.authoritative_state else {
         return Ok(());
     };
-    let supported_algorithm = matches!(state.algorithm.as_str(), "sha256" | "sha256-row-delta-v2");
+    let supported_algorithm = matches!(
+        state.algorithm.as_str(),
+        "sha256" | "sha256-row-delta-v2" | "sha256-row-delta-schema-sources"
+    );
     let valid_digest = state.digest.len() == 64
         && state
             .digest

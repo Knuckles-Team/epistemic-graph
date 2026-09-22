@@ -90,7 +90,7 @@ it applies uniformly wherever a heavy, toolchain-gated feature combination
 is invoked — see check_toolchain_requirements.
 
 Usage:
-  scripts/ci_gate_replica.py                    # full run (heavy — pre-push/manual)
+  scripts/ci_gate_replica.py                    # full run (heavy — manual)
   scripts/ci_gate_replica.py --dry-run           # print the plan, execute nothing
   scripts/ci_gate_replica.py --consistency-check # only the anti-drift check
   scripts/ci_gate_replica.py --skip-safe [REF]   # is it safe to skip this gate for the

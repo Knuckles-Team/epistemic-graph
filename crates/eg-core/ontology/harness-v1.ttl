@@ -1,0 +1,325 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:AgentManagerDRI a owl:Class ;
+    rdfs:label "Agent Manager DRI" ;
+    rdfs:comment "The directly responsible individual (DRI) tasked with maintaining, reviewing, and optimizing agent rules." ;
+    rdfs:subClassOf :BusinessLayer .
+
+:ContextFile a owl:Class ;
+    rdfs:label "Context File" ;
+    rdfs:comment "Structured local files or config assets containing layered rules, policies, or ignores (e.g. .ignore, CLAUDE.md)." ;
+    rdfs:subClassOf :TechnologyLayer .
+
+:GovernanceWorkingGroup a owl:Class ;
+    rdfs:label "Governance Working Group" ;
+    rdfs:comment "Cross-functional governance board that manages policy compliance and periodic evaluations." ;
+    rdfs:subClassOf :BusinessLayer .
+
+:Hook a owl:Class ;
+    rdfs:label "Hook" ;
+    rdfs:comment "A customized script or executable process that triggers during startup or shutdown lifecycle phases." ;
+    rdfs:subClassOf :ApplicationLayer .
+
+:LSPServer a owl:Class ;
+    rdfs:label "LSP Server" ;
+    rdfs:comment "An active Language Server Protocol instance facilitating precise symbol indexing and query navigation." ;
+    rdfs:subClassOf :ApplicationLayer .
+
+:Plugin a owl:Class ;
+    rdfs:label "Plugin" ;
+    rdfs:comment "A bundled package of hooks, skills, and configuration schemas mapped to specific developer roles." ;
+    rdfs:subClassOf :ApplicationLayer .
+
+:ReconstructionTrajectory a owl:Class ;
+    rdfs:label "Reconstruction Trajectory" ;
+    rdfs:comment "The query-relevant subgraph an active Cue-Tag-Content reconstruction walk assembles, with the per-hop tag activations and evidence it accumulated (the analog of MRAgent's reconstructed memory M^(t); CONCEPT:KG-2.275)." ;
+    rdfs:subClassOf :ApplicationLayer .
+
+:SubagentConfig a owl:Class ;
+    rdfs:label "Subagent Config" ;
+    rdfs:comment "Configuration schemas and boundaries governing isolated child-agents during workspace exploration." ;
+    rdfs:subClassOf :ApplicationLayer .
+
+:after_model a :HarnessHook ;
+    rdfs:label "after_model" ;
+    :hookEventType "ModelResponseEvent" ;
+    :hookReadOnly false ;
+    :permittedModification "response content, tool calls" .
+
+:after_tool a :HarnessHook ;
+    rdfs:label "after_tool" ;
+    :hookEventType "ToolResultEvent" ;
+    :hookReadOnly false ;
+    :permittedModification "tool result" .
+
+:appliesEdit a owl:ObjectProperty ;
+    rdfs:label "applies edit" ;
+    rdfs:comment "A HarnessVariant applies a HarnessEdit." ;
+    rdfs:domain :HarnessVariant ;
+    rdfs:range :HarnessEdit .
+
+:atHook a owl:ObjectProperty ;
+    rdfs:label "at hook" ;
+    rdfs:comment "The lifecycle hook a HarnessEdit/Processor operates at (CONCEPT:KG-2.109)." ;
+    rdfs:range :HarnessHook .
+
+:attachedToHook a owl:ObjectProperty ;
+    rdfs:label "attached to hook" ;
+    rdfs:comment "A Processor is attached to a HarnessHook (CONCEPT:KG-2.109)." ;
+    rdfs:domain :Processor ;
+    rdfs:range :HarnessHook .
+
+:before_model a :HarnessHook ;
+    rdfs:label "before_model" ;
+    :hookEventType "BeforeModelEvent" ;
+    :hookReadOnly false ;
+    :permittedModification "last user content; one user-message append" .
+
+:before_tool a :HarnessHook ;
+    rdfs:label "before_tool" ;
+    :hookEventType "ToolCallEvent" ;
+    :hookReadOnly false ;
+    :permittedModification "tool input, approval flag" .
+
+:causesRegression a owl:ObjectProperty ;
+    rdfs:label "causes regression" ;
+    rdfs:comment "A HarnessEdit/Variant caused a regression on a previously-passing task — the formal seesaw signal the SHACL no-regression gate reasons over (CONCEPT:KG-2.107)." ;
+    rdfs:domain :HarnessEdit .
+
+:certificationLevel a owl:DatatypeProperty ;
+    rdfs:label "certification level" ;
+    rdfs:comment "Held-out certification Seal level of a promoted variant (L1|L2|L3) (CONCEPT:AHE-3.56)." ;
+    rdfs:domain :HarnessVariant ;
+    rdfs:range xsd:string .
+
+:confirmsFix a owl:ObjectProperty ;
+    rdfs:label "confirms fix" ;
+    rdfs:comment "A HarnessEdit confirmed a predicted fix against verifier evidence." ;
+    rdfs:domain :HarnessEdit .
+
+:dimensionConcentration a owl:DatatypeProperty ;
+    rdfs:label "dimension concentration" ;
+    rdfs:comment "Accumulated shipped-edit count on a HarnessDimension within the round window — the sub-threshold-coupling signal the SHACL concentration gate bounds (CONCEPT:KG-2.107/AHE-3.53)." ;
+    rdfs:domain :HarnessDimension ;
+    rdfs:range xsd:double .
+
+:editOperation a owl:DatatypeProperty ;
+    rdfs:label "edit operation" ;
+    rdfs:comment "The substitution-algebra operation of a HarnessEdit: insert | remove | replace (CONCEPT:KG-2.109)." ;
+    rdfs:domain :HarnessEdit ;
+    rdfs:range xsd:string .
+
+:editRound a owl:DatatypeProperty ;
+    rdfs:label "edit round" ;
+    rdfs:comment "The evolution round in which a HarnessEdit shipped." ;
+    rdfs:domain :HarnessEdit ;
+    rdfs:range xsd:integer .
+
+:editStatus a owl:DatatypeProperty ;
+    rdfs:label "edit status" ;
+    rdfs:comment "Lifecycle status of a HarnessEdit (proposed|shipped|rejected) — 'shipped' edits are what the concentration gate counts per dimension." ;
+    rdfs:domain :HarnessEdit ;
+    rdfs:range xsd:string .
+
+:enforcesPattern a owl:ObjectProperty ;
+    rdfs:label "enforces pattern" ;
+    rdfs:comment "Links a Policy, Agent, or Working Group to a specific OptimizationPattern." ;
+    rdfs:range :OptimizationPattern .
+
+:exhibitsPathology a owl:ObjectProperty ;
+    rdfs:label "exhibits pathology" ;
+    rdfs:comment "A Harness/Variant/Edit exhibits a detected RL pathology (domain left open so edits and harnesses can both exhibit one)." ;
+    rdfs:range :HarnessPathology .
+
+:hasExtensionPoint a owl:ObjectProperty ;
+    rdfs:label "has extension point" ;
+    rdfs:comment "Links an Agent or Plugin to a HarnessExtensionPoint." ;
+    rdfs:range :HarnessExtensionPoint .
+
+:hookEventType a owl:DatatypeProperty ;
+    rdfs:label "hook event type" ;
+    rdfs:comment "The event type a hook emits (e.g. TaskStartEvent) (CONCEPT:KG-2.109)." ;
+    rdfs:domain :HarnessHook ;
+    rdfs:range xsd:string .
+
+:hookOrder a owl:DatatypeProperty ;
+    rdfs:label "hook order" ;
+    rdfs:comment "Ordering hint of a processor within its hook: PRE | NORMAL | POST (_order) (CONCEPT:KG-2.109)." ;
+    rdfs:domain :Processor ;
+    rdfs:range xsd:string .
+
+:hookReadOnly a owl:DatatypeProperty ;
+    rdfs:label "hook read only" ;
+    rdfs:comment "True if the hook permits no modifications (step_end, task_end) — an edit that modifies a field here violates the hook contract (CONCEPT:KG-2.109)." ;
+    rdfs:domain :HarnessHook ;
+    rdfs:range xsd:boolean .
+
+:mitigatesPathology a owl:ObjectProperty ;
+    rdfs:label "mitigates pathology" ;
+    rdfs:comment "A HarnessEdit mitigates a pathology (inverse: mitigatedBy)." ;
+    rdfs:domain :HarnessEdit ;
+    rdfs:range :HarnessPathology ;
+    owl:inverseOf :mitigatedBy .
+
+:modifiesField a owl:DatatypeProperty ;
+    rdfs:label "modifies field" ;
+    rdfs:comment "A field a HarnessEdit modifies at its hook — checked against the hook's permitted-modification / read-only contract (CONCEPT:KG-2.109)." ;
+    rdfs:domain :HarnessEdit ;
+    rdfs:range xsd:string .
+
+:pathologyKind a owl:DatatypeProperty ;
+    rdfs:label "pathology kind" ;
+    rdfs:comment "The RL pathology class (reward_hacking|catastrophic_forgetting|under_exploration)." ;
+    rdfs:domain :HarnessPathology ;
+    rdfs:range xsd:string .
+
+:permittedModification a owl:DatatypeProperty ;
+    rdfs:label "permitted modification" ;
+    rdfs:comment "The field(s) a processor may modify at this hook per HarnessX Table 1 (CONCEPT:KG-2.109)." ;
+    rdfs:domain :HarnessHook ;
+    rdfs:range xsd:string .
+
+:proposesContextUpdate a owl:DatatypeProperty ;
+    rdfs:label "proposes context update" ;
+    rdfs:comment "Actionable text payload indicating recommended update policies for LLM context files." ;
+    rdfs:range xsd:string .
+
+:scopesPath a owl:DatatypeProperty ;
+    rdfs:label "scopes path" ;
+    rdfs:comment "Specifies the path or directory boundary that this context, hook, or optimization scopes to." ;
+    rdfs:range xsd:string .
+
+:singletonGroup a owl:DatatypeProperty ;
+    rdfs:label "singleton group" ;
+    rdfs:comment "A processor's mutual-exclusion class (_singleton_group): at most one accepted processor per (hook, group) (CONCEPT:KG-2.109)." ;
+    rdfs:domain :Processor ;
+    rdfs:range xsd:string .
+
+:step_end a :HarnessHook ;
+    rdfs:label "step_end" ;
+    :hookEventType "StepEndEvent" ;
+    :hookReadOnly true ;
+    :permittedModification "read-only" .
+
+:step_start a :HarnessHook ;
+    rdfs:label "step_start" ;
+    :hookEventType "StepStartEvent" ;
+    :hookReadOnly false ;
+    :permittedModification "structural history edits" .
+
+:symbolPrecisionSupport a owl:DatatypeProperty ;
+    rdfs:label "symbol precision support" ;
+    rdfs:comment "Boolean flag showing if the LSP server supports high-precision symbol resolution queries." ;
+    rdfs:range xsd:boolean .
+
+:targetsDimension a owl:ObjectProperty ;
+    rdfs:label "targets dimension" ;
+    rdfs:comment "A HarnessEdit targets one of the nine behavioral dimensions — the formal edit scope that makes concentration detectable (CONCEPT:KG-2.107)." ;
+    rdfs:domain :HarnessEdit ;
+    rdfs:range :HarnessDimension .
+
+:task_end a :HarnessHook ;
+    rdfs:label "task_end" ;
+    :hookEventType "TaskEndEvent" ;
+    :hookReadOnly true ;
+    :permittedModification "read-only" .
+
+:task_start a :HarnessHook ;
+    rdfs:label "task_start" ;
+    :hookEventType "TaskStartEvent" ;
+    :hookReadOnly false ;
+    :permittedModification "system prompt" .
+
+:triggersOnEvent a owl:DatatypeProperty ;
+    rdfs:label "triggers on event" ;
+    rdfs:comment "Lifecycle event triggering this hook (e.g. startup, shutdown, pre-flight)." ;
+    rdfs:range xsd:string .
+
+:variantOf a owl:ObjectProperty ;
+    rdfs:label "variant of" ;
+    rdfs:comment "Inverse of hasVariant: the base harness a variant derives from." ;
+    rdfs:domain :HarnessVariant ;
+    rdfs:range :Harness ;
+    owl:inverseOf :hasVariant .
+
+:variantStatus a owl:DatatypeProperty ;
+    rdfs:label "variant status" ;
+    rdfs:comment "Lifecycle status of a HarnessVariant (pending|accepted|rejected|promoted)." ;
+    rdfs:domain :HarnessVariant ;
+    rdfs:range xsd:string .
+
+<http://knuckles.team/kg/harness> a owl:Ontology ;
+    rdfs:label "Developer Harness and AI Optimization Patterns Ontology" ;
+    rdfs:comment """Ontology extension mapping the Claude Code best practices,
+developer harness extension points, plugins, hooks, symbol engines,
+optimization patterns, and human-in-the-loop DRI roles.
+Aligned to ArchiMate 3.2 layers.""" ;
+    owl:imports <http://knuckles.team/kg/core> .
+
+:HarnessExtensionPoint a owl:Class ;
+    rdfs:label "Harness Extension Point" ;
+    rdfs:comment "An entry-point or registry enabling third-party agents or tools to hook into the core agent workflow." ;
+    rdfs:subClassOf :ApplicationLayer .
+
+:OptimizationPattern a owl:Class ;
+    rdfs:label "Optimization Pattern" ;
+    rdfs:comment "A verified AI optimization pattern, e.g., lean contexts, command scoping, or review periods." ;
+    rdfs:subClassOf :MotivationLayer .
+
+:hasVariant a owl:InverseFunctionalProperty,
+        owl:ObjectProperty ;
+    rdfs:label "has variant" ;
+    rdfs:comment "A Harness has an isolated evolution variant." ;
+    rdfs:domain :Harness ;
+    rdfs:range :HarnessVariant .
+
+:mitigatedBy a owl:ObjectProperty ;
+    rdfs:label "mitigated by" ;
+    rdfs:comment "A pathology mitigated by a HarnessEdit (inverse of mitigatesPathology)." ;
+    rdfs:domain :HarnessPathology ;
+    rdfs:range :HarnessEdit .
+
+:HarnessDimension a owl:Class ;
+    rdfs:label "Harness Dimension" ;
+    rdfs:comment "One of the nine behavioral dimensions a harness edit can target (D1 model, D2 context, D3 memory, D4 tools, D5 exec-env, D6 eval/reward, D7 control/safety, D8 observability, D9 training-bridge)." ;
+    rdfs:subClassOf :MotivationLayer .
+
+:Harness a owl:Class ;
+    rdfs:label "Harness" ;
+    rdfs:comment "A first-class composable agent harness H=(model_cfg, harness_cfg): the runtime scaffolding (prompts/tools/memory/control) evolved alongside the model (CONCEPT:KG-2.107)." ;
+    rdfs:subClassOf :ApplicationLayer .
+
+:Processor a owl:Class ;
+    rdfs:label "Processor" ;
+    rdfs:comment "A typed processor attached to a lifecycle Hook in a Harness pipeline (pass-through/transform/split/intercept/interrupt)." ;
+    rdfs:subClassOf :ApplicationLayer .
+
+:HarnessPathology a owl:Class ;
+    rdfs:label "Harness Pathology" ;
+    rdfs:comment "A detected RL pathology in symbolic harness evolution (reward-hacking, catastrophic-forgetting, under-exploration), inferred structurally rather than only from trace symptoms." ;
+    rdfs:subClassOf :MotivationLayer .
+
+:HarnessVariant a owl:Class ;
+    rdfs:label "Harness Variant" ;
+    rdfs:comment "An isolated harness variant in the ensemble-routing pool; tasks route to their cluster's best variant so an edit improving one cluster cannot regress another." ;
+    rdfs:subClassOf :Harness .
+
+:HarnessEdit a owl:Class ;
+    rdfs:label "Harness Edit" ;
+    rdfs:comment "A typed evolution edit to a harness (the action in the operational mirror), targeting one HarnessDimension, with a change manifest and verifier evidence." ;
+    rdfs:subClassOf :ApplicationLayer .
+
+:HarnessHook a owl:Class ;
+    rdfs:label "Harness Hook" ;
+    rdfs:comment "One of the eight lifecycle hook points a processor attaches to (task_start, step_start, before_model, after_model, before_tool, after_tool, step_end, task_end). Distinct from the dev-CLI :Hook (CONCEPT:KG-2.109)." ;
+    rdfs:subClassOf :ApplicationLayer .

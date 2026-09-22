@@ -223,6 +223,7 @@ fn apply_apply_mutation(
 /// call in this body, even though the function is unreachable in that build.
 #[cfg(feature = "reasoning")]
 struct DatalogReasoningInput {
+    schema_digests: Vec<String>,
     subclass_relations: Vec<(String, String)>,
     subproperty_relations: Vec<(String, String)>,
     symmetric_properties: Vec<String>,
@@ -230,7 +231,25 @@ struct DatalogReasoningInput {
     inverse_properties: Vec<(String, String)>,
     domain_rules: Vec<(String, String)>,
     range_rules: Vec<(String, String)>,
-    property_chains: Vec<(String, String, String)>,
+    property_chains: Vec<(Vec<String>, String)>,
+}
+
+#[cfg(feature = "reasoning")]
+impl DatalogReasoningInput {
+    fn has_axioms(&self) -> bool {
+        [
+            self.subclass_relations.len(),
+            self.subproperty_relations.len(),
+            self.symmetric_properties.len(),
+            self.transitive_properties.len(),
+            self.inverse_properties.len(),
+            self.domain_rules.len(),
+            self.range_rules.len(),
+            self.property_chains.len(),
+        ]
+        .into_iter()
+        .any(|length| length != 0)
+    }
 }
 
 #[cfg(feature = "reasoning")]
@@ -238,37 +257,234 @@ fn apply_run_datalog_reasoning(
     core: &GraphCore,
     input: DatalogReasoningInput,
 ) -> Result<ResultPayload, String> {
-    let mut all_inferred: Vec<std::collections::HashMap<String, String>> = Vec::new();
-    match crate::reasoning::run_datalog_reasoning(
-        core,
-        input.subclass_relations,
-        input.subproperty_relations,
-        input.symmetric_properties,
-        input.transitive_properties,
-        input.inverse_properties,
-    ) {
-        Ok(triples) => all_inferred.extend(triples),
-        Err(e) => return Err(e),
-    }
-    if !input.domain_rules.is_empty() || !input.range_rules.is_empty() {
-        all_inferred.extend(crate::reasoning::infer_domain_range(
-            core,
-            input.domain_rules,
-            input.range_rules,
-        ));
-    }
-    if !input.property_chains.is_empty() {
-        all_inferred.extend(crate::reasoning::infer_property_chains(
-            core,
-            input.property_chains,
-        ));
-    }
+    let input = resolve_datalog_input(core, input)?;
+    let (schema_digests, all_inferred) = collect_datalog_inferences(core, input)?;
     ResultPayload::of::<eg_types::result_contract::reasoning::RunDatalogReasoning>(
         eg_types::types::DatalogReasoningResult {
+            schema_digests,
             inferred_count: all_inferred.len(),
             inferred_triples: all_inferred,
         },
     )
+}
+
+#[cfg(all(feature = "reasoning", feature = "owl", feature = "shacl"))]
+fn resolve_datalog_input(
+    core: &GraphCore,
+    input: DatalogReasoningInput,
+) -> Result<DatalogReasoningInput, String> {
+    if input.has_axioms() {
+        Ok(input)
+    } else {
+        datalog_input_from_graph_schema(core)
+    }
+}
+
+#[cfg(all(feature = "reasoning", feature = "owl", not(feature = "shacl")))]
+fn resolve_datalog_input(
+    _core: &GraphCore,
+    input: DatalogReasoningInput,
+) -> Result<DatalogReasoningInput, String> {
+    if input.has_axioms() {
+        Ok(input)
+    } else {
+        Err("OWL_AUTHORITY_UNAVAILABLE: committed GraphSchema reasoning requires the shacl/owl-dl build".to_string())
+    }
+}
+
+#[cfg(all(feature = "reasoning", not(feature = "owl")))]
+fn resolve_datalog_input(
+    _core: &GraphCore,
+    input: DatalogReasoningInput,
+) -> Result<DatalogReasoningInput, String> {
+    Ok(input)
+}
+
+#[cfg(feature = "reasoning")]
+fn collect_datalog_inferences(
+    core: &GraphCore,
+    input: DatalogReasoningInput,
+) -> Result<(Vec<String>, Vec<std::collections::HashMap<String, String>>), String> {
+    let DatalogReasoningInput {
+        schema_digests,
+        subclass_relations,
+        subproperty_relations,
+        symmetric_properties,
+        transitive_properties,
+        inverse_properties,
+        domain_rules,
+        range_rules,
+        property_chains,
+    } = input;
+    let mut all_inferred = crate::reasoning::run_datalog_reasoning(
+        core,
+        subclass_relations,
+        subproperty_relations,
+        symmetric_properties,
+        transitive_properties,
+        inverse_properties,
+    )?;
+    append_optional_datalog_inferences(
+        core,
+        &mut all_inferred,
+        domain_rules,
+        range_rules,
+        property_chains,
+    );
+    crate::reasoning::bind_inference_schema_digests(core, &mut all_inferred, &schema_digests);
+    Ok((schema_digests, all_inferred))
+}
+
+#[cfg(feature = "reasoning")]
+fn append_optional_datalog_inferences(
+    core: &GraphCore,
+    all_inferred: &mut Vec<std::collections::HashMap<String, String>>,
+    domain_rules: Vec<(String, String)>,
+    range_rules: Vec<(String, String)>,
+    property_chains: Vec<(Vec<String>, String)>,
+) {
+    if !domain_rules.is_empty() || !range_rules.is_empty() {
+        all_inferred.extend(crate::reasoning::infer_domain_range(
+            core,
+            domain_rules,
+            range_rules,
+        ));
+    }
+    if !property_chains.is_empty() {
+        all_inferred.extend(crate::reasoning::infer_property_chain_axioms(
+            core,
+            property_chains,
+        ));
+    }
+}
+
+/// Compile the current committed GraphSchema ontology union into the existing
+/// mutation-safe Datalog materializer.  An empty `RunDatalogReasoning` request
+/// therefore means "use committed authority", not "perform an empty no-op";
+/// callers no longer parse copied TTL or maintain a second axiom registry.
+#[cfg(all(feature = "reasoning", feature = "owl", feature = "shacl"))]
+fn datalog_input_from_graph_schema(core: &GraphCore) -> Result<DatalogReasoningInput, String> {
+    let sources = core.schema_sources();
+    if sources.ontologies().next().is_none() {
+        return Err("OWL_AUTHORITY_MISSING: composed GraphSchema has no ontology".to_string());
+    }
+    // Always reason over the validated composition. Parsing source documents
+    // independently would let their local blank-node labels alias one another
+    // and would bypass the conflict/import checks used at commit time.
+    let triples = crate::server::graph_schema::compose::validate_and_compose(&sources)?.ontology;
+    let ontology = eg_rdf::owl::parse_ontology(&triples);
+    Ok(datalog_input_from_ontology(
+        ontology,
+        sources.composed_digest().to_hex(),
+    ))
+}
+
+#[cfg(all(feature = "reasoning", feature = "owl", feature = "shacl"))]
+fn datalog_input_from_ontology(
+    ontology: eg_rdf::owl::Ontology,
+    composed_digest: String,
+) -> DatalogReasoningInput {
+    // The native property graph stores relationship labels in UPPER_SNAKE,
+    // while the RDF authority uses camelCase IRI local names. The canonical
+    // projection lives with the native OWL parser and is shared by read-side
+    // fact saturation and write-side materialization.
+    let relationship = eg_rdf::owl::native_relationship_label;
+    let subclass_relations = datalog_subclass_relations(&ontology);
+    let (transitive_properties, property_chains) = datalog_property_chains(&ontology, relationship);
+    DatalogReasoningInput {
+        schema_digests: vec![composed_digest],
+        subclass_relations,
+        subproperty_relations: ontology
+            .sub_roles
+            .into_iter()
+            .filter_map(|(sub, sup, _, _)| {
+                let (sub, sup) = (relationship(&sub), relationship(&sup));
+                (!sub.is_empty() && !sup.is_empty()).then_some((sub, sup))
+            })
+            .collect(),
+        symmetric_properties: ontology
+            .symmetric
+            .into_iter()
+            .map(|role| relationship(&role))
+            .filter(|role| !role.is_empty())
+            .collect(),
+        transitive_properties,
+        inverse_properties: ontology
+            .inverses
+            .into_iter()
+            .filter_map(|(left, right)| {
+                let (left, right) = (relationship(&left), relationship(&right));
+                (!left.is_empty() && !right.is_empty()).then_some((left, right))
+            })
+            .collect(),
+        domain_rules: ontology
+            .domains
+            .into_iter()
+            .filter_map(|(role, class_iri)| {
+                let role = relationship(&role);
+                (!role.is_empty()).then_some((role, class(&class_iri)?))
+            })
+            .collect(),
+        range_rules: ontology
+            .ranges
+            .into_iter()
+            .filter_map(|(role, class_iri)| {
+                let role = relationship(&role);
+                (!role.is_empty()).then_some((role, class(&class_iri)?))
+            })
+            .collect(),
+        property_chains,
+    }
+}
+
+#[cfg(all(feature = "reasoning", feature = "owl", feature = "shacl"))]
+fn datalog_subclass_relations(ontology: &eg_rdf::owl::Ontology) -> Vec<(String, String)> {
+    let mut relations = Vec::new();
+    for gci in &ontology.gcis {
+        if let ([eg_rdf::owl::Concept::Named(sub)], eg_rdf::owl::Concept::Named(sup)) =
+            (gci.lhs.as_slice(), &gci.rhs)
+        {
+            if let (Some(sub), Some(sup)) = (datalog_class(sub), datalog_class(sup)) {
+                relations.push((sub, sup));
+            }
+        }
+    }
+    relations
+}
+
+#[cfg(all(feature = "reasoning", feature = "owl", feature = "shacl"))]
+fn datalog_property_chains(
+    ontology: &eg_rdf::owl::Ontology,
+    relationship: fn(&str) -> String,
+) -> (Vec<String>, Vec<(Vec<String>, String)>) {
+    let mut transitive_properties = Vec::new();
+    let mut property_chains = Vec::new();
+    for chain in &ontology.chains {
+        let chain_roles: Vec<String> = chain.chain.iter().map(|role| relationship(role)).collect();
+        let sup = relationship(&chain.sup);
+        if sup.is_empty() || chain_roles.iter().any(String::is_empty) {
+            continue;
+        }
+        if chain_roles.len() == 2 && chain_roles.iter().all(|role| role == &sup) {
+            transitive_properties.push(sup);
+        } else if !chain_roles.is_empty() {
+            property_chains.push((chain_roles, sup));
+        }
+    }
+    (transitive_properties, property_chains)
+}
+
+#[cfg(all(feature = "reasoning", feature = "owl", feature = "shacl"))]
+fn datalog_class(value: &str) -> Option<String> {
+    let value = value
+        .strip_prefix('<')
+        .and_then(|value| value.strip_suffix('>'))
+        .unwrap_or(value);
+    let value = value
+        .rsplit_once('#')
+        .or_else(|| value.rsplit_once('/'))
+        .map_or(value, |(_, local)| local);
+    (!value.is_empty() && value.as_bytes()[0].is_ascii_alphabetic()).then(|| value.to_string())
 }
 
 /// `ClaimNext`: pure extract-method from `try_handle_gateway`'s closure,
@@ -401,9 +617,40 @@ fn decode_pose(blob: &[u8]) -> Option<eg_core::scene::Pose> {
 }
 
 pub(super) async fn try_handle(
+    state: &Arc<RwLock<ServerState>>,
+    tenant_id: &str,
     ctx: &MutationCtx<'_>,
     plan: &MutationPlan,
     method: &Method,
 ) -> Option<Response> {
-    gateway_graph_routes::try_handle(ctx, plan, method).await
+    gateway_graph_routes::try_handle(state, tenant_id, ctx, plan, method).await
+}
+
+#[cfg(all(test, feature = "reasoning", feature = "owl", feature = "shacl"))]
+mod graph_schema_reasoning_tests {
+    use super::*;
+
+    #[test]
+    fn empty_materialization_request_compiles_the_committed_schema_authority() {
+        let core = GraphCore::new();
+        let input = datalog_input_from_graph_schema(&core).unwrap();
+
+        assert_eq!(input.schema_digests.len(), 1);
+        assert!(!input.subclass_relations.is_empty());
+        assert!(!input.subproperty_relations.is_empty());
+        assert!(!input.symmetric_properties.is_empty());
+        assert!(!input.transitive_properties.is_empty());
+        assert!(!input.inverse_properties.is_empty());
+        assert!(!input.domain_rules.is_empty());
+        assert!(!input.range_rules.is_empty());
+        assert!(!input.property_chains.is_empty());
+        assert!(input
+            .transitive_properties
+            .iter()
+            .any(|property| property == "PART_OF"));
+        assert!(input
+            .subproperty_relations
+            .iter()
+            .any(|(child, parent)| child == "PART_OF" && parent == "DEPENDS_ON"));
+    }
 }

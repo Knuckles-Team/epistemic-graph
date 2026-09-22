@@ -847,14 +847,14 @@ class CommitWorkItemResultRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    error_ref: Any | None = None
+    error_ref: str | None = None
     fencing_token: int
     idempotency_key: str
     lease_epoch: int
     now_ms: int
     outcome: str
     outcome_extension: Any | None = None
-    result_ref: Any | None = None
+    result_ref: str | None = None
     retryable: bool | None = None
     tenant: str
     work_item_id: str
@@ -915,7 +915,7 @@ class CancelWorkItemRequest(BaseModel):
 
     idempotency_key: str
     now_ms: int
-    reason_ref: Any | None = None
+    reason_ref: str | None = None
     tenant: str
     work_item_id: str
 
@@ -977,7 +977,7 @@ class DeferWorkItemRequest(BaseModel):
     lease_epoch: int
     next_retry_at_ms: int
     now_ms: int
-    reason_ref: Any | None = None
+    reason_ref: str | None = None
     tenant: str
     work_item_id: str
     worker_id: str
@@ -1844,7 +1844,7 @@ class ResourceStatsPageRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    cursor: Any | None = None
+    cursor: str | None = None
     limit: int | None = None
     summary: bool | None = None
 

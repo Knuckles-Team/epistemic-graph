@@ -411,7 +411,11 @@ pub mod reasoning_cascade;
 pub(crate) mod icv_guard;
 // The 2.27.x contract wave's refusal stubs. Deleted by the promotion commit.
 pub(crate) mod contract_wave;
-// X9 — keyed schema sources on one request graph.
+// X9 — keyed schema sources on one request graph.  The authority composes both
+// OWL and SHACL documents and is therefore present only in the certified SHACL
+// build (which implies `owl-dl`).  Minimal/server-only profiles must not pull
+// the RDF stack through this internal module accidentally.
+#[cfg(feature = "shacl")]
 pub(crate) mod graph_schema;
 pub mod persistence;
 // Shared request/auth/codec support for native wire adapters. Each adapter keeps

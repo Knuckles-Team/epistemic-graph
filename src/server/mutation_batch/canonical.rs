@@ -626,6 +626,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::Solve { .. }
         | Method::ConnectorPack { .. }
         | Method::SourceIngest { .. }
+        | Method::SourceIngestStatus { .. }
         | Method::WriteBack { .. }
         | Method::GraphSchema { .. }
         | Method::GraphSchemaList

@@ -88,6 +88,15 @@ pub struct ShaclValidationResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub struct ShaclValidationReport {
+    /// Sorted unique document digests of every committed SHACL source used by
+    /// this validation. Explicit ad-hoc shapes carry none, so governance
+    /// consumers can fail closed rather than mistaking caller-supplied
+    /// constraints for committed authority.
+    pub schema_digests: Vec<String>,
+    /// The request graph's composed digest when committed GraphSchema shapes
+    /// were used; absent only for explicit ad-hoc shapes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub composed_digest: Option<String>,
     /// `sh:conforms` -- true iff there are no results.
     pub conforms: bool,
     /// The `sh:result` list.

@@ -48,7 +48,7 @@ def test_formatting_configuration_change_widens_only_the_read_only_check() -> No
 
 def test_hook_and_queue_authority_files_are_in_scope_and_widen_the_check() -> None:
     for path in (
-        ".pre-commit-config.yaml",
+        ".config/pre-commit.yaml",
         ".mergequeue.yaml",
         "scripts/check_rustfmt_scope.py",
     ):

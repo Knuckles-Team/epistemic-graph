@@ -1,0 +1,199 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix infra: <http://knuckles.team/kg/infrastructure#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:Approval a owl:Class ;
+    rdfs:label "Approval" ;
+    rdfs:comment "The evidence that a :ControlGate was cleared — an owner sign-off, a DPIA approval, or a completed Camunda user task." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:CheckRun rdfs:subClassOf :PipelineRun .
+
+:ControlGate a owl:Class ;
+    rdfs:label "Control Gate" ;
+    rdfs:comment "A governance/compliance checkpoint a lifecycle transition must clear (owner sign-off, DPIA, Camunda approval) — modeled as a gate :WorkflowStep in the composed lifecycle skill-workflow (design §6/§7), satisfied by an :Approval/:ProcessInstance/:Assessment." ;
+    rdfs:subClassOf bfo:0000015 .
+
+:EscalationRequest a owl:Class ;
+    rdfs:label "Escalation Request" ;
+    rdfs:comment "A first-class node the escalation policy emits when it determines a human is needed for a pending transition (design §3.4) — makes 'why did this need a human' itself auditable." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:MergeRequest a owl:Class ;
+    rdfs:label "Merge Request" ;
+    rdfs:comment "A GitLab merge request (ingested by gitlab-api). A proposed, review-gated code change targeting a branch." ;
+    rdfs:subClassOf :CodeChangeProposal .
+
+:Procedure owl:equivalentClass :WorkflowDefinition .
+
+:PullRequest a owl:Class ;
+    rdfs:label "Pull Request" ;
+    rdfs:comment "A GitHub pull request (ingested by github-agent) — the GitHub twin of :MergeRequest." ;
+    rdfs:subClassOf :CodeChangeProposal .
+
+:SpecProposal rdfs:subClassOf :Spec .
+
+:WorkflowStep a owl:Class ;
+    rdfs:label "Workflow Step" ;
+    rdfs:comment "One step of a :WorkflowDefinition (a skill-workflow ### Step). A governance gate is a :WorkflowStep whose kind is 'gate' (design §6/§7)." ;
+    rdfs:subClassOf bfo:0000015 .
+
+:aliasOf a owl:ObjectProperty ;
+    rdfs:label "alias of" ;
+    rdfs:comment "A URL-keyed repo node (Portainer's git:repo:<host>/<path> :Repository) is an alias of the numeric-id repo node the code ingestors created (github:repository:<id> / gitlab:project:<id>) — the same underlying git repository, reconciled by normalized clone URL (design §4.3). Paired with owl:sameAs by the repo crosswalk resolver." ;
+    rdfs:subPropertyOf owl:sameAs .
+
+:boundCapability a owl:DatatypeProperty ;
+    rdfs:label "bound capability" ;
+    rdfs:comment "The fleet capability (module:function / MCP tool) a :LifecycleStep would invoke to execute its transition — recorded, never called, by the report-only orchestrator." ;
+    rdfs:domain :LifecycleStep ;
+    rdfs:range xsd:string .
+
+:builds a owl:ObjectProperty ;
+    rdfs:label "builds" ;
+    rdfs:comment "A green :PipelineRun builds a :ContainerImage artifact (design §1.2)." ;
+    rdfs:domain :PipelineRun ;
+    rdfs:range infra:ContainerImage .
+
+:builtFrom a owl:ObjectProperty ;
+    rdfs:label "built from" ;
+    rdfs:comment "A :ContainerImage was built from the source :Repository/:Project (the gap-#1 predicate, design §4) — resolved from the OCI source label or Portainer's RepositoryURL." ;
+    rdfs:domain infra:ContainerImage .
+
+:deploys a owl:ObjectProperty ;
+    rdfs:label "deploys" ;
+    rdfs:comment "A :Deployment deploys a specific :ContainerImage (lifecycle-stage sense, disambiguated from the k8s-kind string, design §4.4)." ;
+    rdfs:range infra:ContainerImage .
+
+:hasLifecycleStep a owl:ObjectProperty ;
+    rdfs:label "has lifecycle step" ;
+    rdfs:comment "Links the entry node the orchestrator was run on to each report-only :LifecycleStep it emitted." ;
+    rdfs:range :LifecycleStep .
+
+:implements a owl:ObjectProperty ;
+    rdfs:label "implements" ;
+    rdfs:comment "A :Spec is implemented by a :CodeChange / :CodeChangeProposal (design §1.2)." ;
+    rdfs:domain :Spec ;
+    rdfs:range :CodeChange .
+
+:proposes a owl:ObjectProperty ;
+    rdfs:label "proposes" ;
+    rdfs:comment "A :CodeChange is proposed as a :MergeRequest / :PullRequest (design §1.2)." ;
+    rdfs:domain :CodeChange ;
+    rdfs:range :CodeChangeProposal .
+
+:resolves a owl:ObjectProperty ;
+    rdfs:label "resolves" ;
+    rdfs:comment "A passing :Validation resolves the originating :Incident, closing the loop (design §1.2)." ;
+    rdfs:domain :Validation ;
+    rdfs:range infra:Incident .
+
+:routedTo a owl:ObjectProperty ;
+    rdfs:label "routed to" ;
+    rdfs:comment "The ticketing system-of-record (Jira|Plane|ServiceNow|…) a :Ticket was routed to (decision #1, design §2.5) — recorded so close-out targets the same system without re-resolving." ;
+    rdfs:domain :Ticket .
+
+:specifies a owl:ObjectProperty ;
+    rdfs:label "specifies" ;
+    rdfs:comment "A :Ticket specifies the :Spec/:SpecProposal that formalizes the change it asks for (formalizes the spec_ticket link operation, design §1.2)." ;
+    rdfs:domain :Ticket ;
+    rdfs:range :Spec .
+
+:triggers a owl:ObjectProperty ;
+    rdfs:label "triggers" ;
+    rdfs:comment "An :Incident triggers the :Ticket the router files for it (design §1.2)." ;
+    rdfs:domain infra:Incident ;
+    rdfs:range :Ticket .
+
+:triggersPipeline a owl:ObjectProperty ;
+    rdfs:label "triggers pipeline" ;
+    rdfs:comment "A :MergeRequest / :PullRequest triggers a :PipelineRun (CI) — the required-CI edge (design §1.2, §1.3)." ;
+    rdfs:domain :CodeChangeProposal ;
+    rdfs:range :PipelineRun .
+
+:validates a owl:ObjectProperty ;
+    rdfs:label "validates" ;
+    rdfs:comment "A :Deployment is validated by post-deploy health evidence — a :Validation synthesized from :HealthTrend/:HealthAnomaly over the deploy window (design §1.2)." ;
+    rdfs:range :Validation .
+
+<http://knuckles.team/kg/sdlc_lifecycle> a owl:Ontology ;
+    rdfs:label "Agent-Utilities SDLC Lifecycle Ontology" ;
+    rdfs:comment """The cross-cutting predicates + supertypes that unify the per-package
+lifecycle nodes — already ingested independently by the connector fleet (:Incident from
+the incident brain, :Ticket from the incident router, :SpecProposal from the spec-proposal
+pipeline, :MergeRequest/:PullRequest + :PipelineRun/:CheckRun from gitlab-api/github-agent,
+:ContainerImage from container-manager-mcp/dockerhub-api, :Repository/:Project from the code
+ingestors, :Deployment/:Stack from container-manager-mcp/portainer-agent) — into ONE
+enter-anywhere remediation lifecycle (reports/autonomous-sdlc-loop-design.md §1).
+
+This module adds ONLY the connective tissue: the handful of missing supertypes
+(:Ticket, :PipelineRun, :CodeChange, :Validation, :ControlGate, :Approval,
+:EscalationRequest, :LifecycleStep) and the directed predicates that chain the stages
+(:triggers → :specifies → :implements → :proposes → :triggersPipeline → :builds →
+:builtFrom → :deployedAs → :validatedBy → :resolves). No existing class is renamed or
+duplicated — package-local classes (:Incident, :ContainerImage, :Deployment, …) are
+referenced, not redeclared. Per decision #4 the executable-process axis binds
+:Procedure ≡ :WorkflowDefinition so the composed lifecycle loop runs on the existing
+skill-workflow executor. The REQUIRED shape per lifecycle state (e.g. a merged
+:CodeChange REQUIRES a :PipelineRun) is expressed as SHACL in
+shapes/sdlc_lifecycle.shapes.ttl, consulted in DIFF mode by the enter-anywhere
+orchestrator (agent_utilities.observability.lifecycle_orchestrator).""" ;
+    owl:imports <http://knuckles.team/kg/infrastructure>,
+        <http://knuckles.team/kg/orchestration> .
+
+:WorkflowDefinition a owl:Class ;
+    rdfs:label "Workflow Definition" ;
+    rdfs:comment "The skill-workflow DAG (skill_workflow_ingest.ingest_one) — the fleet's canonical executable process representation, run by WorkflowRunner. Promoted from an LPG label to a first-class OWL class (design §1.4, G-owl)." ;
+    rdfs:subClassOf bfo:0000015 .
+
+:CodeChange a owl:Class ;
+    rdfs:label "Code Change" ;
+    rdfs:comment "A concrete set of code edits realizing a :Spec — the local-write leg (branch + commit) before it is proposed as an MR/PR (design §1.1)." ;
+    rdfs:subClassOf bfo:0000015 .
+
+:LifecycleStep a owl:Class ;
+    rdfs:label "Lifecycle Step" ;
+    rdfs:comment """One REPORT-ONLY gap-fill transition the enter-anywhere orchestrator emits
+(agent_utilities.observability.lifecycle_orchestrator): a proposed forward/backward transition
+between two lifecycle stages, bound (via :boundCapability) to the fleet capability that WOULD
+execute it, with a stable dedupe signature. Emitting a :LifecycleStep NEVER executes anything —
+an operator drives it via graph_loops/WorkflowRunner when autonomy is turned on.""" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:Validation a owl:Class ;
+    rdfs:label "Validation" ;
+    rdfs:comment "The time-windowed post-deploy health evidence that a :Deployment did not regress the affected entity — synthesized from :HealthTrend/:HealthAnomaly rows over the deploy window (design §1.1)." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:PipelineRun a owl:Class ;
+    rdfs:label "Pipeline Run" ;
+    rdfs:comment "One CI pipeline execution (GitLab pipeline / GitHub Actions workflow run) — carries a status (success/failed/running). The KG representation of CI state (design §1.1, G8)." ;
+    rdfs:subClassOf bfo:0000015 .
+
+:Spec a owl:Class ;
+    rdfs:label "Spec" ;
+    rdfs:comment "A specification of an intended code change — the graph-native, approval-gated :SpecProposal generalizes to this supertype (design §1.1)." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Ticket a owl:Class ;
+    rdfs:label "Ticket" ;
+    rdfs:comment """A unified work-item supertype over the disjoint per-system issue node
+shapes (Jira/Plane/GitLab/GitHub/ServiceNow/ERPNext) written by the incident router and the
+issue-tracker sinks. The system-of-record it was routed to is carried on :routedTo.
+BFO:Process — it unfolds through open→ack→resolved over time.""" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:CodeChangeProposal a owl:Class ;
+    rdfs:label "Code Change Proposal" ;
+    rdfs:comment "The platform-neutral supertype over :MergeRequest and :PullRequest — a proposed change awaiting review/CI/merge." ;
+    rdfs:subClassOf bfo:0000015 .

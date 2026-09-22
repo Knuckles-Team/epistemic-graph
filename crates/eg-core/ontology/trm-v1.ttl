@@ -1,0 +1,342 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:ConfigurationItem rdfs:subClassOf :AssetInstance .
+
+:ITComponent rdfs:subClassOf :TechnologyProduct .
+
+:TotalCostOfOwnership a owl:Class ;
+    rdfs:label "Total Cost Of Ownership" ;
+    rdfs:comment "A full-lifecycle Cost record (acquisition + operating + retirement)." ;
+    rdfs:subClassOf :Cost .
+
+:annualCost a owl:DatatypeProperty ;
+    rdfs:label "annual cost" ;
+    rdfs:comment "Yearly cost of a :Cost/:TotalCostOfOwnership record." ;
+    rdfs:domain :Cost ;
+    rdfs:range xsd:float .
+
+:appliesCriterion a owl:ObjectProperty ;
+    rdfs:label "applies criterion" ;
+    rdfs:comment "Links an Assessment to a weighted ComparisonCriterion it scored." ;
+    rdfs:domain :Assessment ;
+    rdfs:range :ComparisonCriterion .
+
+:assessedAgainst a owl:ObjectProperty ;
+    rdfs:label "assessed against" ;
+    rdfs:comment "Links an Assessment to each incumbent/peer TechnologyProduct it compared the candidate to." ;
+    rdfs:domain :Assessment ;
+    rdfs:range :TechnologyProduct .
+
+:assesses a owl:ObjectProperty ;
+    rdfs:label "assesses" ;
+    rdfs:comment "Links an Assessment to the candidate TechnologyProduct it evaluated." ;
+    rdfs:domain :Assessment ;
+    rdfs:range :TechnologyProduct .
+
+:assessmentScore a owl:DatatypeProperty ;
+    rdfs:label "assessment score" ;
+    rdfs:comment "The composed weighted-criteria score (0-1) an Assessment produced." ;
+    rdfs:domain :Assessment ;
+    rdfs:range xsd:float .
+
+:capex a owl:DatatypeProperty ;
+    rdfs:label "capital expenditure" ;
+    rdfs:domain :Cost ;
+    rdfs:range xsd:float .
+
+:competesWith a owl:ObjectProperty,
+        owl:SymmetricProperty ;
+    rdfs:label "competes with" ;
+    rdfs:comment "Market-peer relationship between two TechnologyProducts — a specialization of :swappableWith for competitive (not necessarily capability-identical) peers." ;
+    rdfs:domain :TechnologyProduct ;
+    rdfs:range :TechnologyProduct .
+
+:confidence a owl:DatatypeProperty ;
+    rdfs:label "confidence" ;
+    rdfs:comment "The Recommendation engine's confidence (0-1) in its verdict." ;
+    rdfs:domain :Recommendation ;
+    rdfs:range xsd:float .
+
+:conformsToStandard a owl:ObjectProperty ;
+    rdfs:label "conforms to standard" ;
+    rdfs:comment "A product/asset conforms to an approved technology standard." ;
+    rdfs:range :TechnologyStandard .
+
+:consolidates a owl:ObjectProperty ;
+    rdfs:label "consolidates" ;
+    rdfs:comment "Links a consolidate-verdict Recommendation to the redundant TechnologyProduct(s) it proposes retiring." ;
+    rdfs:domain :Recommendation ;
+    rdfs:range :TechnologyProduct .
+
+:costBasis a owl:DatatypeProperty ;
+    rdfs:label "cost basis" ;
+    rdfs:comment "list, negotiated, or effective." ;
+    rdfs:domain :Cost ;
+    rdfs:range xsd:string .
+
+:criterionKind a owl:DatatypeProperty ;
+    rdfs:label "criterion kind" ;
+    rdfs:comment "functionality, unique-capability, cost, licensing, integration-fit, objective-alignment, consolidation-benefit, compliance-ato." ;
+    rdfs:domain :ComparisonCriterion ;
+    rdfs:range xsd:string .
+
+:criterionWeight a owl:DatatypeProperty ;
+    rdfs:label "criterion weight" ;
+    rdfs:comment "The weight (0-1) a ComparisonCriterion carries in the weighted sum." ;
+    rdfs:domain :ComparisonCriterion ;
+    rdfs:range xsd:float .
+
+:currencyCode a owl:DatatypeProperty ;
+    rdfs:label "currency code" ;
+    rdfs:domain :Cost ;
+    rdfs:range xsd:string .
+
+:currentValue a owl:DatatypeProperty ;
+    rdfs:label "current value" ;
+    rdfs:domain :Objective ;
+    rdfs:range xsd:float .
+
+:endOfLifeDate a owl:DatatypeProperty ;
+    rdfs:label "end of life date" ;
+    rdfs:range xsd:date .
+
+:financialDelta a owl:DatatypeProperty ;
+    rdfs:label "financial delta" ;
+    rdfs:comment "Sigma annualCost of everything :consolidates minus the candidate's annualCost, recorded on the Assessment." ;
+    rdfs:domain :Assessment ;
+    rdfs:range xsd:float .
+
+:hasAssessment a owl:ObjectProperty ;
+    rdfs:label "has assessment" ;
+    rdfs:comment "Links a TRMRequest to the Assessment(s) run against it." ;
+    rdfs:domain :TRMRequest ;
+    rdfs:range :Assessment .
+
+:hasRisk a owl:ObjectProperty ;
+    rdfs:label "has risk" ;
+    rdfs:comment "Attaches a TechnologyRisk finding to a product or asset." ;
+    rdfs:range :TechnologyRisk .
+
+:incursCost a owl:ObjectProperty ;
+    rdfs:label "incurs cost" ;
+    rdfs:comment "Links a TechnologyProduct or AssetInstance to its Cost/TotalCostOfOwnership record." ;
+    rdfs:range :Cost .
+
+:instanceOf a owl:ObjectProperty ;
+    rdfs:label "instance of" ;
+    rdfs:comment "Links a deployed AssetInstance to the TechnologyProduct it realizes." ;
+    rdfs:domain :AssetInstance ;
+    rdfs:range :TechnologyProduct .
+
+:integratesWith a owl:ObjectProperty ;
+    rdfs:label "integrates with" ;
+    rdfs:comment "Ecosystem-fit edge between two TechnologyProducts — derivable from shared :dependsOn/:providesCapability topology, or asserted directly." ;
+    rdfs:domain :TechnologyProduct ;
+    rdfs:range :TechnologyProduct .
+
+:licenseModel a owl:DatatypeProperty ;
+    rdfs:label "license model" ;
+    rdfs:comment "perpetual, subscription, usage, or opensource." ;
+    rdfs:domain :License ;
+    rdfs:range xsd:string .
+
+:licenseTerm a owl:DatatypeProperty ;
+    rdfs:label "license term" ;
+    rdfs:domain :License ;
+    rdfs:range xsd:string .
+
+:licensedUnder a owl:ObjectProperty ;
+    rdfs:label "licensed under" ;
+    rdfs:comment "Links a TechnologyProduct to the License entitlement it is deployed under." ;
+    rdfs:domain :TechnologyProduct ;
+    rdfs:range :License .
+
+:lifecycleStage a owl:DatatypeProperty ;
+    rdfs:label "lifecycle stage" ;
+    rdfs:comment "Lifecycle phase (e.g. plan/active/eol/retired)." ;
+    rdfs:range xsd:string .
+
+:memberOfPeerGroup a owl:ObjectProperty ;
+    rdfs:label "member of peer group" ;
+    rdfs:comment "Links a TechnologyProduct to the best-in-category PeerGroup it competes within." ;
+    rdfs:domain :TechnologyProduct ;
+    rdfs:range :PeerGroup .
+
+:migratesFrom a owl:ObjectProperty ;
+    rdfs:label "migrates from" ;
+    rdfs:comment "Links a migrate-verdict Recommendation to the incumbent TechnologyProduct being replaced." ;
+    rdfs:domain :Recommendation ;
+    rdfs:range :TechnologyProduct .
+
+:migratesTo a owl:ObjectProperty ;
+    rdfs:label "migrates to" ;
+    rdfs:comment "Links a migrate-verdict Recommendation to the replacement TechnologyProduct." ;
+    rdfs:domain :Recommendation ;
+    rdfs:range :TechnologyProduct .
+
+:normalizedScore a owl:DatatypeProperty ;
+    rdfs:label "normalized score" ;
+    rdfs:comment "A ComparisonCriterion's normalized (0-1) score before weighting." ;
+    rdfs:domain :ComparisonCriterion ;
+    rdfs:range xsd:float .
+
+:objectiveWeight a owl:DatatypeProperty ;
+    rdfs:label "objective weight" ;
+    rdfs:comment "The weight (0-1) an Objective carries as an MCDA optimization target." ;
+    rdfs:domain :Objective ;
+    rdfs:range xsd:float .
+
+:opex a owl:DatatypeProperty ;
+    rdfs:label "operating expenditure" ;
+    rdfs:domain :Cost ;
+    rdfs:range xsd:float .
+
+:rationale a owl:DatatypeProperty ;
+    rdfs:label "rationale" ;
+    rdfs:comment "The human-readable ranked-criterion explanation backing a Recommendation's verdict." ;
+    rdfs:domain :Recommendation ;
+    rdfs:range xsd:string .
+
+:recommends a owl:ObjectProperty ;
+    rdfs:label "recommends" ;
+    rdfs:comment "Links a Recommendation to the TechnologyProduct it recommends adopting/keeping." ;
+    rdfs:domain :Recommendation ;
+    rdfs:range :TechnologyProduct .
+
+:requestState a owl:DatatypeProperty ;
+    rdfs:label "request state" ;
+    rdfs:domain :TRMRequest ;
+    rdfs:range xsd:string .
+
+:requestedProduct a owl:DatatypeProperty ;
+    rdfs:label "requested product" ;
+    rdfs:comment "The free-text candidate product name captured at TRMRequest intake, before it resolves to a TechnologyProduct node." ;
+    rdfs:domain :TRMRequest ;
+    rdfs:range xsd:string .
+
+:riskRating a owl:DatatypeProperty ;
+    rdfs:label "risk rating" ;
+    rdfs:comment "Qualitative risk rating (e.g. low/medium/high/critical)." ;
+    rdfs:range xsd:string .
+
+:runTimestamp a owl:DatatypeProperty ;
+    rdfs:label "run timestamp" ;
+    rdfs:domain :Assessment ;
+    rdfs:range xsd:dateTime .
+
+:seatCount a owl:DatatypeProperty ;
+    rdfs:label "seat count" ;
+    rdfs:domain :License ;
+    rdfs:range xsd:integer .
+
+:servesObjective a owl:ObjectProperty ;
+    rdfs:label "serves objective" ;
+    rdfs:comment "Links a TechnologyProduct to the StrategicGoal/Objective it advances — the objective-alignment MCDA criterion input." ;
+    rdfs:domain :TechnologyProduct ;
+    rdfs:range :StrategicGoal .
+
+:suppliedBy a owl:ObjectProperty ;
+    rdfs:label "supplied by" ;
+    rdfs:comment "Links a TechnologyProduct to its Vendor." ;
+    rdfs:domain :TechnologyProduct ;
+    rdfs:range :Vendor .
+
+:targetValue a owl:DatatypeProperty ;
+    rdfs:label "target value" ;
+    rdfs:domain :Objective ;
+    rdfs:range xsd:float .
+
+:verdict a owl:DatatypeProperty ;
+    rdfs:label "verdict" ;
+    rdfs:comment "adopt, reject, consolidate, or migrate." ;
+    rdfs:domain :Recommendation ;
+    rdfs:range xsd:string .
+
+:vulnerabilityCount a owl:DatatypeProperty ;
+    rdfs:label "vulnerability count" ;
+    rdfs:range xsd:integer .
+
+:weightedBy a owl:ObjectProperty ;
+    rdfs:label "weighted by" ;
+    rdfs:comment "Links a ComparisonCriterion to the StrategicGoal/Objective that sourced its weight." ;
+    rdfs:domain :ComparisonCriterion ;
+    rdfs:range :StrategicGoal .
+
+:yieldsRecommendation a owl:ObjectProperty ;
+    rdfs:label "yields recommendation" ;
+    rdfs:comment "Links an Assessment to the Recommendation verdict it produced." ;
+    rdfs:domain :Assessment ;
+    rdfs:range :Recommendation .
+
+<http://knuckles.team/kg/trm> a owl:Ontology ;
+    rdfs:label "Technology Reference Model + Risk Ontology" ;
+    rdfs:comment """Vendor-neutral Technology Reference Model: a TechnologyProduct/
+    Standard portfolio, deployed AssetInstances, and the TechnologyRisk findings
+    (lifecycle/EOL/vulnerability) the KG reasons over across LeanIX, ServiceNow CMDB,
+    and ERPNext. CONCEPT:KG-2.9.""" ;
+    owl:imports <http://knuckles.team/kg/core> .
+
+:PeerGroup a owl:Class ;
+    rdfs:label "Peer Group" ;
+    rdfs:comment "The best-in-category cohort a TechnologyProduct competes within — seeded from the inferred :RedundantCapability/:swappableWith cluster in the commercial profile, or :TRMCategory in the gov profile." .
+
+:TechnologyRisk a owl:Class ;
+    rdfs:label "Technology Risk" ;
+    rdfs:comment "A risk/compliance finding attached to a product or asset (EOL, vulnerability, lifecycle/risk rating)." .
+
+:TechnologyStandard a owl:Class ;
+    rdfs:label "Technology Standard" ;
+    rdfs:comment "A governed technology standard (an approved product baseline / reference)." ;
+    rdfs:subClassOf :TechnologyProduct .
+
+:Vendor a owl:Class ;
+    rdfs:label "Vendor" ;
+    rdfs:comment "The commercial supplier of a TechnologyProduct. Aligns to LeanIX :Provider via the base :alignedWith." ;
+    rdfs:subClassOf :Organization .
+
+:AssetInstance a owl:Class ;
+    rdfs:label "Asset Instance" ;
+    rdfs:comment "A deployed instance of a technology product — a CMDB CI, an ERPNext Asset, or an infra/topology node." .
+
+:Objective a owl:Class ;
+    rdfs:label "Objective" ;
+    rdfs:comment "A weighted optimization target — a thin StrategicGoal specialization adding objectiveWeight/targetValue/currentValue so a financial/strategic goal becomes a first-class MCDA criterion input." ;
+    rdfs:subClassOf :StrategicGoal .
+
+:TRMRequest a owl:Class ;
+    rdfs:label "TRM Request" ;
+    rdfs:comment "A Technology Reference Model / new-software intake demand (ServiceNow u_trm_request/dmn_demand, or an ERPNext new-software request)." .
+
+:License a owl:Class ;
+    rdfs:label "License" ;
+    rdfs:comment "A software/SaaS entitlement a TechnologyProduct is deployed under (licenseModel/licenseTerm/seatCount) — distinct from the regulatory :CompanyLicense." .
+
+:ComparisonCriterion a owl:Class ;
+    rdfs:label "Comparison Criterion" ;
+    rdfs:comment "One weighted decision axis (criterionKind/criterionWeight/normalizedScore) an Assessment scores a candidate on." .
+
+:Cost a owl:Class ;
+    rdfs:label "Cost" ;
+    rdfs:comment "A cost record (annualCost/capex/opex/currencyCode/costBasis) attached to a TechnologyProduct or AssetInstance via :incursCost." .
+
+:Assessment a owl:Class ;
+    rdfs:label "Assessment" ;
+    rdfs:comment "One comparative-intelligence run: a candidate TechnologyProduct scored against its PeerGroup on a weighted ComparisonCriterion vector." .
+
+:Recommendation a owl:Class ;
+    rdfs:label "Recommendation" ;
+    rdfs:comment "The verdict an Assessment yields — adopt, reject, consolidate, or migrate — with rationale and confidence." .
+
+:TechnologyProduct a owl:Class ;
+    rdfs:label "Technology Product" ;
+    rdfs:comment "An approved/standard technology product in the reference model (a software/hardware product or standard the estate is built from)." .

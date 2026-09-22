@@ -294,12 +294,12 @@ fn apply_pack_rows(
     plan: &ConnectorPackCommitPlan,
     receipt: &PackImportReceipt,
 ) -> Result<(), String> {
-    compare_head(write, plan)?;
+    let visible_record_id = compare_head(write, plan)?;
     apply_components(write, plan)?;
     apply_members(write, plan)?;
     apply_holders(write, plan)?;
     apply_import_record(write, plan)?;
-    apply_head(write, plan, receipt)
+    apply_head(write, plan, receipt, visible_record_id)
 }
 
 fn apply_components(
@@ -398,6 +398,7 @@ fn apply_head(
     write: &eg_transaction::AdmittedOwnerWrite<'_, eg_storage::AgentLibraryOwner>,
     plan: &ConnectorPackCommitPlan,
     receipt: &PackImportReceipt,
+    visible_record_id: Option<String>,
 ) -> Result<(), String> {
     let tenant = plan.record.tenant_id.as_str();
     let connector = plan.record.connector.as_str();
@@ -409,7 +410,9 @@ fn apply_head(
             server_contract_version: plan.record.server.contract_version.clone(),
             server_package_version: plan.record.server.package_version.clone(),
             record_id: plan.record.record_id.clone(),
-            visible_record_id: None,
+            // The prior GraphSchema source remains served until this head's
+            // projection completes its exact-head visibility CAS.
+            visible_record_id,
             committed_at_ms: plan.record.committed_at_ms,
         },
         receipt: receipt.clone(),
@@ -425,7 +428,7 @@ fn apply_head(
 fn compare_head(
     write: &eg_transaction::AdmittedOwnerWrite<'_, eg_storage::AgentLibraryOwner>,
     plan: &ConnectorPackCommitPlan,
-) -> Result<(), String> {
+) -> Result<Option<String>, String> {
     let heads = write.open_table(eg_storage::CONNECTOR_PACK_HEADS)?;
     let actual = heads
         .get((
@@ -439,15 +442,15 @@ fn compare_head(
                 "connector pack head",
             )
         })
-        .transpose()?
-        .map(|row| PackHeadRef {
-            binding_revision: row.head.binding_revision,
-            pack_digest: row.head.pack_digest,
-        });
-    if actual != plan.expected_head {
+        .transpose()?;
+    let actual_head = actual.as_ref().map(|row| PackHeadRef {
+        binding_revision: row.head.binding_revision,
+        pack_digest: row.head.pack_digest,
+    });
+    if actual_head != plan.expected_head {
         return Err("PACK_HEAD_CONFLICT: connector pack head changed".to_string());
     }
-    Ok(())
+    Ok(actual.and_then(|row| row.head.visible_record_id))
 }
 
 fn decode_replayed_result(

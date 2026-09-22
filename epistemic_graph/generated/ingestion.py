@@ -18,6 +18,7 @@ from .index_repository import (
     IndexResult,
 )
 from .source_ingestion import (
+    SourceIngestStatus,
     SourceIngestionReceipt,
     SourceIngestionRequest,
 )
@@ -76,6 +77,59 @@ async def send_source_ingest(
         idempotency_key=idempotency_key,
     )
     return SourceIngestionReceipt.model_validate(payload)
+
+
+class SourceIngestStatusRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        SourceIngestStatus
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/SourceIngestStatus
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    connector: str
+    stream: str
+
+
+async def send_source_ingest_status(
+    client: Any,
+    request: SourceIngestStatusRequest,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> SourceIngestStatus:
+    """Send one engine-contract request.
+
+    Method:
+        SourceIngestStatus
+    Authorization:
+        source:ingest
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.ingestion.json
+        #/methods/SourceIngestStatus
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    request = SourceIngestStatusRequest.model_validate(request)
+    params = request.model_dump(mode="json", by_alias=True, exclude_none=True)
+    payload = await client._send(
+        "SourceIngestStatus",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return SourceIngestStatus.model_validate(payload)
 
 
 class ServedModalityRequest(BaseModel):

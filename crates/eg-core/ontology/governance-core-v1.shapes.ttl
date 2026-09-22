@@ -1,0 +1,62 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+:ADRShape a sh:NodeShape ;
+    sh:description "ADRs must capture context, decision, and authority." ;
+    sh:name "Architecture Decision Record Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "ADR must have a context describing why the decision was needed." ;
+            sh:minCount 1 ;
+            sh:path :context ],
+        [ sh:datatype xsd:string ;
+            sh:message "ADR must have a decision describing what was decided." ;
+            sh:minCount 1 ;
+            sh:path :decision ],
+        [ sh:datatype xsd:string ;
+            sh:message "ADR must have an authority identifying who approved it." ;
+            sh:minCount 1 ;
+            sh:path :authority ] ;
+    sh:targetClass :ArchitectureDecisionRecord .
+
+:CapabilityShape a sh:NodeShape ;
+    sh:description "ServiceCapability instances must be named and carry their abstract capability category." ;
+    sh:name "Service Capability Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:message "Capability must have a name." ;
+            sh:minCount 1 ;
+            sh:path :name ],
+        [ sh:datatype xsd:string ;
+            sh:message "Capability must declare its capabilityCategory." ;
+            sh:minCount 1 ;
+            sh:path :capabilityCategory ] ;
+    sh:targetClass :ServiceCapability .
+
+:PolicyShape a sh:NodeShape ;
+    sh:description "Policies should be linked to the concepts they govern." ;
+    sh:name "Policy Shape" ;
+    sh:property [ sh:message "Policy should be linked to at least one Concept via motivatedBy." ;
+            sh:minCount 0 ;
+            sh:path :motivatedBy ;
+            sh:severity sh:Warning ] ;
+    sh:targetClass :Policy .
+
+:ToolShape a sh:NodeShape ;
+    sh:description "Tools are concrete platform/service instances and must be named and classified by the capability they provide." ;
+    sh:name "Tool Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Tool must have exactly one name." ;
+            sh:minCount 1 ;
+            sh:path :name ],
+        [ sh:datatype xsd:string ;
+            sh:message "Tool must declare at least one capabilityCategory it provides." ;
+            sh:minCount 1 ;
+            sh:path :capabilityCategory ] ;
+    sh:targetClass :Tool .

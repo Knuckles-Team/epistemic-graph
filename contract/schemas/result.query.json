@@ -3058,9 +3058,30 @@
       "maxItems": 64,
       "type": "array"
     },
+    "BoundedVec_SourceEntityRef_16384": {
+      "items": {
+        "$ref": "#/$defs/SourceEntityRef"
+      },
+      "maxItems": 16384,
+      "type": "array"
+    },
     "BoundedVec_SourceRecord_1024": {
       "items": {
         "$ref": "#/$defs/SourceRecord"
+      },
+      "maxItems": 1024,
+      "type": "array"
+    },
+    "BoundedVec_SourceRelationship_4096": {
+      "items": {
+        "$ref": "#/$defs/SourceRelationship"
+      },
+      "maxItems": 4096,
+      "type": "array"
+    },
+    "BoundedVec_SourceWithdrawal_1024": {
+      "items": {
+        "$ref": "#/$defs/SourceWithdrawal"
       },
       "maxItems": 1024,
       "type": "array"
@@ -24734,6 +24755,7 @@
                   "type": "string"
                 },
                 "min_confidence": {
+                  "default": 0.0,
                   "description": "Confidence threshold τ in `[0,1]` (CONCEPT:EG-KG.ontology.concept-13). The result carries a\nper-entailment confidence (axioms/facts may be uncertain; the closure\npropagates it — `eg:confidence` annotations × the per-node confidence ×\nEbbinghaus decay). Only entailments with `confidence ≥ min_confidence` are\nreturned. `0.0` keeps everything (and a HARD ontology yields all `1.0`).",
                   "format": "double",
                   "type": "number"
@@ -24749,9 +24771,6 @@
                   "type": "string"
                 }
               },
-              "required": [
-                "min_confidence"
-              ],
               "type": "object"
             }
           },
@@ -24905,7 +24924,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Validate `data_graph` against `shapes`, both RDF Turtle documents (CONCEPT:EG-KG.ontology.concept-6).\nAn EMPTY `data_graph` validates against the LIVE RDF of the request's graph (the\nsame triples `GetRdf` would export). Returns a `Json` `sh:ValidationReport`.\nRead-only. Handler gated `shacl` (implies `rdf`).",
+          "description": "Validate `data_graph` against SHACL constraints (CONCEPT:EG-KG.ontology.concept-6).\nOmitted or empty `shapes` selects the request graph's composed\nGraphSchema shapes (immutable core plus its attached dynamic sources).\nA non-empty document remains an explicit, ad-hoc shapes graph.\nAn EMPTY `data_graph` validates against the LIVE RDF of the request's graph (the\nsame triples `GetRdf` would export). Returns a `Json` `sh:ValidationReport`.\nRead-only. Handler gated `shacl` (implies `rdf`).",
           "properties": {
             "method": {
               "const": "ShaclValidate",
@@ -24920,13 +24939,14 @@
                   "type": "string"
                 },
                 "shapes": {
-                  "description": "The shapes graph as a Turtle document.",
-                  "type": "string"
+                  "default": null,
+                  "description": "An explicit shapes graph as Turtle. Omitted/empty uses the request\ngraph's composed GraphSchema authority.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
-              "required": [
-                "shapes"
-              ],
               "type": "object"
             }
           },
@@ -27513,6 +27533,37 @@
               },
               "required": [
                 "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Latest authoritative SourceIngest checkpoint for restart/failover CAS\nrecovery. Tenant and graph are taken only from verified request context.",
+          "properties": {
+            "method": {
+              "const": "SourceIngestStatus",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "connector": {
+                  "type": "string"
+                },
+                "stream": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "connector",
+                "stream"
               ],
               "type": "object"
             }
@@ -36132,9 +36183,20 @@
       ],
       "type": "object"
     },
-    "SourceCursor": {
+    "SourceCheckpoint": {
       "additionalProperties": false,
       "properties": {
+        "content_hash": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Provider-owned content identity for the returned page or snapshot.\nEG binds it into checkpoint CAS and replay; it never invents a value."
+        },
         "pending_watermark": {
           "type": [
             "string",
@@ -36160,19 +36222,50 @@
       ],
       "type": "object"
     },
+    "SourceEntityRef": {
+      "additionalProperties": false,
+      "properties": {
+        "record_id": {
+          "type": "string"
+        },
+        "stream": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "stream",
+        "record_id"
+      ],
+      "type": "object"
+    },
     "SourceIngestionBatch": {
       "additionalProperties": false,
       "properties": {
+        "authoritative_live_ids": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BoundedVec_SourceEntityRef_16384"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Required only for `reconcile`. EG compares it with its prior durable\nlive-set marker and derives tombstones; callers never submit that diff."
+        },
         "connector": {
           "type": "string"
         },
-        "cursor": {
-          "$ref": "#/$defs/SourceCursor"
+        "empty_authoritative_approval": {
+          "description": "Required with an empty authoritative live set. The verified request must\nalso carry the dedicated empty-reconciliation capability.",
+          "type": [
+            "string",
+            "null"
+          ]
         },
-        "expected_previous_cursor": {
+        "expected_previous_checkpoint": {
           "anyOf": [
             {
-              "$ref": "#/$defs/SourceCursor"
+              "$ref": "#/$defs/SourceCheckpoint"
             },
             {
               "type": "null"
@@ -36180,33 +36273,58 @@
           ],
           "description": "`None` is valid only when no cursor has ever committed for this source.\nOtherwise the authoritative transaction compares this exact digest with\nthe stored cursor and rejects stale/concurrent pages."
         },
-        "mapping_reference": {
-          "description": "Opaque exact reference resolved by the tenant's Agent Library.  Mapping\ncontent is intentionally absent from this request.",
-          "type": "string"
+        "mode": {
+          "$ref": "#/$defs/SourceIngestionMode"
+        },
+        "provider_checkpoint": {
+          "$ref": "#/$defs/SourceCheckpoint"
         },
         "records": {
           "$ref": "#/$defs/BoundedVec_SourceRecord_1024"
+        },
+        "relationships": {
+          "$ref": "#/$defs/BoundedVec_SourceRelationship_4096",
+          "default": []
+        },
+        "strict_schema": {
+          "description": "Reject source payload/property keys not selected by their manifest map.",
+          "type": "boolean"
+        },
+        "withdrawals": {
+          "$ref": "#/$defs/BoundedVec_SourceWithdrawal_1024",
+          "default": [],
+          "description": "Provider-declared tombstones are accepted only for `delta`."
         }
       },
       "required": [
         "connector",
-        "mapping_reference",
+        "mode",
+        "strict_schema",
         "records",
-        "cursor"
+        "provider_checkpoint"
       ],
       "type": "object"
+    },
+    "SourceIngestionMode": {
+      "enum": [
+        "full",
+        "delta",
+        "reconcile"
+      ],
+      "type": "string"
     },
     "SourceIngestionRequest": {
       "$ref": "#/$defs/SourceIngestionBatch",
       "description": "A request whose structural invariants and byte bound were checked during\nconstruction/deserialization.  Tenant, auth, mapping existence and the\npersisted cursor are deliberately server-side authority checks."
     },
-    "SourceJson": {
-      "additionalProperties": true,
-      "type": "object"
-    },
+    "SourceJson": {},
     "SourceRecord": {
       "additionalProperties": false,
       "properties": {
+        "mapping_reference": {
+          "description": "Exact Connector Manifest schema-mapping reference for this entity.",
+          "type": "string"
+        },
         "payload": {
           "$ref": "#/$defs/SourceJson"
         },
@@ -36229,6 +36347,7 @@
       "required": [
         "stream",
         "record_id",
+        "mapping_reference",
         "payload",
         "provenance"
       ],
@@ -36263,6 +36382,58 @@
         "tool",
         "tool_schema_sha256",
         "source_uri"
+      ],
+      "type": "object"
+    },
+    "SourceRelationship": {
+      "additionalProperties": false,
+      "description": "A provider-observed edge. EG derives its durable relationship identity from\nverified tenant/source authority, the exact relation reference and endpoints;\nthe caller cannot supply a competing identity or digest.",
+      "properties": {
+        "properties": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceJson"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "provenance": {
+          "$ref": "#/$defs/SourceRecordProvenance"
+        },
+        "relation_reference": {
+          "description": "Exact Connector Manifest resource-relation reference, for example\n`manifest:demo#resources/Document/relations/contains`.",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceEntityRef"
+        },
+        "target": {
+          "$ref": "#/$defs/SourceEntityRef"
+        }
+      },
+      "required": [
+        "source",
+        "target",
+        "relation_reference",
+        "provenance"
+      ],
+      "type": "object"
+    },
+    "SourceWithdrawal": {
+      "additionalProperties": false,
+      "properties": {
+        "entity": {
+          "$ref": "#/$defs/SourceEntityRef"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "entity",
+        "reason"
       ],
       "type": "object"
     },

@@ -488,6 +488,31 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "shacl")]
+    #[test]
+    fn graph_schema_mutations_have_stable_source_scoped_audit_lines() {
+        let detach = Method::GraphSchema {
+            op: Box::new(eg_types::graph_schema::GraphSchemaOp::Detach {
+                source_id: "admin:policy".to_string(),
+                if_composed_digest: None,
+            }),
+        };
+        assert_eq!(
+            audit_line(&detach).as_deref(),
+            Some("GRAPH_SCHEMA|detach|admin:policy")
+        );
+        let attach_pack = Method::GraphSchema {
+            op: Box::new(eg_types::graph_schema::GraphSchemaOp::AttachPack {
+                connector: eg_types::contract::ResourceId::new("agent-utilities").unwrap(),
+                if_composed_digest: None,
+            }),
+        };
+        assert_eq!(
+            audit_line(&attach_pack).as_deref(),
+            Some("GRAPH_SCHEMA|attach_pack|agent-utilities")
+        );
+    }
+
     // ── Provenance anchoring: Merkle primitives ─────────────────────────────
 
     #[test]

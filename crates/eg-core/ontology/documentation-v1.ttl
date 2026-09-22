@@ -1,0 +1,108 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:aclBeforeRetrieval a owl:DatatypeProperty ;
+    rdfs:domain :DocumentationPage ;
+    rdfs:range xsd:boolean .
+
+:aclVerified a owl:DatatypeProperty ;
+    rdfs:domain :DocumentationPage ;
+    rdfs:range xsd:boolean .
+
+:archived a owl:DatatypeProperty ;
+    rdfs:range xsd:boolean .
+
+:conceptIds a owl:DatatypeProperty ;
+    rdfs:domain :DocumentationPage ;
+    rdfs:range xsd:string .
+
+:contentDigest a owl:DatatypeProperty ;
+    rdfs:range xsd:string .
+
+:current a owl:DatatypeProperty ;
+    rdfs:range xsd:boolean .
+
+:deprecated a owl:DatatypeProperty ;
+    rdfs:range xsd:boolean .
+
+:evidenceId a owl:DatatypeProperty ;
+    rdfs:domain :DocumentationEvidence ;
+    rdfs:range xsd:string .
+
+:hasDocumentationEvidence a owl:ObjectProperty ;
+    rdfs:domain :DocumentationRevision ;
+    rdfs:range :DocumentationEvidence .
+
+:hasDocumentationRevision a owl:ObjectProperty ;
+    rdfs:domain :DocumentationPage ;
+    rdfs:range :DocumentationRevision .
+
+:lifecycleState a owl:DatatypeProperty ;
+    rdfs:range xsd:string .
+
+:recordedAt a owl:DatatypeProperty ;
+    rdfs:range xsd:dateTime .
+
+:repositoryId a owl:DatatypeProperty ;
+    rdfs:domain :DocumentationPage ;
+    rdfs:range xsd:string .
+
+:revisionId a owl:DatatypeProperty ;
+    rdfs:domain :DocumentationEvidence ;
+    rdfs:range xsd:string .
+
+:snapshotDigest a owl:DatatypeProperty ;
+    rdfs:range xsd:string .
+
+:sourcePath a owl:DatatypeProperty ;
+    rdfs:domain :DocumentationPage ;
+    rdfs:range xsd:string .
+
+:sourceRef a owl:DatatypeProperty ;
+    rdfs:range xsd:string .
+
+:sourceRevision a owl:DatatypeProperty ;
+    rdfs:domain :DocumentationRevision ;
+    rdfs:range xsd:string .
+
+:supersededBy a owl:DatatypeProperty ;
+    rdfs:range xsd:string .
+
+:tombstoneVerified a owl:DatatypeProperty ;
+    rdfs:range xsd:boolean .
+
+:validFrom a owl:DatatypeProperty ;
+    rdfs:range xsd:dateTime .
+
+:validUntil a owl:DatatypeProperty ;
+    rdfs:range xsd:dateTime .
+
+<http://knuckles.team/kg/documentation> a owl:Ontology ;
+    rdfs:label "Governed documentation projection ontology" ;
+    rdfs:comment "Metadata-only Markdown projection with source revision, digest, provenance, lifecycle and temporal state." ;
+    owl:imports <http://knuckles.team/kg/core> .
+
+:DocumentationEvidence a owl:Class ;
+    rdfs:label "Documentation provenance evidence" ;
+    rdfs:comment "Privacy-safe provenance for a documentation revision. It carries references and digests, never the Markdown body." ;
+    rdfs:subClassOf prov:Entity .
+
+:DocumentationRevision a owl:Class ;
+    rdfs:label "Documentation revision" ;
+    rdfs:comment "One exact source revision and digest of a DocumentationPage." ;
+    rdfs:subClassOf prov:Entity .
+
+:DocumentationPage a owl:Class ;
+    rdfs:label "Governed documentation page" ;
+    rdfs:comment "A metadata-only projection of a repository-relative Markdown page. The authoring source remains authoritative." ;
+    rdfs:subClassOf :Document .

@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 428,
+  "method_count": 429,
   "methods": [
     {
       "consumer_profiles": [
@@ -11228,6 +11228,45 @@
       "domain": "ingestion",
       "error_set": [
         "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
+      "id": "SourceIngestStatus",
+      "note": "read-only authoritative source-partition checkpoint and receipt identity for restart/failover CAS recovery; callers must not substitute local checkpoint authority",
+      "policy": {
+        "audited": false,
+        "authz_action": "source:ingest",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/SourceIngestStatus"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.ingestion.json#/methods/SourceIngestStatus",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "ingestion",
+      "error_set": [
+        "INVALID_ARGUMENT",
         "ACCESS_DENIED",
         "CONFLICT",
         "IDEMPOTENCY_CONFLICT",
@@ -14864,13 +14903,13 @@
         "GRAPH_META_SCHEMA_VERSION"
       ],
       "id": "RunDatalogReasoning",
-      "note": "state-backed MutationBatch commits inferred facts",
+      "note": "state-backed MutationBatch commits inferred facts; operation-identity replay prevents duplicate materialization/audit/CDC",
       "policy": {
         "audited": true,
         "authz_action": "reasoning:write",
         "durability_domain": "GraphRedb",
         "emits_cdc": true,
-        "idempotent": false,
+        "idempotent": true,
         "mutates": true,
         "txn_participation": "Atomic"
       },
@@ -15250,7 +15289,9 @@
       "stability": "stable"
     },
     {
-      "consumer_profiles": [],
+      "consumer_profiles": [
+        "python"
+      ],
       "domain": "reasoning",
       "error_set": [
         "INVALID_ARGUMENT",
@@ -15266,7 +15307,7 @@
         "GRAPH_META_SCHEMA_VERSION"
       ],
       "id": "GraphSchema",
-      "note": "X9. Gateway-routed exactly like IcvConfigure: every op attaches, replaces or detaches one keyed schema source through the graph commit kernel, so it is audited and emits CDC. Local-only in 2.27.x until its Raft catalog record lands",
+      "note": "X9. Gateway-routed exactly like IcvConfigure: every op attaches, replaces or detaches one keyed schema source through the graph commit kernel, so it is audited, emits CDC, and is recorded in the native Raft GraphState catalog",
       "policy": {
         "audited": true,
         "authz_action": "security:admin",
@@ -15292,10 +15333,12 @@
         "schema": "contract/schemas/result.reasoning.json#/methods/GraphSchema",
         "selected_by": null
       },
-      "stability": "internal"
+      "stability": "stable"
     },
     {
-      "consumer_profiles": [],
+      "consumer_profiles": [
+        "python"
+      ],
       "domain": "reasoning",
       "error_set": [
         "INVALID_ARGUMENT",
@@ -15329,7 +15372,7 @@
         "schema": "contract/schemas/result.reasoning.json#/methods/GraphSchemaList",
         "selected_by": null
       },
-      "stability": "internal"
+      "stability": "stable"
     },
     {
       "consumer_profiles": [],

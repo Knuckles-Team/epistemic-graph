@@ -253,7 +253,7 @@ class CatalogAssignRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     graph: str
-    node: Any | None = None
+    node: int | None = None
     shard: int
 
 
@@ -471,8 +471,8 @@ class RebalancePlanRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    max_moves: Any | None = None
-    tolerance: Any | None = None
+    max_moves: int | None = None
+    tolerance: float | None = None
 
 
 async def send_rebalance_plan(
@@ -523,8 +523,8 @@ class RebalanceExecuteRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    max_moves: Any | None = None
-    tolerance: Any | None = None
+    max_moves: int | None = None
+    tolerance: float | None = None
 
 
 async def send_rebalance_execute(
@@ -631,7 +631,7 @@ class RaftAddLearnerRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     addr: str
-    group: Any | None = None
+    group: int | None = None
     node_id: int
 
 
@@ -687,7 +687,7 @@ class RaftChangeMembershipRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    group: Any | None = None
+    group: int | None = None
     voters: list[int]
 
 

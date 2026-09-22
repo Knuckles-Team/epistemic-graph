@@ -64,6 +64,19 @@ pub struct ConnectorSchemaMapping {
     pub fields: std::collections::BTreeMap<String, String>,
 }
 
+/// One relationship declaration selected from a Connector Manifest resource.
+/// Source ingestion resolves this projection by exact manifest path; callers
+/// cannot mint an edge predicate that the imported pack did not publish.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ConnectorRelationshipMapping {
+    pub source_resource: String,
+    pub relationship: String,
+    pub target_resource: String,
+    pub lpg_rel_type: String,
+}
+
 pub use annotations::{PackAnnotations, PackCost, PackModelFacts};
 pub use ids::{escape_pack_name, pack_component_id, PACK_COMPONENT_ID_PREFIX};
 pub use index::{

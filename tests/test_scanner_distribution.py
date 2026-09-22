@@ -22,7 +22,7 @@ pytestmark = pytest.mark.no_engine
 
 
 def _hooks() -> dict[str, dict]:
-    document = yaml.safe_load((REPO / ".pre-commit-config.yaml").read_text())
+    document = yaml.safe_load((REPO / ".config" / "pre-commit.yaml").read_text())
     return {
         hook["id"]: hook
         for repo in document["repos"]
@@ -81,12 +81,25 @@ def test_scanner_contract_versions_and_native_policy_files_exist():
 
 def test_precommit_has_staged_differential_census_and_architecture_profiles():
     hooks = _hooks()
+    config_source = (REPO / ".config" / "pre-commit.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert hooks["check-status-page"]["entry"] == "python3 scripts/check_status_page.py"
+    assert hooks["check-status-page"]["stages"] == ["pre-commit", "pre-push", "manual"]
+    assert config_source.index("- id: check-status-page") < config_source.index(
+        "- id: engine-contract-check"
+    )
     assert hooks["dupehound-changed-functions"]["stages"] == ["pre-commit"]
     assert hooks["kiss-changed-rust"]["stages"] == ["pre-commit"]
-    assert hooks["jscpd-differential"]["stages"] == ["pre-push", "manual"]
-    assert hooks["jscpd-census"]["stages"] == ["pre-push", "manual"]
-    assert hooks["cccc-census"]["stages"] == ["pre-push", "manual"]
-    assert hooks["kiss-census"]["stages"] == ["pre-push", "manual"]
+    assert hooks["jscpd-differential"]["stages"] == ["manual"]
+    assert hooks["jscpd-census"]["stages"] == ["manual"]
+    assert hooks["cccc-census"]["stages"] == ["manual"]
+    assert hooks["kiss-census"]["stages"] == ["manual"]
+    assert hooks["ci-gate-replica"]["stages"] == ["manual"]
+    assert hooks["cargo-clippy"]["stages"] == ["manual"]
+    assert hooks["cargo-clippy-all-features"]["stages"] == ["manual"]
+    assert hooks["wheel-smoke"]["stages"] == ["manual"]
+    assert hooks["pytest"]["stages"] == ["manual"]
     assert "validate_cccc_census.py" in hooks["cccc-census"]["entry"]
     assert "--source-manifest" in hooks["cccc-census"]["entry"]
     assert "--require-zero" in hooks["cccc-census"]["entry"]
@@ -96,7 +109,7 @@ def test_precommit_has_staged_differential_census_and_architecture_profiles():
         "dependency-cruiser-architecture",
         "rust-arch-lint",
     ):
-        assert hooks[hook_id]["stages"] == ["pre-commit", "pre-push", "manual"]
+        assert hooks[hook_id]["stages"] == ["pre-commit", "manual"]
     assert hooks["rust-arch-lint"]["entry"] == "python3 scripts/check_rust_arch_lint.py"
 
     # Distribution is deliberately separated from hooks: a hook may resolve a
@@ -126,7 +139,7 @@ def test_goc70_is_manual_only_until_execution_is_bounded():
         if "scripts/constrained_parallelism_gate.sh" in hook.get("entry", "")
     ]
     assert direct_hooks == [hooks["constrained-parallelism"]]
-    assert hooks["ci-gate-replica"]["stages"] == ["pre-push", "manual"]
+    assert hooks["ci-gate-replica"]["stages"] == ["manual"]
     assert hooks["constrained-parallelism"]["stages"] == ["manual"]
 
 
@@ -245,7 +258,9 @@ def test_advisory_gate_wires_exact_cargo_deny_version_check():
         r"\.cargo-audit-allow\.txt|pyproject\.toml|scripts/scanner_contract\.py|"
         r"scripts/check_cargo_advisories\.sh)$"
     )
-    precommit_source = (REPO / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+    precommit_source = (REPO / ".config" / "pre-commit.yaml").read_text(
+        encoding="utf-8"
+    )
     assert "Not yet mirrored into rust-ci.yml" not in precommit_source
     assert "pre-commit-only per" not in precommit_source
 

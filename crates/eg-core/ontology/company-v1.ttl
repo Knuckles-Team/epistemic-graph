@@ -1,0 +1,1477 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:DeptAdmin a :Department ;
+    rdfs:label "Admin" ;
+    :hasAgentRole :AgentAgentSummary,
+        :AgentAuditImplementationAgainstSpecification,
+        :AgentBaseAgent,
+        :AgentBrowserAutomation,
+        :AgentCritique,
+        :AgentDecomposeUserRequestsIntoHigh-FidelityTasks,
+        :AgentDesignHigh-FidelityExecutionPlans,
+        :AgentFitnessTrainer,
+        :AgentMain-Agent,
+        :AgentMemoryInstruction,
+        :AgentMemorySelection,
+        :AgentPythonProgrammer,
+        :AgentSafetyGuard,
+        :AgentSafetyPolicy,
+        :AgentToolGuidance,
+        :AgentWriteCode .
+
+:DeptEngineering a :Department ;
+    rdfs:label "Engineering" ;
+    :hasAgentRole :AgentAgentEngineer,
+        :AgentCProgrammer,
+        :AgentCloudArchitect,
+        :AgentCppProgrammer,
+        :AgentDatabaseExpert,
+        :AgentDesignScalableAndResilientSystemArchitectures,
+        :AgentDevopsEngineer,
+        :AgentJavaProgrammer,
+        :AgentJavascriptProgrammer,
+        :AgentLeanixSpecialist,
+        :AgentMobileProgrammer,
+        :AgentPortainerSpecialist,
+        :AgentTypescriptProgrammer .
+
+:DeptIT a :Department ;
+    rdfs:label "IT" ;
+    :hasAgentRole :AgentAnsibleTowerSpecialist,
+        :AgentArchiveboxSpecialist,
+        :AgentAtlassianSpecialist,
+        :AgentAudioTranscriberSpecialist,
+        :AgentDieticianChef,
+        :AgentDocumentSpecialist,
+        :AgentEvolutionSpecialist,
+        :AgentGolangProgrammer,
+        :AgentHomeAssistantSpecialist,
+        :AgentJellyfinSpecialist,
+        :AgentKnowledge-Graph,
+        :AgentLangfuseSpecialist,
+        :AgentListmonkSpecialist,
+        :AgentMicrosoftSpecialist,
+        :AgentNextcloudSpecialist,
+        :AgentPlaneSpecialist,
+        :AgentPostizSpecialist,
+        :AgentQbittorrentSpecialist,
+        :AgentRustProgrammer,
+        :AgentServicenowSpecialist,
+        :AgentStirlingpdfSpecialist,
+        :AgentTunnelSpecialist,
+        :AgentUptimeKumaSpecialist .
+
+:DeptOperations a :Department ;
+    rdfs:label "Operations" ;
+    :hasAgentRole :AgentChiefTradingOfficer,
+        :AgentFinanceOperationsCoordinator,
+        :AgentHrOperationsCoordinator,
+        :AgentLegalComplianceCoordinator,
+        :AgentManageMulti-AgentTeamCommunicationAndTaskDistribution,
+        :AgentProjectManager,
+        :AgentRepository,
+        :AgentRiskComplianceOfficer,
+        :AgentSystemsManager .
+
+:DeptProduct a :Department ;
+    rdfs:label "Product" ;
+    :hasAgentRole :AgentActAsBrandConsultant,
+        :AgentArrSpecialist,
+        :AgentMediaDownloaderSpecialist,
+        :AgentSocialMediaInfluencer,
+        :AgentUiUxDesigner,
+        :AgentWriteContent .
+
+:DeptQA a :Department ;
+    rdfs:label "QA" ;
+    :hasAgentRole :AgentQaExpert,
+        :AgentSecurityAuditor .
+
+:DeptResearch a :Department ;
+    rdfs:label "Research" ;
+    :hasAgentRole :AgentDataScientist,
+        :AgentDebuggerExpert,
+        :AgentPerformDeepDiscoveryAndContextGathering,
+        :AgentQuantResearchAnalyst .
+
+:WorkItem a owl:Class ;
+    rdfs:label "Work Item" ;
+    rdfs:comment """The sole writable runtime work-state authority. Native claims,
+leases, fencing, dependency release, retry scheduling, cancellation, and terminal
+commit govern its submitted/ready/leased/succeeded/failed/cancelled/dead_letter
+lifecycle. Definition and audit nodes do not duplicate this state. BFO:Process.""" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:actualValue a owl:DatatypeProperty ;
+    rdfs:label "actual value" ;
+    rdfs:domain :StrategicGoal ;
+    rdfs:range xsd:float .
+
+:automationLevel a owl:DatatypeProperty ;
+    rdfs:label "automation level" ;
+    rdfs:comment "Percentage of tasks handled by AI (0.0–1.0)." ;
+    rdfs:domain :AgentDepartment ;
+    rdfs:range xsd:float .
+
+:coverageLevel a owl:DatatypeProperty ;
+    rdfs:label "coverage level" ;
+    rdfs:comment "individual, family, employee_plus_one." ;
+    rdfs:domain :BenefitsPlan ;
+    rdfs:range xsd:string .
+
+:currentValue a owl:DatatypeProperty ;
+    rdfs:label "current value" ;
+    rdfs:domain :KeyPerformanceIndicator ;
+    rdfs:range xsd:float .
+
+:dbaName a owl:DatatypeProperty ;
+    rdfs:label "DBA name" ;
+    rdfs:comment "Doing Business As — trade name." ;
+    rdfs:domain :Company ;
+    rdfs:range xsd:string .
+
+:deductions a owl:DatatypeProperty ;
+    rdfs:label "deductions" ;
+    rdfs:domain :PayrollRecord ;
+    rdfs:range xsd:float .
+
+:departmentType a owl:DatatypeProperty ;
+    rdfs:label "department type" ;
+    rdfs:comment "finance, legal, hr, ops, strategy, marketing, sales, r_and_d." ;
+    rdfs:domain :AgentDepartment ;
+    rdfs:range xsd:string .
+
+:ein a owl:DatatypeProperty ;
+    rdfs:label "EIN" ;
+    rdfs:comment "Employer Identification Number (IRS-assigned)." ;
+    rdfs:domain :Company ;
+    rdfs:range xsd:string .
+
+:enrolledIn a owl:ObjectProperty ;
+    rdfs:label "enrolled in" ;
+    rdfs:comment "Links an employee to their benefits plan." ;
+    rdfs:domain :Employee ;
+    rdfs:range :BenefitsPlan .
+
+:entityType a owl:DatatypeProperty ;
+    rdfs:label "entity type" ;
+    rdfs:comment "LLC, Corp, S-Corp, Sole Proprietorship." ;
+    rdfs:domain :Company ;
+    rdfs:range xsd:string .
+
+:experienceProfile a owl:DatatypeProperty ;
+    rdfs:label "experience profile" ;
+    rdfs:comment """JSON-encoded per-employee experience accrued from AHE reward
+write-back: successes / partials / failures, per-role and per-domain counts, and
+learned skill refs. Read by the recruiter to reuse an experienced employee rather
+than hire a fresh template.""" ;
+    rdfs:domain :Employee ;
+    rdfs:range xsd:string .
+
+:experienceScore a owl:DatatypeProperty ;
+    rdfs:label "experience score" ;
+    rdfs:comment "Scalar suitability score derived from the experience profile; higher = stronger reuse candidate." ;
+    rdfs:domain :Employee ;
+    rdfs:range xsd:float .
+
+:forEmployee a owl:ObjectProperty ;
+    rdfs:label "for employee" ;
+    rdfs:domain :PayrollRecord ;
+    rdfs:range :Employee .
+
+:goalCascadesTo a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "goal cascades to" ;
+    rdfs:comment "Transitive goal hierarchy: org → dept → individual." ;
+    rdfs:domain :StrategicGoal ;
+    rdfs:range :StrategicGoal .
+
+:goalDeadline a owl:DatatypeProperty ;
+    rdfs:label "goal deadline" ;
+    rdfs:domain :StrategicGoal ;
+    rdfs:range xsd:date .
+
+:goalType a owl:DatatypeProperty ;
+    rdfs:label "goal type" ;
+    rdfs:comment "profit, growth, efficiency, sustainability, employee_satisfaction, compliance, innovation." ;
+    rdfs:domain :StrategicGoal ;
+    rdfs:range xsd:string .
+
+:grossPay a owl:DatatypeProperty ;
+    rdfs:label "gross pay" ;
+    rdfs:domain :PayrollRecord ;
+    rdfs:range xsd:float .
+
+:hasAgentRole a owl:ObjectProperty ;
+    rdfs:domain :Department ;
+    rdfs:range :AgentRole .
+
+:hasBankAccount a owl:ObjectProperty ;
+    rdfs:label "has bank account" ;
+    rdfs:domain :Company ;
+    rdfs:range :BankAccount .
+
+:hasDepartment a owl:ObjectProperty ;
+    rdfs:label "has department" ;
+    rdfs:domain :Company ;
+    rdfs:range :Department .
+
+:hasGoal a owl:ObjectProperty ;
+    rdfs:label "has goal" ;
+    rdfs:domain :Company ;
+    rdfs:range :StrategicGoal .
+
+:hasKPI a owl:ObjectProperty ;
+    rdfs:label "has KPI" ;
+    rdfs:domain :Company ;
+    rdfs:range :KeyPerformanceIndicator .
+
+:hasLegalEntity a owl:ObjectProperty ;
+    rdfs:label "has legal entity" ;
+    rdfs:domain :Company ;
+    rdfs:range :LegalEntity .
+
+:holdsLicense a owl:ObjectProperty ;
+    rdfs:label "holds license" ;
+    rdfs:domain :Company ;
+    rdfs:range :CompanyLicense .
+
+:kpiTarget a owl:DatatypeProperty ;
+    rdfs:label "KPI target" ;
+    rdfs:domain :KeyPerformanceIndicator ;
+    rdfs:range xsd:float .
+
+:kpiType a owl:DatatypeProperty ;
+    rdfs:label "KPI type" ;
+    rdfs:comment "profit, revenue, employee_satisfaction, environmental_impact, throughput, efficiency, quality, compliance." ;
+    rdfs:domain :KeyPerformanceIndicator ;
+    rdfs:range xsd:string .
+
+:licenseExpiration a owl:DatatypeProperty ;
+    rdfs:label "license expiration" ;
+    rdfs:domain :CompanyLicense ;
+    rdfs:range xsd:date .
+
+:licenseJurisdiction a owl:ObjectProperty ;
+    rdfs:label "license jurisdiction" ;
+    rdfs:domain :CompanyLicense ;
+    rdfs:range :Jurisdiction .
+
+:licenseType a owl:DatatypeProperty ;
+    rdfs:label "license type" ;
+    rdfs:comment "business, professional, regulatory." ;
+    rdfs:domain :CompanyLicense ;
+    rdfs:range xsd:string .
+
+:measurementFrequency a owl:DatatypeProperty ;
+    rdfs:label "measurement frequency" ;
+    rdfs:comment "daily, weekly, monthly, quarterly." ;
+    rdfs:domain :KeyPerformanceIndicator ;
+    rdfs:range xsd:string .
+
+:measurementUnit a owl:DatatypeProperty ;
+    rdfs:label "measurement unit" ;
+    rdfs:domain :StrategicGoal ;
+    rdfs:range xsd:string .
+
+:measuresGoal a owl:ObjectProperty ;
+    rdfs:label "measures goal" ;
+    rdfs:domain :KeyPerformanceIndicator ;
+    rdfs:range :StrategicGoal .
+
+:monthlyCost a owl:DatatypeProperty ;
+    rdfs:label "monthly cost" ;
+    rdfs:domain :BenefitsPlan ;
+    rdfs:range xsd:float .
+
+:netPay a owl:DatatypeProperty ;
+    rdfs:label "net pay" ;
+    rdfs:domain :PayrollRecord ;
+    rdfs:range xsd:float .
+
+:payPeriodEnd a owl:DatatypeProperty ;
+    rdfs:label "pay period end" ;
+    rdfs:domain :PayrollRecord ;
+    rdfs:range xsd:date .
+
+:payPeriodStart a owl:DatatypeProperty ;
+    rdfs:label "pay period start" ;
+    rdfs:domain :PayrollRecord ;
+    rdfs:range xsd:date .
+
+:planProvider a owl:ObjectProperty ;
+    rdfs:label "plan provider" ;
+    rdfs:domain :BenefitsPlan ;
+    rdfs:range :Organization .
+
+:planType a owl:DatatypeProperty ;
+    rdfs:label "plan type" ;
+    rdfs:comment "medical, dental, vision, 401k, pto, disability, life_insurance." ;
+    rdfs:domain :BenefitsPlan ;
+    rdfs:range xsd:string .
+
+:renewalRequired a owl:DatatypeProperty ;
+    rdfs:label "renewal required" ;
+    rdfs:domain :CompanyLicense ;
+    rdfs:range xsd:boolean .
+
+:reportsTo a owl:ObjectProperty ;
+    rdfs:domain :AgentRole ;
+    rdfs:range :AgentRole .
+
+:requiredHumanOversight a owl:DatatypeProperty ;
+    rdfs:label "required human oversight" ;
+    rdfs:comment "Whether a human must approve critical decisions." ;
+    rdfs:domain :AgentDepartment ;
+    rdfs:range xsd:boolean .
+
+:runsWorkflow a owl:ObjectProperty ;
+    rdfs:label "runs workflow" ;
+    rdfs:comment "Links department to workflows it executes." ;
+    rdfs:domain :AgentDepartment ;
+    rdfs:range :WorkflowDefinition .
+
+:seniority a owl:DatatypeProperty ;
+    rdfs:label "seniority" ;
+    rdfs:comment "junior, mid, senior — accrues as the employee's experience score crosses thresholds." ;
+    rdfs:domain :Employee ;
+    rdfs:range xsd:string .
+
+:staffsRole a owl:ObjectProperty ;
+    rdfs:label "staffs role" ;
+    rdfs:comment "Links a hired :Employee to the :AgentRole seat it fills." ;
+    rdfs:domain :Employee ;
+    rdfs:range :AgentRole .
+
+:stateOfIncorporation a owl:DatatypeProperty ;
+    rdfs:label "state of incorporation" ;
+    rdfs:domain :Company ;
+    rdfs:range xsd:string .
+
+:targetValue a owl:DatatypeProperty ;
+    rdfs:label "target value" ;
+    rdfs:domain :StrategicGoal ;
+    rdfs:range xsd:float .
+
+:taxWithholding a owl:DatatypeProperty ;
+    rdfs:label "tax withholding" ;
+    rdfs:domain :PayrollRecord ;
+    rdfs:range xsd:float .
+
+:teamConfig a owl:ObjectProperty ;
+    rdfs:label "team config" ;
+    rdfs:comment "Links department to its TeamConfigNode in the KG." ;
+    rdfs:domain :AgentDepartment ;
+    rdfs:range :TeamConfig .
+
+:trend a owl:DatatypeProperty ;
+    rdfs:label "trend" ;
+    rdfs:comment "improving, stable, declining." ;
+    rdfs:domain :KeyPerformanceIndicator ;
+    rdfs:range xsd:string .
+
+:usesSoftware a owl:ObjectProperty ;
+    rdfs:label "uses software" ;
+    rdfs:comment "Links department to its software stack." ;
+    rdfs:domain :AgentDepartment ;
+    rdfs:range :CompanySoftware .
+
+:usesTool a owl:ObjectProperty ;
+    rdfs:domain :AgentRole ;
+    rdfs:range :MCPServer .
+
+<http://knuckles.team/kg/company> a owl:Ontology ;
+    rdfs:label "Company Operations Ontology" ;
+    rdfs:comment """Company lifecycle and operations ontology for AI-first
+autonomous companies. Covers company formation, strategic goals, KPIs,
+benefits administration, payroll, and agent-staffed departments.
+
+CONCEPT:KG-2.12 — Company Operations Domain
+
+Imports HR, Legal, Banking, and Enterprise ontologies for full
+cross-domain reasoning about company operations.""" ;
+    owl:imports <http://knuckles.team/kg/core>,
+        <http://knuckles.team/kg/banking>,
+        <http://knuckles.team/kg/enterprise>,
+        <http://knuckles.team/kg/hr>,
+        <http://knuckles.team/kg/legal> .
+
+:AgentActAsBrandConsultant a :AgentRole ;
+    rdfs:label "Act As Brand Consultant" ;
+    :id "act as brand consultant" ;
+    :role "Act As Brand Consultant" .
+
+:AgentAgentEngineer a :AgentRole ;
+    rdfs:label "🤖 Agent Engineer & Meta-Tooling Architect" ;
+    :id "agent_engineer" ;
+    :role "🤖 Agent Engineer & Meta-Tooling Architect" ;
+    :usesTool :ToolAgentBuilder,
+        :ToolAgentPackageBuilder,
+        :ToolAgentSpawner,
+        :ToolAgentWorkflows,
+        :ToolAgentsMdGenerator,
+        :ToolFastmcpDocs,
+        :ToolMcpBuilder,
+        :ToolMcpClient,
+        :ToolPydanticAiDocs,
+        :ToolSelfImprover,
+        :ToolSkillBuilder,
+        :ToolSkillGraphBuilder,
+        :ToolSkillInstaller .
+
+:AgentAgentSummary a :AgentRole ;
+    rdfs:label "Agent Summary (Background Progress)" ;
+    :id "agent_summary" ;
+    :role "Agent Summary (Background Progress)" .
+
+:AgentAnsibleTowerSpecialist a :AgentRole ;
+    rdfs:label "Ansible Tower Specialist" ;
+    :id "ansible_tower_specialist" ;
+    :role "Ansible Tower Specialist" ;
+    :usesTool :ToolAnsibleTowerMcp .
+
+:AgentArchiveboxSpecialist a :AgentRole ;
+    rdfs:label "ArchiveBox Specialist" ;
+    :id "archivebox_specialist" ;
+    :role "ArchiveBox Specialist" ;
+    :usesTool :ToolArchiveboxMcp .
+
+:AgentArrSpecialist a :AgentRole ;
+    rdfs:label "Arr Media Specialist" ;
+    :id "arr_specialist" ;
+    :role "Arr Media Specialist" ;
+    :usesTool :ToolArrMcp .
+
+:AgentAtlassianSpecialist a :AgentRole ;
+    rdfs:label "Atlassian Specialist" ;
+    :id "atlassian_specialist" ;
+    :role "Atlassian Specialist" ;
+    :usesTool :ToolAtlassianAgent .
+
+:AgentAudioTranscriberSpecialist a :AgentRole ;
+    rdfs:label "Audio Transcriber Specialist" ;
+    :id "audio_transcriber_specialist" ;
+    :role "Audio Transcriber Specialist" ;
+    :usesTool :ToolAudioTranscriberMcp .
+
+:AgentAuditImplementationAgainstSpecification a :AgentRole ;
+    rdfs:label "Result Validator & Verification System ✅" ;
+    :id "audit implementation against specification" ;
+    :role "Result Validator & Verification System ✅" ;
+    :usesTool :ToolSpecVerifier,
+        :ToolTddMethodology .
+
+:AgentBaseAgent a :AgentRole ;
+    rdfs:label "Main System Prompt" ;
+    :id "base_agent" ;
+    :role "Main System Prompt" .
+
+:AgentBrowserAutomation a :AgentRole ;
+    rdfs:label "Chrome Browser Automation (Agent-in-Chrome)" ;
+    :id "browser_automation" ;
+    :role "Chrome Browser Automation (Agent-in-Chrome)" ;
+    :usesTool :ToolAgentBrowser,
+        :ToolBrowserTools,
+        :ToolWebArtifacts,
+        :ToolWebCrawler,
+        :ToolWebDesignGuidelines .
+
+:AgentCProgrammer a :AgentRole ;
+    rdfs:label "💻 C Systems Programmer" ;
+    :id "c_programmer" ;
+    :role "💻 C Systems Programmer" ;
+    :usesTool :ToolCDocs,
+        :ToolDeveloperUtilities .
+
+:AgentChiefTradingOfficer a :AgentRole ;
+    rdfs:label "Chief Trading Officer" ;
+    :id "chief_trading_officer" ;
+    :role "Chief Trading Officer" ;
+    :usesTool :ToolDataScienceMcp,
+        :ToolEmeraldExchange,
+        :ToolGraphOs .
+
+:AgentCloudArchitect a :AgentRole ;
+    rdfs:label "☁️ Cloud Architect & Infrastructure Lead" ;
+    :id "cloud_architect" ;
+    :role "☁️ Cloud Architect & Infrastructure Lead" ;
+    :usesTool :ToolAwsDocs,
+        :ToolAzureDocs,
+        :ToolC4Architecture,
+        :ToolDeveloperUtilities,
+        :ToolGcpDocs .
+
+:AgentCppProgrammer a :AgentRole ;
+    rdfs:label "⚡ C++ Software Engineer" ;
+    :id "cpp_programmer" ;
+    :role "⚡ C++ Software Engineer" ;
+    :usesTool :ToolDeveloperUtilities .
+
+:AgentCritique a :AgentRole ;
+    rdfs:label "Auto Mode Critique Prompt" ;
+    :id "critique" ;
+    :role "Auto Mode Critique Prompt" ;
+    :usesTool :ToolSelfImprover,
+        :ToolSpecVerifier,
+        :ToolTddMethodology .
+
+:AgentDataScientist a :AgentRole ;
+    rdfs:label "📊 Data Scientist & Machine Learning Specialist" ;
+    :id "data_scientist" ;
+    :role "📊 Data Scientist & Machine Learning Specialist" ;
+    :usesTool :ToolHuggingfaceDocs,
+        :ToolJupyterNotebook,
+        :ToolLangchainDocs,
+        :ToolMatplotlibDocs,
+        :ToolNumpyDocs,
+        :ToolPandasDocs,
+        :ToolPytorchDocs,
+        :ToolScikitLearnDocs,
+        :ToolScipyDocs,
+        :ToolTensorflowDocs .
+
+:AgentDatabaseExpert a :AgentRole ;
+    rdfs:label "Database Architect & Optimization Expert 🗄️" ;
+    :id "database_expert" ;
+    :role "Database Architect & Optimization Expert 🗄️" ;
+    :usesTool :ToolChromadbDocs,
+        :ToolCouchbaseDocs,
+        :ToolDatabaseTools,
+        :ToolFalkordbDocs,
+        :ToolMariadbDocs,
+        :ToolMongodbDocs,
+        :ToolMssqlDocs,
+        :ToolNeo4JDocs,
+        :ToolPostgresDocs,
+        :ToolQdrantDocs,
+        :ToolRedisDocs .
+
+:AgentDebuggerExpert a :AgentRole ;
+    rdfs:label "🐛 Debugging Expert & Technical Analyst" ;
+    :id "debugger_expert" ;
+    :role "🐛 Debugging Expert & Technical Analyst" ;
+    :usesTool :ToolAgentBuilder,
+        :ToolDeveloperUtilities .
+
+:AgentDecomposeUserRequestsIntoHigh-FidelityTasks a :AgentRole ;
+    rdfs:label "Project Planner System Prompt" ;
+    :id "decompose user requests into high-fidelity tasks" ;
+    :role "Project Planner System Prompt" ;
+    :usesTool :ToolBrainstorming,
+        :ToolConstitutionGenerator,
+        :ToolInternalComms,
+        :ToolSpecGenerator,
+        :ToolTaskPlanner .
+
+:AgentDesignHigh-FidelityExecutionPlans a :AgentRole ;
+    rdfs:label "Graph Router System Prompt" ;
+    :id "design high-fidelity execution plans" ;
+    :role "Graph Router System Prompt" .
+
+:AgentDesignScalableAndResilientSystemArchitectures a :AgentRole ;
+    rdfs:label "Agent Creation Architect System Prompt" ;
+    :id "design scalable and resilient system architectures" ;
+    :role "Agent Creation Architect System Prompt" ;
+    :usesTool :ToolBrainstorming,
+        :ToolC4Architecture,
+        :ToolMermaidDiagrams,
+        :ToolProductStrategy,
+        :ToolSpecGenerator,
+        :ToolUserResearch .
+
+:AgentDevopsEngineer a :AgentRole ;
+    rdfs:label "DevOps & Operational Stability Engineer" ;
+    :id "devops_engineer" ;
+    :role "DevOps & Operational Stability Engineer" ;
+    :usesTool :ToolAwsDocs,
+        :ToolAzureDocs,
+        :ToolC4Architecture,
+        :ToolCloudflareDeploy,
+        :ToolDockerDocs,
+        :ToolGcpDocs,
+        :ToolMinioDocs,
+        :ToolTemporalDocs,
+        :ToolTerraformDocs .
+
+:AgentDieticianChef a :AgentRole ;
+    rdfs:label "Specialist Dietician & Chef Agent" ;
+    :id "dietician_chef" ;
+    :role "Specialist Dietician & Chef Agent" ;
+    :usesTool :ToolMealieMcp .
+
+:AgentDocumentSpecialist a :AgentRole ;
+    rdfs:label "📑 Document & Presentation Specialist" ;
+    :id "document_specialist" ;
+    :role "📑 Document & Presentation Specialist" ;
+    :usesTool :ToolCreativeMedia,
+        :ToolDocumentConverter,
+        :ToolDocumentTools,
+        :ToolMarpPresentations .
+
+:AgentEvolutionSpecialist a :AgentRole ;
+    rdfs:label "Agent Utilities Evolution Specialist" ;
+    :id "evolution_specialist" ;
+    :role "Agent Utilities Evolution Specialist" ;
+    :usesTool :ToolDataScienceMcp,
+        :ToolGraphOs,
+        :ToolRepositoryManagerMcp,
+        :ToolScholarxMcp .
+
+:AgentFinanceOperationsCoordinator a :AgentRole ;
+    rdfs:label "Finance Operations Coordinator" ;
+    :id "finance_operations_coordinator" ;
+    :role "Finance Operations Coordinator" ;
+    :usesTool :ToolDataScienceMcp,
+        :ToolDocumentTools,
+        :ToolGraphOs .
+
+:AgentFitnessTrainer a :AgentRole ;
+    rdfs:label "AI Personal Fitness Trainer" ;
+    :id "fitness_trainer" ;
+    :role "AI Personal Fitness Trainer" ;
+    :usesTool :ToolWgerAgent .
+
+:AgentGolangProgrammer a :AgentRole ;
+    rdfs:label "Go Concurrency & Microservices Specialist" ;
+    :id "golang_programmer" ;
+    :role "Go Concurrency & Microservices Specialist" ;
+    :usesTool :ToolGoDocs .
+
+:AgentHomeAssistantSpecialist a :AgentRole ;
+    rdfs:label "Home Assistant IoT Specialist" ;
+    :id "home_assistant_specialist" ;
+    :role "Home Assistant IoT Specialist" ;
+    :usesTool :ToolHomeAssistantAgent .
+
+:AgentHrOperationsCoordinator a :AgentRole ;
+    rdfs:label "HR Operations Coordinator" ;
+    :id "hr_operations_coordinator" ;
+    :role "HR Operations Coordinator" ;
+    :usesTool :ToolDocumentTools,
+        :ToolGraphOs,
+        :ToolSystemsManagerMcp .
+
+:AgentJavaProgrammer a :AgentRole ;
+    rdfs:label "☕ Java & Enterprise Systems Programmer" ;
+    :id "java_programmer" ;
+    :role "☕ Java & Enterprise Systems Programmer" ;
+    :usesTool :ToolJavaDocs .
+
+:AgentJavascriptProgrammer a :AgentRole ;
+    rdfs:label "🟨 JavaScript Fullstack Programmer" ;
+    :id "javascript_programmer" ;
+    :role "🟨 JavaScript Fullstack Programmer" ;
+    :usesTool :ToolCanvasDesign,
+        :ToolDeveloperUtilities,
+        :ToolNodejsDocs,
+        :ToolReactDocs,
+        :ToolWebArtifacts .
+
+:AgentJellyfinSpecialist a :AgentRole ;
+    rdfs:label "Jellyfin Specialist" ;
+    :id "jellyfin_specialist" ;
+    :role "Jellyfin Specialist" ;
+    :usesTool :ToolJellyfinMcp .
+
+:AgentKnowledge-Graph a :AgentRole ;
+    rdfs:label "Knowledge Graph Specialist" ;
+    :id "knowledge-graph" ;
+    :role "Knowledge Graph Specialist" ;
+    :usesTool :ToolKnowledgeTools .
+
+:AgentLangfuseSpecialist a :AgentRole ;
+    rdfs:label "Langfuse Specialist" ;
+    :id "langfuse_specialist" ;
+    :role "Langfuse Specialist" ;
+    :usesTool :ToolLangfuseAgent .
+
+:AgentLeanixSpecialist a :AgentRole ;
+    rdfs:label "EAR Enterprise Architecture Specialist" ;
+    :agent "ear_specialist" ;
+    :role "EAR Enterprise Architecture Specialist" ;
+    :usesTool :ToolLeanixAgent .
+
+:AgentLegalComplianceCoordinator a :AgentRole ;
+    rdfs:label "Legal Compliance Coordinator" ;
+    :id "legal_compliance_coordinator" ;
+    :role "Legal Compliance Coordinator" ;
+    :usesTool :ToolDocumentTools,
+        :ToolGraphOs,
+        :ToolScholarxMcp .
+
+:AgentListmonkSpecialist a :AgentRole ;
+    rdfs:label "Listmonk Specialist" ;
+    :id "listmonk_specialist" ;
+    :role "Listmonk Specialist" ;
+    :usesTool :ToolListmonkMcp .
+
+:AgentMain-Agent a :AgentRole ;
+    rdfs:label "main-agent" ;
+    :id "main-agent" ;
+    :role "main-agent" ;
+    :usesTool :ToolAgentWorkflows,
+        :ToolWorkspaceManager .
+
+:AgentManageMulti-AgentTeamCommunicationAndTaskDistribution a :AgentRole ;
+    rdfs:label "Coordinator System Prompt" ;
+    :id "manage multi-agent team communication and task distribution" ;
+    :role "Coordinator System Prompt" ;
+    :usesTool :ToolAgentWorkflows,
+        :ToolInternalComms,
+        :ToolSessionHandoff,
+        :ToolTaskPlanner .
+
+:AgentMediaDownloaderSpecialist a :AgentRole ;
+    rdfs:label "Media Downloader Specialist" ;
+    :id "media_downloader_specialist" ;
+    :role "Media Downloader Specialist" ;
+    :usesTool :ToolMediaDownloaderMcp .
+
+:AgentMemoryInstruction a :AgentRole ;
+    rdfs:label "Memory Instruction System" ;
+    :id "memory_instruction" ;
+    :role "Memory Instruction System" .
+
+:AgentMemorySelection a :AgentRole ;
+    rdfs:label "Memory Selection Prompt" ;
+    :id "memory_selection" ;
+    :role "Memory Selection Prompt" .
+
+:AgentMicrosoftSpecialist a :AgentRole ;
+    rdfs:label "Microsoft Specialist" ;
+    :id "microsoft_specialist" ;
+    :role "Microsoft Specialist" ;
+    :usesTool :ToolMicrosoftAgent .
+
+:AgentMobileProgrammer a :AgentRole ;
+    rdfs:label "📱 Mobile Application Programmer" ;
+    :id "mobile_programmer" ;
+    :role "📱 Mobile Application Programmer" ;
+    :usesTool :ToolReactDocs,
+        :ToolReactNativeSkills .
+
+:AgentNextcloudSpecialist a :AgentRole ;
+    rdfs:label "Nextcloud Specialist" ;
+    :id "nextcloud_specialist" ;
+    :role "Nextcloud Specialist" ;
+    :usesTool :ToolNextcloudAgent .
+
+:AgentPerformDeepDiscoveryAndContextGathering a :AgentRole ;
+    rdfs:label "Master Discovery Researcher System Prompt" ;
+    :id "perform deep discovery and context gathering" ;
+    :role "Master Discovery Researcher System Prompt" ;
+    :usesTool :ToolAgentBrowser,
+        :ToolBrowserTools,
+        :ToolWebArtifacts,
+        :ToolWebCrawler,
+        :ToolWebDesignGuidelines,
+        :ToolWebFetch,
+        :ToolWebSearch .
+
+:AgentPlaneSpecialist a :AgentRole ;
+    rdfs:label "Plane Specialist" ;
+    :id "plane_specialist" ;
+    :role "Plane Specialist" ;
+    :usesTool :ToolPlaneAgent .
+
+:AgentPortainerSpecialist a :AgentRole ;
+    rdfs:label "Portainer DevOps Specialist" ;
+    :id "portainer_specialist" ;
+    :role "Portainer DevOps Specialist" ;
+    :usesTool :ToolPortainerAgent .
+
+:AgentPostizSpecialist a :AgentRole ;
+    rdfs:label "Postiz Specialist" ;
+    :id "postiz_specialist" ;
+    :role "Postiz Specialist" ;
+    :usesTool :ToolPostizAgent .
+
+:AgentProjectManager a :AgentRole ;
+    rdfs:label "📋 Technical Project Manager" ;
+    :id "project_manager" ;
+    :role "📋 Technical Project Manager" ;
+    :usesTool :ToolGithubTools,
+        :ToolGoogleWorkspace,
+        :ToolInternalComms,
+        :ToolSessionHandoff,
+        :ToolSpecGenerator .
+
+:AgentPythonProgrammer a :AgentRole ;
+    rdfs:label "Python Systems & Scripting Wizard" ;
+    :id "python_programmer" ;
+    :role "Python Systems & Scripting Wizard" ;
+    :usesTool :ToolAgentBuilder,
+        :ToolAgentPackageBuilder,
+        :ToolApiWrapperBuilder,
+        :ToolDeveloperUtilities,
+        :ToolDjangoDocs,
+        :ToolFastapiDocs,
+        :ToolFastmcpDocs,
+        :ToolJupyterNotebook,
+        :ToolMcpBuilder,
+        :ToolPydanticAiDocs,
+        :ToolPydanticDocs,
+        :ToolPythonDocs,
+        :ToolTddMethodology .
+
+:AgentQaExpert a :AgentRole ;
+    rdfs:label "QA Expert" ;
+    :id "qa_expert" ;
+    :role "QA Expert" ;
+    :usesTool :ToolDeveloperUtilities,
+        :ToolSelfImprover,
+        :ToolSpecVerifier,
+        :ToolTddMethodology,
+        :ToolTestingLibraryDocs .
+
+:AgentQbittorrentSpecialist a :AgentRole ;
+    rdfs:label "qBittorrent Specialist" ;
+    :id "qbittorrent_specialist" ;
+    :role "qBittorrent Specialist" ;
+    :usesTool :ToolQbittorrentAgent .
+
+:AgentQuantResearchAnalyst a :AgentRole ;
+    rdfs:label "Quant Research Analyst" ;
+    :id "quant_research_analyst" ;
+    :role "Quant Research Analyst" ;
+    :usesTool :ToolDataScienceMcp,
+        :ToolEmeraldExchange,
+        :ToolGraphOs,
+        :ToolScholarxMcp .
+
+:AgentRepository a :AgentRole ;
+    rdfs:label "Repository Manager" ;
+    :id "repository" ;
+    :role "Repository Manager" ;
+    :usesTool :ToolRepositoryTools .
+
+:AgentRiskComplianceOfficer a :AgentRole ;
+    rdfs:label "Risk Compliance Officer" ;
+    :id "risk_compliance_officer" ;
+    :role "Risk Compliance Officer" ;
+    :usesTool :ToolEmeraldExchange,
+        :ToolGraphOs,
+        :ToolPortainerMcp,
+        :ToolSystemsManagerMcp .
+
+:AgentRustProgrammer a :AgentRole ;
+    rdfs:label "Rust Systems & Performance Specialist" ;
+    :id "rust_programmer" ;
+    :role "Rust Systems & Performance Specialist" ;
+    :usesTool :ToolRustDocs .
+
+:AgentSafetyGuard a :AgentRole ;
+    rdfs:label "YOLO/Auto-Mode Classifier System" ;
+    :id "safety_guard" ;
+    :role "YOLO/Auto-Mode Classifier System" .
+
+:AgentSafetyPolicy a :AgentRole ;
+    rdfs:label "Cyber Risk Instruction" ;
+    :id "safety_policy" ;
+    :role "Cyber Risk Instruction" .
+
+:AgentSecurityAuditor a :AgentRole ;
+    rdfs:label "🛡️ Security Auditor & Compliance Expert" ;
+    :id "security_auditor" ;
+    :role "🛡️ Security Auditor & Compliance Expert" ;
+    :usesTool :ToolLinuxDocs,
+        :ToolSecurityTools .
+
+:AgentServicenowSpecialist a :AgentRole ;
+    rdfs:label "ServiceNow ITSM Specialist" ;
+    :id "servicenow_specialist" ;
+    :role "ServiceNow ITSM Specialist" ;
+    :usesTool :ToolServicenowApi .
+
+:AgentSocialMediaInfluencer a :AgentRole ;
+    rdfs:label "Social Media Influencer & Stream Broadcast Assistant" ;
+    :id "social_media_influencer" ;
+    :role "Social Media Influencer & Stream Broadcast Assistant" ;
+    :usesTool :ToolOwncastAgent .
+
+:AgentStirlingpdfSpecialist a :AgentRole ;
+    rdfs:label "Stirling PDF Specialist" ;
+    :id "stirlingpdf_specialist" ;
+    :role "Stirling PDF Specialist" ;
+    :usesTool :ToolStirlingpdfAgent .
+
+:AgentSystemsManager a :AgentRole ;
+    rdfs:label "⚙️ Systems Manager" ;
+    :id "systems_manager" ;
+    :role "⚙️ Systems Manager" ;
+    :usesTool :ToolHomeAssistantDocs,
+        :ToolLinuxDocs,
+        :ToolOwncastDocs,
+        :ToolPostizDocs,
+        :ToolSystemTools,
+        :ToolUptimeKumaDocs .
+
+:AgentToolGuidance a :AgentRole ;
+    rdfs:label "Tool-Specific Prompts" ;
+    :id "tool_guidance" ;
+    :role "Tool-Specific Prompts" .
+
+:AgentTunnelSpecialist a :AgentRole ;
+    rdfs:label "Tunnel Specialist" ;
+    :id "tunnel_specialist" ;
+    :role "Tunnel Specialist" ;
+    :usesTool :ToolTunnelManager .
+
+:AgentTypescriptProgrammer a :AgentRole ;
+    rdfs:label "TypeScript & Full-Stack Architect / UI/UX Specialist" ;
+    :id "typescript_programmer" ;
+    :role "TypeScript & Full-Stack Architect / UI/UX Specialist" ;
+    :usesTool :ToolCanvasDesign,
+        :ToolNestjsDocs,
+        :ToolNextjsDocs,
+        :ToolNodejsDocs,
+        :ToolReactDevelopment,
+        :ToolReactDocs,
+        :ToolReactrouterDocs,
+        :ToolReduxDocs,
+        :ToolRemixDocs,
+        :ToolShadcnDocs,
+        :ToolSvelteDocs,
+        :ToolTanstackDocs,
+        :ToolTddMethodology,
+        :ToolVercelDocs,
+        :ToolVitejsDocs,
+        :ToolVuejsDocs,
+        :ToolWebArtifacts .
+
+:AgentUiUxDesigner a :AgentRole ;
+    rdfs:label "🎨 UI/UX Designer & Creative Frontend Lead" ;
+    :id "ui_ux_designer" ;
+    :role "🎨 UI/UX Designer & Creative Frontend Lead" ;
+    :usesTool :ToolAlgorithmicArt,
+        :ToolBrandGuidelines,
+        :ToolCanvasDesign,
+        :ToolChakraUiDocs,
+        :ToolFramerDocs,
+        :ToolMaterialUiDocs,
+        :ToolRadixUiDocs,
+        :ToolShadcnDocs,
+        :ToolThemeFactory,
+        :ToolWebArtifacts,
+        :ToolWebDesignGuidelines,
+        :ToolWebsiteBuilder,
+        :ToolWebsiteCloner .
+
+:AgentUptimeKumaSpecialist a :AgentRole ;
+    rdfs:label "Uptime Kuma SRE Specialist" ;
+    :id "uptime_kuma_specialist" ;
+    :role "Uptime Kuma SRE Specialist" ;
+    :usesTool :ToolUptimeKumaAgent .
+
+:AgentWriteCode a :AgentRole ;
+    rdfs:label "Write Code" ;
+    :id "write code" ;
+    :role "Write Code" .
+
+:AgentWriteContent a :AgentRole ;
+    rdfs:label "Write Content" ;
+    :id "write content" ;
+    :role "Write Content" .
+
+:LegalEntity a owl:Class ;
+    rdfs:label "Legal Entity" ;
+    rdfs:comment """A legal entity registered with government authorities.
+BFO:GenericallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:ToolAgentSpawner a :MCPServer ;
+    rdfs:label "agent-spawner" .
+
+:ToolAgentsMdGenerator a :MCPServer ;
+    rdfs:label "agents-md-generator" .
+
+:ToolAlgorithmicArt a :MCPServer ;
+    rdfs:label "algorithmic-art" .
+
+:ToolAnsibleTowerMcp a :MCPServer ;
+    rdfs:label "ansible-tower-mcp" .
+
+:ToolApiWrapperBuilder a :MCPServer ;
+    rdfs:label "api-wrapper-builder" .
+
+:ToolArchiveboxMcp a :MCPServer ;
+    rdfs:label "archivebox-mcp" .
+
+:ToolArrMcp a :MCPServer ;
+    rdfs:label "arr-mcp" .
+
+:ToolAtlassianAgent a :MCPServer ;
+    rdfs:label "atlassian-agent" .
+
+:ToolAudioTranscriberMcp a :MCPServer ;
+    rdfs:label "audio-transcriber-mcp" .
+
+:ToolBrandGuidelines a :MCPServer ;
+    rdfs:label "brand-guidelines" .
+
+:ToolCDocs a :MCPServer ;
+    rdfs:label "c-docs" .
+
+:ToolChakraUiDocs a :MCPServer ;
+    rdfs:label "chakra-ui-docs" .
+
+:ToolChromadbDocs a :MCPServer ;
+    rdfs:label "chromadb-docs" .
+
+:ToolCloudflareDeploy a :MCPServer ;
+    rdfs:label "cloudflare-deploy" .
+
+:ToolConstitutionGenerator a :MCPServer ;
+    rdfs:label "constitution-generator" .
+
+:ToolCouchbaseDocs a :MCPServer ;
+    rdfs:label "couchbase-docs" .
+
+:ToolCreativeMedia a :MCPServer ;
+    rdfs:label "creative-media" .
+
+:ToolDatabaseTools a :MCPServer ;
+    rdfs:label "database-tools" .
+
+:ToolDjangoDocs a :MCPServer ;
+    rdfs:label "django-docs" .
+
+:ToolDockerDocs a :MCPServer ;
+    rdfs:label "docker-docs" .
+
+:ToolDocumentConverter a :MCPServer ;
+    rdfs:label "document-converter" .
+
+:ToolFalkordbDocs a :MCPServer ;
+    rdfs:label "falkordb-docs" .
+
+:ToolFastapiDocs a :MCPServer ;
+    rdfs:label "fastapi-docs" .
+
+:ToolFramerDocs a :MCPServer ;
+    rdfs:label "framer-docs" .
+
+:ToolGithubTools a :MCPServer ;
+    rdfs:label "github-tools" .
+
+:ToolGoDocs a :MCPServer ;
+    rdfs:label "go-docs" .
+
+:ToolGoogleWorkspace a :MCPServer ;
+    rdfs:label "google-workspace" .
+
+:ToolHomeAssistantAgent a :MCPServer ;
+    rdfs:label "home-assistant-agent" .
+
+:ToolHomeAssistantDocs a :MCPServer ;
+    rdfs:label "home-assistant-docs" .
+
+:ToolHuggingfaceDocs a :MCPServer ;
+    rdfs:label "huggingface-docs" .
+
+:ToolJavaDocs a :MCPServer ;
+    rdfs:label "java-docs" .
+
+:ToolJellyfinMcp a :MCPServer ;
+    rdfs:label "jellyfin-mcp" .
+
+:ToolKnowledgeTools a :MCPServer ;
+    rdfs:label "knowledge-tools" .
+
+:ToolLangchainDocs a :MCPServer ;
+    rdfs:label "langchain-docs" .
+
+:ToolLangfuseAgent a :MCPServer ;
+    rdfs:label "langfuse-agent" .
+
+:ToolLeanixAgent a :MCPServer ;
+    rdfs:label "leanix-agent" .
+
+:ToolListmonkMcp a :MCPServer ;
+    rdfs:label "listmonk-mcp" .
+
+:ToolMariadbDocs a :MCPServer ;
+    rdfs:label "mariadb-docs" .
+
+:ToolMarpPresentations a :MCPServer ;
+    rdfs:label "marp-presentations" .
+
+:ToolMaterialUiDocs a :MCPServer ;
+    rdfs:label "material-ui-docs" .
+
+:ToolMatplotlibDocs a :MCPServer ;
+    rdfs:label "matplotlib-docs" .
+
+:ToolMcpClient a :MCPServer ;
+    rdfs:label "mcp-client" .
+
+:ToolMealieMcp a :MCPServer ;
+    rdfs:label "mealie-mcp" .
+
+:ToolMediaDownloaderMcp a :MCPServer ;
+    rdfs:label "media-downloader-mcp" .
+
+:ToolMermaidDiagrams a :MCPServer ;
+    rdfs:label "mermaid-diagrams" .
+
+:ToolMicrosoftAgent a :MCPServer ;
+    rdfs:label "microsoft-agent" .
+
+:ToolMinioDocs a :MCPServer ;
+    rdfs:label "minio-docs" .
+
+:ToolMongodbDocs a :MCPServer ;
+    rdfs:label "mongodb-docs" .
+
+:ToolMssqlDocs a :MCPServer ;
+    rdfs:label "mssql-docs" .
+
+:ToolNeo4JDocs a :MCPServer ;
+    rdfs:label "neo4j-docs" .
+
+:ToolNestjsDocs a :MCPServer ;
+    rdfs:label "nestjs-docs" .
+
+:ToolNextcloudAgent a :MCPServer ;
+    rdfs:label "nextcloud-agent" .
+
+:ToolNextjsDocs a :MCPServer ;
+    rdfs:label "nextjs-docs" .
+
+:ToolNumpyDocs a :MCPServer ;
+    rdfs:label "numpy-docs" .
+
+:ToolOwncastAgent a :MCPServer ;
+    rdfs:label "owncast-agent" .
+
+:ToolOwncastDocs a :MCPServer ;
+    rdfs:label "owncast-docs" .
+
+:ToolPandasDocs a :MCPServer ;
+    rdfs:label "pandas-docs" .
+
+:ToolPlaneAgent a :MCPServer ;
+    rdfs:label "plane-agent" .
+
+:ToolPortainerAgent a :MCPServer ;
+    rdfs:label "portainer-agent" .
+
+:ToolPortainerMcp a :MCPServer ;
+    rdfs:label "portainer-mcp" .
+
+:ToolPostgresDocs a :MCPServer ;
+    rdfs:label "postgres-docs" .
+
+:ToolPostizAgent a :MCPServer ;
+    rdfs:label "postiz-agent" .
+
+:ToolPostizDocs a :MCPServer ;
+    rdfs:label "postiz-docs" .
+
+:ToolProductStrategy a :MCPServer ;
+    rdfs:label "product-strategy" .
+
+:ToolPydanticDocs a :MCPServer ;
+    rdfs:label "pydantic-docs" .
+
+:ToolPythonDocs a :MCPServer ;
+    rdfs:label "python-docs" .
+
+:ToolPytorchDocs a :MCPServer ;
+    rdfs:label "pytorch-docs" .
+
+:ToolQbittorrentAgent a :MCPServer ;
+    rdfs:label "qbittorrent-agent" .
+
+:ToolQdrantDocs a :MCPServer ;
+    rdfs:label "qdrant-docs" .
+
+:ToolRadixUiDocs a :MCPServer ;
+    rdfs:label "radix-ui-docs" .
+
+:ToolReactDevelopment a :MCPServer ;
+    rdfs:label "react-development" .
+
+:ToolReactNativeSkills a :MCPServer ;
+    rdfs:label "react-native-skills" .
+
+:ToolReactrouterDocs a :MCPServer ;
+    rdfs:label "reactrouter-docs" .
+
+:ToolRedisDocs a :MCPServer ;
+    rdfs:label "redis-docs" .
+
+:ToolReduxDocs a :MCPServer ;
+    rdfs:label "redux-docs" .
+
+:ToolRemixDocs a :MCPServer ;
+    rdfs:label "remix-docs" .
+
+:ToolRepositoryManagerMcp a :MCPServer ;
+    rdfs:label "repository-manager-mcp" .
+
+:ToolRepositoryTools a :MCPServer ;
+    rdfs:label "repository-tools" .
+
+:ToolRustDocs a :MCPServer ;
+    rdfs:label "rust-docs" .
+
+:ToolScikitLearnDocs a :MCPServer ;
+    rdfs:label "scikit-learn-docs" .
+
+:ToolScipyDocs a :MCPServer ;
+    rdfs:label "scipy-docs" .
+
+:ToolSecurityTools a :MCPServer ;
+    rdfs:label "security-tools" .
+
+:ToolServicenowApi a :MCPServer ;
+    rdfs:label "servicenow-api" .
+
+:ToolSkillBuilder a :MCPServer ;
+    rdfs:label "skill-builder" .
+
+:ToolSkillGraphBuilder a :MCPServer ;
+    rdfs:label "skill-graph-builder" .
+
+:ToolSkillInstaller a :MCPServer ;
+    rdfs:label "skill-installer" .
+
+:ToolStirlingpdfAgent a :MCPServer ;
+    rdfs:label "stirlingpdf-agent" .
+
+:ToolSvelteDocs a :MCPServer ;
+    rdfs:label "svelte-docs" .
+
+:ToolSystemTools a :MCPServer ;
+    rdfs:label "system-tools" .
+
+:ToolTanstackDocs a :MCPServer ;
+    rdfs:label "tanstack-docs" .
+
+:ToolTemporalDocs a :MCPServer ;
+    rdfs:label "temporal-docs" .
+
+:ToolTensorflowDocs a :MCPServer ;
+    rdfs:label "tensorflow-docs" .
+
+:ToolTerraformDocs a :MCPServer ;
+    rdfs:label "terraform-docs" .
+
+:ToolTestingLibraryDocs a :MCPServer ;
+    rdfs:label "testing-library-docs" .
+
+:ToolThemeFactory a :MCPServer ;
+    rdfs:label "theme-factory" .
+
+:ToolTunnelManager a :MCPServer ;
+    rdfs:label "tunnel-manager" .
+
+:ToolUptimeKumaAgent a :MCPServer ;
+    rdfs:label "uptime-kuma-agent" .
+
+:ToolUptimeKumaDocs a :MCPServer ;
+    rdfs:label "uptime-kuma-docs" .
+
+:ToolUserResearch a :MCPServer ;
+    rdfs:label "user-research" .
+
+:ToolVercelDocs a :MCPServer ;
+    rdfs:label "vercel-docs" .
+
+:ToolVitejsDocs a :MCPServer ;
+    rdfs:label "vitejs-docs" .
+
+:ToolVuejsDocs a :MCPServer ;
+    rdfs:label "vuejs-docs" .
+
+:ToolWebFetch a :MCPServer ;
+    rdfs:label "web-fetch" .
+
+:ToolWebSearch a :MCPServer ;
+    rdfs:label "web-search" .
+
+:ToolWebsiteBuilder a :MCPServer ;
+    rdfs:label "website-builder" .
+
+:ToolWebsiteCloner a :MCPServer ;
+    rdfs:label "website-cloner" .
+
+:ToolWgerAgent a :MCPServer ;
+    rdfs:label "wger-agent" .
+
+:ToolWorkspaceManager a :MCPServer ;
+    rdfs:label "workspace-manager" .
+
+:ToolAgentBrowser a :MCPServer ;
+    rdfs:label "agent-browser" .
+
+:ToolAgentPackageBuilder a :MCPServer ;
+    rdfs:label "agent-package-builder" .
+
+:ToolAwsDocs a :MCPServer ;
+    rdfs:label "aws-docs" .
+
+:ToolAzureDocs a :MCPServer ;
+    rdfs:label "azure-docs" .
+
+:ToolBrainstorming a :MCPServer ;
+    rdfs:label "brainstorming" .
+
+:ToolBrowserTools a :MCPServer ;
+    rdfs:label "browser-tools" .
+
+:ToolFastmcpDocs a :MCPServer ;
+    rdfs:label "fastmcp-docs" .
+
+:ToolGcpDocs a :MCPServer ;
+    rdfs:label "gcp-docs" .
+
+:ToolJupyterNotebook a :MCPServer ;
+    rdfs:label "jupyter-notebook" .
+
+:ToolLinuxDocs a :MCPServer ;
+    rdfs:label "linux-docs" .
+
+:ToolMcpBuilder a :MCPServer ;
+    rdfs:label "mcp-builder" .
+
+:ToolNodejsDocs a :MCPServer ;
+    rdfs:label "nodejs-docs" .
+
+:ToolPydanticAiDocs a :MCPServer ;
+    rdfs:label "pydantic-ai-docs" .
+
+:ToolSessionHandoff a :MCPServer ;
+    rdfs:label "session-handoff" .
+
+:ToolShadcnDocs a :MCPServer ;
+    rdfs:label "shadcn-docs" .
+
+:ToolSystemsManagerMcp a :MCPServer ;
+    rdfs:label "systems-manager-mcp" .
+
+:ToolTaskPlanner a :MCPServer ;
+    rdfs:label "task-planner" .
+
+:ToolWebCrawler a :MCPServer ;
+    rdfs:label "web-crawler" .
+
+:ToolAgentBuilder a :MCPServer ;
+    rdfs:label "agent-builder" .
+
+:ToolAgentWorkflows a :MCPServer ;
+    rdfs:label "agent-workflows" .
+
+:ToolC4Architecture a :MCPServer ;
+    rdfs:label "c4-architecture" .
+
+:ToolCanvasDesign a :MCPServer ;
+    rdfs:label "canvas-design" .
+
+:ToolEmeraldExchange a :MCPServer ;
+    rdfs:label "emerald-exchange" .
+
+:ToolInternalComms a :MCPServer ;
+    rdfs:label "internal-comms" .
+
+:ToolReactDocs a :MCPServer ;
+    rdfs:label "react-docs" .
+
+:ToolScholarxMcp a :MCPServer ;
+    rdfs:label "scholarx-mcp" .
+
+:ToolSelfImprover a :MCPServer ;
+    rdfs:label "self-improver" .
+
+:ToolSpecGenerator a :MCPServer ;
+    rdfs:label "spec-generator" .
+
+:ToolSpecVerifier a :MCPServer ;
+    rdfs:label "spec-verifier" .
+
+:ToolWebDesignGuidelines a :MCPServer ;
+    rdfs:label "web-design-guidelines" .
+
+:ToolDataScienceMcp a :MCPServer ;
+    rdfs:label "data-science-mcp" .
+
+:ToolDocumentTools a :MCPServer ;
+    rdfs:label "document-tools" .
+
+:BenefitsPlan a owl:Class ;
+    rdfs:label "Benefits Plan" ;
+    rdfs:comment """An employee benefits plan (medical, dental, 401k, etc.).
+BFO:GenericallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:CompanyLicense a owl:Class ;
+    rdfs:label "Company License" ;
+    rdfs:comment """A business, professional, or regulatory license.
+BFO:GenericallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:ToolTddMethodology a :MCPServer ;
+    rdfs:label "tdd-methodology" .
+
+:ToolWebArtifacts a :MCPServer ;
+    rdfs:label "web-artifacts" .
+
+:AgentDepartment a owl:Class ;
+    rdfs:label "Agent Department" ;
+    rdfs:comment """An AI-staffed department with team config, automation level,
+and optional human oversight requirement. Extends Department with
+agent-specific metadata for autonomous company operations.
+CONCEPT:ORCH-1.27 — Autonomous Department Orchestration.""" ;
+    rdfs:subClassOf :Department .
+
+:KeyPerformanceIndicator a owl:Class ;
+    rdfs:label "Key Performance Indicator" ;
+    rdfs:comment """A quantitative metric for measuring company performance.
+BFO:GenericallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:PayrollRecord a owl:Class ;
+    rdfs:label "Payroll Record" ;
+    rdfs:comment """A payroll entry for a pay period.
+BFO:GenericallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:ToolDeveloperUtilities a :MCPServer ;
+    rdfs:label "developer-utilities" .
+
+:ToolGraphOs a :MCPServer ;
+    rdfs:label "graph-os" .
+
+:StrategicGoal a owl:Class ;
+    rdfs:label "Strategic Goal" ;
+    rdfs:comment """A measurable company goal with KPI tracking.
+Cascades from org-level to department-level to individual-level.
+BFO:SpecificallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000020 .
+
+:Company a owl:Class ;
+    rdfs:label "Company" ;
+    rdfs:comment """A legal business entity capable of autonomous AI-driven
+operations. Extends Organization with incorporation metadata, EIN,
+and entity type. BFO:IndependentContinuant.""" ;
+    rdfs:subClassOf :Organization .
+
+:AgentRole a owl:Class ;
+    rdfs:label "Agent Role" ;
+    rdfs:subClassOf bfo:0000023 .
+
+:MCPServer a owl:Class ;
+    rdfs:label "MCP Server" ;
+    rdfs:subClassOf bfo:0000031 .

@@ -11,11 +11,16 @@ use std::collections::{BTreeSet, HashMap};
 use serde::{Deserialize, Serialize};
 
 use crate::compute::semantic::SemanticStore;
-use crate::graph::{GraphCore, GraphSnapshot, GraphTxn};
+use crate::graph::{
+    lift_v2_integrity_policy, GraphCore, GraphSchemaSources, GraphSnapshot, GraphTxn,
+    IntegrityPolicyV2,
+};
 use crate::protocol::Method;
 
-pub(crate) const ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-v2";
-const ROW_DELTA_VERSION: u16 = 2;
+pub(crate) const ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-schema-sources";
+/// Persisted legacy rows accepted only by the one-time state decoder.
+pub(crate) const LEGACY_ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-v2";
+const ROW_DELTA_VERSION: u16 = 3;
 const MAX_DELTA_OPERATIONS: usize = 1_000_000;
 
 fn deserialize_required_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
@@ -26,17 +31,100 @@ where
     <Option<T> as serde::Deserialize>::deserialize(deserializer)
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct GraphRowDelta {
+    /// The persisted wire version that was decoded. This is deliberately not
+    /// serialized: new rows always encode the current `schema_version`, while recovery
+    /// uses it to bind a legacy v2 descriptor to actual v2 bytes.
+    #[serde(skip)]
+    decoded_wire_version: u16,
     schema_version: u16,
     operations: Vec<Method>,
     #[serde(deserialize_with = "deserialize_required_option")]
     ledger: Option<LedgerDelta>,
-    /// Authoritative graph-control transition. `None` means unchanged; policy
-    /// removal is not a current operation and is rejected while deriving a delta.
+    /// Authoritative graph-control transition. `None` means unchanged; `Some`
+    /// may carry an empty dynamic map, which is how detaching the final source
+    /// is represented without ambiguity.
     #[serde(deserialize_with = "deserialize_required_option")]
-    integrity_policy: Option<crate::graph::IntegrityPolicy>,
+    schema_sources: Option<std::sync::Arc<GraphSchemaSources>>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphRowDeltaCurrent {
+    schema_version: u16,
+    operations: Vec<Method>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    ledger: Option<LedgerDelta>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    schema_sources: Option<std::sync::Arc<GraphSchemaSources>>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GraphRowDeltaV2 {
+    schema_version: u16,
+    operations: Vec<Method>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    ledger: Option<LedgerDelta>,
+    #[serde(deserialize_with = "deserialize_required_option")]
+    integrity_policy: Option<IntegrityPolicyV2>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum GraphRowDeltaWire {
+    Current(GraphRowDeltaCurrent),
+    V2(GraphRowDeltaV2),
+}
+
+impl<'de> Deserialize<'de> for GraphRowDelta {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error as _;
+        match GraphRowDeltaWire::deserialize(deserializer)? {
+            GraphRowDeltaWire::Current(value) if value.schema_version == ROW_DELTA_VERSION => {
+                let schema_sources = value
+                    .schema_sources
+                    .map(|sources| {
+                        std::sync::Arc::unwrap_or_clone(sources)
+                            .reconciled_current_core()
+                            .map(std::sync::Arc::new)
+                    })
+                    .transpose()
+                    .map_err(D::Error::custom)?;
+                Ok(Self {
+                    decoded_wire_version: value.schema_version,
+                    schema_version: value.schema_version,
+                    operations: value.operations,
+                    ledger: value.ledger,
+                    schema_sources,
+                })
+            }
+            GraphRowDeltaWire::V2(value) if value.schema_version == 2 => Ok(Self {
+                decoded_wire_version: value.schema_version,
+                schema_version: ROW_DELTA_VERSION,
+                operations: value.operations,
+                ledger: value.ledger,
+                schema_sources: value
+                    .integrity_policy
+                    .map(|policy| lift_v2_integrity_policy(Some(policy)))
+                    .transpose()
+                    .map_err(D::Error::custom)?,
+            }),
+            GraphRowDeltaWire::Current(value) => Err(D::Error::custom(format!(
+                "unsupported graph row-delta version {}",
+                value.schema_version
+            ))),
+            GraphRowDeltaWire::V2(value) => Err(D::Error::custom(format!(
+                "unsupported legacy graph row-delta version {}",
+                value.schema_version
+            ))),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -57,10 +145,11 @@ impl GraphRowDelta {
         push_edge_operations(&mut operations, before, after, &removals);
         push_embedding_operations(&mut operations, &embeddings);
         let delta = Self {
+            decoded_wire_version: ROW_DELTA_VERSION,
             schema_version: ROW_DELTA_VERSION,
             operations,
             ledger: ledger_delta(before, after),
-            integrity_policy: integrity_policy_delta(before, after)?,
+            schema_sources: schema_sources_delta(before, after),
         };
         delta.validate()?;
         Ok(delta)
@@ -100,7 +189,7 @@ impl GraphRowDelta {
         }) {
             return Err("graph row delta contains a non-row operation".to_string());
         }
-        Ok(())
+        validate_schema_sources_update(self.schema_sources.as_ref())
     }
 
     pub(crate) fn operations(&self) -> &[Method] {
@@ -113,8 +202,15 @@ impl GraphRowDelta {
             .map(|ledger| (ledger.source_len, ledger.retain, ledger.append.as_slice()))
     }
 
-    pub(crate) fn integrity_policy_update(&self) -> Option<&crate::graph::IntegrityPolicy> {
-        self.integrity_policy.as_ref()
+    pub(crate) fn schema_sources_update(&self) -> Option<&std::sync::Arc<GraphSchemaSources>> {
+        self.schema_sources.as_ref()
+    }
+
+    pub(crate) fn matches_algorithm(&self, algorithm: &str) -> bool {
+        matches!(
+            (algorithm, self.decoded_wire_version),
+            (ROW_DELTA_ALGORITHM, ROW_DELTA_VERSION) | (LEGACY_ROW_DELTA_ALGORITHM, 2)
+        )
     }
 
     pub(crate) fn preserves_node_derived_indexes(&self) -> bool {
@@ -155,11 +251,20 @@ impl GraphRowDelta {
                 .map_err(|_| "graph row delta ledger offset is invalid".to_string())?;
             core.replace_ledger_suffix(retain, append)?;
         }
-        if let Some(policy) = self.integrity_policy_update() {
-            core.set_integrity_policy(policy.clone());
+        if let Some(sources) = self.schema_sources_update() {
+            core.install_schema_sources(std::sync::Arc::clone(sources));
         }
         Ok(())
     }
+}
+
+fn validate_schema_sources_update(
+    sources: Option<&std::sync::Arc<GraphSchemaSources>>,
+) -> Result<(), String> {
+    if let Some(sources) = sources {
+        sources.validate()?;
+    }
+    Ok(())
 }
 
 /// The before/after images of one keyed row family.
@@ -336,18 +441,14 @@ fn ledger_delta(before: &GraphSnapshot, after: &GraphSnapshot) -> Option<LedgerD
     })
 }
 
-fn integrity_policy_delta(
+fn schema_sources_delta(
     before: &GraphSnapshot,
     after: &GraphSnapshot,
-) -> Result<Option<crate::graph::IntegrityPolicy>, String> {
-    if before.integrity_policy == after.integrity_policy {
-        return Ok(None);
+) -> Option<std::sync::Arc<GraphSchemaSources>> {
+    if before.schema_sources == after.schema_sources {
+        return None;
     }
-    after
-        .integrity_policy
-        .clone()
-        .map(Some)
-        .ok_or_else(|| "current graph row delta cannot remove an integrity policy".to_string())
+    Some(std::sync::Arc::clone(&after.schema_sources))
 }
 
 /// Every added edge must have both endpoints present once the delta applies:
@@ -447,6 +548,23 @@ fn same_embedding(left: &[f32], right: &[f32]) -> bool {
 mod tests {
     use super::*;
 
+    fn install_operator(core: &GraphCore, shapes: &str) {
+        let mut sources = (*core.schema_sources()).clone();
+        sources
+            .attach_dynamic(
+                crate::graph::OPERATOR_SOURCE_ID.to_string(),
+                crate::graph::GraphSchemaSource::new(
+                    crate::graph::SchemaSourceOrigin::Operator,
+                    Some(std::sync::Arc::from(shapes)),
+                    None,
+                    0,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        core.install_schema_sources(std::sync::Arc::new(sources));
+    }
+
     fn props(value: serde_json::Value) -> Vec<u8> {
         rmp_serde::to_vec_named(&value).unwrap()
     }
@@ -502,7 +620,7 @@ mod tests {
         assert_eq!(canonical_nodes(&replayed), canonical_nodes(&after_snapshot));
         assert_eq!(edge_groups(&replayed), edge_groups(&after_snapshot));
         assert_eq!(replayed.ledger, after_snapshot.ledger);
-        assert_eq!(replayed.integrity_policy, after_snapshot.integrity_policy);
+        assert_eq!(replayed.schema_sources, after_snapshot.schema_sources);
         assert_eq!(
             replayed.semantic_store.embeddings_snapshot(),
             after_snapshot.semantic_store.embeddings_snapshot()
@@ -511,19 +629,17 @@ mod tests {
     }
 
     #[test]
-    fn delta_replays_authoritative_integrity_policy() {
+    fn delta_replays_authoritative_schema_sources() {
         let before = GraphCore::new();
         let before_snapshot = before.snapshot();
         let after = GraphCore::from_snapshot(before_snapshot.clone(), 0).unwrap();
-        after.set_integrity_policy(crate::graph::IntegrityPolicy {
-            shapes_ttl: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
-        });
+        install_operator(&after, "@prefix sh: <http://www.w3.org/ns/shacl#> .");
         let after_snapshot = after.snapshot();
         let delta = GraphRowDelta::between(&before_snapshot, &after_snapshot).unwrap();
-        assert!(delta.integrity_policy_update().is_some());
+        assert!(delta.schema_sources_update().is_some());
         let replay = GraphCore::from_snapshot(before_snapshot, 0).unwrap();
         delta.apply_to(&replay).unwrap();
-        assert_eq!(replay.integrity_policy(), after.integrity_policy());
+        assert_eq!(replay.schema_sources(), after.schema_sources());
     }
 
     fn replay(before: &GraphSnapshot, after: &GraphSnapshot) -> GraphSnapshot {
@@ -591,32 +707,65 @@ mod tests {
         let delta = GraphRowDelta::between(&snapshot, &snapshot).unwrap();
         assert!(delta.operations().is_empty());
         assert!(delta.ledger_patch().is_none());
-        assert!(delta.integrity_policy_update().is_none());
+        assert!(delta.schema_sources_update().is_none());
         assert!(delta.preserves_node_derived_indexes());
     }
 
     #[test]
-    fn delta_refuses_integrity_policy_removal() {
+    fn delta_can_detach_the_final_dynamic_source() {
         let before = GraphCore::new();
-        before.set_integrity_policy(crate::graph::IntegrityPolicy {
-            shapes_ttl: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
-        });
+        install_operator(&before, "@prefix sh: <http://www.w3.org/ns/shacl#> .");
         let before_snapshot = before.snapshot();
         let mut after_snapshot = before_snapshot.clone();
-        after_snapshot.integrity_policy = None;
-        let error = GraphRowDelta::between(&before_snapshot, &after_snapshot).unwrap_err();
-        assert_eq!(
-            error,
-            "current graph row delta cannot remove an integrity policy"
-        );
+        after_snapshot.schema_sources =
+            std::sync::Arc::new(crate::graph::GraphSchemaSources::default());
+        let delta = GraphRowDelta::between(&before_snapshot, &after_snapshot).unwrap();
+        let replay = GraphCore::from_snapshot(before_snapshot, 0).unwrap();
+        delta.apply_to(&replay).unwrap();
+        assert!(replay.schema_sources().dynamic.is_empty());
+    }
+
+    #[test]
+    fn v2_delta_lifts_a_policy_but_preserves_none_as_unchanged() {
+        const V2_DELTA_GOLDEN: &str = "84ae736368656d615f76657273696f6e02aa6f7065726174696f6e7390a66c6564676572c0b0696e746567726974795f706f6c69637981aa7368617065735f74746cd92b407072656669782073683a203c687474703a2f2f7777772e77332e6f72672f6e732f736861636c233e202e";
+        let with_policy = GraphRowDeltaV2 {
+            schema_version: 2,
+            operations: Vec::new(),
+            ledger: None,
+            integrity_policy: Some(IntegrityPolicyV2 {
+                shapes_ttl: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
+            }),
+        };
+        let golden = hex::decode(V2_DELTA_GOLDEN).unwrap();
+        assert_eq!(rmp_serde::to_vec_named(&with_policy).unwrap(), golden);
+        let decoded = GraphRowDelta::from_msgpack(&golden).unwrap();
+        assert!(decoded.matches_algorithm(LEGACY_ROW_DELTA_ALGORITHM));
+        assert!(!decoded.matches_algorithm(ROW_DELTA_ALGORITHM));
+        assert!(decoded
+            .schema_sources_update()
+            .unwrap()
+            .dynamic
+            .contains_key(crate::graph::OPERATOR_SOURCE_ID));
+
+        let unchanged = GraphRowDeltaV2 {
+            schema_version: 2,
+            operations: Vec::new(),
+            ledger: None,
+            integrity_policy: None,
+        };
+        let decoded =
+            GraphRowDelta::from_msgpack(&rmp_serde::to_vec_named(&unchanged).unwrap()).unwrap();
+        assert!(decoded.schema_sources_update().is_none());
+        assert!(decoded.matches_algorithm(LEGACY_ROW_DELTA_ALGORITHM));
     }
 
     fn delta_of(operations: Vec<Method>) -> GraphRowDelta {
         GraphRowDelta {
+            decoded_wire_version: ROW_DELTA_VERSION,
             schema_version: ROW_DELTA_VERSION,
             operations,
             ledger: None,
-            integrity_policy: None,
+            schema_sources: None,
         }
     }
 

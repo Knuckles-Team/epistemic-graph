@@ -70,12 +70,12 @@ pub(super) fn finish_materialization(
     }
 }
 
-/// Replay a FULL durable material into a fresh core: its integrity policy, every node and
+/// Replay a FULL durable material into a fresh core: its schema authority, every node and
 /// edge, and the encoded semantic store if one was captured. The eager counterpart of
 /// [`apply_material_page`].
 pub(super) fn load_material(core: &Arc<GraphCore>, material: GraphMaterial) {
-    if let Some(policy) = material.integrity_policy {
-        core.set_integrity_policy(policy);
+    if let Some(sources) = material.schema_sources {
+        core.install_schema_sources(sources);
     }
     for (node_id, props) in material.nodes {
         core.add_node(node_id, props);
@@ -98,8 +98,8 @@ pub(super) fn load_material(core: &Arc<GraphCore>, material: GraphMaterial) {
 /// [`GraphRegistry::open_lazy_paged`] and [`GraphRegistry::page_in`] so a paged
 /// open is byte-identical, one page at a time, to the eager/full-material one.
 pub(super) fn apply_material_page(core: &Arc<GraphCore>, page: &MaterialPage) {
-    if let Some(policy) = &page.integrity_policy {
-        core.set_integrity_policy(policy.clone());
+    if let Some(sources) = &page.schema_sources {
+        core.install_schema_sources(Arc::clone(sources));
     }
     for (node_id, props) in &page.nodes {
         core.add_node(node_id.clone(), props.clone());

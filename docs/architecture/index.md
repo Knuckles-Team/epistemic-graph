@@ -73,7 +73,7 @@ distributed/durability claim.
 |---|---|
 | ★ [Hot-path complexity ledger](hot-path-complexity.md) | Algorithmic bounds (not benchmark claims) for the hottest request paths. |
 | [D-OP-1: RLS projection cache](d-op-1-projection-cache.md) | Caching `project_core()`'s RLS projection per `(actor, graph version)`. |
-| [Push-gate execution evidence](push_gate_evidence.md) | `ci_gate_replica.py` — the single producer for workflow-derived heavy checks in the pre-push gate. |
+| [Push-gate execution evidence](push_gate_evidence.md) | `ci_gate_replica.py` — the single producer for workflow-derived heavy checks in the local manual validation tier. |
 
 ## Media, voice & visualization
 

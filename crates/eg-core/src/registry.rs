@@ -177,8 +177,8 @@ pub struct GraphMaterial {
     pub nodes: Vec<(String, Vec<u8>)>,
     pub edges: Vec<(String, String, Vec<u8>)>,
     pub semantic: Vec<u8>,
-    /// Authoritative graph-scoped integrity policy restored with the data image.
-    pub integrity_policy: Option<crate::graph::IntegrityPolicy>,
+    /// Authoritative graph schema sources restored with the data image.
+    pub schema_sources: Option<Arc<crate::graph::GraphSchemaSources>>,
     /// Durable incarnation read in the same source snapshot as the rows.
     pub incarnation_id: Option<String>,
     /// Authoritative graph version covered by this material.
@@ -260,8 +260,8 @@ pub trait GraphMaterializer: Send + Sync {
             } else {
                 Vec::new()
             },
-            integrity_policy: if first_page {
-                material.integrity_policy
+            schema_sources: if first_page {
+                material.schema_sources
             } else {
                 None
             },
@@ -321,7 +321,7 @@ pub struct MaterialPage {
     pub edges: Vec<(String, String, Vec<u8>)>,
     pub semantic: Vec<u8>,
     /// Authoritative graph-control state, attached to the first page only.
-    pub integrity_policy: Option<crate::graph::IntegrityPolicy>,
+    pub schema_sources: Option<Arc<crate::graph::GraphSchemaSources>>,
     pub next_cursor: Option<MaterializeCursor>,
     /// Durable incarnation read with this page.  Production materializers must
     /// populate it; `None` is retained for in-memory/test materializers.
@@ -1572,7 +1572,7 @@ mod tests {
 
         let snapshot = GraphSnapshot {
             schema_version: crate::graph::GRAPH_SNAPSHOT_SCHEMA_VERSION,
-            integrity_policy: None,
+            schema_sources: Arc::new(crate::graph::GraphSchemaSources::default()),
             nodes: vec![(
                 "restored".to_string(),
                 Arc::new(props(serde_json::json!({"v": 2}))),

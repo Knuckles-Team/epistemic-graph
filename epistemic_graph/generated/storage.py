@@ -266,7 +266,7 @@ class BackupRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     destination: str
-    label: Any | None = None
+    label: str | None = None
 
 
 async def send_backup(

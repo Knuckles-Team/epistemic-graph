@@ -1370,24 +1370,29 @@ def _check_m1_digest_contract(contract: str) -> None:
     validator = _function(contract, "validate_authoritative_state")
     accepted_algorithms = set(re.findall(r'"(sha256(?:-row-delta-[^"]+)?)"', validator))
     require(
-        accepted_algorithms == {"sha256", "sha256-row-delta-v2"},
-        "authoritative state validator must accept exactly sha256 and "
-        "sha256-row-delta-v2",
+        accepted_algorithms
+        == {"sha256", "sha256-row-delta-v2", "sha256-row-delta-schema-sources"},
+        "authoritative state validator must accept exactly sha256, the persisted "
+        "legacy migration format, and current schema-source row delta",
     )
 
 
 def _check_m1_row_delta_versions(contract: str, row_delta_producer: str) -> None:
-    """The shipped row-delta producer version and absence of retired ones."""
+    """The current producer, explicit legacy migration reader and retired identities."""
     require(
-        'const ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-v2";' in row_delta_producer
-        and "const ROW_DELTA_VERSION: u16 = 2;" in row_delta_producer,
-        "row-delta producer constant/version must identify shipped v2",
+        'const ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-schema-sources";'
+        in row_delta_producer
+        and 'const LEGACY_ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-v2";'
+        in row_delta_producer
+        and "const ROW_DELTA_VERSION: u16 = 3;" in row_delta_producer,
+        "row-delta producer constant/version must identify current schema-source and legacy readers",
     )
-    for stale in (
-        "sha256-row-delta-v1",
-        "sha256-row-delta-v3",
-        "sha256-row-delta-prototype",
-    ):
+    _check_retired_row_delta_versions(contract, row_delta_producer)
+
+
+def _check_retired_row_delta_versions(contract: str, row_delta_producer: str) -> None:
+    """Reject row-delta identities retired before the schema-source version."""
+    for stale in ("sha256-row-delta-v1", "sha256-row-delta-prototype"):
         require(
             stale not in contract and stale not in row_delta_producer,
             f"retired row-delta identity remains in production source: {stale}",

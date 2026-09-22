@@ -18,7 +18,7 @@
 // fact extraction from `GraphCore` and the write-back of derived facts; the inference is
 // delegated. (Supersedes the earlier string-keyed naive fixpoint that lived here.)
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::graph::GraphCore;
 use crate::reasoning_closure::{active_closure_backend, infer_semi_naive};
@@ -102,6 +102,81 @@ fn update_node_properties(
     edit(obj);
     if let Ok(updated) = rmp_serde::to_vec_named(&val) {
         *props_msgpack = std::sync::Arc::new(updated);
+    }
+}
+
+/// Bind every committed-authority inference to the exact GraphSchema snapshot
+/// that produced it.  The receipt alone is not enough: rows survive restart and
+/// must remain independently auditable after the active schema changes.
+pub fn bind_inference_schema_digests(
+    core: &GraphCore,
+    facts: &mut [HashMap<String, String>],
+    schema_digests: &[String],
+) {
+    if schema_digests.is_empty() {
+        return;
+    }
+    let encoded = serde_json::to_string(schema_digests).expect("schema digests serialize");
+    let property_value = serde_json::Value::Array(
+        schema_digests
+            .iter()
+            .cloned()
+            .map(serde_json::Value::String)
+            .collect(),
+    );
+    for fact in facts {
+        fact.insert("schema_digests".to_string(), encoded.clone());
+        if fact
+            .get("materialized")
+            .is_some_and(|value| value == "false")
+        {
+            continue;
+        }
+        let (Some(subject), Some(predicate), Some(object)) = (
+            fact.get("subject"),
+            fact.get("predicate"),
+            fact.get("object"),
+        ) else {
+            continue;
+        };
+        if matches!(predicate.as_str(), "type" | "rdf:type") {
+            update_node_properties(core, subject, |properties| {
+                properties.insert(
+                    "inference_schema_digests".to_string(),
+                    property_value.clone(),
+                );
+            });
+            continue;
+        }
+        let Some(mut rows) = core
+            .edge_properties
+            .get_mut(&(subject.clone(), object.clone()))
+        else {
+            continue;
+        };
+        for row in rows.iter_mut() {
+            let Ok(mut value) = eg_types::msgpack::decode_property_value(row.as_slice()) else {
+                continue;
+            };
+            let Some(properties) = value.as_object_mut() else {
+                continue;
+            };
+            if properties.get("inferred") != Some(&serde_json::Value::Bool(true))
+                || properties
+                    .get("relationship")
+                    .and_then(serde_json::Value::as_str)
+                    != Some(predicate.as_str())
+            {
+                continue;
+            }
+            properties.insert(
+                "inference_schema_digests".to_string(),
+                property_value.clone(),
+            );
+            if let Ok(bytes) = rmp_serde::to_vec_named(&value) {
+                *row = std::sync::Arc::new(bytes);
+            }
+        }
     }
 }
 
@@ -200,6 +275,15 @@ pub fn run_datalog_reasoning(
                 "inferred_type".to_string(),
                 serde_json::Value::String(new_type.clone()),
             );
+            obj.insert("inferred".to_string(), serde_json::Value::Bool(true));
+            obj.insert(
+                "inferred_from".to_string(),
+                serde_json::Value::String("owl_reasoner".to_string()),
+            );
+            obj.insert(
+                "inference_type".to_string(),
+                serde_json::Value::String("rust_datalog".to_string()),
+            );
         });
     }
 
@@ -236,7 +320,9 @@ pub fn run_datalog_reasoning(
 
             let val = serde_json::json!({
                 "relationship": new_prop.clone(),
-                "inferred": true
+                "inferred": true,
+                "inferred_from": "owl_reasoner",
+                "inference_type": "rust_datalog"
             });
             if let Ok(props_msgpack) = rmp_serde::to_vec_named(&val) {
                 core.edge_properties
@@ -296,59 +382,77 @@ pub fn infer_domain_range(
                     a.push(type_val);
                 }
             }
+            obj.insert("inferred".to_string(), serde_json::Value::Bool(true));
+            obj.insert(
+                "inferred_from".to_string(),
+                serde_json::Value::String("owl_reasoner".to_string()),
+            );
+            obj.insert(
+                "inference_type".to_string(),
+                serde_json::Value::String("domain_range".to_string()),
+            );
         });
     }
 
     inferred
 }
 
-/// Whether the ordered pair `(src, tgt)` already carries an edge named `relationship`.
-fn edge_has_relationship(core: &GraphCore, src: &str, tgt: &str, relationship: &str) -> bool {
-    core.edge_properties
-        .get(&(src.to_string(), tgt.to_string()))
-        .is_some_and(|props| {
-            props.iter().any(|blob| {
-                eg_types::msgpack::decode_property_value(blob)
-                    .ok()
-                    .and_then(|v| {
-                        v.get("relationship")
-                            .and_then(|t| t.as_str())
-                            .map(str::to_string)
-                    })
-                    .as_deref()
-                    == Some(relationship)
-            })
-        })
-}
-
-/// The `(a, c)` pairs the chain `prop1 ∘ prop2` entails and `inferred_prop` does not
-/// already connect. A pair reachable through several middles is returned once per
-/// middle, exactly as the chain rule fires.
-fn chain_pairs(
-    core: &GraphCore,
+/// Follow one arbitrary-length property chain from every matching first edge.
+/// Each returned path includes the ordered premise triples used by the proof.
+fn chain_paths(
     edges_by_type: &HashMap<String, Vec<(String, String)>>,
-    prop1: &str,
-    prop2: &str,
-    inferred_prop: &str,
-) -> Vec<(String, String)> {
-    // For prop2, map source -> targets, so each (a, prop1, b) can look up every
-    // (b, prop2, c) in one step.
-    let mut prop2_from: HashMap<&str, Vec<&str>> = HashMap::new();
-    for (src, tgt) in edges_by_type.get(prop2).into_iter().flatten() {
-        prop2_from
-            .entry(src.as_str())
-            .or_default()
-            .push(tgt.as_str());
-    }
-    let mut pairs = Vec::new();
-    for (a, b) in edges_by_type.get(prop1).into_iter().flatten() {
-        for c in prop2_from.get(b.as_str()).into_iter().flatten() {
-            if !edge_has_relationship(core, a, c, inferred_prop) {
-                pairs.push((a.clone(), (*c).to_string()));
-            }
+    chain: &[String],
+) -> Vec<(String, String, Vec<(String, String, String)>)> {
+    fn follow(
+        edges_by_type: &HashMap<String, Vec<(String, String)>>,
+        chain: &[String],
+        offset: usize,
+        start: &str,
+        current: &str,
+        premises: &mut Vec<(String, String, String)>,
+        output: &mut Vec<(String, String, Vec<(String, String, String)>)>,
+    ) {
+        if offset == chain.len() {
+            output.push((start.to_string(), current.to_string(), premises.clone()));
+            return;
+        }
+        for (source, target) in edges_by_type
+            .get(&chain[offset])
+            .into_iter()
+            .flatten()
+            .filter(|(source, _)| source == current)
+        {
+            premises.push((source.clone(), chain[offset].clone(), target.clone()));
+            follow(
+                edges_by_type,
+                chain,
+                offset + 1,
+                start,
+                target,
+                premises,
+                output,
+            );
+            premises.pop();
         }
     }
-    pairs
+
+    let mut output = Vec::new();
+    let Some(first) = chain.first() else {
+        return output;
+    };
+    for (source, target) in edges_by_type.get(first).into_iter().flatten() {
+        let mut premises = vec![(source.clone(), first.clone(), target.clone())];
+        follow(
+            edges_by_type,
+            chain,
+            1,
+            source,
+            target,
+            &mut premises,
+            &mut output,
+        );
+    }
+    output
 }
 
 /// Property chain inference.
@@ -361,63 +465,184 @@ pub fn infer_property_chains(
     core: &GraphCore,
     chains: Vec<(String, String, String)>,
 ) -> Vec<HashMap<String, String>> {
-    let mut inferred = Vec::new();
-    // (src, tgt, inferred_prop, fact_index) — `fact_index` into `inferred` lets the
-    // materialization loop below correct that fact's `materialized` flag once it knows
-    // whether the pair was already connected (SAFE-MODE, see `pair_already_connected`).
-    let mut new_edges: Vec<(String, String, String, usize)> = Vec::new();
+    infer_property_chain_axioms(
+        core,
+        chains
+            .into_iter()
+            .map(|(first, second, sup)| (vec![first, second], sup))
+            .collect(),
+    )
+}
 
-    // Index edges by canonical relationship for fast lookup.
-    let mut edges_by_type: HashMap<String, Vec<(String, String)>> = HashMap::new();
+/// Materialize arbitrary-length OWL property-chain axioms to a deterministic
+/// fixpoint. The legacy wire method still projects its two-role tuples through
+/// [`infer_property_chains`], while committed GraphSchema may carry longer
+/// `owl:propertyChainAxiom` lists without silently truncating them.
+pub fn infer_property_chain_axioms(
+    core: &GraphCore,
+    chains: Vec<(Vec<String>, String)>,
+) -> Vec<HashMap<String, String>> {
+    let (mut edges_by_type, mut known) = indexed_property_edges(core);
+    let (mut inferred, new_edges) =
+        infer_property_chain_fixpoint(&chains, &mut edges_by_type, &mut known);
+    materialize_property_chain_edges(core, &mut inferred, &new_edges);
+    inferred
+}
+
+type PropertyChainEdge = (String, String, String, Vec<(String, String, String)>, usize);
+
+fn indexed_property_edges(
+    core: &GraphCore,
+) -> (
+    HashMap<String, Vec<(String, String)>>,
+    HashSet<(String, String, String)>,
+) {
+    let mut edges_by_type = HashMap::new();
+    let mut known = HashSet::new();
     for (src, tgt, edge_type) in edge_relationship_facts(core) {
-        edges_by_type.entry(edge_type).or_default().push((src, tgt));
+        known.insert((src.clone(), edge_type.clone(), tgt.clone()));
+        edges_by_type
+            .entry(edge_type)
+            .or_insert_with(Vec::new)
+            .push((src, tgt));
     }
+    (edges_by_type, known)
+}
 
-    for (prop1, prop2, inferred_prop) in &chains {
-        for (a, c) in chain_pairs(core, &edges_by_type, prop1, prop2, inferred_prop) {
-            let mut fact = inference_fact(&a, inferred_prop, &c, "property_chain");
-            // Corrected to "false" below if the pair turns out to already be connected
-            // (SAFE-MODE: connect-only materialization).
-            fact.insert("materialized".to_string(), "true".to_string());
-            new_edges.push((a, c, inferred_prop.clone(), inferred.len()));
-            inferred.push(fact);
-        }
+fn infer_property_chain_fixpoint(
+    chains: &[(Vec<String>, String)],
+    edges_by_type: &mut HashMap<String, Vec<(String, String)>>,
+    known: &mut HashSet<(String, String, String)>,
+) -> (Vec<HashMap<String, String>>, Vec<PropertyChainEdge>) {
+    let mut inferred = Vec::new();
+    let mut new_edges = Vec::new();
+    let mut rounds = 0usize;
+    let mut changed = true;
+    while changed && rounds < 100_000 && known.len() < 1_000_000 {
+        rounds += 1;
+        changed =
+            infer_property_chain_round(chains, edges_by_type, known, &mut inferred, &mut new_edges);
     }
+    (inferred, new_edges)
+}
 
-    // Apply inferred edges to graph under one write txn (atomic topology edits;
-    // edge_properties push via the interior-mutable DashMap). SAFE-MODE: a pair that
-    // already has an edge (topology OR edge_properties) is left completely untouched —
-    // never relabeled, never given a second properties entry — including a pair that a
-    // PRIOR chain in this same call just connected (`pair_already_connected` re-checks
-    // live state each iteration, so it also blocks a later chain in this batch from
-    // stacking a second edge over a pair one earlier in the batch just created).
-    let mut txn = core.txn();
-    for (src, tgt, prop, fact_index) in &new_edges {
-        if pair_already_connected(&txn, core, src, tgt) {
-            inferred[*fact_index].insert("materialized".to_string(), "false".to_string());
+fn infer_property_chain_round(
+    chains: &[(Vec<String>, String)],
+    edges_by_type: &mut HashMap<String, Vec<(String, String)>>,
+    known: &mut HashSet<(String, String, String)>,
+    inferred: &mut Vec<HashMap<String, String>>,
+    new_edges: &mut Vec<PropertyChainEdge>,
+) -> bool {
+    let mut changed = false;
+    for (chain, inferred_prop) in chains {
+        if chain.is_empty() {
             continue;
         }
-        if let (Some(&src_idx), Some(&tgt_idx)) =
-            (txn.topo.node_map.get(src), txn.topo.node_map.get(tgt))
-        {
-            txn.topo
-                .graph
-                .add_edge(src_idx, tgt_idx, format!("{}:{}", src, tgt));
-        }
-        let val = serde_json::json!({
-            "relationship": prop.clone(),
-            "inferred": true,
-            "chain": true
-        });
-        if let Ok(props_msgpack) = rmp_serde::to_vec_named(&val) {
-            core.edge_properties
-                .entry((src.clone(), tgt.clone()))
-                .or_default()
-                .push(std::sync::Arc::new(props_msgpack));
+        for (source, target, premises) in chain_paths(edges_by_type, chain) {
+            if !known.insert((source.clone(), inferred_prop.clone(), target.clone())) {
+                continue;
+            }
+            changed = true;
+            record_property_chain_fact(
+                &source,
+                &target,
+                inferred_prop,
+                premises,
+                edges_by_type,
+                inferred,
+                new_edges,
+            );
         }
     }
+    changed
+}
 
-    inferred
+fn record_property_chain_fact(
+    source: &str,
+    target: &str,
+    inferred_prop: &str,
+    premises: Vec<(String, String, String)>,
+    edges_by_type: &mut HashMap<String, Vec<(String, String)>>,
+    inferred: &mut Vec<HashMap<String, String>>,
+    new_edges: &mut Vec<PropertyChainEdge>,
+) {
+    edges_by_type
+        .entry(inferred_prop.to_string())
+        .or_default()
+        .push((source.to_string(), target.to_string()));
+    let mut fact = inference_fact(source, inferred_prop, target, "property_chain");
+    fact.insert("rule".to_string(), "RL-propertyChain".to_string());
+    fact.insert(
+        "premises".to_string(),
+        serde_json::to_string(&premises).unwrap_or_else(|_| "[]".to_string()),
+    );
+    // Corrected to "false" below if the pair turns out to already be connected
+    // (SAFE-MODE: connect-only materialization).
+    fact.insert("materialized".to_string(), "true".to_string());
+    new_edges.push((
+        source.to_string(),
+        target.to_string(),
+        inferred_prop.to_string(),
+        premises,
+        inferred.len(),
+    ));
+    inferred.push(fact);
+}
+
+fn materialize_property_chain_edges(
+    core: &GraphCore,
+    inferred: &mut [HashMap<String, String>],
+    new_edges: &[PropertyChainEdge],
+) {
+    // Apply inferred edges under one write txn. Existing pairs remain untouched, including
+    // edges another chain materialized earlier in this batch.
+    let mut txn = core.txn();
+    for edge in new_edges {
+        materialize_property_chain_edge(core, &mut txn, inferred, edge);
+    }
+}
+
+fn materialize_property_chain_edge(
+    core: &GraphCore,
+    txn: &mut eg_core::graph::GraphTxn<'_>,
+    inferred: &mut [HashMap<String, String>],
+    (src, tgt, prop, premises, fact_index): &PropertyChainEdge,
+) {
+    if pair_already_connected(txn, core, src, tgt) {
+        inferred[*fact_index].insert("materialized".to_string(), "false".to_string());
+        return;
+    }
+    if let (Some(&src_idx), Some(&tgt_idx)) =
+        (txn.topo.node_map.get(src), txn.topo.node_map.get(tgt))
+    {
+        txn.topo
+            .graph
+            .add_edge(src_idx, tgt_idx, format!("{}:{}", src, tgt));
+    }
+    store_property_chain_provenance(core, src, tgt, prop, premises);
+}
+
+fn store_property_chain_provenance(
+    core: &GraphCore,
+    src: &str,
+    tgt: &str,
+    prop: &str,
+    premises: &[(String, String, String)],
+) {
+    let value = serde_json::json!({
+        "relationship": prop,
+        "inferred": true,
+        "inferred_from": "owl_reasoner",
+        "inference_type": "property_chain",
+        "inference_rule": "RL-propertyChain",
+        "inference_premises": premises,
+    });
+    if let Ok(props_msgpack) = rmp_serde::to_vec_named(&value) {
+        core.edge_properties
+            .entry((src.to_string(), tgt.to_string()))
+            .or_default()
+            .push(std::sync::Arc::new(props_msgpack));
+    }
 }
 
 #[cfg(test)]
@@ -624,5 +849,96 @@ mod tests {
             Some("unrelated"),
             "the asserted relationship type must survive the chain-inference pass unchanged"
         );
+    }
+
+    #[test]
+    fn arbitrary_length_chains_reach_fixpoint_with_proof_metadata() {
+        let core = GraphCore::new();
+        for node in ["a", "b", "c", "d", "e"] {
+            core.add_node(node.into(), props(serde_json::json!({"type": "Thing"})));
+        }
+        for (source, target, relationship) in [
+            ("a", "b", "first"),
+            ("b", "c", "second"),
+            ("c", "d", "third"),
+            ("d", "e", "tail"),
+        ] {
+            core.add_edge(
+                source.into(),
+                target.into(),
+                props(serde_json::json!({"relationship": relationship})),
+            )
+            .unwrap();
+        }
+
+        let inferred = infer_property_chain_axioms(
+            &core,
+            vec![
+                (
+                    vec!["first".into(), "second".into(), "third".into()],
+                    "long".into(),
+                ),
+                (vec!["long".into(), "tail".into()], "finished".into()),
+            ],
+        );
+        let finished = inferred
+            .iter()
+            .find(|fact| {
+                fact.get("subject").map(String::as_str) == Some("a")
+                    && fact.get("predicate").map(String::as_str) == Some("finished")
+                    && fact.get("object").map(String::as_str) == Some("e")
+            })
+            .expect("a later chain consumes the first chain's derived fact");
+        assert_eq!(
+            finished.get("rule").map(String::as_str),
+            Some("RL-propertyChain")
+        );
+        assert!(finished
+            .get("premises")
+            .is_some_and(|premises| premises.contains("long")));
+        let edge = core.get_edge_properties("a", "e");
+        let materialized = eg_types::msgpack::decode_property_value(&edge[0]).unwrap();
+        assert_eq!(materialized["inferred_from"], "owl_reasoner");
+        assert_eq!(materialized["inference_rule"], "RL-propertyChain");
+    }
+
+    #[test]
+    fn committed_inferences_persist_the_exact_schema_identity() {
+        let core = GraphCore::new();
+        for node in ["a", "b", "c"] {
+            core.add_node(node.into(), props(serde_json::json!({"type": "Thing"})));
+        }
+        for (source, target) in [("a", "b"), ("b", "c")] {
+            core.add_edge(
+                source.into(),
+                target.into(),
+                props(serde_json::json!({"relationship": "PART_OF"})),
+            )
+            .unwrap();
+        }
+        let mut inferred = run_datalog_reasoning(
+            &core,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            vec!["PART_OF".into()],
+            Vec::new(),
+        )
+        .unwrap();
+        bind_inference_schema_digests(&core, &mut inferred, &["digest-a".into()]);
+        let fact = inferred
+            .iter()
+            .find(|fact| {
+                fact.get("subject").map(String::as_str) == Some("a")
+                    && fact.get("object").map(String::as_str) == Some("c")
+            })
+            .unwrap();
+        assert_eq!(
+            fact.get("schema_digests").map(String::as_str),
+            Some("[\"digest-a\"]")
+        );
+        let row = core.get_edge_properties("a", "c");
+        let value = eg_types::msgpack::decode_property_value(&row[0]).unwrap();
+        assert_eq!(value["inference_schema_digests"][0], "digest-a");
     }
 }

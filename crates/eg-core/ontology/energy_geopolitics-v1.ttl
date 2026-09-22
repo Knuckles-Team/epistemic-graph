@@ -1,0 +1,146 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix ns1: <http://purl.org/dc/elements/1.1/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:Alliance a owl:Class ;
+    rdfs:label "Alliance" ;
+    rdfs:comment "A geopolitical or economic alliance (e.g., OPEC+)." ;
+    rdfs:subClassOf :Organization .
+
+:Chokepoint a owl:Class ;
+    rdfs:label "Chokepoint" ;
+    rdfs:comment "A strategic bottleneck in supply chains (e.g., Strait of Hormuz)." ;
+    rdfs:subClassOf :InfrastructureEntity .
+
+:Commodity a owl:Class ;
+    rdfs:label "Commodity" ;
+    rdfs:comment "A raw material or primary agricultural product that can be bought and sold (e.g., WTI, Brent)." ;
+    rdfs:subClassOf :FinancialInstrument .
+
+:Country a owl:Class ;
+    rdfs:label "Country" ;
+    rdfs:subClassOf :GeopoliticalEntity .
+
+:DemandForecast a owl:Class ;
+    rdfs:label "Demand Forecast" ;
+    rdfs:comment "A predicted future demand for a commodity or service." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:DisruptionEvent a owl:Class ;
+    rdfs:label "Disruption Event" ;
+    rdfs:comment "An event representing a disruption in supply or infrastructure." ;
+    rdfs:subClassOf :Event .
+
+:EconomicIndicator a owl:Class ;
+    rdfs:label "Economic Indicator" ;
+    rdfs:comment "A macroeconomic metric (e.g., Inflation, GDP)." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:EnergyEntity a owl:Class ;
+    rdfs:label "Energy Entity" ;
+    rdfs:comment "A concept, asset, or commodity within the energy sector." ;
+    rdfs:subClassOf :DomainEntity .
+
+:EnergyReserve a owl:Class ;
+    rdfs:label "Energy Reserve" ;
+    rdfs:comment "A stored reserve or inventory of an energy commodity." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:Leader a owl:Class ;
+    rdfs:label "Leader" ;
+    rdfs:subClassOf :Person .
+
+:ProductionFacility a owl:Class ;
+    rdfs:label "Production Facility" ;
+    rdfs:comment "An asset where commodities are produced or refined." ;
+    rdfs:subClassOf :InfrastructureEntity .
+
+:Region a owl:Class ;
+    rdfs:label "Region" ;
+    rdfs:subClassOf :GeopoliticalEntity .
+
+:RiskIndex a owl:Class ;
+    rdfs:label "Risk Index" ;
+    rdfs:comment "A metric tracking geopolitical or supply chain risk (e.g., GPR score)." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:SanctionEvent a owl:Class ;
+    rdfs:label "Sanction Event" ;
+    rdfs:comment "An event representing the imposition or lifting of sanctions." ;
+    rdfs:subClassOf :Event .
+
+:SupplyRoute a owl:Class ;
+    rdfs:label "Supply Route" ;
+    rdfs:comment "A physical or logistical path for transporting commodities." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:WeatherEvent a owl:Class ;
+    rdfs:label "Weather Event" ;
+    rdfs:comment "A significant meteorological event affecting infrastructure or supply." ;
+    rdfs:subClassOf :Event .
+
+:affectsPriceOf a owl:ObjectProperty ;
+    rdfs:label "affects price of" .
+
+:controls a owl:ObjectProperty ;
+    rdfs:label "controls" ;
+    rdfs:comment "Indicates control or ownership of an entity or infrastructure." .
+
+:disruptsSupplyTo a owl:ObjectProperty ;
+    rdfs:label "disrupts supply to" .
+
+:hasRiskOn a owl:ObjectProperty ;
+    rdfs:label "has risk on" ;
+    rdfs:comment "Indicates that one entity poses a geopolitical or supply risk to another." .
+
+:impactsDemandFor a owl:ObjectProperty ;
+    rdfs:label "impacts demand for" .
+
+:imposesSanctionOn a owl:ObjectProperty ;
+    rdfs:label "imposes sanction on" ;
+    rdfs:domain :GeopoliticalEntity .
+
+:influencesVolatility a owl:ObjectProperty ;
+    rdfs:label "influences volatility" .
+
+:predictedImpact a owl:ObjectProperty ;
+    rdfs:label "predicted impact" ;
+    rdfs:comment "Links an event or trend to its forecasted impact on another entity." .
+
+:suppliesTo a owl:ObjectProperty ;
+    rdfs:label "supplies to" .
+
+:transportsVia a owl:ObjectProperty ;
+    rdfs:label "transports via" .
+
+<http://knuckles.team/kg/energy_geopolitics> a owl:Ontology ;
+    rdfs:label "Energy & Geopolitics Domain Extension" ;
+    ns1:creator "Agent OS Knowledge Graph Automation" ;
+    ns1:date "2026-05-19"^^xsd:date ;
+    ns1:description "Domain extension for energy supply chains, geopolitics, and associated risk analysis." ;
+    ns1:title "Energy & Geopolitics Domain Extension" ;
+    dc:license <https://opensource.org/licenses/MIT> ;
+    rdfs:comment "Domain extension for energy supply chains, geopolitics, and associated risk analysis." ;
+    owl:imports <http://knuckles.team/kg/core> ;
+    prov:wasGeneratedBy <http://knuckles.team/agents/ontology-builder> .
+
+:InfrastructureEntity a owl:Class ;
+    rdfs:label "Infrastructure Entity" ;
+    rdfs:comment "Physical or logical infrastructure such as a pipeline or port." ;
+    rdfs:subClassOf :DomainEntity .
+
+:GeopoliticalEntity a owl:Class ;
+    rdfs:label "Geopolitical Entity" ;
+    rdfs:comment "A geopolitical entity such as a country, region, or alliance." ;
+    rdfs:subClassOf :DomainEntity .

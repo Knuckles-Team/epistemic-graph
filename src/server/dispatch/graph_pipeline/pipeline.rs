@@ -13,6 +13,7 @@ pub(super) struct DispatchPipelineCtx<'a> {
     pub(super) idempotency_key: &'a str,
     pub(super) read_authority: Option<GraphReadAuthority>,
     pub(super) verified_actor: &'a str,
+    pub(super) tenant_id: String,
     pub(super) tenant_scope: String,
     pub(super) gateway_authz_ctx: Option<crate::server::mutation::GatewayAuthzCtx>,
     pub(super) core: Arc<crate::graph::GraphCore>,
@@ -47,6 +48,7 @@ pub(super) async fn route_gateway_and_stateless_domains(
     let idempotency_key = ctx.idempotency_key;
     let read_authority = &ctx.read_authority;
     let tenant_scope: &str = &ctx.tenant_scope;
+    let tenant_id: &str = &ctx.tenant_id;
     let gateway_authz_ctx = &ctx.gateway_authz_ctx;
     let core = &ctx.core;
     let materialization_manifest = &ctx.materialization_manifest;
@@ -62,11 +64,13 @@ pub(super) async fn route_gateway_and_stateless_domains(
     // audit, CDC, and TMS in ONE call. Native stores use their own explicit
     // MutationBatch kernels. There is no second post-dispatch durability tail.
     let method = match handlers::graph_ops::try_handle_gateway(
+        ctx.state,
         req_id,
         caller,
         attempt_nonce,
         idempotency_key,
         tenant_scope,
+        tenant_id,
         graph_name,
         core,
         materialization_manifest.as_ref(),

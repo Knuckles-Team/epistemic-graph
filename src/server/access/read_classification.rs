@@ -294,6 +294,12 @@ pub(super) const REASON_SOLVE_PURE_COMPUTE: &str =
 // `security:admin`, which additionally requires the RBAC admin capability.
 pub(super) const REASON_GRAPH_SCHEMA_CONTROL_STATE: &str =
     "GraphSchemaList reads the request graph's attached schema-source keys, origins and digests -- graph control state behind security:admin and the RBAC admin capability, never a GraphView/core.analysis_snapshot() row read";
+// RF-ADR-009: status reads one source-partition marker keyed by the verified
+// tenant, graph, connector and stream. The marker is ingestion control state,
+// not a caller-visible graph row; its `source:ingest` capability and verified
+// tenant binding are the complete read scope.
+pub(super) const REASON_SOURCE_INGESTION_MARKER: &str =
+    "SourceIngestStatus reads one durable source-partition marker keyed by verified tenant, request graph, connector and stream behind source:ingest -- ingestion control state, never a GraphView/core.analysis_snapshot() row read";
 
 pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     // REASON_AGENT_LIBRARY_TENANT_SNAPSHOT
@@ -302,6 +308,8 @@ pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     ("Solve", REASON_SOLVE_PURE_COMPUTE),
     // REASON_GRAPH_SCHEMA_CONTROL_STATE
     ("GraphSchemaList", REASON_GRAPH_SCHEMA_CONTROL_STATE),
+    // REASON_SOURCE_INGESTION_MARKER
+    ("SourceIngestStatus", REASON_SOURCE_INGESTION_MARKER),
     // REASON_SERVER_LIFECYCLE
     ("CancelRequest", REASON_SERVER_LIFECYCLE),
     ("Health", REASON_SERVER_LIFECYCLE),

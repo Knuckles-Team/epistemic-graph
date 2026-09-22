@@ -8,7 +8,7 @@
 # inside a fixture, and fixture setup runs inside pytest-timeout's per-test 60s
 # window, so a cold cargo target produced ~500 `Timeout (>60.0s)` errors. Every
 # one was about the build. None was about the code. Building the engine before
-# pytest (see the `pytest` hook in .pre-commit-config.yaml) made the suite
+# pytest (see the `pytest` hook in .config/pre-commit.yaml) made the suite
 # execute for the first time on 2026-08-21: 513 passed, 17 failed.
 #
 # Those 17 were then diffed against origin/main file by file. Every failing test

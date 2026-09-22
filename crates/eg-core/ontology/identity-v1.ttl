@@ -1,0 +1,42 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+:assignedApp a owl:ObjectProperty ;
+    rdfs:label "assigned app" ;
+    rdfs:comment "Links a user/group to an Application they can access (access governance)." ;
+    rdfs:range :Application .
+
+:hasRole a owl:ObjectProperty ;
+    rdfs:label "has role" ;
+    rdfs:range :IdentityRole .
+
+:memberOfGroup a owl:ObjectProperty ;
+    rdfs:label "member of group" ;
+    rdfs:domain :IdentityUser ;
+    rdfs:range :IdentityGroup .
+
+<http://knuckles.team/kg/identity> a owl:Ontology ;
+    rdfs:label "Identity & Access Ontology" ;
+    rdfs:comment "Users/groups/roles/app-assignments for cross-tool access governance (CONCEPT:KG-2.9)." ;
+    owl:imports <http://knuckles.team/kg/core> .
+
+:IdentityGroup a owl:Class ;
+    rdfs:label "Identity Group" ;
+    rdfs:comment "A group/team of users in an identity provider." .
+
+:IdentityRole a owl:Class ;
+    rdfs:label "Identity Role" ;
+    rdfs:comment "A role/entitlement granted to users or groups." .
+
+:IdentityUser a owl:Class ;
+    rdfs:label "Identity User" ;
+    rdfs:comment "A user account in an identity provider." ;
+    rdfs:subClassOf :Person .

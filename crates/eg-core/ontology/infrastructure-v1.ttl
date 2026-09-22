@@ -1,0 +1,612 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg/infrastructure#> .
+@prefix au: <https://agent-utilities.dev/ontology#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<http://knuckles.team/kg/infrastructure> a owl:Ontology ;
+    rdfs:label "Agent-Utilities Infrastructure Ontology" ;
+    rdfs:comment """
+        Vendor-neutral infrastructure topology ontology covering compute,
+        networking, routing, DNS, observability, and enterprise-scale
+        data-centre constructs (racks, chassis, GPUs, fabric switches,
+        power distribution, cooling).
+    """ .
+
+:BladeServer a owl:Class ;
+    rdfs:label "Blade Server" ;
+    rdfs:comment "A blade compute node housed in a chassis." ;
+    rdfs:subClassOf au:HardwareNode .
+
+:Chassis a owl:Class ;
+    rdfs:label "Chassis" ;
+    rdfs:comment "A blade chassis housing multiple blade servers." ;
+    rdfs:subClassOf bfo:0000030 .
+
+:ContainerImage a owl:Class ;
+    rdfs:label "Container Image" ;
+    rdfs:comment """An OCI container image / DockerHub repository tag-set, published from a
+:ContainerRegistry and contained by a :Repository namespace (CONCEPT:KG-2.155).""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:DDClient a owl:Class ;
+    rdfs:label "Dynamic DNS Client" ;
+    rdfs:comment "A dynamic DNS updater process." ;
+    rdfs:subClassOf bfo:0000015 .
+
+:Device a owl:Class ;
+    rdfs:label "Device" ;
+    rdfs:comment """A physical/logical Home-Assistant device grouping one or more
+:Entity states (CONCEPT:KG-2.160).""" ;
+    rdfs:subClassOf bfo:0000004 .
+
+:DnsRecord a owl:Class ;
+    rdfs:label "DNS Record" ;
+    rdfs:comment """A single resource record (A/AAAA/CNAME/TXT/…) part_of a :DnsZone
+(CONCEPT:KG-2.157).""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:DnsZone a owl:Class ;
+    rdfs:label "DNS Zone" ;
+    rdfs:comment "An authoritative DNS zone served by a :DNSService (CONCEPT:KG-2.157)." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Endpoint a owl:Class ;
+    rdfs:label "Endpoint" ;
+    rdfs:comment "A single probed address/route of a :Service (URL, host:port) carrying up/down, latency, and status-code health signals." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:Entity a owl:Class ;
+    rdfs:label "Home Assistant Entity" ;
+    rdfs:comment """A Home-Assistant entity (entity_id + state + attributes) that is
+part_of a :Device (CONCEPT:KG-2.160).""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:HealthAnomaly a owl:Class ;
+    rdfs:label "Health Anomaly" ;
+    rdfs:comment "An entity+signal observed drifting off its :HealthBaseline (above-baseline / saturated / a caller-defined systemic kind) — produced by agent_utilities.observability.health.detect_anomaly / correlate." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:HealthBaseline a owl:Class ;
+    rdfs:label "Health Baseline" ;
+    rdfs:comment "An entity+signal's learned fingerprint (p50/p95, idle/load envelope, inertia) computed from its :HealthTrend history by agent_utilities.observability.health.compute_baseline — the reference for anomaly detection." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:HealthTrend a owl:Class ;
+    rdfs:label "Health Trend" ;
+    rdfs:comment "One distilled aggregate-window reading of a named signal on an entity (min/avg/max + avg control level + sample count) — the layer-agnostic generalization of fan-manager's :ThermalTrend, produced by agent_utilities.observability.health.HealthTrendBuffer." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Incident a owl:Class ;
+    rdfs:label "Incident" ;
+    rdfs:comment "One cross-layer correlation event synthesized from simultaneous :HealthAnomaly rows on related entities (thermal + OS load + pod restarts + service latency, all within one window) — the payoff of the unified model (reports/unified-infra-intelligence-plan.md Phase D). BFO:Process — unfolds over a time window." ;
+    rdfs:subClassOf bfo:0000015 .
+
+:OperatingSystem a owl:Class ;
+    rdfs:label "Operating System" ;
+    rdfs:comment "The OS instance (e.g. Ubuntu) running on a :Host — the OS layer of the unified infrastructure model, producing CPU/mem/disk/load/update/log-error health signals." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:PlatformService a owl:Class ;
+    rdfs:label "Platform Service" ;
+    rdfs:comment "A software service or platform application deployed on our infrastructure." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:Tunnel a owl:Class ;
+    rdfs:label "Tunnel" ;
+    rdfs:comment """An SSH/proxy tunnel a :Host connects via to reach an upstream
+(CONCEPT:KG-2.158).""" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:Workload a owl:Class ;
+    rdfs:label "Workload" ;
+    rdfs:comment "The desired-state controller owning a set of :Pod replicas (Deployment/StatefulSet/DaemonSet) — specializes the existing :ContainerStack for the orchestration layer." ;
+    rdfs:subClassOf :ContainerStack .
+
+:affectsEntity a owl:ObjectProperty ;
+    rdfs:label "affects entity" ;
+    rdfs:comment "Links a :HealthTrend, :HealthBaseline, :HealthAnomaly, or :Incident to the entity it concerns — deliberately polymorphic (the entity may be a :Host, :Node, :Pod, :Workload, :Service, :Endpoint, :NetworkPath, :Tunnel, or :OperatingSystem, from any layer)." .
+
+:attachedStorage a owl:ObjectProperty ;
+    rdfs:label "attached storage" ;
+    rdfs:domain au:HardwareNode ;
+    rdfs:range :StorageArray .
+
+:avg a owl:DatatypeProperty ;
+    rdfs:label "avg" ;
+    rdfs:comment "Mean signal value over a :HealthTrend window." ;
+    rdfs:range xsd:decimal .
+
+:avgControl a owl:DatatypeProperty ;
+    rdfs:label "avg control" ;
+    rdfs:comment "Mean level of the paired control signal (fan %, replica count, ...) over a :HealthTrend window or :HealthBaseline." ;
+    rdfs:range xsd:decimal .
+
+:belongsToStack a owl:ObjectProperty ;
+    rdfs:label "belongs to stack" ;
+    rdfs:domain :Container ;
+    rdfs:range :ContainerStack .
+
+:bootstrappedBy a owl:ObjectProperty ;
+    rdfs:label "bootstrapped by" ;
+    rdfs:comment "Links deployed services to the DeploymentManifest that created them." ;
+    rdfs:domain :Container ;
+    rdfs:range :DeploymentManifest .
+
+:buildsImageFor a owl:ObjectProperty ;
+    rdfs:label "builds image for" ;
+    rdfs:domain :ContainerRegistry ;
+    rdfs:range au:PlatformService .
+
+:capacityTb a owl:DatatypeProperty ;
+    rdfs:label "storage capacity (TB)" ;
+    rdfs:domain :StorageArray ;
+    rdfs:range xsd:float .
+
+:cidr a owl:DatatypeProperty ;
+    rdfs:label "CIDR block" ;
+    rdfs:domain :NetworkSubnet ;
+    rdfs:range xsd:string .
+
+:connectedToFabric a owl:ObjectProperty ;
+    rdfs:label "connected to fabric" ;
+    rdfs:domain au:HardwareNode ;
+    rdfs:range :FabricSwitch .
+
+:connects a owl:ObjectProperty ;
+    rdfs:label "connects" ;
+    rdfs:comment "Links a :NetworkPath to each :Host (or :Tunnel) endpoint it traverses." ;
+    rdfs:domain :NetworkPath .
+
+:connectsVia a owl:ObjectProperty ;
+    rdfs:label "connects via" ;
+    rdfs:domain au:HardwareNode ;
+    rdfs:range :VPNTunnel .
+
+:cooledBy a owl:ObjectProperty ;
+    rdfs:label "cooled by" ;
+    rdfs:domain :Rack ;
+    rdfs:range :CoolingUnit .
+
+:dependsOn a owl:ObjectProperty ;
+    rdfs:label "depends on" ;
+    rdfs:comment "Links a :Service to another :Service it depends on, for blast-radius reasoning." ;
+    rdfs:domain :Service ;
+    rdfs:range :Service .
+
+:deployedInPhase a owl:ObjectProperty ;
+    rdfs:label "deployed in phase" ;
+    rdfs:comment "Links a Container or PlatformService to the phase it was deployed in." ;
+    rdfs:domain :Container ;
+    rdfs:range :DeploymentPhase .
+
+:deployedOn a owl:ObjectProperty ;
+    rdfs:label "deployed on" ;
+    rdfs:comment "Links a platform service to its container stack." ;
+    rdfs:domain au:PlatformService ;
+    rdfs:range :ContainerStack .
+
+:deploymentProfile a owl:DatatypeProperty ;
+    rdfs:label "deployment profile" ;
+    rdfs:comment "Values: tiny, single-node-prod, enterprise." ;
+    rdfs:domain :DeploymentManifest ;
+    rdfs:range xsd:string .
+
+:deploymentTimestamp a owl:DatatypeProperty ;
+    rdfs:label "deployment timestamp" ;
+    rdfs:domain :DeploymentManifest ;
+    rdfs:range xsd:dateTime .
+
+:dnsDomain a owl:DatatypeProperty ;
+    rdfs:label "DNS domain" ;
+    rdfs:comment "Base domain for service DNS routing (for example, a configured test or private DNS zone)." ;
+    rdfs:domain :DeploymentManifest ;
+    rdfs:range xsd:string .
+
+:dnsType a owl:DatatypeProperty ;
+    rdfs:label "DNS type" ;
+    rdfs:domain :DNSService ;
+    rdfs:range xsd:string .
+
+:entity a owl:DatatypeProperty ;
+    rdfs:label "entity" ;
+    rdfs:comment "The id of the entity a :HealthTrend/:HealthBaseline/:HealthAnomaly was observed on (mirrors the :affectsEntity edge as a flat, queryable string)." ;
+    rdfs:range xsd:string .
+
+:expected a owl:DatatypeProperty ;
+    rdfs:label "expected" ;
+    rdfs:comment "The baseline p50 a :HealthAnomaly was compared against." ;
+    rdfs:range xsd:decimal .
+
+:exportsMetricsTo a owl:ObjectProperty ;
+    rdfs:label "exports metrics to" ;
+    rdfs:domain :MetricsExporter ;
+    rdfs:range :ObservabilityStack .
+
+:gpuAvailable a owl:DatatypeProperty ;
+    rdfs:label "GPU available" ;
+    rdfs:domain :DeploymentManifest ;
+    rdfs:range xsd:boolean .
+
+:hasAccelerator a owl:ObjectProperty ;
+    rdfs:label "has accelerator" ;
+    rdfs:domain au:HardwareNode ;
+    rdfs:range :GPUAccelerator .
+
+:hasInterface a owl:ObjectProperty ;
+    rdfs:label "has interface" ;
+    rdfs:domain au:HardwareNode ;
+    rdfs:range :NetworkInterface .
+
+:hasPhase a owl:ObjectProperty ;
+    rdfs:label "has phase" ;
+    rdfs:comment "Links a DeploymentManifest to its constituent phases." ;
+    rdfs:domain :DeploymentManifest ;
+    rdfs:range :DeploymentPhase .
+
+:hostedBy a owl:ObjectProperty ;
+    rdfs:label "hosted by" ;
+    rdfs:comment "Links a :Service to the :Pod (or :Workload) that hosts it." ;
+    rdfs:domain :Service .
+
+:inertia a owl:DatatypeProperty ;
+    rdfs:label "inertia" ;
+    rdfs:comment "|signal per control-unit| slope of a :HealthBaseline — how much a control step actually moves the signal." ;
+    rdfs:range xsd:decimal .
+
+:isHost a owl:ObjectProperty ;
+    rdfs:label "is host" ;
+    rdfs:comment "Links an orchestration :Node to the physical/reachable :Host it runs on." ;
+    rdfs:domain :Node ;
+    rdfs:range :Host .
+
+:kind a owl:DatatypeProperty ;
+    rdfs:label "kind" ;
+    rdfs:comment "Category of a :HealthAnomaly (above-baseline, saturated, or a caller-defined systemic kind) or an :Incident's synthesized cause." ;
+    rdfs:range xsd:string .
+
+:layer a owl:DatatypeProperty ;
+    rdfs:label "layer" ;
+    rdfs:comment "Which layer of the unified infrastructure model a :HealthTrend/:HealthBaseline/:HealthAnomaly belongs to: hardware, os, orchestration, service, or network." ;
+    rdfs:range xsd:string .
+
+:managesDNSFor a owl:ObjectProperty ;
+    rdfs:label "manages DNS for" ;
+    rdfs:domain :DNSService ;
+    rdfs:range :NetworkSubnet .
+
+:max a owl:DatatypeProperty ;
+    rdfs:label "max" ;
+    rdfs:comment "Maximum signal value over a :HealthTrend window." ;
+    rdfs:range xsd:decimal .
+
+:maxEnv a owl:DatatypeProperty ;
+    rdfs:label "max envelope" ;
+    rdfs:comment "Observed load/ceiling value of a :HealthBaseline's signal distribution." ;
+    rdfs:range xsd:decimal .
+
+:mcpEndpointUrl a owl:DatatypeProperty ;
+    rdfs:label "MCP endpoint URL" ;
+    rdfs:comment "The streamable-http URL for an MCP server container." ;
+    rdfs:domain :MCPServerDeployment ;
+    rdfs:range xsd:anyURI .
+
+:min a owl:DatatypeProperty ;
+    rdfs:label "min" ;
+    rdfs:comment "Minimum signal value over a :HealthTrend window." ;
+    rdfs:range xsd:decimal .
+
+:minEnv a owl:DatatypeProperty ;
+    rdfs:label "min envelope" ;
+    rdfs:comment "Observed idle/floor value of a :HealthBaseline's signal distribution." ;
+    rdfs:range xsd:decimal .
+
+:monitors a owl:ObjectProperty ;
+    rdfs:label "monitors" ;
+    rdfs:domain :ObservabilityStack ;
+    rdfs:range au:PlatformService .
+
+:mountedIn a owl:ObjectProperty ;
+    rdfs:label "mounted in" ;
+    rdfs:domain au:HardwareNode ;
+    rdfs:range :Rack .
+
+:observed a owl:DatatypeProperty ;
+    rdfs:label "observed" ;
+    rdfs:comment "The recent-window observed signal value of a :HealthAnomaly." ;
+    rdfs:range xsd:decimal .
+
+:observedAt a owl:DatatypeProperty ;
+    rdfs:label "observed at" ;
+    rdfs:comment "UTC timestamp at which a :HealthTrend/:HealthBaseline/:HealthAnomaly/:Incident was recorded (timeseries key)." ;
+    rdfs:range xsd:dateTime .
+
+:p50 a owl:DatatypeProperty ;
+    rdfs:label "p50" ;
+    rdfs:comment "Median signal value of a :HealthBaseline." ;
+    rdfs:range xsd:decimal .
+
+:p95 a owl:DatatypeProperty ;
+    rdfs:label "p95" ;
+    rdfs:comment "95th-percentile signal value of a :HealthBaseline (the realistic upper envelope)." ;
+    rdfs:range xsd:decimal .
+
+:phaseTier a owl:DatatypeProperty ;
+    rdfs:label "phase tier" ;
+    rdfs:comment "Tier number: 0 (core infra), 1 (platform services), 2 (MCP servers)." ;
+    rdfs:domain :DeploymentPhase ;
+    rdfs:range xsd:integer .
+
+:poweredBy a owl:ObjectProperty ;
+    rdfs:label "powered by" ;
+    rdfs:domain :Rack ;
+    rdfs:range :PowerDistribution .
+
+:prerequisiteVersion a owl:DatatypeProperty ;
+    rdfs:label "prerequisite version" ;
+    rdfs:comment "Installed version of the prerequisite (Docker 24.0.7, Python 3.11.4)." ;
+    rdfs:domain :DeploymentPrerequisite ;
+    rdfs:range xsd:string .
+
+:proxyType a owl:DatatypeProperty ;
+    rdfs:label "proxy type" ;
+    rdfs:domain :ReverseProxy ;
+    rdfs:range xsd:string .
+
+:requiresPrerequisite a owl:ObjectProperty ;
+    rdfs:label "requires prerequisite" ;
+    rdfs:comment "Links a DeploymentPhase to the prerequisites it needs." ;
+    rdfs:domain :DeploymentPhase ;
+    rdfs:range :DeploymentPrerequisite .
+
+:resolvesDNSFor a owl:ObjectProperty ;
+    rdfs:label "resolves DNS for" ;
+    rdfs:domain :DNSRewrite ;
+    rdfs:range au:PlatformService .
+
+:routesTo a owl:ObjectProperty ;
+    rdfs:label "routes to" ;
+    rdfs:domain :ProxyRoute ;
+    rdfs:range au:PlatformService .
+
+:runsOn a owl:ObjectProperty ;
+    rdfs:label "runs on" ;
+    rdfs:comment "Links a container or service to its host hardware." ;
+    rdfs:domain :Container,
+        :Pod ;
+    rdfs:range au:HardwareNode .
+
+:runtime a owl:DatatypeProperty ;
+    rdfs:label "container runtime" ;
+    rdfs:comment "Container engine: docker, podman, containerd, cri-o." ;
+    rdfs:domain :Container ;
+    rdfs:range xsd:string .
+
+:samples a owl:DatatypeProperty ;
+    rdfs:label "samples" ;
+    rdfs:comment "Number of raw samples distilled into a :HealthTrend window." ;
+    rdfs:range xsd:integer .
+
+:servesEndpoint a owl:ObjectProperty ;
+    rdfs:label "serves endpoint" ;
+    rdfs:comment "Links an MCPServerDeployment to the PlatformService it exposes." ;
+    rdfs:domain :MCPServerDeployment ;
+    rdfs:range au:PlatformService .
+
+:serviceCount a owl:DatatypeProperty ;
+    rdfs:label "service count" ;
+    rdfs:comment "Total number of services deployed in this manifest." ;
+    rdfs:domain :DeploymentManifest ;
+    rdfs:range xsd:integer .
+
+:signal a owl:DatatypeProperty ;
+    rdfs:label "signal" ;
+    rdfs:comment "The named numeric signal a :HealthTrend/:HealthBaseline/:HealthAnomaly measures (e.g. cpu_temp_c, disk_pct, load1, latency_ms, restart_count)." ;
+    rdfs:range xsd:string .
+
+:summary a owl:DatatypeProperty ;
+    rdfs:label "summary" ;
+    rdfs:comment "Human-readable synthesis of an :Incident's cross-layer cause." ;
+    rdfs:range xsd:string .
+
+:targetHost a owl:DatatypeProperty ;
+    rdfs:label "target host" ;
+    rdfs:comment "Hostname or IP of the deployment target." ;
+    rdfs:domain :DeploymentManifest ;
+    rdfs:range xsd:string .
+
+:transitionedTo a owl:ObjectProperty ;
+    rdfs:label "transitioned to" ;
+    rdfs:comment """Records the transition from one deployment management phase
+to another (e.g., from direct container management to orchestrator-managed).""" ;
+    rdfs:domain :DeploymentPhase ;
+    rdfs:range :DeploymentPhase .
+
+:uCapacity a owl:DatatypeProperty ;
+    rdfs:label "rack U capacity" ;
+    rdfs:domain :Rack ;
+    rdfs:range xsd:integer .
+
+:usesProfile a owl:ObjectProperty ;
+    rdfs:label "uses profile" ;
+    rdfs:comment "Links a DeploymentManifest to the profile template it follows." ;
+    rdfs:domain :DeploymentManifest ;
+    rdfs:range :DeploymentProfile .
+
+:vramGb a owl:DatatypeProperty ;
+    rdfs:label "VRAM (GB)" ;
+    rdfs:domain :GPUAccelerator ;
+    rdfs:range xsd:float .
+
+:windowS a owl:DatatypeProperty ;
+    rdfs:label "window (s)" ;
+    rdfs:comment "Aggregate-window length in seconds of a :HealthTrend." ;
+    rdfs:range xsd:integer .
+
+:windows a owl:DatatypeProperty ;
+    rdfs:label "windows" ;
+    rdfs:comment "Number of :HealthTrend windows folded into a :HealthBaseline." ;
+    rdfs:range xsd:integer .
+
+:zscore a owl:DatatypeProperty ;
+    rdfs:label "z score" ;
+    rdfs:comment "How many baseline standard-spreads a :HealthAnomaly's observed value sits above p50." ;
+    rdfs:range xsd:decimal .
+
+:ContainerRegistry a owl:Class ;
+    rdfs:label "Container Registry" ;
+    rdfs:comment "An OCI-compliant container image registry." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:CoolingUnit a owl:Class ;
+    rdfs:label "Cooling Unit" ;
+    rdfs:comment "A cooling system (CRAC, CRAH, liquid cooling, immersion)." ;
+    rdfs:subClassOf bfo:0000030 .
+
+:DNSRewrite a owl:Class ;
+    rdfs:label "DNS Rewrite" ;
+    rdfs:comment "A single DNS rewrite rule mapping a domain to an answer." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:DeploymentProfile a owl:Class ;
+    rdfs:label "Deployment Profile" ;
+    rdfs:comment """A named deployment configuration template: tiny (all-local),
+single-node-prod (one durable host), or enterprise (multi-host deployment).
+BFO:GenericallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:FabricSwitch a owl:Class ;
+    rdfs:label "Fabric Switch" ;
+    rdfs:comment "A network fabric switch (InfiniBand, RoCE, high-speed Ethernet)." ;
+    rdfs:subClassOf bfo:0000030 .
+
+:Host a owl:Class ;
+    rdfs:label "Host" ;
+    rdfs:comment """A reachable host in the tunnel-manager inventory (an addressable compute
+node, possibly reached through a :Tunnel). CONCEPT:KG-2.158.""" ;
+    rdfs:subClassOf au:HardwareNode .
+
+:MetricsExporter a owl:Class ;
+    rdfs:label "Metrics Exporter" ;
+    rdfs:comment "An agent exporting metrics to an observability stack." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:NetworkInterface a owl:Class ;
+    rdfs:label "Network Interface" ;
+    rdfs:comment "A host NIC with MAC/IP bindings." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:NetworkPath a owl:Class ;
+    rdfs:label "Network Path" ;
+    rdfs:comment "A measured route between two :Host (or :Tunnel endpoints) carrying reachability/RTT/packet-loss health signals (producer: tunnel-manager). BFO:Process — a path is traversed, not static." ;
+    rdfs:subClassOf bfo:0000015 .
+
+:Node a owl:Class ;
+    rdfs:label "Orchestration Node" ;
+    rdfs:comment "A cluster/orchestrator member (Kubernetes Node, Swarm node) — the orchestration-layer counterpart of a :Host, linked to it via :isHost." ;
+    rdfs:subClassOf au:HardwareNode .
+
+:Pod a owl:Class ;
+    rdfs:label "Pod" ;
+    rdfs:comment "A scheduled group of one or more containers on a :Node (Kubernetes Pod or equivalent orchestrator unit); links to its :Node via :runsOn." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:PowerDistribution a owl:Class ;
+    rdfs:label "Power Distribution Unit" ;
+    rdfs:comment "A PDU providing metered power to rack equipment." ;
+    rdfs:subClassOf bfo:0000030 .
+
+:ProxyRoute a owl:Class ;
+    rdfs:label "Proxy Route" ;
+    rdfs:comment "An individual route rule mapping a domain to a backend service." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:ReverseProxy a owl:Class ;
+    rdfs:label "Reverse Proxy" ;
+    rdfs:comment "A traffic routing and TLS termination system providing :ReverseProxyCapability." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:VPNTunnel a owl:Class ;
+    rdfs:label "VPN Tunnel" ;
+    rdfs:comment "A secure encrypted tunnel providing :VPNCapability. Links to :VPNPurpose via :hasPurpose." ;
+    rdfs:subClassOf bfo:0000015 .
+
+:DNSService a owl:Class ;
+    rdfs:label "DNS Service" ;
+    rdfs:comment "A DNS resolver or authoritative name server providing :DNSCapability." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:DeploymentPrerequisite a owl:Class ;
+    rdfs:label "Deployment Prerequisite" ;
+    rdfs:comment """A system-level dependency required before deployment can proceed
+(Docker Engine, Python, Git, etc.). BFO:IndependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000004 .
+
+:GPUAccelerator a owl:Class ;
+    rdfs:label "GPU Accelerator" ;
+    rdfs:comment "A GPU or other hardware accelerator (FPGA, TPU, DPU)." ;
+    rdfs:subClassOf bfo:0000030 .
+
+:MCPServerDeployment a owl:Class ;
+    rdfs:label "MCP Server Deployment" ;
+    rdfs:comment """A deployed MCP server container serving streamable-http endpoints.
+Links the abstract MCPServerPackage to a physical Container and its
+network endpoint URL.""" ;
+    rdfs:subClassOf :Container .
+
+:NetworkSubnet a owl:Class ;
+    rdfs:label "Network Subnet" ;
+    rdfs:comment "A CIDR-addressed network segment (physical or overlay)." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:ObservabilityStack a owl:Class ;
+    rdfs:label "Observability Stack" ;
+    rdfs:comment "An observability platform providing :MonitoringCapability." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:StorageArray a owl:Class ;
+    rdfs:label "Storage Array" ;
+    rdfs:comment "A storage system (SAN, NAS, NVMe-oF, Ceph)." ;
+    rdfs:subClassOf bfo:0000030 .
+
+:ContainerStack a owl:Class ;
+    rdfs:label "Container Stack" ;
+    rdfs:comment "A logical grouping of containers (Compose stack, Swarm service, K8s Deployment)." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:Service a owl:Class ;
+    rdfs:label "Service" ;
+    rdfs:comment "A monitored network service exposing one or more :Endpoint (specializes the existing au:PlatformService for the service-health layer; producers: lgtm-mcp, uptime-kuma-agent)." ;
+    rdfs:subClassOf au:PlatformService .
+
+:Rack a owl:Class ;
+    rdfs:label "Rack" ;
+    rdfs:comment "A physical server rack (42U standard or custom)." ;
+    rdfs:subClassOf bfo:0000030 .
+
+:Container a owl:Class ;
+    rdfs:label "Container" ;
+    rdfs:comment "A running container instance (Docker, Podman, containerd, CRI-O)." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:DeploymentPhase a owl:Class ;
+    rdfs:label "Deployment Phase" ;
+    rdfs:comment """A stage within a bootstrap deployment (Tier 0: Core Infra,
+Tier 1: Platform Services, Tier 2: MCP Servers).
+BFO:Process — unfolds over time.""" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:DeploymentManifest a owl:Class ;
+    rdfs:label "Deployment Manifest" ;
+    rdfs:comment """A complete deployment blueprint recording what was deployed,
+where, when, and under which profile (tiny/single-node-prod/enterprise).
+BFO:GenericallyDependentContinuant — an information entity.""" ;
+    rdfs:subClassOf bfo:0000031 .

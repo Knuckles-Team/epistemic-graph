@@ -10,7 +10,7 @@
 #   `--config .kiss/kiss.toml` and ONE path per invocation (KISS 0.4.10 reports
 #   a false clean for a multi-path `check`). The two callers that do this
 #   correctly are scripts/check_kiss_staged.sh (the pre-commit hook) and the
-#   `kiss-census` hook in .pre-commit-config.yaml; go through one of them.
+#   `kiss-census` hook in .config/pre-commit.yaml; go through one of them.
 #   (Corrected 2026-09-11: this header used to point at scripts/run_kiss.sh,
 #   which does not exist in this repository.)
 #

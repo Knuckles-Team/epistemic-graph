@@ -1,0 +1,193 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:InterfaceLinkConstraint a owl:Class ;
+    rdfs:label "Interface Link Constraint" ;
+    rdfs:comment "A required link an Interface implementer must declare. CONCEPT:KG-2.38." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:chunkOf a owl:ObjectProperty ;
+    rdfs:label "chunk of" ;
+    rdfs:comment "Relates a Chunk back to its parent Document (CHUNK_OF). CONCEPT:KG-2.48." ;
+    rdfs:domain :Chunk ;
+    rdfs:range :Document ;
+    owl:inverseOf :hasChunk .
+
+:chunkPosition a owl:DatatypeProperty ;
+    rdfs:label "chunk position" ;
+    rdfs:comment "Ordinal position of a Chunk within its Document. CONCEPT:KG-2.48." ;
+    rdfs:domain :Chunk ;
+    rdfs:range xsd:int .
+
+:editedBy a owl:ObjectProperty ;
+    rdfs:label "edited by" ;
+    rdfs:comment "Relates an ObjectEdit to the actor who made it (the EDITED_BY edge). CONCEPT:KG-2.43." ;
+    rdfs:domain :ObjectEdit ;
+    rdfs:range :Actor ;
+    rdfs:seeAlso prov:wasAssociatedWith .
+
+:edits a owl:ObjectProperty ;
+    rdfs:label "edits" ;
+    rdfs:comment "Relates an ObjectEdit to the object it mutates (the EDITS edge). CONCEPT:KG-2.43." ;
+    rdfs:domain :ObjectEdit ;
+    rdfs:range :Object .
+
+:hasInterfaceProperty a owl:ObjectProperty ;
+    rdfs:label "has interface property" ;
+    rdfs:comment "Relates an Interface to one of its required typed properties. CONCEPT:KG-2.38." ;
+    rdfs:domain :Interface ;
+    rdfs:range :InterfaceProperty .
+
+:implementsInterface a owl:ObjectProperty ;
+    rdfs:label "implements interface" ;
+    rdfs:comment "Relates a concrete object type to an Interface it implements. CONCEPT:KG-2.38." ;
+    rdfs:domain owl:Thing ;
+    rdfs:range :Interface .
+
+:released a owl:DatatypeProperty ;
+    rdfs:label "released" ;
+    rdfs:comment "Whether a Function version is published/released. CONCEPT:KG-2.41." ;
+    rdfs:domain :Function ;
+    rdfs:range xsd:boolean .
+
+<http://knuckles.team/kg/system> a owl:Ontology ;
+    rdfs:label "Agent Intelligence Graph — System Module" ;
+    rdfs:comment "System domain extension (interface link constraints, system-level types). Imported by the canonical <http://knuckles.team/kg> ontology; resolved to ontology_system.ttl by the local loader convention." .
+
+:FunctionInvocation a owl:Class ;
+    rdfs:label "Function Invocation" ;
+    rdfs:comment """An audited record of a single ontology Function call: the
+function invoked (invokesFunction), the actor, the typed inputs, and the typed
+output. BFO:Process, aligned to prov:Activity. CONCEPT:KG-2.41.""" ;
+    rdfs:seeAlso prov:Activity ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:cardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onProperty :invokesFunction ],
+        bfo:0000015 .
+
+:InterfaceProperty a owl:Class ;
+    rdfs:label "Interface Property" ;
+    rdfs:comment "A required typed property declared by an Interface. CONCEPT:KG-2.38." ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:maxCardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onProperty :hasCardinality ],
+        bfo:0000031 .
+
+:Marking a owl:Class ;
+    rdfs:label "Mandatory Marking" ;
+    rdfs:comment """An unordered access-control compartment that propagates along
+derivation/link edges (Palantir object-permissioning marking-based mandatory
+control). CONCEPT:KG-2.46.""" .
+
+:functionKind a owl:DatatypeProperty ;
+    rdfs:label "function kind" ;
+    rdfs:comment "The Foundry function kind: plain | on_objects | query. CONCEPT:KG-2.41." ;
+    rdfs:domain :Function ;
+    rdfs:range xsd:string .
+
+:functionVersion a owl:DatatypeProperty ;
+    rdfs:label "function version" ;
+    rdfs:comment "The semver version string of an ontology Function. CONCEPT:KG-2.41." ;
+    rdfs:domain :Function ;
+    rdfs:range xsd:string .
+
+:hasCardinality a owl:DatatypeProperty ;
+    rdfs:label "has cardinality" ;
+    rdfs:comment "The cardinality of a first-class link (one-to-one | one-to-many | many-to-many). CONCEPT:KG-2.26." ;
+    rdfs:domain :LinkType ;
+    rdfs:range xsd:string .
+
+:hasChunk a owl:ObjectProperty ;
+    rdfs:label "has chunk" ;
+    rdfs:comment "Relates a Document to one of its materialized Chunk objects (HAS_CHUNK). CONCEPT:KG-2.48." ;
+    rdfs:domain :Document ;
+    rdfs:range :Chunk .
+
+:hasMarking a owl:ObjectProperty ;
+    rdfs:label "has marking" ;
+    rdfs:comment "Node carries a mandatory marking; inherited by prov:wasDerivedFrom targets. CONCEPT:KG-2.46." ;
+    rdfs:domain owl:Thing ;
+    rdfs:range :Marking ;
+    owl:propertyChainAxiom ( prov:wasDerivedFrom :hasMarking ) .
+
+:invokesFunction a owl:ObjectProperty ;
+    rdfs:label "invokes function" ;
+    rdfs:comment "Relates a FunctionInvocation to the Function it ran. prov:used. CONCEPT:KG-2.41." ;
+    rdfs:domain :FunctionInvocation ;
+    rdfs:range :Function ;
+    rdfs:seeAlso prov:used .
+
+:linksSource a owl:ObjectProperty ;
+    rdfs:label "links source" ;
+    rdfs:comment "Relates a reified junction link to its source endpoint object. CONCEPT:KG-2.26." ;
+    rdfs:domain :JunctionLink .
+
+:linksTarget a owl:ObjectProperty ;
+    rdfs:label "links target" ;
+    rdfs:comment "Relates a reified junction link to its target endpoint object. CONCEPT:KG-2.26." ;
+    rdfs:domain :JunctionLink .
+
+:Interface a owl:Class ;
+    rdfs:label "Interface" ;
+    rdfs:comment """An abstract shape (required typed properties + link constraints)
+that a concrete object type may implement; programmatic targeting expands an
+interface to its implementers. CONCEPT:KG-2.38.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:JunctionLink a owl:Class ;
+    rdfs:label "Junction Link" ;
+    rdfs:comment """A many-to-many link reified as an intermediary object carrying
+its own properties — the (junction_node, edge_a, edge_b) materialization.
+CONCEPT:KG-2.26.""" ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:cardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onProperty :linksSource ],
+        [ a owl:Restriction ;
+            owl:cardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onProperty :linksTarget ],
+        :LinkType .
+
+:LinkType a owl:Class ;
+    rdfs:label "Link Type" ;
+    rdfs:comment "A first-class typed link between two object types. CONCEPT:KG-2.26." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:ObjectEdit a owl:Class ;
+    rdfs:label "Object Edit" ;
+    rdfs:comment """A durable structured edit (property set, link add/remove, object
+create/delete) over an ontology object, with before/after snapshots; the Palantir
+object-edits primitive. CONCEPT:KG-2.43.""" ;
+    rdfs:seeAlso prov:Activity ;
+    rdfs:subClassOf :Event .
+
+:Chunk a owl:Class ;
+    rdfs:label "Document Chunk" ;
+    rdfs:comment """An exploded, embedded text chunk materialized from a source
+Document; carries position/char-span provenance and its own embedding for semantic
+search. CONCEPT:KG-2.48.""" .
+
+:Function a owl:Class ;
+    rdfs:label "Ontology Function" ;
+    rdfs:comment """A typed, versioned, releasable user function (PLAIN | ON_OBJECTS
+| QUERY) with declared inputs/outputs, validated and audited by a single
+runtime. CONCEPT:KG-2.41.""" ;
+    rdfs:seeAlso prov:Plan ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:cardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onProperty :functionVersion ],
+        [ a owl:Restriction ;
+            owl:cardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onProperty :functionKind ],
+        bfo:0000015 .

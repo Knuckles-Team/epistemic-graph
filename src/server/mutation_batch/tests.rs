@@ -752,10 +752,7 @@ fn owner_domain_classifies_wire_unconditional_methods_regardless_of_this_crates_
         DurabilityDomain::KvStore,
     );
     assert_eq!(
-        domain_for(
-            &Method::BlobBegin { chunk_size: 1 },
-            MutationSurface::Other,
-        ),
+        domain_for(&Method::BlobBegin { chunk_size: 1 }, MutationSurface::Other,),
         DurabilityDomain::BlobStore,
     );
     assert_eq!(

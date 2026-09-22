@@ -1,0 +1,33 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:SourceDocument a owl:Class ;
+    rdfs:label "Governed source document" ;
+    rdfs:comment "Connector resource (generated)." ;
+    rdfs:subClassOf :Document .
+
+:text a owl:DatatypeProperty ;
+    rdfs:label "Text" ;
+    rdfs:range xsd:string .
+
+:title a owl:DatatypeProperty ;
+    rdfs:label "Title" ;
+    rdfs:range xsd:string .
+
+:updated_at a owl:DatatypeProperty ;
+    rdfs:label "Updated_at" ;
+    rdfs:range xsd:dateTime .
+
+<http://knuckles.team/kg/native_source_connector> a owl:Ontology ;
+    rdfs:label "native_source_connector Ontology (generated)" ;
+    rdfs:comment "OWL mirror of the native_source_connector connector manifest — every resource, relation, and field. CONCEPT:AU-KG.ontology.connector-manifest-compiler." ;
+    owl:imports <http://knuckles.team/kg/core> .

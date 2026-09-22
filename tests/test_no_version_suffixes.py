@@ -38,7 +38,7 @@ ID_RE = re.compile(r"\b[A-Z][A-Za-z0-9]*V[0-9]+\b")
 TBL_RE = re.compile(r"\b[a-z_]+_v[0-9]+\b")
 
 ROOTS = ("crates", "src", "tests", "epistemic_graph", "docs", "scripts", "contract")
-EXTRA_FILES = (".pre-commit-config.yaml",)
+EXTRA_FILES = (".config/pre-commit.yaml",)
 TEXT_SUFFIXES = {".rs", ".py", ".yaml", ".yml", ".md", ".toml"}
 
 # This guard's own planted-bad fixtures and its pattern literals are test data,

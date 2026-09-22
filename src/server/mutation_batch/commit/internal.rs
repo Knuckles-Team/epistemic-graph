@@ -447,7 +447,7 @@ fn canonical_graph_image_digest(snapshot: &crate::graph::GraphSnapshot) -> Resul
     embeddings.sort_by(|left, right| left.0.cmp(&right.0));
     let canonical = (
         snapshot.schema_version,
-        &snapshot.integrity_policy,
+        &snapshot.schema_sources,
         nodes,
         edges,
         // The ledger is an append-ordered log: its order IS its content.

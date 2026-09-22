@@ -30,6 +30,7 @@ macro_rules! native_method_catalog {
             #[cfg(feature = "reasoning")]
             record RunDatalogReasoning => GraphState,
             record IcvConfigure => GraphState,
+            record GraphSchema => GraphState,
 
             record BeginTxn => Transaction,
             record TxnAddNode => Transaction,

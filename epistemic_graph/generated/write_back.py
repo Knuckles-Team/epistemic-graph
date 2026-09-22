@@ -261,7 +261,7 @@ class WriteBackReceipt(BaseModel):
 class WriteBackReceiptPage(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    next_sequence: Annotated[Any, Field(ge=0)] | None = None
+    next_sequence: Annotated[int, Field(ge=0)] | None = None
     receipts: list[WriteBackReceiptRecord]
 
 

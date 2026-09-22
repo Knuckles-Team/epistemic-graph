@@ -69,7 +69,7 @@ class MethodPolicyRow:
 # `MutationOutbox`.
 # 425 -> 426: RF-ADR-009's served `SourceIngest` raw-record authority.
 # 426 -> 427: governed connector `WriteBack` authority.
-EXPECTED_METHOD_POLICY_ROWS = 428
+EXPECTED_METHOD_POLICY_ROWS = 429
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",

@@ -280,6 +280,7 @@
 | `RemoveTriples` | true | GraphRedb | `rdf:write` | true | true | false | Atomic |  |
 | `DropNamedGraph` | true | GraphRedb | `rdf:write` | true | true | false | Atomic |  |
 | `SourceIngest` | true | GraphRedb | `source:ingest` | true | true | true | Saga | RF-ADR-009 native ingestion authority: tenant-bound typed Connector Manifest mapping resolution and idempotent raw-CAS admission precede one atomic ChangeEnvelope commit for mapped graph material, provenance, cursor and receipt; unknown mapping, tenant or authority fails closed; exact MCP catalog generation and digest binding makes the generated consumer contract replay-safe |
+| `SourceIngestStatus` | false | None | `source:ingest` | true | false | false | Snapshot | read-only authoritative source-partition checkpoint and receipt identity for restart/failover CAS recovery; callers must not substitute local checkpoint authority |
 | `ServedModality` | ~true | GraphRedb | `modality:write` | false | true | true | Atomic | runtime-conditional: authority/query/events/capabilities are verified read snapshots; ingest/delete/cold/restore commit an encrypted state-backed MutationBatch |
 | `ParseFile` | false | None | `compute:parse` | true | false | false | None |  |
 | `ParseFiles` | false | None | `compute:parse` | true | false | false | None |  |
@@ -363,7 +364,7 @@
 | `TxnUnifiedQuery` | false | None | `txn:read` | true | false | false | Saga |  |
 | `TxnUnifiedQueryText` | false | None | `txn:read` | true | false | false | Saga |  |
 | `Decide` | false | None | `query:decide` | true | false | false | Snapshot | RF-ADR-010 DL-2. Evaluate-only: scores library or RLS-filtered graph candidates under a pinned feature schema and head and answers a batch of records; it commits none of them |
-| `RunDatalogReasoning` | true | GraphRedb | `reasoning:write` | false | true | true | Atomic | state-backed MutationBatch commits inferred facts |
+| `RunDatalogReasoning` | true | GraphRedb | `reasoning:write` | true | true | true | Atomic | state-backed MutationBatch commits inferred facts; operation-identity replay prevents duplicate materialization/audit/CDC |
 | `GetRdf` | false | None | `rdf:read` | true | false | false | Snapshot |  |
 | `Sparql` | false | None | `sparql:read` | true | false | false | Snapshot |  |
 | `SparqlVirtual` | false | None | `sparql:read` | true | false | false | Snapshot |  |
@@ -373,7 +374,7 @@
 | `RunRules` | false | None | `reasoning:read` | true | false | false | Snapshot | READ-ONLY (EG-P0-2/L11 handler audit): handle_run_rules reasons over an off-lock analysis_snapshot and returns inferred triples, no writeback -- unlike its sibling RunDatalogReasoning which materialises in-place. Corrected from a prior mutates=true semantic guess; now agrees with access.rs (never a write there) |
 | `ShaclValidate` | false | None | `validation:read` | true | false | false | Snapshot |  |
 | `IcvConfigure` | true | GraphRedb | `security:admin` | true | true | true | Atomic | state-backed MutationBatch |
-| `GraphSchema` | true | GraphRedb | `security:admin` | true | true | true | Atomic | X9. Gateway-routed exactly like IcvConfigure: every op attaches, replaces or detaches one keyed schema source through the graph commit kernel, so it is audited and emits CDC. Local-only in 2.27.x until its Raft catalog record lands |
+| `GraphSchema` | true | GraphRedb | `security:admin` | true | true | true | Atomic | X9. Gateway-routed exactly like IcvConfigure: every op attaches, replaces or detaches one keyed schema source through the graph commit kernel, so it is audited, emits CDC, and is recorded in the native Raft GraphState catalog |
 | `GraphSchemaList` | false | None | `security:admin` | true | false | false | Snapshot | X9. Reads the request graph's schema-source set and its composed digest; a separate method rather than an op because a read op inside a gateway-routed method would need a runtime-conditional gateway plan |
 | `ShexValidate` | false | None | `validation:read` | true | false | false | Snapshot |  |
 | `GetLedger` | false | None | `ledger:read` | true | false | false | Snapshot |  |

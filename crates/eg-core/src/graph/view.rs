@@ -6,6 +6,7 @@ use petgraph::stable_graph::{NodeIndex, StableDiGraph};
 use petgraph::visit::EdgeRef;
 
 use super::decode_property_value;
+use super::GraphSchemaSources;
 
 /// An owned, consistent, UNLOCKED read view of a graph (topology + properties),
 /// produced by `GraphCore::*_snapshot`. The read-only graph algorithms operate on
@@ -22,6 +23,9 @@ pub struct GraphView {
     /// must do so explicitly (by `relationship` and/or bitemporal liveness), never
     /// by Vec position.
     pub edge_properties: HashMap<(String, String), Vec<Arc<Vec<u8>>>>,
+    /// Point-in-time graph schema authority. Reasoning and validation consume
+    /// this exact catalog rather than consulting mutable process-global state.
+    pub schema_sources: Arc<GraphSchemaSources>,
     /// Interior-mutable, type-erased memo of expensive per-snapshot DERIVED stats
     /// (CONCEPT:EG-KG.query.column-range-stats) — e.g. the planner's per-column
     /// min/max + histogram catalog (`eg_plan`'s `ColumnStats`). A `GraphView` is an
@@ -136,11 +140,18 @@ impl Clone for GraphView {
     /// (an `Arc` clone) rather than reset — a clone of this view must still resolve a named
     /// projection against the same live catalog the original would have.
     fn clone(&self) -> Self {
+        GraphView::clone_view_with_cold_memos(self)
+    }
+}
+
+impl GraphView {
+    fn clone_view_with_cold_memos(&self) -> Self {
         Self {
             graph: self.graph.clone(),
             node_map: self.node_map.clone(),
             node_properties: self.node_properties.clone(),
             edge_properties: self.edge_properties.clone(),
+            schema_sources: Arc::clone(&self.schema_sources),
             plan_stats_memo: OnceLock::new(),
             label_index_memo: OnceLock::new(),
             distinct_stats_memo: OnceLock::new(),

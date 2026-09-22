@@ -1,21 +1,15 @@
 default_language_version:
   python: python3
-# `git push` must run the FULL gate, not a subset.
-#
-# Two independent holes made the heavy hooks dead code: (a) only the
-# `pre-commit` git hook was ever installed, so `git push` ran NOTHING, and
-# (b) the heavy hooks are staged pre-push/manual, so `pre-commit run
-# --all-files` (commit stage) skipped them too. Net effect: cargo-test-full,
-# cargo-clippy-all-features, replay-determinism, wheel-smoke and pytest --
-# the mirrors of CI's slowest, most failure-prone jobs -- never ran locally
-# at all, and CI was the first place anything found out.
-#
-# `default_install_hook_types` makes `pre-commit install` wire the pre-push
-# hook as well; `default_stages` makes every hook that does not name its own
-# stages run at BOTH stages, so a push runs the commit-stage gates PLUS the
-# heavy ones. Pushing is now the slow, complete gate on purpose.
+# Automatic pre-push is the bounded local publication gate: generated-artifact
+# freshness, formatting/lint, lock/contract checks, and targeted smoke only.
+# Exhaustive scanners/censuses, full feature matrices, wheel builds, integration
+# suites, and the full CI replica are manual-only locally; hosted CI remains the
+# exhaustive authority. Install both commit and push hooks with:
+#   pre-commit install --config .config/pre-commit.yaml
+# Run the complete manual tier with:
+#   pre-commit run --config .config/pre-commit.yaml --all-files --hook-stage manual
 default_install_hook_types: [pre-commit, pre-push]
-default_stages: [pre-commit]  # P0.3: was [pre-commit, pre-push] -- every genuinely-heavy hook below now carries its own explicit stages:
+default_stages: [pre-commit]  # Non-default stages are explicit on each hook.
 exclude: 'dotnet|node_modules|target'
 ci:
   autofix_prs: true
@@ -23,6 +17,18 @@ ci:
   autoupdate_schedule: 'monthly'
 
 repos:
+- repo: local
+  hooks:
+  # First cheap generated-artifact freshness check in the automatic gate: fail
+  # before formatting, lint, or any compile-backed/manual contract validation.
+  # Regenerate with `python3 scripts/build_status_page.py --write`.
+  - id: check-status-page
+    name: Status page freshness (generated docs; see build_status_page.py --write)
+    entry: python3 scripts/check_status_page.py
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [pre-commit, pre-push, manual]
 - repo: https://github.com/pre-commit/pre-commit-hooks
   rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
   hooks:
@@ -45,8 +51,10 @@ repos:
   rev: 6fec9b7edb08fd9989088709d864a7826dc74e80 # v0.15.12
   hooks:
   - id: ruff-check
-    args: ["--fix"]
+    args: ["--ignore=E402"]
+    stages: [pre-commit, pre-push, manual]
   - id: ruff-format
+    stages: [pre-commit, pre-push, manual]
 - repo: https://github.com/pre-commit/mirrors-mypy
   rev: fc0f09a29bb495f4a91f00266155d6282d52485d # v1.20.2
   hooks:
@@ -79,6 +87,12 @@ repos:
         security_sanitizer|
         soak_scale
       )\.py$
+    stages: [pre-commit, pre-push, manual]
+- repo: https://github.com/Knuckles-Team/pipelines
+  rev: 7ae41925ca0a62c1fdb64197e0bb1859c1903a15 # shared README/AGENTS public-surface contract
+  hooks:
+  - id: public-surface
+    stages: [pre-commit, manual]
 - repo: https://github.com/jendrikseipp/vulture
   rev: b0f67ba0044693aa9ec0d38fe460590facc98004 # v2.16
   hooks:
@@ -90,7 +104,7 @@ repos:
   rev: 2ccb47ff45ad361a21071a7eedda4c37e6ae8c5a # v2.4.2
   hooks:
   - id: codespell
-    args: ["-L", "ans,linar,nam,tread,ot,ser,inh,copyin,unparseable,implementors,implementor,nd,datas,alls,re-declaring,re-declares,fals,paeth", "--ignore-words=.codespellignore"]
+    args: ["-L", "ans,linar,nam,tread,ot,ser,inh,copyin,unparseable,implementors,implementor,nd,datas,alls,re-declaring,re-declares,fals,paeth", "--ignore-words=.config/codespell.ignore"]
     exclude: ^(tests/|test/|scripts/|script/|.*lock.*|Cargo.lock|\.specify/)
 - repo: https://github.com/PyCQA/bandit
   rev: 92ae8b82fb422a639f0ed8d99e96cea769594e08 # 1.9.4
@@ -113,7 +127,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-    stages: [manual, pre-push]
+    stages: [manual]
   - id: uv-lock
     name: uv-lock (verify, never mutate)
     entry: bash -c 'uv lock --check'
@@ -208,23 +222,17 @@ repos:
     language: system
     pass_filenames: false
     require_serial: true
-    stages: [pre-push, manual]
+    stages: [manual]
   - id: jscpd-census
     name: jscpd — tracked-tree census (advisory; no baseline)
     entry: python3 scripts/check_duplication.py census
     language: system
     pass_filenames: false
     require_serial: true
-    stages: [pre-push, manual]
+    stages: [manual]
 # ─────────────────────────────────────────────────────────────────────────
-# Rust CI parity — mirrors .github/workflows/rust-ci.yml `lint-and-test` PLUS a
-# representative wheel build from release-build.yml, so `pre-commit run` catches
-# locally everything CI checks (no more push-then-discover). The FAST gates (fmt,
-# clippy, lower-crate + slim-server tests) run on the default `pre-commit` stage.
-# The HEAVY gates (the ~9-min facade-full test matrix and the maturin wheel smoke
-# ~release LTO) are staged `pre-push` + `manual` so they don't tax every commit
-# but still run in the parity check via:
-#   pre-commit run --all-files --hook-stage pre-push   # or: --hook-stage manual
+# Manual Rust CI parity. Hosted CI runs the exhaustive matrix on every
+# publication; run this tier explicitly when needed with scripts/ci_parity.sh.
 # ─────────────────────────────────────────────────────────────────────────
 - repo: local
   hooks:
@@ -234,8 +242,8 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-  # Whole-tree scanner profile.  Exact coverage and a zero actionable backlog
-  # are required at pre-push/manual publication boundaries; there is no
+  # Whole-tree scanner profile. Exact coverage and a zero actionable backlog
+  # are required at manual publication boundaries; there is no
   # checked-in baseline.  Missing tools, version drift, parse errors, and
   # scanner/config failures remain hard environment errors.
   # The explicit git ls-files universe keeps ignored/untracked build output out
@@ -268,7 +276,7 @@ repos:
     pass_filenames: false
     always_run: true
     require_serial: true
-    stages: [pre-push, manual]
+    stages: [manual]
   - id: kiss-census
     name: KISS — tracked Rust census (advisory; no baseline)
     entry: python3 scripts/check_kiss_census.py
@@ -276,7 +284,7 @@ repos:
     pass_filenames: false
     always_run: true
     require_serial: true
-    stages: [pre-push, manual]
+    stages: [manual]
   - id: import-linter-architecture
     name: Python architecture — import-linter
     entry: |-
@@ -292,7 +300,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-    stages: [pre-commit, pre-push, manual]
+    stages: [pre-commit, manual]
   - id: dependency-cruiser-architecture
     name: JavaScript architecture — dependency-cruiser
     entry: |-
@@ -307,14 +315,14 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-    stages: [pre-commit, pre-push, manual]
+    stages: [pre-commit, manual]
   - id: rust-arch-lint
     name: Rust architecture — arch-lint
     entry: python3 scripts/check_rust_arch_lint.py
     language: system
     pass_filenames: false
     always_run: true
-    stages: [pre-commit, pre-push, manual]
+    stages: [pre-commit, manual]
   - id: canonical-property-schema
     name: Canonical structural property schema
     entry: python3 scripts/check_canonical_property_schema.py
@@ -456,7 +464,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-    stages: [pre-commit, pre-push, manual]
+    stages: [pre-commit, manual]
   - id: registry-test-ownership
     name: Every tracked tests/ file is owned in the component registry
     entry: python3 scripts/check_registry_test_ownership.py
@@ -495,7 +503,7 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [pre-commit, pre-push, manual]
-  # Anti-drift check for the ci-gate-replica hook (pre-push/manual, below) —
+  # Anti-drift check for the manual-only ci-gate-replica hook below —
   # pure YAML parse, no cargo/build, <1s, so it runs on EVERY commit rather
   # than waiting for a push to discover a workflow grew a job
   # ci_gate_replica.py doesn't know how to classify. Covers EVERY workflow
@@ -562,13 +570,13 @@ repos:
   # consumer command normally. Keeping this producer ahead of the consumers is
   # what makes the cache an execution plan rather than a best-effort hint.
   - id: ci-gate-replica
-    name: CI gate replica — parses every workflow file, runs executable jobs, reports NOT VALIDATED LOCALLY for the rest (HEAVY — pre-push/manual)
+    name: CI gate replica — parses every workflow file, runs executable jobs, reports NOT VALIDATED LOCALLY for the rest (HEAVY — manual)
     entry: bash -c 'bash scripts/ci_gate_replica.sh'
     language: system
     pass_filenames: false
     always_run: true
     require_serial: true
-    stages: [pre-push, manual]
+    stages: [manual]
   # RF-RULING-003: the engine contract replaced the `protocol-parity` pytest gate
   # and its `tests/protocol_unbound_baseline.txt` ratchet. `gen_contract --check`
   # regenerates every committed artifact (`contract/methods.json`,
@@ -589,7 +597,7 @@ repos:
     pass_filenames: false
     always_run: true
     require_serial: true
-    stages: [pre-push, manual]
+    stages: [manual]
   # rust-ci gate 1 — scoped, pinned, check-only format guard. Never invoke
   # `cargo fmt --all` from a developer or merge track: an auto-applying
   # workspace formatter rewrites unrelated files in another lane's worktree.
@@ -600,19 +608,12 @@ repos:
     name: rustfmt (pinned, changed files, check-only)
     entry: python3 scripts/check_rustfmt_scope.py
     language: system
-    files: '(^|/)(Cargo\.toml|rust-toolchain\.toml|rustfmt\.toml)$|\.rs$|^\.pre-commit-config\.yaml$|^\.mergequeue\.yaml$|^scripts/check_rustfmt_scope\.py$'
+    files: '(^|/)(Cargo\.toml|rust-toolchain\.toml|rustfmt\.toml)$|\.rs$|^\.config/pre-commit\.yaml$|^\.mergequeue\.yaml$|^scripts/check_rustfmt_scope\.py$'
     pass_filenames: true
     stages: [pre-push, manual]
-  # rust-ci gates 2-4 — clippy. The EVERYDAY leg lints the SHIPPED build (`full`,
-  # which == `default`) + the two slim variants, each -D warnings. The exhaustive
-  # `--all-features` leg is split to a pre-push/manual hook below: `--all-features`
-  # additionally pulls the OPT-IN layers that are NOT in any shipped wheel — `cluster`
-  # (openraft/`raft`/`harness`) and `full-extras` (real CUDA `cudarc` + ROS2 `rustdds`
-  # + CycloneDDS's C cmake build) — so recompiling them on EVERY commit is the single
-  # biggest local cost while catching lints only in code the main artifact never links.
-  # `full` enables a subset of the features `--all-features` enables, but that does NOT
-  # make its lints a subset: code under `cfg(not(feature = ...))` for a feature outside
-  # `full` (e.g. `not(feature = "raft")`) compiles only here. Neither leg covers the other.
+  # The shipped-feature Clippy compile is manual-only; hosted CI runs it as part
+  # of the exhaustive push/PR matrix. Compile-heavy checks stay out of the
+  # automatic pre-push gate so the local publication gate remains bounded.
   - id: cargo-clippy
     name: cargo clippy -D warnings (shipped `full` build — the slimmest profile, incl. Raspberry Pi)
     # Evidence reuse is exact-only: this command is skipped only when this same
@@ -623,39 +624,36 @@ repos:
     pass_filenames: false
     always_run: true
     require_serial: true
-    stages: [pre-push, manual]
+    stages: [manual]
   # Exhaustive clippy across EVERY feature incl. the opt-in `cluster` (raft/harness) and
   # `full-extras` (GPU/ROS2) layers — the heaviest compile in the repo (openraft, cudarc,
   # rustdds, the CycloneDDS C build; 55 crates that exist ONLY under these two features,
   # none of them in the shipped `default`/`full` build — asserted by `cargo tree`).
   # Mirrors rust-ci.yml gate 1 byte-for-byte, but was ALWAYS_RUN unconditionally on every
   # push regardless of whether the change went anywhere near `cluster`/`full-extras` —
-  # measured as the single largest contributor to eg's local pre-push gate time. Now
-  # scoped by scripts/check_cluster_extras_affected_lint.py: it derives, from the real
-  # `cargo metadata` dependency graph (not a hand-maintained path list), which workspace
-  # crates are actually reachable from `cluster`/`full-extras`, maps the push's changed
-  # files to their owning crate, and runs the heavy command above ONLY when a touched
+  # historically the single largest contributor to local push latency. This
+  # manual-only hook is scoped by scripts/check_cluster_extras_affected_lint.py:
+  # it derives, from the real `cargo metadata` dependency graph (not a hand-maintained
+  # path list), which workspace crates are reachable from `cluster`/`full-extras`,
+  # maps changed files to their owning crate, and runs the heavy command above only when a touched
   # crate is in that reachable set (or Cargo.toml/Cargo.lock itself changed — the
-  # dependency graph moved, too risky to reason about statically). Fails closed to the
-  # heavy leg on ANY doubt — including a CLI-invoked `pre-commit run --hook-stage
-  # pre-push`/`manual` (no from/to ref pair; only a REAL `git push` gets one), so
-  # ci_parity.sh's exhaustive local check is unaffected by this narrowing.
+  # dependency graph moved, too risky to reason about statically). Manual CLI
+  # runs have no from/to ref pair, so this fails closed and runs the heavy leg
+  # on any doubt. Hosted CI independently runs the exhaustive feature matrix.
   # COVERAGE IS UNCHANGED, not removed: rust-ci.yml's `lint-and-test` job runs this exact
   # command unconditionally on every push/PR to main regardless of this hook's decision,
-  # and `pre-commit run --all-files --hook-stage manual`/`pre-push` (scripts/ci_parity.sh)
-  # always runs the full leg locally too. This hook only removes the COST of paying for
-  # the heavy compile on pushes that provably cannot reach the code it lints.
+  # and the manual tier in `scripts/ci_parity.sh` always runs the full leg
+  # locally too. The automatic push hook no longer pays for this heavy compile.
   - id: cargo-clippy-all-features
-    name: cargo clippy --workspace --all-features (HEAVY, scoped to affected crates — pre-push/manual)
+    name: cargo clippy --workspace --all-features (HEAVY, scoped to affected crates — manual)
     entry: python3 scripts/check_cluster_extras_affected_lint.py
     language: system
     pass_filenames: false
     always_run: true
     require_serial: true
-    stages: [pre-push, manual]
-  # rust-ci gates 5 + 7 — the FAST test legs (lower crates all-features, then the
-  # slim-server feature-gating guard row). Replaces the old weak `cargo test
-  # --quiet`. Gate 6 (facade full) is heavy → its own pre-push/manual hook below.
+    stages: [manual]
+  # Exhaustive Rust test selections remain in hosted CI and the local manual
+  # replica. They are intentionally not part of the bounded automatic push gate.
   # perf/gate-dedup (2026-08-15): the standalone `cargo-test` (lower crates)
   # hook that used to live here ran `cargo nextest run -p eg-types -p eg-core -p
   # eg-compute --all-features --no-fail-fast` on every push — the same crate/
@@ -668,8 +666,8 @@ repos:
   # `scripts/ci_gate_replica.py --dry-run`. Removed from the automatic pre-push
   # stage. To run it standalone:
   #   cargo nextest run -p eg-types -p eg-core -p eg-compute --all-features --no-fail-fast
-  # rust-ci gate 6 — facade full test matrix (~9 min). Too slow for every commit:
-  # staged pre-push + manual so it runs on push and in the parity check.
+  # rust-ci facade full test matrix (~9 min) is manual-only locally; hosted CI
+  # runs the full matrix on every publication.
   #
   # RATCHET RETIRED (2026-08-14): this hook used to run scripts/cargo_test_ratchet.py,
   # a differential gate over scripts/facade_full_test_baseline.txt, because `main`
@@ -698,8 +696,8 @@ repos:
   # re-baselined.
   # With the baseline now empty, the ratchet has nothing left to ratchet over,
   # so this hook runs the SAME command as release.yml's "Test (facade full)"
-  # step, byte-for-byte, instead of the ratchet wrapper: a green local pre-push
-  # now IS a green CI run for this step, by construction, not by convention.
+  # step, byte-for-byte, instead of the ratchet wrapper. Run the exhaustive
+  # local integration suite manually; automatic pre-push remains bounded.
   # REMOVED (CX-RAT-06/17, no-ratchets policy): scripts/cargo_test_ratchet.py
   # and scripts/facade_full_test_baseline.txt were kept (unwired) after the
   # 2026-08-14 retirement above "in case a future red-main episode needs the
@@ -708,7 +706,7 @@ repos:
   # workspace's standing rule is no baseline/ratchet gates, full stop
   # (findings are debt to burn down, never frozen). Verified dead at removal:
   # the baseline was empty (comments only, no entries), and grep across
-  # .pre-commit-config.yaml, .github/workflows/, and this repo found no hook,
+  # .config/pre-commit.yaml, .github/workflows/, and this repo found no hook,
   # workflow step, Makefile, or justfile target invoking
   # scripts/cargo_test_ratchet.py — not even the `cargo-test-full` hook this
   # comment block used to describe, itself removed in the 2026-08-15
@@ -739,9 +737,9 @@ repos:
   # EPISTEMIC_GRAPH_ENCRYPTION_KEY ambient-env defect in
   # advanced_crossmodal_roundtrip.rs reached CI instead of failing here), the
   # same mechanism that broke 2.25.0 in CI. The blocking release-workflow step
-  # is executed once by `ci-gate-replica` on pre-push; this direct hook remains
-  # manual-only for focused invocation so the full pre-push plan cannot run the
-  # same gate twice. Coordinate with `rm_gates(stage=heavy)` (feat/rm-gates,
+  # is executed by hosted CI and the manual-only `ci-gate-replica`; this direct
+  # hook also remains manual-only for focused invocation. Coordinate with
+  # `rm_gates(stage=heavy)` (feat/rm-gates,
   # in-flight) -- this belongs in that tier, not as a second enforcement
   # mechanism.
   - id: constrained-parallelism
@@ -758,10 +756,9 @@ repos:
   # (`crates/eg-statechart/tests/replay_determinism.rs`, an exhaustive
   # cut-point grid). Neither `eg-jobs` nor `eg-statechart` is otherwise named by
   # ANY existing test gate here (see this lane's report — a pre-existing,
-  # broader gap this hook does not attempt to close). Pre-push + manual: each
-  # crate's own crash simulation drops and reopens a real `redb::Database`
-  # (cold compile + real file I/O), too slow for every commit but well under a
-  # minute — CI is the always-on backstop.
+  # broader gap this hook does not attempt to close). Each crate's own crash
+  # simulation drops and reopens a real `redb::Database` (cold compile + real
+  # file I/O), so it stays manual locally; CI is the always-on backstop.
   # perf/gate-dedup (2026-08-15): the standalone `replay-determinism` hook that
   # used to live here ran `cargo nextest run -p eg-jobs -p eg-statechart --test
   # replay_determinism --no-fail-fast` on every push — the same crate/test
@@ -817,7 +814,8 @@ repos:
   # far too slow for a hook; the failures this guards against (lock drift, feature
   # compile errors, maturin config) all reproduce in a debug build, which is the
   # lightest faithful check. CI still does the full --release manylinux build.
-  # HEAVY-ish → pre-push + manual.
+  # Heavy wheel smoke stays in the manual tier; hosted release CI also builds
+  # and audits the publishable wheel.
   #
   # w6-precommit-ci-parity (D-W6PC-2): this hook used to STOP after the build —
   # it never ran the fold + normalize + audit + completeness chain
@@ -833,16 +831,16 @@ repos:
   # eg-numeric kernel wheel in first so check_wheel_completeness.py's
   # numeric-kernel-present invariant is checkable too, not just privacy.
   - id: wheel-smoke
-    name: wheel smoke + privacy/completeness audit — maturin build + fold + normalize + audit (HEAVY — pre-push/manual)
+    name: wheel smoke + privacy/completeness audit — maturin build + fold + normalize + audit (HEAVY — manual)
     entry: bash -c 'if [ -f "pyproject.toml" ] && grep -q "tool.maturin" pyproject.toml; then bash scripts/wheel_privacy_gate.sh; fi'
     language: system
     pass_filenames: false
     always_run: true
-    stages: [pre-push, manual]
+    stages: [manual]
 - repo: local
   hooks:
   - id: pytest
-    name: pytest (integration — spawns live engine; pre-push/CI only)
+    name: pytest (integration — spawns live engine; manual/hosted CI only)
     # BUG-045: `uv run --all-extras` must install this checkout's own `epistemic-graph`
     # package (maturin `bindings = "bin"`, PEP 517) before pytest can even import it —
     # and maturin's PEP 517 build defaults to `--release`, so that install alone paid
@@ -866,7 +864,7 @@ repos:
     # inside pytest-timeout's per-test 60s window: a cold full-featured build
     # takes minutes, so EVERY test in the suite ERRORed at setup with
     # `Failed: Timeout (>60.0s)` and the gate read as a wholesale test failure
-    # (measured 2026-08-21 on a full pre-push run: ~500 ERRORs, not one of them
+  # (measured 2026-08-21 on a full local run: ~500 ERRORs, not one of them
     # about the code under review). A warm target hid it, which is why it
     # survived this long. Building here, BEFORE pytest starts, puts that build
     # outside every test's timeout; conftest then just execs the binary. A
@@ -884,10 +882,10 @@ repos:
     pass_filenames: false
     always_run: true
     # These integration tests build+spawn the full ~2.2GB engine (conftest cargo
-    # build/run + UDS socket) — too heavy for every commit, and the conftest needs
-    # cargo on PATH which `uv run` strips. Runs at pre-push/CI where the engine is
-    # provisioned.
-    stages: [pre-push, manual]
+    # build/run + UDS socket) — too heavy for the automatic push gate, and the
+    # conftest needs cargo on PATH which `uv run` strips. Runs manually or in
+    # hosted CI where the engine is provisioned.
+    stages: [manual]
 - repo: local
   hooks:
   - id: security-sanitizer

@@ -9,7 +9,7 @@
 //! [`check_native_write`] (W4.13) extends the same registered policy to direct
 //! property-graph writes (Cypher / native `GraphCore` mutations), gated by the
 //! `EPISTEMIC_GRAPH_ICV_NATIVE_WRITES` env var. It is a TWO-level opt-in — the
-//! process-wide gate, AND the graph's own registered [`IntegrityPolicy`] — and
+//! process-wide gate, AND the graph's authoritative schema-source set — and
 //! deliberately NOT fail-closed like the RDF path: a graph that never
 //! registered a policy is simply not opted in, so its native writes are
 //! unaffected either way.
@@ -21,7 +21,7 @@ use eg_rdf::guard::{GuardRejection, WriteGuard};
 use eg_rdf::oxrdf::{Graph, Triple};
 use eg_shacl::policy::{IcvPolicy, IcvPolicyRegistry};
 
-use crate::graph::{GraphCore, IntegrityPolicy};
+use crate::graph::{GraphCore, GraphSchemaSource, SchemaSourceOrigin, OPERATOR_SOURCE_ID};
 
 /// Stage a current enforcing policy on the request graph. The optional wire
 /// target is an assertion, not an alternate route: cross-graph configuration
@@ -47,11 +47,19 @@ pub(crate) fn configure(
     if shapes_ttl.trim().is_empty() {
         return Err("IcvConfigure: a non-empty `shapes_ttl` is required".to_string());
     }
-    IcvPolicy::from_turtle(shapes_ttl)
-        .map_err(|error| format!("IcvConfigure: bad shapes graph: {error}"))?;
-    core.set_integrity_policy(IntegrityPolicy {
-        shapes_ttl: shapes_ttl.to_string(),
-    });
+    let mut sources = (*core.schema_sources()).clone();
+    sources.attach_dynamic(
+        OPERATOR_SOURCE_ID.to_string(),
+        GraphSchemaSource::new(
+            SchemaSourceOrigin::Operator,
+            Some(Arc::from(shapes_ttl)),
+            None,
+            0,
+        )?,
+    )?;
+    crate::server::graph_schema::compose::validate_and_compose(&sources)
+        .map_err(|error| format!("IcvConfigure: {error}"))?;
+    core.install_schema_sources(Arc::new(sources));
     Ok(())
 }
 
@@ -104,15 +112,7 @@ impl WriteGuard for CoreIcvGuard<'_> {
                 details: serde_json::json!({"reason": "graph_authority_required"}),
             });
         };
-        let Some(authority) = core.integrity_policy() else {
-            return Err(GuardRejection {
-                graph: graph.map(str::to_string),
-                message: "EG-KG.ontology.rdf-update-guard: no integrity policy is registered"
-                    .to_string(),
-                details: serde_json::json!({"reason": "integrity_policy_required"}),
-            });
-        };
-        let policy = IcvPolicy::from_turtle(&authority.shapes_ttl).map_err(|_| GuardRejection {
+        let policy = compiled_policy(core).map_err(|_| GuardRejection {
             graph: graph.map(str::to_string),
             message: "EG-KG.ontology.rdf-update-guard: authoritative integrity policy is invalid"
                 .to_string(),
@@ -187,7 +187,7 @@ fn check_native_write_gated(
     }
     // Deliberately NOT fail-closed (unlike `check_before_write`): a graph that
     // never registered an integrity policy is simply not opted in.
-    let Some(policy) = before.integrity_policy() else {
+    let Some(()) = registered_native_shape_policy(before) else {
         return Ok(());
     };
     let export = |core: &GraphCore, label: &str| -> Result<Vec<Triple>, GuardRejection> {
@@ -212,7 +212,7 @@ fn check_native_write_gated(
     for triple in &before_set {
         base.insert(triple);
     }
-    let icv_policy = IcvPolicy::from_turtle(&policy.shapes_ttl).map_err(|_| GuardRejection {
+    let icv_policy = compiled_policy(before).map_err(|_| GuardRejection {
         graph: Some(graph_name.to_string()),
         message: "EG-KG.ontology.rdf-update-guard: authoritative integrity policy is invalid"
             .to_string(),
@@ -221,6 +221,16 @@ fn check_native_write_gated(
     IcvPolicyRegistry::new()
         .with(Some(graph_name), icv_policy)
         .check_graph(Some(graph_name), &base, &additions, &removals)
+}
+
+fn registered_native_shape_policy(core: &GraphCore) -> Option<()> {
+    core.schema_sources().has_shapes().then_some(())
+}
+
+fn compiled_policy(core: &GraphCore) -> Result<IcvPolicy, String> {
+    let sources = core.schema_sources();
+    let composed = crate::server::graph_schema::compose::validate_and_compose(&sources)?;
+    Ok(IcvPolicy::new(composed.shapes))
 }
 
 #[cfg(test)]
@@ -255,15 +265,26 @@ ex:PersonShape a sh:NodeShape ;
     }
 
     #[test]
-    fn unconfigured_graph_is_rejected() {
+    fn immutable_core_shapes_are_the_default_policy() {
         let core = Arc::new(GraphCore::new());
         let add = vec![triple(
             "http://example.org/a",
             "http://example.org/manager",
             "http://example.org/m2",
         )];
+        assert!(check(&core, "graph", &add).is_ok());
+    }
+
+    #[test]
+    fn immutable_tool_shape_rejects_an_unclassified_tool() {
+        let core = Arc::new(GraphCore::new());
+        let add = vec![triple(
+            "http://example.org/tool",
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#type",
+            "http://knuckles.team/kg#Tool",
+        )];
         let error = check(&core, "graph", &add).unwrap_err();
-        assert_eq!(error.details["reason"], "integrity_policy_required");
+        assert!(error.details.to_string().contains("witness"));
     }
 
     #[test]
@@ -335,7 +356,10 @@ ex:PersonShape a sh:NodeShape ;
             &format!("{PREFIXES}{SHAPES}"),
         )
         .is_err());
-        assert!(core.integrity_policy().is_none());
+        assert!(!core
+            .schema_sources()
+            .dynamic
+            .contains_key(OPERATOR_SOURCE_ID));
     }
 
     #[test]

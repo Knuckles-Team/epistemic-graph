@@ -852,7 +852,7 @@ class ResolveCandidatesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     merge_threshold: float
-    node_type: Any | None = None
+    node_type: str | None = None
     sim_threshold: float
 
 
@@ -904,7 +904,7 @@ class ClusterHierarchyRefreshRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    label: Any | None = None
+    label: str | None = None
     resolution: float | None = None
     seed: int | None = None
 
@@ -958,7 +958,7 @@ class ClusterHierarchyClustersRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     level: int
-    parent_cluster_id: Any | None = None
+    parent_cluster_id: str | None = None
 
 
 async def send_cluster_hierarchy_clusters(
@@ -1217,8 +1217,8 @@ class FinanceOptimizePortfolioRequest(BaseModel):
 
     cov_matrix: list[list[float]]
     expected_returns: list[float]
-    max_weight: Any | None = None
-    min_weight: Any | None = None
+    max_weight: float | None = None
+    min_weight: float | None = None
     risk_free_rate: float
 
 
@@ -4628,7 +4628,7 @@ class FinanceKalmanVolatilityRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     annualization: float
-    log_var0: Any | None = None
+    log_var0: float | None = None
     p0: float
     q: float
     r: float
@@ -5728,7 +5728,7 @@ class MineAnomalyRequest(BaseModel):
     sample_size: int | None = None
     seed: int | None = None
     source: Any | None = None
-    threshold: Any | None = None
+    threshold: float | None = None
     values: list[float] | None = None
     writeback: bool | None = None
 
@@ -6568,7 +6568,7 @@ class MineSubgraphRequest(BaseModel):
 
     algorithm: Any | None = None
     as_claim: bool | None = None
-    label: Any | None = None
+    label: str | None = None
     max_edges: int | None = None
     min_support: float | None = None
     writeback: bool | None = None
@@ -6932,7 +6932,7 @@ class MineOntologyGapRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     as_claim: bool | None = None
-    label: Any | None = None
+    label: str | None = None
     writeback: bool | None = None
 
 
@@ -7049,7 +7049,7 @@ class MineCommunityRequest(BaseModel):
 
     algorithm: Any | None = None
     as_claim: bool | None = None
-    label: Any | None = None
+    label: str | None = None
     max_iterations: int | None = None
     resolution: float | None = None
     seed: int | None = None

@@ -1,0 +1,682 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:AnalyticsJob a owl:Class ;
+    rdfs:label "AnalyticsJob" ;
+    rdfs:comment """CONCEPT:AU-ORCH.scheduling.analytics-job-mirror — mirrors one
+    `eg-jobs::AnalyticsJob`: a durable async job with fenced-lease checkpointing
+    (`Checkpoint{progress,stage,state_blob}`), cron/interval/manual triggers
+    (`JobIntent::Trigger`), and a `JobState` lifecycle (`Submitted` ->
+    `Running`/`Publishing` -> `Succeeded`|`Failed`|`Cancelled`). :backendRef is the
+    `JobId`; :durableStatus mirrors `JobState::label()`; :leaseEpoch mirrors
+    `lease_epoch`; :checkpointRef mirrors the active `Checkpoint`'s stage/progress.""" ;
+    rdfs:subClassOf :DurableExecutionUnit .
+
+:BusTopicCursor a owl:Class ;
+    rdfs:label "BusTopicCursor" ;
+    rdfs:comment """CONCEPT:ECO-4.91 — a per-(BusAgent, Topic) replay cursor for store-and-forward
+    topic messages: a dedicated node (never a property on the shared Topic, which the backend's
+    upsert would clobber) so each agent reads each stored topic message at most once.""" .
+
+:DurableRun a owl:Class ;
+    rdfs:label "DurableRun" ;
+    rdfs:comment """CONCEPT:AU-ORCH.runvcs.durable-run-mirror — mirrors one
+    agent-utilities `DurableExecutionManager`/`DurableRun` checkpoint sequence
+    (`agent_utilities/orchestration/durable_execution.py`): a SQLite- or Postgres-backed
+    (CONCEPT:AU-OS.state.unified-durable-state-externalization), named-step resumable run keyed by
+    `(session_id, node_id)`, with an idempotency key per critical action and
+    skip-completed-steps-on-resume via `DurableRun.step()`. :backendRef is the
+    `(session_id, node_id)` pair; :durableStatus mirrors the checkpoint's `status`
+    (`PENDING`|`COMPLETED`); :idempotencyKey mirrors the row's `idempotency_key`. Ours is
+    named-step granularity by design (typed, KG-attributable) rather than restate's
+    automatic-any-`await`-point replay — DE3 narrows the ergonomics gap without copying
+    restate's bytecode/coroutine mechanism (durable-execution-native.md Part 1 row 1/5).""" ;
+    rdfs:subClassOf :DurableExecutionUnit .
+
+:RunCut a owl:Class ;
+    rdfs:label "RunCut" ;
+    rdfs:comment """CONCEPT:AU-ORCH.runvcs.event-kernel — an immutable frontier over a run's
+    event log ('the run through ordinal N', shepherd Cut); the causal prefix a fork/revert
+    restores to.""" .
+
+:SkillWorkflowProposal a owl:Class ;
+    rdfs:label "Skill Workflow Proposal" ;
+    rdfs:comment "CONCEPT:KG-2.90 — a propose-only skill-workflow candidate (composes atomic Skills) distilled from a flowsTo-chain of business tasks." ;
+    rdfs:subClassOf :Workflow .
+
+:StatechartInstance a owl:Class ;
+    rdfs:label "StatechartInstance" ;
+    rdfs:comment """CONCEPT:AU-KG.storage.statechart-instance-mirror — mirrors one
+    `eg-statechart::MachineInstance`: a keyed, OCC-versioned (`version`), rehydratable durable
+    state-machine row (`configuration`/`context`/`status`/`tenant`/`actor`). :backendRef is
+    the instance's `InstanceId`; :durableStatus mirrors `InstanceStatus`
+    (`active`|`final`); :checkpointRef mirrors the OCC `version`. Single-node OCC-correct
+    today — cross-cluster ordered fairness for one key is `eg-statechart`'s own documented
+    deferred item (`lib.rs:54-57`), tracked by DE4, not reopened here.""" ;
+    rdfs:subClassOf :DurableExecutionUnit .
+
+:attempts a owl:DatatypeProperty ;
+    rdfs:label "attempts" ;
+    rdfs:comment "CONCEPT:KG-2.113 — native WorkItem attempt count; exhaustion transitions status to dead_letter." ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:integer .
+
+:automates a owl:ObjectProperty ;
+    rdfs:label "automates" ;
+    rdfs:comment """CONCEPT:KG-2.91 — a synthesized Skill / SkillWorkflow (or its
+    proposal) AUTOMATES the BusinessProcess / Capability it would carry out. The
+    connector→skill bridge: the background distiller writes it process→skill so
+    reasoning relates an automation candidate to the descriptive process it
+    addresses across any connected system.""" ;
+    rdfs:range :BusinessProcess .
+
+:awaits a owl:ObjectProperty ;
+    rdfs:label "awaits" ;
+    rdfs:comment """CONCEPT:AU-KG.storage.durable-execution-unit — DurableExecutionUnit
+    -[:AWAITS]-> DurableExecutionUnit: a Call-style dependency between two durably executing
+    units (e.g. a DurableRun step awaiting an AnalyticsJob's result, or a StatechartInstance
+    transition gated on a SagaCoordination's commit) — the graph-edge replacement for
+    restate's opaque cross-service await wire state (see `durable-execution-native.md` Part 3;
+    schema reserved at DE0, populated by DE1 mirror-on-write).""" ;
+    rdfs:domain :DurableExecutionUnit ;
+    rdfs:range :DurableExecutionUnit .
+
+:backendRef a owl:DatatypeProperty ;
+    rdfs:label "backend ref" ;
+    rdfs:comment """CONCEPT:AU-KG.storage.durable-execution-unit — the opaque foreign-key-shaped
+    reference from a :DurableExecutionUnit mirror node back to its authoritative row in the
+    OWNING backend's own durable store (eg-statechart's `MachineInstance.instance_id`,
+    eg-jobs' `AnalyticsJob.job_id`, eg-mutation-store's `MutationBatchRecord.batch_id`, or
+    agent-utilities' `DurableExecutionManager` `(session_id, node_id)` pair). The
+    :DurableExecutionUnit node is a PROVENANCE MIRROR, never a second store — this is the
+    pointer back to the single source of truth.""" ;
+    rdfs:domain :DurableExecutionUnit ;
+    rdfs:range xsd:string .
+
+:canKG a owl:DatatypeProperty ;
+    rdfs:domain :Model ;
+    rdfs:range xsd:boolean .
+
+:canRoute a owl:DatatypeProperty ;
+    rdfs:domain :Model ;
+    rdfs:range xsd:boolean .
+
+:causedByEvent a owl:ObjectProperty ;
+    rdfs:label "caused by event" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.event-kernel — RunEvent -[:CAUSED_BY]-> RunEvent: the causality edge threading the content-addressed event DAG." ;
+    rdfs:domain :RunEvent ;
+    rdfs:range :RunEvent .
+
+:checkpointRef a owl:DatatypeProperty ;
+    rdfs:label "checkpoint ref" ;
+    rdfs:comment """CONCEPT:AU-KG.storage.durable-execution-unit — mirrors a pointer to a
+    :DurableExecutionUnit's most recent durable checkpoint (eg-jobs' `Checkpoint`
+    stage/progress digest, eg-statechart's OCC `version`, DurableExecutionManager's
+    idempotency-keyed checkpoint row, or eg-mutation-store's committed
+    `MutationBatchRecord` id) — never the checkpoint payload itself, which stays in the
+    owning backend's own store.""" ;
+    rdfs:domain :DurableExecutionUnit ;
+    rdfs:range xsd:string .
+
+:childWorkItemOf a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "child work item of" ;
+    rdfs:comment "CONCEPT:KG-2.113 — a WorkItem spawned by a Loop stage (transitive across a fan-out tree)." ;
+    rdfs:domain :WorkItem ;
+    rdfs:range :Loop .
+
+:commitId a owl:DatatypeProperty ;
+    rdfs:label "commit id" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.run-commit — a RunCommit's content-addressed id (digest of checkpoint+fs-snapshot+cut)." ;
+    rdfs:domain :RunCommit ;
+    rdfs:range xsd:string .
+
+:composes a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "composes" ;
+    rdfs:comment """CONCEPT:KG-2.91 — a SkillWorkflowProposal COMPOSES the atomic
+    Skills (or SkillProposals) it sequences as steps. Transitive so a workflow of
+    workflows resolves to its leaf atomic skills under reasoning.""" ;
+    rdfs:range :Skill .
+
+:consentBasis a owl:DatatypeProperty ;
+    rdfs:label "consent basis" ;
+    rdfs:comment """CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — the legal/policy
+    basis under which a WorkItem's gated consent was granted, e.g. 'explicit' |
+    'contract' | 'legitimate_interest'. Empty when consentRequired is false.""" ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:string .
+
+:consentExpiresAt a owl:DatatypeProperty ;
+    rdfs:label "consent expires at" ;
+    rdfs:comment """CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — Unix timestamp
+    after which a granted consent LAPSES (the consent's explicit lifetime). Absent with
+    consentGrantedAt present = a perpetual grant, a deliberate choice by the granter.""" ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:double .
+
+:consentGrantedAt a owl:DatatypeProperty ;
+    rdfs:label "consent granted at" ;
+    rdfs:comment """CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — Unix timestamp a
+    WorkItem's gated consent was granted. Absent (no triple) is the ABSENT consent
+    state, DISTINCT from a granted consent past consentExpiresAt (LAPSED) — the
+    claim/renewal gate (knowledge_graph.core.work_durability) denies both but reports them as
+    different states.""" ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:double .
+
+:consentPurpose a owl:DatatypeProperty ;
+    rdfs:label "consent purpose" ;
+    rdfs:comment """CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — what the subject
+    consented to (purpose/scope), e.g. 'data_processing:analytics'. A distinct property
+    from :consentScope (domain :ConsentRecord, the medical-consent module) — the two are
+    unrelated domains and must not share one property IRI under RDFS domain semantics.""" ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:string .
+
+:consentRequired a owl:DatatypeProperty ;
+    rdfs:label "consent required" ;
+    rdfs:comment """CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — opt-in per
+    WorkItem: true when claim/renewal is gated on a recorded, unlapsed consent. False
+    (the default, and the state of every pre-existing WorkItem predating this field) for
+    ordinary operational/infra work — the D-25-3 migration decision.""" ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:boolean .
+
+:consentSubject a owl:DatatypeProperty ;
+    rdfs:label "consent subject" ;
+    rdfs:comment """CONCEPT:AU-ORCH.dispatch.workitem-consent-gate (D-25-3) — opaque reference
+    to WHOM a WorkItem's gated consent pertains (the data subject) — distinct from
+    :tenant (the owning org) and the WorkItem's worker assignment.""" ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:string .
+
+:contextWindow a owl:DatatypeProperty ;
+    rdfs:domain :Model ;
+    rdfs:range xsd:integer .
+
+:coordinatedBy a owl:ObjectProperty ;
+    rdfs:label "coordinated by" ;
+    rdfs:comment """CONCEPT:AU-KG.txn.saga-coordination-mirror — DurableExecutionUnit
+    -[:COORDINATED_BY]-> SagaCoordination: any unit whose multi-store atomic step is governed
+    by eg-mutation-store's real, generic, crash-recoverable `prepare_saga`/`commit_saga`
+    coordinator — a capability restate itself does not have (durable-execution-native.md
+    Part 1 row 6).""" ;
+    rdfs:domain :DurableExecutionUnit ;
+    rdfs:range :SagaCoordination .
+
+:deadLetters a owl:ObjectProperty ;
+    rdfs:label "dead-letters" ;
+    rdfs:comment "CONCEPT:KG-2.113 — links the unified queue to a WorkItem whose native status is dead_letter." ;
+    rdfs:range :WorkItem .
+
+:definitionVersion a owl:DatatypeProperty ;
+    rdfs:label "definition version" ;
+    rdfs:comment """CONCEPT:AU-KG.storage.durable-execution-unit — the definition/deployment
+    version a :DurableExecutionUnit started under. Schema reserved here at DE0; DE5 adds
+    resume-time ENFORCEMENT — an in-flight unit resuming under an incompatible definition
+    version fails loud instead of silently replaying under mismatched semantics, closing the
+    one gap restate is genuinely ahead on today (durable-execution-native.md Part 1 row 9,
+    'real gap, nothing exists today'). Unset/empty until DE5 lands enforcement.""" ;
+    rdfs:domain :DurableExecutionUnit ;
+    rdfs:range xsd:string .
+
+:delegatesTo a owl:ObjectProperty ;
+    rdfs:comment "Agent delegates to an external A2A agent." ;
+    rdfs:domain :Agent .
+
+:derives a owl:ObjectProperty ;
+    rdfs:label "derives" ;
+    rdfs:comment "CONCEPT:KG-2.91 — inverse of :derivedFrom (source node → the proposal distilled from it)." ;
+    owl:inverseOf :derivedFrom .
+
+:diagnoses a owl:ObjectProperty ;
+    rdfs:label "diagnoses" ;
+    rdfs:comment """CONCEPT:AU-KG.audit.durable-error-detail — ErrorDetail -[:DIAGNOSES]-> RunTrace:
+    a durable, sanitized failure record links to the RunTrace of the operation that raised it, when
+    the failure occurred inside a correlated run (the ambient run-wide correlation id was active).
+    Best-effort: most failures occur outside an orchestrated run, so an ErrorDetail node with no
+    outgoing :DIAGNOSES edge is normal, not an error.""" ;
+    rdfs:domain :ErrorDetail ;
+    rdfs:range :RunTrace .
+
+:dueAt a owl:DatatypeProperty ;
+    rdfs:label "due at" ;
+    rdfs:comment """CONCEPT:KG-2.113 — the earliest time a delayed/retrying WorkItem becomes
+    runnable (eta). A NEW datatype property, deliberately distinct from the object-property
+    :scheduledFor (CalendarEvent→Person) which must not be overloaded.""" ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:dateTime .
+
+:durableStatus a owl:DatatypeProperty ;
+    rdfs:label "durable status" ;
+    rdfs:comment """CONCEPT:AU-KG.storage.durable-execution-unit — the mirrored lifecycle
+    status of a :DurableExecutionUnit, kept in the OWNING backend's own vocabulary
+    (eg-statechart `active`|`final`; eg-jobs `submitted`|`running`|`publishing`|`succeeded`|
+    `failed`|`cancelled`; eg-mutation-store saga `prepared`|`committed`|`aborted`;
+    DurableExecutionManager `PENDING`|`COMPLETED`) — deliberately NOT normalized into one
+    invented enum, so the mirror can never drift from what the backend itself reports.""" ;
+    rdfs:domain :DurableExecutionUnit ;
+    rdfs:range xsd:string .
+
+:enqueues a owl:ObjectProperty ;
+    rdfs:label "enqueues" ;
+    rdfs:comment "CONCEPT:KG-2.113 — a Schedule or Loop ENQUEUES a WorkItem onto the unified queue." ;
+    rdfs:range :WorkItem ;
+    owl:inverseOf :enqueuedBy .
+
+:eventOrdinal a owl:DatatypeProperty ;
+    rdfs:label "event ordinal" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.event-kernel — a RunEvent's append position in its run's path (view metadata, not identity)." ;
+    rdfs:domain :RunEvent ;
+    rdfs:range xsd:integer .
+
+:evolvedFrom a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:comment "Prompt lineage from evolution." ;
+    rdfs:domain :Prompt ;
+    rdfs:range :Prompt .
+
+:executedProcess a owl:ObjectProperty ;
+    rdfs:label "executedProcess" ;
+    rdfs:comment """CONCEPT:ORCH-1.43 — a RunTrace (one workflow run) EXECUTED the
+    descriptive BusinessProcess its workflow realizes (EXECUTED_PROCESS in the
+    LPG; written by the workflow runner's lineage close-out when a REALIZES
+    workflow completes). Closes the provenance loop opened by
+    :realizesProcess.""" ;
+    rdfs:range :BusinessProcess .
+
+:forkedFrom a owl:ObjectProperty ;
+    rdfs:label "forked from" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.fork-revert — a child RunTrace -[:FORKED_FROM]-> the RunCommit it branched off (lineage of a live-run fork)." ;
+    rdfs:domain :RunTrace ;
+    rdfs:range :RunCommit .
+
+:goalText a owl:DatatypeProperty ;
+    rdfs:range xsd:string .
+
+:hasBusMessage a owl:ObjectProperty ;
+    rdfs:label "hasBusMessage" ;
+    rdfs:comment "CONCEPT:KG-2.141 — BusAgent -[:HAS_BUS_MESSAGE]-> BusMessage: a participant's durable bus inbox edge (ECO-4.84)." ;
+    rdfs:domain :BusAgent ;
+    rdfs:range :BusMessage .
+
+:hasCommit a owl:ObjectProperty ;
+    rdfs:label "has commit" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.run-commit — RunTrace -[:HAS_COMMIT]-> RunCommit (a run's commit history)." ;
+    rdfs:domain :RunTrace ;
+    rdfs:range :RunCommit .
+
+:hasContext a owl:ObjectProperty ;
+    rdfs:label "hasContext" ;
+    rdfs:comment "CONCEPT:ORCH-1.39 — links a RunTrace (a spawned run) to the ContextBlob it consumed (provenance)." ;
+    rdfs:range :ContextBlob .
+
+:hasContextAnchor a owl:ObjectProperty ;
+    rdfs:label "hasContext (anchor)" ;
+    rdfs:comment "CONCEPT:ORCH-1.40 — Session -[:HAS_CONTEXT]-> ContextBlob anchor edge." ;
+    rdfs:domain :Session ;
+    rdfs:range :ContextBlob .
+
+:hasEvent a owl:ObjectProperty ;
+    rdfs:label "has event" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.event-kernel — RunTrace -[:HAS_EVENT]-> RunEvent (a run owns its ordered event path)." ;
+    rdfs:domain :RunTrace ;
+    rdfs:range :RunEvent .
+
+:hasMessage a owl:ObjectProperty ;
+    rdfs:label "hasMessage" ;
+    rdfs:comment "CONCEPT:ORCH-1.40 — Session -[:HAS_MESSAGE]-> AgentMessage durable-history edge." ;
+    rdfs:domain :Session ;
+    rdfs:range :AgentMessage .
+
+:hasPrompt a owl:ObjectProperty ;
+    rdfs:domain :Agent ;
+    rdfs:range :Prompt .
+
+:hasRun a owl:ObjectProperty ;
+    rdfs:label "hasRun" ;
+    rdfs:comment "CONCEPT:ORCH-1.40 — Session -[:HAS_RUN]-> RunTrace edge (spawned runs anchored to their session)." ;
+    rdfs:domain :Session .
+
+:hasSkill a owl:ObjectProperty ;
+    rdfs:domain :Agent ;
+    rdfs:range :Skill .
+
+:idempotencyKey a owl:DatatypeProperty ;
+    rdfs:label "idempotency key" ;
+    rdfs:comment """CONCEPT:AU-KG.storage.durable-execution-unit — mirrors the owning
+    backend's real idempotency key (eg-mutation-store's `MutationBatch.idempotency_key`
+    ledger entry, eg-jobs' `claim_idempotency`/`result_ref` hash, or
+    DurableExecutionManager's per-action key). Exactly-once dedup already exists in all four
+    backends today (durable-execution-native.md Part 1 row 3, 'not a gap') — this property
+    only makes the existing key KG-visible, it does not add a new dedup mechanism.""" ;
+    rdfs:domain :DurableExecutionUnit ;
+    rdfs:range xsd:string .
+
+:intelligenceLevel a owl:DatatypeProperty ;
+    rdfs:domain :Model ;
+    rdfs:range xsd:string .
+
+:lastSeen a owl:DatatypeProperty ;
+    rdfs:label "last seen" ;
+    rdfs:comment "CONCEPT:KG-2.141 — unix timestamp of a BusAgent's most recent heartbeat on the bus (ECO-4.84)." ;
+    rdfs:domain :BusAgent ;
+    rdfs:range xsd:double .
+
+:leaseEpoch a owl:DatatypeProperty ;
+    rdfs:label "lease epoch" ;
+    rdfs:comment """CONCEPT:AU-KG.storage.durable-execution-unit — mirrors eg-jobs' monotonic
+    fencing epoch (`AnalyticsJob.lease_epoch`, bumped by `claim_next`/`renew_lease` so a
+    reclaimed lease can never be honored by a stale worker). Present only on units whose
+    owning backend has fenced leases (eg-jobs today); absent on eg-statechart/DurableRun/saga
+    mirrors, which have no lease concept.""" ;
+    rdfs:domain :DurableExecutionUnit ;
+    rdfs:range xsd:integer .
+
+:maxAttempts a owl:DatatypeProperty ;
+    rdfs:label "max attempts" ;
+    rdfs:domain :WorkItem ;
+    rdfs:range xsd:integer .
+
+:memberOfTeam a owl:ObjectProperty ;
+    rdfs:domain :Agent ;
+    rdfs:range :Team .
+
+:orchestrates a owl:ObjectProperty ;
+    rdfs:comment "Workflow → the agents/skills it orchestrates." ;
+    rdfs:domain :Workflow .
+
+:presenceStatus a owl:DatatypeProperty ;
+    rdfs:label "presence status" ;
+    rdfs:comment "CONCEPT:KG-2.141 — a BusAgent's bus presence (online|offline), computed from lastSeen vs a staleness window (ECO-4.84)." ;
+    rdfs:domain :BusAgent ;
+    rdfs:range xsd:string .
+
+:prioBucket a owl:DatatypeProperty ;
+    rdfs:label "priority bucket" ;
+    rdfs:comment "CONCEPT:KG-2.113 — discrete claim/intake priority 0 (critical) .. 3 (background) for a WorkItem, Schedule, or Loop." ;
+    rdfs:range xsd:integer .
+
+:produced a owl:ObjectProperty ;
+    rdfs:label "produced" ;
+    rdfs:comment """CONCEPT:AU-KG.storage.durable-execution-unit — DurableExecutionUnit
+    -[:PRODUCED]-> RunTrace: the durable unit that backs (or was invoked from) one agent
+    run, completing RunTrace's existing but one-directional durability linkage
+    (`graph_checkpoint_ids`/`graph_resume_supported`, CONCEPT:AU-KG.temporal.message-history-read)
+    with the reverse edge from the unit itself, per `durable-execution-native.md` Part 3's
+    ontology model. DE0 reserves the schema; DE1 populates it on mirror-write.""" ;
+    rdfs:domain :DurableExecutionUnit ;
+    rdfs:range :RunTrace ;
+    owl:inverseOf :producedBy .
+
+:proposesCommit a owl:ObjectProperty ;
+    rdfs:label "proposes commit" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.retained-output-gate — RetainedRunProposal -[:PROPOSES_COMMIT]-> the RunCommit it would materialize on accept." ;
+    rdfs:domain :RetainedRunProposal ;
+    rdfs:range :RunCommit .
+
+:realizesProcess a owl:ObjectProperty ;
+    rdfs:label "realizesProcess" ;
+    rdfs:comment """CONCEPT:ORCH-1.41 — a compiled executable Workflow REALIZES the
+    descriptive BusinessProcess it was derived from (REALIZES in the LPG;
+    written by the ProcessPlanCompiler). The bridge between the harvested
+    process world (Camunda/Egeria/ArchiMate) and the executable workflow
+    world, traversed by lineage close-out and provenance queries.""" ;
+    rdfs:domain :Workflow ;
+    rdfs:range :BusinessProcess .
+
+:recordDigest a owl:DatatypeProperty ;
+    rdfs:label "record digest" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.event-kernel — the content hash that is a RunEvent's identity (record_id == digest)." ;
+    rdfs:domain :RunEvent ;
+    rdfs:range xsd:string .
+
+:recordMode a owl:DatatypeProperty ;
+    rdfs:label "record mode" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.trace-replay — a RunEvent's mode: 'declaration' (intent) or 'capture' (observed outcome); the split that makes a recorded exchange stand in for the model on replay." ;
+    rdfs:domain :RunEvent ;
+    rdfs:range xsd:string .
+
+:reportsTo a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:comment "Team reporting hierarchy (transitive)." ;
+    rdfs:domain :Agent ;
+    rdfs:range :Agent .
+
+:schedules a owl:ObjectProperty ;
+    rdfs:label "schedules" ;
+    rdfs:comment "CONCEPT:OS-5.44 — a Schedule SCHEDULES the WorkItem it enqueues when due." ;
+    rdfs:domain :Schedule ;
+    rdfs:range :WorkItem ;
+    owl:inverseOf :scheduledBy .
+
+:snapshotId a owl:DatatypeProperty ;
+    rdfs:label "snapshot id" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.run-commit — an FsSnapshot's content-addressed id (digest of its file manifest)." ;
+    rdfs:domain :FsSnapshot ;
+    rdfs:range xsd:string .
+
+:snapshots a owl:ObjectProperty ;
+    rdfs:label "snapshots" ;
+    rdfs:comment "CONCEPT:AU-ORCH.runvcs.run-commit — RunCommit -[:SNAPSHOTS]-> FsSnapshot (the filesystem captured by a commit)." ;
+    rdfs:domain :RunCommit ;
+    rdfs:range :FsSnapshot .
+
+:solves a owl:ObjectProperty ;
+    rdfs:comment "An Agent or Team that addresses a Goal." ;
+    rdfs:range :Goal .
+
+:subscribesToTopic a owl:ObjectProperty ;
+    rdfs:label "subscribesToTopic" ;
+    rdfs:comment "CONCEPT:KG-2.141 — BusSubscription -> the Topic it subscribes a BusAgent to (ECO-4.84)." ;
+    rdfs:domain :BusSubscription ;
+    rdfs:range :Topic .
+
+:systemPrompt a owl:DatatypeProperty ;
+    rdfs:domain :Agent ;
+    rdfs:range xsd:string .
+
+:usesModel a owl:ObjectProperty ;
+    rdfs:comment "The model an agent runs on, chosen by capability/complexity." ;
+    rdfs:domain :Agent ;
+    rdfs:range :Model .
+
+:usesTool a owl:ObjectProperty ;
+    rdfs:domain :Agent ;
+    rdfs:range :Tool .
+
+<http://knuckles.team/kg/orchestration> a owl:Ontology ;
+    rdfs:label "Agent Intelligence Graph — Orchestration Module" ;
+    rdfs:comment "Orchestration domain extension (skill proposals, workflow/process distillation). Imported by the canonical <http://knuckles.team/kg> ontology; resolved to ontology_orchestration.ttl by the local loader convention." .
+
+:AgentMessage a owl:Class ;
+    rdfs:label "AgentMessage" ;
+    rdfs:comment "CONCEPT:ORCH-1.40 — a durable, replayable record of one message exchanged on an invoker↔spawned-agent channel (the live channel is in-RAM; this node is the durable record)." .
+
+:BusMessage a owl:Class ;
+    rdfs:label "BusMessage" ;
+    rdfs:comment """CONCEPT:KG-2.141 — a durable agent-to-agent bus message delivered to one
+    recipient Agent (the AgentBus mailbox record, ECO-4.84). A topic fan-out writes one
+    BusMessage per recipient sharing a msg_group, so a federation relay can dedup across hubs.
+    Store-and-forward (CONCEPT:ECO-4.91) also writes a topic-log variant (recipient="",
+    kind="topic", expires_at) replayed to late subscribers via a BusTopicCursor.""" .
+
+:BusSubscription a owl:Class ;
+    rdfs:label "BusSubscription" ;
+    rdfs:comment """CONCEPT:KG-2.141 — a BusAgent's subscription to a Topic, modeled as a node
+    (not an edge) so membership resolves in one hop on every backend (ECO-4.84).""" .
+
+:ErrorDetail a owl:Class ;
+    rdfs:label "ErrorDetail" ;
+    rdfs:comment """CONCEPT:AU-KG.audit.durable-error-detail — the durable backend behind
+    a public failure envelope's opaque `error.detail_ref` (D-24): a sanitized, tenant-scoped
+    error_class/failing_layer/traceback bundle, keyed by the same correlation id already
+    logged and returned to the caller, so the ref stays resolvable past this process's
+    lifetime and across replicas (`GraphErrorDetailSink`,
+    `agent_utilities.observability.error_detail_sink`). Never carries the raw exception
+    message — only what `agent_utilities.security.error_surface._record_error_detail`
+    already sanitized through the persistence-privacy gate before handing it to the sink.""" ;
+    rdfs:seeAlso prov:Entity .
+
+:Goal a owl:Class ;
+    rdfs:label "Goal" .
+
+:Loop a owl:Class ;
+    rdfs:label "Loop" ;
+    rdfs:comment """CONCEPT:KG-2.78 — a long-running objective (research|develop|skill)
+    the LoopController advances through one hot path; carries a priority bucket and may
+    enqueue prioritized child WorkItems.""" ;
+    rdfs:seeAlso prov:Activity .
+
+:RetainedRunProposal a owl:Class ;
+    rdfs:label "Retained Run Proposal" ;
+    rdfs:comment """CONCEPT:AU-ORCH.runvcs.retained-output-gate — a completed run's world delta
+    (its final :RunCommit + any KG edits) HELD as a proposal, materialized into the real world
+    only when the run.select action-policy gate accepts; discard leaves the world untouched.""" ;
+    rdfs:subClassOf :SkillProposal .
+
+:SagaCoordination a owl:Class ;
+    rdfs:label "SagaCoordination" ;
+    rdfs:comment """CONCEPT:AU-KG.txn.saga-coordination-mirror — mirrors one
+    `eg-mutation-store` saga (`SagaBegin::{Execute,Resume,Committed}`, coordinated by the
+    real, generic, crash-recoverable `prepare_saga`/`commit_saga` functions with encrypted
+    private recovery payloads) — a compensation/rollback primitive restate itself does not
+    ship (durable-execution-native.md Part 1 row 6, 'we are ahead here'). :backendRef is the
+    coordinator's `batch_id`; :durableStatus mirrors `MutationBatchStatus`
+    (`Prepared`|`Committed`|`Aborted`); :idempotencyKey mirrors the batch's own
+    `idempotency_key` ledger entry.""" ;
+    rdfs:subClassOf :DurableExecutionUnit .
+
+:SkillProposal a owl:Class ;
+    rdfs:label "Skill Proposal" ;
+    rdfs:comment "CONCEPT:KG-2.90 — a propose-only atomic-skill candidate the background distiller synthesizes from a mapped process/task of any connected system; reviewed+approved by a human before it materializes." .
+
+:Team a owl:Class ;
+    rdfs:label "Team" ;
+    rdfs:comment "A hierarchical group of specialized agents for a goal." .
+
+:Tool a owl:Class ;
+    rdfs:label "Tool" .
+
+:Topic a owl:Class ;
+    rdfs:label "Topic" ;
+    rdfs:comment "CONCEPT:KG-2.141 — a named pub/sub channel on the AgentBus that BusAgents subscribe to (ECO-4.84)." .
+
+:derivedFrom a owl:ObjectProperty ;
+    rdfs:label "derived from" ;
+    rdfs:comment """CONCEPT:KG-2.91 — provenance: a SkillProposal / SkillWorkflow
+    proposal DERIVED_FROM the source system node (egeria/leanix/aris/camunda
+    process or task) it was distilled from. Inverse of :derives so reasoning can
+    walk source→proposal and proposal→source.""" .
+
+:enqueuedBy a owl:ObjectProperty ;
+    rdfs:label "enqueued by" ;
+    rdfs:domain :WorkItem .
+
+:producedBy a owl:ObjectProperty ;
+    rdfs:label "produced by" ;
+    rdfs:comment "CONCEPT:AU-KG.storage.durable-execution-unit — inverse of :produced (RunTrace -> the DurableExecutionUnit that backs it)." ;
+    rdfs:domain :RunTrace ;
+    rdfs:range :DurableExecutionUnit .
+
+:scheduledBy a owl:ObjectProperty ;
+    rdfs:label "scheduled by" ;
+    rdfs:domain :WorkItem ;
+    rdfs:range :Schedule .
+
+:ContextBlob a owl:Class ;
+    rdfs:label "ContextBlob" ;
+    rdfs:comment "CONCEPT:ORCH-1.39 — curated context an invoking agent persists for a spawned agent to reference (session-scoped, optionally TTL'd)." .
+
+:FsSnapshot a owl:Class ;
+    rdfs:label "FsSnapshot" ;
+    rdfs:comment """CONCEPT:AU-ORCH.runvcs.run-commit — a content-addressed copy-on-write
+    snapshot of a run's workspace filesystem (overlayfs/fuse-overlayfs accelerated, blob-store
+    fallback); the fs half of a :RunCommit's exact-world restore.""" .
+
+:Schedule a owl:Class ;
+    rdfs:label "Schedule" ;
+    rdfs:comment """CONCEPT:OS-5.44 — a durable recurring-job specification
+    (cron | interval | adaptive) the ONE unified scheduler evaluates; when due it
+    enqueues a scheduled_job WorkItem onto the native priority+scheduled queue.""" ;
+    rdfs:seeAlso prov:Activity .
+
+:Skill a owl:Class ;
+    rdfs:label "Skill" .
+
+:BusAgent a owl:Class ;
+    rdfs:label "BusAgent" ;
+    rdfs:comment """CONCEPT:KG-2.141 — a participant on the AgentBus (a session: Claude/other-LLM/
+    any provider, any host), with presence + capabilities (ECO-4.84). A dedicated class (not the
+    typed orchestration :Agent) so bus props land in the generic node store across backends.""" .
+
+:Prompt a owl:Class ;
+    rdfs:label "Prompt" .
+
+:Session a owl:Class ;
+    rdfs:label "Session" ;
+    rdfs:comment "CONCEPT:ORCH-1.40 — id-addressable anchor (session:{sid}) for a session's collections; lets 'list by session' be a reliable single-hop traversal on a property-index-free engine." .
+
+:Workflow a owl:Class ;
+    rdfs:label "Workflow" ;
+    rdfs:comment "An orchestration flow (skill-workflow) over agents/skills." .
+
+:Model a owl:Class ;
+    rdfs:label "Model" ;
+    rdfs:comment "An LLM/embedding model the deployment serves, with capabilities (from config.json) used to choose the right model per task." .
+
+:RunCommit a owl:Class ;
+    rdfs:label "RunCommit" ;
+    rdfs:comment """CONCEPT:AU-ORCH.runvcs.run-commit — ONE content-addressed commit binding a
+    message checkpoint + an :FsSnapshot + a :RunCut (the process/event frontier) so a run's
+    conversation, files, and effects revert together as one exact world.""" ;
+    rdfs:seeAlso prov:Entity .
+
+:RunEvent a owl:Class ;
+    rdfs:label "RunEvent" ;
+    rdfs:comment """CONCEPT:AU-ORCH.runvcs.event-kernel — one typed, content-addressed run event
+    (shepherd Fact shape). Its :recordDigest IS its identity (record_id == digest over
+    schema_ref+mode+payload+causality), so identical events dedup and replay is reproducible.
+    :recordMode is a declaration (intent) or a capture (observed outcome).""" ;
+    rdfs:seeAlso prov:Entity .
+
+:RunTrace a owl:Class ;
+    rdfs:label "RunTrace" ;
+    rdfs:comment """CONCEPT:AU-ORCH.runvcs.event-kernel — one agent run, now the root of a
+    content-addressed, typed run-event log (not just an observe-only action chain). Owns an
+    ordered :RunEvent path plus the :RunCommit history a fork/revert branches from.""" ;
+    rdfs:seeAlso prov:Activity .
+
+:Agent a owl:Class ;
+    rdfs:label "Agent" ;
+    rdfs:comment "A synthesized or registered agent (prompt + tools + skills)." .
+
+:DurableExecutionUnit a owl:Class ;
+    rdfs:label "DurableExecutionUnit" ;
+    rdfs:comment """CONCEPT:AU-KG.storage.durable-execution-unit — the abstract KG-queryable
+    concept family unifying durable execution across `eg-statechart`, `eg-jobs`,
+    `eg-mutation-store`'s saga coordinator, and agent-utilities' `DurableExecutionManager`/
+    `DurableRun` (register `D-DE-1`, plan `plans/au-eg-program/program/durable-execution-native.md`).
+    A :DurableExecutionUnit node is a PROVENANCE MIRROR, not a second store — see :backendRef;
+    the authoritative state always stays in the owning backend's own durable store (redb
+    `MachineInstance`, redb `AnalyticsJob`, `eg-mutation-store`'s `MutationBatchRecord`, or the
+    SQLite-/Postgres-backed `DurableExecutionManager` checkpoint row). Mirroring these
+    mirrored properties onto this node is what makes 'what is durably in flight, for whom,
+    waiting on what' answerable as ONE KG query across all four subsystems, without the
+    caller already knowing any of their names — the actual gap this program closes (the
+    mechanisms themselves already exist and are not reimplemented here). Populated
+    mirror-on-next-write (DE1), never a bulk migration — the same pattern this ontology's own
+    RunTrace checkpoint linkage already uses. Concrete subclasses: :StatechartInstance,
+    :AnalyticsJob, :SagaCoordination, :DurableRun.""" ;
+    rdfs:seeAlso prov:Entity .

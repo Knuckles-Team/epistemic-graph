@@ -18,7 +18,7 @@ impl GraphCore {
             edge_properties: DashMap::new(),
             ledger: Mutex::new(Vec::new()),
             semantic_store: RwLock::new(crate::compute::semantic::SemanticStore::new()),
-            integrity_policy: RwLock::new(None),
+            schema_sources: RwLock::new(Arc::new(GraphSchemaSources::default())),
             dirty: std::sync::atomic::AtomicBool::new(true),
             version: std::sync::atomic::AtomicU64::new(0),
             changes: ChangeNotifier::default(),
@@ -111,25 +111,18 @@ impl GraphCore {
         &self.index_manager
     }
 
-    /// Return the authoritative integrity policy attached to this graph image.
-    pub fn integrity_policy(&self) -> Option<IntegrityPolicy> {
-        self.integrity_policy.read().clone()
+    /// Return the complete immutable point-in-time schema authority.
+    pub fn schema_sources(&self) -> Arc<GraphSchemaSources> {
+        Arc::clone(&self.schema_sources.read())
     }
 
-    /// Replace the authoritative integrity policy. Callers validate the SHACL
-    /// source before staging this transition; the topology writer makes the
-    /// control-state update serialize with snapshots and graph mutations.
-    pub fn set_integrity_policy(&self, policy: IntegrityPolicy) {
-        self.install_integrity_policy(Some(policy));
-    }
-
-    /// Install the exact policy state recovered from durable authority. This is
-    /// public for persistence adapters; ordinary mutation surfaces should use
-    /// [`set_integrity_policy`](Self::set_integrity_policy) after validation.
+    /// Install exact durable schema authority. Generic mutation surfaces never
+    /// receive this capability; server handlers stage a cloned source set and
+    /// publish it only after validation and durable commit.
     #[doc(hidden)]
-    pub fn install_integrity_policy(&self, policy: Option<IntegrityPolicy>) {
+    pub fn install_schema_sources(&self, sources: Arc<GraphSchemaSources>) {
         let _topology = self.topo.write();
-        *self.integrity_policy.write() = policy;
+        *self.schema_sources.write() = sources;
     }
 
     /// Register a SERVER-LAYER secondary index (text/temporal/derived-OWL,

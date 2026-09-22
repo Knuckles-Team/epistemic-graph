@@ -385,6 +385,55 @@ mod consensus;
 mod graph_pipeline;
 mod request_boundary;
 mod router;
+
+/// Create one engine-owned global graph through the same durable lifecycle as
+/// the public `CreateGraph` method.
+///
+/// Internal projection workers use this only for reserved graph names after
+/// validating their own closed namespace.  Keeping the lifecycle entry here
+/// avoids direct `GraphRegistry::create_graph` publication, which would bypass
+/// the authoritative registration batch and restart identity.
+pub(crate) async fn ensure_internal_global_graph(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    verified: &VerifiedRequestContext,
+    graph_name: &str,
+    idempotency_key: &str,
+) -> Result<(), String> {
+    if state.read().await.registry.exists(graph_name) {
+        return Ok(());
+    }
+    let create_identity = eg_types::contract::Digest256::framed(
+        b"eg/internal-graph-lifecycle/v1",
+        &[idempotency_key.as_bytes(), graph_name.as_bytes()],
+    )?;
+    let response = router::create_graph(
+        state,
+        req_id,
+        Some(verified.agent_id().to_string()),
+        verified.attempt_nonce(),
+        format!("internal-create:{}", create_identity.to_hex()),
+        graph_name.to_string(),
+        crate::protocol::GraphType::Global,
+    )
+    .await;
+    if let Some(error) = response.error {
+        // A concurrent creator may have won after the existence probe.  The
+        // graph's durable lifecycle is sufficient; never interpret any other
+        // create failure as success.
+        if state.read().await.registry.exists(graph_name) {
+            return Ok(());
+        }
+        return Err(error);
+    }
+    if state.read().await.registry.exists(graph_name) {
+        Ok(())
+    } else {
+        Err(format!(
+            "internal graph lifecycle acknowledged without publishing '{graph_name}'"
+        ))
+    }
+}
 mod sparql_update;
 
 #[cfg(all(feature = "raft", feature = "jobs"))]

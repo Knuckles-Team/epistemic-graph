@@ -123,7 +123,7 @@ pub(crate) fn stage_rows_in(
         graph_fname,
         batch,
         plan.lifecycle,
-        plan.integrity_policy_update,
+        plan.schema_sources_update,
     )?;
 
     Ok(StagedMutationRows { generated_result })
@@ -182,14 +182,12 @@ pub(crate) fn resolve_mutation_authoritative_state(
                                 .to_string()
                         })?,
                     )),
-                    crate::graph_delta::ROW_DELTA_ALGORITHM => {
-                        let delta = decode_durable::<crate::graph_delta::GraphRowDelta>(bytes)
-                        .map_err(|_| {
-                            "authoritative graph row delta is invalid or exceeds resource limits"
-                                .to_string()
-                        })?;
-                        delta.validate()?;
-                        AuthoritativeGraphState::RowDelta(delta)
+                    crate::graph_delta::ROW_DELTA_ALGORITHM
+                    | crate::graph_delta::LEGACY_ROW_DELTA_ALGORITHM => {
+                        AuthoritativeGraphState::RowDelta(decode_authoritative_row_delta(
+                            bytes,
+                            &descriptor.algorithm,
+                        )?)
                     }
                     _ => return Err("unsupported authoritative state algorithm".to_string()),
                 };
@@ -208,20 +206,33 @@ pub(crate) fn resolve_mutation_authoritative_state(
     )
 }
 
-// `None` means this mutation does not change graph control state. `Some(None)`
-// is an explicit policy-free snapshot, while `Some(Some(_))` installs a new
-// validated policy. Keeping the outer option is necessary for exact snapshot
-// replacement without confusing "unchanged" with "absent".
-pub(crate) fn resolve_integrity_policy_update(
+fn decode_authoritative_row_delta(
+    bytes: &[u8],
+    algorithm: &str,
+) -> Result<crate::graph_delta::GraphRowDelta, String> {
+    let delta = decode_durable::<crate::graph_delta::GraphRowDelta>(bytes).map_err(|_| {
+        "authoritative graph row delta is invalid or exceeds resource limits".to_string()
+    })?;
+    delta.validate()?;
+    if !delta.matches_algorithm(algorithm) {
+        return Err(
+            "authoritative graph row delta algorithm does not match its wire version".to_string(),
+        );
+    }
+    Ok(delta)
+}
+
+// `None` means this mutation does not change graph control state. A present
+// source set may have no dynamic entries, which explicitly detaches the final
+// graph-local source without confusing "unchanged" with "core-only".
+pub(crate) fn resolve_schema_sources_update(
     staged_state: Option<&AuthoritativeGraphState>,
-) -> Option<Option<crate::graph::IntegrityPolicy>> {
+) -> Option<std::sync::Arc<crate::graph::GraphSchemaSources>> {
     match staged_state {
         Some(AuthoritativeGraphState::Snapshot(snapshot)) => {
-            Some(snapshot.integrity_policy.clone())
+            Some(std::sync::Arc::clone(&snapshot.schema_sources))
         }
-        Some(AuthoritativeGraphState::RowDelta(delta)) => {
-            delta.integrity_policy_update().cloned().map(Some)
-        }
+        Some(AuthoritativeGraphState::RowDelta(delta)) => delta.schema_sources_update().cloned(),
         None => None,
     }
 }

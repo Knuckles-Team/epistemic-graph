@@ -97,7 +97,7 @@ verified_against:
     - "arch-lint list-rules"
   commands_not_run:
     - "cargo (any subcommand) -- explicitly out of scope for this pass"
-    - "pre-commit run --all-files"
+    - "pre-commit run --config .config/pre-commit.yaml --all-files"
     - "the six heavy hooks (cargo-clippy, cargo-clippy-all-features, cargo-deny-advisories,
        wheel-smoke, pytest, constrained-parallelism) remain UNMEASURED"
 
@@ -460,7 +460,7 @@ reverifications:
       static enumeration of what existed at edit time, not a live query. CLOSED with a new,
       small, EG-repo-local gate (not a workspace-checker edit): `scripts/
       check_registry_test_ownership.py`, wired as pre-commit hook `registry-test-ownership`
-      (`.pre-commit-config.yaml`, same `stages`/`always_run` shape as the existing
+      (`.config/pre-commit.yaml`, same `stages`/`always_run` shape as the existing
       `orphan-modules` hook it sits beside -- there was no existing EG gate that already read
       this registry file to extend). It parses the registry, unions every path-bearing field
       across every implementation_component (plus `owned_source_roots_omissions`, so the
@@ -3778,7 +3778,7 @@ components:
       - "src/test_support.rs"
       - ".cargo/config.toml"
       - "arch-lint.toml"
-      - ".pre-commit-config.yaml"
+      - ".config/pre-commit.yaml"
       - ".repo-layout.toml"
       - ".importlinter"
       - ".bumpversion.cfg"
@@ -4031,7 +4031,7 @@ components:
     acceptance_evidence: []
     evidence_status: not_run
     summary: >-
-      Feature selection, process lifecycle and the gate suite. Owns the root Cargo.toml feature graph (default = graph, algorithms, metrics, full; full is an 84-entry list that INCLUDES security and the viz family), the five [[bin]] targets each behind required-features (epistemic-graph-server/server, nemesis/harness, migrate-shards, restore/redb+server, lake-fixture-export/lake), .cargo/config.toml (target-dir = target-isolated, the GGML CPU portability contract, mold, sccache), arch-lint.toml, the 60-hook .pre-commit-config.yaml and scripts/. It is therefore the owner of every architecture-gate decision: D-EG-004 (no crate-DAG gate exists), D-EG-006 (the arch-lint exclude misses target-isolated) and the sequencing half of D-EG-009.
+      Feature selection, process lifecycle and the gate suite. Owns the root Cargo.toml feature graph (default = graph, algorithms, metrics, full; full is an 84-entry list that INCLUDES security and the viz family), the five [[bin]] targets each behind required-features (epistemic-graph-server/server, nemesis/harness, migrate-shards, restore/redb+server, lake-fixture-export/lake), .cargo/config.toml (target-dir = target-isolated, the GGML CPU portability contract, mold, sccache), arch-lint.toml, the 60-hook .config/pre-commit.yaml and scripts/. It is therefore the owner of every architecture-gate decision: D-EG-004 (no crate-DAG gate exists), D-EG-006 (the arch-lint exclude misses target-isolated) and the sequencing half of D-EG-009.
 
 # ---------------------------------------------------------------------------
 # NOTE ON SEPARATION (requested during this pass): a dev-time LAYER INVERSION and a
@@ -4459,7 +4459,7 @@ wiring_decisions:
          dependency-direction rule to be focused on. It should be corrected in the same change."
       - "The dependency-cruiser hook's entry is
          `depcruise --validate --config clients/js/.dependency-cruiser.cjs clients/js/index.mjs`
-         (.pre-commit-config.yaml:277). It validates the JS client only, and it CANNOT PASS in a
+         (.config/pre-commit.yaml:304). It validates the JS client only, and it CANNOT PASS in a
          clean checkout: node_modules is uncommitted and the hook runs no `npm ci`."
       - "Cargo's guarantee is real but narrow: VERIFIED that no crates/*/Cargo.toml declares
          `epistemic-graph`, so no crate depends back on the root facade. That is acyclicity, not
@@ -4489,7 +4489,7 @@ wiring_decisions:
          ratchet."
       - "Also fail when a crate in Cargo.toml [workspace] members is owned by no component, or by
          more than one -- the exclusive-root property the layout contract requires."
-      - "Add the `crate-layer-direction` hook to .pre-commit-config.yaml, language: system,
+      - "Add the `crate-layer-direction` hook to .config/pre-commit.yaml, language: system,
          pass_filenames: false, always_run: true."
       - "Correct the misleading comment in arch-lint.toml."
       - "Separately: the dependency-cruiser hook is a gate that cannot pass. Either add an
@@ -5123,7 +5123,7 @@ skill_gaps_found:
   - gap: >-
       "Layer 7 -- binary composition" is described as "[[bin]] targets ... feature selection and
       process lifecycle only", which omits that the same seam owns arch-lint.toml,
-      .cargo/config.toml, .pre-commit-config.yaml, .repo-layout.toml and scripts/ -- i.e. every
+      .cargo/config.toml, .config/pre-commit.yaml, .repo-layout.toml and scripts/ -- i.e. every
       gate. Four of the ten wiring decisions here are owned by that seam, and the skill gives no
       hint that it is a decision-bearing owner.
     impact: medium

@@ -596,7 +596,7 @@ def test_build_affecting_predicate_matches_expected_patterns():
         "rust-toolchain.toml",
         "build.rs",
         ".github/workflows/release.yml",
-        ".pre-commit-config.yaml",
+        ".config/pre-commit.yaml",
     ):
         assert is_build_affecting(path) is True, (
             f"expected {path!r} to be build-affecting"

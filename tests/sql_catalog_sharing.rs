@@ -446,8 +446,12 @@ fn check_graph_access_precedes_query_and_rdf_try_handle_in_dispatch() {
     // (2) capture_graph_dispatch really takes the gate.
     let (capture_path, capture_source) = defining_source("async fn capture_graph_dispatch");
     assert!(
-        item_body(&capture_source, "async fn capture_graph_dispatch", &capture_path)
-            .contains("gate_graph_op_under_lock("),
+        item_body(
+            &capture_source,
+            "async fn capture_graph_dispatch",
+            &capture_path
+        )
+        .contains("gate_graph_op_under_lock("),
         "capture_graph_dispatch must call gate_graph_op_under_lock — \
          dispatch_graph_op_inner's ordering guarantee (link 1) is worthless if \
          the function it awaits before routing does not actually gate"

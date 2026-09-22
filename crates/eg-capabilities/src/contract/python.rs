@@ -25,7 +25,7 @@ mod runtime;
 use digest::digest_module;
 #[cfg(test)]
 use dto::CANONICAL_DIGEST_SPECS;
-use dto::{dto_module, dto_python_type, DtoSurface, DTO_SURFACES};
+use dto::{dto_module, dto_python_type, DtoSurface, DTO_SURFACES, SHARED_DTO_RESULT_MODELS};
 use package::package_contract_module;
 use runtime::runtime_module;
 
@@ -89,6 +89,17 @@ const TYPED_OPERATION_ADAPTERS: &[TypedOperationAdapter] = &[
         result_model: "PackImportResult",
         result_is_union: true,
     },
+];
+
+/// Nested result DTOs that are part of a domain module's public import surface
+/// even when the generated sender annotations mention only their top-level
+/// container. This keeps callers on `generated.reasoning` while the schema-
+/// driven definitions themselves remain in the shared `rdf_report` module.
+const PUBLIC_DOMAIN_REEXPORTS: &[(&str, &str)] = &[
+    ("rdf_report", "OwlPropertyFact"),
+    ("rdf_report", "ProofNodeWire"),
+    ("rdf_report", "ShaclValidationResult"),
+    ("rdf_report", "ShaclSeverity"),
 ];
 
 /// `AddNode` -> `add_node`. Collisions are asserted against in [`artifacts`].
@@ -163,9 +174,20 @@ fn body_note(body: &Body) -> String {
 /// [`DTO_SURFACES`] use [`dto_python_type`] and the schema-driven nested-model
 /// renderer instead.
 fn python_type(node: &serde_json::Value) -> String {
+    python_composite_type(node).unwrap_or_else(|| python_scalar_type(node))
+}
+
+fn python_composite_type(node: &serde_json::Value) -> Option<String> {
     if let Some(any_of) = node.get("anyOf").and_then(|v| v.as_array()) {
-        return union_type(any_of);
+        return Some(union_type(any_of));
     }
+    if let Some(types) = node.get("type").and_then(serde_json::Value::as_array) {
+        return Some(python_type_array(node, types));
+    }
+    None
+}
+
+fn python_scalar_type(node: &serde_json::Value) -> String {
     match node.get("type").and_then(|v| v.as_str()) {
         Some("string") => "str".to_string(),
         Some("integer") => "int".to_string(),
@@ -176,6 +198,18 @@ fn python_type(node: &serde_json::Value) -> String {
         Some("null") => "None".to_string(),
         _ => "Any".to_string(),
     }
+}
+
+fn python_type_array(node: &serde_json::Value, types: &[serde_json::Value]) -> String {
+    let variants: Vec<_> = types
+        .iter()
+        .map(|wire_type| {
+            let mut variant = node.clone();
+            variant["type"] = wire_type.clone();
+            variant
+        })
+        .collect();
+    union_type(&variants)
 }
 
 fn union_type(any_of: &[serde_json::Value]) -> String {
@@ -308,9 +342,10 @@ fn push_send(out: &mut String, d: &MethodDescriptor, declared: Option<&Declared>
     let scalar = modelled_scalar(declared);
     let dto_result = dto_result_model(id);
     let result = dto_result.unwrap_or_else(|| scalar.map_or("OpaqueResult", |value| value.0));
+    let typed_request = typed_direct_request(id);
     let _ = writeln!(out, "async def send_{name}(");
     let _ = writeln!(out, "    client: Any,");
-    let _ = writeln!(out, "    params: dict[str, Any] | None = None,");
+    push_send_request_signature(out, typed_request);
     let _ = writeln!(out, "    graph: str | None = None,");
     let _ = writeln!(out, "    *,");
     let _ = writeln!(out, "    idempotency_key: str | None = None,");
@@ -329,7 +364,7 @@ fn push_send(out: &mut String, d: &MethodDescriptor, declared: Option<&Declared>
     push_result_schema(out, d.domain, id, declared.is_some());
     push_error_bullets(out, d.error_set);
     let _ = writeln!(out, "    \"\"\"");
-    let _ = writeln!(out, "    {id}Request.model_validate(params or {{}})");
+    push_send_request_validation(out, id, typed_request);
     let _ = writeln!(out, "    payload = await client._send(");
     let _ = writeln!(out, "        \"{id}\",");
     out.push_str(
@@ -338,11 +373,53 @@ fn push_send(out: &mut String, d: &MethodDescriptor, declared: Option<&Declared>
     push_result_decode(out, id, dto_result, scalar);
 }
 
+fn push_send_request_signature(out: &mut String, typed_request: Option<&str>) {
+    match typed_request {
+        Some(model) => {
+            let _ = writeln!(out, "    request: {model},");
+        }
+        None => {
+            let _ = writeln!(out, "    params: dict[str, Any] | None = None,");
+        }
+    }
+}
+
+fn push_send_request_validation(out: &mut String, id: &str, typed_request: Option<&str>) {
+    match typed_request {
+        Some(model) => {
+            let _ = writeln!(out, "    request = {model}.model_validate(request)");
+            let _ = writeln!(
+                out,
+                "    params = request.model_dump(mode=\"json\", by_alias=True, exclude_none=True)"
+            );
+        }
+        None => {
+            let _ = writeln!(out, "    {id}Request.model_validate(params or {{}})");
+        }
+    }
+}
+
+/// Small read surfaces can expose their generated request model directly,
+/// avoiding an untyped dict at the Python boundary. Write envelopes retain the
+/// generic params form because their top-level method request wraps a nested
+/// authority-bearing DTO.
+fn typed_direct_request(id: &str) -> Option<&'static str> {
+    match id {
+        "SourceIngestStatus" => Some("SourceIngestStatusRequest"),
+        _ => None,
+    }
+}
+
 fn dto_result_model(id: &str) -> Option<&'static str> {
     DTO_SURFACES
         .iter()
         .find(|surface| surface.method == id)
         .and_then(|surface| surface.result_model)
+        .or_else(|| {
+            SHARED_DTO_RESULT_MODELS
+                .iter()
+                .find_map(|(method, model)| (*method == id).then_some(*model))
+        })
 }
 
 fn push_result_decode(
@@ -540,6 +617,11 @@ fn push_surface_import(
         .filter(|root| body.contains(**root))
         .copied()
         .collect();
+    roots.extend(
+        PUBLIC_DOMAIN_REEXPORTS
+            .iter()
+            .filter_map(|(module, root)| (*module == surface.module).then_some(*root)),
+    );
     for adapter in TYPED_OPERATION_ADAPTERS
         .iter()
         .filter(|adapter| adapter.method == surface.method)
@@ -551,9 +633,7 @@ fn push_surface_import(
                     !(character.is_ascii_alphanumeric() || character == '_')
                 })
             })
-            .filter(|name| {
-                name.chars().next().is_some_and(char::is_uppercase) && *name != "None"
-            })
+            .filter(|name| name.chars().next().is_some_and(char::is_uppercase) && *name != "None")
         {
             if body.contains(name) {
                 roots.push(name);

@@ -79,16 +79,17 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
             eg_types::connector_pack::CONNECTOR_PACK_SCHEMA_VERSION as u64,
         )],
     },
-    // This row becomes live when the SourceIngestion protocol branch is composed.
-    // It is optional in this isolated D18 branch so the generator remains runnable
-    // before that independently owned Rust schema is present.
     DtoSurface {
         method: "SourceIngest",
         module: "source_ingestion",
         result_domain: "ingestion",
-        roots: &["SourceIngestionRequest", "SourceIngestionReceipt"],
+        roots: &[
+            "SourceIngestionRequest",
+            "SourceIngestionReceipt",
+            "SourceIngestStatus",
+        ],
         result_model: Some("SourceIngestionReceipt"),
-        required: false,
+        required: true,
         constants: &[],
     },
     DtoSurface {
@@ -100,7 +101,53 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
         required: true,
         constants: &[],
     },
+    DtoSurface {
+        method: "GraphSchema",
+        module: "graph_schema",
+        result_domain: "reasoning",
+        roots: &[
+            "GraphSchemaOp",
+            "GraphSchemaCommitted",
+            "GraphSchemaSourceView",
+            "GraphSchemaSourcesView",
+            "SchemaSourceOriginView",
+        ],
+        result_model: Some("GraphSchemaCommitted"),
+        required: true,
+        constants: &[],
+    },
+    DtoSurface {
+        method: "OwlReason",
+        module: "rdf_report",
+        result_domain: "reasoning",
+        roots: &[
+            "OwlReasonResult",
+            "OwlPropertyFact",
+            "OwlExplainResult",
+            "ProofNodeWire",
+            "DatalogReasoningResult",
+            "ShaclValidationReport",
+            "ShaclValidationResult",
+            "ShaclSeverity",
+        ],
+        result_model: Some("OwlReasonResult"),
+        required: true,
+        constants: &[],
+    },
 ];
+
+/// Typed result models whose DTO is emitted by another method's shared module.
+/// Keeping this separate avoids emitting the same generated module twice while
+/// allowing a small read method to return a model from the SourceIngest family.
+pub(super) const SHARED_DTO_RESULT_MODELS: &[(&str, &str)] = &[
+    ("SourceIngestStatus", "SourceIngestStatus"),
+    ("GraphSchemaList", "GraphSchemaSourcesView"),
+    ("OwlReasonDistributed", "OwlReasonResult"),
+    ("OwlExplain", "OwlExplainResult"),
+    ("RunDatalogReasoning", "DatalogReasoningResult"),
+    ("ShaclValidate", "ShaclValidationReport"),
+];
+
 /// Schema-specific digest projections rendered as model methods. Framing and
 /// MessagePack encoding live in the shared generated `digest` module; this row
 /// only states which model fields form the projection.
@@ -163,31 +210,47 @@ pub(super) const CANONICAL_DIGEST_SPECS: &[CanonicalDigestSpec] = &[
     // Rust declaration order, which JSON Schema property maps do not retain.
     CanonicalDigestSpec {
         model: "SourceIngestionRequest",
-        domain: "eg/source-ingestion-batch/v1",
+        domain: "eg/source-ingestion-batch/v2",
         digest_field: None,
         projection_fields: &[
             "connector",
-            "mapping_reference",
+            "mode",
+            "strict_schema",
             "records",
-            "cursor",
-            "expected_previous_cursor",
+            "relationships",
+            "provider_checkpoint",
+            "expected_previous_checkpoint",
+            "authoritative_live_ids",
+            "empty_authoritative_approval",
+            "withdrawals",
         ],
         canonical_json_paths: &[
             "records[*].payload",
-            "cursor.position",
-            "expected_previous_cursor.position",
+            "relationships[*].properties",
+            "provider_checkpoint.position",
+            "expected_previous_checkpoint.position",
         ],
         omit_none_paths: &[
             "records[*].updated_at",
-            "cursor.watermark",
-            "cursor.pending_watermark",
-            "expected_previous_cursor.watermark",
-            "expected_previous_cursor.pending_watermark",
+            "relationships[*].properties",
+            "provider_checkpoint.content_hash",
+            "provider_checkpoint.watermark",
+            "provider_checkpoint.pending_watermark",
+            "expected_previous_checkpoint.content_hash",
+            "expected_previous_checkpoint.watermark",
+            "expected_previous_checkpoint.pending_watermark",
         ],
         named_struct_paths: &[
             (
                 "records[*]",
-                &["stream", "record_id", "payload", "updated_at", "provenance"],
+                &[
+                    "stream",
+                    "record_id",
+                    "mapping_reference",
+                    "payload",
+                    "updated_at",
+                    "provenance",
+                ],
             ),
             (
                 "records[*].provenance",
@@ -201,13 +264,51 @@ pub(super) const CANONICAL_DIGEST_SPECS: &[CanonicalDigestSpec] = &[
                 ],
             ),
             (
-                "cursor",
-                &["stream", "position", "watermark", "pending_watermark"],
+                "relationships[*]",
+                &[
+                    "source",
+                    "target",
+                    "relation_reference",
+                    "properties",
+                    "provenance",
+                ],
+            ),
+            ("relationships[*].source", &["stream", "record_id"]),
+            ("relationships[*].target", &["stream", "record_id"]),
+            (
+                "relationships[*].provenance",
+                &[
+                    "connector",
+                    "adapter_kind",
+                    "server",
+                    "tool",
+                    "tool_schema_sha256",
+                    "source_uri",
+                ],
             ),
             (
-                "expected_previous_cursor",
-                &["stream", "position", "watermark", "pending_watermark"],
+                "provider_checkpoint",
+                &[
+                    "stream",
+                    "position",
+                    "content_hash",
+                    "watermark",
+                    "pending_watermark",
+                ],
             ),
+            (
+                "expected_previous_checkpoint",
+                &[
+                    "stream",
+                    "position",
+                    "content_hash",
+                    "watermark",
+                    "pending_watermark",
+                ],
+            ),
+            ("authoritative_live_ids[*]", &["stream", "record_id"]),
+            ("withdrawals[*]", &["entity", "reason"]),
+            ("withdrawals[*].entity", &["stream", "record_id"]),
         ],
     },
 ];
@@ -242,23 +343,47 @@ fn ref_name(node: &serde_json::Value) -> Option<&str> {
 }
 
 pub(super) fn dto_python_type(node: &serde_json::Value) -> String {
+    dto_special_type(node).unwrap_or_else(|| constrained_annotation(node, dto_base_type(node)))
+}
+
+fn dto_special_type(node: &serde_json::Value) -> Option<String> {
     if let Some(name) = ref_name(node) {
-        return name.to_string();
+        return Some(name.to_string());
     }
     if let Some(value) = node.get("const") {
-        return format!(
+        return Some(format!(
             "Literal[{}]",
             serde_json::to_string(value).expect("JSON literal")
-        );
+        ));
     }
-    if let Some(any_of) = node
-        .get("anyOf")
+    if let Some(any_of) = dto_union_nodes(node) {
+        return Some(dto_union_type(any_of));
+    }
+    if let Some(types) = node.get("type").and_then(|value| value.as_array()) {
+        return Some(dto_type_array(node, types));
+    }
+    None
+}
+
+fn dto_union_nodes(node: &serde_json::Value) -> Option<&Vec<serde_json::Value>> {
+    node.get("anyOf")
         .or_else(|| node.get("oneOf"))
-        .and_then(|value| value.as_array())
-    {
-        return dto_union_type(any_of);
-    }
-    constrained_annotation(node, dto_base_type(node))
+        .and_then(serde_json::Value::as_array)
+}
+
+fn dto_type_array(node: &serde_json::Value, types: &[serde_json::Value]) -> String {
+    let variants: Vec<_> = types
+        .iter()
+        .map(|wire_type| {
+            if wire_type.as_str() == Some("null") {
+                return serde_json::json!({"type": "null"});
+            }
+            let mut variant = node.clone();
+            variant["type"] = wire_type.clone();
+            variant
+        })
+        .collect();
+    dto_union_type(&variants)
 }
 
 fn dto_union_type(nodes: &[serde_json::Value]) -> String {

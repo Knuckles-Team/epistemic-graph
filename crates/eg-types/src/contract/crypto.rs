@@ -24,6 +24,17 @@ impl Digest256 {
     pub fn to_hex(self) -> String {
         hex::encode(self.0)
     }
+    /// SHA-256 of the exact bytes, without domain framing.
+    ///
+    /// Use this for contracts that identify an externally supplied byte body
+    /// (for example a Turtle schema document). Semantic records should prefer
+    /// [`Self::framed`], which prevents ambiguous concatenation and binds a
+    /// domain.
+    pub fn sha256(bytes: &[u8]) -> Self {
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        Self(hasher.finalize().into())
+    }
     pub fn framed(domain: &[u8], fields: &[&[u8]]) -> Result<Self, String> {
         if domain.is_empty() || domain.len() > u32::MAX as usize {
             return Err("digest domain is empty or too large".into());

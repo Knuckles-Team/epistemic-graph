@@ -1,0 +1,363 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:Contractor1099 a owl:Class ;
+    rdfs:label "1099 Contractor" ;
+    rdfs:comment """Independent contractor receiving 1099-NEC.
+Not subject to employer withholding; responsible for self-employment tax.""" ;
+    rdfs:subClassOf :Person .
+
+:EEOCategory a owl:Class ;
+    rdfs:label "EEO Category" ;
+    rdfs:comment """EEO-1 job categories for federal reporting.
+Officials/Managers, Professionals, Technicians, etc.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:HiringPipeline a owl:Class ;
+    rdfs:label "Hiring Pipeline" ;
+    rdfs:comment """Requisition → sourcing → screening → offer → onboarding lifecycle.
+BFO:Process via Procedure.""" ;
+    rdfs:subClassOf :Procedure .
+
+:W2Employee a owl:Class ;
+    rdfs:label "W-2 Employee" ;
+    rdfs:comment """Full-time or part-time employee receiving W-2 wages.
+Subject to employer withholding for income tax, FICA, Medicare.""" ;
+    rdfs:subClassOf :Employee .
+
+:accommodationStatus a owl:DatatypeProperty ;
+    rdfs:comment "requested, approved, denied, active, expired." ;
+    rdfs:domain :ADAAccommodation ;
+    rdfs:range xsd:string .
+
+:accommodationType a owl:DatatypeProperty ;
+    rdfs:comment "ergonomic, schedule, remote_work, assistive_technology, modified_duties." ;
+    rdfs:domain :ADAAccommodation ;
+    rdfs:range xsd:string .
+
+:additionalWithholding a owl:DatatypeProperty ;
+    rdfs:domain :W4Form ;
+    rdfs:range xsd:float .
+
+:allowances a owl:DatatypeProperty ;
+    rdfs:domain :W4Form ;
+    rdfs:range xsd:integer .
+
+:assignedToDepartment a owl:ObjectProperty ;
+    rdfs:label "assigned to department" ;
+    rdfs:comment "Maps an employee to their organizational unit." ;
+    rdfs:domain :Employee ;
+    rdfs:range :Department .
+
+:bandMaxSalary a owl:DatatypeProperty ;
+    rdfs:label "band max salary" ;
+    rdfs:domain :CompensationBand ;
+    rdfs:range xsd:float .
+
+:bandMinSalary a owl:DatatypeProperty ;
+    rdfs:label "band min salary" ;
+    rdfs:domain :CompensationBand ;
+    rdfs:range xsd:float .
+
+:cascadesTo a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "cascades to" ;
+    rdfs:comment "OKR hierarchy: org OKR cascades to dept OKR cascades to individual OKR. Transitive." ;
+    rdfs:domain :OKR ;
+    rdfs:range :OKR .
+
+:certifiedFor a owl:ObjectProperty ;
+    rdfs:label "certified for" ;
+    rdfs:comment "Maps certifications to the activities they authorize." ;
+    rdfs:domain :Credential ;
+    rdfs:range :Procedure .
+
+:cobraEndDate a owl:DatatypeProperty ;
+    rdfs:domain :COBRAEligibility ;
+    rdfs:range xsd:date .
+
+:cobraStartDate a owl:DatatypeProperty ;
+    rdfs:domain :COBRAEligibility ;
+    rdfs:range xsd:date .
+
+:cobraStatus a owl:DatatypeProperty ;
+    rdfs:comment "eligible, enrolled, declined, expired." ;
+    rdfs:domain :COBRAEligibility ;
+    rdfs:range xsd:string .
+
+:compensatedAt a owl:ObjectProperty ;
+    rdfs:label "compensated at" ;
+    rdfs:comment "Links a position to its compensation band." ;
+    rdfs:domain :PositionRole ;
+    rdfs:range :CompensationBand .
+
+:credentialExpiry a owl:DatatypeProperty ;
+    rdfs:label "credential expiry" ;
+    rdfs:domain :Credential ;
+    rdfs:range xsd:date .
+
+:departmentPartOf a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "department part of" ;
+    rdfs:comment "Transitive department hierarchy for org chart traversal." ;
+    rdfs:domain :Department ;
+    rdfs:range :Department .
+
+:eeoCategory a owl:DatatypeProperty ;
+    rdfs:domain :Employee ;
+    rdfs:range xsd:string .
+
+:employeeId a owl:DatatypeProperty ;
+    rdfs:label "employee id" ;
+    rdfs:domain :Employee ;
+    rdfs:range xsd:string .
+
+:employmentStatus a owl:DatatypeProperty ;
+    rdfs:label "employment status" ;
+    rdfs:comment "Active, On Leave, Terminated, Contractor." ;
+    rdfs:domain :Employee ;
+    rdfs:range xsd:string .
+
+:filingStatus a owl:DatatypeProperty ;
+    rdfs:label "filing status" ;
+    rdfs:comment "single, married_jointly, married_separately, head_of_household." ;
+    rdfs:domain :W4Form ;
+    rdfs:range xsd:string .
+
+:flsaClassifiedAs a owl:ObjectProperty ;
+    rdfs:label "FLSA classified as" ;
+    rdfs:domain :Employee ;
+    rdfs:range :FLSAClassification .
+
+:flsaStatus a owl:DatatypeProperty ;
+    rdfs:label "FLSA status" ;
+    rdfs:comment "exempt, non_exempt." ;
+    rdfs:domain :FLSAClassification ;
+    rdfs:range xsd:string .
+
+:fmlaReason a owl:DatatypeProperty ;
+    rdfs:comment "birth, adoption, serious_health, family_care, military." ;
+    rdfs:domain :FMLALeave ;
+    rdfs:range xsd:string .
+
+:fmlaWeeksRemaining a owl:DatatypeProperty ;
+    rdfs:domain :FMLALeave ;
+    rdfs:range xsd:float .
+
+:fmlaWeeksUsed a owl:DatatypeProperty ;
+    rdfs:domain :FMLALeave ;
+    rdfs:range xsd:float .
+
+:futaExempt a owl:DatatypeProperty ;
+    rdfs:domain :UnemploymentInsurance ;
+    rdfs:range xsd:boolean .
+
+:hasAccommodation a owl:ObjectProperty ;
+    rdfs:domain :Employee ;
+    rdfs:range :ADAAccommodation .
+
+:hasCompetency a owl:ObjectProperty ;
+    rdfs:label "has competency" ;
+    rdfs:comment "Links an employee to their skills and knowledge areas." ;
+    rdfs:domain :Employee ;
+    rdfs:range :Competency .
+
+:hasI9 a owl:ObjectProperty ;
+    rdfs:label "has I-9" ;
+    rdfs:domain :Employee ;
+    rdfs:range :I9Verification .
+
+:hasStateWithholding a owl:ObjectProperty ;
+    rdfs:domain :Employee ;
+    rdfs:range :StateWithholding .
+
+:hasW4 a owl:ObjectProperty ;
+    rdfs:domain :Employee ;
+    rdfs:range :W4Form .
+
+:hireDate a owl:DatatypeProperty ;
+    rdfs:label "hire date" ;
+    rdfs:domain :Employee ;
+    rdfs:range xsd:date .
+
+:holdsCredential a owl:ObjectProperty ;
+    rdfs:label "holds credential" ;
+    rdfs:comment "Links an employee to their certifications and licenses." ;
+    rdfs:domain :Employee ;
+    rdfs:range :Credential .
+
+:i9Status a owl:DatatypeProperty ;
+    rdfs:label "I-9 status" ;
+    rdfs:comment "pending, verified, reverification_needed, expired." ;
+    rdfs:domain :I9Verification ;
+    rdfs:range xsd:string .
+
+:i9VerificationDate a owl:DatatypeProperty ;
+    rdfs:domain :I9Verification ;
+    rdfs:range xsd:date .
+
+:okrProgress a owl:DatatypeProperty ;
+    rdfs:label "okr progress" ;
+    rdfs:comment "Completion percentage 0.0–1.0." ;
+    rdfs:domain :OKR ;
+    rdfs:range xsd:float .
+
+:proficiencyLevel a owl:DatatypeProperty ;
+    rdfs:label "proficiency level" ;
+    rdfs:comment "SFIA-aligned proficiency level 1-5." ;
+    rdfs:domain :Competency ;
+    rdfs:range xsd:integer .
+
+:reportsTo a owl:ObjectProperty,
+        owl:TransitiveProperty ;
+    rdfs:label "reports to" ;
+    rdfs:comment """Transitive organizational hierarchy. If A reportsTo B
+and B reportsTo C, then A transitively reportsTo C. Enables automatic
+escalation chain traversal.""" ;
+    rdfs:domain :Employee ;
+    rdfs:range :Employee .
+
+:reviewRating a owl:DatatypeProperty ;
+    rdfs:label "review rating" ;
+    rdfs:comment "Performance rating 0.0–5.0." ;
+    rdfs:domain :PerformanceReview ;
+    rdfs:range xsd:float .
+
+:reviewedIn a owl:ObjectProperty ;
+    rdfs:label "reviewed in" ;
+    rdfs:comment "Links an employee to their performance evaluation history." ;
+    rdfs:domain :Employee ;
+    rdfs:range :PerformanceReview .
+
+:stateCode a owl:DatatypeProperty ;
+    rdfs:domain :StateWithholding ;
+    rdfs:range xsd:string .
+
+:sutaRate a owl:DatatypeProperty ;
+    rdfs:comment "State Unemployment Tax rate." ;
+    rdfs:domain :UnemploymentInsurance ;
+    rdfs:range xsd:float .
+
+:wcClassCode a owl:DatatypeProperty ;
+    rdfs:comment "NCCI class code for workers comp rating." ;
+    rdfs:domain :WorkersCompensation ;
+    rdfs:range xsd:string .
+
+<http://knuckles.team/kg/hr> a owl:Ontology ;
+    rdfs:label "Human Capital & Workforce Ontology" ;
+    rdfs:comment """HR/Workforce Management domain ontology.
+Provides BFO-aligned classes for employee lifecycle, organizational
+hierarchy, competency tracking, and performance management.
+Aligned to HR-XML, W3C ORG, and SFIA frameworks.""" ;
+    owl:imports <http://knuckles.team/kg/core> .
+
+:PositionRole a owl:Class ;
+    rdfs:label "Position Role" ;
+    rdfs:comment """A time-bounded position a person occupies within a department.
+BFO:SpecificallyDependentContinuant via Role. Has start/end dates,
+level, and compensation band.""" ;
+    rdfs:subClassOf :Role .
+
+:WorkersCompensation a owl:Class ;
+    rdfs:label "Workers Compensation" ;
+    rdfs:comment "State-mandated workers' compensation insurance coverage." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Competency a owl:Class ;
+    rdfs:label "Competency" ;
+    rdfs:comment """A skill or knowledge area with proficiency levels (1-5).
+BFO:GenericallyDependentContinuant. Aligned to SFIA Framework.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:FLSAClassification a owl:Class ;
+    rdfs:label "FLSA Classification" ;
+    rdfs:comment """Fair Labor Standards Act classification: exempt or non-exempt.
+Determines overtime eligibility. BFO:GenericallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:PerformanceReview a owl:Class ;
+    rdfs:label "Performance Review" ;
+    rdfs:comment """A periodic evaluation event linking Employee to Reviewer
+and Ratings. BFO:Process.""" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:StateWithholding a owl:Class ;
+    rdfs:label "State Withholding" ;
+    rdfs:comment "State-level income tax withholding configuration." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:UnemploymentInsurance a owl:Class ;
+    rdfs:label "Unemployment Insurance" ;
+    rdfs:comment "State and federal unemployment tax (SUTA/FUTA) registration." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:ADAAccommodation a owl:Class ;
+    rdfs:label "ADA Accommodation" ;
+    rdfs:comment "Reasonable accommodation under ADA." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:COBRAEligibility a owl:Class ;
+    rdfs:label "COBRA Eligibility" ;
+    rdfs:comment """Post-employment health insurance continuation rights.
+18/36 months depending on qualifying event.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:CompensationBand a owl:Class ;
+    rdfs:label "Compensation Band" ;
+    rdfs:comment """A salary range tied to position levels and geographies.
+BFO:GenericallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Credential a owl:Class ;
+    rdfs:label "Credential" ;
+    rdfs:comment """A certification, license, or qualification with expiry tracking.
+BFO:GenericallyDependentContinuant. Aligned to Open Badges.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Department a owl:Class ;
+    rdfs:label "Department" ;
+    rdfs:comment """An organizational unit within the enterprise hierarchy.
+BFO:IndependentContinuant. Aligned to W3C ORG org:OrganizationalUnit.""" ;
+    rdfs:subClassOf bfo:0000004 .
+
+:FMLALeave a owl:Class ;
+    rdfs:label "FMLA Leave" ;
+    rdfs:comment """Family and Medical Leave Act — up to 12 weeks unpaid,
+job-protected leave. Employers with 50+ employees.""" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:I9Verification a owl:Class ;
+    rdfs:label "I-9 Verification" ;
+    rdfs:comment """Employment Eligibility Verification (Form I-9).
+Required within 3 days of hire. BFO:GenericallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:OKR a owl:Class ;
+    rdfs:label "OKR" ;
+    rdfs:comment """An Objective & Key Result, cascading from org to department
+to individual. BFO:SpecificallyDependentContinuant.""" ;
+    rdfs:subClassOf bfo:0000020 .
+
+:W4Form a owl:Class ;
+    rdfs:label "W-4 Form" ;
+    rdfs:comment """Employee's Withholding Certificate (Form W-4).
+Determines federal income tax withholding.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Employee a owl:Class ;
+    rdfs:label "Employee" ;
+    rdfs:comment """A person employed by the organization. Extends Person
+with employment metadata (hire date, status, employee ID).
+BFO:IndependentContinuant via Person. Aligned to foaf:Person + HR-XML.""" ;
+    rdfs:seeAlso foaf:Person ;
+    rdfs:subClassOf :Person .

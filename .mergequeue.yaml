@@ -42,7 +42,7 @@ gates:
       - '**/*.rs'
       - '*.toml'
       - '**/*.toml'
-      - '.pre-commit-config.yaml'
+      - '.config/pre-commit.yaml'
       - '.mergequeue.yaml'
       - 'scripts/check_rustfmt_scope.py'
 
@@ -218,23 +218,19 @@ gates:
   # pre-existing failures this lane does not own fixing -- exactly the failure
   # mode the differential `compare: lines` gates above exist to avoid.
   #
-  # DECISION (pick one, per the audit): run it PRE-PUSH, not in the queue.
-  # `.pre-commit-config.yaml`'s `cargo-test` hook (lower crates: eg-types,
-  # eg-core, eg-compute, every commit) and `cargo-test-full` hook (facade
-  # `--features full`, pre-push+manual stage) already do this -- narrower than
-  # `--all-features` (skips the crash-prone `cluster`/`full-extras` opt-in
-  # layers) but real, green, and enforced today, unlike this declaration ever
-  # was. GitHub CI's rust-ci.yml `lint-and-test` job declares the same
-  # `--all-features` surface as a backstop, but CI is dark (stale origin) so it
-  # is not presently executing either. Kept declared below (not deleted) so
+  # DECISION (pick one, per the audit): keep the exhaustive matrix out of the
+  # automatic queue/push paths and leave the full feature test manual/hosted.
+  # Local compile/test matrices in `.config/pre-commit.yaml` are manual-only.
+  # GitHub CI's rust-ci.yml `lint-and-test` job declares the same
+  # `--all-features` surface as the hosted validation backstop. Kept declared
+  # below (not deleted) so
   # this file stays the one place that names the fact "no automation gates the
   # full `--all-features` workspace test suite today" -- but the tier is now
   # honestly labelled instead of implying a mechanism that does not exist.
   - name: cargo-test
     command: [cargo, test, --all-features, --target-dir, target-isolated]
     tier: slow  # NEVER EXECUTED by this queue (see comment above) -- real
-                # enforcement is pre-commit's pre-push stage (narrower scope)
-                # + dark CI (same scope, not presently running).
+                # enforcement is the hosted CI publication workflow.
     timeout: 5400
     compare: lines
 
@@ -242,8 +238,8 @@ gates:
   # epistemic-graph --features full`) had NO equivalent in this queue at all --
   # the queue's own `cargo-test` gate above runs `--all-features` across the
   # WHOLE workspace (broader scope, `slow` tier, not run in the queue), and the
-  # matching pre-commit hook (`cargo-clippy-facade-full`-shaped) exists but is
-  # staged `pre-push, manual` -- lanes land through THIS queue, not `git push`,
+  # matching local full-profile checks are manual-only -- lanes land through
+  # THIS queue, not `git push`,
   # so that hook structurally never fires for a queue-landed candidate. A gate
   # that never runs enforces nothing: a stack overflow in
   # `server::handlers::query::result_cache_dispatch_tests::
@@ -330,12 +326,10 @@ gates:
 
   # D-W6EFS-1 (w6-eg-facade-stackoverflow, 2026-08-07): rust-ci.yml's "Test
   # (facade full)" step -- `cargo test -p epistemic-graph --features full` --
-  # was gated NOWHERE that actually runs on land. The pre-commit `cargo-test`
-  # hook only covers `-p eg-types -p eg-core -p eg-compute` (lower crates); a
-  # SECOND pre-commit hook does match this exact command, but declares
-  # `stages: [pre-push, manual]`, and lanes land through THIS queue, never
-  # `git push` -- so that hook never fires, and the general `cargo-test` gate
-  # above is `tier: slow` (declared, not run) for cost reasons. A stack
+  # was gated NOWHERE that actually runs on land. Local full-profile checks are
+  # manual-only, and lanes land through THIS queue, not `git push`; hosted
+  # release CI remains the exhaustive validation path. The general `cargo-test`
+  # gate above is `tier: slow` (declared, not run) for cost reasons. A stack
   # overflow in `server::handlers::query::result_cache_dispatch_tests::
   # hit_on_unchanged_then_write_invalidates` (SIGABRT, the process aborting
   # mid-suite) reached CI unguarded as a direct result -- collateral damage
@@ -374,7 +368,7 @@ gates:
   # w5-ci-gates-local (D-W5CG-1): rust-ci.yml's `benchmarks` job runs this
   # (query-pipeline fuzz + concurrency-chaos, CONCEPT:EG-KG.query.pipeline-fuzz)
   # but CI is dark, and it was declared NOWHERE else -- not `.mergequeue.yaml`,
-  # not `.pre-commit-config.yaml` -- until now. This is exactly the operator's
+  # not `.config/pre-commit.yaml` -- until now. This is exactly the operator's
   # second live example: "cargo test -p eg-plan --test fuzz_pipelines -> FOREIGN
   # fuzz failures" reached CI and only CI. Unlike the workspace-wide cargo-test
   # above, this is ONE crate's ONE test binary with a fixed feature set -- cheap
@@ -410,7 +404,7 @@ gates:
     # count that is proptest-internal and not guaranteed stable across
     # toolchain/dependency versions between the base and candidate run. Diffing
     # on that noisy detail risked exactly the false-new-signal failure mode
-    # `.pre-commit-config.yaml`'s D-WUI-7-equivalent already had to fix
+    # `.config/pre-commit.yaml`'s D-WUI-7-equivalent already had to fix
     # elsewhere in this program (pnpm install's own non-reproducible progress
     # lines) -- the stable, itemized identifier is the summary line, same
     # discipline as agent-webui's vitest gate (`keep_lines: ["^FAIL "]`).

@@ -19,13 +19,15 @@ pub const GRAPH_SCHEMA_RESULT_SCHEMA_VERSION: u16 = 1;
 
 /// Most schema sources one graph may carry.
 pub const MAX_GRAPH_SCHEMA_SOURCES: usize = 32;
+/// Largest immutable engine core catalog returned by list.
+pub const MAX_CORE_GRAPH_SCHEMA_SOURCES: usize = 32;
 /// Largest single shapes or ontology document.
 pub const MAX_SCHEMA_DOCUMENT_BYTES: usize = 2 << 20;
 /// Longest schema source key.
 pub const MAX_SCHEMA_SOURCE_ID_BYTES: usize = 128;
 
 /// Key prefixes only an importer may write.
-pub const RESERVED_SCHEMA_SOURCE_PREFIXES: &[&str] = &["pack:", "ingest:"];
+pub const RESERVED_SCHEMA_SOURCE_PREFIXES: &[&str] = &["core:", "pack:", "ingest:"];
 
 /// Attach, replace or detach one keyed schema source.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,24 +101,38 @@ impl GraphSchemaOp {
 
     /// Bounds and the reserved-prefix rule.
     pub fn validate(&self) -> Result<(), String> {
-        match self {
-            Self::Attach {
-                source_id,
-                shapes_ttl,
-                ontology_ttl,
-                ..
-            } => {
-                validate_source_id(source_id)?;
-                validate_document("shapes_ttl", shapes_ttl.as_deref())?;
-                validate_document("ontology_ttl", ontology_ttl.as_deref())?;
-                if shapes_ttl.is_none() && ontology_ttl.is_none() {
-                    return Err("graph schema attach needs at least one document".to_string());
-                }
-                Ok(())
+        validate_expected_composed_digest(self)?;
+        validate_operation_payload(self)
+    }
+}
+
+fn validate_expected_composed_digest(operation: &GraphSchemaOp) -> Result<(), String> {
+    let Some(expected) = operation.expected_composed_digest() else {
+        return Ok(());
+    };
+    crate::contract::Digest256::parse(expected)
+        .map(|_| ())
+        .map_err(|error| format!("invalid if_composed_digest: {error}"))
+}
+
+fn validate_operation_payload(operation: &GraphSchemaOp) -> Result<(), String> {
+    match operation {
+        GraphSchemaOp::Attach {
+            source_id,
+            shapes_ttl,
+            ontology_ttl,
+            ..
+        } => {
+            validate_source_id(source_id)?;
+            validate_document("shapes_ttl", shapes_ttl.as_deref())?;
+            validate_document("ontology_ttl", ontology_ttl.as_deref())?;
+            if shapes_ttl.is_none() && ontology_ttl.is_none() {
+                return Err("graph schema attach needs at least one document".to_string());
             }
-            Self::AttachPack { .. } => Ok(()),
-            Self::Detach { source_id, .. } => validate_source_id(source_id),
+            Ok(())
         }
+        GraphSchemaOp::AttachPack { .. } => Ok(()),
+        GraphSchemaOp::Detach { source_id, .. } => validate_source_id(source_id),
     }
 }
 
@@ -136,11 +152,18 @@ fn validate_source_id(source_id: &str) -> Result<(), String> {
     if source_id.chars().any(char::is_control) {
         return Err("graph schema source id carries a control character".to_string());
     }
-    if is_reserved_schema_source(source_id) {
+    validate_source_namespace(source_id)
+}
+
+fn validate_source_namespace(source_id: &str) -> Result<(), String> {
+    if source_id == "operator" || is_reserved_schema_source(source_id) {
         return Err(format!(
             "{}: '{source_id}' is owned by an importer",
             GraphSchemaErrorCode::SourceReserved.as_str()
         ));
+    }
+    if source_id.strip_prefix("admin:").is_none_or(str::is_empty) {
+        return Err("graph schema source id must use the admin:<name> namespace".to_string());
     }
     Ok(())
 }
@@ -160,6 +183,11 @@ fn validate_document(field: &str, document: Option<&str>) -> Result<(), String> 
 #[serde(tag = "origin", rename_all = "snake_case", deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum SchemaSourceOriginView {
+    Core {
+        module: String,
+        version: u32,
+        set_digest: String,
+    },
     /// The pre-X9 integrity policy, lifted into a keyed source.
     Operator,
     Admin {
@@ -211,9 +239,12 @@ pub struct GraphSchemaCommitted {
 pub struct GraphSchemaSourcesView {
     pub schema_version: u16,
     pub graph: String,
-    #[serde(default)]
-    pub composed_digest: Option<String>,
-    pub sources: BoundedVec<GraphSchemaSourceView, 32>,
+    /// Identity of the binary-owned catalog, independent of graph attachments.
+    pub core_catalog_digest: String,
+    /// Identity of the exact core+dynamic composition.
+    pub composed_digest: String,
+    pub core_sources: BoundedVec<GraphSchemaSourceView, MAX_CORE_GRAPH_SCHEMA_SOURCES>,
+    pub dynamic_sources: BoundedVec<GraphSchemaSourceView, MAX_GRAPH_SCHEMA_SOURCES>,
 }
 
 closed_error_codes! {
@@ -225,6 +256,8 @@ closed_error_codes! {
         SourceConflict => "SCHEMA_SOURCE_CONFLICT",
         ShapesInvalid => "SHAPES_INVALID",
         OntologyInvalid => "ONTOLOGY_INVALID",
+        /// A logical OWL construct is outside the certified native profile.
+        OwlUnsupportedConstruct => "OWL_UNSUPPORTED_CONSTRUCT",
         /// The composed ontology has no model.
         OntologyInconsistent => "ONTOLOGY_INCONSISTENT",
         ValidationBudgetExceeded => "VALIDATION_BUDGET_EXCEEDED",
@@ -233,5 +266,51 @@ closed_error_codes! {
         SourcesTooLarge => "SCHEMA_SOURCES_TOO_LARGE",
         /// The compare-and-set digest did not match.
         ComposedDigestMismatch => "COMPOSED_DIGEST_MISMATCH",
+        /// The engine has no snapshot-bound connector-pack body resolver.
+        AttachPackResolverUnavailable => "ATTACH_PACK_RESOLVER_UNAVAILABLE",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn attach(source_id: &str, shapes_ttl: Option<String>) -> GraphSchemaOp {
+        GraphSchemaOp::Attach {
+            source_id: source_id.to_string(),
+            shapes_ttl,
+            ontology_ttl: None,
+            if_composed_digest: None,
+        }
+    }
+
+    #[test]
+    fn operator_and_importer_owned_keys_are_not_generic_attach_targets() {
+        for source_id in ["operator", "core:x@1", "pack:x", "ingest:x"] {
+            let error = attach(source_id, Some("valid".to_string()))
+                .validate()
+                .unwrap_err();
+            assert!(error.contains(GraphSchemaErrorCode::SourceReserved.as_str()));
+        }
+    }
+
+    #[test]
+    fn generic_attach_requires_the_admin_namespace() {
+        let error = attach("free-form", Some("valid".to_string()))
+            .validate()
+            .unwrap_err();
+        assert!(error.contains("admin:<name>"));
+        attach("admin:local", Some("valid".to_string()))
+            .validate()
+            .unwrap();
+    }
+
+    #[test]
+    fn a_document_one_byte_over_the_bound_is_refused() {
+        let document = "x".repeat(MAX_SCHEMA_DOCUMENT_BYTES + 1);
+        let error = attach("admin:oversized", Some(document))
+            .validate()
+            .unwrap_err();
+        assert!(error.contains(&MAX_SCHEMA_DOCUMENT_BYTES.to_string()));
     }
 }

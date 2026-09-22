@@ -307,8 +307,8 @@ class BeginTxnRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    graph: Any | None = None
-    isolation: Any | None = None
+    graph: str | None = None
+    isolation: str | None = None
 
 
 async def send_begin_txn(
@@ -363,7 +363,7 @@ class TxnAddNodeRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    graph: Any | None = None
+    graph: str | None = None
     node_id: str
     properties_msgpack: bytes
     txn_id: str
@@ -421,7 +421,7 @@ class TxnRemoveNodeRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    graph: Any | None = None
+    graph: str | None = None
     node_id: str
     txn_id: str
 
@@ -478,7 +478,7 @@ class TxnAddEdgeRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    graph: Any | None = None
+    graph: str | None = None
     properties_msgpack: bytes
     source_id: str
     target_id: str
@@ -537,7 +537,7 @@ class TxnRemoveEdgeRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    graph: Any | None = None
+    graph: str | None = None
     source_id: str
     target_id: str
     txn_id: str
@@ -596,7 +596,7 @@ class TxnCasRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     conditions_msgpack: bytes
-    graph: Any | None = None
+    graph: str | None = None
     node_id: str
     txn_id: str
     updates_msgpack: bytes
@@ -655,7 +655,7 @@ class TxnAddEmbeddingRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     embedding: list[float]
-    graph: Any | None = None
+    graph: str | None = None
     node_id: str
     txn_id: str
 
@@ -713,7 +713,7 @@ class TxnBlobRefRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     digest: str
-    graph: Any | None = None
+    graph: str | None = None
     node_id: str
     txn_id: str
 
@@ -770,7 +770,7 @@ class TxnAddMeasurementRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    graph: Any | None = None
+    graph: str | None = None
     points: bytes
     series: str
     txn_id: str
@@ -828,7 +828,7 @@ class TxnAxiomRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    graph: Any | None = None
+    graph: str | None = None
     turtle: str
     txn_id: str
 
@@ -885,7 +885,7 @@ class TxnConstructRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    graph: Any | None = None
+    graph: str | None = None
     sparql: str
     txn_id: str
 
@@ -943,7 +943,7 @@ class TxnPlanWritebackRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     anchor_id: str
-    graph: Any | None = None
+    graph: str | None = None
     plan: Any
     relationship: str
     txn_id: str
@@ -1001,7 +1001,7 @@ class TxnMaterializeBeliefRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    graph: Any | None = None
+    graph: str | None = None
     node_id: str
     txn_id: str
 
@@ -1058,7 +1058,7 @@ class CommitRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    idempotency_key: Any | None = None
+    idempotency_key: str | None = None
     txn_id: str
 
 

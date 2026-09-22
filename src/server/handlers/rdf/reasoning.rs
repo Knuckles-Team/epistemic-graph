@@ -289,11 +289,22 @@ fn owl_reason(
     half_life: f64,
     min_confidence: f64,
 ) -> Result<crate::protocol::OwlReasonResult, String> {
-    let extra = if ontology.trim().is_empty() {
+    let schema_digests = validated_schema_digests(views)?;
+    let caller_extra = if ontology.trim().is_empty() {
         Vec::new()
     } else {
         eg_rdf::mapping::parse_turtle(ontology)?
     };
+    eg_rdf::owl::validate_supported_profile(&caller_extra)?;
+    let extra = caller_extra;
+    let mut direct_subclasses: Vec<(String, String)> = views
+        .iter()
+        .flat_map(|view| eg_rdf::owl::tbox_triples_from_view(view))
+        .chain(extra.iter().cloned())
+        .filter_map(direct_subclass_fact)
+        .collect();
+    direct_subclasses.sort_unstable();
+    direct_subclasses.dedup();
     // BUG-281: `class_base` (the namespace a bare string node `type` bridges into) is
     // independent of `target_class` (which ONLY filters `instances`, and is legitimately
     // empty per its own documented "all classes" contract). Prefer an explicit
@@ -339,15 +350,64 @@ fn owl_reason(
         instances.push((inst, class));
         instance_conf.push(c);
     }
+    let property_facts = res
+        .property_facts
+        .into_iter()
+        .map(|fact| crate::protocol::OwlPropertyFact {
+            subject: fact.subject,
+            predicate: fact.predicate,
+            object: fact.object,
+            asserted: fact.asserted,
+            rule: fact.rule,
+            axiom: fact.axiom,
+            premises: fact.premises,
+        })
+        .collect();
 
     Ok(crate::protocol::OwlReasonResult {
+        schema_digests,
+        direct_subclasses,
         subclasses,
         subclass_conf,
         instances,
         instance_conf,
+        property_facts,
         consistent: res.consistent,
         unsatisfiable: res.unsatisfiable,
     })
+}
+
+fn validated_schema_digests(views: &[&crate::graph::GraphView]) -> Result<Vec<String>, String> {
+    let mut schema_digests: Vec<String> = views
+        .iter()
+        .map(|view| view.schema_sources.composed_digest().to_hex())
+        .collect();
+    schema_digests.sort_unstable();
+    schema_digests.dedup();
+    // Validate the exact committed catalogs before reasoning. The graph-view
+    // extractor includes their deterministically scoped ontology triples, so
+    // caller Turtle remains an explicit extension, never a replacement.
+    #[cfg(feature = "shacl")]
+    for view in views {
+        crate::server::graph_schema::compose::validate_and_compose(&view.schema_sources)?;
+    }
+    Ok(schema_digests)
+}
+
+fn direct_subclass_fact(triple: eg_rdf::oxrdf::Triple) -> Option<(String, String)> {
+    if triple.predicate.as_str() != "http://www.w3.org/2000/01/rdf-schema#subClassOf" {
+        return None;
+    }
+    let eg_rdf::oxrdf::NamedOrBlankNode::NamedNode(child) = triple.subject else {
+        return None;
+    };
+    let eg_rdf::oxrdf::Term::NamedNode(parent) = triple.object else {
+        return None;
+    };
+    Some((
+        format!("<{}>", child.as_str()),
+        format!("<{}>", parent.as_str()),
+    ))
 }
 
 /// Run the native OWL 2 reasoner over an off-lock snapshot and reconstruct the PROOF
@@ -388,16 +448,18 @@ fn owl_explain(
     sub: &str,
     sup: &str,
 ) -> Result<crate::protocol::OwlExplainResult, String> {
-    let extra = if ontology.trim().is_empty() {
+    let caller_extra = if ontology.trim().is_empty() {
         Vec::new()
     } else {
         eg_rdf::mapping::parse_turtle(ontology)?
     };
+    eg_rdf::owl::validate_supported_profile(&caller_extra)?;
+    #[cfg(feature = "shacl")]
+    crate::server::graph_schema::compose::validate_and_compose(&view.schema_sources)?;
     let mut triples = eg_rdf::owl::tbox_triples_from_view(view);
-    triples.extend(extra);
+    triples.extend(caller_extra);
 
-    let mut reasoner = eg_rdf::owl::Reasoner::from_triples(&triples);
-    let cls = reasoner.classify_weighted();
+    let cls = eg_rdf::owl::classify_hybrid_weighted(&triples);
 
     let canon = |s: &str| -> String {
         if s.starts_with('<') {
@@ -411,6 +473,7 @@ fn owl_explain(
 
     let tree = cls.explain(&sub, &sup).map(proof_node_to_wire);
     Ok(crate::protocol::OwlExplainResult {
+        schema_digests: vec![view.schema_sources.composed_digest().to_hex()],
         found: tree.is_some(),
         tree,
         consistent: cls.consistent,
@@ -430,5 +493,28 @@ fn proof_node_to_wire(node: eg_rdf::owl::ProofNode) -> crate::protocol::ProofNod
         axioms: node.axioms,
         confidence: node.confidence,
         premises: node.premises.into_iter().map(proof_node_to_wire).collect(),
+    }
+}
+
+#[cfg(all(test, feature = "owl", feature = "shacl"))]
+mod graph_schema_authority_tests {
+    use super::*;
+
+    #[test]
+    fn owl_reason_exposes_capability_closure_under_the_composed_schema_digest() {
+        let core = GraphCore::new();
+        let view = core.analysis_snapshot();
+        let expected_digest = view.schema_sources.composed_digest().to_hex();
+        let result = owl_reason(&[&view], "", "", "http://knuckles.team/kg#", 0, 1.0, 0.0).unwrap();
+
+        assert_eq!(result.schema_digests, vec![expected_digest]);
+        assert!(result.direct_subclasses.iter().any(|(child, parent)| {
+            child == "<http://knuckles.team/kg#WarmForkFanoutCapability>"
+                && parent == "<http://knuckles.team/kg#SandboxExecutionCapability>"
+        }));
+        assert!(result.subclasses.iter().any(|(child, parent)| {
+            child == "<http://knuckles.team/kg#CollaborationCapability>"
+                && parent == "<http://knuckles.team/kg#ServiceCapability>"
+        }));
     }
 }

@@ -225,6 +225,13 @@ impl RedbBackend {
 }
 
 fn restore_graph_dump(core: &GraphCore, dump: GraphDump) -> Result<(), String> {
+    // A binary upgrade atomically reconciles the immutable core catalog during
+    // decode.  Validate that new core together with the persisted dynamic
+    // sources before publishing even the durable watermark: an old attachment
+    // that conflicts with a newly-owned core term must make startup fail closed,
+    // never expose a partially upgraded graph.
+    #[cfg(feature = "shacl")]
+    crate::server::graph_schema::compose::validate_and_compose(&dump.schema_sources)?;
     // `GraphRegistry::new` pre-creates `__commons__`, so its fresh projection does
     // not pass through `create_graph_with_incarnation`. Adopt the durable watermark
     // before replaying rows, while leaving an already materialized projection alone.
@@ -233,7 +240,7 @@ fn restore_graph_dump(core: &GraphCore, dump: GraphDump) -> Result<(), String> {
     }
     // Rebuild through the same add_node/add_edge calls used by WAL replay. The
     // durable ledger is a mirror and therefore is intentionally not replayed here.
-    core.install_integrity_policy(dump.integrity_policy);
+    core.install_schema_sources(dump.schema_sources);
     for (id, props) in dump.nodes {
         core.add_node(id, props);
     }
@@ -246,4 +253,57 @@ fn restore_graph_dump(core: &GraphCore, dump: GraphDump) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(all(test, feature = "shacl"))]
+mod graph_schema_restart_tests {
+    use super::*;
+
+    #[test]
+    fn conflicting_binary_core_upgrade_is_an_atomic_restart_refusal() {
+        let core = GraphCore::new();
+        core.add_node("live".to_string(), vec![1, 2, 3]);
+        let before_sources = core.schema_sources();
+        let before_version = core.version();
+
+        let mut sources = crate::graph::GraphSchemaSources::default();
+        sources
+            .attach_dynamic(
+                "admin:old-release".to_string(),
+                crate::graph::GraphSchemaSource::new(
+                    crate::graph::SchemaSourceOrigin::Admin {
+                        name: "old-release".to_string(),
+                    },
+                    None,
+                    Some(std::sync::Arc::from(
+                        "@prefix owl: <http://www.w3.org/2002/07/owl#> . \
+                         @prefix eg: <http://knuckles.team/kg#> . \
+                         eg:Tool a owl:ObjectProperty .",
+                    )),
+                    0,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let dump = GraphDump {
+            kind: crate::redb_store::GraphDumpKind::DurableReadOnlyMaterialization,
+            graph: "g".to_string(),
+            name: "g".to_string(),
+            graph_type: GraphType::Global,
+            incarnation_id: "inc".to_string(),
+            source_snapshot_version: 9,
+            schema_sources: std::sync::Arc::new(sources),
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            ledger: Vec::new(),
+            semantic: Vec::new(),
+            native: crate::redb_store::NativeOperationDumpRows::default(),
+        };
+
+        let error = restore_graph_dump(&core, dump).unwrap_err();
+        assert!(error.contains("SCHEMA_SOURCE_CONFLICT"), "{error}");
+        assert!(core.node_properties.contains_key("live"));
+        assert_eq!(core.version(), before_version);
+        assert_eq!(core.schema_sources(), before_sources);
+    }
 }

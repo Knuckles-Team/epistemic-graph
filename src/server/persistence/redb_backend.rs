@@ -776,9 +776,14 @@ pub struct RedbBackend {
 /// tenant rehydration). Uses the SAME `add_node`/`add_edge`/semantic-restore path
 /// `load_into` uses, so a rehydrated graph is byte-identical to a freshly loaded one.
 /// The core is cleared first so a re-rehydrate is idempotent.
-pub fn rehydrate_core_from_dump(core: &GraphCore, dump: &GraphDump) {
+pub fn rehydrate_core_from_dump(core: &GraphCore, dump: &GraphDump) -> Result<(), String> {
+    // Validate the binary-reconciled core+dynamic set before clearing the live
+    // projection.  Reshard/hibernate rehydration therefore has the same atomic
+    // engine-upgrade rule as ordinary startup.
+    #[cfg(feature = "shacl")]
+    crate::server::graph_schema::compose::validate_and_compose(&dump.schema_sources)?;
     core.clear();
-    core.install_integrity_policy(dump.integrity_policy.clone());
+    core.install_schema_sources(std::sync::Arc::clone(&dump.schema_sources));
     for (id, props) in &dump.nodes {
         core.add_node(id.clone(), props.clone());
     }
@@ -790,6 +795,7 @@ pub fn rehydrate_core_from_dump(core: &GraphCore, dump: &GraphDump) {
             *core.semantic_store.write() = store;
         }
     }
+    Ok(())
 }
 
 pub(crate) fn seed_raw_row<'k, 'v, K, V>(

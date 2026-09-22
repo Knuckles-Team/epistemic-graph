@@ -104,6 +104,12 @@ jobs:
         with:
           python-version-file: '.python-version'
 
+      # The checked generated capability client is imported by Rust-backed
+      # capability tests. Keep this runtime closure aligned with uv.lock so the
+      # generated Python surface is exercised in hosted CI as well.
+      - name: Install locked capability-test Python dependencies
+        run: python -m pip install --disable-pip-version-check pydantic==2.13.5 pydantic-core==2.46.5 annotated-types==0.8.0 typing-extensions==4.16.0 typing-inspection==0.4.4
+
       # Product tests and protocol contracts run on every push and pull request.
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
@@ -115,7 +121,7 @@ jobs:
       # The checked ledger is the canonical all-Method projection. The ordinary
       # feature-selected registry is intentionally smaller, so this named profile
       # is the only meaningful exact generated-artifact comparison. This step is
-      # also executed verbatim by the blocking local pre-push CI-gate replica.
+      # also executed verbatim by the blocking local manual CI-gate replica.
       - name: Test (canonical capability policy and generated ledger)
         run: cargo test --locked -p eg-capabilities --features contract --no-fail-fast
       # The facade's sqlite `.db` round-trip test diffs against a real sqlite3 CLI and
@@ -423,7 +429,7 @@ jobs:
 
   # ── Repository-wide scanner and complexity analysis is advisory. Keep its
   # reports visible, while product tests and cargo-deny remain release gates.
-  # Provisioning stays isolated from the local pre-push mirror.
+  # Provisioning stays isolated from the local manual mirror.
   scanner-quality:
     name: Scanner + architecture quality (advisory)
     runs-on: ubuntu-latest

@@ -12440,6 +12440,9 @@ class RdfClient:
         plus any extra ``ontology`` Turtle, then returns::
 
             {
+                "schema_digests": [digest, ...],    # exact GraphSchema source-set
+                                                    # identities classified
+                "direct_subclasses": [[sub, sup], ...], # asserted named edges
                 "subclasses": [[sub, sup], ...],    # the classification hierarchy
                 "subclass_conf": [c, ...],          # per-subsumption confidence in
                 [0,1],

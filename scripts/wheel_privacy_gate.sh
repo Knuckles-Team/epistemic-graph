@@ -3,7 +3,7 @@
 # wheel fold + normalize + audit + completeness sequence ("Normalize and audit
 # primary wheel" + "Require a complete primary wheel" steps), so a build-path
 # leak or a missing-kernel regression is caught PRE-PUSH instead of only in the
-# release workflow. Before this script, `.pre-commit-config.yaml`'s
+# release workflow. Before this script, `.config/pre-commit.yaml`'s
 # `wheel-smoke` hook built the main wheel and stopped — it never ran
 # normalize_wheel_sbom.py / normalize_wheel_build_paths.py /
 # check_wheel_privacy.py / check_wheel_completeness.py at all, so a

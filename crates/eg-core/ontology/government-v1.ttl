@@ -1,0 +1,81 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:CitizenService a owl:Class ;
+    rdfs:label "Citizen Service" ;
+    rdfs:comment "A public service with eligibility rules. Aligned to NIEM." ;
+    rdfs:subClassOf :Procedure .
+
+:atoStatus a owl:DatatypeProperty ;
+    rdfs:label "ATO status" ;
+    rdfs:comment "pending, authorized, conditional, revoked." ;
+    rdfs:domain :AuthorizationToOperate ;
+    rdfs:range xsd:string .
+
+:authorizedBy a owl:ObjectProperty ;
+    rdfs:label "authorized by" ;
+    rdfs:domain :System ;
+    rdfs:range :AuthorizationToOperate .
+
+:belongsToFamily a owl:ObjectProperty ;
+    rdfs:label "belongs to family" ;
+    rdfs:domain :SecurityControl ;
+    rdfs:range :ControlFamily .
+
+:classificationLevel a owl:DatatypeProperty ;
+    rdfs:label "classification level" ;
+    rdfs:comment "UNCLASSIFIED, CUI, CONFIDENTIAL, SECRET, TOP_SECRET." ;
+    rdfs:domain :ClassifiedDocument ;
+    rdfs:range xsd:string .
+
+:controlId a owl:DatatypeProperty ;
+    rdfs:label "control id" ;
+    rdfs:comment "NIST control identifier (e.g., AC-2, AU-6)." ;
+    rdfs:domain :SecurityControl ;
+    rdfs:range xsd:string .
+
+:impactLevel a owl:DatatypeProperty ;
+    rdfs:label "impact level" ;
+    rdfs:comment "FedRAMP impact: Low, Moderate, High." ;
+    rdfs:domain :AuthorizationToOperate ;
+    rdfs:range xsd:string .
+
+:implementsControl a owl:ObjectProperty ;
+    rdfs:label "implements control" ;
+    rdfs:domain :Procedure ;
+    rdfs:range :SecurityControl .
+
+<http://knuckles.team/kg/government> a owl:Ontology ;
+    rdfs:label "Government & Public Sector Ontology" ;
+    rdfs:comment "Government domain ontology aligned to NIST 800-53, FedRAMP, and NIEM." ;
+    owl:imports <http://knuckles.team/kg/core> .
+
+:ClassifiedDocument a owl:Class ;
+    rdfs:label "Classified Document" ;
+    rdfs:comment "A document with multi-level security classification." ;
+    rdfs:subClassOf :Document .
+
+:ControlFamily a owl:Class ;
+    rdfs:label "Control Family" ;
+    rdfs:comment "A NIST 800-53 control family (AC, AU, CM, etc.)." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:AuthorizationToOperate a owl:Class ;
+    rdfs:label "Authorization To Operate" ;
+    rdfs:comment "A FedRAMP ATO granting system operational authority. BFO:GDC." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:SecurityControl a owl:Class ;
+    rdfs:label "Security Control" ;
+    rdfs:comment "A NIST 800-53 security control. BFO:GDC." ;
+    rdfs:subClassOf bfo:0000031 .

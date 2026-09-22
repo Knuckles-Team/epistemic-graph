@@ -81,6 +81,8 @@ const OWL_TRANSITIVE_PROPERTY: &str = "http://www.w3.org/2002/07/owl#TransitiveP
 const OWL_SYMMETRIC_PROPERTY: &str = "http://www.w3.org/2002/07/owl#SymmetricProperty";
 const OWL_INVERSE_OF: &str = "http://www.w3.org/2002/07/owl#inverseOf";
 const OWL_DISJOINT_WITH: &str = "http://www.w3.org/2002/07/owl#disjointWith";
+const OWL_ALL_DISJOINT_CLASSES: &str = "http://www.w3.org/2002/07/owl#AllDisjointClasses";
+const OWL_MEMBERS: &str = "http://www.w3.org/2002/07/owl#members";
 
 // ── OWL 2 axioms added in EG-021 (broader EL⁺/RL coverage toward DL-lite) ─────
 /// `owl:equivalentProperty` — `r ≡ s` ⇒ `r ⊑ s` AND `s ⊑ r` (both role inclusions).
@@ -271,7 +273,7 @@ pub(crate) fn term_key(t: &Term) -> String {
 /// `owl:inverseOf`, `owl:FunctionalProperty`, `owl:InverseFunctionalProperty`,
 /// `rdfs:domain`/`rdfs:range`, `owl:disjointWith`, `owl:sameAs`, `owl:differentFrom`.
 ///
-/// ## OWL-2 coverage (EG-021) and the DEFERRED DL constructs
+/// ## OWL-2 coverage (EG-021) and hybrid DL constructs
 ///
 /// The goal is **DL-lite / EL++**, NOT full OWL-2 DL. What IS covered (soundly, in the
 /// monotone EL⁺/RL completion + the instance-level [`crate::rules`] engine):
@@ -282,12 +284,12 @@ pub(crate) fn term_key(t: &Term) -> String {
 /// `Symmetric`/`inverseOf`, `Functional`/`InverseFunctionalProperty` (→ `owl:sameAs`
 /// merges), `sameAs`/`differentFrom` equality with clash detection, and `disjointWith`.
 ///
-/// **DEFERRED** (need a full DL TABLEAU — out of the tractable envelope, intentionally
-/// NOT implemented): general negation / `complementOf`, cardinality restrictions beyond
-/// the functional case (`min`/`max`/`exactCardinality`, `owl:qualifiedCardinality`),
-/// reasoning-by-cases over a `unionOf` SUPERCLASS (`A ⊑ C₁ ⊔ C₂`), `oneOf` enumerated
-/// classes as full nominals, and `hasKey` beyond inverse-functional. Anything else is
-/// ignored — the engine stays sound by construction.
+/// General negation, cardinality, superclass-union reasoning and nominals are
+/// outside this parser's tractable envelope and are merged from the native
+/// tableau by [`classify_hybrid_weighted`]. Property consequences always remain
+/// on this EL/RL path. A caller-facing composition is rejected by
+/// [`validate_supported_profile`] when it uses an OWL construct implemented by
+/// neither engine; unsupported axioms are never silently ignored.
 pub fn parse_ontology(triples: &[Triple]) -> Ontology {
     let idx = TripleIndex::build(triples);
     let mut ont = Ontology::default();
@@ -302,10 +304,184 @@ pub fn parse_ontology(triples: &[Triple]) -> Ontology {
         dispatch_ontology_triple(&idx, &mut ont, p, &s, o, c);
     }
 
+    expand_all_disjoint_classes(&idx, triples, &mut ont);
+
     lift_domains_into_el(&mut ont);
     lift_ranges_into_el(&mut ont);
 
     ont
+}
+
+/// Canonical native property-graph relationship projection for one RDF role.
+/// This is the single mapping formerly duplicated in AU's ontology loader.
+pub fn native_relationship_label(value: &str) -> String {
+    let bare = value
+        .strip_prefix('<')
+        .and_then(|value| value.strip_suffix('>'))
+        .unwrap_or(value);
+    let local = bare
+        .rsplit_once('#')
+        .or_else(|| bare.rsplit_once('/'))
+        .map_or(bare, |(_, local)| local);
+    if local.is_empty() || !local.as_bytes()[0].is_ascii_alphabetic() {
+        return String::new();
+    }
+    let mut projected = String::with_capacity(local.len() + 4);
+    let mut previous_lower_or_digit = false;
+    for ch in local.chars() {
+        if ch.is_ascii_uppercase() && previous_lower_or_digit {
+            projected.push('_');
+        }
+        projected.push(ch.to_ascii_uppercase());
+        previous_lower_or_digit = ch.is_ascii_lowercase() || ch.is_ascii_digit();
+    }
+    projected
+}
+
+/// Invert the canonical projection for every role declared by an ontology.
+/// More than one preserved HTTP IRI may intentionally project to the same
+/// native label; in that case a native edge asserts each matching role, exactly
+/// matching the former AU set projection without inventing an `eg:` alias.
+fn ontology_roles_by_native_label(triples: &[Triple]) -> BTreeMap<String, Vec<String>> {
+    let ontology = parse_ontology(triples);
+    let mut roles = BTreeSet::new();
+    for (sub, sup, _, _) in &ontology.sub_roles {
+        roles.insert(sub.clone());
+        roles.insert(sup.clone());
+    }
+    for chain in &ontology.chains {
+        roles.extend(chain.chain.iter().cloned());
+        roles.insert(chain.sup.clone());
+    }
+    for (left, right) in &ontology.inverses {
+        roles.insert(left.clone());
+        roles.insert(right.clone());
+    }
+    roles.extend(ontology.symmetric.iter().cloned());
+    roles.extend(ontology.functional.iter().cloned());
+    roles.extend(ontology.inverse_functional.iter().cloned());
+    for (role, _) in ontology.domains.iter().chain(&ontology.ranges) {
+        roles.insert(role.clone());
+    }
+    let mut projected = BTreeMap::<String, Vec<String>>::new();
+    for role in roles {
+        let label = native_relationship_label(&role);
+        if label.is_empty() {
+            continue;
+        }
+        projected.entry(label).or_default().push(role);
+    }
+    projected
+}
+
+/// Reject OWL vocabulary that neither the EL/RL completion nor the hybrid DL
+/// path interprets.  Annotation and declaration vocabulary is admitted
+/// explicitly; an unknown OWL predicate/type must never become a silently
+/// ignored axiom (or, worse, an accidental ABox role in the tableau parser).
+pub fn validate_supported_profile(triples: &[Triple]) -> Result<(), String> {
+    const OWL_NS: &str = "http://www.w3.org/2002/07/owl#";
+    const SUPPORTED_PREDICATES: &[&str] = &[
+        OWL_ALL_VALUES_FROM,
+        "http://www.w3.org/2002/07/owl#cardinality",
+        "http://www.w3.org/2002/07/owl#complementOf",
+        OWL_DIFFERENT_FROM,
+        OWL_DISJOINT_WITH,
+        OWL_EQUIVALENT_CLASS,
+        OWL_EQUIVALENT_PROPERTY,
+        OWL_HAS_VALUE,
+        "http://www.w3.org/2002/07/owl#imports",
+        OWL_INTERSECTION_OF,
+        OWL_INVERSE_OF,
+        "http://www.w3.org/2002/07/owl#maxCardinality",
+        "http://www.w3.org/2002/07/owl#maxQualifiedCardinality",
+        OWL_MEMBERS,
+        "http://www.w3.org/2002/07/owl#minCardinality",
+        "http://www.w3.org/2002/07/owl#minQualifiedCardinality",
+        "http://www.w3.org/2002/07/owl#onClass",
+        "http://www.w3.org/2002/07/owl#oneOf",
+        OWL_ON_PROPERTY,
+        OWL_PROPERTY_CHAIN_AXIOM,
+        "http://www.w3.org/2002/07/owl#qualifiedCardinality",
+        OWL_SAME_AS,
+        OWL_SOME_VALUES_FROM,
+        OWL_UNION_OF,
+        // Non-logical metadata explicitly allowed by the authority format.
+        "http://www.w3.org/2002/07/owl#deprecated",
+        "http://www.w3.org/2002/07/owl#priorVersion",
+        "http://www.w3.org/2002/07/owl#versionIRI",
+        "http://www.w3.org/2002/07/owl#versionInfo",
+    ];
+    const SUPPORTED_TYPE_OBJECTS: &[&str] = &[
+        OWL_ALL_DISJOINT_CLASSES,
+        OWL_CLASS,
+        "http://www.w3.org/2002/07/owl#AnnotationProperty",
+        "http://www.w3.org/2002/07/owl#DatatypeProperty",
+        OWL_FUNCTIONAL_PROPERTY,
+        OWL_INVERSE_FUNCTIONAL_PROPERTY,
+        "http://www.w3.org/2002/07/owl#NamedIndividual",
+        "http://www.w3.org/2002/07/owl#ObjectProperty",
+        "http://www.w3.org/2002/07/owl#Ontology",
+        "http://www.w3.org/2002/07/owl#Restriction",
+        OWL_SYMMETRIC_PROPERTY,
+        OWL_TRANSITIVE_PROPERTY,
+    ];
+
+    for triple in triples {
+        let predicate = triple.predicate.as_str();
+        if predicate.starts_with(OWL_NS) && !SUPPORTED_PREDICATES.contains(&predicate) {
+            return Err(format!(
+                "OWL_UNSUPPORTED_CONSTRUCT: predicate <{predicate}> is not implemented"
+            ));
+        }
+        if predicate == RDF_TYPE {
+            if let Term::NamedNode(kind) = &triple.object {
+                let kind = kind.as_str();
+                if kind.starts_with(OWL_NS) && !SUPPORTED_TYPE_OBJECTS.contains(&kind) {
+                    return Err(format!(
+                        "OWL_UNSUPPORTED_CONSTRUCT: rdf:type <{kind}> is not implemented"
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Expand OWL's n-ary `AllDisjointClasses` axiom into the pairwise
+/// disjointness relation consumed by both the EL completion and the hybrid DL
+/// consistency result.  Ignoring `owl:members` silently discarded six axioms
+/// in the canonical ecosystem corpus.
+fn expand_all_disjoint_classes(idx: &TripleIndex, triples: &[Triple], ont: &mut Ontology) {
+    for triple in triples {
+        if triple.predicate.as_str() != RDF_TYPE
+            || !matches!(&triple.object, Term::NamedNode(node) if node.as_str() == OWL_ALL_DISJOINT_CLASSES)
+        {
+            continue;
+        }
+        let subject = term_key(&triple.subject.clone().into());
+        for members in idx.objects(&subject, OWL_MEMBERS) {
+            let classes: Vec<String> = parse_rdf_list(idx, members)
+                .into_iter()
+                .filter_map(|term| match term {
+                    Term::NamedNode(node) => Some(iri(node.as_str())),
+                    _ => None,
+                })
+                .collect();
+            for left in 0..classes.len() {
+                for right in (left + 1)..classes.len() {
+                    let a = classes[left].clone();
+                    let b = classes[right].clone();
+                    ont.disjoint.push((
+                        a.clone(),
+                        b.clone(),
+                        format!("AllDisjointClasses({}, {})", short(&a), short(&b)),
+                    ));
+                    register_class(ont, &a);
+                    register_class(ont, &b);
+                }
+            }
+        }
+    }
 }
 
 /// Pre-index per-subject axiom confidences (CONCEPT:EG-KG.ontology.concept-13): `S eg:confidence "c"`.
@@ -2158,10 +2334,51 @@ fn collect_edge_type_facts(
 /// is what a `Reason` Op classifies when no explicit ontology document is supplied —
 /// it reasons over the axioms already loaded into the graph via `AddTriples`.
 pub fn tbox_triples_from_view(view: &eg_core::graph::GraphView) -> Vec<Triple> {
-    let mut out = Vec::new();
-    push_edge_triples(view, &mut out);
+    let mut out = ontology_triples_from_view(view);
+    let roles_by_native_label = ontology_roles_by_native_label(&out);
+    push_edge_triples(view, &roles_by_native_label, &mut out);
     push_node_type_triples(view, &mut out);
+    out.sort_by_key(ToString::to_string);
+    out.dedup();
     out
+}
+
+fn ontology_triples_from_view(view: &eg_core::graph::GraphView) -> Vec<Triple> {
+    let mut out = Vec::new();
+    let mut seen_documents = BTreeSet::new();
+    for (source_id, document) in view.schema_sources.ontologies() {
+        let document_digest = eg_types::contract::Digest256::sha256(document.as_bytes()).to_hex();
+        if !seen_documents.insert(document_digest) {
+            continue;
+        }
+        let scope = eg_types::contract::Digest256::sha256(source_id.as_bytes()).to_hex();
+        let triples = crate::mapping::parse_turtle(document)
+            .expect("installed graph schema ontology was validated before publication");
+        out.extend(triples.into_iter().map(|triple| {
+            scope_schema_blank_nodes(triple, &scope[..16])
+                .expect("validated schema blank nodes remain valid after deterministic scoping")
+        }));
+    }
+    out
+}
+
+fn scope_schema_blank_nodes(triple: Triple, scope: &str) -> Result<Triple, String> {
+    let scoped = |node: BlankNode| {
+        BlankNode::new(format!("s{scope}_{}", node.as_str()))
+            .map_err(|error| format!("schema blank-node scoping failed: {error}"))
+    };
+    let subject = match triple.subject {
+        NamedOrBlankNode::NamedNode(node) => NamedOrBlankNode::NamedNode(node),
+        NamedOrBlankNode::BlankNode(node) => NamedOrBlankNode::BlankNode(scoped(node)?),
+    };
+    let object = match triple.object {
+        Term::NamedNode(node) => Term::NamedNode(node),
+        Term::BlankNode(node) => Term::BlankNode(scoped(node)?),
+        Term::Literal(literal) => Term::Literal(literal),
+        #[cfg(feature = "sparql-star")]
+        Term::Triple(triple) => Term::Triple(Box::new(scope_schema_blank_nodes(*triple, scope)?)),
+    };
+    Ok(Triple::new(subject, triple.predicate, object))
 }
 
 /// Parse a stored node id (`<iri>` or `_:blank`) into an RDF node. A bare label is not a
@@ -2187,20 +2404,61 @@ fn tbox_object(id: &str) -> Option<Term> {
 
 /// Edges → object triples (predicate is the edge `relationship`). Half of
 /// [`tbox_triples_from_view`]'s two sources.
-fn push_edge_triples(view: &eg_core::graph::GraphView, out: &mut Vec<Triple>) {
+fn push_edge_triples(
+    view: &eg_core::graph::GraphView,
+    roles_by_native_label: &BTreeMap<String, Vec<String>>,
+    out: &mut Vec<Triple>,
+) {
     for ((s, o), blobs) in &view.edge_properties {
         for blob in blobs {
-            if let Ok(v) = eg_types::msgpack::decode_property_value(blob.as_slice()) {
-                if let Some(pred) = v.get("relationship").and_then(|x| x.as_str()) {
-                    if let (Some(su), Some(pr), Some(ob)) =
-                        (tbox_node(s), NamedNode::new(pred).ok(), tbox_object(o))
-                    {
-                        out.push(Triple::new(su, pr, ob));
-                    }
-                }
-            }
+            push_decoded_edge_triples(s, o, blob.as_slice(), roles_by_native_label, out);
         }
     }
+}
+
+fn push_decoded_edge_triples(
+    subject: &str,
+    object: &str,
+    blob: &[u8],
+    roles_by_native_label: &BTreeMap<String, Vec<String>>,
+    out: &mut Vec<Triple>,
+) {
+    let Ok(value) = eg_types::msgpack::decode_property_value(blob) else {
+        return;
+    };
+    let Some(label) = value.get("relationship").and_then(|value| value.as_str()) else {
+        return;
+    };
+    let predicates = edge_predicates(label, roles_by_native_label);
+    let (Some(subject), Some(object)) = (tbox_node(subject), tbox_object(object)) else {
+        return;
+    };
+    out.extend(
+        predicates
+            .into_iter()
+            .map(|predicate| Triple::new(subject.clone(), predicate, object.clone())),
+    );
+}
+
+fn edge_predicates(
+    label: &str,
+    roles_by_native_label: &BTreeMap<String, Vec<String>>,
+) -> Vec<NamedNode> {
+    if let Ok(predicate) = NamedNode::new(label) {
+        return vec![predicate];
+    }
+    roles_by_native_label
+        .get(label)
+        .into_iter()
+        .flatten()
+        .filter_map(|role| {
+            let iri = role
+                .strip_prefix('<')
+                .and_then(|value| value.strip_suffix('>'))
+                .unwrap_or(role);
+            NamedNode::new(iri).ok()
+        })
+        .collect()
 }
 
 /// Node `type` cells → folded rdf:type triples. The other half of
@@ -2233,8 +2491,25 @@ pub struct WeightedReasonResult {
     pub subclasses: Vec<(String, String, f64)>,
     /// `(instance, class, confidence)` — inferred memberships with `confidence ≥ τ`.
     pub instances: Vec<(String, String, f64)>,
+    /// Asserted and RL-derived object-property facts with first-derivation
+    /// evidence.  This is separate from class subsumption: dropping it was the
+    /// reason mixed OWL corpora appeared to classify while silently losing
+    /// inverse/symmetric/transitive/property-chain consequences.
+    pub property_facts: Vec<PropertyEntailment>,
     pub consistent: bool,
     pub unsatisfiable: Vec<String>,
+}
+
+/// One saturated object-property fact and its deterministic first proof.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PropertyEntailment {
+    pub subject: String,
+    pub predicate: String,
+    pub object: String,
+    pub asserted: bool,
+    pub rule: String,
+    pub axiom: Option<String>,
+    pub premises: Vec<(String, String, String)>,
 }
 
 /// Run confidence-weighted EL⁺/RL reasoning over the UNION of `views` (each a graph /
@@ -2259,8 +2534,7 @@ pub fn reason_distributed_weighted(
     let triples = gather_distributed_tbox(views, extra_ontology_triples);
 
     // 2. Classify the unioned TBox once, with confidence propagation.
-    let mut reasoner = Reasoner::from_triples(&triples);
-    let cls = reasoner.classify_weighted();
+    let (cls, dl_instances) = classify_hybrid_with_instances(&triples);
 
     // 3. Gather + UNION the asserted (decayed-confidence) facts across every shard.
     //    A fact for the same instance asserted on two shards keeps the STRONGER.
@@ -2269,14 +2543,548 @@ pub fn reason_distributed_weighted(
 
     // 4. Project the weighted subsumptions + the thresholded instance memberships.
     let subclasses = project_weighted_subclasses(&cls);
-    let instances = project_weighted_instances(&cls, &asserted, target_class, min_confidence);
+    let mut instances = project_weighted_instances(&cls, &asserted, target_class, min_confidence);
+    merge_tableau_instances(&mut instances, dl_instances, target_class, min_confidence);
+    let property_facts = saturate_object_properties(&triples);
 
     Ok(WeightedReasonResult {
         subclasses,
         instances,
+        property_facts,
         consistent: cls.consistent,
         unsatisfiable: cls.unsatisfiable.into_iter().collect(),
     })
+}
+
+/// Classify with the EL/RL completion retained and merge the tableau's
+/// non-tractable class consequences.  Explanation and ordinary reasoning must
+/// use this same path or a mixed ontology can be accepted yet become
+/// inexplicable through the public proof surface.
+pub fn classify_hybrid_weighted(triples: &[Triple]) -> Classification {
+    classify_hybrid_with_instances(triples).0
+}
+
+fn classify_hybrid_with_instances(
+    triples: &[Triple],
+) -> (Classification, BTreeMap<String, BTreeSet<String>>) {
+    let mut reasoner = Reasoner::from_triples(triples);
+    let classification = reasoner.classify_weighted();
+    #[cfg(feature = "owl-dl")]
+    let result = {
+        let mut classification = classification;
+        let mut instances = BTreeMap::new();
+        if crate::tableau::needs_tableau(triples) {
+            // Feed the tableau the RL-saturated ABox role facts. The tableau
+            // intentionally does not implement inverse/symmetric/arbitrary
+            // property chains itself; without this union a cardinality or
+            // universal restriction could observe fewer role fillers than the
+            // certified hybrid semantics entails.
+            let tableau_triples = tableau_input_with_property_closure(triples);
+            let dl = crate::tableau::reason_dl(&tableau_triples);
+            instances = dl.instances.clone();
+            merge_tableau_classification(&mut classification, dl);
+        }
+        (classification, instances)
+    };
+    #[cfg(not(feature = "owl-dl"))]
+    let result = (classification, BTreeMap::new());
+    result
+}
+
+#[cfg(feature = "owl-dl")]
+fn tableau_input_with_property_closure(triples: &[Triple]) -> Vec<Triple> {
+    let mut union = triples.to_vec();
+    for fact in saturate_object_properties(triples) {
+        let Some(subject) = tbox_node(&fact.subject) else {
+            continue;
+        };
+        let Some(object) = tbox_object(&fact.object) else {
+            continue;
+        };
+        let predicate = fact
+            .predicate
+            .strip_prefix('<')
+            .and_then(|value| value.strip_suffix('>'))
+            .unwrap_or(&fact.predicate);
+        let Ok(predicate) = NamedNode::new(predicate) else {
+            continue;
+        };
+        union.push(Triple::new(subject, predicate, object));
+    }
+    union.sort_by_key(ToString::to_string);
+    union.dedup();
+    union
+}
+
+/// Merge tableau-only ABox memberships into the weighted public projection.
+/// Tableau decisions are hard entailments (`1.0`) because the current DL
+/// parser has no confidence annotations.  A `BTreeMap` provides stable order
+/// and keeps the strongest derivation when EL/RL already produced the same
+/// membership.
+fn merge_tableau_instances(
+    instances: &mut Vec<(String, String, f64)>,
+    dl_instances: BTreeMap<String, BTreeSet<String>>,
+    target_class: &str,
+    min_confidence: f64,
+) {
+    if min_confidence > 1.0 {
+        return;
+    }
+    let target = (!target_class.trim().is_empty()).then(|| normalize_target_class(target_class));
+    let mut merged: BTreeMap<(String, String), f64> = instances
+        .drain(..)
+        .map(|(individual, class, confidence)| ((individual, class), confidence))
+        .collect();
+    for (individual, classes) in dl_instances {
+        for class in classes {
+            if target.as_ref().is_some_and(|target| target != &class) {
+                continue;
+            }
+            merged
+                .entry((individual.clone(), class))
+                .and_modify(|confidence| *confidence = confidence.max(1.0))
+                .or_insert(1.0);
+        }
+    }
+    *instances = merged
+        .into_iter()
+        .map(|((individual, class), confidence)| (individual, class, confidence))
+        .collect();
+}
+
+/// Saturate ABox object-property assertions under the RL property fragment.
+///
+/// TBox parsing and fact saturation deliberately share [`Ontology`], so the
+/// same inverse/symmetric/sub-property/chain declarations drive both the EL
+/// role relation and live graph edges.  Facts are keyed in a `BTreeMap`; the
+/// first derivation in the fixed rule order is the stable explanation.
+pub fn saturate_object_properties(triples: &[Triple]) -> Vec<PropertyEntailment> {
+    let ontology = parse_ontology(triples);
+    let mut facts = asserted_object_property_facts(triples);
+    saturate_property_fixpoint(&ontology, &mut facts);
+    facts.into_values().collect()
+}
+
+type ObjectPropertyFact = (String, String, String);
+
+fn asserted_object_property_facts(
+    triples: &[Triple],
+) -> BTreeMap<ObjectPropertyFact, PropertyEntailment> {
+    let mut facts = BTreeMap::new();
+    for triple in triples {
+        if is_schema_statement(triple.predicate.as_str()) {
+            continue;
+        }
+        let object = match &triple.object {
+            Term::NamedNode(node) => iri(node.as_str()),
+            Term::BlankNode(node) => format!("_:{}", node.as_str()),
+            _ => continue,
+        };
+        let fact = (
+            term_key(&triple.subject.clone().into()),
+            iri(triple.predicate.as_str()),
+            object,
+        );
+        facts.entry(fact.clone()).or_insert(PropertyEntailment {
+            subject: fact.0,
+            predicate: fact.1,
+            object: fact.2,
+            asserted: true,
+            rule: "asserted".to_string(),
+            axiom: None,
+            premises: Vec::new(),
+        });
+    }
+    facts
+}
+
+fn saturate_property_fixpoint(
+    ontology: &Ontology,
+    facts: &mut BTreeMap<ObjectPropertyFact, PropertyEntailment>,
+) {
+    let mut changed = true;
+    let mut rounds = 0usize;
+    while changed && rounds < 100_000 && facts.len() < 1_000_000 {
+        rounds += 1;
+        changed = saturate_property_round(ontology, facts);
+    }
+}
+
+fn saturate_property_round(
+    ontology: &Ontology,
+    facts: &mut BTreeMap<ObjectPropertyFact, PropertyEntailment>,
+) -> bool {
+    let snapshot: Vec<ObjectPropertyFact> = facts.keys().cloned().collect();
+    let mut changed = derive_subproperty_facts(facts, &snapshot, &ontology.sub_roles);
+    changed |= derive_symmetric_facts(facts, &snapshot, &ontology.symmetric);
+    changed |= derive_inverse_facts(facts, &snapshot, &ontology.inverses);
+    let by_role = property_fact_index(facts.keys());
+    changed |= derive_property_chain_facts(facts, &by_role, &ontology.chains);
+    changed
+}
+
+fn derive_subproperty_facts(
+    facts: &mut BTreeMap<ObjectPropertyFact, PropertyEntailment>,
+    snapshot: &[ObjectPropertyFact],
+    roles: &[(String, String, String, f64)],
+) -> bool {
+    let mut changed = false;
+    for (sub, sup, label, _) in roles {
+        for fact in snapshot.iter().filter(|fact| &fact.1 == sub) {
+            changed |= insert_property_fact(
+                facts,
+                (fact.0.clone(), sup.clone(), fact.2.clone()),
+                "RL-subPropertyOf",
+                Some(label.clone()),
+                vec![fact.clone()],
+            );
+        }
+    }
+    changed
+}
+
+fn derive_symmetric_facts(
+    facts: &mut BTreeMap<ObjectPropertyFact, PropertyEntailment>,
+    snapshot: &[ObjectPropertyFact],
+    roles: &BTreeSet<String>,
+) -> bool {
+    let mut changed = false;
+    for role in roles {
+        for fact in snapshot.iter().filter(|fact| &fact.1 == role) {
+            changed |= insert_property_fact(
+                facts,
+                (fact.2.clone(), role.clone(), fact.0.clone()),
+                "RL-symmetric",
+                Some(format!("{} rdf:type owl:SymmetricProperty", short(role))),
+                vec![fact.clone()],
+            );
+        }
+    }
+    changed
+}
+
+fn derive_inverse_facts(
+    facts: &mut BTreeMap<ObjectPropertyFact, PropertyEntailment>,
+    snapshot: &[ObjectPropertyFact],
+    inverses: &[(String, String)],
+) -> bool {
+    let mut changed = false;
+    for (left, right) in inverses {
+        for (from, to) in [(left, right), (right, left)] {
+            for fact in snapshot.iter().filter(|fact| &fact.1 == from) {
+                changed |= insert_property_fact(
+                    facts,
+                    (fact.2.clone(), to.clone(), fact.0.clone()),
+                    "RL-inverseOf",
+                    Some(format!("{} owl:inverseOf {}", short(left), short(right))),
+                    vec![fact.clone()],
+                );
+            }
+        }
+    }
+    changed
+}
+
+fn derive_property_chain_facts(
+    facts: &mut BTreeMap<ObjectPropertyFact, PropertyEntailment>,
+    by_role: &BTreeMap<String, Vec<(String, String)>>,
+    chains: &[RoleChain],
+) -> bool {
+    let mut changed = false;
+    for chain in chains {
+        changed |= derive_one_property_chain(facts, by_role, chain);
+    }
+    changed
+}
+
+fn derive_one_property_chain(
+    facts: &mut BTreeMap<ObjectPropertyFact, PropertyEntailment>,
+    by_role: &BTreeMap<String, Vec<(String, String)>>,
+    chain: &RoleChain,
+) -> bool {
+    let Some(first_role) = chain.chain.first() else {
+        return false;
+    };
+    let Some(starts) = by_role.get(first_role) else {
+        return false;
+    };
+    let mut changed = false;
+    for (subject, first_object) in starts {
+        changed |= derive_property_chain_from_start(facts, by_role, chain, subject, first_object);
+    }
+    changed
+}
+
+fn derive_property_chain_from_start(
+    facts: &mut BTreeMap<ObjectPropertyFact, PropertyEntailment>,
+    by_role: &BTreeMap<String, Vec<(String, String)>>,
+    chain: &RoleChain,
+    subject: &str,
+    first_object: &str,
+) -> bool {
+    let first_role = &chain.chain[0];
+    let mut premises = vec![(
+        subject.to_string(),
+        first_role.clone(),
+        first_object.to_string(),
+    )];
+    let mut completions = Vec::new();
+    follow_property_chain(
+        by_role,
+        &chain.chain,
+        1,
+        first_object,
+        &mut premises,
+        &mut completions,
+    );
+    completions
+        .into_iter()
+        .fold(false, |changed, (object, proof)| {
+            insert_property_fact(
+                facts,
+                (subject.to_string(), chain.sup.clone(), object),
+                "RL-propertyChain",
+                Some(chain.label.clone()),
+                proof,
+            ) || changed
+        })
+}
+
+fn is_schema_statement(predicate: &str) -> bool {
+    matches!(
+        predicate,
+        RDF_TYPE
+            | RDF_FIRST
+            | RDF_REST
+            | RDFS_SUBCLASS_OF
+            | RDFS_SUBPROPERTY_OF
+            | RDFS_DOMAIN
+            | RDFS_RANGE
+            | OWL_EQUIVALENT_CLASS
+            | OWL_EQUIVALENT_PROPERTY
+            | OWL_PROPERTY_CHAIN_AXIOM
+            | OWL_INVERSE_OF
+            | OWL_DISJOINT_WITH
+            | OWL_SAME_AS
+            | OWL_DIFFERENT_FROM
+    )
+}
+
+fn insert_property_fact(
+    facts: &mut BTreeMap<(String, String, String), PropertyEntailment>,
+    fact: (String, String, String),
+    rule: &str,
+    axiom: Option<String>,
+    premises: Vec<(String, String, String)>,
+) -> bool {
+    if facts.contains_key(&fact) {
+        return false;
+    }
+    facts.insert(
+        fact.clone(),
+        PropertyEntailment {
+            subject: fact.0,
+            predicate: fact.1,
+            object: fact.2,
+            asserted: false,
+            rule: rule.to_string(),
+            axiom,
+            premises,
+        },
+    );
+    true
+}
+
+fn property_fact_index<'a>(
+    facts: impl Iterator<Item = &'a (String, String, String)>,
+) -> BTreeMap<String, Vec<(String, String)>> {
+    let mut index = BTreeMap::<String, Vec<(String, String)>>::new();
+    for (subject, predicate, object) in facts {
+        index
+            .entry(predicate.clone())
+            .or_default()
+            .push((subject.clone(), object.clone()));
+    }
+    index
+}
+
+fn follow_property_chain(
+    index: &BTreeMap<String, Vec<(String, String)>>,
+    chain: &[String],
+    offset: usize,
+    current: &str,
+    premises: &mut Vec<(String, String, String)>,
+    out: &mut Vec<(String, Vec<(String, String, String)>)>,
+) {
+    if offset == chain.len() {
+        out.push((current.to_string(), premises.clone()));
+        return;
+    }
+    let Some(edges) = index.get(&chain[offset]) else {
+        return;
+    };
+    for (subject, object) in edges.iter().filter(|(subject, _)| subject == current) {
+        premises.push((subject.clone(), chain[offset].clone(), object.clone()));
+        follow_property_chain(index, chain, offset + 1, object, premises, out);
+        premises.pop();
+    }
+}
+
+/// Merge the DL decision into the always-run EL/RL closure.
+///
+/// The tableau supplies satisfiability and the named-class consequences that
+/// require cardinality/negation/nominals/by-cases.  EL/RL remains authoritative
+/// for role/property saturation; replacing it wholesale would drop inverse,
+/// symmetric, transitive and arbitrary-chain consequences from a mixed corpus.
+#[cfg(feature = "owl-dl")]
+fn merge_tableau_classification(
+    classification: &mut Classification,
+    dl: crate::tableau::DlReasoningResult,
+) {
+    let nothing = iri(OWL_NOTHING);
+    merge_tableau_subsumers(classification, dl.subsumers, &nothing);
+    close_hybrid_subsumption(classification, &nothing);
+    classification.consistent =
+        classification.consistent && classification.unsatisfiable.is_empty() && dl.consistent;
+}
+
+#[cfg(feature = "owl-dl")]
+fn merge_tableau_subsumers(
+    classification: &mut Classification,
+    subsumers: BTreeMap<String, BTreeSet<String>>,
+    nothing: &str,
+) {
+    for (sub, supers) in subsumers {
+        for sup in supers {
+            record_tableau_subsumption(classification, &sub, &sup, nothing);
+        }
+    }
+}
+
+#[cfg(feature = "owl-dl")]
+fn record_tableau_subsumption(
+    classification: &mut Classification,
+    sub: &str,
+    sup: &str,
+    nothing: &str,
+) {
+    if classification
+        .subsumers
+        .entry(sub.to_string())
+        .or_default()
+        .insert(sup.to_string())
+    {
+        classification
+            .confidence
+            .insert((sub.to_string(), sup.to_string()), 1.0);
+        classification.justifications.insert(
+            (sub.to_string(), sup.to_string()),
+            Justification {
+                rule: "DL-tableau",
+                axioms: vec!["tableau refutation of subclass counter-model".to_string()],
+                premises: Vec::new(),
+            },
+        );
+    }
+    if sup == nothing && sub != nothing {
+        classification.unsatisfiable.insert(sub.to_string());
+    }
+}
+
+#[cfg(feature = "owl-dl")]
+fn close_hybrid_subsumption(classification: &mut Classification, nothing: &str) {
+    // The EL/RL result was already transitively closed before the tableau
+    // added its mixed-profile edges. Re-close that combined relation so an EL
+    // path into/out of a DL-relevant class remains visible without asking the
+    // tableau O(|classes|^2) redundant questions. Preserve an explicit
+    // two-premise proof for every newly exposed path.
+    loop {
+        let snapshot = classification.subsumers.clone();
+        let additions = collect_hybrid_subsumption_additions(&snapshot);
+        if additions.is_empty() {
+            break;
+        }
+        for ((sub, sup), mid) in additions {
+            record_hybrid_subsumption(classification, sub, sup, mid, nothing);
+        }
+    }
+}
+
+#[cfg(feature = "owl-dl")]
+fn collect_hybrid_subsumption_additions(
+    snapshot: &BTreeMap<String, BTreeSet<String>>,
+) -> BTreeMap<(String, String), String> {
+    let mut additions = BTreeMap::new();
+    for (sub, mids) in snapshot {
+        collect_class_subsumption_additions(sub, mids, snapshot, &mut additions);
+    }
+    additions
+}
+
+#[cfg(feature = "owl-dl")]
+fn collect_class_subsumption_additions(
+    sub: &str,
+    mids: &BTreeSet<String>,
+    snapshot: &BTreeMap<String, BTreeSet<String>>,
+    additions: &mut BTreeMap<(String, String), String>,
+) {
+    let Some(known_supers) = snapshot.get(sub) else {
+        return;
+    };
+    for mid in mids {
+        let Some(supers) = snapshot.get(mid) else {
+            continue;
+        };
+        collect_missing_supers(sub, mid, supers, known_supers, additions);
+    }
+}
+
+#[cfg(feature = "owl-dl")]
+fn collect_missing_supers(
+    sub: &str,
+    mid: &str,
+    supers: &BTreeSet<String>,
+    known_supers: &BTreeSet<String>,
+    additions: &mut BTreeMap<(String, String), String>,
+) {
+    for sup in supers {
+        if !known_supers.contains(sup) {
+            additions
+                .entry((sub.to_string(), sup.clone()))
+                .or_insert_with(|| mid.to_string());
+        }
+    }
+}
+
+#[cfg(feature = "owl-dl")]
+fn record_hybrid_subsumption(
+    classification: &mut Classification,
+    sub: String,
+    sup: String,
+    mid: String,
+    nothing: &str,
+) {
+    classification
+        .subsumers
+        .entry(sub.clone())
+        .or_default()
+        .insert(sup.clone());
+    let confidence = classification.subclass_confidence(&sub, &mid)
+        * classification.subclass_confidence(&mid, &sup);
+    classification
+        .confidence
+        .insert((sub.clone(), sup.clone()), confidence);
+    classification.justifications.insert(
+        (sub.clone(), sup.clone()),
+        Justification {
+            rule: "CR-sub",
+            axioms: vec!["hybrid tableau/EL closure".to_string()],
+            premises: vec![(sub.clone(), mid.clone()), (mid, sup.clone())],
+        },
+    );
+    if sup == nothing {
+        classification.unsatisfiable.insert(sub);
+    }
 }
 
 /// Step 1 of [`reason_distributed_weighted`]: union every shard's TBox triples with the
@@ -2385,6 +3193,200 @@ fn normalize_target_class(target_class: &str) -> String {
 mod tests {
     use super::*;
     use crate::mapping::parse_turtle;
+
+    #[test]
+    fn tableau_instance_merge_is_deterministic_filtered_and_deduplicated() {
+        let mut instances = vec![(
+            iri("http://example.org/a"),
+            iri("http://example.org/C"),
+            0.4,
+        )];
+        let dl = BTreeMap::from([(
+            iri("http://example.org/a"),
+            BTreeSet::from([iri("http://example.org/C"), iri("http://example.org/D")]),
+        )]);
+        merge_tableau_instances(&mut instances, dl, "http://example.org/C", 0.0);
+        assert_eq!(
+            instances,
+            vec![(
+                iri("http://example.org/a"),
+                iri("http://example.org/C"),
+                1.0
+            )]
+        );
+    }
+
+    #[cfg(feature = "owl-dl")]
+    #[test]
+    fn hybrid_tableau_instances_observe_rl_subproperty_role_fillers() {
+        let triples = parse_turtle(
+            r#"
+@prefix ex: <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+ex:base rdfs:subPropertyOf ex:providedBy .
+ex:Redundant owl:equivalentClass [
+  owl:onProperty ex:providedBy ;
+  owl:minCardinality "2"^^<http://www.w3.org/2001/XMLSchema#nonNegativeInteger>
+] .
+ex:a ex:base ex:b, ex:c .
+ex:b owl:differentFrom ex:c .
+"#,
+        )
+        .unwrap();
+        let (_, instances) = classify_hybrid_with_instances(&triples);
+        assert!(instances
+            .get(&iri("http://example.org/a"))
+            .is_some_and(|classes| classes.contains(&iri("http://example.org/Redundant"))));
+    }
+
+    #[test]
+    fn object_property_saturation_keeps_inverse_symmetric_transitive_and_chain_proofs() {
+        let triples = parse_turtle(
+            r#"
+@prefix ex: <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+ex:parent rdf:type owl:TransitiveProperty .
+ex:friend rdf:type owl:SymmetricProperty .
+ex:contains owl:inverseOf ex:partOf .
+ex:dependsOn owl:propertyChainAxiom ( ex:parent ex:contains ) .
+ex:a ex:parent ex:b .
+ex:b ex:parent ex:c .
+ex:a ex:friend ex:d .
+ex:c ex:contains ex:e .
+"#,
+        )
+        .unwrap();
+        let facts = saturate_object_properties(&triples);
+        let find = |subject: &str, predicate: &str, object: &str| {
+            facts
+                .iter()
+                .find(|fact| {
+                    fact.subject == iri(subject)
+                        && fact.predicate == iri(predicate)
+                        && fact.object == iri(object)
+                })
+                .unwrap()
+        };
+        assert_eq!(
+            find(
+                "http://example.org/a",
+                "http://example.org/parent",
+                "http://example.org/c"
+            )
+            .rule,
+            "RL-propertyChain"
+        );
+        assert_eq!(
+            find(
+                "http://example.org/d",
+                "http://example.org/friend",
+                "http://example.org/a"
+            )
+            .rule,
+            "RL-symmetric"
+        );
+        assert_eq!(
+            find(
+                "http://example.org/e",
+                "http://example.org/partOf",
+                "http://example.org/c"
+            )
+            .rule,
+            "RL-inverseOf"
+        );
+        let chain = find(
+            "http://example.org/b",
+            "http://example.org/dependsOn",
+            "http://example.org/e",
+        );
+        assert_eq!(chain.rule, "RL-propertyChain");
+        assert_eq!(chain.premises.len(), 2);
+    }
+
+    #[test]
+    fn immutable_capability_source_is_present_in_normal_graph_reasoning() {
+        let core = eg_core::graph::GraphCore::new();
+        let classification =
+            Reasoner::from_triples(&tbox_triples_from_view(&core.analysis_snapshot())).classify();
+        assert!(classification.entails_subclass(
+            "<http://knuckles.team/kg#CollaborationCapability>",
+            "<http://knuckles.team/kg#ServiceCapability>"
+        ));
+    }
+
+    #[test]
+    fn native_relationship_labels_resolve_through_the_committed_ontology() {
+        let core = eg_core::graph::GraphCore::new();
+        for id in ["<urn:test:a>", "<urn:test:b>", "<urn:test:c>"] {
+            core.add_node(
+                id.to_string(),
+                rmp_serde::to_vec_named(&serde_json::json!({"type": "Thing"})).unwrap(),
+            );
+        }
+        for (source, target) in [
+            ("<urn:test:a>", "<urn:test:b>"),
+            ("<urn:test:b>", "<urn:test:c>"),
+        ] {
+            core.add_edge(
+                source.to_string(),
+                target.to_string(),
+                rmp_serde::to_vec_named(&serde_json::json!({"relationship": "PART_OF"})).unwrap(),
+            )
+            .unwrap();
+        }
+        let triples = tbox_triples_from_view(&core.analysis_snapshot());
+        let facts = saturate_object_properties(&triples);
+        assert!(facts.iter().any(|fact| {
+            fact.subject == "urn:test:a"
+                && fact.predicate == "http://knuckles.team/kg#partOf"
+                && fact.object == "urn:test:c"
+                && fact.rule == "RL-propertyChain"
+        }));
+    }
+
+    #[test]
+    fn attached_ontology_enters_tbox_union_and_detach_withdraws_it() {
+        let core = eg_core::graph::GraphCore::new();
+        let ontology = r#"
+@prefix ex: <http://example.org/> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+ex:AttachedChild rdfs:subClassOf ex:AttachedParent .
+"#;
+        let mut sources = (*core.schema_sources()).clone();
+        sources
+            .attach_dynamic(
+                "admin:owl-test".to_string(),
+                eg_core::graph::GraphSchemaSource::new(
+                    eg_core::graph::SchemaSourceOrigin::Admin {
+                        name: "owl-test".to_string(),
+                    },
+                    None,
+                    Some(std::sync::Arc::from(ontology)),
+                    0,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        core.install_schema_sources(std::sync::Arc::new(sources));
+        let classification =
+            Reasoner::from_triples(&tbox_triples_from_view(&core.analysis_snapshot())).classify();
+        assert!(classification.entails_subclass(
+            "<http://example.org/AttachedChild>",
+            "<http://example.org/AttachedParent>"
+        ));
+
+        let mut sources = (*core.schema_sources()).clone();
+        assert!(sources.detach_dynamic("admin:owl-test"));
+        core.install_schema_sources(std::sync::Arc::new(sources));
+        let classification =
+            Reasoner::from_triples(&tbox_triples_from_view(&core.analysis_snapshot())).classify();
+        assert!(!classification.entails_subclass(
+            "<http://example.org/AttachedChild>",
+            "<http://example.org/AttachedParent>"
+        ));
+    }
 
     /// The headline proof: EL derives `HumanHeart ⊑ HumanComponent` through an
     /// existential restriction on the LHS of a subclass axiom + a role chain — an
@@ -3154,6 +4156,43 @@ ex:HumanHeart rdfs:subClassOf ex:Heart .
         );
         let members = instances_of(&cls, &asserted, "<http://example.org/HumanComponent>");
         assert_eq!(members, vec!["<http://example.org/myHeart>".to_string()]);
+    }
+
+    #[test]
+    fn all_disjoint_classes_is_not_silently_dropped() {
+        let ttl = r#"
+@prefix ex: <http://example.org/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+[] a owl:AllDisjointClasses ; owl:members ( ex:A ex:B ex:C ) .
+ex:Impossible rdfs:subClassOf ex:A, ex:C .
+"#;
+        let triples = parse_turtle(ttl).unwrap();
+        let ontology = parse_ontology(&triples);
+        assert_eq!(ontology.disjoint.len(), 3);
+        let mut reasoner = Reasoner::from_triples(&triples);
+        let classification = reasoner.classify();
+        assert!(!classification.consistent);
+        assert!(classification
+            .unsatisfiable
+            .contains("<http://example.org/Impossible>"));
+    }
+
+    #[test]
+    fn native_relationship_projection_matches_the_retired_au_contract() {
+        assert_eq!(
+            native_relationship_label("<http://knuckles.team/kg#dependsOn>"),
+            "DEPENDS_ON"
+        );
+        assert_eq!(
+            native_relationship_label("http://knuckles.team/kg#PART_OF"),
+            "PART_OF"
+        );
+        assert_eq!(
+            native_relationship_label("http://purl.obolibrary.org/obo/BFO_0000050"),
+            "BFO_0000050"
+        );
+        assert!(native_relationship_label("http://example.org/0000050").is_empty());
     }
 
     #[test]

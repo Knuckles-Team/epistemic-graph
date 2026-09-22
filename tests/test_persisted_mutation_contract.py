@@ -791,13 +791,17 @@ def test_m1_scanner_rejects_arbitrary_physical_root_and_semantic_bypass() -> Non
         )
 
 
-def test_row_delta_authority_matches_shipped_v2_producer_and_validator() -> None:
+def test_row_delta_authority_matches_current_producer_legacy_migration_and_validator() -> None:
     module = _gate_module()
     contract, _, _, _, row_delta = _m1_sources(module)
 
     module._check_m1_identity_contract(contract, row_delta)
-    assert 'const ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-v2";' in row_delta
-    assert "const ROW_DELTA_VERSION: u16 = 2;" in row_delta
+    assert (
+        'const ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-schema-sources";'
+        in row_delta
+    )
+    assert 'const LEGACY_ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-v2";' in row_delta
+    assert "const ROW_DELTA_VERSION: u16 = 3;" in row_delta
 
 
 @pytest.mark.parametrize(
@@ -805,20 +809,20 @@ def test_row_delta_authority_matches_shipped_v2_producer_and_validator() -> None
     (
         (
             "producer",
-            'const ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-v2";',
+            'const ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-schema-sources";',
             'const ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-v1";',
             "producer constant/version",
         ),
         (
             "producer",
-            "const ROW_DELTA_VERSION: u16 = 2;",
             "const ROW_DELTA_VERSION: u16 = 3;",
+            "const ROW_DELTA_VERSION: u16 = 4;",
             "producer constant/version",
         ),
         (
             "validator",
-            '"sha256" | "sha256-row-delta-v2"',
-            '"sha256" | "sha256-row-delta-v3"',
+            '"sha256" | "sha256-row-delta-v2" | "sha256-row-delta-schema-sources"',
+            '"sha256" | "sha256-row-delta-v2" | "sha256-row-delta-v4"',
             "accept exactly sha256",
         ),
     ),
@@ -841,7 +845,7 @@ def test_row_delta_authority_mutations_fail_closed(
 
 @pytest.mark.parametrize(
     "stale",
-    ("sha256-row-delta-v1", "sha256-row-delta-v3", "sha256-row-delta-prototype"),
+    ("sha256-row-delta-v1", "sha256-row-delta-prototype"),
 )
 def test_row_delta_retired_identities_cannot_hide_in_production(stale: str) -> None:
     module = _gate_module()

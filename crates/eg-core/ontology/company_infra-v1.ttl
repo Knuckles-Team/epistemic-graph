@@ -1,0 +1,345 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:apiEndpoint a owl:DatatypeProperty ;
+    rdfs:label "API endpoint" ;
+    rdfs:domain :CompanySoftware ;
+    rdfs:range xsd:anyURI .
+
+:availableCPU a owl:DatatypeProperty ;
+    rdfs:domain :InfrastructureHost ;
+    rdfs:range xsd:float .
+
+:availableMemoryMB a owl:DatatypeProperty ;
+    rdfs:domain :InfrastructureHost ;
+    rdfs:range xsd:integer .
+
+:backtestMaxDrawdown a owl:DatatypeProperty ;
+    rdfs:domain :BacktestResult ;
+    rdfs:range xsd:float .
+
+:backtestSharpe a owl:DatatypeProperty ;
+    rdfs:domain :BacktestResult ;
+    rdfs:range xsd:float .
+
+:backtestWinRate a owl:DatatypeProperty ;
+    rdfs:domain :BacktestResult ;
+    rdfs:range xsd:float .
+
+:blueprintName a owl:DatatypeProperty ;
+    rdfs:label "blueprint name" ;
+    rdfs:domain :DeploymentBlueprint ;
+    rdfs:range xsd:string .
+
+:blueprintPath a owl:DatatypeProperty ;
+    rdfs:label "blueprint path" ;
+    rdfs:comment "Path to the YAML definition in infrastructure-blueprints." ;
+    rdfs:domain :DeploymentBlueprint ;
+    rdfs:range xsd:string .
+
+:dailyPnL a owl:DatatypeProperty ;
+    rdfs:domain :RiskSnapshot ;
+    rdfs:range xsd:float .
+
+:debateConsensus a owl:DatatypeProperty ;
+    rdfs:comment "approved, rejected, vetoed, pending." ;
+    rdfs:domain :TradingDebate ;
+    rdfs:range xsd:string .
+
+:debateHypothesis a owl:DatatypeProperty ;
+    rdfs:domain :TradingDebate ;
+    rdfs:range xsd:string .
+
+:deploySoftware a owl:ObjectProperty ;
+    rdfs:label "deploys software" ;
+    rdfs:comment "Which CompanySoftware this blueprint creates." ;
+    rdfs:domain :DeploymentBlueprint ;
+    rdfs:range :CompanySoftware .
+
+:deploymentMode a owl:DatatypeProperty ;
+    rdfs:label "deployment mode" ;
+    rdfs:comment "docker_compose, docker_swarm, kubernetes, native." ;
+    rdfs:domain :DeploymentBlueprint ;
+    rdfs:range xsd:string .
+
+:dnsRewrite a owl:DatatypeProperty ;
+    rdfs:label "DNS rewrite" ;
+    rdfs:comment "DNS hostname configured via the active DNS management service." ;
+    rdfs:domain :CompanySoftware ;
+    rdfs:range xsd:string .
+
+:exchangeName a owl:DatatypeProperty ;
+    rdfs:label "exchange name" ;
+    rdfs:comment "paper, alpaca, ccxt:binance, ccxt:coinbase, freqtrade." ;
+    rdfs:domain :ExchangeBackend ;
+    rdfs:range xsd:string .
+
+:executedOn a owl:ObjectProperty ;
+    rdfs:label "executed on" ;
+    rdfs:domain :VersionedOrder ;
+    rdfs:range :ExchangeBackend .
+
+:filledPrice a owl:DatatypeProperty ;
+    rdfs:domain :VersionedOrder ;
+    rdfs:range xsd:float .
+
+:filledQty a owl:DatatypeProperty ;
+    rdfs:domain :VersionedOrder ;
+    rdfs:range xsd:float .
+
+:functionCategory a owl:DatatypeProperty ;
+    rdfs:label "function category" ;
+    rdfs:comment "accounting, hr, legal, crm, project_mgmt, monitoring, ci_cd, knowledge_base, communication." ;
+    rdfs:domain :CompanySoftware ;
+    rdfs:range xsd:string .
+
+:hasGPU a owl:DatatypeProperty ;
+    rdfs:domain :InfrastructureHost ;
+    rdfs:range xsd:boolean .
+
+:heldOnExchange a owl:ObjectProperty ;
+    rdfs:label "held on exchange" ;
+    rdfs:domain :PortfolioPosition ;
+    rdfs:range :ExchangeBackend .
+
+:hostIP a owl:DatatypeProperty ;
+    rdfs:domain :InfrastructureHost ;
+    rdfs:range xsd:string .
+
+:hostName a owl:DatatypeProperty ;
+    rdfs:domain :InfrastructureHost ;
+    rdfs:range xsd:string .
+
+:hostsSoftware a owl:ObjectProperty ;
+    rdfs:label "hosts software" ;
+    rdfs:comment "Inverse of deployedOn." ;
+    rdfs:domain :InfrastructureHost ;
+    rdfs:range :CompanySoftware ;
+    owl:inverseOf :deployedOn .
+
+:isHalted a owl:DatatypeProperty ;
+    rdfs:comment "Whether trading is halted by circuit breaker or kill switch." ;
+    rdfs:domain :RiskSnapshot ;
+    rdfs:range xsd:boolean .
+
+:managedByAgent a owl:ObjectProperty ;
+    rdfs:label "managed by agent" ;
+    rdfs:comment "Which MCP server manages this software (portainer, container-manager)." ;
+    rdfs:domain :CompanySoftware ;
+    rdfs:range :Agent .
+
+:mcpServerId a owl:DatatypeProperty ;
+    rdfs:label "MCP server ID" ;
+    rdfs:comment "Identifier of the agent-packages MCP server, if available." ;
+    rdfs:domain :CompanySoftware ;
+    rdfs:range xsd:string .
+
+:orderSide a owl:DatatypeProperty ;
+    rdfs:comment "buy or sell." ;
+    rdfs:domain :VersionedOrder ;
+    rdfs:range xsd:string .
+
+:orderStatus a owl:DatatypeProperty ;
+    rdfs:comment "pending, submitted, filled, cancelled, rejected." ;
+    rdfs:domain :VersionedOrder ;
+    rdfs:range xsd:string .
+
+:portfolioDrawdown a owl:DatatypeProperty ;
+    rdfs:domain :RiskSnapshot ;
+    rdfs:range xsd:float .
+
+:positionQty a owl:DatatypeProperty ;
+    rdfs:domain :PortfolioPosition ;
+    rdfs:range xsd:float .
+
+:positionSide a owl:DatatypeProperty ;
+    rdfs:comment "long or short." ;
+    rdfs:domain :PortfolioPosition ;
+    rdfs:range xsd:string .
+
+:positionSymbol a owl:DatatypeProperty ;
+    rdfs:domain :PortfolioPosition ;
+    rdfs:range xsd:string .
+
+:regimeState a owl:DatatypeProperty ;
+    rdfs:comment "normal, warning, critical, regime_shift." ;
+    rdfs:domain :RiskSnapshot ;
+    rdfs:range xsd:string .
+
+:requiresCPU a owl:DatatypeProperty ;
+    rdfs:label "requires CPU cores" ;
+    rdfs:domain :DeploymentBlueprint ;
+    rdfs:range xsd:float .
+
+:requiresGPU a owl:DatatypeProperty ;
+    rdfs:label "requires GPU" ;
+    rdfs:domain :DeploymentBlueprint ;
+    rdfs:range xsd:boolean .
+
+:requiresMemoryMB a owl:DatatypeProperty ;
+    rdfs:label "requires memory MB" ;
+    rdfs:domain :DeploymentBlueprint ;
+    rdfs:range xsd:integer .
+
+:servesFunction a owl:ObjectProperty ;
+    rdfs:label "serves function" ;
+    rdfs:comment "Links software to the department it serves." ;
+    rdfs:domain :CompanySoftware ;
+    rdfs:range :AgentDepartment .
+
+:signalStrength a owl:DatatypeProperty ;
+    rdfs:label "signal strength" ;
+    rdfs:comment "Normalized signal score [-1.0, 1.0]." ;
+    rdfs:domain :TradingSignal ;
+    rdfs:range xsd:float .
+
+:signalType a owl:DatatypeProperty ;
+    rdfs:label "signal type" ;
+    rdfs:comment "momentum, mean_reversion, volatility, fundamental, ml_prediction." ;
+    rdfs:domain :TradingSignal ;
+    rdfs:range xsd:string .
+
+:softwareName a owl:DatatypeProperty ;
+    rdfs:label "software name" ;
+    rdfs:comment "Display name: ERPNext, Akaunting, Twenty CRM, etc." ;
+    rdfs:domain :CompanySoftware ;
+    rdfs:range xsd:string .
+
+:softwareVersion a owl:DatatypeProperty ;
+    rdfs:label "software version" ;
+    rdfs:domain :CompanySoftware ;
+    rdfs:range xsd:string .
+
+:strategyAlpha a owl:DatatypeProperty ;
+    rdfs:label "strategy alpha" ;
+    rdfs:comment "Annualized alpha (excess return) of the strategy." ;
+    rdfs:domain :TradingStrategy ;
+    rdfs:range xsd:float .
+
+:strategySharpe a owl:DatatypeProperty ;
+    rdfs:label "strategy sharpe" ;
+    rdfs:comment "Sharpe ratio of the strategy." ;
+    rdfs:domain :TradingStrategy ;
+    rdfs:range xsd:float .
+
+:strategyStage a owl:DatatypeProperty ;
+    rdfs:label "strategy stage" ;
+    rdfs:comment "draft, backtest, paper, live." ;
+    rdfs:domain :TradingStrategy ;
+    rdfs:range xsd:string .
+
+:supportedAssets a owl:DatatypeProperty ;
+    rdfs:label "supported assets" ;
+    rdfs:comment "equity, crypto, forex — comma-separated." ;
+    rdfs:domain :ExchangeBackend ;
+    rdfs:range xsd:string .
+
+:tradingMode a owl:DatatypeProperty ;
+    rdfs:label "trading mode" ;
+    rdfs:comment "paper or live. Defaults to paper. Live requires human approval." ;
+    rdfs:domain :ExchangeBackend ;
+    rdfs:range xsd:string .
+
+:usesExchange a owl:ObjectProperty ;
+    rdfs:label "uses exchange" ;
+    rdfs:comment "Links strategy to its exchange backend." ;
+    rdfs:domain :TradingStrategy ;
+    rdfs:range :ExchangeBackend .
+
+:validatesStrategy a owl:ObjectProperty ;
+    rdfs:label "validates strategy" ;
+    rdfs:domain :BacktestResult ;
+    rdfs:range :TradingStrategy .
+
+<http://knuckles.team/kg/company_infra> a owl:Ontology ;
+    rdfs:label "Company Infrastructure Ontology" ;
+    rdfs:comment """Maps company software to infrastructure for autonomous
+deployment. Links software functions to deployment targets, MCP servers,
+and monitoring endpoints.
+
+CONCEPT:ECO-4.13 — Company Infrastructure Orchestration""" ;
+    owl:imports <http://knuckles.team/kg/core>,
+        <http://knuckles.team/kg/company> .
+
+:deployedOn a owl:ObjectProperty ;
+    rdfs:label "deployed on" ;
+    rdfs:comment "Links software to its infrastructure host." ;
+    rdfs:domain :CompanySoftware ;
+    rdfs:range :InfrastructureHost .
+
+:TradingDebate a owl:Class ;
+    rdfs:label "Trading Debate" ;
+    rdfs:comment """Multi-agent bull/bear debate on a trading hypothesis.
+CONCEPT:EE-014 — Debate Engine""" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:TradingSignal a owl:Class ;
+    rdfs:label "Trading Signal" ;
+    rdfs:comment """An alpha signal generated by factor analysis or ML model.
+CONCEPT:EE-008 — Signal Fusion""" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:BacktestResult a owl:Class ;
+    rdfs:label "Backtest Result" ;
+    rdfs:comment """Results from a quantitative strategy backtest.
+Routes to data-science-mcp for heavy compute. CONCEPT:EE-016""" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:PortfolioPosition a owl:Class ;
+    rdfs:label "Portfolio Position" ;
+    rdfs:comment """An active position in a financial instrument.
+CONCEPT:EE-010 — Portfolio Management""" ;
+    rdfs:subClassOf bfo:0000004 .
+
+:RiskSnapshot a owl:Class ;
+    rdfs:label "Risk Snapshot" ;
+    rdfs:comment """Point-in-time portfolio risk measurement.
+CONCEPT:EE-011 / OS-5.1 — Risk Management""" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:TradingStrategy a owl:Class ;
+    rdfs:label "Trading Strategy" ;
+    rdfs:comment """A quantitative trading strategy progressing through lifecycle
+stages: draft → backtest → paper → live. CONCEPT:EE-013""" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:VersionedOrder a owl:Class ;
+    rdfs:label "Versioned Order" ;
+    rdfs:comment """An immutable audit record of a trading order.
+CONCEPT:EE-009 — Order Management""" ;
+    rdfs:subClassOf bfo:0000015 .
+
+:ExchangeBackend a owl:Class ;
+    rdfs:label "Exchange Backend" ;
+    rdfs:comment """An abstracted financial exchange connection (Alpaca, CCXT,
+Freqtrade, Paper). All implement the ExchangeBackend Protocol.
+CONCEPT:EE-002 — Exchange Backend Protocol""" ;
+    rdfs:subClassOf bfo:0000004 .
+
+:DeploymentBlueprint a owl:Class ;
+    rdfs:label "Deployment Blueprint" ;
+    rdfs:comment """A reusable Docker Swarm / Compose blueprint for deploying
+company software. Part of the infrastructure-blueprints skill-graph.
+CONCEPT:ECO-4.14 — Infrastructure Blueprint Library""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:InfrastructureHost a owl:Class ;
+    rdfs:label "Infrastructure Host" ;
+    rdfs:comment "A physical or virtual server in the company infrastructure." ;
+    rdfs:subClassOf bfo:0000004 .
+
+:CompanySoftware a owl:Class ;
+    rdfs:label "Company Software" ;
+    rdfs:comment """A software system deployed for company operations.
+Maps to infrastructure hosts and is managed by agent MCP servers.""" ;
+    rdfs:subClassOf bfo:0000004 .

@@ -1,0 +1,107 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+:actsOn a owl:ObjectProperty ;
+    rdfs:label "acts on" ;
+    rdfs:comment """Declares the ontology object class(es) an OntologyAction
+operates over (its noun targets).  e.g. a 'screen' action actsOn a
+FinancialInstrument; a 'search' action actsOn a Concept.""" ;
+    rdfs:domain :OntologyAction .
+
+:actsOnObject a owl:ObjectProperty ;
+    rdfs:label "acts on object" ;
+    rdfs:comment "Links an ActionInvocation to the concrete ontology object it operated on. prov:used." ;
+    rdfs:domain :ActionInvocation ;
+    rdfs:seeAlso prov:used .
+
+:hasParameter a owl:ObjectProperty ;
+    rdfs:label "has parameter" ;
+    rdfs:comment "Links an OntologyAction to one of its ActionParameter inputs." ;
+    rdfs:domain :OntologyAction ;
+    rdfs:range :ActionParameter .
+
+:invokedBy a owl:ObjectProperty ;
+    rdfs:label "invoked by" ;
+    rdfs:comment "Links an ActionInvocation to the Agent/actor that invoked it. prov:wasAssociatedWith." ;
+    rdfs:domain :ActionInvocation ;
+    rdfs:range bfo:0000004 ;
+    rdfs:seeAlso prov:wasAssociatedWith .
+
+:invokes a owl:ObjectProperty ;
+    rdfs:label "invokes" ;
+    rdfs:comment "Links an ActionInvocation to the OntologyAction it ran." ;
+    rdfs:domain :ActionInvocation ;
+    rdfs:range :OntologyAction .
+
+:mayBeInvokedBy a owl:ObjectProperty ;
+    rdfs:label "may be invoked by" ;
+    rdfs:comment """Inferred eligibility: an OntologyAction `mayBeInvokedBy` an
+Agent when the action `requiresCapability` some ServiceCapability that the
+Agent `providesCapability` (i.e. the capability is `providedBy` the agent).
+Materialized via the property chain ( :requiresCapability :providedBy ) — the
+same Capability/Tool substrate that powers tool swappability (CONCEPT:KG-2.7).
+This is the OWL-substrate dividend: action authorization is *reasoned*, not
+hand-wired.""" ;
+    rdfs:domain :OntologyAction ;
+    rdfs:range bfo:0000004 ;
+    owl:propertyChainAxiom ( :requiresCapability :providedBy ) .
+
+:producesEffect a owl:DatatypeProperty ;
+    rdfs:label "produces effect" ;
+    rdfs:comment """The side-effect class of an OntologyAction: one of
+'read' (no mutation), 'mutation' (writes ontology state), or 'external'
+(calls an out-of-band system).  Drives audit/approval policy.""" ;
+    rdfs:domain :OntologyAction ;
+    rdfs:range xsd:string .
+
+<http://knuckles.team/kg/action> a owl:Ontology ;
+    rdfs:label "Ontology Action System" ;
+    rdfs:comment """CONCEPT:KG-2.25 — Ontology Action System.
+
+Defines first-class, governed *verbs* that operate over ontology objects: a
+parameterized, permission-gated, audited Action and its ActionInvocation
+record.  This closes the one true gap versus Palantir AIP's ontology — which
+unifies data + logic + ACTIONS + security — by giving the existing noun-rich
+ontology a typed action layer.
+
+Reuses the Capability Abstraction Layer (CONCEPT:KG-2.7): an OntologyAction
+`requiresCapability` some ServiceCapability, and an Agent that
+`providesCapability` that same capability is inferred (via the
+`mayBeInvokedBy` property chain) to be eligible to invoke the action — the
+"for free" reasoned-eligibility payoff of the OWL substrate.""" ;
+    owl:imports <http://knuckles.team/kg/capability> .
+
+:ActionParameter a owl:Class ;
+    rdfs:label "Action Parameter" ;
+    rdfs:comment "A typed, optionally-required input parameter to an OntologyAction." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:ActionInvocation a owl:Class ;
+    rdfs:label "Action Invocation" ;
+    rdfs:comment """An audited record of a single OntologyAction invocation: the
+action invoked, the actor (invokedBy), the target object (actsOnObject), the
+authorization outcome/status, and a link to the audit entry.  BFO:Process,
+aligned to prov:Activity.""" ;
+    rdfs:seeAlso prov:Activity ;
+    rdfs:subClassOf bfo:0000015 .
+
+:OntologyAction a owl:Class ;
+    rdfs:label "Ontology Action" ;
+    rdfs:comment """A first-class, governed verb that operates on ontology
+objects.  Parameterized (hasParameter), permission-gated (requiresCapability),
+typed over the objects it operates on (actsOn), and carries an effect class
+(producesEffect: read | mutation | external).  BFO:Process / prov:Plan.""" ;
+    rdfs:seeAlso prov:Plan ;
+    rdfs:subClassOf bfo:0000015 .

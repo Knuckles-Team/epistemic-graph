@@ -14,8 +14,8 @@
 #     file cannot rot into fiction by silently outliving what it describes.
 #
 # Every tracked root directory, and every tracked non-dot root file, must have
-# a line here. Conventional, self-describing dot-FILES (.gitignore,
-# .pre-commit-config.yaml, ...) are instead enumerated in
+# a line here. Remaining conventional, self-describing dot-FILES (.gitignore,
+# .python-version, ...) are instead enumerated in
 # scripts/check_root_hygiene.py's ALLOWED_DOTFILES -- see that module's
 # docstring for why the split.
 #
@@ -42,7 +42,7 @@ protocols = "versioned wire-protocol schemas (epistemic-operations, performance)
 scripts = "gate scripts (check_*.py) and release/bench tooling invoked by pre-commit/CI"
 tests = "the Rust integration test suite (adopt_*, characterization_*, advanced_*, ...)"
 ".cargo" = "cargo config: the opt-in x86-64-v3/AVX2 target-cpu flag (EG-014/EG-015/EG-016) and the isolated target-dir default this repo's worktree-per-lane convention depends on"
-".config" = "nextest.toml: per-process test-runner config for the D-PERF-1 test-suite acceleration program"
+".config" = "explicit-path tool configs: pre-commit.yaml and codespell.ignore; plus nextest.toml"
 ".github" = "GitHub Actions workflow definitions"
 ".kiss" = "hand-authored `kiss` structural-rule thresholds (.kiss/kiss.toml) read by scripts/run_kiss.sh; every other entry is a regenerated analysis cache and is gitignored"
 ".security" = "adversarial security-gate scripts (authenticated_negative.py, repository_fuzz.py) and security-contract.json read by the security CI gate"

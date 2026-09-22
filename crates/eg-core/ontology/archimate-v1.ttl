@@ -1,0 +1,80 @@
+@prefix fibo-fi: <https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/> .
+@prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
+@prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix time: <http://www.w3.org/2006/time#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix dc: <http://purl.org/dc/terms/> .
+@prefix : <http://knuckles.team/kg#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+:BusinessActor a owl:Class ;
+    rdfs:label "Business Actor" ;
+    rdfs:comment """Canonical anchor for a business-layer actor (e.g. an ERPNext
+:Employee or :Customer). ArchiMate: Business Layer -> Business Actor.
+CONCEPT:KG-2.9.""" ;
+    rdfs:subClassOf :BusinessLayer .
+
+:BusinessCapability a owl:Class ;
+    rdfs:label "Business Capability" ;
+    rdfs:comment """Canonical anchor for an enterprise capability, regardless of the EA
+tool that catalogues it (LeanIX BusinessCapability fact sheets, ArchiMate
+Capability elements). ArchiMate: Strategy Layer -> Capability. CONCEPT:KG-2.9.""" ;
+    rdfs:subClassOf :StrategyLayer .
+
+:BusinessTask a owl:Class ;
+    rdfs:label "Business Task" ;
+    rdfs:comment """A concrete unit of work within a Business Process (e.g. a Camunda
+user/service task). ArchiMate: Business Layer -> Business Process -> Business
+Task. CONCEPT:KG-2.9.""" ;
+    rdfs:subClassOf :BusinessProcess .
+
+:Change a owl:Class ;
+    rdfs:label "Change" ;
+    rdfs:comment """A ServiceNow change request, emitted by
+enrichment/extractors/servicenow.py. Resolves to the canonical :BusinessProcess
+anchor alongside Camunda business processes. CONCEPT:KG-2.9.""" ;
+    rdfs:subClassOf :BusinessProcess .
+
+:Incident rdfs:subClassOf :ApplicationEvent ;
+    owl:equivalentClass :ErpNextIssue .
+
+<http://knuckles.team/kg/archimate> a owl:Ontology ;
+    rdfs:label "Vendor-Neutral ArchiMate Crosswalk" ;
+    rdfs:comment """The canonical crosswalk keystone: one ArchiMate-aligned anchor per
+business idea, with each vendor's native class related to it via rdfs:subClassOf /
+owl:equivalentClass. Reasoning (owlready2 / HermiT, core/owl_bridge.py) then
+propagates rdf:type up to the canonical concept, so a single query answers a
+business question regardless of which product produced the data (e.g. ServiceNow
+:Incident and ERPNext :ErpNextIssue both infer rdf:type :ApplicationEvent).
+
+This file never redefines a vendor class — those live in their own source's
+context (:Incident/:Change from ServiceNow, :ErpNextIssue from ERPNext); it only
+relates them to the canonical anchors declared here.
+CONCEPT:KG-2.9 (Enterprise OS — vendor-neutral crosswalk). See
+docs/architecture/vendor_neutral_enterprise_ontology.md §1.""" ;
+    owl:imports <http://knuckles.team/kg/core>,
+        <http://knuckles.team/kg/enterprise> .
+
+:ErpNextIssue a owl:Class ;
+    rdfs:label "ERPNext Issue" ;
+    rdfs:comment """The Frappe/ERPNext HelpDesk Issue doctype — ERPNext's ITSM-equivalent
+ticket, emitted by enrichment/extractors/erpnext.py. Vendor-neutral with
+ServiceNow's :Incident (owl:equivalentClass below). CONCEPT:KG-2.9.""" ;
+    rdfs:subClassOf :ApplicationEvent .
+
+:ApplicationEvent a owl:Class ;
+    rdfs:label "Application Event" ;
+    rdfs:comment """Canonical anchor for any application-layer occurrence raised by an
+IT service/ITSM system, regardless of vendor (ServiceNow :Incident, ERPNext
+:ErpNextIssue, Camunda process incidents). ArchiMate: Application Layer ->
+Application Event. CONCEPT:KG-2.9.""" ;
+    rdfs:subClassOf :ApplicationLayer .
+
+:BusinessProcess a owl:Class ;
+    rdfs:label "Business Process" ;
+    rdfs:comment """Canonical anchor for a business process, regardless of the BPM/ITSM
+tool that models or raises it (Camunda process definitions, ServiceNow :Change).
+ArchiMate: Business Layer -> Business Process. CONCEPT:KG-2.9.""" ;
+    rdfs:subClassOf :BusinessLayer .
