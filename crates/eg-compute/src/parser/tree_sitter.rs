@@ -166,6 +166,8 @@ pub const SUPPORTED_EXTENSIONS: &[&str] = &[
     // are deliberately NOT listed: see the exclusion note in
     // `grammars_extended`'s module doc.
     "kt", "kts", "m", "mm", "zig", "groovy", "gradle", "swift",
+    // Verilog (CONCEPT:EH-281).
+    "v", "vh",
 ];
 
 const PARSER_CAPABILITY_DIGEST_DOMAIN: &[u8] = b"eg/index-repository-parser-capability/v1\0";

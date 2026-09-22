@@ -7,13 +7,22 @@
 //! path. Kept as its own integration-test file (rather than growing the
 //! crate's inline `#[cfg(test)] mod tests`) per this lane's file ownership.
 //!
-//! Objective-C registers a grammar but is deliberately tested for what the
-//! EXISTING generic AST walker (`tree_sitter_ast.rs`, owned by a different
-//! lane) actually extracts, not for a symbol shape this lane cannot add: its
-//! own `@interface`/`@implementation`/method nodes carry no
-//! `name`/`declarator`/`type` field the walker's `symbol_name()` can read, so
-//! only the plain-C constructs a `.m` file may also contain (a `struct`, a
-//! C-style function) extract.
+//! Objective-C's `@interface`/`@implementation` now extract as `Class`
+//! symbols too (CONCEPT:EH-281 follow-up): `class_interface`/
+//! `class_implementation` were added to the walker's `class_like_kind`
+//! vocabulary, and `symbol_name()`'s new `identifier_child_name` fallback
+//! reads their name off the positional `identifier` child the grammar
+//! carries it on (not a `name`/`declarator`/`type` field). The plain-C
+//! constructs a `.m` file may also contain (a `struct`, a C-style function)
+//! still extract exactly as before, since Objective-C shares C's
+//! `struct_specifier`/`function_definition` node kinds.
+//!
+//! Verilog (CONCEPT:EH-281) needed no walker vocabulary addition at all —
+//! its `class_declaration`/`interface_declaration`/`function_declaration`
+//! node kinds already match the existing table. The only gap was the same
+//! one Objective-C had: the identifier lives on a positional
+//! `class_identifier`/`interface_identifier`/`function_identifier` child,
+//! not a field, which the same `identifier_child_name` fallback resolves.
 //!
 //! HTML/CSS/JSON are deliberately NOT registered by this lane, even though
 //! ABI-14-compatible crates exist for all three: they have no function/class
@@ -57,12 +66,10 @@ fn kotlin_class_and_function() {
 
 #[test]
 fn objc_extracts_its_embedded_c_constructs() {
-    // A real Objective-C file: an `@interface`/`@implementation` pair (whose
-    // `class_interface`/`class_implementation`/`method_definition` nodes are
-    // NOT in the generic walker's node-kind vocabulary and so contribute no
-    // symbol — a known, documented gap, not asserted here) plus a plain C
-    // struct and function, which DO extract because Objective-C shares C's
-    // `struct_specifier`/`function_definition` node kinds.
+    // A real Objective-C file: a plain C struct and function, which extract
+    // because Objective-C shares C's `struct_specifier`/`function_definition`
+    // node kinds (unaffected by the `@interface`/`@implementation` work
+    // below).
     let src = r#"
 struct Point {
     int x;
@@ -88,6 +95,61 @@ int add(int a, int b) {
     let add = sym("Greeter.m", src, "add");
     assert_eq!(add["symbol_type"], "Function");
     assert_eq!(add["language"], "objc");
+}
+
+#[test]
+fn objc_extracts_interface_and_implementation_as_classes() {
+    // `@interface`/`@implementation` (CONCEPT:EH-281 follow-up): the class
+    // name is an unnamed positional child in both node kinds, not a
+    // `name`/`declarator`/`type` field, resolved by `identifier_child_name`.
+    let src = "@interface Greeter : NSObject\n@end\n\n@implementation Greeter\n@end\n";
+    let r = parse_file("Greeter.m", src.as_bytes()).unwrap_or_else(|e| panic!("parse failed: {e}"));
+    let greeters: Vec<_> = r
+        .nodes
+        .iter()
+        .filter(|n| n.properties.get("name").map(String::as_str) == Some("Greeter"))
+        .collect();
+    // One Class symbol from `class_interface`, one from `class_implementation`.
+    assert_eq!(greeters.len(), 2, "{greeters:?}");
+    for g in &greeters {
+        assert_eq!(g.properties["symbol_type"], "Class");
+        assert_eq!(g.properties["kind_detail"], "class");
+        assert_eq!(g.properties["language"], "objc");
+    }
+}
+
+#[test]
+fn verilog_module_class_interface_and_function() {
+    // Verilog (CONCEPT:EH-281): no walker vocabulary addition needed — its
+    // `class_declaration`/`interface_declaration`/`function_declaration`
+    // kinds already matched the existing table. Only the identifier-child
+    // name fallback was new (`class_identifier`/`interface_identifier`/
+    // `function_identifier` are positional children, not fields).
+    let src = r#"
+class Widget;
+  int value;
+endclass
+
+interface Bus;
+  logic clk;
+endinterface
+
+function int add(int a, int b);
+  add = a + b;
+endfunction
+"#;
+    let c = sym("widget.v", src, "Widget");
+    assert_eq!(c["symbol_type"], "Class");
+    assert_eq!(c["kind_detail"], "class");
+    assert_eq!(c["language"], "verilog");
+
+    let i = sym("widget.v", src, "Bus");
+    assert_eq!(i["kind_detail"], "interface");
+    assert_eq!(i["language"], "verilog");
+
+    let f = sym("widget.v", src, "add");
+    assert_eq!(f["symbol_type"], "Function");
+    assert_eq!(f["language"], "verilog");
 }
 
 #[test]
