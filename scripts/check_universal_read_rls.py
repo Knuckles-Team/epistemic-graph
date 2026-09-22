@@ -353,7 +353,12 @@ def main() -> None:
             # `resolve_graph_read_authority`, which the gate reaches transitively.
             "GraphReadAuthority::from_verified(verified_context, isolation)",
             "resolve_graph_read_authority(req_id, verified_context, &s.isolation)",
-            "try_handle_gateway( req_id,",
+            # The gateway now receives the verified server state and tenant id
+            # explicitly so committed GraphSchema reads remain bound to the same
+            # carrier authority as the graph projection.  Pin that complete
+            # routing prefix instead of the pre-GraphSchema argument shape.
+            "try_handle_gateway( ctx.state, req_id,",
+            "tenant_scope, tenant_id, graph_name, core,",
             # `&core` became `core` when the parameter type changed with the
             # extraction; the manifest and the authority still travel together.
             "core, materialization_manifest.as_ref(), read_authority.as_ref(),",
