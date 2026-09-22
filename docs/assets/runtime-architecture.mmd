@@ -1,0 +1,16 @@
+flowchart LR
+  People["People and MCP / A2A clients"]
+  WebUI["Agent WebUI<br/>operator experience"]
+  GraphOS["GraphOS<br/>public runtime gateway"]
+  AU["agent-utilities<br/>agent control plane"]
+  EG["epistemic-graph<br/>durable multimodal knowledge and reasoning engine"]
+  Sources["Source systems"]
+  SDK["agent-connector-sdk<br/>governed source integration boundary"]
+
+  People --> WebUI
+  People --> GraphOS
+  WebUI --> GraphOS
+  GraphOS --> AU
+  AU --> EG
+  Sources --> SDK
+  SDK --> EG

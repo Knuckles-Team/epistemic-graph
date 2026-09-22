@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block announce %}
+  {% set ecosystem = config.extra.ecosystem %}
+  {% set current_site = ecosystem.sites | selectattr("slug", "equalto", ecosystem.current) | first %}
+  <details class="site-switcher">
+    <summary aria-label="Choose an ecosystem documentation site">
+      Ecosystem documentation{% if current_site %}: {{ current_site.name }}{% endif %}
+    </summary>
+    <nav aria-label="Ecosystem documentation sites">
+      <ul class="site-switcher__list">
+        {% for site in ecosystem.sites %}
+          <li>
+            {% if site.slug == ecosystem.current %}
+              <span aria-current="page">{{ site.name }} — {{ site.role }}</span>
+            {% else %}
+              <a href="{{ site.url }}">{{ site.name }} — {{ site.role }}</a>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </nav>
+  </details>
+{% endblock %}
+
+{% block footer %}
+  {{ super() }}
+  <div class="site-footer">
+    <div class="site-footer__inner">
+      <span>Part of the Knuckles-Team agent ecosystem.</span>
+      <span>
+        {% if config.repo_url %}<a href="{{ config.repo_url }}">Source repository</a>{% endif %}
+        {% if config.repo_url and config.site_url %} · {% endif %}
+        {% if config.site_url %}<a href="{{ config.site_url }}">Documentation home</a>{% endif %}
+      </span>
+    </div>
+  </div>
+{% endblock %}

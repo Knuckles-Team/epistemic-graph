@@ -95,6 +95,25 @@ dispatch does (via the canonical mutation applier + authoritative `redb_store`) 
 is the "100M agents, a local engine each" path: `--features "embedded redb"` builds with no Tokio
 runtime. Gated query/tsdb/rdf surfaces light up when those features are also compiled.
 
+The release wheel also contains `epistemic_graph.engine`, the Python in-process
+binding. Its explicit `persist_dir=":memory:"` mode exposes graph creation and
+node operations without starting a service:
+
+```python
+import msgpack
+from epistemic_graph.engine import Engine
+
+engine = Engine(persist_dir=":memory:")
+engine.create_graph("demo")
+engine.add_node("demo", "node:a", msgpack.packb({"kind": "Example"}, use_bin_type=True))
+print(engine.node_count("demo"))
+```
+
+This Python mode is ephemeral and process-local. Durable Python applications
+use the authenticated client against the served engine; the
+[standalone deployment guide](standalone_deployment.md) carries that complete
+configuration.
+
 ---
 
 ## Which mode am I in?

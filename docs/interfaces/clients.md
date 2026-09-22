@@ -1,20 +1,24 @@
 # Client drivers (CONCEPT:EG-KG.ingest.broker-streams-namespaces)
 
-The Python package is the complete current client. JavaScript and Go are deliberately
-thin bindings for the native message **broker**, append-log **streams**, **RBAC**
-administration, online **backup/restore**, and **NL→query** surfaces.
+The Python package provides the complete network client and the release wheel's
+in-process engine binding. JavaScript and Go provide focused bindings for the
+native message **broker**, append-log **streams**, **RBAC** administration,
+online **backup/restore**, and **NL→query** surfaces.
 
-There is **no PyO3 / FFI** between a client and the engine — the boundary is
-out-of-process **framed MessagePack** over UDS/TCP. So the wire IS the API: every client
-(Python, JS, Go) hand-mirrors the serde-tagged `Method` enum in
+Network clients use out-of-process **framed MessagePack** over UDS/TCP. For
+that deployment shape, the wire is the API: Python, JavaScript, and Go mirror
+the serde-tagged `Method` enum in
 [`crates/eg-types/src/protocol.rs`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/crates/eg-types/src/protocol.rs) by sending the
-variant name + its exact param fields.
+variant name and its exact parameter fields. The separate
+`epistemic_graph.engine` binding embeds the Rust graph core directly for
+single-process use and does not traverse the wire.
 
 ## Full vs thin, per language
 
 | Language | Location | Scope | Tested |
 |----------|----------|-------|--------|
 | **Python** | [`epistemic_graph/client.py`](https://github.com/Knuckles-Team/epistemic-graph/blob/main/epistemic_graph/client.py) | **Full** — graph/vector/RDF/SQL/txn/broker plus governed `modalities` and native `knowledge` streaming. | `tests/test_pb_clients.py`, `tests/test_modality_stream_clients.py`, and the `gen_contract --check` engine-contract gate. |
+| **Python embedded** | `epistemic_graph.engine` in the release wheel | In-process graph creation and node operations for explicit local/ephemeral use. | Wheel-completeness and transport-parity gates. |
 | **JS / Node** | [`clients/js`](https://github.com/Knuckles-Team/epistemic-graph/tree/main/clients/js) | **Thin** — ONLY the B1.7 methods, generated from the Method list. Not a full SDK. | Current `eg2.` binding; run the package tests before release. |
 | **Go** | [`clients/go`](https://github.com/Knuckles-Team/epistemic-graph/tree/main/clients/go) | **Thin** — ONLY the B1.7 methods, generated from the Method list. Not a full SDK. | Current `eg2.` binding; run `go test ./...` before release. |
 

@@ -1,105 +1,122 @@
-# Epistemic Graph
+<section class="site-hero" aria-labelledby="epistemic-graph-title">
+  <p class="site-hero__eyebrow">The knowledge engine</p>
+  <h1 class="site-hero__title" id="epistemic-graph-title">Make connected knowledge durable, explainable, and computable.</h1>
+  <p class="site-hero__summary">
+    Epistemic Graph unifies graph, SQL, RDF/OWL, vectors, time, evidence, and
+    multimodal data behind one Rust-native planner and transaction boundary.
+  </p>
+  <div class="site-hero__actions">
+    <a class="md-button md-button--primary" href="get-started/">Run it locally</a>
+    <a class="md-button" href="capabilities/">Inspect capabilities</a>
+  </div>
+</section>
 
-epistemic-graph is a durable, Rust-native database that unifies graph, vector, SQL, RDF/OWL, and
-time-series behind one engine and one query planner. Use it standalone, or as the storage and
-reasoning engine behind agent-utilities. Every capability is tracked operation-by-operation and
-honestly marked — see what's live before you build on it.
+<div class="site-card-grid">
+  <article class="site-card">
+    <p class="site-card__title">Build on it</p>
+    <p class="site-card__body">Use the Python client, UQL, SQL, SPARQL, Cypher, GraphQL, Bolt, and stream interfaces against the same governed state.</p>
+    <a href="interfaces/">Explore interfaces</a>
+  </article>
+  <article class="site-card">
+    <p class="site-card__title">Understand it</p>
+    <p class="site-card__body">Follow requests from authenticated ingress through planning, reasoning, computation, and commit-before-ack storage.</p>
+    <a href="architecture/">Read the architecture</a>
+  </article>
+  <article class="site-card">
+    <p class="site-card__title">Operate it</p>
+    <p class="site-card__body">Run a durable single node or a replicated cluster with explicit identity, policy, persistence, and observability.</p>
+    <a href="standalone_deployment/">Deploy the engine</a>
+  </article>
+</div>
 
-## Quick start
+## One authority across every data shape
 
-=== "Docker"
+<figure class="site-card">
+  <img src="assets/engine-architecture.svg" alt="Authenticated interfaces enter the unified Epistemic Graph planner, compose five data and compute domains, and commit through one authoritative durable store.">
+  <figcaption>Interfaces differ. Authority, planning, evidence, and commit semantics do not.</figcaption>
+</figure>
 
-    ```bash
-    : "${CONTAINER_DATA_DIR:?set to the image data directory}"
-    : "${TLS_CERT_FILE:?set to a host PEM certificate file}"
-    : "${TLS_KEY_FILE:?set to a host PEM private key file}"
-    docker volume create eg-data
-    docker run -d --name epistemic-graph \
-      -e GRAPH_SERVICE_AUTH_SECRET \
-      -e EPISTEMIC_GRAPH_AUDIENCE=epistemic-graph \
-      -e EPISTEMIC_GRAPH_TENANT=tenant:default \
-      -e EPISTEMIC_GRAPH_POLICY_VERSION=policy:initial \
-      -e EPISTEMIC_GRAPH_SIGNER_KEYS_JSON \
-      -e GRAPH_SERVICE_PERSIST_DIR="${CONTAINER_DATA_DIR}" \
-      -e GRAPH_SERVICE_TCP_ADDR=0.0.0.0:9100 \
-      -e GRAPH_SERVICE_TLS_CERT=/run/secrets/server.crt \
-      -e GRAPH_SERVICE_TLS_KEY=/run/secrets/server.key \
-      -p 9100:9100 \
-      --mount type=bind,src="${TLS_CERT_FILE}",dst=/run/secrets/server.crt,readonly \
-      --mount type=bind,src="${TLS_KEY_FILE}",dst=/run/secrets/server.key,readonly \
-      -v eg-data:"${CONTAINER_DATA_DIR}" \
-      <registry>/epistemic-graph:<tag>
-    ```
+The main build provides the connected data, semantic reasoning, analytical,
+temporal, and multimodal surfaces shown above. Compatibility is published per
+operation: the [capability matrix](capabilities.md) explains supported behavior,
+while the [generated method ledger](capabilities.generated.md) records exact
+authority, durability, audit, CDC, and transaction properties.
 
-    Populate `GRAPH_SERVICE_AUTH_SECRET` and `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON` from a runtime
-    secret provider before starting the container. The server accepts only `eg2.` request
-    envelopes and requires the audience, tenant, policy revision, durable replay state, and
-    trusted signer registry. Routable native TCP always uses TLS/mTLS (`GRAPH_SERVICE_TLS_CERT`,
-    `_KEY`, optional `_CLIENT_CA`). Auxiliary listeners, including database-protocol and metrics
-    listeners, are loopback-only; expose them through a co-located authenticated TLS gateway when
-    needed. Full recipes (compose, HA cluster, prebuilt wheels): [deployment guide](deployment.md).
+!!! info "Capability truth is part of the product"
+    Status is generated from the same method contracts the engine serves. Check
+    [current status](status.md) and the [capability matrix](capabilities.md)
+    before selecting an interface or deployment shape.
 
-=== "Binary"
+## Where this engine fits
 
-    ```bash
-    # Read all secrets and policy values from deployment configuration.
-    : "${GRAPH_SERVICE_AUTH_SECRET:?required}"
-    : "${EPISTEMIC_GRAPH_SIGNER_KEYS_JSON:?required}"
-    : "${GRAPH_SERVICE_PERSIST_DIR:?required}"
-    export EPISTEMIC_GRAPH_AUDIENCE=epistemic-graph
-    export EPISTEMIC_GRAPH_TENANT=tenant:default
-    export EPISTEMIC_GRAPH_POLICY_VERSION=policy:initial
-    epistemic-graph-server
-    ```
+<figure class="site-card">
+  <img src="assets/runtime-architecture.svg" alt="Clients enter through GraphOS, agent-utilities executes agents and workflows, Epistemic Graph owns durable knowledge, and connector packages synchronize external systems.">
+  <figcaption>Epistemic Graph is the durable authority at the base of the shared runtime.</figcaption>
+</figure>
 
-=== "Python client"
+<div class="site-ownership">
+  <div class="site-ownership__grid">
+    <div class="site-ownership__item">
+      <div class="site-ownership__label">This repository owns</div>
+      <div class="site-ownership__value">Durable data, graph and multimodal computation, semantic reasoning, query planning, schema enforcement, evidence, and engine authorization.</div>
+    </div>
+    <div class="site-ownership__item">
+      <div class="site-ownership__label">It does not own</div>
+      <div class="site-ownership__value">Agent orchestration, public gateway policy, browser experience, source credentials, or vendor API execution.</div>
+    </div>
+  </div>
+</div>
 
-    ```bash
-    pip install epistemic-graph
-    ```
+<ol class="site-flow">
+  <li class="site-flow__step">
+    <span class="site-flow__title">Enter through GraphOS</span>
+    <span class="site-flow__body">MCP, REST, A2A, identity, policy, and the hosted WebUI share one public door.</span>
+  </li>
+  <li class="site-flow__step">
+    <span class="site-flow__title">Execute with agent-utilities</span>
+    <span class="site-flow__body">Agents, workflows, skills, evaluation, and control-plane decisions run above the database.</span>
+  </li>
+  <li class="site-flow__step">
+    <span class="site-flow__title">Commit in Epistemic Graph</span>
+    <span class="site-flow__body">State, schema, evidence, provenance, and outcomes become durable under one transaction boundary.</span>
+  </li>
+  <li class="site-flow__step">
+    <span class="site-flow__title">Synchronize through connectors</span>
+    <span class="site-flow__body">SDK-based connectors exchange governed records with external source systems.</span>
+  </li>
+</ol>
 
-    ```python
-    from epistemic_graph import SyncEpistemicGraphClient
+## Choose an interface
 
-    context = {
-        "principal": "service:client",
-        "tenant": "tenant:default",
-        "audience": "epistemic-graph",
-        "agent_id": "service:client",
-        "roles": ["graph-client"],
-        "scopes": ["kg:read", "kg:write"],
-        "policy_version": "policy:initial",
-        "delegation": [],
-    }
-    with SyncEpistemicGraphClient.connect(verified_context=context) as graph:
-        graph.nodes.add("node:a", {"node_type": "coordinator"})
-        graph.nodes.add("node:b", {"node_type": "worker"})
-        graph.edges.add("node:a", "node:b", {"weight": 1.5})
-        print("Order:", graph.graph.topological_sort())
-    ```
-
-    The published wheel already contains the complete main Rust build **and** all runtime Python
-    helpers (OWL/SPARQL, LMCache HTTP acceleration, and numeric interoperability). More entry
-    points — the remote → shared-local → autostart resolver and the embedded in-process handle —
-    are in [engine modes](engine_modes.md).
-
-!!! note "Honesty first"
-    Every capability is tracked operation-by-operation in the
-    **[capabilities & parity matrix](capabilities.md)**; per-method authority, durability, audit,
-    CDC, and transaction facts come from the **[generated capability ledger](capabilities.generated.md)**.
-    External hardware and multi-host campaigns are release-certification evidence, not
-    unimplemented source. See what's live before you build on it.
-
-## How it's organized
-
-| | |
+| Goal | Start here |
 |---|---|
-| **Query it** | [Interfaces](interfaces/index.md) — one guide per wire protocol: SQL, SPARQL, Cypher, GraphQL, vector, time-series, and more. |
-| **Understand internals** | [Architecture](architecture/index.md) — the commit model, analytics/reasoning plane, distribution & scaling, and hardening. |
-| **Operate it** | [Deployment](deployment.md) and [Operations runbook](operations/runbook.md) — standalone, Docker, and HA-cluster recipes; day-2 procedures. |
-| **Reference** | [Concept registry](concepts.md) · [UQL](uql.md) · [environment variables](deployment.md#configuration-reference). |
-| **Status** | [docs/status.md](status.md) — the generated Codex/status page: what's live, in progress, or roadmap, by pillar. |
+| Add or query graph records from Python | [Python and native clients](interfaces/clients.md) |
+| Query connected knowledge | [UQL](uql.md), [Cypher](interfaces/cypher.md), or [GraphQL](interfaces/graphql.md) |
+| Work with RDF and ontologies | [RDF, SPARQL, OWL, and SHACL](interfaces/ontology.md) |
+| Run relational analytics | [SQL and PostgreSQL wire](interfaces/sql.md) |
+| Search vectors, text, and memory | [Memory interfaces](interfaces/memory.md) and [vector search](interfaces/vector.md) |
+| Ingest documents and media | [Governed modality serving](architecture/modality_serving.md) |
+| Operate a durable service | [Standalone deployment](standalone_deployment.md) and [operations](operations/runbook.md) |
 
-Go deeper: the engine's guiding design principle is
-**[North Star: Seamless](north_star.md)** — every cross-modal read/write path is implemented at
-*every* wire surface, never merely flagged at the one it was first built for.
+## Run your first graph
+
+The release wheel includes the in-process engine binding, so the shortest path
+needs no server, port, certificate, or background process:
+
+```bash
+python -m pip install epistemic-graph
+python - <<'PY'
+import msgpack
+from epistemic_graph.engine import Engine
+
+engine = Engine(persist_dir=":memory:")
+engine.create_graph("demo")
+engine.add_node("demo", "node:hello", msgpack.packb({"kind": "Greeting"}, use_bin_type=True))
+print(engine.has_node("demo", "node:hello"), engine.node_count("demo"))
+PY
+```
+
+Expected output: `True 1`. This explicit `:memory:` mode is ephemeral. Continue
+to the [local guide](get-started.md) for the annotated example, or go directly
+to [Deploy](standalone_deployment.md) for durable service, TLS, and cluster
+configuration.

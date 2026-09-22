@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 500" role="img" aria-labelledby="diagram-title diagram-description">
+  <title id="diagram-title">Knuckles-Team agent ecosystem runtime architecture</title>
+  <desc id="diagram-description">People and MCP or A2A clients enter through Agent WebUI or GraphOS. Agent WebUI is hosted and composed by GraphOS. GraphOS connects to the agent-utilities control plane, which uses epistemic-graph as its durable multimodal knowledge and reasoning engine. Source systems connect through agent-connector-sdk to epistemic-graph.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0 0 10 5 0 10z" fill="#365f93"/>
+    </marker>
+    <style>
+      .box{fill:#f3f7fc;stroke:#365f93;stroke-width:2}
+      .box-accent{fill:#eaf1fb;stroke:#174ea6;stroke-width:2.5}
+      .label{font:700 19px system-ui,-apple-system,Segoe UI,sans-serif;fill:#15243a;text-anchor:middle}
+      .role{font:15px system-ui,-apple-system,Segoe UI,sans-serif;fill:#40536d;text-anchor:middle}
+      .arrow{fill:none;stroke:#365f93;stroke-width:3;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect width="1120" height="500" rx="18" fill="#fff"/>
+  <g class="arrow">
+    <path d="M260 113H325"/>
+    <path d="M260 145H290V190H530V143H555"/>
+    <path d="M480 113H555"/>
+    <path d="M710 113H785"/>
+    <path d="M935 188V235"/>
+    <path d="M260 375H325"/><path d="M710 375H750V293H785"/>
+  </g>
+  <g>
+    <rect class="box" x="35" y="88" width="225" height="82" rx="14"/>
+    <text class="label" x="147" y="122">People + clients</text>
+    <text class="role" x="147" y="148">MCP and A2A</text>
+
+    <rect class="box" x="325" y="72" width="155" height="82" rx="14"/>
+    <text class="label" x="402" y="106">Agent WebUI</text>
+    <text class="role" x="402" y="132">operator experience</text>
+
+    <rect class="box" x="555" y="72" width="155" height="82" rx="14"/>
+    <text class="label" x="632" y="106">GraphOS</text>
+    <text class="role" x="632" y="132">public runtime gateway</text>
+
+    <rect class="box-accent" x="785" y="72" width="300" height="116" rx="14"/>
+    <text class="label" x="935" y="112">agent-utilities</text>
+    <text class="role" x="935" y="141">agent control plane</text>
+
+    <rect class="box-accent" x="785" y="235" width="300" height="116" rx="14"/>
+    <text class="label" x="935" y="275">epistemic-graph</text>
+    <text class="role" x="935" y="304">durable multimodal knowledge</text>
+    <text class="role" x="935" y="327">and reasoning engine</text>
+
+    <rect class="box" x="35" y="334" width="225" height="82" rx="14"/>
+    <text class="label" x="147" y="368">Source systems</text>
+    <text class="role" x="147" y="394">governed external data</text>
+
+    <rect class="box" x="325" y="334" width="385" height="82" rx="14"/>
+    <text class="label" x="517" y="368">agent-connector-sdk</text>
+    <text class="role" x="517" y="394">governed source integration boundary</text>
+  </g>
+</svg>
