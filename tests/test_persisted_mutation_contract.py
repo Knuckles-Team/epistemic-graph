@@ -564,13 +564,13 @@ def test_native_command_catalog_rejects_drift_and_comment_spoofs() -> None:
     source = module.read_compiler_family("src/raft/mod.rs").production
     entry = "            record EvictLRU => GraphState,\n"
     assert entry in source
-    assert len(module._native_method_catalog(source)) == 99
+    assert len(module._native_method_catalog(source)) == 100
 
-    with pytest.raises(SystemExit, match="99 entries"):
+    with pytest.raises(SystemExit, match="100 entries"):
         module._native_method_catalog(source.replace(entry, "", 1))
     with pytest.raises(SystemExit, match="duplicate entry"):
         module._native_method_catalog(source.replace(entry, entry + entry, 1))
-    with pytest.raises(SystemExit, match="99 entries"):
+    with pytest.raises(SystemExit, match="100 entries"):
         module._native_method_catalog(
             source.replace(entry, f"            // {entry.strip()}\n", 1)
         )
@@ -791,7 +791,7 @@ def test_m1_scanner_rejects_arbitrary_physical_root_and_semantic_bypass() -> Non
         )
 
 
-def test_row_delta_authority_matches_current_producer_legacy_migration_and_validator() -> None:
+def test_row_delta_authority_matches_producer_migration_and_validator() -> None:
     module = _gate_module()
     contract, _, _, _, row_delta = _m1_sources(module)
 
@@ -800,7 +800,9 @@ def test_row_delta_authority_matches_current_producer_legacy_migration_and_valid
         'const ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-schema-sources";'
         in row_delta
     )
-    assert 'const LEGACY_ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-v2";' in row_delta
+    assert (
+        'const LEGACY_ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-v2";' in row_delta
+    )
     assert "const ROW_DELTA_VERSION: u16 = 3;" in row_delta
 
 

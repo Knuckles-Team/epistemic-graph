@@ -37,6 +37,7 @@ clients = "hand-maintained out-of-tree client SDKs: clients/go (Go) and clients/
 docker = "Dockerfile(s) + compose stacks for the standalone/test engine image, plus the docker/wheels/ COPY target for the CI-built wheel"
 contract = "GENERATED engine contract (RF-RULING-003), written and byte-verified by `cargo run -p eg-capabilities --features contract --bin gen_contract [-- --check]` from the hand-authored `crates/eg-capabilities/src/domains/*` descriptor rows. It is at the repository ROOT because it is what an external consumer pins: `contract/receipt.json` carries the one `contract_digest` agent-utilities binds to, and `contract/methods.json` + `contract/schemas/*` are the per-method registry and JSON Schemas the generated clients validate against. Never hand-edit: an edit here is drift the `--check` gate fails on, and the source of truth is the descriptor rows."
 docs = "mkdocs documentation source: architecture, benchmarks, generated capability docs"
+overrides = "MkDocs Material theme override templates for the published docs site (main.html extends the theme's base.html to add the cross-repo ecosystem site-switcher announcement bar and shared footer, driven by mkdocs.yml `extra.ecosystem`)"
 examples = "runnable Rust examples (embedded usage, a neighbors-batch benchmark)"
 protocols = "versioned wire-protocol schemas (epistemic-operations, performance) consumed by client generators"
 scripts = "gate scripts (check_*.py) and release/bench tooling invoked by pre-commit/CI"

@@ -3,6 +3,9 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import pytest
+
+from epistemic_graph.generated import reasoning
 from epistemic_graph.generated.graph_schema import (
     GraphSchemaCommitted,
     GraphSchemaOpAttach,
@@ -11,7 +14,8 @@ from epistemic_graph.generated.graph_schema import (
     SchemaSourceOriginViewCore,
 )
 
-from epistemic_graph.generated import reasoning
+# Static generated-client contract checks against a fake transport; no engine.
+pytestmark = pytest.mark.no_engine
 
 
 class _Client:
