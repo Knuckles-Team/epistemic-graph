@@ -16,9 +16,9 @@
 //!
 //!   * **NNF** — every concept is first pushed to negation-normal-form ([`Dl::nnf`]),
 //!     so negation sits only on atoms/nominals and every construct has a matching rule.
-//!   * **TBox internalization** — every GCI `C ⊑ D` becomes the meta-constraint
-//!     `¬C ⊔ D` (in NNF), and that set (`ct`) is stamped into EVERY node label on
-//!     creation, so all nodes are forced to satisfy the TBox.
+//!   * **TBox absorption** — a GCI `A ⊑ D` with a named `A` is lazily unfolded; every
+//!     other GCI `C ⊑ D` becomes the meta-constraint `¬C ⊔ D` (in NNF), stamped into
+//!     EVERY node label on creation (the `absorption` module says why both are required).
 //!   * **Expansion rules** — `⊓` (add both), `⊔` (branch), `∃` (create a witness),
 //!     `∀` (propagate to r-successors, incl. transitive-role folding), `≥n` (create n
 //!     pairwise-distinct witnesses), `≤n` (merge two mergeable witnesses),
@@ -60,6 +60,16 @@ use std::rc::Rc;
 use oxrdf::{Term, Triple};
 
 use crate::owl::{iri, parse_rdf_list, parse_rdf_list_mapped, term_key, TripleIndex};
+
+mod abox;
+mod absorption;
+mod search;
+mod store;
+mod terminology;
+use abox::classify_instances_for;
+pub use abox::{abox_consistency_within, is_consistent_within};
+use absorption::{build_tbox, deterministic_consequences, Tbox};
+pub use terminology::reason_dl_terminology;
 
 // ── OWL / RDF(S) vocabulary IRIs used by the DL parser ───────────────────────
 
@@ -588,6 +598,15 @@ struct Node {
     nominal: BTreeSet<String>,
     /// The tree parent (used for equality blocking); `None` for root nodes.
     parent: Option<usize>,
+    /// Union-find parent (`≤`-merge and nominal identification); `rep == id` for a
+    /// representative.
+    rep: usize,
+    /// Outgoing role edges `(role, to)`, held by the representative; `to` is read
+    /// through [`Completion::find`].
+    succ: Vec<(String, usize)>,
+    /// The open choice points (stack positions) this node's label and edges can depend
+    /// on — a superset, for dependency-directed backjumping ([`search`]).
+    deps: search::Deps,
 }
 
 /// The role hierarchy + transitivity, precomputed once per reasoning call.
@@ -653,18 +672,25 @@ impl RoleInfo {
 
 /// A completion graph (one non-deterministic branch). Cloned to explore `⊔`/`≤`/choose
 /// alternatives. Node identity is a union-find representative (nominal / `≤`-merges).
+///
+/// Nodes live in a copy-on-write [`store::NodeStore`] shared with the snapshots a branch
+/// was cloned from: a clone costs one pointer per chunk of nodes, and a branch copies
+/// only what it changes (EH-355).
 #[derive(Clone)]
 struct Completion {
-    nodes: Vec<Node>,
-    /// Union-find parent per node id (`≤`-merge and nominal identification).
-    uf: Vec<usize>,
-    /// Raw role edges `(from, role, to)` — endpoints interpreted through [`find`].
-    edges: Vec<(usize, String, usize)>,
+    nodes: store::NodeStore,
     /// Raw inequalities `(a, b)` — a clash iff `find(a) == find(b)`.
     neq: Vec<(usize, usize)>,
-    /// The internalized TBox: each entry (NNF `¬C ⊔ D`) is stamped into every node.
-    ct: Rc<Vec<Dl>>,
+    /// The prepared TBox: internalized constraints plus the lazy-unfolding table.
+    tbox: Rc<Tbox>,
     roles: Rc<RoleInfo>,
+    /// Search steps charged across every branch of this decision ([`abox`]).
+    budget: Rc<abox::SearchBudget>,
+    /// Where the search for an unresolved `⊔` resumes ([`search`]).
+    cursor: usize,
+    /// Whether any label holds a QUALIFIED `≤n r.C`, whose clash can be caused by a
+    /// neighbour's label, so a local saturation cannot rule it out ([`search`]).
+    qualified_max: bool,
 }
 
 /// One alternative of a non-deterministic choice point.
@@ -677,14 +703,15 @@ enum Branch {
 }
 
 impl Completion {
-    fn new(ct: Rc<Vec<Dl>>, roles: Rc<RoleInfo>) -> Self {
+    fn new(tbox: Rc<Tbox>, roles: Rc<RoleInfo>) -> Self {
         Self {
-            nodes: Vec::new(),
-            uf: Vec::new(),
-            edges: Vec::new(),
+            nodes: store::NodeStore::default(),
             neq: Vec::new(),
-            ct,
+            tbox,
             roles,
+            budget: Rc::default(),
+            cursor: 0,
+            qualified_max: false,
         }
     }
 
@@ -694,22 +721,28 @@ impl Completion {
         nominal: BTreeSet<String>,
         parent: Option<usize>,
     ) -> usize {
-        for c in self.ct.iter() {
+        for c in &self.tbox.global {
             label.insert(c.clone());
         }
+        self.qualified_max |= label.iter().any(search::is_qualified_max);
+        let deps = parent
+            .map(|p| self.nodes[self.find(p)].deps.clone())
+            .unwrap_or_default();
         let id = self.nodes.len();
         self.nodes.push(Node {
             label,
             nominal,
             parent,
+            rep: id,
+            succ: Vec::new(),
+            deps,
         });
-        self.uf.push(id);
         id
     }
 
     fn find(&self, mut i: usize) -> usize {
-        while self.uf[i] != i {
-            i = self.uf[i];
+        while self.nodes[i].rep != i {
+            i = self.nodes[i].rep;
         }
         i
     }
@@ -726,24 +759,51 @@ impl Completion {
             return;
         }
         let (keep, drop) = if ra < rb { (ra, rb) } else { (rb, ra) };
-        self.uf[drop] = keep;
-        let dropped = std::mem::take(&mut self.nodes[drop].label);
-        self.nodes[keep].label.extend(dropped);
-        let dropped_noms = std::mem::take(&mut self.nodes[drop].nominal);
-        self.nodes[keep].nominal.extend(dropped_noms);
+        let dropped = self.nodes.get_mut(drop);
+        dropped.rep = keep;
+        let label = std::mem::take(&mut dropped.label);
+        let nominal = std::mem::take(&mut dropped.nominal);
+        let succ = std::mem::take(&mut dropped.succ);
+        let deps = std::mem::take(&mut dropped.deps);
+        let kept = self.nodes.get_mut(keep);
+        kept.label.extend(label);
+        kept.nominal.extend(nominal);
+        kept.succ.extend(succ);
+        kept.deps.extend(deps);
+    }
+
+    /// Add `c` to node `i`'s label. The node is copied out of a shared snapshot only
+    /// when `c` is new to it.
+    fn add_label(&mut self, i: usize, c: Dl) -> bool {
+        if self.nodes[i].label.contains(&c) {
+            return false;
+        }
+        self.qualified_max |= search::is_qualified_max(&c);
+        self.nodes.get_mut(i).label.insert(c)
+    }
+
+    fn add_edge(&mut self, from: usize, role: String, to: usize) {
+        let from = self.find(from);
+        self.nodes.get_mut(from).succ.push((role, to));
+    }
+
+    /// The representative's outgoing edges `(role, representative target)`.
+    fn out_edges(&self, x: usize) -> Vec<(String, usize)> {
+        let x = self.find(x);
+        self.nodes[x]
+            .succ
+            .iter()
+            .map(|(e, t)| (e.clone(), self.find(*t)))
+            .collect()
     }
 
     /// Representative r-neighbors of `x` for role `r` (via any sub-role edge), each
     /// paired with whether it qualifies for filler `c` (`c == Top` ⇒ always).
     fn role_neighbors(&self, x: usize, r: &str) -> Vec<usize> {
-        let x = self.find(x);
         let mut out = Vec::new();
-        for (f, e, t) in &self.edges {
-            if self.find(*f) == x && self.roles.is_super(r, e) {
-                let t = self.find(*t);
-                if !out.contains(&t) {
-                    out.push(t);
-                }
+        for (e, t) in self.out_edges(x) {
+            if self.roles.is_super(r, &e) && !out.contains(&t) {
+                out.push(t);
             }
         }
         out
@@ -774,12 +834,8 @@ impl Completion {
         false
     }
 
-    /// A clash in the current graph: `⊥`, `{A,¬A}`, `{ {a},¬{a} }`, a self-inequality,
-    /// or a `≤n r.C` with `n+1` pairwise-distinct `C`-witnesses.
-    /// Whether node `i`'s own label clashes (contains `⊥`, a directly
-    /// negated atom/nominal, or a violated `≤n r.f` cardinality). Split out
-    /// of `has_clash` (extract-method, cx/wD8) — same terms, same order as
-    /// before.
+    /// Whether node `i`'s own label clashes (contains `⊥`, a directly negated
+    /// atom/nominal, or a violated `≤n r.f` cardinality).
     fn node_has_clash(&self, i: usize) -> bool {
         let label = &self.nodes[i].label;
         if label.contains(&Dl::Bottom) {
@@ -803,21 +859,6 @@ impl Completion {
                     }
                 }
                 _ => {}
-            }
-        }
-        false
-    }
-
-    fn has_clash(&self) -> bool {
-        // Forced self-inequality (from a merge of two ≠ nodes).
-        for (a, b) in &self.neq {
-            if self.find(*a) == self.find(*b) {
-                return true;
-            }
-        }
-        for i in self.reps() {
-            if self.node_has_clash(i) {
-                return true;
             }
         }
         false
@@ -902,7 +943,8 @@ impl Completion {
                 std::option::Option::None => {
                     // No node yet represents individual `a`: this node becomes it.
                     let r = self.find(i);
-                    if self.nodes[r].nominal.insert(a.clone()) {
+                    if !self.nodes[r].nominal.contains(&a) {
+                        self.nodes.get_mut(r).nominal.insert(a.clone());
                         nom_rep.insert(a, r);
                         changed = true;
                     }
@@ -912,26 +954,27 @@ impl Completion {
         changed
     }
 
-    /// Phase (1) of `step_nongenerating`: the ⊓-rule. Split out
-    /// (extract-method, cx/wD8) — same terms, same order as before.
-    fn step_and_rule(&mut self) -> bool {
+    /// Phase (1) of `step_nongenerating`: the ⊓-rule and the lazy-unfolding rule
+    /// for absorbed GCIs (`deterministic_consequences`).
+    fn step_and_unfold_rule(&mut self) -> bool {
         let mut changed = false;
         for i in self.reps() {
-            let ands: Vec<Vec<Dl>> = self.nodes[i]
-                .label
-                .iter()
-                .filter_map(|c| match c {
-                    Dl::And(v) => std::option::Option::Some(v.clone()),
-                    _ => std::option::Option::None,
-                })
-                .collect();
-            for v in ands {
-                for x in v {
-                    if self.nodes[i].label.insert(x) {
-                        changed = true;
-                    }
-                }
-            }
+            changed |= self.unfold_node(i);
+        }
+        changed
+    }
+
+    /// One pass of the ⊓-rule and lazy unfolding over node `i`'s label.
+    fn unfold_node(&mut self, i: usize) -> bool {
+        let implied: Vec<Dl> = self.nodes[i]
+            .label
+            .iter()
+            .flat_map(|c| deterministic_consequences(&self.tbox, c))
+            .cloned()
+            .collect();
+        let mut changed = false;
+        for x in implied {
+            changed |= self.add_label(i, x);
         }
         changed
     }
@@ -946,31 +989,37 @@ impl Completion {
         if !self.roles.is_super(role, e) {
             return false;
         }
-        let mut changed = self.nodes[t].label.insert(filler.clone());
+        let mut changed = self.add_label(t, filler.clone());
         // Transitive folding: ∀r.C over a transitive sub-role e ⇒ ∀e.C
         // on the successor, so C reaches the whole e-chain.
         if self.roles.transitive.contains(e) {
             let prop = Dl::All(e.to_string(), Box::new(filler.clone()));
-            if self.nodes[t].label.insert(prop) {
-                changed = true;
-            }
+            changed |= self.add_label(t, prop);
         }
         changed
     }
 
-    /// Apply the ∀-rule's known `(role, filler)` pairs across `edges`
-    /// (+ transitive-role folding). Split out of `step_all_rule`
-    /// (extract-method, cx/wD8) — same terms, same order as before.
-    fn apply_all_rule_to_edges(
-        &mut self,
-        alls: &[(String, Dl)],
-        edges: &[(String, usize)],
-    ) -> bool {
-        let mut changed = false;
-        for (role, filler) in alls {
-            for (e, t) in edges {
+    /// The ∀-rule at node `i`: every `∀r.C` in its label over every outgoing edge.
+    /// Returns the successors whose label changed.
+    fn apply_all_rule_at(&mut self, i: usize) -> Vec<usize> {
+        let alls: Vec<(String, Dl)> = self.nodes[i]
+            .label
+            .iter()
+            .filter_map(|c| match c {
+                Dl::All(r, f) => std::option::Option::Some((r.clone(), (**f).clone())),
+                _ => std::option::Option::None,
+            })
+            .collect();
+        if alls.is_empty() {
+            return Vec::new();
+        }
+        let edges = self.out_edges(i);
+        let mut changed = Vec::new();
+        for (role, filler) in &alls {
+            for (e, t) in &edges {
                 if self.apply_all_rule_to_edge(role, filler, e, *t) {
-                    changed = true;
+                    self.inherit_deps(*t, i);
+                    changed.push(*t);
                 }
             }
         }
@@ -980,26 +1029,7 @@ impl Completion {
     fn step_all_rule(&mut self) -> bool {
         let mut changed = false;
         for i in self.reps() {
-            let alls: Vec<(String, Dl)> = self.nodes[i]
-                .label
-                .iter()
-                .filter_map(|c| match c {
-                    Dl::All(r, f) => std::option::Option::Some((r.clone(), (**f).clone())),
-                    _ => std::option::Option::None,
-                })
-                .collect();
-            if alls.is_empty() {
-                continue;
-            }
-            let edges: Vec<(String, usize)> = self
-                .edges
-                .iter()
-                .filter(|(f, _, _)| self.find(*f) == i)
-                .map(|(_, e, t)| (e.clone(), self.find(*t)))
-                .collect();
-            if self.apply_all_rule_to_edges(&alls, &edges) {
-                changed = true;
-            }
+            changed |= !self.apply_all_rule_at(i).is_empty();
         }
         changed
     }
@@ -1009,8 +1039,8 @@ impl Completion {
         // identifies its node with the individual `a`.
         let (nom_rep, changed0) = self.merge_nodes_sharing_a_nominal();
         let changed1 = self.identify_nominal_concepts(nom_rep);
-        // (1) ⊓-rule.
-        let changed2 = self.step_and_rule();
+        // (1) ⊓-rule + lazy unfolding of absorbed GCIs.
+        let changed2 = self.step_and_unfold_rule();
         // (2) ∀-rule (+ transitive-role folding).
         let changed3 = self.step_all_rule();
         changed0 || changed1 || changed2 || changed3
@@ -1050,7 +1080,7 @@ impl Completion {
                     let mut lab = BTreeSet::new();
                     lab.insert(filler.clone());
                     let z = self.add_node(lab, BTreeSet::new(), std::option::Option::Some(i));
-                    self.edges.push((i, role.clone(), z));
+                    self.add_edge(i, role.clone(), z);
                     changed = true;
                 }
             }
@@ -1090,7 +1120,7 @@ impl Completion {
                     lab.insert(filler.clone());
                 }
                 let z = self.add_node(lab, BTreeSet::new(), std::option::Option::Some(i));
-                self.edges.push((i, role.clone(), z));
+                self.add_edge(i, role.clone(), z);
                 // Distinct from every existing qualifying witness (pairwise ≠).
                 for &y in &witnesses {
                     self.neq.push((z, y));
@@ -1130,26 +1160,6 @@ impl Completion {
         // (4) ≥-rule.
         let (changed4, _capped4) = self.step_min_rule();
         changed3 || changed4
-    }
-
-    /// The ⊔-rule: find a node with an un-satisfied `Or` concept. Split out
-    /// of `next_nondet` (extract-method, cx/wD8) — same terms, same order
-    /// as before.
-    fn find_or_rule_branch(&self) -> Option<Vec<Branch>> {
-        for i in self.reps() {
-            for c in &self.nodes[i].label {
-                if let Dl::Or(ds) = c {
-                    if !ds.iter().any(|d| self.nodes[i].label.contains(d)) {
-                        return Some(
-                            ds.iter()
-                                .map(|d| Branch::AddConcept(i, d.clone()))
-                                .collect(),
-                        );
-                    }
-                }
-            }
-        }
-        None
     }
 
     /// The choose-rule (qualified number restrictions): a witness must
@@ -1252,96 +1262,16 @@ impl Completion {
         }
         None
     }
-
-    /// Find the first non-deterministic choice point and return its alternatives, or
-    /// `None` when the graph is complete (no rule applies): `⊔`, then `choose`, then `≤`.
-    fn next_nondet(&self) -> Option<Vec<Branch>> {
-        self.find_or_rule_branch()
-            .or_else(|| self.find_choose_rule_branch())
-            .or_else(|| self.find_max_rule_branch())
-    }
-
-    fn apply_branch(&mut self, b: Branch) {
-        match b {
-            Branch::AddConcept(i, c) => {
-                let r = self.find(i);
-                self.nodes[r].label.insert(c);
-            }
-            Branch::Merge(a, b) => self.union(a, b),
-        }
-    }
-
-    /// Is there a clash-free complete completion reachable from this graph? The tableau
-    /// decision procedure: saturate deterministically, branch on the first
-    /// non-determinism, and recurse. `true` ⇒ satisfiable.
-    /// Saturate the non-generating deterministic rules to fixpoint, checking
-    /// for a clash before and after. Split out of `expand`'s step (1)
-    /// (extract-method, cx/wD8) — same terms, same order as before. Returns
-    /// whether a clash was found.
-    fn saturate_nongenerating(&mut self) -> bool {
-        let mut changed = true;
-        while changed {
-            if self.has_clash() {
-                return true;
-            }
-            changed = self.step_nongenerating();
-        }
-        self.has_clash()
-    }
-
-    /// Try every branch of a non-deterministic choice point, recursing into
-    /// each. Split out of `expand`'s step (2) (extract-method, cx/wD8) —
-    /// same terms, same order as before.
-    fn try_nondet_branches(&mut self, branches: Vec<Branch>) -> bool {
-        for b in branches {
-            let mut child = self.clone();
-            child.apply_branch(b);
-            if child.expand() {
-                return true;
-            }
-        }
-        false
-    }
-
-    fn expand(&mut self) -> bool {
-        loop {
-            // (1) Saturate the non-generating deterministic rules to fixpoint.
-            if self.saturate_nongenerating() {
-                return false;
-            }
-            // (2) Resolve the first non-deterministic choice point (⊔ / choose / ≤).
-            if let std::option::Option::Some(branches) = self.next_nondet() {
-                return self.try_nondet_branches(branches);
-            }
-            // (3) Generating rules last (∃ / ≥) so blocking is checked on stable labels.
-            if self.nodes.len() >= NODE_CAP {
-                return true; // safety valve (see NODE_CAP)
-            }
-            if self.step_generating() {
-                continue;
-            }
-            // (4) No rule applies and no clash ⇒ a clash-free complete model exists.
-            return true;
-        }
-    }
 }
 
 // ── Building blocks shared by the entry points ───────────────────────────────
 
-/// The internalized TBox: NNF `¬C ⊔ D` per GCI `C ⊑ D`, stamped into every node.
-fn build_ct(ont: &DlOntology) -> Vec<Dl> {
-    ont.gcis
-        .iter()
-        .map(|(c, d)| Dl::Or(vec![c.clone().negate(), d.clone().nnf()]).nnf())
-        .collect()
-}
-
 /// Test whether a single fresh (anonymous) root labeled `extra` (∪ the TBox) has a
 /// clash-free model — i.e. the conjunction of `extra` is satisfiable w.r.t. the TBox.
 fn concept_sat(ont: &DlOntology, extra: Vec<Dl>) -> bool {
-    let ct = Rc::new(build_ct(ont));
+    let tbox = Rc::new(build_tbox(ont));
     let roles = Rc::new(RoleInfo::build(ont));
-    let mut comp = Completion::new(ct, roles);
+    let mut comp = Completion::new(tbox, roles);
     let mut lab = BTreeSet::new();
     for c in extra {
         lab.insert(c.nnf());
@@ -1353,58 +1283,12 @@ fn concept_sat(ont: &DlOntology, extra: Vec<Dl>) -> bool {
 // ── Public entry points ──────────────────────────────────────────────────────
 
 /// **Ontology consistency** (CONCEPT:EG-KG.ontology.concept-2): does the ontology (TBox + ABox) have a
-/// model? Builds a completion with one nominal root per named individual (carrying its
-/// asserted types + role edges + same/different constraints) and runs the tableau. With
-/// an empty ABox it probes a single anonymous `⊤` node (detects a globally-unsatisfiable
-/// TBox). `true` ⇒ consistent.
+/// model? Decided per independent ABox component ([`abox`]): one completion with a
+/// nominal root per individual of the component (its asserted types + role edges +
+/// same/different constraints). With an empty ABox it probes a single anonymous `⊤`
+/// node (detects a globally-unsatisfiable TBox). `true` ⇒ consistent.
 pub fn is_consistent(ont: &DlOntology) -> bool {
-    let ct = Rc::new(build_ct(ont));
-    let roles = Rc::new(RoleInfo::build(ont));
-    let mut comp = Completion::new(ct, roles);
-
-    // Gather every individual mentioned anywhere in the ABox.
-    let mut inds: BTreeSet<String> = ont.individuals.clone();
-    for (a, _) in &ont.abox_types {
-        inds.insert(a.clone());
-    }
-    for (a, _, b) in &ont.abox_roles {
-        inds.insert(a.clone());
-        inds.insert(b.clone());
-    }
-    for (a, b) in ont.same_as.iter().chain(ont.different_from.iter()) {
-        inds.insert(a.clone());
-        inds.insert(b.clone());
-    }
-
-    if inds.is_empty() {
-        // Empty ABox: probe ⊤-satisfiability of the TBox.
-        let mut lab = BTreeSet::new();
-        lab.insert(Dl::Top);
-        comp.add_node(lab, BTreeSet::new(), None);
-        return comp.expand();
-    }
-
-    let mut id_of: HashMap<String, usize> = HashMap::new();
-    for ind in &inds {
-        let mut noms = BTreeSet::new();
-        noms.insert(ind.clone());
-        let node = comp.add_node(BTreeSet::new(), noms, None);
-        id_of.insert(ind.clone(), node);
-    }
-    for (a, c) in &ont.abox_types {
-        let n = id_of[a];
-        comp.nodes[n].label.insert(c.clone().nnf());
-    }
-    for (a, r, b) in &ont.abox_roles {
-        comp.edges.push((id_of[a], r.clone(), id_of[b]));
-    }
-    for (a, b) in &ont.same_as {
-        comp.union(id_of[a], id_of[b]);
-    }
-    for (a, b) in &ont.different_from {
-        comp.neq.push((id_of[a], id_of[b]));
-    }
-    comp.expand()
+    abox::consistent_with(ont, &Rc::default())
 }
 
 /// **Concept subsumption** (CONCEPT:EG-KG.ontology.concept-2): does `sub ⊑ sup` hold w.r.t. the TBox?
@@ -1468,25 +1352,6 @@ pub fn classify_dl(ont: &DlOntology) -> BTreeMap<String, BTreeSet<String>> {
 /// individuals/classes from the parsed ontology signature.
 pub fn classify_instances_dl(ont: &DlOntology) -> BTreeMap<String, BTreeSet<String>> {
     classify_instances_for(ont, &ont.classes)
-}
-
-fn classify_instances_for(
-    ont: &DlOntology,
-    target_classes: &BTreeSet<String>,
-) -> BTreeMap<String, BTreeSet<String>> {
-    let mut out = BTreeMap::new();
-    for individual in &ont.individuals {
-        let mut classes = BTreeSet::new();
-        for class in target_classes {
-            if is_instance(ont, individual, class) {
-                classes.insert(class.clone());
-            }
-        }
-        if !classes.is_empty() {
-            out.insert(individual.clone(), classes);
-        }
-    }
-    out
 }
 
 fn contains_tableau_construct(concept: &Dl) -> bool {
@@ -1623,18 +1488,17 @@ pub(crate) fn needs_tableau(triples: &[Triple]) -> bool {
 /// the tableau is complete on the rest.
 pub fn reason_dl(triples: &[Triple]) -> DlReasoningResult {
     if needs_tableau(triples) {
-        reason_hybrid_ontology(triples)
+        reason_hybrid_ontology(triples, parse_dl_ontology(triples))
     } else {
         reason_el_rl_ontology(triples)
     }
 }
 
-fn reason_hybrid_ontology(triples: &[Triple]) -> DlReasoningResult {
+fn reason_hybrid_ontology(triples: &[Triple], ontology: DlOntology) -> DlReasoningResult {
     // Mixed ontologies must retain every EL/RL consequence. Running only the tableau
     // would discard inverse/symmetric/property-chain semantics that it does not implement.
     let mut rl = crate::owl::Reasoner::from_triples(triples);
     let rl = rl.classify();
-    let ontology = parse_dl_ontology(triples);
     let mut subsumers = rl.subsumers;
     merge_relevant_dl_subsumers(&mut subsumers, classify_relevant_dl(&ontology));
     let targets = tableau_instance_targets(&ontology);
@@ -1899,13 +1763,16 @@ ex:X rdfs:subClassOf [ owl:onProperty ex:q ; owl:minCardinality "1"^^<http://www
         assert!(result.consistent);
     }
 
+    /// OWL makes no unique-name assumption: `a r b, a r c` gives `a` two `r`-fillers
+    /// only once `b ≠ c` is asserted.
     #[test]
     fn mixed_profile_reports_tableau_only_instance_membership() {
         let triples = parse_turtle(&format!(
             "{PRE}\n\
              ex:TwoOrMore owl:equivalentClass [ owl:onProperty ex:r ; \
                  owl:minCardinality \"2\"^^<http://www.w3.org/2001/XMLSchema#nonNegativeInteger> ] .\n\
-             ex:a ex:r ex:b, ex:c ."
+             ex:a ex:r ex:b, ex:c .\n\
+             ex:b owl:differentFrom ex:c ."
         ))
         .unwrap();
         let result = reason_dl(&triples);
