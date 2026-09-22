@@ -57,6 +57,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use oxrdf::{BlankNode, NamedNode, NamedOrBlankNode, Term, Triple};
 
+mod budget;
+mod filler;
+
+pub use budget::{BudgetExhausted, DerivationBudget};
+
 // ── OWL / RDFS / RDF vocabulary IRIs ─────────────────────────────────────────
 
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
@@ -87,8 +92,8 @@ const OWL_MEMBERS: &str = "http://www.w3.org/2002/07/owl#members";
 // ── OWL 2 axioms added in EG-021 (broader EL⁺/RL coverage toward DL-lite) ─────
 /// `owl:equivalentProperty` — `r ≡ s` ⇒ `r ⊑ s` AND `s ⊑ r` (both role inclusions).
 const OWL_EQUIVALENT_PROPERTY: &str = "http://www.w3.org/2002/07/owl#equivalentProperty";
-/// `owl:allValuesFrom` — universal restriction `∀r.C`. Handled by the RL `cls-avf`
-/// propagation rule over the completion's R relation (sound, tractable; NOT full DL).
+/// `owl:allValuesFrom` — universal restriction `∀r.C`. Refines the `r`-fillers of a
+/// member of the restricted class (CR-filler; sound, tractable; NOT full DL).
 const OWL_ALL_VALUES_FROM: &str = "http://www.w3.org/2002/07/owl#allValuesFrom";
 /// `owl:hasValue` — value restriction `∃r.{a}`. Modelled as an existential to the
 /// VALUE token (a nominal treated as a Named filler) so it composes through CR-some.
@@ -200,14 +205,14 @@ pub struct Ontology {
     pub symmetric: BTreeSet<String>,
     /// Domain rules `(role, class)` — RL, lift to EL via `∃role.⊤ ⊑ class`.
     pub domains: Vec<(String, String)>,
-    /// Range rules `(role, class)` — RL.
+    /// Range rules `(role, class)` — RL; in EL they refine role fillers (CR-filler).
     pub ranges: Vec<(String, String)>,
     /// `A ⊓ B ⊑ ⊥` disjointness (EL — derives ⊥ on a shared instance/subclass).
     pub disjoint: Vec<(String, String, String)>,
     /// `owl:allValuesFrom` universal restrictions (EG-021): `(sub_class, role, filler,
-    /// label, conf)` meaning `sub_class ⊑ ∀role.filler`. Applied by the RL `cls-avf`
-    /// completion rule (CR-allValues): a role witness of a `sub_class` is forced into
-    /// `filler`. Sound + tractable; the only universal-restriction shape we admit.
+    /// label, conf)` meaning `sub_class ⊑ ∀role.filler`. Applied by the completion
+    /// rule CR-filler: a role witness of a `sub_class` member is refined to `… ⊓ filler`.
+    /// Sound + tractable; the only universal-restriction shape we admit.
     pub all_values: Vec<(String, String, String, String, f64)>,
     /// `owl:FunctionalProperty` roles (EG-021) — instance equality generators.
     pub functional: BTreeSet<String>,
@@ -307,7 +312,6 @@ pub fn parse_ontology(triples: &[Triple]) -> Ontology {
     expand_all_disjoint_classes(&idx, triples, &mut ont);
 
     lift_domains_into_el(&mut ont);
-    lift_ranges_into_el(&mut ont);
 
     ont
 }
@@ -773,57 +777,31 @@ fn handle_rdf_type(ont: &mut Ontology, s: &str, o: &Term, c: f64) {
 }
 
 /// Lift domain rules into EL so they classify through existentials too:
-/// `domain(r, D) ≈ ∃r.⊤ ⊑ D`.
+/// `domain(r, D) ≈ ∃r.⊤ ⊑ D`. A domain entailed by the range of an inverse or
+/// symmetric declaration ([`filler::transferred_domains`]) lifts the same way.
+/// Ranges are NOT lifted into a GCI: `range(r, D)` constrains the `r`-successors of
+/// an individual, not every member of a filler class, so the completion applies it to
+/// the fillers themselves ([`filler::FillerRules`]).
 fn lift_domains_into_el(ont: &mut Ontology) {
-    for (r, d) in ont.domains.clone() {
+    let transferred = filler::transferred_domains(ont);
+    for (r, d, label) in ont
+        .domains
+        .clone()
+        .into_iter()
+        .map(|(r, d)| {
+            let label = format!("dom({}) = {}", short(&r), short(&d));
+            (r, d, label)
+        })
+        .chain(transferred)
+    {
         push_gci(
             ont,
-            vec![Concept::Some(r.clone(), Box::new(Concept::thing()))],
-            Concept::Named(d.clone()),
-            format!("dom({}) = {}", short(&r), short(&d)),
+            vec![Concept::Some(r, Box::new(Concept::thing()))],
+            Concept::Named(d),
+            label,
             1.0,
         );
     }
-}
-
-/// Lift range rules into EL analogously to domains (CONCEPT:EG-KG.ontology.owl-reasoning). A range
-/// `range(r, D)` is the inverse-role mirror of a domain: `range(r, D) ≈ ∃r⁻.⊤ ⊑ D`
-/// (anything that is the TARGET of an `r` edge — i.e. has an incoming `r`, an `r⁻`
-/// successor — is a `D`). Until now `ont.ranges` was consumed ONLY at the RL /
-/// instance level (`rules.rs`), so a range never constrained concept-level
-/// classification. We synthesize a dedicated inverse role `r⁻` for `r`, register the
-/// `(r, r⁻)` inverse pair so the EXISTING inverse-role completion propagates every
-/// `R(r)` pair `(A,B)` into `R(r⁻)` as `(B,A)`, then push the domain-shaped GCI
-/// `∃r⁻.⊤ ⊑ D` on `r⁻`. CR-some⁻ then classifies the range filler `B` (an `r`-target)
-/// as `D`, exactly as the domain lift classifies the `r`-source. One synthetic
-/// inverse per role is reused so several ranges on the same role share it.
-fn lift_ranges_into_el(ont: &mut Ontology) {
-    let mut range_inv_seen: HashSet<String> = HashSet::new();
-    for (r, d) in ont.ranges.clone() {
-        let r_inv = range_inverse_role(&r);
-        if range_inv_seen.insert(r.clone()) {
-            ont.inverses.push((r.clone(), r_inv.clone()));
-        }
-        push_gci(
-            ont,
-            vec![Concept::Some(r_inv.clone(), Box::new(Concept::thing()))],
-            Concept::Named(d.clone()),
-            format!("range({}) = {}", short(&r), short(&d)),
-            1.0,
-        );
-    }
-}
-
-/// A stable synthetic inverse-role id used to lift `rdfs:range` into the EL completion
-/// (CONCEPT:EG-KG.ontology.owl-reasoning): role `<iri>` maps to `<iri__eg-range-inv>`. The suffix makes it
-/// disjoint from any asserted property, and reusing one id per role lets several range
-/// axioms on the same role share a single `(r, r⁻)` inverse pair.
-fn range_inverse_role(r: &str) -> String {
-    let inner = r
-        .strip_prefix('<')
-        .and_then(|s| s.strip_suffix('>'))
-        .unwrap_or(r);
-    format!("<{inner}__eg-range-inv>")
 }
 
 /// Parse a class expression rooted at node `id`: a named class, an
@@ -1316,6 +1294,10 @@ pub struct Reasoner {
     rconf: BTreeMap<(String, String, String), f64>,
     /// When true, the saturation tracks + propagates confidences (CONCEPT:EG-KG.ontology.concept-13).
     weighted: bool,
+    /// Refined role fillers `B ⊓ D₁ ⊓ …` introduced by CR-filler ([`filler`]).
+    refined: filler::RefinedFillers,
+    /// Derivation steps charged against an optional [`DerivationBudget`].
+    meter: budget::StepMeter,
 }
 
 impl Reasoner {
@@ -1412,17 +1394,22 @@ impl Reasoner {
     /// * **CR-bot** — if `⊥ ∈ S(B)` and `(A,B) ∈ R(r)`, add `⊥` to `S(A)` (the empty
     ///   filler propagates unsatisfiability up an existential).
     /// * **CR-disjoint** — if `D1, D2 ∈ S(A)` and `D1 ⊓ D2 ⊑ ⊥`, add `⊥` to `S(A)`.
+    /// * **CR-filler** — if `(A,B) ∈ R(r)` and a range of `r` (or a universal
+    ///   `C ⊑ ∀r.D` with `C ∈ S(A)`) is missing from `S(B)`, add `(A, B ⊓ …)` to `R(r)`
+    ///   for a refined filler ([`filler::FillerRules`]). The filler is refined, never
+    ///   `B` itself: `A ⊑ ∃r.B` says nothing about the `B`s that are not `r`-successors
+    ///   of an `A`. Inverse and symmetric declarations enter only through the domains
+    ///   and ranges they transfer; the relation `R` is never inverted, because
+    ///   `A ⊑ ∃r.B` does not entail `B ⊑ ∃r⁻.A`.
     fn saturate(&mut self) {
         let (sub_index, conj_axioms, some_rhs, some_lhs) = self.index_gcis();
 
         // disjoint pairs by class for CR-disjoint.
         let disjoint: Vec<(String, String, String)> = self.ont.disjoint.clone();
-        // allValuesFrom axioms (cls-avf): (sub_class, role, filler, label, conf).
-        let all_values = self.ont.all_values.clone();
+        // Range and allValuesFrom constraints on role successors (filler refinement).
+        let fillers = filler::FillerRules::build(&self.ont);
         let chains = self.ont.chains.clone();
         let sub_roles = self.ont.sub_roles.clone();
-        let symmetric: Vec<String> = self.ont.symmetric.iter().cloned().collect();
-        let inverses = self.ont.inverses.clone();
         let nothing = iri(OWL_NOTHING);
 
         let mut changed = true;
@@ -1441,9 +1428,7 @@ impl Reasoner {
 
             changed |= self.apply_cr_some_minus_and_bot(&some_lhs, &nothing);
             changed |= self.apply_cr_subrole(&sub_roles);
-            changed |= self.apply_symmetric_roles(&symmetric);
-            changed |= self.apply_inverse_roles(&inverses);
-            changed |= self.apply_cr_all_values(&all_values);
+            changed |= filler::apply_filler_refinement(self, &fillers);
             changed |= self.apply_cr_chain(&chains);
         }
     }
@@ -1717,79 +1702,6 @@ impl Reasoner {
         changed
     }
 
-    /// Symmetric roles: `(a,b) ∈ R(r)` ⇒ `(b,a) ∈ R(r)`.
-    fn apply_symmetric_roles(&mut self, symmetric: &[String]) -> bool {
-        let mut changed = false;
-        for r in symmetric {
-            let Some(pairs) = self.r.get(r).cloned() else {
-                continue;
-            };
-            for (a, b) in pairs {
-                let conf = self.cur_rconf(r, &a, &b);
-                if self.add_role_weighted(r, &b, &a, conf) {
-                    changed = true;
-                }
-            }
-        }
-        changed
-    }
-
-    /// Inverse role pairs: `(a,b) ∈ R(p1)` ⇒ `(b,a) ∈ R(p2)`, and the reverse.
-    fn apply_inverse_roles(&mut self, inverses: &[(String, String)]) -> bool {
-        let mut changed = false;
-        for (p1, p2) in inverses {
-            changed |= self.apply_inverse_role_direction(p1, p2);
-            changed |= self.apply_inverse_role_direction(p2, p1);
-        }
-        changed
-    }
-
-    fn apply_inverse_role_direction(&mut self, from: &str, to: &str) -> bool {
-        let Some(pairs) = self.r.get(from).cloned() else {
-            return false;
-        };
-        let mut changed = false;
-        for (a, b) in pairs {
-            let conf = self.cur_rconf(from, &a, &b);
-            if self.add_role_weighted(to, &b, &a, conf) {
-                changed = true;
-            }
-        }
-        changed
-    }
-
-    /// CR-allValues (RL cls-avf): `sub ⊑ ∀r.filler`, `sub ∈ S(a)`, `(a,b) ∈ R(r)` ⇒
-    /// `filler ∈ S(b)`. The universal restriction forces every r-witness of a `sub`
-    /// member into `filler`. Sound + tractable; the one ∀-shape we admit.
-    fn apply_cr_all_values(
-        &mut self,
-        all_values: &[(String, String, String, String, f64)],
-    ) -> bool {
-        let mut changed = false;
-        for (sub, role, filler, label, axiom_conf) in all_values {
-            let Some(pairs) = self.r.get(role).cloned() else {
-                continue;
-            };
-            for (a, b) in &pairs {
-                if !self.s.get(a).map(|s| s.contains(sub)).unwrap_or(false) {
-                    continue;
-                }
-                let conf = self.cur_conf(a, sub) * self.cur_rconf(role, a, b) * axiom_conf;
-                if self.add_sub(
-                    b,
-                    filler,
-                    "CR-allValues",
-                    vec![label.clone()],
-                    vec![(a.clone(), sub.clone())],
-                    conf,
-                ) {
-                    changed = true;
-                }
-            }
-        }
-        changed
-    }
-
     /// CR-chain: `(a,b) ∈ R(r1)`, `(b,c) ∈ R(r2)`, `r1∘r2 ⊑ s` ⇒ `(a,c) ∈ R(s)` (covers
     /// transitivity via `r∘r ⊑ r`). Only 2-role chains are supported.
     fn apply_cr_chain(&mut self, chains: &[RoleChain]) -> bool {
@@ -1860,6 +1772,10 @@ impl Reasoner {
         premises: Vec<(String, String)>,
         conf: f64,
     ) -> bool {
+        let present = self.s.get(a).is_some_and(|s| s.contains(b));
+        if !present && !self.meter.charge() {
+            return false;
+        }
         let added = self
             .s
             .entry(a.to_string())
@@ -1892,11 +1808,12 @@ impl Reasoner {
 
     /// Add (or raise the confidence of) a role pair `(r,(a,b))`.
     fn add_role_weighted(&mut self, r: &str, a: &str, b: &str, conf: f64) -> bool {
-        let added = self
-            .r
-            .entry(r.to_string())
-            .or_default()
-            .insert((a.to_string(), b.to_string()));
+        let pair = (a.to_string(), b.to_string());
+        let present = self.r.get(r).is_some_and(|pairs| pairs.contains(&pair));
+        if !present && !self.meter.charge() {
+            return false;
+        }
+        let added = self.r.entry(r.to_string()).or_default().insert(pair);
         let mut changed = added;
         if self.weighted {
             let key = (r.to_string(), a.to_string(), b.to_string());
@@ -1915,23 +1832,22 @@ impl Reasoner {
     /// Project the current closure into an immutable [`Classification`], computing
     /// consistency: the ontology is inconsistent iff some class OTHER than ⊥ itself
     /// is forced to subsume ⊥ (i.e. is unsatisfiable). ⊥ ⊑ ⊥ is not a defect.
+    /// Refined fillers are internal to the completion and never appear in the
+    /// projection ([`filler::NamedView`]).
     fn snapshot(&self) -> Classification {
         let nothing = iri(OWL_NOTHING);
-        let mut unsat = BTreeSet::new();
-        for (a, subs) in &self.s {
-            if a != &nothing && subs.contains(&nothing) {
-                unsat.insert(a.clone());
-            }
-        }
+        let view = filler::NamedView::of(self);
+        let unsat: BTreeSet<String> = view
+            .subsumers
+            .iter()
+            .filter(|(a, subs)| **a != nothing && subs.contains(&nothing))
+            .map(|(a, _)| a.clone())
+            .collect();
         Classification {
-            subsumers: self.s.clone(),
-            roles: self.r.clone(),
+            subsumers: view.subsumers,
+            roles: view.roles,
             justifications: self.just.clone(),
-            confidence: if self.weighted {
-                self.conf.clone()
-            } else {
-                BTreeMap::new()
-            },
+            confidence: view.confidence,
             consistent: unsat.is_empty(),
             unsatisfiable: unsat,
         }
@@ -3341,12 +3257,20 @@ ex:c ex:contains ex:e .
         }
         let triples = tbox_triples_from_view(&core.analysis_snapshot());
         let facts = saturate_object_properties(&triples);
-        assert!(facts.iter().any(|fact| {
-            fact.subject == "urn:test:a"
-                && fact.predicate == "http://knuckles.team/kg#partOf"
-                && fact.object == "urn:test:c"
-                && fact.rule == "RL-propertyChain"
-        }));
+        // Facts carry canonical `<iri>` ids, like every other saturation result.
+        assert!(
+            facts.iter().any(|fact| {
+                fact.subject == iri("urn:test:a")
+                    && fact.predicate == iri("http://knuckles.team/kg#partOf")
+                    && fact.object == iri("urn:test:c")
+                    && fact.rule == "RL-propertyChain"
+            }),
+            "no transitive partOf(a, c) among {:?}",
+            facts
+                .iter()
+                .filter(|fact| fact.subject == iri("urn:test:a"))
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -3477,10 +3401,11 @@ ex:Dad rdfs:subClassOf ex:Male .
     }
 
     /// `rdfs:range` constrains CONCEPT-level classification (CONCEPT:EG-KG.ontology.owl-reasoning): with
-    /// `Person ⊑ ∃hasPet.Dog` and `range(hasPet, Animal)`, the range filler `Dog` (an
-    /// `hasPet`-target) is derived `⊑ Animal` PURELY in the EL closure — no concrete
-    /// `hasPet` edge exists, so the RL/instance path cannot reach this. Proves the
-    /// `∃hasPet⁻.⊤ ⊑ Animal` lift (via the synthetic inverse role) fires.
+    /// `Person ⊑ ∃hasPet.Dog` and `range(hasPet, Animal)`, a Person's pet is a
+    /// `Dog ⊓ Animal`, so `∃hasPet.Animal ⊑ PetOwner` classifies `Person ⊑ PetOwner`
+    /// PURELY in the EL closure — no concrete `hasPet` edge exists, so the RL/instance
+    /// path cannot reach this. The range does NOT make every `Dog` an `Animal`: only
+    /// the `hasPet`-successors are constrained (EH-356).
     #[test]
     fn el_range_axiom_classifies_filler() {
         let ttl = r#"
@@ -3491,22 +3416,27 @@ ex:Person rdfs:subClassOf [ a owl:Restriction ;
                             owl:onProperty ex:hasPet ;
                             owl:someValuesFrom ex:Dog ] .
 ex:hasPet rdfs:range ex:Animal .
+[ a owl:Restriction ; owl:onProperty ex:hasPet ; owl:someValuesFrom ex:Animal ]
+    rdfs:subClassOf ex:PetOwner .
 "#;
         let triples = parse_turtle(ttl).unwrap();
         let mut reasoner = Reasoner::from_triples(&triples);
         let cls = reasoner.classify();
         assert!(cls.consistent, "ontology is consistent");
-        assert!(
-            cls.entails_subclass("<http://example.org/Dog>", "<http://example.org/Animal>"),
-            "range(hasPet, Animal) must classify the filler Dog ⊑ Animal in EL; S(Dog) = {:?}",
-            cls.subsumers.get("<http://example.org/Dog>")
+        let (person, owner) = (
+            "<http://example.org/Person>",
+            "<http://example.org/PetOwner>",
         );
-        // The derived subsumption carries a justification (the range-lifted axiom).
         assert!(
-            cls.justifications.contains_key(&(
-                "<http://example.org/Dog>".into(),
-                "<http://example.org/Animal>".into(),
-            )),
+            cls.entails_subclass(person, owner),
+            "range(hasPet, Animal) must refine the pet to Dog ⊓ Animal; S(Person) = {:?}",
+            cls.subsumers.get(person)
+        );
+        assert!(!cls.entails_subclass("<http://example.org/Dog>", "<http://example.org/Animal>"));
+        // The derived subsumption carries a justification.
+        assert!(
+            cls.justifications
+                .contains_key(&(person.into(), owner.into())),
             "the range-derived subsumption must carry a justification"
         );
     }
@@ -4073,8 +4003,8 @@ ex:Heart rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:partOf ; owl:so
         );
     }
 
-    /// `owl:allValuesFrom` (RL cls-avf): `Parent ⊑ ∀hasChild.Happy`, and a class with a
-    /// hasChild witness into some B forces `Happy ∈ S(B)`.
+    /// `owl:allValuesFrom` (RL cls-avf): `HappyParent ⊑ ∀hasChild.Happy` makes the
+    /// `hasChild` witness of a HappyParent a `Kid ⊓ Happy` — not every `Kid` happy.
     #[test]
     fn eg021_all_values_from_propagates() {
         let ttl = r#"
@@ -4083,17 +4013,18 @@ ex:Heart rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:partOf ; owl:so
 @prefix rdfs:<http://www.w3.org/2000/01/rdf-schema#> .
 ex:HappyParent rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:hasChild ; owl:allValuesFrom ex:Happy ] .
 ex:HappyParent rdfs:subClassOf [ a owl:Restriction ; owl:onProperty ex:hasChild ; owl:someValuesFrom ex:Kid ] .
+[ a owl:Restriction ; owl:onProperty ex:hasChild ; owl:someValuesFrom ex:Happy ] rdfs:subClassOf ex:ParentOfHappyChild .
 "#;
         let triples = parse_turtle(ttl).unwrap();
         let mut r = Reasoner::from_triples(&triples);
         let cls = r.classify();
-        // HappyParent has a hasChild witness (the someValuesFrom Kid creates R(hasChild)
-        // with filler Kid); ∀hasChild.Happy then forces Kid ⊑ Happy.
+        let parent = "<http://example.org/HappyParent>";
         assert!(
-            cls.entails_subclass("<http://example.org/Kid>", "<http://example.org/Happy>"),
-            "cls-avf must force the witness into Happy; S(Kid)={:?}",
-            cls.subsumers.get("<http://example.org/Kid>")
+            cls.entails_subclass(parent, "<http://example.org/ParentOfHappyChild>"),
+            "cls-avf must force the witness into Happy; S(HappyParent)={:?}",
+            cls.subsumers.get(parent)
         );
+        assert!(!cls.entails_subclass("<http://example.org/Kid>", "<http://example.org/Happy>"));
     }
 
     /// `owl:unionOf` (sound direction): each disjunct of a union is subsumed by a class

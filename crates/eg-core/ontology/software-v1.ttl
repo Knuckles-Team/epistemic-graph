@@ -53,9 +53,7 @@
 :dependsOn a owl:ObjectProperty,
         owl:TransitiveProperty ;
     rdfs:label "depends on" ;
-    rdfs:comment "Transitive dependency between symbols / modules." ;
-    rdfs:domain :Code ;
-    rdfs:range :Code .
+    rdfs:comment "Transitive dependency between symbols / modules. The shared kg:dependsOn's domain and range are owned by the core foundation (kg:partOf and kg:memberOf are sub-properties of it); a software-local rdfs:domain/rdfs:range here would make every part and every member a :Code." .
 
 :groundsTo a owl:ObjectProperty ;
     rdfs:label "grounds to" ;

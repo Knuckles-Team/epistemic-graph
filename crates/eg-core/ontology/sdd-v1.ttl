@@ -49,9 +49,7 @@
 :derivedFrom a owl:ObjectProperty,
         owl:TransitiveProperty ;
     rdfs:label "derived from" ;
-    rdfs:comment "Transitive: traces Requirement lineage back through Specifications." ;
-    rdfs:domain :Requirement ;
-    rdfs:range :Specification .
+    rdfs:comment "Transitive: traces Requirement lineage back through Specifications. The shared kg:derivedFrom's domain and range are owned by the core foundation; an SDD-local rdfs:domain/rdfs:range here would retype every derivedFrom edge in the graph as Requirement -> Specification." .
 
 :exposesAPI a owl:ObjectProperty ;
     rdfs:label "exposes API" ;

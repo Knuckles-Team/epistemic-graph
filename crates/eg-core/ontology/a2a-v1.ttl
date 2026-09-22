@@ -57,8 +57,7 @@
     rdfs:label "Skill" ;
     rdfs:comment """A discrete capability an A2A agent exposes (an AgentCard
     skill: id/name, description, tags). Invocable as part of agent delegation.
-    BFO:GenericallyDependentContinuant.""" ;
-    rdfs:subClassOf bfo:0000031 .
+    Its BFO category is owned by the core foundation's :Skill.""" .
 
 :A2AAgentCard a owl:Class ;
     rdfs:label "A2A Agent Card" ;

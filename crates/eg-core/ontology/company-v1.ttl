@@ -987,8 +987,7 @@ cross-domain reasoning about company operations.""" ;
 :LegalEntity a owl:Class ;
     rdfs:label "Legal Entity" ;
     rdfs:comment """A legal entity registered with government authorities.
-BFO:GenericallyDependentContinuant.""" ;
-    rdfs:subClassOf bfo:0000031 .
+Its BFO category is owned by the core foundation's :LegalEntity.""" .
 
 :ToolAgentSpawner a :MCPServer ;
     rdfs:label "agent-spawner" .

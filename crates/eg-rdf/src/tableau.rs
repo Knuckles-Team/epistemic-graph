@@ -1873,12 +1873,18 @@ ex:B rdfs:subClassOf ex:D .
         assert!(res.subsumers[&ex("A")].contains(&ex("E")));
     }
 
+    /// The hybrid result keeps the EL/RL role relation and the symmetric-role
+    /// semantics the tableau does not implement: a symmetric role's domain is also its
+    /// range, so `A`'s `p`-successor is a `B ⊓ D`. `A ⊑ ∃p.B` does not make every `B` a
+    /// `p`-predecessor of an `A`, so `(B, A)` is not in the relation (EH-356).
     #[test]
     fn mixed_profile_retains_rl_role_closure_while_tableau_handles_cardinality() {
         let triples = parse_turtle(&format!(
             r#"{PRE}
 ex:p rdf:type owl:SymmetricProperty .
+ex:p rdfs:domain ex:D .
 ex:A rdfs:subClassOf [ owl:onProperty ex:p ; owl:someValuesFrom ex:B ] .
+[ owl:onProperty ex:p ; owl:someValuesFrom ex:D ] rdfs:subClassOf ex:E .
 ex:X rdfs:subClassOf [ owl:onProperty ex:q ; owl:minCardinality "1"^^<http://www.w3.org/2001/XMLSchema#nonNegativeInteger> ] .
 "#
         ))
@@ -1887,7 +1893,9 @@ ex:X rdfs:subClassOf [ owl:onProperty ex:q ; owl:minCardinality "1"^^<http://www
         assert_eq!(result.engine, DlEngine::Hybrid);
         let pairs = result.roles.get(&ex("p")).unwrap();
         assert!(pairs.contains(&(ex("A"), ex("B"))));
-        assert!(pairs.contains(&(ex("B"), ex("A"))));
+        assert!(!pairs.contains(&(ex("B"), ex("A"))));
+        assert!(result.subsumers[&ex("A")].contains(&ex("E")));
+        assert!(!result.subsumers[&ex("B")].contains(&ex("D")));
         assert!(result.consistent);
     }
 

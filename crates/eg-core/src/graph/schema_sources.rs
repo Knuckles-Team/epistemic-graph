@@ -1058,7 +1058,7 @@ mod tests {
         let expected = [
             (
                 "a2a",
-                "db8625b47000ea604a589074c9c3047ade06f5a965ea54bfa90dbd06b6a9b73c",
+                "bbbc3cb6b6eafefb4b3c015a6cbff86b60d5e7943a546df4e087ec2d30e0cc68",
             ),
             (
                 "action",
@@ -1070,7 +1070,7 @@ mod tests {
             ),
             (
                 "capability",
-                "5ba669042ea3f9298e79b9c47101f726f1592d0c72411c98ab134b575f634972",
+                "81c5518d2679e96848327df81c879ce08644cdcb5fbf806f2835c2a276b05011",
             ),
             (
                 "argumentation",
@@ -1086,7 +1086,7 @@ mod tests {
             ),
             (
                 "company",
-                "c0565099b7afc506b7974c08be23f5c682898460d601cc5d1f5e31520fdfef7d",
+                "14d18c8c13c10b7fb23149983231924daff893086ac3047f29f3266fce6e5ac3",
             ),
             (
                 "company_infra",
@@ -1098,7 +1098,7 @@ mod tests {
             ),
             (
                 "foundation",
-                "3577b40611053d1df6c516e8d2a28b645b8f3a232a0038ead7e7836e0f7595ec",
+                "e62a7549e66b42483ad3eb4e6138cfba57a2393c67c8da8845e5b541e2e99690",
             ),
             (
                 "documentation",
@@ -1158,7 +1158,7 @@ mod tests {
             ),
             (
                 "sdd",
-                "8604de791d2a65517e4d11387aaeece9f47a8e8361b96fb17e7709aab929afb1",
+                "b512e373b33030dbb3be9f76129c034a6b9c444d228d3399cc7ebd93e801e9cc",
             ),
             (
                 "sdlc_lifecycle",
@@ -1166,7 +1166,7 @@ mod tests {
             ),
             (
                 "software",
-                "500322d880a84ab736dfb68a01daf2c1c1901fa89beade541b6b320f1b5349fb",
+                "cce36e129443b18938666db5399b1d7d3da3b7a9e4f15f018ccec4348c95b4f4",
             ),
             (
                 "system",

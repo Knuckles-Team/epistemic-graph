@@ -613,7 +613,10 @@ ex:parent a owl:AsymmetricProperty .
     fn core_foundation_contains_the_complete_migrated_root_axiom_body() {
         let foundation = include_str!("../../../crates/eg-core/ontology/core-foundation-v1.ttl");
         let triples = eg_rdf::mapping::parse_turtle(foundation).unwrap();
-        assert_eq!(triples.len(), 880);
+        // 880 migrated triples less the two list-cell triples of `:Incident`, which
+        // was removed from the Person/Organization/Server/Event disjointness because
+        // it is a subclass of `:Event` (EH-356).
+        assert_eq!(triples.len(), 878);
         for required in [
             "http://knuckles.team/kg#Concept",
             "http://knuckles.team/kg#Evidence",
@@ -633,7 +636,12 @@ ex:parent a owl:AsymmetricProperty .
     #[test]
     fn complete_core_corpus_pins_the_approved_authority_migration_delta() {
         let composed = validate_and_compose(&GraphSchemaSources::default()).unwrap();
-        assert_eq!(composed.ontology.len(), 12_600);
+        // 12,600 as migrated, less the 10 triples EH-356 removed to make the corpus
+        // coherent: module-local domain/range on the shared kg:derivedFrom (sdd,
+        // capability) and kg:dependsOn (software) — 6; module-local BFO recategorisation
+        // of the core :Skill (a2a) and :LegalEntity (company) — 2; `:Incident` in the
+        // AllDisjointClasses list of its own superclass `:Event` — 2.
+        assert_eq!(composed.ontology.len(), 12_590);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -665,7 +673,7 @@ ex:parent a owl:AsymmetricProperty .
         // authority triples change.
         assert_eq!(ontology_subjects.len(), 30);
         assert_eq!(imports, 59);
-        assert_eq!(semantic_axioms, 12_445);
+        assert_eq!(semantic_axioms, 12_435);
 
         let count_type = |object: &str| {
             composed
@@ -714,7 +722,33 @@ ex:parent a owl:AsymmetricProperty .
                         && matches!(&triple.object, Term::NamedNode(_))
                 })
                 .count(),
-            379
+            377
+        );
+    }
+
+    /// EH-356: the shipped corpus must be coherent under the EL/RL reasoner itself —
+    /// consistent, with no unsatisfiable named class — not only under whichever engine
+    /// the compose gate routes to. The EL/RL completion once derived
+    /// `BFO:Entity ⊑ kg:Code` from this corpus (an unsound range rule) and collapsed the
+    /// root class, and the corpus itself carried five genuinely unsatisfiable classes.
+    #[test]
+    fn shipped_core_corpus_is_coherent_under_the_el_rl_reasoner() {
+        let composed = validate_and_compose(&GraphSchemaSources::default()).unwrap();
+        let classification = eg_rdf::owl::Reasoner::from_triples(&composed.ontology).classify();
+        assert!(
+            classification.unsatisfiable.is_empty(),
+            "unsatisfiable named classes: {:?}",
+            classification.unsatisfiable
+        );
+        assert!(classification.consistent);
+        let entity = "<http://purl.obolibrary.org/obo/BFO_0000001>";
+        assert_eq!(
+            classification.subsumers[entity],
+            BTreeSet::from([
+                entity.to_string(),
+                "<http://www.w3.org/2002/07/owl#Thing>".to_string()
+            ]),
+            "the BFO root must subsume nothing but itself and owl:Thing"
         );
     }
 
