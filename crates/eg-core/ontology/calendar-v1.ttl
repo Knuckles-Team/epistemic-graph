@@ -17,8 +17,7 @@
     rdfs:range :Person .
 
 :eventLocation a owl:DatatypeProperty ;
-    rdfs:label "event location" ;
-    rdfs:range xsd:string .
+    rdfs:label "event location" .
 
 :scheduledEnd a owl:DatatypeProperty ;
     rdfs:label "scheduled end" ;
@@ -37,3 +36,9 @@
     rdfs:label "Calendar Event" ;
     rdfs:comment "A scheduled calendar event (meeting, review, change window)." ;
     rdfs:subClassOf :BusinessEvent .
+
+:calendarEventLocation a owl:DatatypeProperty ;
+    rdfs:label "eventLocation (calendar)" ;
+    rdfs:comment "The calendar module's meaning of the shared kg:eventLocation: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :eventLocation ;
+    rdfs:range xsd:string .

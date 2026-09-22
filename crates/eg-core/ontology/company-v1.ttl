@@ -131,9 +131,7 @@ lifecycle. Definition and audit nodes do not duplicate this state. BFO:Process."
     rdfs:range xsd:string .
 
 :currentValue a owl:DatatypeProperty ;
-    rdfs:label "current value" ;
-    rdfs:domain :KeyPerformanceIndicator ;
-    rdfs:range xsd:float .
+    rdfs:label "current value" .
 
 :dbaName a owl:DatatypeProperty ;
     rdfs:label "DBA name" ;
@@ -160,9 +158,7 @@ lifecycle. Definition and audit nodes do not duplicate this state. BFO:Process."
 
 :enrolledIn a owl:ObjectProperty ;
     rdfs:label "enrolled in" ;
-    rdfs:comment "Links an employee to their benefits plan." ;
-    rdfs:domain :Employee ;
-    rdfs:range :BenefitsPlan .
+    rdfs:comment "Links an employee to their benefits plan." .
 
 :entityType a owl:DatatypeProperty ;
     rdfs:label "entity type" ;
@@ -326,9 +322,7 @@ than hire a fresh template.""" ;
     rdfs:domain :CompanyLicense ;
     rdfs:range xsd:boolean .
 
-:reportsTo a owl:ObjectProperty ;
-    rdfs:domain :AgentRole ;
-    rdfs:range :AgentRole .
+:reportsTo a owl:ObjectProperty .
 
 :requiredHumanOversight a owl:DatatypeProperty ;
     rdfs:label "required human oversight" ;
@@ -360,9 +354,7 @@ than hire a fresh template.""" ;
     rdfs:range xsd:string .
 
 :targetValue a owl:DatatypeProperty ;
-    rdfs:label "target value" ;
-    rdfs:domain :StrategicGoal ;
-    rdfs:range xsd:float .
+    rdfs:label "target value" .
 
 :taxWithholding a owl:DatatypeProperty ;
     rdfs:label "tax withholding" ;
@@ -387,9 +379,7 @@ than hire a fresh template.""" ;
     rdfs:domain :AgentDepartment ;
     rdfs:range :CompanySoftware .
 
-:usesTool a owl:ObjectProperty ;
-    rdfs:domain :AgentRole ;
-    rdfs:range :MCPServer .
+:usesTool a owl:ObjectProperty .
 
 <http://knuckles.team/kg/company> a owl:Ontology ;
     rdfs:label "Company Operations Ontology" ;
@@ -416,7 +406,7 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "🤖 Agent Engineer & Meta-Tooling Architect" ;
     :id "agent_engineer" ;
     :role "🤖 Agent Engineer & Meta-Tooling Architect" ;
-    :usesTool :ToolAgentBuilder,
+    :companyUsesTool :ToolAgentBuilder,
         :ToolAgentPackageBuilder,
         :ToolAgentSpawner,
         :ToolAgentWorkflows,
@@ -439,37 +429,37 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "Ansible Tower Specialist" ;
     :id "ansible_tower_specialist" ;
     :role "Ansible Tower Specialist" ;
-    :usesTool :ToolAnsibleTowerMcp .
+    :companyUsesTool :ToolAnsibleTowerMcp .
 
 :AgentArchiveboxSpecialist a :AgentRole ;
     rdfs:label "ArchiveBox Specialist" ;
     :id "archivebox_specialist" ;
     :role "ArchiveBox Specialist" ;
-    :usesTool :ToolArchiveboxMcp .
+    :companyUsesTool :ToolArchiveboxMcp .
 
 :AgentArrSpecialist a :AgentRole ;
     rdfs:label "Arr Media Specialist" ;
     :id "arr_specialist" ;
     :role "Arr Media Specialist" ;
-    :usesTool :ToolArrMcp .
+    :companyUsesTool :ToolArrMcp .
 
 :AgentAtlassianSpecialist a :AgentRole ;
     rdfs:label "Atlassian Specialist" ;
     :id "atlassian_specialist" ;
     :role "Atlassian Specialist" ;
-    :usesTool :ToolAtlassianAgent .
+    :companyUsesTool :ToolAtlassianAgent .
 
 :AgentAudioTranscriberSpecialist a :AgentRole ;
     rdfs:label "Audio Transcriber Specialist" ;
     :id "audio_transcriber_specialist" ;
     :role "Audio Transcriber Specialist" ;
-    :usesTool :ToolAudioTranscriberMcp .
+    :companyUsesTool :ToolAudioTranscriberMcp .
 
 :AgentAuditImplementationAgainstSpecification a :AgentRole ;
     rdfs:label "Result Validator & Verification System ✅" ;
     :id "audit implementation against specification" ;
     :role "Result Validator & Verification System ✅" ;
-    :usesTool :ToolSpecVerifier,
+    :companyUsesTool :ToolSpecVerifier,
         :ToolTddMethodology .
 
 :AgentBaseAgent a :AgentRole ;
@@ -481,7 +471,7 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "Chrome Browser Automation (Agent-in-Chrome)" ;
     :id "browser_automation" ;
     :role "Chrome Browser Automation (Agent-in-Chrome)" ;
-    :usesTool :ToolAgentBrowser,
+    :companyUsesTool :ToolAgentBrowser,
         :ToolBrowserTools,
         :ToolWebArtifacts,
         :ToolWebCrawler,
@@ -491,14 +481,14 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "💻 C Systems Programmer" ;
     :id "c_programmer" ;
     :role "💻 C Systems Programmer" ;
-    :usesTool :ToolCDocs,
+    :companyUsesTool :ToolCDocs,
         :ToolDeveloperUtilities .
 
 :AgentChiefTradingOfficer a :AgentRole ;
     rdfs:label "Chief Trading Officer" ;
     :id "chief_trading_officer" ;
     :role "Chief Trading Officer" ;
-    :usesTool :ToolDataScienceMcp,
+    :companyUsesTool :ToolDataScienceMcp,
         :ToolEmeraldExchange,
         :ToolGraphOs .
 
@@ -506,7 +496,7 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "☁️ Cloud Architect & Infrastructure Lead" ;
     :id "cloud_architect" ;
     :role "☁️ Cloud Architect & Infrastructure Lead" ;
-    :usesTool :ToolAwsDocs,
+    :companyUsesTool :ToolAwsDocs,
         :ToolAzureDocs,
         :ToolC4Architecture,
         :ToolDeveloperUtilities,
@@ -516,13 +506,13 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "⚡ C++ Software Engineer" ;
     :id "cpp_programmer" ;
     :role "⚡ C++ Software Engineer" ;
-    :usesTool :ToolDeveloperUtilities .
+    :companyUsesTool :ToolDeveloperUtilities .
 
 :AgentCritique a :AgentRole ;
     rdfs:label "Auto Mode Critique Prompt" ;
     :id "critique" ;
     :role "Auto Mode Critique Prompt" ;
-    :usesTool :ToolSelfImprover,
+    :companyUsesTool :ToolSelfImprover,
         :ToolSpecVerifier,
         :ToolTddMethodology .
 
@@ -530,7 +520,7 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "📊 Data Scientist & Machine Learning Specialist" ;
     :id "data_scientist" ;
     :role "📊 Data Scientist & Machine Learning Specialist" ;
-    :usesTool :ToolHuggingfaceDocs,
+    :companyUsesTool :ToolHuggingfaceDocs,
         :ToolJupyterNotebook,
         :ToolLangchainDocs,
         :ToolMatplotlibDocs,
@@ -545,7 +535,7 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "Database Architect & Optimization Expert 🗄️" ;
     :id "database_expert" ;
     :role "Database Architect & Optimization Expert 🗄️" ;
-    :usesTool :ToolChromadbDocs,
+    :companyUsesTool :ToolChromadbDocs,
         :ToolCouchbaseDocs,
         :ToolDatabaseTools,
         :ToolFalkordbDocs,
@@ -561,14 +551,14 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "🐛 Debugging Expert & Technical Analyst" ;
     :id "debugger_expert" ;
     :role "🐛 Debugging Expert & Technical Analyst" ;
-    :usesTool :ToolAgentBuilder,
+    :companyUsesTool :ToolAgentBuilder,
         :ToolDeveloperUtilities .
 
 :AgentDecomposeUserRequestsIntoHigh-FidelityTasks a :AgentRole ;
     rdfs:label "Project Planner System Prompt" ;
     :id "decompose user requests into high-fidelity tasks" ;
     :role "Project Planner System Prompt" ;
-    :usesTool :ToolBrainstorming,
+    :companyUsesTool :ToolBrainstorming,
         :ToolConstitutionGenerator,
         :ToolInternalComms,
         :ToolSpecGenerator,
@@ -583,7 +573,7 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "Agent Creation Architect System Prompt" ;
     :id "design scalable and resilient system architectures" ;
     :role "Agent Creation Architect System Prompt" ;
-    :usesTool :ToolBrainstorming,
+    :companyUsesTool :ToolBrainstorming,
         :ToolC4Architecture,
         :ToolMermaidDiagrams,
         :ToolProductStrategy,
@@ -594,7 +584,7 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "DevOps & Operational Stability Engineer" ;
     :id "devops_engineer" ;
     :role "DevOps & Operational Stability Engineer" ;
-    :usesTool :ToolAwsDocs,
+    :companyUsesTool :ToolAwsDocs,
         :ToolAzureDocs,
         :ToolC4Architecture,
         :ToolCloudflareDeploy,
@@ -608,13 +598,13 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "Specialist Dietician & Chef Agent" ;
     :id "dietician_chef" ;
     :role "Specialist Dietician & Chef Agent" ;
-    :usesTool :ToolMealieMcp .
+    :companyUsesTool :ToolMealieMcp .
 
 :AgentDocumentSpecialist a :AgentRole ;
     rdfs:label "📑 Document & Presentation Specialist" ;
     :id "document_specialist" ;
     :role "📑 Document & Presentation Specialist" ;
-    :usesTool :ToolCreativeMedia,
+    :companyUsesTool :ToolCreativeMedia,
         :ToolDocumentConverter,
         :ToolDocumentTools,
         :ToolMarpPresentations .
@@ -623,7 +613,7 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "Agent Utilities Evolution Specialist" ;
     :id "evolution_specialist" ;
     :role "Agent Utilities Evolution Specialist" ;
-    :usesTool :ToolDataScienceMcp,
+    :companyUsesTool :ToolDataScienceMcp,
         :ToolGraphOs,
         :ToolRepositoryManagerMcp,
         :ToolScholarxMcp .
@@ -632,7 +622,7 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "Finance Operations Coordinator" ;
     :id "finance_operations_coordinator" ;
     :role "Finance Operations Coordinator" ;
-    :usesTool :ToolDataScienceMcp,
+    :companyUsesTool :ToolDataScienceMcp,
         :ToolDocumentTools,
         :ToolGraphOs .
 
@@ -640,25 +630,25 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "AI Personal Fitness Trainer" ;
     :id "fitness_trainer" ;
     :role "AI Personal Fitness Trainer" ;
-    :usesTool :ToolWgerAgent .
+    :companyUsesTool :ToolWgerAgent .
 
 :AgentGolangProgrammer a :AgentRole ;
     rdfs:label "Go Concurrency & Microservices Specialist" ;
     :id "golang_programmer" ;
     :role "Go Concurrency & Microservices Specialist" ;
-    :usesTool :ToolGoDocs .
+    :companyUsesTool :ToolGoDocs .
 
 :AgentHomeAssistantSpecialist a :AgentRole ;
     rdfs:label "Home Assistant IoT Specialist" ;
     :id "home_assistant_specialist" ;
     :role "Home Assistant IoT Specialist" ;
-    :usesTool :ToolHomeAssistantAgent .
+    :companyUsesTool :ToolHomeAssistantAgent .
 
 :AgentHrOperationsCoordinator a :AgentRole ;
     rdfs:label "HR Operations Coordinator" ;
     :id "hr_operations_coordinator" ;
     :role "HR Operations Coordinator" ;
-    :usesTool :ToolDocumentTools,
+    :companyUsesTool :ToolDocumentTools,
         :ToolGraphOs,
         :ToolSystemsManagerMcp .
 
@@ -666,13 +656,13 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "☕ Java & Enterprise Systems Programmer" ;
     :id "java_programmer" ;
     :role "☕ Java & Enterprise Systems Programmer" ;
-    :usesTool :ToolJavaDocs .
+    :companyUsesTool :ToolJavaDocs .
 
 :AgentJavascriptProgrammer a :AgentRole ;
     rdfs:label "🟨 JavaScript Fullstack Programmer" ;
     :id "javascript_programmer" ;
     :role "🟨 JavaScript Fullstack Programmer" ;
-    :usesTool :ToolCanvasDesign,
+    :companyUsesTool :ToolCanvasDesign,
         :ToolDeveloperUtilities,
         :ToolNodejsDocs,
         :ToolReactDocs,
@@ -682,31 +672,31 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "Jellyfin Specialist" ;
     :id "jellyfin_specialist" ;
     :role "Jellyfin Specialist" ;
-    :usesTool :ToolJellyfinMcp .
+    :companyUsesTool :ToolJellyfinMcp .
 
 :AgentKnowledge-Graph a :AgentRole ;
     rdfs:label "Knowledge Graph Specialist" ;
     :id "knowledge-graph" ;
     :role "Knowledge Graph Specialist" ;
-    :usesTool :ToolKnowledgeTools .
+    :companyUsesTool :ToolKnowledgeTools .
 
 :AgentLangfuseSpecialist a :AgentRole ;
     rdfs:label "Langfuse Specialist" ;
     :id "langfuse_specialist" ;
     :role "Langfuse Specialist" ;
-    :usesTool :ToolLangfuseAgent .
+    :companyUsesTool :ToolLangfuseAgent .
 
 :AgentLeanixSpecialist a :AgentRole ;
     rdfs:label "EAR Enterprise Architecture Specialist" ;
     :agent "ear_specialist" ;
     :role "EAR Enterprise Architecture Specialist" ;
-    :usesTool :ToolLeanixAgent .
+    :companyUsesTool :ToolLeanixAgent .
 
 :AgentLegalComplianceCoordinator a :AgentRole ;
     rdfs:label "Legal Compliance Coordinator" ;
     :id "legal_compliance_coordinator" ;
     :role "Legal Compliance Coordinator" ;
-    :usesTool :ToolDocumentTools,
+    :companyUsesTool :ToolDocumentTools,
         :ToolGraphOs,
         :ToolScholarxMcp .
 
@@ -714,20 +704,20 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "Listmonk Specialist" ;
     :id "listmonk_specialist" ;
     :role "Listmonk Specialist" ;
-    :usesTool :ToolListmonkMcp .
+    :companyUsesTool :ToolListmonkMcp .
 
 :AgentMain-Agent a :AgentRole ;
     rdfs:label "main-agent" ;
     :id "main-agent" ;
     :role "main-agent" ;
-    :usesTool :ToolAgentWorkflows,
+    :companyUsesTool :ToolAgentWorkflows,
         :ToolWorkspaceManager .
 
 :AgentManageMulti-AgentTeamCommunicationAndTaskDistribution a :AgentRole ;
     rdfs:label "Coordinator System Prompt" ;
     :id "manage multi-agent team communication and task distribution" ;
     :role "Coordinator System Prompt" ;
-    :usesTool :ToolAgentWorkflows,
+    :companyUsesTool :ToolAgentWorkflows,
         :ToolInternalComms,
         :ToolSessionHandoff,
         :ToolTaskPlanner .
@@ -736,7 +726,7 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "Media Downloader Specialist" ;
     :id "media_downloader_specialist" ;
     :role "Media Downloader Specialist" ;
-    :usesTool :ToolMediaDownloaderMcp .
+    :companyUsesTool :ToolMediaDownloaderMcp .
 
 :AgentMemoryInstruction a :AgentRole ;
     rdfs:label "Memory Instruction System" ;
@@ -752,26 +742,26 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "Microsoft Specialist" ;
     :id "microsoft_specialist" ;
     :role "Microsoft Specialist" ;
-    :usesTool :ToolMicrosoftAgent .
+    :companyUsesTool :ToolMicrosoftAgent .
 
 :AgentMobileProgrammer a :AgentRole ;
     rdfs:label "📱 Mobile Application Programmer" ;
     :id "mobile_programmer" ;
     :role "📱 Mobile Application Programmer" ;
-    :usesTool :ToolReactDocs,
+    :companyUsesTool :ToolReactDocs,
         :ToolReactNativeSkills .
 
 :AgentNextcloudSpecialist a :AgentRole ;
     rdfs:label "Nextcloud Specialist" ;
     :id "nextcloud_specialist" ;
     :role "Nextcloud Specialist" ;
-    :usesTool :ToolNextcloudAgent .
+    :companyUsesTool :ToolNextcloudAgent .
 
 :AgentPerformDeepDiscoveryAndContextGathering a :AgentRole ;
     rdfs:label "Master Discovery Researcher System Prompt" ;
     :id "perform deep discovery and context gathering" ;
     :role "Master Discovery Researcher System Prompt" ;
-    :usesTool :ToolAgentBrowser,
+    :companyUsesTool :ToolAgentBrowser,
         :ToolBrowserTools,
         :ToolWebArtifacts,
         :ToolWebCrawler,
@@ -783,25 +773,25 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "Plane Specialist" ;
     :id "plane_specialist" ;
     :role "Plane Specialist" ;
-    :usesTool :ToolPlaneAgent .
+    :companyUsesTool :ToolPlaneAgent .
 
 :AgentPortainerSpecialist a :AgentRole ;
     rdfs:label "Portainer DevOps Specialist" ;
     :id "portainer_specialist" ;
     :role "Portainer DevOps Specialist" ;
-    :usesTool :ToolPortainerAgent .
+    :companyUsesTool :ToolPortainerAgent .
 
 :AgentPostizSpecialist a :AgentRole ;
     rdfs:label "Postiz Specialist" ;
     :id "postiz_specialist" ;
     :role "Postiz Specialist" ;
-    :usesTool :ToolPostizAgent .
+    :companyUsesTool :ToolPostizAgent .
 
 :AgentProjectManager a :AgentRole ;
     rdfs:label "📋 Technical Project Manager" ;
     :id "project_manager" ;
     :role "📋 Technical Project Manager" ;
-    :usesTool :ToolGithubTools,
+    :companyUsesTool :ToolGithubTools,
         :ToolGoogleWorkspace,
         :ToolInternalComms,
         :ToolSessionHandoff,
@@ -811,7 +801,7 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "Python Systems & Scripting Wizard" ;
     :id "python_programmer" ;
     :role "Python Systems & Scripting Wizard" ;
-    :usesTool :ToolAgentBuilder,
+    :companyUsesTool :ToolAgentBuilder,
         :ToolAgentPackageBuilder,
         :ToolApiWrapperBuilder,
         :ToolDeveloperUtilities,
@@ -829,7 +819,7 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "QA Expert" ;
     :id "qa_expert" ;
     :role "QA Expert" ;
-    :usesTool :ToolDeveloperUtilities,
+    :companyUsesTool :ToolDeveloperUtilities,
         :ToolSelfImprover,
         :ToolSpecVerifier,
         :ToolTddMethodology,
@@ -839,13 +829,13 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "qBittorrent Specialist" ;
     :id "qbittorrent_specialist" ;
     :role "qBittorrent Specialist" ;
-    :usesTool :ToolQbittorrentAgent .
+    :companyUsesTool :ToolQbittorrentAgent .
 
 :AgentQuantResearchAnalyst a :AgentRole ;
     rdfs:label "Quant Research Analyst" ;
     :id "quant_research_analyst" ;
     :role "Quant Research Analyst" ;
-    :usesTool :ToolDataScienceMcp,
+    :companyUsesTool :ToolDataScienceMcp,
         :ToolEmeraldExchange,
         :ToolGraphOs,
         :ToolScholarxMcp .
@@ -854,13 +844,13 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "Repository Manager" ;
     :id "repository" ;
     :role "Repository Manager" ;
-    :usesTool :ToolRepositoryTools .
+    :companyUsesTool :ToolRepositoryTools .
 
 :AgentRiskComplianceOfficer a :AgentRole ;
     rdfs:label "Risk Compliance Officer" ;
     :id "risk_compliance_officer" ;
     :role "Risk Compliance Officer" ;
-    :usesTool :ToolEmeraldExchange,
+    :companyUsesTool :ToolEmeraldExchange,
         :ToolGraphOs,
         :ToolPortainerMcp,
         :ToolSystemsManagerMcp .
@@ -869,7 +859,7 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "Rust Systems & Performance Specialist" ;
     :id "rust_programmer" ;
     :role "Rust Systems & Performance Specialist" ;
-    :usesTool :ToolRustDocs .
+    :companyUsesTool :ToolRustDocs .
 
 :AgentSafetyGuard a :AgentRole ;
     rdfs:label "YOLO/Auto-Mode Classifier System" ;
@@ -885,32 +875,32 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "🛡️ Security Auditor & Compliance Expert" ;
     :id "security_auditor" ;
     :role "🛡️ Security Auditor & Compliance Expert" ;
-    :usesTool :ToolLinuxDocs,
+    :companyUsesTool :ToolLinuxDocs,
         :ToolSecurityTools .
 
 :AgentServicenowSpecialist a :AgentRole ;
     rdfs:label "ServiceNow ITSM Specialist" ;
     :id "servicenow_specialist" ;
     :role "ServiceNow ITSM Specialist" ;
-    :usesTool :ToolServicenowApi .
+    :companyUsesTool :ToolServicenowApi .
 
 :AgentSocialMediaInfluencer a :AgentRole ;
     rdfs:label "Social Media Influencer & Stream Broadcast Assistant" ;
     :id "social_media_influencer" ;
     :role "Social Media Influencer & Stream Broadcast Assistant" ;
-    :usesTool :ToolOwncastAgent .
+    :companyUsesTool :ToolOwncastAgent .
 
 :AgentStirlingpdfSpecialist a :AgentRole ;
     rdfs:label "Stirling PDF Specialist" ;
     :id "stirlingpdf_specialist" ;
     :role "Stirling PDF Specialist" ;
-    :usesTool :ToolStirlingpdfAgent .
+    :companyUsesTool :ToolStirlingpdfAgent .
 
 :AgentSystemsManager a :AgentRole ;
     rdfs:label "⚙️ Systems Manager" ;
     :id "systems_manager" ;
     :role "⚙️ Systems Manager" ;
-    :usesTool :ToolHomeAssistantDocs,
+    :companyUsesTool :ToolHomeAssistantDocs,
         :ToolLinuxDocs,
         :ToolOwncastDocs,
         :ToolPostizDocs,
@@ -926,13 +916,13 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "Tunnel Specialist" ;
     :id "tunnel_specialist" ;
     :role "Tunnel Specialist" ;
-    :usesTool :ToolTunnelManager .
+    :companyUsesTool :ToolTunnelManager .
 
 :AgentTypescriptProgrammer a :AgentRole ;
     rdfs:label "TypeScript & Full-Stack Architect / UI/UX Specialist" ;
     :id "typescript_programmer" ;
     :role "TypeScript & Full-Stack Architect / UI/UX Specialist" ;
-    :usesTool :ToolCanvasDesign,
+    :companyUsesTool :ToolCanvasDesign,
         :ToolNestjsDocs,
         :ToolNextjsDocs,
         :ToolNodejsDocs,
@@ -954,7 +944,7 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "🎨 UI/UX Designer & Creative Frontend Lead" ;
     :id "ui_ux_designer" ;
     :role "🎨 UI/UX Designer & Creative Frontend Lead" ;
-    :usesTool :ToolAlgorithmicArt,
+    :companyUsesTool :ToolAlgorithmicArt,
         :ToolBrandGuidelines,
         :ToolCanvasDesign,
         :ToolChakraUiDocs,
@@ -972,7 +962,7 @@ cross-domain reasoning about company operations.""" ;
     rdfs:label "Uptime Kuma SRE Specialist" ;
     :id "uptime_kuma_specialist" ;
     :role "Uptime Kuma SRE Specialist" ;
-    :usesTool :ToolUptimeKumaAgent .
+    :companyUsesTool :ToolUptimeKumaAgent .
 
 :AgentWriteCode a :AgentRole ;
     rdfs:label "Write Code" ;
@@ -1474,3 +1464,38 @@ and entity type. BFO:IndependentContinuant.""" ;
 :MCPServer a owl:Class ;
     rdfs:label "MCP Server" ;
     rdfs:subClassOf bfo:0000031 .
+
+:companyCurrentValue a owl:DatatypeProperty ;
+    rdfs:label "currentValue (company)" ;
+    rdfs:comment "The company module's meaning of the shared kg:currentValue: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :currentValue ;
+    rdfs:domain :KeyPerformanceIndicator ;
+    rdfs:range xsd:float .
+
+:companyEnrolledIn a owl:ObjectProperty ;
+    rdfs:label "enrolledIn (company)" ;
+    rdfs:comment "The company module's meaning of the shared kg:enrolledIn: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :enrolledIn ;
+    rdfs:domain :Employee ;
+    rdfs:range :BenefitsPlan .
+
+:companyReportsTo a owl:ObjectProperty ;
+    rdfs:label "reportsTo (company)" ;
+    rdfs:comment "The company module's meaning of the shared kg:reportsTo: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :reportsTo ;
+    rdfs:domain :AgentRole ;
+    rdfs:range :AgentRole .
+
+:companyTargetValue a owl:DatatypeProperty ;
+    rdfs:label "targetValue (company)" ;
+    rdfs:comment "The company module's meaning of the shared kg:targetValue: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :targetValue ;
+    rdfs:domain :StrategicGoal ;
+    rdfs:range xsd:float .
+
+:companyUsesTool a owl:ObjectProperty ;
+    rdfs:label "usesTool (company)" ;
+    rdfs:comment "The company module's meaning of the shared kg:usesTool: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :usesTool ;
+    rdfs:domain :AgentRole ;
+    rdfs:range :MCPServer .

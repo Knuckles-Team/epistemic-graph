@@ -17,9 +17,7 @@
 
 :delegatesTo a owl:ObjectProperty ;
     rdfs:label "delegates to" ;
-    rdfs:comment "Links an A2AAgentCard to another A2AAgentCard it may delegate work to." ;
-    rdfs:domain :A2AAgentCard ;
-    rdfs:range :A2AAgentCard .
+    rdfs:comment "Links an A2AAgentCard to another A2AAgentCard it may delegate work to." .
 
 :exposesSkill a owl:ObjectProperty ;
     rdfs:label "exposes skill" ;
@@ -74,3 +72,10 @@
     URL plus a POST /search API. BFO:GenericallyDependentContinuant.
     CONCEPT:KG-2.188""" ;
     rdfs:subClassOf bfo:0000031 .
+
+:a2aDelegatesTo a owl:ObjectProperty ;
+    rdfs:label "delegatesTo (a2a)" ;
+    rdfs:comment "The a2a module's meaning of the shared kg:delegatesTo: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :delegatesTo ;
+    rdfs:domain :A2AAgentCard ;
+    rdfs:range :A2AAgentCard .

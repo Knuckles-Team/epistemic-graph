@@ -102,9 +102,7 @@
     rdfs:range xsd:string .
 
 :currentValue a owl:DatatypeProperty ;
-    rdfs:label "current value" ;
-    rdfs:domain :Objective ;
-    rdfs:range xsd:float .
+    rdfs:label "current value" .
 
 :endOfLifeDate a owl:DatatypeProperty ;
     rdfs:label "end of life date" ;
@@ -252,9 +250,7 @@
     rdfs:range :Vendor .
 
 :targetValue a owl:DatatypeProperty ;
-    rdfs:label "target value" ;
-    rdfs:domain :Objective ;
-    rdfs:range xsd:float .
+    rdfs:label "target value" .
 
 :verdict a owl:DatatypeProperty ;
     rdfs:label "verdict" ;
@@ -340,3 +336,17 @@
 :TechnologyProduct a owl:Class ;
     rdfs:label "Technology Product" ;
     rdfs:comment "An approved/standard technology product in the reference model (a software/hardware product or standard the estate is built from)." .
+
+:trmCurrentValue a owl:DatatypeProperty ;
+    rdfs:label "currentValue (trm)" ;
+    rdfs:comment "The trm module's meaning of the shared kg:currentValue: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :currentValue ;
+    rdfs:domain :Objective ;
+    rdfs:range xsd:float .
+
+:trmTargetValue a owl:DatatypeProperty ;
+    rdfs:label "targetValue (trm)" ;
+    rdfs:comment "The trm module's meaning of the shared kg:targetValue: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :targetValue ;
+    rdfs:domain :Objective ;
+    rdfs:range xsd:float .
