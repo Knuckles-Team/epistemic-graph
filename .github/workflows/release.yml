@@ -1243,7 +1243,7 @@ jobs:
   pages:
     name: Deploy GitHub Pages
     if: github.event_name == 'push'
-    uses: Knuckles-Team/pipelines/.github/workflows/pages_pipeline.yml@64e34ca63385200f5ddfef5286e6886bf7dc80b4
+    uses: Knuckles-Team/pipelines/.github/workflows/pages_pipeline.yml@fb5c0c941ea5a69f1c76e7c4819302e79cfe5e8a
     with:
       content_source: docs
       shared_theme_enabled: true

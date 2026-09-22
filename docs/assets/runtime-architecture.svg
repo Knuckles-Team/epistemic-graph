@@ -1,22 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1320 700" role="img" aria-labelledby="diagram-title diagram-description">
   <title id="diagram-title">Knuckles-Team agent ecosystem runtime architecture</title>
-  <desc id="diagram-description">People use Agent Web UI, Agent Terminal UI, Geniusbot, or messaging channels. MCP, REST, and A2A clients also enter through Graph OS. Graph OS is the governed gateway and composition host, Agent Utilities is the agent control plane, and Epistemic Graph is the durable knowledge and reasoning engine. Source systems connect through Agent Connector SDK.</desc>
+  <desc id="diagram-description">People use Agent Web UI, Agent Terminal UI, Geniusbot, or messaging channels. MCP, REST, and A2A clients also enter through Graph OS. Graph OS is the governed gateway and composition host, Agent Utilities is the agent control plane, and Epistemic Graph is the durable multimodal knowledge and reasoning engine. Source systems connect through Agent Connector SDK.</desc>
   <defs>
-    <linearGradient id="gateway" x1="0" x2="1"><stop stop-color="#e5f4ff"/><stop offset="1" stop-color="#e7fff5"/></linearGradient>
-    <linearGradient id="core" x1="0" x2="1"><stop stop-color="#eef0ff"/><stop offset="1" stop-color="#f3eaff"/></linearGradient>
-    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth"><path d="M0 0 10 5 0 10z" fill="#365f93"/></marker>
+    <linearGradient id="gateway-light" x1="0" x2="1"><stop stop-color="#e5f4ff"/><stop offset="1" stop-color="#e7fff5"/></linearGradient>
+    <linearGradient id="core-light" x1="0" x2="1"><stop stop-color="#eef0ff"/><stop offset="1" stop-color="#f3eaff"/></linearGradient>
+    <linearGradient id="gateway-dark" x1="0" x2="1"><stop stop-color="#173344"/><stop offset="1" stop-color="#153b36"/></linearGradient>
+    <linearGradient id="core-dark" x1="0" x2="1"><stop stop-color="#242c4b"/><stop offset="1" stop-color="#332646"/></linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth"><path class="arrowhead" d="M0 0 10 5 0 10z"/></marker>
     <style>
-      .bg{fill:#fff}.box{fill:#f5f8fc;stroke:#58769b;stroke-width:2}.entry{fill:#f7fbff;stroke:#2f75b5;stroke-width:2}.gateway{fill:url(#gateway);stroke:#087f6d;stroke-width:3}.core{fill:url(#core);stroke:#5b4cc4;stroke-width:2.5}.label{font:700 18px system-ui,-apple-system,Segoe UI,sans-serif;fill:#14243b;text-anchor:middle}.role{font:14px system-ui,-apple-system,Segoe UI,sans-serif;fill:#435773;text-anchor:middle}.small{font:13px system-ui,-apple-system,Segoe UI,sans-serif;fill:#526780;text-anchor:middle}.arrow{fill:none;stroke:#58769b;stroke-width:2.5;marker-end:url(#arrow)}
-      @media(prefers-color-scheme:dark){.bg{fill:#0f1725}.box,.entry{fill:#172338}.label{fill:#f3f7ff}.role,.small{fill:#c5d2e3}}
+      .bg{fill:none}.box{fill:#f5f8fc;stroke:#58769b;stroke-width:2}.entry{fill:#f7fbff;stroke:#2f75b5;stroke-width:2}.gateway{fill:url(#gateway-light);stroke:#087f6d;stroke-width:3}.core{fill:url(#core-light);stroke:#5b4cc4;stroke-width:2.5}.label{font:700 18px system-ui,-apple-system,Segoe UI,sans-serif;fill:#14243b;text-anchor:middle}.role{font:14px system-ui,-apple-system,Segoe UI,sans-serif;fill:#435773;text-anchor:middle}.small{font:13px system-ui,-apple-system,Segoe UI,sans-serif;fill:#526780;text-anchor:middle}.arrow{fill:none;stroke:#58769b;stroke-width:2.5;marker-end:url(#arrow)}.arrowhead{fill:#365f93}
+      @media (prefers-color-scheme: light){.bg{fill:none}.box{fill:#f5f8fc;stroke:#58769b}.entry{fill:#f7fbff;stroke:#2f75b5}.gateway{fill:url(#gateway-light);stroke:#087f6d}.core{fill:url(#core-light);stroke:#5b4cc4}.label{fill:#14243b}.role{fill:#435773}.small{fill:#526780}.arrow{stroke:#58769b}.arrowhead{fill:#365f93}}
+      @media (prefers-color-scheme: dark){.bg{fill:none}.box{fill:#172338;stroke:#778ca9}.entry{fill:#192b43;stroke:#76aee9}.gateway{fill:url(#gateway-dark);stroke:#63d8b5}.core{fill:url(#core-dark);stroke:#b5a5ff}.label{fill:#f3f7ff}.role{fill:#d1dced}.small{fill:#b7c6dc}.arrow{stroke:#c2cee2}.arrowhead{fill:#d8e2f1}}
     </style>
   </defs>
-  <rect class="bg" width="1320" height="700" rx="24"/>
-  <g class="arrow">
-    <path d="M120 90V135"/><path d="M120 90H310V135"/><path d="M120 90H500V135"/><path d="M120 90H690V135"/>
-    <path d="M210 180H825"/><path d="M400 180H825"/><path d="M590 180H825"/><path d="M780 180H825"/><path d="M610 285H825"/>
-    <path d="M1050 305V335"/><path d="M1050 435V485"/>
-    <path d="M255 590H445"/><path d="M705 590H825V548"/>
-  </g>
+  <rect class="bg" width="1320" height="700" rx="24" fill="none"/>
   <g>
     <rect class="box" x="35" y="35" width="170" height="55" rx="14"/><text class="label" x="120" y="69">People</text>
     <rect class="entry" x="35" y="135" width="170" height="90" rx="16"/><text class="label" x="120" y="172">Agent Web UI</text><text class="role" x="120" y="198">browser experience</text>
@@ -29,5 +26,11 @@
     <rect class="core" x="825" y="485" width="450" height="125" rx="18"/><text class="label" x="1050" y="528">Epistemic Graph</text><text class="role" x="1050" y="558">durable multimodal knowledge, evidence,</text><text class="role" x="1050" y="582">provenance, and reasoning engine</text>
     <rect class="box" x="35" y="545" width="220" height="90" rx="16"/><text class="label" x="145" y="582">Source systems</text><text class="role" x="145" y="608">governed external data</text>
     <rect class="box" x="445" y="545" width="260" height="90" rx="16"/><text class="label" x="575" y="582">Agent Connector SDK</text><text class="role" x="575" y="608">typed source integration</text>
+  </g>
+  <g class="arrow">
+    <path d="M120 90V135"/><path d="M120 90H310V135"/><path d="M120 90H500V135"/><path d="M120 90H690V135"/>
+    <path d="M210 180H825"/><path d="M400 180H825"/><path d="M590 180H825"/><path d="M780 180H825"/><path d="M610 285H825"/>
+    <path d="M1050 305V335"/><path d="M1050 435V485"/>
+    <path d="M255 590H445"/><path d="M705 590H845"/>
   </g>
 </svg>
