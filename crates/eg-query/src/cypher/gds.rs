@@ -39,7 +39,7 @@ use eg_compute::graph_algos::{
     strongly_connected_components, triangle_count, weakly_connected_components,
     yen_k_shortest_paths, AdjacencyGraph, ArticleRankConfig, ClosenessConfig, DegreeKind,
     Direction, EigenvectorConfig, KnnSimilarityApproxConfig, LabelPropagationConfig, LeidenConfig,
-    LouvainConfig, Metric, PageRankConfig, RandomWalkConfig,
+    LouvainConfig, Metric, PageRankConfig, QualityFunction, RandomWalkConfig,
 };
 
 use super::number_value;
@@ -536,9 +536,11 @@ impl CypherProcedure for Louvain {
 
 /// `gds.leiden(config)` — Leiden community detection with a
 /// connectivity-guaranteeing refinement phase (CONCEPT:EG-KG.query.gds-call-procedures).
-/// Config: `resolution` (alias `gamma`, 1.0), `maxLevels` (50),
-/// `maxIterations`/`maxSweeps` (100), `relationshipWeightProperty`. Yields
-/// `nodeId` / `node`, `communityId`. Routes to `eg_compute::graph_algos::leiden`
+/// Config: `resolution` (alias `gamma`, 1.0), `objectiveFunction` (Neo4j GDS's
+/// own key: `"modularity"` [default] or `"CPM"`, case-insensitive — EH-283),
+/// `maxLevels` (50), `maxIterations`/`maxSweeps` (100),
+/// `relationshipWeightProperty`. Yields `nodeId` / `node`, `communityId`.
+/// Routes to `eg_compute::graph_algos::leiden`
 /// (CONCEPT:EG-KG.compute.leiden-community-detection) — see that module's doc for the exact
 /// guarantee (every returned community's induced subgraph is connected, the
 /// defect Traag, Waltman & van Eck 2019 prove plain Louvain does not avoid).
@@ -559,17 +561,20 @@ impl CypherProcedure for Leiden {
         )?;
         let lc = LeidenConfig {
             resolution: cfg.f64("resolution", cfg.f64("gamma", 1.0)),
+            // EH-283: `objectiveFunction` is Neo4j GDS's own `gds.leiden`
+            // config key for this exact choice. A procedure `config` map is
+            // plain call-time DATA, not the frozen wire contract, so exposing
+            // it here needed no wire-contract change — only this passthrough.
+            quality: match cfg.string("objectiveFunction") {
+                Some(v) if v.eq_ignore_ascii_case("CPM") => QualityFunction::Cpm,
+                _ => QualityFunction::Modularity,
+            },
             seed: None,
             max_sweeps: cfg.usize("maxIterations", cfg.usize("maxSweeps", 100)),
             max_levels: cfg.usize("maxLevels", 50),
             // Budget: 15s, not caller-overridable — same reasoning as
             // `gds.louvain` above.
             budget: LOUVAIN_BUDGET,
-            // EH-283 added `quality` to `LeidenConfig`; this Cypher procedure
-            // does not yet expose an `objectiveFunction`/CPM config knob, so
-            // it keeps the pre-EH-283 default (modularity) explicitly via
-            // `..Default::default()` rather than naming every field by hand.
-            ..Default::default()
         };
         Ok(partition_rows(leiden(&g, &lc).communities, "communityId"))
     }
@@ -1855,6 +1860,53 @@ mod tests {
         assert_eq!(comm["alice"], comm["bob"]);
         assert_eq!(comm["bob"], comm["carol"]);
         assert_ne!(comm["alice"], comm["d1"]);
+    }
+
+    /// EH-283: `objectiveFunction: 'CPM'` must actually change the returned
+    /// partition, not merely be accepted and ignored. At `resolution: 3.0` on
+    /// this fixture (alice-bob weight 5, bob-carol weight 1): CPM's node-size
+    /// penalty (`gamma * 1 * 1 = 3`) keeps alice+bob together (edge weight 5
+    /// beats it) but splits carol off (edge weight 1 loses to it), while
+    /// modularity's own (default) null model fragments every node into its
+    /// own singleton at this same resolution — proved by both calls below,
+    /// not asserted from one side only. (`resolution: 2.0`, tried first, sits
+    /// exactly on a tie in modularity's own quality landscape for this tiny
+    /// fixture — confirmed by brute-forcing every partition's exact quality
+    /// value in Python before touching this resolution a second time — so its
+    /// outcome depends on local-moving's tie-break order rather than a clear
+    /// preference; 3.0 has a comfortable margin on both sides.)
+    #[test]
+    fn call_gds_leiden_objective_function_cpm_changes_the_partition() {
+        let v = fixture();
+        let cpm = exec_cypher(
+            &v,
+            "CALL gds.leiden({resolution: 3.0, objectiveFunction: 'CPM', \
+             relationshipWeightProperty: 'weight'}) \
+             YIELD nodeId, communityId RETURN nodeId, communityId",
+        )
+        .unwrap();
+        let mut cpm_comm: HashMap<String, i64> = HashMap::new();
+        for r in rows(&cpm) {
+            cpm_comm.insert(node_id(&r[0]).to_string(), r[1].as_i64().unwrap());
+        }
+        assert_eq!(cpm_comm["alice"], cpm_comm["bob"]);
+        assert_ne!(cpm_comm["bob"], cpm_comm["carol"]);
+        assert_ne!(cpm_comm["alice"], cpm_comm["d1"]);
+
+        let modularity = exec_cypher(
+            &v,
+            "CALL gds.leiden({resolution: 3.0, relationshipWeightProperty: 'weight'}) \
+             YIELD nodeId, communityId RETURN nodeId, communityId",
+        )
+        .unwrap();
+        let mut mod_comm: HashMap<String, i64> = HashMap::new();
+        for r in rows(&modularity) {
+            mod_comm.insert(node_id(&r[0]).to_string(), r[1].as_i64().unwrap());
+        }
+        assert_ne!(
+            mod_comm["alice"], mod_comm["bob"],
+            "default (modularity) quality must NOT merge alice/bob at this resolution: {mod_comm:?}"
+        );
     }
 
     #[test]

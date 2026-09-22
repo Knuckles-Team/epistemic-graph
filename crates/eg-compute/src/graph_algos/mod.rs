@@ -78,6 +78,7 @@ pub use kcore::k_core;
 pub use label_propagation::{label_propagation, LabelPropagationConfig, LabelPropagationResult};
 pub use leiden::{
     leiden, leiden_hierarchy, HierarchyLevel, LeidenConfig, LeidenHierarchy, LeidenResult,
+    QualityFunction,
 };
 pub use louvain::{louvain, LouvainConfig, LouvainResult};
 pub use pagerank::{pagerank, PageRankConfig, PageRankResult};
