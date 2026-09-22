@@ -44,9 +44,12 @@ fn assert_all_communities_connected(edges: &[(&str, &str, f64)], communities: &[
     }
 }
 
-#[test]
-fn leiden_finds_two_communities_in_two_cliques_matching_louvain() {
-    // Same fixture as louvain's own test: two 4-cliques joined by one bridge.
+/// Two 4-cliques (`a..d`, `w..z`) joined by one bridge edge (`d`-`w`) — the
+/// shared fixture behind the plain Leiden/Louvain cross-check below and the
+/// EH-283 CPM-large-gamma and default-quality-golden tests further down: one
+/// definition, reused, rather than three hand-copies of the same nested
+/// clique-edge loop (jscpd/dupehound).
+fn two_cliques_bridge_edges() -> Vec<(&'static str, &'static str, f64)> {
     let mut edges: Vec<(&str, &str, f64)> = Vec::new();
     let clique1 = ["a", "b", "c", "d"];
     let clique2 = ["w", "x", "y", "z"];
@@ -58,6 +61,13 @@ fn leiden_finds_two_communities_in_two_cliques_matching_louvain() {
         }
     }
     edges.push(("d", "w", 1.0));
+    edges
+}
+
+#[test]
+fn leiden_finds_two_communities_in_two_cliques_matching_louvain() {
+    // Same fixture as louvain's own test: two 4-cliques joined by one bridge.
+    let edges = two_cliques_bridge_edges();
 
     let g = AdjacencyGraph::from_edges(edges.clone());
     let leiden_res = leiden(&g, &LeidenConfig::default());
@@ -274,6 +284,153 @@ fn budget_test_graph(n: usize) -> AdjacencyGraph<usize> {
         }
     }
     AdjacencyGraph::from_adjacency(adjacency)
+}
+
+// ── EH-283: CPM quality function ─────────────────────────────────────────
+
+/// `num_cliques` triangles joined in a ring by single weight-1 bridge edges —
+/// the classic Fortunato & Barthelemy (2007) resolution-limit fixture: every
+/// triangle is a genuine clique, and the only inter-triangle edges are the
+/// single ring bridges.
+fn ring_of_triangles(num_cliques: usize) -> Vec<(String, String, f64)> {
+    let mut edges = Vec::new();
+    for c in 0..num_cliques {
+        let (n0, n1, n2) = (format!("c{c}_0"), format!("c{c}_1"), format!("c{c}_2"));
+        edges.push((n0.clone(), n1.clone(), 1.0));
+        edges.push((n1, n2.clone(), 1.0));
+        edges.push((n0, n2, 1.0));
+    }
+    for c in 0..num_cliques {
+        let a = format!("c{c}_2");
+        let b = format!("c{}_0", (c + 1) % num_cliques);
+        edges.push((a, b, 1.0));
+    }
+    edges
+}
+
+/// Modularity's null model scales with the WHOLE graph's total edge weight
+/// (`resolution · tot_c² / 2m`), which is exactly what gives it the
+/// well-known RESOLUTION LIMIT: on a ring of enough triangles, modularity
+/// optimization merges adjacent triangle PAIRS into one community even
+/// though each triangle is a clique and the only inter-triangle edges are
+/// single bridges. CPM's null model scales with each community's own SIZE
+/// instead, so — tuned to this fixture's density — it resolves every
+/// triangle as its own community where modularity cannot.
+#[test]
+fn cpm_resolves_cliques_where_modularity_merges_them_on_a_ring() {
+    let g = AdjacencyGraph::from_edges(ring_of_triangles(20));
+
+    let modularity_res = leiden(&g, &LeidenConfig::default());
+    assert!(
+        modularity_res.communities.len() < 20,
+        "modularity should merge adjacent triangles on this ring (resolution limit): got {} communities: {:?}",
+        modularity_res.communities.len(),
+        modularity_res.communities
+    );
+
+    let cpm_res = leiden(
+        &g,
+        &LeidenConfig {
+            quality: QualityFunction::Cpm,
+            resolution: 0.5,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        cpm_res.communities.len(),
+        20,
+        "CPM at gamma=0.5 must resolve every triangle separately: {:?}",
+        cpm_res.communities
+    );
+    for community in &cpm_res.communities {
+        assert_eq!(
+            community.len(),
+            3,
+            "every CPM community must be exactly one triangle: {community:?}"
+        );
+    }
+}
+
+/// As CPM's `resolution` (gamma) → 0, the size penalty vanishes entirely and
+/// quality reduces to "more internal edges is always better" — maximized by
+/// merging everything reachable into one community per connected component
+/// (never merging ACROSS components: two nodes in different components share
+/// no edge, so `w(v,C) = 0` for any cross-component move, and even a
+/// near-zero positive gamma penalty makes that move strictly worse than
+/// staying put).
+#[test]
+fn cpm_gamma_near_zero_gives_one_community_per_connected_component() {
+    let mut edges = ring_of_triangles(6); // one 18-node connected component
+    edges.push(("iso_a".to_string(), "iso_b".to_string(), 1.0));
+    edges.push(("iso_b".to_string(), "iso_c".to_string(), 1.0));
+    edges.push(("iso_a".to_string(), "iso_c".to_string(), 1.0));
+    let g = AdjacencyGraph::from_edges(edges);
+
+    let res = leiden(
+        &g,
+        &LeidenConfig {
+            quality: QualityFunction::Cpm,
+            resolution: 1e-6,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        res.communities.len(),
+        2,
+        "gamma near zero must yield exactly one community per connected component: {:?}",
+        res.communities
+    );
+    let sizes: std::collections::BTreeSet<usize> = res.communities.iter().map(Vec::len).collect();
+    assert_eq!(
+        sizes,
+        std::collections::BTreeSet::from([18, 3]),
+        "each community must be exactly one whole connected component: {:?}",
+        res.communities
+    );
+}
+
+/// A large enough CPM `resolution` makes the size penalty dominate every
+/// possible edge-weight gain, so no two nodes can ever gain by merging —
+/// every community collapses to a singleton.
+#[test]
+fn cpm_gamma_large_gives_singletons() {
+    let g = AdjacencyGraph::from_edges(two_cliques_bridge_edges());
+
+    let res = leiden(
+        &g,
+        &LeidenConfig {
+            quality: QualityFunction::Cpm,
+            resolution: 10.0,
+            ..Default::default()
+        },
+    );
+    assert_eq!(res.communities.len(), 8, "{:?}", res.communities);
+    for community in &res.communities {
+        assert_eq!(community.len(), 1, "{:?}", res.communities);
+    }
+}
+
+/// EH-283 must not move the DEFAULT (`QualityFunction::Modularity`) kernel's
+/// output at all. Pins the exact modularity Leiden finds on the
+/// two-4-cliques-bridge fixture (also covered by
+/// `leiden_finds_two_communities_in_two_cliques_matching_louvain` above),
+/// hand-derived from the standard modularity formula `Q = Σ_c [internal_c/2m
+/// − (tot_c/2m)²]`: each clique has `internal_c = 12`, `tot_c = 13`
+/// (weighted degree, including the bridge on one member), `2m = 26`, so
+/// `tot_c/2m = 1/2` exactly and `Q = 2·(12/26 − 1/4) = 11/26`.
+#[test]
+fn default_modularity_quality_matches_pre_eh283_golden_value() {
+    let g = AdjacencyGraph::from_edges(two_cliques_bridge_edges());
+
+    assert_eq!(LeidenConfig::default().quality, QualityFunction::Modularity);
+    let res = leiden(&g, &LeidenConfig::default());
+    assert_eq!(res.communities.len(), 2);
+    let golden = 11.0 / 26.0;
+    assert!(
+        (res.modularity - golden).abs() < 1e-9,
+        "default modularity drifted from the pre-EH-283 golden: got {}, expected {golden}",
+        res.modularity
+    );
 }
 
 /// Every node in exactly one community — a truncated Leiden run must still
