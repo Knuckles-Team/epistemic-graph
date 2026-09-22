@@ -1058,7 +1058,7 @@ mod tests {
         let expected = [
             (
                 "a2a",
-                "bbbc3cb6b6eafefb4b3c015a6cbff86b60d5e7943a546df4e087ec2d30e0cc68",
+                "cb29dbc911f8cdac78e4206fe914927342b9abc8ff9fe21d640498434f193898",
             ),
             (
                 "action",
@@ -1078,7 +1078,7 @@ mod tests {
             ),
             (
                 "calendar",
-                "edd7a9f1250ec68177849dfc99c6b2929f5644d821b89f2faabb4647340805fb",
+                "c1c17692f1cedd26fb4a4cdab4ee3db655c570d7448f5123f8ad4efafe36e6d0",
             ),
             (
                 "catalog",
@@ -1086,7 +1086,7 @@ mod tests {
             ),
             (
                 "company",
-                "14d18c8c13c10b7fb23149983231924daff893086ac3047f29f3266fce6e5ac3",
+                "77b0c36d8818fbab307b201acfcceb339289090e44f420834960b346af48a1a9",
             ),
             (
                 "company_infra",
@@ -1102,7 +1102,7 @@ mod tests {
             ),
             (
                 "documentation",
-                "39e2fafc6fe88ca477502ca78be6441abd30e9244ba8e5992b16a2f6e79b7c86",
+                "24e5e1224a9c46b6dd61b3acda6b2102e75a577bbcec8b116d2908cf23bd1c14",
             ),
             (
                 "energy_geopolitics",
@@ -1110,7 +1110,7 @@ mod tests {
             ),
             (
                 "enterprise",
-                "760d754db49890573d005121cb8617eea23dc49e7bb1e85933dc34af8942222e",
+                "7ec8ca794b81774227d8a660c1cd2cafd25230921d3b0eb89ee2690b2fd67a27",
             ),
             (
                 "governance-shapes",
@@ -1126,7 +1126,7 @@ mod tests {
             ),
             (
                 "hr",
-                "b6a3c268d7a80a12ee0a055d31fdee3c55f50530f18b2ae78458150bf4eef221",
+                "6eb8eb2231b041b9bb58aa9c131c41349c4326f869725ac63cb6799899836b3f",
             ),
             (
                 "identity",
@@ -1134,11 +1134,11 @@ mod tests {
             ),
             (
                 "infrastructure",
-                "d60b853d6f272b55d05708f2ffe358859c9eb5ecaadd96178f6acfb18ca57076",
+                "6b9b33602e125b03fbc884b9d1764f15c41e3c82c909f2c6bf0e1a869fd4186c",
             ),
             (
                 "medical",
-                "2c2bb7e5a30f6efad697cb793343798ae42554aab107b42dbd88a5e76b6350cc",
+                "e143acf6c6189f36c092a1fc1715e56b13a2e82d9ce6be36c54fb2475ef9b61d",
             ),
             (
                 "native_source_connector",
@@ -1146,11 +1146,11 @@ mod tests {
             ),
             (
                 "orchestration",
-                "ea93ad168b8a6b14bac211ec2a59f2fc53a33a3056e5982c794ea7eccdaaff3b",
+                "ea7640cb3dab3ec392f7d0e928b96043035fded71163f573cb1a7064aa9e338a",
             ),
             (
                 "personal",
-                "27d8a095361a2f65bc2ee99ae32a149a2bc615aed67518284078b8ad7334c34d",
+                "55ba0a0b4173d123d59e594fe8a8ca84716bd7a320407cbbed247c4ca30dfabe",
             ),
             (
                 "process_intelligence",
@@ -1158,15 +1158,15 @@ mod tests {
             ),
             (
                 "sdd",
-                "b512e373b33030dbb3be9f76129c034a6b9c444d228d3399cc7ebd93e801e9cc",
+                "1763e32c22024ad0a4716872955ac972853e4b79631bac4925bb65e260af40df",
             ),
             (
                 "sdlc_lifecycle",
-                "e827ec559d1a86a7c007eaf8dbe362531f0c9164380b0d426cabbc50398ff9aa",
+                "7c4853f87756dae7b9dfceb49a6e8cef4c12e234e3ebcf5776dd0c7dfa8ec568",
             ),
             (
                 "software",
-                "cce36e129443b18938666db5399b1d7d3da3b7a9e4f15f018ccec4348c95b4f4",
+                "0f9945da89dce3c4ee657028edc67003e4a52a419807d50904323afd9c25aa66",
             ),
             (
                 "system",
@@ -1174,7 +1174,7 @@ mod tests {
             ),
             (
                 "trm",
-                "bbd832cfe283a552eaeaec49fc04bbf644279a64521203e9d730dfcd262f170d",
+                "2e5d9cffcfc8e8915470641e85766f3ce775919539f22c57746d5a5e29d6c55d",
             ),
             (
                 "worldview",

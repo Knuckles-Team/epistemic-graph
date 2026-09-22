@@ -380,8 +380,6 @@ part_of a :Device (CONCEPT:KG-2.160).""" ;
 :runsOn a owl:ObjectProperty ;
     rdfs:label "runs on" ;
     rdfs:comment "Links a container or service to its host hardware." ;
-    rdfs:domain :Container,
-        :Pod ;
     rdfs:range au:HardwareNode .
 
 :runtime a owl:DatatypeProperty ;
@@ -610,3 +608,15 @@ BFO:Process — unfolds over time.""" ;
 where, when, and under which profile (tiny/single-node-prod/enterprise).
 BFO:GenericallyDependentContinuant — an information entity.""" ;
     rdfs:subClassOf bfo:0000031 .
+
+:podRunsOn a owl:ObjectProperty ;
+    rdfs:label "runs on (pod)" ;
+    rdfs:comment "One of the kinds of subject :runsOn links: two rdfs:domain values on :runsOn itself would be intersected, making every subject both kinds." ;
+    rdfs:subPropertyOf :runsOn ;
+    rdfs:domain :Pod .
+
+:containerRunsOn a owl:ObjectProperty ;
+    rdfs:label "runs on (container)" ;
+    rdfs:comment "One of the kinds of subject :runsOn links: two rdfs:domain values on :runsOn itself would be intersected, making every subject both kinds." ;
+    rdfs:subPropertyOf :runsOn ;
+    rdfs:domain :Container .

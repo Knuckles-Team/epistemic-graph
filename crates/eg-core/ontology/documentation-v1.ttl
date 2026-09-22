@@ -81,11 +81,9 @@
 :tombstoneVerified a owl:DatatypeProperty ;
     rdfs:range xsd:boolean .
 
-:validFrom a owl:DatatypeProperty ;
-    rdfs:range xsd:dateTime .
+:validFrom a owl:DatatypeProperty .
 
-:validUntil a owl:DatatypeProperty ;
-    rdfs:range xsd:dateTime .
+:validUntil a owl:DatatypeProperty .
 
 <http://knuckles.team/kg/documentation> a owl:Ontology ;
     rdfs:label "Governed documentation projection ontology" ;
@@ -106,3 +104,15 @@
     rdfs:label "Governed documentation page" ;
     rdfs:comment "A metadata-only projection of a repository-relative Markdown page. The authoring source remains authoritative." ;
     rdfs:subClassOf :Document .
+
+:documentationValidFrom a owl:DatatypeProperty ;
+    rdfs:label "validFrom (documentation)" ;
+    rdfs:comment "The documentation module's meaning of the shared kg:validFrom: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :validFrom ;
+    rdfs:range xsd:dateTime .
+
+:documentationValidUntil a owl:DatatypeProperty ;
+    rdfs:label "validUntil (documentation)" ;
+    rdfs:comment "The documentation module's meaning of the shared kg:validUntil: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :validUntil ;
+    rdfs:range xsd:dateTime .

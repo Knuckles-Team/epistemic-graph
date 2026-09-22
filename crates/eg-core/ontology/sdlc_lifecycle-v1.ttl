@@ -105,9 +105,7 @@
 
 :specifies a owl:ObjectProperty ;
     rdfs:label "specifies" ;
-    rdfs:comment "A :Ticket specifies the :Spec/:SpecProposal that formalizes the change it asks for (formalizes the spec_ticket link operation, design §1.2)." ;
-    rdfs:domain :Ticket ;
-    rdfs:range :Spec .
+    rdfs:comment "A :Ticket specifies the :Spec/:SpecProposal that formalizes the change it asks for (formalizes the spec_ticket link operation, design §1.2)." .
 
 :triggers a owl:ObjectProperty ;
     rdfs:label "triggers" ;
@@ -197,3 +195,10 @@ BFO:Process — it unfolds through open→ack→resolved over time.""" ;
     rdfs:label "Code Change Proposal" ;
     rdfs:comment "The platform-neutral supertype over :MergeRequest and :PullRequest — a proposed change awaiting review/CI/merge." ;
     rdfs:subClassOf bfo:0000015 .
+
+:sdlcLifecycleSpecifies a owl:ObjectProperty ;
+    rdfs:label "specifies (sdlc_lifecycle)" ;
+    rdfs:comment "The sdlc_lifecycle module's meaning of the shared kg:specifies: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :specifies ;
+    rdfs:domain :Ticket ;
+    rdfs:range :Spec .

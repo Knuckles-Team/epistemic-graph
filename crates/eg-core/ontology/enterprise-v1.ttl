@@ -101,9 +101,7 @@ that governs its design and operation.""" .
         owl:TransitiveProperty ;
     rdfs:label "supersedes" ;
     rdfs:comment """Transitive: if ADR-C supersedes ADR-B supersedes ADR-A,
-then ADR-C supersedes ADR-A. Enables full decision lineage queries.""" ;
-    rdfs:domain :ArchitectureDecisionRecord ;
-    rdfs:range :ArchitectureDecisionRecord .
+then ADR-C supersedes ADR-A. Enables full decision lineage queries.""" .
 
 <http://knuckles.team/kg/enterprise> a owl:Ontology ;
     rdfs:label "Enterprise Architecture Governance Ontology" ;
@@ -169,3 +167,10 @@ under what authority, and what alternatives were considered.
 Lifecycle: proposed → accepted → deprecated → superseded.
 ArchiMate: Strategy → CourseOfAction.""" ;
     rdfs:subClassOf :StrategyLayer .
+
+:enterpriseSupersedes a owl:ObjectProperty ;
+    rdfs:label "supersedes (enterprise)" ;
+    rdfs:comment "The enterprise module's meaning of the shared kg:supersedes: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :supersedes ;
+    rdfs:domain :ArchitectureDecisionRecord ;
+    rdfs:range :ArchitectureDecisionRecord .

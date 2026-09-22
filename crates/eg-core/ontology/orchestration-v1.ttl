@@ -232,8 +232,7 @@
     rdfs:range xsd:string .
 
 :delegatesTo a owl:ObjectProperty ;
-    rdfs:comment "Agent delegates to an external A2A agent." ;
-    rdfs:domain :Agent .
+    rdfs:comment "Agent delegates to an external A2A agent." .
 
 :derives a owl:ObjectProperty ;
     rdfs:label "derives" ;
@@ -416,8 +415,6 @@
     (`graph_checkpoint_ids`/`graph_resume_supported`, CONCEPT:AU-KG.temporal.message-history-read)
     with the reverse edge from the unit itself, per `durable-execution-native.md` Part 3's
     ontology model. DE0 reserves the schema; DE1 populates it on mirror-write.""" ;
-    rdfs:domain :DurableExecutionUnit ;
-    rdfs:range :RunTrace ;
     owl:inverseOf :producedBy .
 
 :proposesCommit a owl:ObjectProperty ;
@@ -450,9 +447,7 @@
 
 :reportsTo a owl:ObjectProperty,
         owl:TransitiveProperty ;
-    rdfs:comment "Team reporting hierarchy (transitive)." ;
-    rdfs:domain :Agent ;
-    rdfs:range :Agent .
+    rdfs:comment "Team reporting hierarchy (transitive)." .
 
 :schedules a owl:ObjectProperty ;
     rdfs:label "schedules" ;
@@ -492,9 +487,7 @@
     rdfs:domain :Agent ;
     rdfs:range :Model .
 
-:usesTool a owl:ObjectProperty ;
-    rdfs:domain :Agent ;
-    rdfs:range :Tool .
+:usesTool a owl:ObjectProperty .
 
 <http://knuckles.team/kg/orchestration> a owl:Ontology ;
     rdfs:label "Agent Intelligence Graph — Orchestration Module" ;
@@ -680,3 +673,30 @@
     RunTrace checkpoint linkage already uses. Concrete subclasses: :StatechartInstance,
     :AnalyticsJob, :SagaCoordination, :DurableRun.""" ;
     rdfs:seeAlso prov:Entity .
+
+:orchestrationDelegatesTo a owl:ObjectProperty ;
+    rdfs:label "delegatesTo (orchestration)" ;
+    rdfs:comment "The orchestration module's meaning of the shared kg:delegatesTo: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :delegatesTo ;
+    rdfs:domain :Agent .
+
+:orchestrationProduced a owl:ObjectProperty ;
+    rdfs:label "produced (orchestration)" ;
+    rdfs:comment "The orchestration module's meaning of the shared kg:produced: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :produced ;
+    rdfs:domain :DurableExecutionUnit ;
+    rdfs:range :RunTrace .
+
+:orchestrationReportsTo a owl:ObjectProperty ;
+    rdfs:label "reportsTo (orchestration)" ;
+    rdfs:comment "The orchestration module's meaning of the shared kg:reportsTo: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :reportsTo ;
+    rdfs:domain :Agent ;
+    rdfs:range :Agent .
+
+:orchestrationUsesTool a owl:ObjectProperty ;
+    rdfs:label "usesTool (orchestration)" ;
+    rdfs:comment "The orchestration module's meaning of the shared kg:usesTool: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :usesTool ;
+    rdfs:domain :Agent ;
+    rdfs:range :Tool .

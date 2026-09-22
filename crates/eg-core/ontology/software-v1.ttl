@@ -117,9 +117,7 @@
 
 :produced a owl:ObjectProperty ;
     rdfs:label "produced" ;
-    rdfs:comment "A WorkspaceAction produced a WorkspaceObservation." ;
-    rdfs:domain :WorkspaceAction ;
-    rdfs:range :WorkspaceObservation .
+    rdfs:comment "A WorkspaceAction produced a WorkspaceObservation." .
 
 :provisions a owl:ObjectProperty ;
     rdfs:label "provisions" ;
@@ -238,3 +236,10 @@
 :Code a owl:Class ;
     rdfs:label "Code" ;
     rdfs:comment "An application code symbol: function, class, or method." .
+
+:softwareProduced a owl:ObjectProperty ;
+    rdfs:label "produced (software)" ;
+    rdfs:comment "The software module's meaning of the shared kg:produced: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :produced ;
+    rdfs:domain :WorkspaceAction ;
+    rdfs:range :WorkspaceObservation .

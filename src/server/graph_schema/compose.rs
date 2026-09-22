@@ -677,8 +677,10 @@ ex:parent a owl:AsymmetricProperty .
         // coherent: module-local domain/range on the shared kg:derivedFrom (sdd,
         // capability) and kg:dependsOn (software) — 6; module-local BFO recategorisation
         // of the core :Skill (a2a) and :LegalEntity (company) — 2; `:Incident` in the
-        // AllDisjointClasses list of its own superclass `:Event` — 2.
-        assert_eq!(composed.ontology.len(), 12_590);
+        // AllDisjointClasses list of its own superclass `:Event` — 2. Then +99: the
+        // module-local domain/range of 12 other shared properties (and the double domain
+        // of infrastructure's :runsOn) moved onto 24 module-local sub-properties.
+        assert_eq!(composed.ontology.len(), 12_689);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -710,7 +712,7 @@ ex:parent a owl:AsymmetricProperty .
         // authority triples change.
         assert_eq!(ontology_subjects.len(), 30);
         assert_eq!(imports, 59);
-        assert_eq!(semantic_axioms, 12_435);
+        assert_eq!(semantic_axioms, 12_534);
 
         let count_type = |object: &str| {
             composed
@@ -787,6 +789,34 @@ ex:parent a owl:AsymmetricProperty .
             ]),
             "the BFO root must subsume nothing but itself and owl:Thing"
         );
+    }
+
+    /// A module must not constrain a shared property: OWL intersects every
+    /// `rdfs:domain`/`rdfs:range` a property carries, so two modules' different
+    /// meanings of one property type every edge as both (EH-356 found
+    /// `derivedFrom`/`dependsOn`; twelve more were moved to module-local
+    /// sub-properties). Each property's domain and range come from ONE core document.
+    #[test]
+    fn no_property_is_constrained_by_two_core_modules() {
+        const DOMAIN: &str = "http://www.w3.org/2000/01/rdf-schema#domain";
+        const RANGE: &str = "http://www.w3.org/2000/01/rdf-schema#range";
+        let sources = GraphSchemaSources::default();
+        let mut constrained_by: BTreeMap<String, BTreeSet<&str>> = BTreeMap::new();
+        for (source_id, document) in sources.ontologies() {
+            for triple in eg_rdf::mapping::parse_turtle(document).unwrap() {
+                if matches!(triple.predicate.as_str(), DOMAIN | RANGE) {
+                    constrained_by
+                        .entry(triple.subject.to_string())
+                        .or_default()
+                        .insert(source_id);
+                }
+            }
+        }
+        let shared: Vec<_> = constrained_by
+            .iter()
+            .filter(|(_, modules)| modules.len() > 1)
+            .collect();
+        assert!(shared.is_empty(), "{shared:?}");
     }
 
     #[test]

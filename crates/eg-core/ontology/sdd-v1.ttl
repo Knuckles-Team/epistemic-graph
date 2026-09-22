@@ -93,9 +93,7 @@ Example: SoftwareFeature realizes ApplicationFunction.""" .
 
 :specifies a owl:ObjectProperty ;
     rdfs:label "specifies" ;
-    rdfs:comment "Links a Specification to the SoftwareFeature(s) it defines." ;
-    rdfs:domain :Specification ;
-    rdfs:range :SoftwareFeature .
+    rdfs:comment "Links a Specification to the SoftwareFeature(s) it defines." .
 
 :storyPoints a owl:DatatypeProperty ;
     rdfs:label "story points" ;
@@ -221,3 +219,10 @@ the spec↔ticket link flow (CONCEPT:KG-2.9).""" ;
     BFO:GenericallyDependentContinuant. ArchiMate: Strategy → Capability.
     Allows recording different historical versions of the plan within a single chat session or across workspace edits.""" ;
     rdfs:subClassOf :Specification .
+
+:sddSpecifies a owl:ObjectProperty ;
+    rdfs:label "specifies (sdd)" ;
+    rdfs:comment "The sdd module's meaning of the shared kg:specifies: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :specifies ;
+    rdfs:domain :Specification ;
+    rdfs:range :SoftwareFeature .

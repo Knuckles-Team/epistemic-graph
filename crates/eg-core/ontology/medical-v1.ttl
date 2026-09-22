@@ -45,9 +45,7 @@
     rdfs:range :ClinicalCondition .
 
 :enrolledIn a owl:ObjectProperty ;
-    rdfs:label "enrolled in" ;
-    rdfs:domain :Patient ;
-    rdfs:range :ClinicalTrial .
+    rdfs:label "enrolled in" .
 
 :followsPathway a owl:ObjectProperty ;
     rdfs:label "follows pathway" ;
@@ -127,3 +125,10 @@ Aligned to SNOMED-CT, ICD-10/11, LOINC, RxNorm, HL7 FHIR, CDISC.""" ;
     rdfs:comment """A person receiving medical care. Extends Person with PHI-protected
 attributes. HIPAA §164.312 technical safeguards apply.""" ;
     rdfs:subClassOf :Person .
+
+:medicalEnrolledIn a owl:ObjectProperty ;
+    rdfs:label "enrolledIn (medical)" ;
+    rdfs:comment "The medical module's meaning of the shared kg:enrolledIn: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :enrolledIn ;
+    rdfs:domain :Patient ;
+    rdfs:range :ClinicalTrial .

@@ -223,9 +223,7 @@ Subject to employer withholding for income tax, FICA, Medicare.""" ;
     rdfs:label "reports to" ;
     rdfs:comment """Transitive organizational hierarchy. If A reportsTo B
 and B reportsTo C, then A transitively reportsTo C. Enables automatic
-escalation chain traversal.""" ;
-    rdfs:domain :Employee ;
-    rdfs:range :Employee .
+escalation chain traversal.""" .
 
 :reviewRating a owl:DatatypeProperty ;
     rdfs:label "review rating" ;
@@ -361,3 +359,10 @@ with employment metadata (hire date, status, employee ID).
 BFO:IndependentContinuant via Person. Aligned to foaf:Person + HR-XML.""" ;
     rdfs:seeAlso foaf:Person ;
     rdfs:subClassOf :Person .
+
+:hrReportsTo a owl:ObjectProperty ;
+    rdfs:label "reportsTo (hr)" ;
+    rdfs:comment "The hr module's meaning of the shared kg:reportsTo: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :reportsTo ;
+    rdfs:domain :Employee ;
+    rdfs:range :Employee .
