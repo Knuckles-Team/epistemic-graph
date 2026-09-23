@@ -502,42 +502,51 @@ fn extended_class_kind(kind: &str) -> Option<&'static str> {
     .into()
 }
 
+/// Callable declaration node kinds across grammars, and the semantic kind
+/// each one is. A closed table: a kind not listed is not a callable.
+const FUNCTION_LIKE_KINDS: &[(&str, &str)] = &[
+    ("function_definition", "function"),
+    ("function_declaration", "function"),
+    ("function_item", "function"),
+    ("generator_function_declaration", "function"),
+    // Ruby `method`/`singleton_method` (CONCEPT:AU-KG.compute.built-ast-extended).
+    ("method_definition", "method"),
+    ("method_declaration", "method"),
+    ("method", "method"),
+    ("singleton_method", "method"),
+    ("constructor_declaration", "constructor"),
+    // Julia `macro mymacro(x) ... end` (CONCEPT:EH-281) — a compile-time
+    // callable, closest existing concept is a function.
+    ("macro_definition", "macro"),
+    // Fortran's outer `function`/`subroutine` containers (CONCEPT:EH-281);
+    // name resolved by `fortran_symbol_name` (the field lives on the
+    // nested `function_statement`/`subroutine_statement`, not here).
+    ("function", "function"),
+    ("subroutine", "subroutine"),
+    // Pascal/Delphi `defProc` (CONCEPT:EH-281) — a DEFINING occurrence
+    // (header + body), the Pascal analogue of a C `function_definition`.
+    // The bare forward declaration (`declProc` alone, in an `interface`
+    // section) is deliberately NOT listed, mirroring how a C
+    // prototype-only `declaration` never matches this table either —
+    // only the defining occurrence is extracted.
+    ("defProc", "function"),
+    // PowerShell `function Get-Area { ... }` / a class method
+    // (CONCEPT:EH-281); name resolved by `powershell_symbol_name`.
+    ("function_statement", "function"),
+    ("class_method_definition", "method"),
+    // DreamMaker (CONCEPT:EH-281 ABI-15 follow-up). Both already carry a
+    // `name` field, so `symbol_name`'s first check resolves them — no
+    // `dm_symbol_name` involvement, unlike `type_definition`.
+    ("proc_definition", "function"),
+    ("type_proc_definition", "method"),
+];
+
 /// Semantic kind for a callable declaration node across grammars, or ``None``.
 pub(super) fn function_like_kind(kind: &str) -> Option<&'static str> {
-    Some(match kind {
-        "function_definition"
-        | "function_declaration"
-        | "function_item"
-        | "generator_function_declaration" => "function",
-        // Ruby `method`/`singleton_method` (CONCEPT:AU-KG.compute.built-ast-extended).
-        "method_definition" | "method_declaration" | "method" | "singleton_method" => "method",
-        "constructor_declaration" => "constructor",
-        // Julia `macro mymacro(x) ... end` (CONCEPT:EH-281) — a compile-time
-        // callable, closest existing concept is a function.
-        "macro_definition" => "macro",
-        // Fortran's outer `function`/`subroutine` containers (CONCEPT:EH-281);
-        // name resolved by `fortran_symbol_name` (the field lives on the
-        // nested `function_statement`/`subroutine_statement`, not here).
-        "function" => "function",
-        "subroutine" => "subroutine",
-        // Pascal/Delphi `defProc` (CONCEPT:EH-281) — a DEFINING occurrence
-        // (header + body), the Pascal analogue of a C `function_definition`.
-        // The bare forward declaration (`declProc` alone, in an `interface`
-        // section) is deliberately NOT matched here, mirroring how a C
-        // prototype-only `declaration` never matches this table either —
-        // only the defining occurrence is extracted.
-        "defProc" => "function",
-        // PowerShell `function Get-Area { ... }` / a class method
-        // (CONCEPT:EH-281); name resolved by `powershell_symbol_name`.
-        "function_statement" => "function",
-        "class_method_definition" => "method",
-        // DreamMaker (CONCEPT:EH-281 ABI-15 follow-up). Both already carry a
-        // `name` field, so `symbol_name`'s first check resolves them — no
-        // `dm_symbol_name` involvement, unlike `type_definition`.
-        "proc_definition" => "function",
-        "type_proc_definition" => "method",
-        _ => return None,
-    })
+    FUNCTION_LIKE_KINDS
+        .iter()
+        .find(|(node_kind, _)| *node_kind == kind)
+        .map(|(_, semantic)| *semantic)
 }
 
 /// Best-effort symbol name across grammars. Most declarations expose a ``name``
@@ -716,29 +725,43 @@ fn identifier_child(node: Node, depth: u8) -> Option<Node> {
     if depth == 0 {
         return None;
     }
-    let mut wrapper_child: Option<Node> = None;
+    let children = unfielded_children(node);
+    if let Some(identifier) = children
+        .iter()
+        .find(|child| is_identifier_kind(child.kind()))
+    {
+        return Some(*identifier);
+    }
+    children
+        .into_iter()
+        .find(|child| is_wrapper_kind(child.kind()))
+        .and_then(|wrapper| identifier_child(wrapper, depth - 1))
+}
+
+/// The direct children that carry no field name, in order.
+fn unfielded_children(node: Node) -> Vec<Node> {
+    let mut children = Vec::new();
     let mut cursor = node.walk();
     if !cursor.goto_first_child() {
-        return None;
+        return children;
     }
     loop {
         if cursor.field_name().is_none() {
-            let child = cursor.node();
-            let kind = child.kind();
-            if kind == "identifier" || kind.ends_with("_identifier") {
-                return Some(child);
-            }
-            if wrapper_child.is_none()
-                && (kind.ends_with("_header") || kind.ends_with("_body_declaration"))
-            {
-                wrapper_child = Some(child);
-            }
+            children.push(cursor.node());
         }
         if !cursor.goto_next_sibling() {
-            break;
+            return children;
         }
     }
-    wrapper_child.and_then(|w| identifier_child(w, depth - 1))
+}
+
+fn is_identifier_kind(kind: &str) -> bool {
+    kind == "identifier" || kind.ends_with("_identifier")
+}
+
+/// A `*_header` / `*_body_declaration` wrapper one level above the name.
+fn is_wrapper_kind(kind: &str) -> bool {
+    kind.ends_with("_header") || kind.ends_with("_body_declaration")
 }
 
 /// Descend a C/C++ declarator chain (pointer/function/array declarators) to the

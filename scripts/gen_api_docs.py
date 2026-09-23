@@ -357,36 +357,29 @@ def render_openapi(contract: Contract) -> str:
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def _describe_node(node: Any, defs: dict[str, Any]) -> str:
-    """One-line, bounded type summary for a request-param / result cell."""
-    if node is True:
-        return "any"
-    if node is False:
-        return "never"
-    if not isinstance(node, dict):
-        return "any"
-    if "$ref" in node:
-        ref = node["$ref"]
-        if ref == "#":
-            return "(recursive — see contract)"
-        name = ref.rsplit("/", 1)[-1]
-        target = defs.get(name, {})
-        if "enum" in target:
-            values = target["enum"]
-            shown = ", ".join(f"`{v}`" for v in values[:6])
-            if len(values) > 6:
-                shown += f", … ({len(values)} total)"
-            return f"`{name}` (enum: {shown})"
-        return f"`{name}`"
-    if "enum" in node:
-        values = node["enum"]
-        shown = ", ".join(f"`{v}`" for v in values[:6])
-        if len(values) > 6:
-            shown += f", … ({len(values)} total)"
-        return f"enum: {shown}"
-    if "anyOf" in node or "oneOf" in node:
-        branches = node.get("anyOf") or node.get("oneOf") or []
-        return "one of: " + " \\| ".join(_describe_node(b, defs) for b in branches)
+_BOOLEAN_SCHEMA = {True: "any", False: "never"}
+
+
+def _enum_values(values: list[Any]) -> str:
+    """At most six enum values, then the total."""
+    shown = ", ".join(f"`{v}`" for v in values[:6])
+    if len(values) > 6:
+        shown += f", … ({len(values)} total)"
+    return shown
+
+
+def _describe_ref(ref: str, defs: dict[str, Any]) -> str:
+    if ref == "#":
+        return "(recursive — see contract)"
+    name = ref.rsplit("/", 1)[-1]
+    target = defs.get(name, {})
+    if "enum" in target:
+        return f"`{name}` (enum: {_enum_values(target['enum'])})"
+    return f"`{name}`"
+
+
+def _describe_typed(node: dict[str, Any], defs: dict[str, Any]) -> str:
+    """The summary of a node described by its `type` keyword alone."""
     node_type = node.get("type")
     if node_type == "array":
         return f"array of {_describe_node(node.get('items', True), defs)}"
@@ -394,10 +387,28 @@ def _describe_node(node: Any, defs: dict[str, Any]) -> str:
         return "object"
     if isinstance(node_type, list):
         return " \\| ".join(str(t) for t in node_type)
-    if node_type:
-        fmt = node.get("format")
-        return f"{node_type} ({fmt})" if fmt else str(node_type)
-    return "any"
+    if not node_type:
+        return "any"
+    fmt = node.get("format")
+    return f"{node_type} ({fmt})" if fmt else str(node_type)
+
+
+def _describe_node(node: Any, defs: dict[str, Any]) -> str:
+    """One-line, bounded type summary for a request-param / result cell."""
+    if isinstance(node, bool):
+        return _BOOLEAN_SCHEMA[node]
+    if not isinstance(node, dict):
+        return "any"
+    if "$ref" in node:
+        return _describe_ref(node["$ref"], defs)
+    if "enum" in node:
+        return f"enum: {_enum_values(node['enum'])}"
+    branches = node.get("anyOf") or node.get("oneOf")
+    if "anyOf" in node or "oneOf" in node:
+        return "one of: " + " \\| ".join(
+            _describe_node(b, defs) for b in branches or []
+        )
+    return _describe_typed(node, defs)
 
 
 def _params_table(method_id: str, contract: Contract) -> str:

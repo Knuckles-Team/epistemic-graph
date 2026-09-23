@@ -25,7 +25,7 @@ from typing import Any
 
 from ... import decision_stat as ds
 from . import vocabulary as vocab
-from .assembly import GoldSet, PlanItem, Solved
+from .assembly import Candidate, GoldSet, PlanItem, Solved
 from .outcomes import OutcomeRecord, OutcomeStream
 
 Q32 = ds.Q32_ONE
@@ -77,23 +77,34 @@ def _coverage(classification: Sequence[str], required: Sequence[str]) -> int:
     return covered * Q32 // len(required)
 
 
-def _gold_item(item: PlanItem, solved: Solved) -> dict[str, Any] | None:
-    options = sorted(
+def _published_options(item: PlanItem) -> list[Candidate]:
+    """The item's published candidates, in component-id byte order."""
+    return sorted(
         (c for c in item.candidates if c.lifecycle == "published"),
         key=lambda c: c.component_id.encode(),
     )
+
+
+def _feature_row(candidate: Candidate, required: Sequence[str]) -> list[int]:
+    """One candidate's (coverage, cost, p95) features in Q32; an unknown cost
+    is -1."""
+    cost = -1 if candidate.cost_micros is None else candidate.cost_micros
+    return [
+        _coverage(candidate.classification, required),
+        cost * Q32,
+        candidate.p95_ms * Q32,
+    ]
+
+
+def _gold_item(item: PlanItem, solved: Solved) -> dict[str, Any] | None:
+    options = _published_options(item)
     accepted = {member for assembly in solved.acceptable for member in assembly}
     acceptable = [c.component_id for c in options if c.component_id in accepted]
     if not acceptable:
         return None
-    rows: list[int] = []
-    for c in options:
-        cost = -1 if c.cost_micros is None else c.cost_micros
-        rows += [
-            _coverage(c.classification, item.required_capabilities),
-            cost * Q32,
-            c.p95_ms * Q32,
-        ]
+    rows = [
+        value for c in options for value in _feature_row(c, item.required_capabilities)
+    ]
     return {
         "item_id": item.item_id,
         "recorded_at_ms": 0,

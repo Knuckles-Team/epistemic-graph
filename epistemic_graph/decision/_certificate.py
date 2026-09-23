@@ -114,17 +114,16 @@ class Model:
         self.digest = raw_digest(MODEL_DIGEST_DOMAIN, self.spec)
 
     def level_values(self, selected: list[bool]) -> list[dict[str, Any]]:
-        values = []
-        for level in self.spec["objective"]:
-            chosen = [t for t in level["terms"] if selected[t["var"]]]
-            known = sum(
-                t["coefficient"]["known"]
-                for t in chosen
-                if t["coefficient"] != "unknown"
-            )
-            unknown = sum(1 for t in chosen if t["coefficient"] == "unknown")
-            values.append({"known": str(known), "unknown_selected": unknown})
-        return values
+        return [_level_value(level, selected) for level in self.spec["objective"]]
+
+
+def _level_value(level: dict[str, Any], selected: list[bool]) -> dict[str, Any]:
+    """One objective level's value: the known coefficients of the selected
+    terms summed, and how many selected terms have an unknown coefficient."""
+    chosen = [t["coefficient"] for t in level["terms"] if selected[t["var"]]]
+    known = sum(c["known"] for c in chosen if c != "unknown")
+    unknown = sum(1 for c in chosen if c == "unknown")
+    return {"known": str(known), "unknown_selected": unknown}
 
 
 def _holds(relation: str, lhs: int, rhs: int) -> bool:
