@@ -1825,9 +1825,16 @@ impl WireSession {
         // `authorized_read_store`'s own doc for why this materializes an ephemeral,
         // per-call store instead of handing DataFusion the raw tenant-shared
         // catalog directly.
+        // RF-019: a maintained-ANN read narrows its table inside this projection,
+        // row-level security applied inside the probe.
         let (authority, persist_dir) = self.catalog_authority().await?;
+        let statement = sql.clone();
         let projection = tokio::task::spawn_blocking(move || {
-            crate::server::sql_catalog_acl::authorized_read_store(&authority, &persist_dir)
+            crate::server::sql_catalog_acl::authorized_read_store_for_query(
+                &authority,
+                &persist_dir,
+                &statement,
+            )
         })
         .await
         .map_err(|error| user_err(format!("authorized read-store build task failed: {error}")))?

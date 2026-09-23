@@ -34,6 +34,10 @@ use sha2::{Digest, Sha256};
 
 use crate::server::access::CarrierAuthority;
 
+// RF-019: the one maintenance worker of every open catalog's ANN authority.
+mod ann_maintenance;
+pub use ann_maintenance::sweep_ann_generations;
+
 const SQL_CATALOG_DIR: &str = "sql-catalog";
 
 /// One carrier-owned native SQL-owner mutation: compiled at the owner scope's

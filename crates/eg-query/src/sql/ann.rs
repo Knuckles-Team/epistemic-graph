@@ -1,14 +1,13 @@
-//! Real pgvector ANN top-k pushdown execution (CONCEPT:EG-KG.query.real-pgvector-ann-top).
+//! Real pgvector ANN top-k pushdown execution over a materialized batch
+//! (CONCEPT:EG-KG.query.real-pgvector-ann-top).
 //!
 //! EG-116 recognized `CREATE INDEX … USING hnsw|ivfflat (col opclass)` (an
 //! [`AnnIndexPlan`]) and a `SELECT … FROM t ORDER BY col <-> $q LIMIT k` nearest-
-//! neighbour query ([`plan_ann_search`](super::pgfamily::plan_ann_search)), but the
-//! actual top-k search still fell back to the EG-115 brute-force `vector_l2()`
-//! full-scan+sort. THIS module is the deferred half: when a matching hnsw/ivfflat
-//! index exists for the column, the query is executed by building/consulting a REAL
-//! [`eg_ann`] index (HNSW for `hnsw`, IVF-PQ for `ivfflat`) over the column's
-//! vectors and returning the true top-k — instead of brute force. When no index
-//! covers the `(table, column, metric)`, the caller keeps the brute-force path.
+//! neighbour query ([`plan_ann_search`](super::pgfamily::plan_ann_search)). This module
+//! narrows an ALREADY-MATERIALIZED batch — today only the graph `nodes` projection — to
+//! its true top-k. USER tables never come here: RF-019 moved them onto the maintained
+//! ANN authority (`crate::tables::ann_authority`), whose generations the maintenance
+//! worker builds off the query path; see `super::ann_pushdown`.
 //!
 //! ## Correctness + determinism (CONCEPT:EG-KG.query.real-pgvector-ann-top)
 //! The graph ANN indices (HNSW graph traversal, IVF-PQ coarse+PQ codes) are
@@ -90,7 +89,7 @@ pub(crate) fn sql_has_where(sql: &str) -> bool {
 
 /// Integer square root (floor) — used to size the IVF `nlist` ≈ √N without pulling a
 /// nightly `usize::isqrt`.
-fn isqrt(n: usize) -> usize {
+pub(crate) fn isqrt(n: usize) -> usize {
     if n == 0 {
         return 0;
     }

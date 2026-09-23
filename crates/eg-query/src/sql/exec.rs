@@ -12,19 +12,20 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use arrow::array::Array;
-use arrow::datatypes::{DataType, Field, SchemaRef};
+use arrow::datatypes::SchemaRef;
 use datafusion::catalog::TableProvider;
 use datafusion::datasource::MemTable;
 use datafusion::execution::context::SessionContext;
-use datafusion::logical_expr::{ColumnarValue, ScalarFunctionArgs, ScalarUDF};
 use datafusion::prelude::SessionConfig;
-use datafusion::scalar::ScalarValue;
 use eg_core::graph::GraphView;
 // The wire DTO lives at the bottom of the DAG (eg-types); the algorithm stays here.
 pub use eg_types::protocol::QueryResult;
 
+use super::ann_pushdown::{
+    ann_pushdown_decision, ann_pushdown_may_apply, maintained_top_k, AnnPushdown,
+};
 use super::catalog::register_system_catalogs;
-use super::pgfamily::{plan_ann_search, AnnIndexPlan, AnnMethod, AnnSearchPlan};
+use super::pgfamily::AnnIndexPlan;
 use super::providers::{infer_nodes, EdgesTableProvider, NodesTableProvider, SqlCache};
 use super::spill::CancellationToken;
 use super::tablefuncs::{BetweennessFunc, GenerateSeriesFunc, PagerankFunc};
@@ -41,18 +42,15 @@ use crate::tables::{PropertyGraphCatalogRecord, StoredFunction, TableSchema, Tab
 /// One user table's registration plan for `build_ctx` (CONCEPT:EG-KG.query.register-user-tables-alongside):
 /// [`materialize_user_tables`] chooses PER TABLE between the two variants below.
 enum UserTable {
-    /// `(name, schema, batch)` pre-materialized out of the redb store —
-    /// byte-identical to this crate's original sole behavior. The ONLY mode
-    /// [`apply_ann_pushdown`]'s durable-index top-k slice can narrow (it mutates
-    /// an already-materialized batch in place), so this variant is used for a
-    /// table a durable ANN index actually covers.
+    /// `(name, schema, batch)` already materialized. Only [`apply_ann_pushdown`]
+    /// produces one: the maintained ANN authority's nearest `LIMIT + OFFSET` rows of
+    /// a covered table, which replace that table for this one query.
     Eager(String, SchemaRef, arrow::record_batch::RecordBatch),
     /// `(name, typed catalog schema, store handle)` — row materialization
     /// deferred to a [`crate::tables::provider::UserTableProvider`], which pushes
     /// a `SERIAL`-column equality down to a redb point-get instead of a full
     /// table scan (see that type's own module doc for exactly what still falls
-    /// back to a scan). Used for every OTHER table — the common case, since a
-    /// durable ANN index over a user table is a narrow, opt-in feature.
+    /// back to a scan). Every table starts here.
     Lazy(String, TableSchema, TableStore),
 }
 
@@ -206,38 +204,16 @@ pub fn exec_sql_over_tables(
 
 /// Build the registration plan for EVERY user table in `store` so each can be
 /// registered alongside `nodes`/`edges` (CONCEPT:EG-KG.query.register-user-tables-alongside). A table's schema is
-/// ALWAYS resolved here (one cheap catalog lookup — never a row scan); whether its
-/// ROWS are eagerly scanned too depends on `ann_indexes`:
-///
-/// * a table `ann_indexes` names is [`UserTable::Eager`] — pre-scanned + materialized
-///   NOW, exactly as this crate's original sole behavior, because
-///   [`apply_ann_pushdown`]'s durable-index top-k slice runs BEFORE `build_ctx` and
-///   can only narrow an ALREADY-materialized batch in place.
-/// * every other table is [`UserTable::Lazy`] — its row scan is deferred entirely to
-///   [`crate::tables::provider::UserTableProvider`], which pushes a `SERIAL`-column
-///   equality down to a redb point-get instead of an eager `TableStore::scan` (see
-///   that type's own module doc for exactly what still falls back to a scan). Since
-///   `ann_indexes` is empty for the overwhelming majority of stores/tables, this is
-///   the common case: NO row scan happens here at all for those tables — not even a
-///   deferred one — until (and unless) `UserTableProvider::scan` actually needs one.
-fn materialize_user_tables(
-    store: &TableStore,
-    ann_indexes: &[AnnIndexPlan],
-) -> Result<Vec<UserTable>, String> {
+/// resolved here (one cheap catalog lookup — never a row scan) and its row scan is
+/// deferred entirely to [`crate::tables::provider::UserTableProvider`], which pushes a
+/// `SERIAL`-column equality down to a redb point-get instead of an eager
+/// `TableStore::scan` (see that type's own module doc for exactly what still falls back
+/// to a scan). An ANN-covered table is no exception: [`apply_ann_pushdown`] replaces it
+/// with the maintained authority's top-k rows, so it is never scanned eagerly either.
+fn materialize_user_tables(store: &TableStore) -> Result<Vec<UserTable>, String> {
     let mut out = Vec::new();
     for name in store.list_tables()? {
-        let schema = match store.get_schema(&name)? {
-            Some(s) => s,
-            None => continue,
-        };
-        let ann_covered = ann_indexes
-            .iter()
-            .any(|ix| ix.table.eq_ignore_ascii_case(&name));
-        if ann_covered {
-            let rows = store.scan(&name)?;
-            let (arrow_schema, batch) = crate::tables::provider::materialize(&schema, &rows)?;
-            out.push(UserTable::Eager(name, arrow_schema, batch));
-        } else {
+        if let Some(schema) = store.get_schema(&name)? {
             out.push(UserTable::Lazy(name, schema, store.clone()));
         }
     }
@@ -397,11 +373,9 @@ pub fn exec_sql_typed_with_tables_cancellable(
     }
     let nodes = infer_nodes(view)?;
     // CONCEPT:EG-KG.query.real-ann-top-k/EG-313: the durable pgvector ANN index registrations, consulted to
-    // push a matching `ORDER BY col <-> $1 LIMIT k` down to a real eg-ann index —
-    // fetched BEFORE `materialize_user_tables` so it can decide, per table, whether
-    // an eager pre-materialized batch is required (see that function's own doc).
+    // push a matching `ORDER BY col <-> $1 LIMIT k` down to the maintained ANN authority.
     let ann_indexes = store.list_ann_indexes()?;
-    let user = materialize_user_tables(store, &ann_indexes)?;
+    let user = materialize_user_tables(store)?;
     let property_graphs = store.list_property_graph_records(store.index_scope())?;
     // CONCEPT:EG-KG.query.durable-views: the durable views, registered as read-only named queries so a
     // SELECT that references a view expands its stored SELECT during context build.
@@ -696,11 +670,9 @@ impl SqlContextCache {
                 }
             }
         };
-        // See `exec_sql_typed_with_tables_cancellable`'s identical ordering note:
-        // `ann_indexes` is fetched BEFORE `materialize_user_tables` so it can pick
-        // Eager vs Lazy per table.
-        let ann_indexes = store.list_ann_indexes()?;
-        let user = materialize_user_tables(store, &ann_indexes)?;
+        // A cached context never serves an ANN-covered query (the caller bypasses the
+        // cache for those), so every user table here stays lazy.
+        let user = materialize_user_tables(store)?;
         let views = store.list_views()?;
         let functions = store.list_functions()?;
         let property_graphs = store.list_property_graph_records(&epoch.tenant)?;
@@ -761,99 +733,6 @@ fn with_thread_runtime<T>(f: impl FnOnce(&tokio::runtime::Runtime) -> T) -> Resu
         }
         Ok(f(slot.as_ref().expect("just ensured Some above")))
     })
-}
-
-/// Conservative predicate: could `sql` trigger [`apply_ann_pushdown`] against
-/// `ann_indexes`? A durable ANN index's top-k pushdown narrows `nodes`/a user table
-/// to a slice specific to THIS query's vector + k — that result is per-QUERY, not
-/// per-epoch, so a query this returns `true` for must never be served from
-/// [`SqlContextCache`]. Deliberately over-approximates (checks only the cheap,
-/// side-effect-free PREFIX of `apply_ann_pushdown`'s own conditions — index
-/// non-empty, a covering `ORDER BY <->/<=>/<#> ... LIMIT` shape parses, no `WHERE`):
-/// a query this flags that `apply_ann_pushdown` would ultimately no-op on anyway (an
-/// unresolved bind placeholder, no matching index config, or `topk_slice` declining)
-/// just falls back to the slower uncached path for nothing — never a correctness
-/// bug. `false` is the one case this predicate must get exactly right.
-fn ann_pushdown_may_apply(sql: &str, ann_indexes: &[AnnIndexPlan]) -> bool {
-    ann_pushdown_may_apply_with(sql, ann_indexes, &super::embed_udf::eg_embed_udf())
-}
-
-/// [`ann_pushdown_may_apply`] over an EXPLICIT `eg_embed` registration — the seam a test
-/// uses to fold with its own embedder without claiming the one-shot process binding.
-fn ann_pushdown_may_apply_with(sql: &str, ann_indexes: &[AnnIndexPlan], udf: &ScalarUDF) -> bool {
-    if ann_indexes.is_empty() {
-        return false;
-    }
-    // Probe the CONST-FOLDED SQL, exactly as `apply_ann_pushdown` does — otherwise an
-    // `ORDER BY col <=> eg_embed('…')` query whose top-k slice IS per-query would be
-    // judged cacheable, which is the one answer this predicate must get right.
-    let folded = ann_probe_sql_with(sql, udf);
-    let probe = folded.as_deref().unwrap_or(sql);
-    plan_ann_search(probe, ann_indexes).is_some() && !super::ann::sql_has_where(probe)
-}
-
-/// The SQL the ANN pushdown probes ([`plan_ann_search`] + `sql_has_where`) see: `sql`
-/// with a const `eg_embed('literal')` query operand folded to its pgvector literal
-/// (design §9 phase 2). `None` — the overwhelmingly common case — means "nothing folded;
-/// probe `sql` itself".
-///
-/// Folding is PROBE-ONLY: the statement that actually executes is never rewritten, so
-/// this can neither change what runs nor lose anything to a `Display` round-trip. The
-/// executed `eg_embed` call yields the same vector by its `Volatility::Immutable`
-/// contract; the cost is one extra embedding call on a query that takes the ANN path,
-/// paid to replace an O(N) exact scan with an HNSW/IVF top-k.
-///
-/// `udf` is the `eg_embed` registration to fold through — the process-wide one
-/// (`embed_udf::eg_embed_udf`) in production; an explicitly-bound one in a test, which
-/// must not claim the one-shot process binding.
-fn ann_probe_sql_with(sql: &str, udf: &ScalarUDF) -> Option<String> {
-    if !contains_ignore_ascii_case(sql, super::embed_udf::EG_EMBED_FN) {
-        return None;
-    }
-    super::pgfamily::fold_const_embed_order_key(sql, &|text| embed_const_text(udf, text))
-}
-
-/// Case-insensitive substring test, allocation-free — the cheap prefilter that keeps the
-/// fold's extra parse off every ordinary query.
-fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
-    let (h, n) = (haystack.as_bytes(), needle.as_bytes());
-    n.len() <= h.len() && h.windows(n.len()).any(|w| w.eq_ignore_ascii_case(n))
-}
-
-/// Resolve one literal query text to its vector by INVOKING the registered `eg_embed`
-/// once, at plan time. Going through the UDF (rather than reaching for the embedder
-/// binding directly) means the fold and the executed call are by construction the same
-/// function, and it keeps the embedder seam private to `embed_udf`. Any failure — no
-/// embedder bound, an embedder error, an unexpected return shape — is `None`, i.e. "do
-/// not fold", which degrades to the brute-force path and never to a wrong vector.
-fn embed_const_text(udf: &ScalarUDF, text: &str) -> Option<Vec<f32>> {
-    let return_type = udf.return_type(&[DataType::Utf8]).ok()?;
-    let out = udf
-        .invoke_with_args(ScalarFunctionArgs {
-            args: vec![ColumnarValue::Scalar(ScalarValue::Utf8(Some(
-                text.to_string(),
-            )))],
-            arg_fields: vec![Arc::new(Field::new("text", DataType::Utf8, true))],
-            number_rows: 1,
-            return_field: Arc::new(Field::new("vector", return_type, true)),
-            config_options: Arc::new(datafusion::config::ConfigOptions::default()),
-        })
-        .ok()?;
-    first_row_vector(&out)
-}
-
-/// The first row of a `List<Float32>` columnar value as a dense vector.
-fn first_row_vector(value: &ColumnarValue) -> Option<Vec<f32>> {
-    let array = value.to_array(1).ok()?;
-    let list = array.as_any().downcast_ref::<arrow::array::ListArray>()?;
-    if list.is_empty() || list.is_null(0) {
-        return None;
-    }
-    let elements = list.value(0);
-    let floats = elements
-        .as_any()
-        .downcast_ref::<arrow::array::Float32Array>()?;
-    Some(floats.values().to_vec())
 }
 
 /// As [`exec_sql_typed_with_tables_cancellable`], but amortizing the WHOLE
@@ -1076,133 +955,55 @@ fn build_ctx(
     })
 }
 
-/// Real pgvector ANN top-k pushdown (CONCEPT:EG-KG.query.real-pgvector-ann-top). When `sql` is a covered
-/// `SELECT … FROM t ORDER BY col <-> $q LIMIT k` (a registered `hnsw`/`ivfflat` index
-/// exists for `(t, col, metric)`), narrow the target table's materialized batch to the
-/// TRUE nearest-k rows — computed by building/consulting a real [`eg_ann`] index (HNSW
-/// or IVF per the index type) over the column's vectors and exact-reranking — BEFORE the
-/// query is planned. The subsequent (desugared) brute-force `ORDER BY` then runs over
-/// only those k rows, so projection/types/order are preserved while the O(N) scan the
-/// EG-115 fallback would do is replaced by the ANN top-k.
+/// Real pgvector ANN top-k pushdown (CONCEPT:EG-KG.query.real-pgvector-ann-top, RF-019). When
+/// `sql` is a covered nearest-neighbour read (see [`super::ann_pushdown`]), narrow the
+/// target relation to its nearest `LIMIT + OFFSET` rows BEFORE the query is planned; the
+/// unchanged (desugared) statement then filters, ranks and offsets over just those rows,
+/// so projection/types/order are exactly the full scan's.
 ///
-/// A no-op (⇒ the caller keeps the brute-force full scan) when: no index covers the
-/// query, a `WHERE` filter is present (pgvector filters THEN ranks — the pre-selection
-/// would change semantics), the query vector is an unresolved bind placeholder, or the
-/// target/column is not a materialized `List<Float32>` vector column with ≥ k usable rows.
+/// A user table is narrowed by the maintained ANN authority
+/// ([`TableStore::ann_top_k`]) — never by an index built here. The `nodes` projection
+/// keeps its batch slice. A no-op (the ordinary scan runs) when nothing is covered or the
+/// statement cannot be narrowed exactly; an error only when the maintained authority
+/// refuses (no servable generation and a table past the bounded exact fallback).
 ///
 /// Must be called on the PRE-desugar SQL (while the `<->`/`<=>`/`<#>` operators are still
-/// intact for [`plan_ann_search`]).
+/// intact for the planner).
 fn apply_ann_pushdown(
     sql: &str,
     ann_indexes: &[AnnIndexPlan],
     nodes: &mut (SchemaRef, arrow::record_batch::RecordBatch),
     user_tables: &mut [UserTable],
-) {
+) -> Result<(), String> {
     let Some(pushdown) = ann_pushdown_decision(sql, ann_indexes) else {
-        return;
+        return Ok(());
     };
-    if pushdown.plan.table.eq_ignore_ascii_case("nodes") {
+    if pushdown.targets_nodes() {
         if let Some(sliced) = pushdown.topk_slice(&nodes.0, &nodes.1) {
             nodes.1 = sliced;
         }
-        return;
+        return Ok(());
     }
-    slice_user_table(&pushdown, user_tables);
+    narrow_user_table(&pushdown, user_tables)
 }
 
-/// The DECISION [`apply_ann_pushdown`] acts on: the recognized nearest-neighbour plan,
-/// its RESOLVED query vector, and the method of the index that covers it. `Some` is
-/// exactly "this query takes the ANN index path"; `None` is "keep the EG-115
-/// brute-force exact scan" — the two outcomes return identical ROWS, so this decision,
-/// not the result set, is what distinguishes them.
-struct AnnPushdown {
-    plan: AnnSearchPlan,
-    query_vector: Vec<f32>,
-    method: AnnMethod,
-}
-
-impl AnnPushdown {
-    /// Narrow `batch` to the true nearest-`k` rows via the covering ANN index, or
-    /// `None` when the column is not a usable materialized vector column.
-    fn topk_slice(
-        &self,
-        schema: &SchemaRef,
-        batch: &arrow::record_batch::RecordBatch,
-    ) -> Option<arrow::record_batch::RecordBatch> {
-        super::ann::topk_slice(
-            schema,
-            batch,
-            &self.plan.column,
-            self.method,
-            self.plan.metric,
-            &self.query_vector,
-            self.plan.k,
-        )
-    }
-}
-
-/// Decide whether `sql` takes the ANN index path against `ann_indexes` — see
-/// [`AnnPushdown`]. Probes the CONST-FOLDED SQL ([`ann_probe_sql_with`]), so an
-/// `ORDER BY col <=> eg_embed('literal')` query reaches the real HNSW/IVF index instead
-/// of silently falling back to the brute-force scan; a non-const argument
-/// (`eg_embed($1)`, `eg_embed(other_col)`) does not fold and correctly keeps that
-/// fallback.
-fn ann_pushdown_decision(sql: &str, ann_indexes: &[AnnIndexPlan]) -> Option<AnnPushdown> {
-    ann_pushdown_decision_with(sql, ann_indexes, &super::embed_udf::eg_embed_udf())
-}
-
-/// [`ann_pushdown_decision`] over an EXPLICIT `eg_embed` registration — the seam a test
-/// uses to fold with its own embedder without claiming the one-shot process binding.
-fn ann_pushdown_decision_with(
-    sql: &str,
-    ann_indexes: &[AnnIndexPlan],
-    udf: &ScalarUDF,
-) -> Option<AnnPushdown> {
-    if ann_indexes.is_empty() {
-        return None;
-    }
-    let folded = ann_probe_sql_with(sql, udf);
-    let probe = folded.as_deref().unwrap_or(sql);
-    let plan = plan_ann_search(probe, ann_indexes)?;
-    if super::ann::sql_has_where(probe) {
-        return None;
-    }
-    let query_vector = super::ann::parse_query_vector(&plan.query)?;
-    // The index method (hnsw/ivfflat) comes from the covering registration; the metric
-    // is the query operator's metric (already matched by `plan_ann_search`).
-    let method = ann_indexes
-        .iter()
-        .find(|ix| {
-            ix.table.eq_ignore_ascii_case(&plan.table)
-                && ix.column.eq_ignore_ascii_case(&plan.column)
-                && ix.metric == plan.metric
-        })?
-        .method;
-    Some(AnnPushdown {
-        plan,
-        query_vector,
-        method,
-    })
-}
-
-/// Apply `pushdown`'s top-k slice to the user table it names, in place.
-fn slice_user_table(pushdown: &AnnPushdown, user_tables: &mut [UserTable]) {
+/// Replace the user table `pushdown` names with its maintained top-k rows, in place.
+fn narrow_user_table(pushdown: &AnnPushdown, user_tables: &mut [UserTable]) -> Result<(), String> {
     for entry in user_tables.iter_mut() {
-        // A `Lazy` table is, by `materialize_user_tables`'s construction, never one
-        // an ANN index covers (that's exactly the condition it uses to pick
-        // `Eager`) — so `plan.table` can only ever name an `Eager` entry here. The
-        // `let else` still degrades to a no-op rather than panicking if that
-        // invariant were ever violated.
-        let UserTable::Eager(name, schema, batch) = entry else {
+        let UserTable::Lazy(name, schema, store) = entry else {
             continue;
         };
-        if name.eq_ignore_ascii_case(&pushdown.plan.table) {
-            if let Some(sliced) = pushdown.topk_slice(schema, batch) {
-                *batch = sliced;
-            }
-            return;
+        if !name.eq_ignore_ascii_case(&pushdown.plan.table) {
+            continue;
         }
+        let narrowed = maintained_top_k(pushdown, schema, store)?;
+        let name = name.clone();
+        if let Some((arrow_schema, batch)) = narrowed {
+            *entry = UserTable::Eager(name, arrow_schema, batch);
+        }
+        return Ok(());
     }
+    Ok(())
 }
 
 /// Shared driver: register the two tables, the scalar/aggregate UDFs, and the
@@ -1249,7 +1050,7 @@ fn run(
     // CONCEPT:EG-KG.query.real-pgvector-ann-top — real pgvector ANN top-k pushdown on the PRE-desugar SQL (the
     // `<->`/`<=>`/`<#>` operators are still intact for the planner). Narrows the target
     // batch to the true nearest-k via a real eg-ann index when one is registered.
-    apply_ann_pushdown(&sql, &ann_indexes, &mut nodes, &mut user_tables);
+    apply_ann_pushdown(&sql, &ann_indexes, &mut nodes, &mut user_tables)?;
     // CONCEPT:EG-KG.query.view-pgvector-operators — rewrite pgvector distance operators (`<->`/`<=>`/`<#>`) to the
     // registered `vector_*` UDF calls BEFORE DataFusion plans the SQL (it has no
     // operator for them). A no-op when none are present or the SQL doesn't parse.
@@ -1346,7 +1147,7 @@ fn run_arrow(
 
     let sql = super::catalog::strip_pg_catalog_fn_qualifier(sql);
     let sql = super::funcs::expand_functions(&sql, &functions)?;
-    apply_ann_pushdown(&sql, &ann_indexes, &mut nodes, &mut user_tables);
+    apply_ann_pushdown(&sql, &ann_indexes, &mut nodes, &mut user_tables)?;
     let sql = super::classify::desugar_vector_ops(&sql);
     rt.block_on(async move {
         let built = build_ctx(snap, nodes, user_tables)?;
@@ -1441,7 +1242,7 @@ fn run_typed(
     // CONCEPT:EG-KG.query.create-drop-function — see `run`: expand SQL stored-function calls before desugar/planning.
     let sql = super::funcs::expand_functions(&sql, &functions)?;
     // CONCEPT:EG-KG.query.real-pgvector-ann-top — see `run`: real pgvector ANN top-k pushdown on the pre-desugar SQL.
-    apply_ann_pushdown(&sql, &ann_indexes, &mut nodes, &mut user_tables);
+    apply_ann_pushdown(&sql, &ann_indexes, &mut nodes, &mut user_tables)?;
     // CONCEPT:EG-KG.query.view-pgvector-operators — see `run`: desugar the pgvector operators before planning.
     let sql = super::classify::desugar_vector_ops(&sql);
     rt.block_on(async move {
@@ -1865,10 +1666,13 @@ mod sql_context_cache_unit_tests {
 #[cfg(test)]
 mod eg_embed_ann_pushdown_tests {
     use super::*;
+    use crate::sql::ann_pushdown::{
+        ann_probe_sql_with, ann_pushdown_decision_with, ann_pushdown_may_apply_with,
+    };
     use crate::sql::embed_udf::{eg_embed_udf_with, EmbedFn};
     use crate::sql::pgfamily::{AnnMethod, VectorMetric};
     use arrow::array::{Float32Builder, Int64Array, ListBuilder, RecordBatch, StringArray};
-    use arrow::datatypes::Schema;
+    use arrow::datatypes::{DataType, Field, Schema};
 
     /// A deterministic, dependency-free stand-in for a real model, mirroring the one in
     /// `embed_udf`'s tests (and `eg_plan::HashEmbedder`, which this crate cannot name —

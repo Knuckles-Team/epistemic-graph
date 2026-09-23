@@ -554,6 +554,11 @@ fn eg313_hnsw_pushdown_matches_brute_force_l2() {
         &view,
         "CREATE INDEX ON vecs USING hnsw (emb vector_l2_ops)",
     );
+    // RF-019: the maintenance worker's pass, so the reads below take the maintained
+    // generation rather than the bounded exact path.
+    store
+        .refresh_ann_generations(eg_query::AnnRefreshPolicy::Immediate)
+        .unwrap();
     assert_eq!(store.list_ann_indexes().unwrap().len(), 1);
 
     let q = "[6.2, 1.1, 8.3, 3.0]";
@@ -570,6 +575,11 @@ fn eg313_hnsw_pushdown_matches_brute_force_l2() {
             got, want,
             "EG-313 hnsw pushdown top-{k} must equal brute force"
         );
+        let receipt = store.ann_authority().recent_receipts().pop().unwrap();
+        assert!(matches!(
+            receipt.path,
+            eg_query::AnnServingPath::MaintainedIndex { .. }
+        ));
     }
 }
 
@@ -586,6 +596,11 @@ fn eg313_ivfflat_pushdown_matches_brute_force_l2() {
         &view,
         "CREATE INDEX ON vecs USING ivfflat (emb vector_l2_ops)",
     );
+    // RF-019: the maintenance worker's pass, so the reads below take the maintained
+    // generation rather than the bounded exact path.
+    store
+        .refresh_ann_generations(eg_query::AnnRefreshPolicy::Immediate)
+        .unwrap();
 
     let q = "[3.0, 9.0, 2.5, 7.0]";
     for k in [1usize, 4] {
@@ -601,6 +616,11 @@ fn eg313_ivfflat_pushdown_matches_brute_force_l2() {
             got, want,
             "EG-313 ivfflat pushdown top-{k} must equal brute force"
         );
+        let receipt = store.ann_authority().recent_receipts().pop().unwrap();
+        assert!(matches!(
+            receipt.path,
+            eg_query::AnnServingPath::MaintainedIndex { .. }
+        ));
     }
 }
 

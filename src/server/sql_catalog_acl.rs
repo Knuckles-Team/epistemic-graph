@@ -58,6 +58,11 @@ use sha2::{Digest, Sha256};
 use crate::server::access::CarrierAuthority;
 use crate::server::sql_tables;
 
+// RF-019: the served projection's maintained-ANN narrowing, with this caller's
+// row-level security applied inside the probe.
+mod ann_projection;
+pub(crate) use ann_projection::authorized_read_store_for_query;
+
 /// The one denial string for EVERY authorization failure in this module —
 /// nonexistent table, unowned/ungranted table, unauthorized grant/revoke/RLS
 /// admin call. Deliberately generic: a caller must not be able to distinguish
@@ -2075,6 +2080,16 @@ pub(crate) fn authorized_read_store(
     authority: &CarrierAuthority,
     persist_dir: &Path,
 ) -> Result<AuthorizedReadStore, String> {
+    project_read_store(authority, persist_dir, None)
+}
+
+/// [`authorized_read_store`], with the one table a maintained-ANN read narrows
+/// (RF-019) holding only the rows [`ann_projection::visible_rows`] returns.
+fn project_read_store(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+    narrowing: Option<&eg_query::UserAnnPushdown>,
+) -> Result<AuthorizedReadStore, String> {
     let names = selectable_tables(authority, persist_dir)?;
     let property_graphs = authorized_property_graph_records(authority, persist_dir)?;
     let (store, path) = crate::store_authority::open_ephemeral_sql_store()?;
@@ -2086,7 +2101,7 @@ pub(crate) fn authorized_read_store(
         let authorized =
             open_authorized_table(authority, persist_dir, &name, SqlPrivilege::Select)?;
         let schema = authorized.schema()?;
-        let rows = authorized.select(None)?;
+        let rows = ann_projection::visible_rows(&authorized, &name, narrowing)?;
         projection.store().create_table(&schema, true)?;
         if !rows.is_empty() {
             let col_order: Vec<String> = schema

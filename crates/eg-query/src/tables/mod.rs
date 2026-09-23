@@ -20,9 +20,13 @@
 //!   * [`index`] — bounded, schema/version-bound scalar secondary-index catalog
 //!     identities and deterministic equality/range/order key contracts. Vector
 //!     columns remain in the separate ANN path.
+//!   * [`ann_authority`] — the maintained ANN authority: the live, worker-built
+//!     generation of every registered `hnsw`/`ivfflat` index, serving top-k reads
+//!     with visibility applied inside the probe (RF-019).
 //!   * [`provider`] — Arrow materialization so each user table registers as a
 //!     DataFusion `TableProvider` alongside `nodes`/`edges`.
 
+pub mod ann_authority;
 pub mod embedding_binding;
 pub mod index;
 pub mod migration;
@@ -31,6 +35,10 @@ pub mod provider;
 pub mod schema;
 pub mod store;
 
+pub use ann_authority::{
+    AnnFallbackReason, AnnGenerationState, AnnIndexStatus, AnnLimits, AnnRefreshOutcome,
+    AnnRefreshPolicy, AnnServeReceipt, AnnServingPath, AnnTopK, AnnTopKRequest, UserAnnAuthority,
+};
 pub use embedding_binding::{
     catalog_key as embedding_binding_catalog_key, decode_binding, default_target_column,
     encode_binding, is_embeddable, model_digest, prepare_catalog_write, validate_binding,
