@@ -42,6 +42,11 @@ pub use owner::grant::{AuthenticatedScopeGrant, ScopeGrantVerifier};
 pub use owner::handle::OwnedStoreHandle;
 pub use owner::identity::PhysicalStoreIdentity;
 pub use owner::layout::OwnerLayout;
+pub use owner::lineage::{
+    layout_digest_hex, layout_predecessors, pinned_layout_digest, render_owner_store_formats,
+    AGENT_LIBRARY_BEFORE_CONNECTOR_PACKS, ALL_LAYOUTS, BLOB_BEFORE_HOLDERS,
+    SQL_BEFORE_SOURCE_CHECKPOINTS,
+};
 pub use owner::persisted_layout::{
     create_predecessor_owner_file, refuse_known_predecessor, LayoutPredecessor,
 };
@@ -61,11 +66,6 @@ pub use owner::registry::{
 pub use owner::row_key::{
     is_control_scope, owner_row_key, reserved_control_graph, OwnerRowScope, OwnerRowScopeStart,
     RowKey, GRAPH_SHARD_CONTROL_GRAPH, GRAPH_SHARD_TENANT,
-};
-pub use owner::sql_checkpoint_upgrade::{
-    inspect_sql_source_checkpoint_upgrade, upgrade_sql_source_checkpoints,
-    SqlSourceCheckpointInspectionOptions, SqlSourceCheckpointUpgradeReport,
-    ValidatedSqlSourceCheckpointUpgrade,
 };
 pub use owner::table_api::*;
 pub use payload::private_payload_digest;

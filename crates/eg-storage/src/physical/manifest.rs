@@ -87,7 +87,19 @@ impl OwnerManifest {
         })
     }
 
+    /// Validate a manifest read from disk (X11, EH-150): the current contract
+    /// is accepted, a declared predecessor is refused by its named
+    /// `{LAYOUT}_FORMAT_UPGRADE_REQUIRED` error, and any other digest is
+    /// `OWNER_STORE_FORMAT_UNKNOWN`. The refusal lives HERE, at the manifest,
+    /// so every open, adoption, classification and restore names it before a
+    /// table census could report the same file as a generic mismatch.
     pub(crate) fn validate(&self) -> Result<(), String> {
+        crate::owner::lineage::validate_against_lineage(self)
+    }
+
+    /// Whether this manifest is exactly the current contract of its layout.
+    /// Only the lineage registry asks this question directly.
+    pub(crate) fn validate_current(&self) -> Result<(), String> {
         if self.schema_version != STORAGE_KERNEL_SCHEMA_VERSION {
             return Err("unsupported mutation owner-manifest schema".to_string());
         }
