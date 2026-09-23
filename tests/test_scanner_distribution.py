@@ -122,7 +122,9 @@ def test_precommit_has_staged_differential_census_and_architecture_profiles():
 
 def test_goc70_is_manual_only_until_execution_is_bounded():
     hooks = _hooks()
-    gates_steps = _workflow()["jobs"]["gates"]["steps"]
+    gates_steps = [
+        step for job in _workflow()["jobs"].values() for step in job.get("steps", [])
+    ]
     constrained = [
         step
         for step in gates_steps
@@ -259,7 +261,7 @@ def test_ci_uses_central_exact_python_version():
         for step in job.get("steps", [])
         if step.get("uses", "").startswith("actions/setup-python@")
     ]
-    assert len(setup_steps) == 8
+    assert len(setup_steps) == 10  # incl. gates-facade + gates-variants
     assert {filename for filename, _ in setup_steps} == set(registered)
     assert all(
         step.get("with", {}).get("python-version-file") == ".python-version"
