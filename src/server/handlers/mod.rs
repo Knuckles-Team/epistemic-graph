@@ -126,6 +126,9 @@ pub(crate) mod source_batch;
 // RF-ADR-009 native raw-source authority. Present in every server build so a
 // build lacking redb/blob can return a named refusal for the wire method.
 pub(crate) mod source_ingestion;
+// CONCEPT:EH-280 — durable projection of a branch-aware IndexRepository batch,
+// committed through the same ChangeEnvelope authority as source ingestion.
+pub(crate) mod repository_index;
 
 // SQLite `.db` FILE import/export (CONCEPT:EG-KG.query.eg-feature/EG-332, feature `sqlite-file`). The
 // ImportSqliteFile/ExportSqliteFile methods move rows between an on-disk `sqlite3` `.db`

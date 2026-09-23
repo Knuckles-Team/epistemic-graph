@@ -56,7 +56,6 @@ def _result_payload() -> dict[str, Any]:
 
 class _Client(RecordingTransport):
     def reply(self, call: SentCall) -> dict[str, Any]:
-        assert call.graph is None
         assert call.idempotency_key is None
         return _result_payload()
 
@@ -79,6 +78,7 @@ async def test_public_client_returns_one_typed_outcome_per_file_in_order() -> No
         IndexFileStatus.UNSUPPORTED,
     ]
     assert [call.method for call in client.sent] == ["IndexRepository"]
+    assert [call.graph for call in client.sent] == [None]
 
 
 @pytest.mark.no_engine
@@ -118,15 +118,16 @@ async def test_branch_aware_scope_travels_as_the_typed_wire_field() -> None:
     )
     client: Any = _Client()
     await GraphOperationsClient(client).index_repository(
-        [("src/main.py", b""), ("README.txt", b"")], scope=scope
+        [("src/main.py", b""), ("README.txt", b"")], scope=scope, graph="repositories"
     )
 
-    params = client.calls[0][1]
+    params = client.sent[0].params
     assert params["scope"] == {
         "repository_id": "local-git:team/project",
         "refs": [
             {"ref_name": "refs/heads/main", "revision_id": "a" * 40, "status": "live"}
         ],
+        "tombstones": [],
         "file_versions": [
             {
                 "ref_name": "refs/heads/main",
@@ -135,3 +136,4 @@ async def test_branch_aware_scope_travels_as_the_typed_wire_field() -> None:
             }
         ],
     }
+    assert [call.graph for call in client.sent] == ["repositories"]

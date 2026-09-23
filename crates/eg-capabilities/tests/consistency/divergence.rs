@@ -17,6 +17,11 @@ pub(crate) const RUNTIME_CONDITIONAL: &[(&str, &str, &str)] = &[
         "mutates is operation-conditional; authority/query/events/capabilities are reads",
     ),
     (
+        "IndexRepository",
+        "EH-280",
+        "mutates only with a branch-aware `scope`; an unscoped batch is a stateless parse",
+    ),
+    (
         "CypherQuery",
         "EG-P0-2",
         "mutates is conservative; real answer is the `writeback` field / parsed query at runtime",

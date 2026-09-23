@@ -319,11 +319,11 @@ async def send_index_repository(
     Method:
         IndexRepository
     Authorization:
-        compute:parse
+        source:ingest
     Durability:
-        None
+        GraphRedb
     Replay:
-        NotReplayable
+        OperationIdentity
     Result:
         ResultPayload::Json
     Result schema:
@@ -332,6 +332,10 @@ async def send_index_repository(
     Errors:
         - INVALID_ARGUMENT
         - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
     """
     IndexRepositoryRequest.model_validate(params or {})
     payload = await client._send(

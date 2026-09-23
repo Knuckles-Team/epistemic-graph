@@ -116,6 +116,15 @@ fn requires_write_fleet_catalog_surface(method: &Method) -> Option<bool> {
     None
 }
 
+/// CONCEPT:EH-280 — `IndexRepository` commits its branch-aware projection only
+/// when the batch carries a scope; an unscoped batch is a stateless parse.
+fn requires_write_ingestion_surface(method: &Method) -> Option<bool> {
+    match method {
+        Method::IndexRepository { scope, .. } => Some(scope.is_some()),
+        _ => None,
+    }
+}
+
 fn requires_write_native_surface(method: &Method) -> Option<bool> {
     // The fleet registry page is a forced-`__commons__`, RLS-projected read.
     // Keep it explicit even though the classifier's default is read so a later
@@ -347,6 +356,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
         requires_write_decision_surface,
         requires_write_back_surface,
         requires_write_fleet_catalog_surface,
+        requires_write_ingestion_surface,
         requires_write_native_surface,
         requires_write_query_surface,
         requires_write_mining_surface,

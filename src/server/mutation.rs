@@ -2065,6 +2065,7 @@ mod tests {
         ("ApplyChangeEnvelope", "governed envelope coordinator commits typed graph/object/provenance rows, cursor, version, and outbox through one native MutationBatch"),
         ("ApplyChangeEnvelopes", "batch envelope coordinator groups envelopes by graph and commits each graph's page as one coalesced native MutationBatch transaction; fans out per graph like MultiGraphBatchUpdate"),
         ("SourceIngest", "RF-ADR-009 stages raw CAS and an authoritative Connector Manifest mapping, then delegates its sole canonical graph/provenance/cursor commit to ApplyChangeEnvelope"),
+        ("IndexRepository", "EH-280 runtime-conditional: an unscoped batch is a stateless parse; a scoped batch lowers its :Blob/:FileVersion/:Branch projection and delegates its sole graph commit to ApplyChangeEnvelope, exactly like SourceIngest"),
         ("RecomputeMaterialization", "fenced reasoning-projection coordinator resolves authoritative graph provenance and fsyncs its projection watermark"),
         // ── Server lifecycle: TxnParticipation::None, not a graph mutation. ──
         ("Shutdown", "server-lifecycle control-plane action, not a graph mutation"),
@@ -2226,6 +2227,7 @@ mod tests {
         covered.extend(plan::LOCAL_ONLY_METHODS.iter().copied());
         covered.insert("ApplyChangeEnvelope");
         covered.insert("SourceIngest");
+        covered.insert("IndexRepository");
         covered.insert("ServedModality");
         covered.insert("Shutdown");
         covered.insert("KgDelegate");

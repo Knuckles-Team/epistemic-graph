@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from ._runtime import (
     OpaqueResult,
@@ -1999,7 +1999,7 @@ class RegisterTriggerRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    action_msgpack: bytes | None = None
+    action_msgpack: bytes = Field(default_factory=bytes)
     graph: str
     label: str | None = None
     name: str

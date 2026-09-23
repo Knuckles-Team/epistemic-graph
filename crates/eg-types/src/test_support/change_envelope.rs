@@ -105,6 +105,7 @@ pub fn minimal_envelope() -> ChangeEnvelope {
             sanitizer_version: "sanitizer-v1".into(),
             sanitized_payload_digest: "b".repeat(64),
         },
+        material_class: crate::change_envelope::MaterialClass::Attested,
         commit_seq: None,
         commit_descriptor_ref: None,
     }

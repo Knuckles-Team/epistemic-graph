@@ -549,6 +549,15 @@ fn index_repository_emits_typed_ordered_file_outcomes() {
     assert!(dto.contains("UNSUPPORTED = \"unsupported\""));
     assert!(dto.contains("ERROR = \"error\""));
     assert!(dto.contains("file_outcomes: list[IndexFileOutcome]"));
+    // A serde-defaulted collection renders as an empty default, never `| None`:
+    // the engine decodes an absent list as empty but refuses `null` for it.
+    assert!(dto.contains(
+        "file_versions: BoundedVec_IndexFileVersion_262144 = Field(default_factory=list)"
+    ));
+    let query = generated
+        .get("epistemic_graph/generated/query.py")
+        .expect("query domain module");
+    assert!(query.contains("params_msgpack: bytes = Field(default_factory=bytes)"));
     assert!(dto.contains("max_length=8"));
 
     let ingestion = generated

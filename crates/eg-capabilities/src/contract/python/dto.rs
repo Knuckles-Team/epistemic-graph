@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-use super::{mapping_type, optional, HEADER};
+use super::{mapping_type, push_field, FieldPresence, HEADER};
 
 /// One generated nested-DTO surface. The renderer is schema-driven: roots name
 /// JSON-Schema definitions and every transitive `$ref` is collected from the
@@ -625,27 +625,8 @@ fn push_dto_fields(out: &mut String, node: &serde_json::Value) {
         return;
     };
     for (name, schema) in properties {
-        let annotation = dto_python_type(schema);
-        let required = required.contains(&name.as_str());
-        let _ = writeln!(out, "{}", dto_field_line(name, &annotation, required));
-    }
-}
-
-/// One model field. A wire key that is a Python keyword (an agent-graph edge's
-/// `from`) is declared under a trailing-underscore name bound to the real key
-/// by a pydantic alias, exactly as the request models already do.
-fn dto_field_line(name: &str, annotation: &str, required: bool) -> String {
-    let declared = match required {
-        true => annotation.to_string(),
-        false => optional(annotation),
-    };
-    if super::is_python_keyword(name) {
-        let default = if required { "..." } else { "None" };
-        return format!("    {name}_: {declared} = Field({default}, alias=\"{name}\")");
-    }
-    match required {
-        true => format!("    {name}: {declared}"),
-        false => format!("    {name}: {declared} = None"),
+        let presence = FieldPresence::of(required.contains(&name.as_str()), schema);
+        push_field(out, name, &dto_python_type(schema), presence);
     }
 }
 

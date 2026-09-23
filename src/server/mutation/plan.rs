@@ -752,14 +752,18 @@ fn local_only_route(method: &Method) -> Option<ClusterMutationRoute> {
 fn cluster_mutation_route_admin(method: &Method) -> Option<ClusterMutationRoute> {
     // RF-ADR-009 performs tenant-bound mapping/raw admission locally, then
     // routes its sole graph effect through the existing ChangeEnvelope
-    // consensus authority. Proposing SourceIngest itself as a native command
+    // consensus authority (a scoped IndexRepository, EH-280, does the same with
+    // its lowered projection). Proposing SourceIngest itself as a native command
     // would either require caller records in a second command language or
     // double-propose the lowered envelope.
     // KgDelegate likewise validates explicit Local/Multi/Missing placement
     // authority before lowering to the existing replicated WorkItem command.
     if matches!(
         method,
-        Method::Shutdown | Method::KgDelegate { .. } | Method::SourceIngest { .. }
+        Method::Shutdown
+            | Method::KgDelegate { .. }
+            | Method::SourceIngest { .. }
+            | Method::IndexRepository { .. }
     ) {
         return Some(ClusterMutationRoute::VolatileControl);
     }

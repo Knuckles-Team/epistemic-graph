@@ -11755,21 +11755,29 @@
       "domain": "ingestion",
       "error_set": [
         "INVALID_ARGUMENT",
-        "ACCESS_DENIED"
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
       ],
-      "format_identities": [],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
       "id": "IndexRepository",
-      "note": "",
+      "note": "EH-280 runtime-conditional: without `scope` a stateless parse+resolve of the submitted files; with `scope` each unique blob is parsed once and the :Blob/:FileVersion/:Branch projection (tombstones remove membership) commits as one content-addressed ChangeEnvelope through ApplyChangeEnvelope, replaying an unchanged batch",
       "policy": {
-        "audited": false,
-        "authz_action": "compute:parse",
-        "durability_domain": "None",
-        "emits_cdc": false,
+        "audited": true,
+        "authz_action": "source:ingest",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": true,
         "idempotent": true,
-        "mutates": false,
-        "txn_participation": "None"
+        "mutates": true,
+        "txn_participation": "Saga"
       },
-      "replay_class": "NotReplayable",
+      "replay_class": "OperationIdentity",
       "request_schema": {
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/IndexRepository"

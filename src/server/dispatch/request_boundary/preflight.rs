@@ -174,18 +174,33 @@ fn preflight_feature_surface_msgpack(method: &Method) -> Option<Result<(), &'sta
         Method::ServedModality { op } => Some(preflight_served_modality_msgpack(op)),
         // ChangeEnvelope validates every feature/evidence/outbox/mutation blob
         // with the shared eg-types preflight as part of its schema validation.
-        Method::ApplyChangeEnvelope { .. } => Some(Ok(())),
+        Method::ApplyChangeEnvelope { envelope } => Some(preflight_caller_material(
+            std::iter::once(envelope.as_ref()),
+        )),
         // The batch bounds its cardinality up front (the per-envelope nested-blob
         // validation stays each envelope's own `validate()` responsibility).
         Method::ApplyChangeEnvelopes { envelopes } => Some(
             if envelopes.len() > crate::change_envelope::MAX_ENVELOPES_PER_BATCH {
                 Err("change envelope batch exceeds the resource limit")
             } else {
-                Ok(())
+                preflight_caller_material(envelopes.iter())
             },
         ),
         _ => None,
     }
+}
+
+/// CONCEPT:EH-280 — repository-snapshot material is lowered only by the
+/// engine's own repository indexer, which commits it through the envelope
+/// authority directly. A caller of the public envelope methods cannot claim
+/// that class to reach the repository-content screening rule.
+fn preflight_caller_material<'a>(
+    mut envelopes: impl Iterator<Item = &'a crate::change_envelope::ChangeEnvelope>,
+) -> Result<(), &'static str> {
+    if envelopes.all(|envelope| envelope.material_class.is_attested()) {
+        return Ok(());
+    }
+    Err("ACCESS_DENIED: repository-snapshot material is engine-attested only")
 }
 
 fn preflight_source_ingestion_msgpack(method: &Method) -> Option<Result<(), &'static str>> {

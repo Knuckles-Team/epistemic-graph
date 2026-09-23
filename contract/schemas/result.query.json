@@ -4461,6 +4461,10 @@
           },
           "type": "array"
         },
+        "material_class": {
+          "$ref": "#/$defs/MaterialClass",
+          "description": "How inline material values are screened for host identity (EH-280).\nAbsent on the wire means `Attested`, so every existing envelope keeps\nits exact serialized form and digest."
+        },
         "mutation": {
           "$ref": "#/$defs/MutationBatch"
         },
@@ -11678,6 +11682,21 @@
         "maintenance_key"
       ],
       "type": "object"
+    },
+    "MaterialClass": {
+      "description": "How an envelope's inline material values are screened for host identity.",
+      "oneOf": [
+        {
+          "const": "attested",
+          "description": "Caller-attested material: every text value is screened strictly.",
+          "type": "string"
+        },
+        {
+          "const": "repository_snapshot",
+          "description": "Content of a repository snapshot, lowered by the engine's own\nrepository indexer. A caller cannot claim this class: the request\nboundary refuses it on the public envelope methods.",
+          "type": "string"
+        }
+      ]
     },
     "MaterialOperation": {
       "enum": [

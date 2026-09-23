@@ -114,6 +114,8 @@ pub(crate) const ACCESS_RS_MUTATES_CONDITIONAL: &[&str] = &[
     "FleetCatalog",
     "MutationOutbox",
     "WriteBack",
+    // EH-280: only a scoped (branch-aware) batch commits its projection.
+    "IndexRepository",
     // Publish/Retire write; Current/History/Status remain authenticated reads.
     // All four RF-ADR-008 agent-hierarchy layers have this shape: each
     // delegates `access::requires_write` to its own op's `is_mutation()`,
@@ -243,6 +245,7 @@ pub(crate) const NATIVE_GRAPHREDB_DURABLE: &[&str] = &[
     "FromMsgpack",
     "GraphQl",
     "IcvConfigure",
+    "IndexRepository",
     "GraphSchema",
     // Mining pipeline writes are committed by the dedicated pipeline handler,
     // not by mutation_apply's graph-core replay classifier.
@@ -381,6 +384,7 @@ pub(crate) const AUDIT_RS_AUDITED: &[&str] = &[
     "GraphLearnPredict",
     "GraphQl",
     "IcvConfigure",
+    "IndexRepository",
     "GraphSchema",
     "ImportSqliteFile",
     "InvalidateEdge",
@@ -467,6 +471,7 @@ pub(crate) const CDC_RS_EMITS_CDC: &[&str] = &[
     "CreateNodeIfAbsent",
     "FromMsgpack",
     "IcvConfigure",
+    "IndexRepository",
     "GraphSchema",
     "Reconcile",
     "RegisterServer",

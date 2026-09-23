@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from ._runtime import (
     OpaqueResult,
@@ -43,14 +43,14 @@ class RunDatalogReasoningRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    domain_rules: list[list[Any]] | None = None
-    inverse_properties: list[list[Any]] | None = None
-    property_chains: list[list[Any]] | None = None
-    range_rules: list[list[Any]] | None = None
-    subclass_relations: list[list[Any]] | None = None
-    subproperty_relations: list[list[Any]] | None = None
-    symmetric_properties: list[str] | None = None
-    transitive_properties: list[str] | None = None
+    domain_rules: list[list[Any]] = Field(default_factory=list)
+    inverse_properties: list[list[Any]] = Field(default_factory=list)
+    property_chains: list[list[Any]] = Field(default_factory=list)
+    range_rules: list[list[Any]] = Field(default_factory=list)
+    subclass_relations: list[list[Any]] = Field(default_factory=list)
+    subproperty_relations: list[list[Any]] = Field(default_factory=list)
+    symmetric_properties: list[str] = Field(default_factory=list)
+    transitive_properties: list[str] = Field(default_factory=list)
 
 
 async def send_run_datalog_reasoning(
@@ -209,7 +209,7 @@ class SparqlVirtualRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    external_sources: list[Any] | None = None
+    external_sources: list[Any] = Field(default_factory=list)
     mapping: str
     query: str
     tables: list[str]

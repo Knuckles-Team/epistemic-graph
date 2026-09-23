@@ -725,7 +725,7 @@ def _index_scope_param(
     """The optional branch-aware ``scope`` field of an IndexRepository request."""
     if scope is None:
         return {}
-    return {"scope": scope.model_dump(mode="json", exclude_none=True)}
+    return {"scope": scope.model_dump(mode="json")}
 
 
 def _logical_source_name(value: Any) -> str:
@@ -6276,6 +6276,7 @@ class GraphOperationsClient:
         files: list[tuple[str, bytes]],
         *,
         scope: _gen.index_repository.IndexRepositoryScope | None = None,
+        graph: str | None = None,
     ) -> _gen.index_repository.IndexResult:
         """Parse a batch AND resolve cross-file edges in ONE round-trip
         (CONCEPT:EG-KG.compute.turn-each-project).
@@ -6319,14 +6320,17 @@ class GraphOperationsClient:
         attaches its symbols to ``Blob`` nodes (``blob:sha256:<hex>``), resolves
         imports per ref between ``FileVersion`` nodes, and projects ``Branch
         -hasFileVersion-> FileVersion -hasBlob-> Blob`` plus
-        ``removesFileVersion`` tombstone edges.
+        ``removesFileVersion`` tombstone edges. A scoped batch is a durable
+        write into ``graph``: the projection commits as one content-addressed
+        ChangeEnvelope (tombstones remove membership edges), and re-sending an
+        unchanged batch replays instead of committing twice.
         """
         blob = msgpack.packb(
             [[_logical_source_name(fp), src] for fp, src in files],
             use_bin_type=True,
         )
         params = {"files_msgpack": blob, **_index_scope_param(scope)}
-        return await _gen.ingestion.send_index_repository(self._client, params)
+        return await _gen.ingestion.send_index_repository(self._client, params, graph)
 
     async def observe_screen(
         self,
