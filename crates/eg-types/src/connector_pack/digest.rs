@@ -26,7 +26,7 @@ use crate::contract::Digest256;
 /// Framing domain of one pack entry.
 pub const ENTRY_DIGEST_DOMAIN: &[u8] = b"eg/connector-pack-entry/v1";
 /// Framing domain of one entry's annotations.
-pub const ANNOTATIONS_DIGEST_DOMAIN: &[u8] = b"eg/connector-pack-annotations/v1";
+pub const ANNOTATIONS_DIGEST_DOMAIN: &[u8] = b"eg/connector-pack-annotations/v2";
 /// Framing domain of a declared model profile.
 pub const MODEL_FACTS_DIGEST_DOMAIN: &[u8] = b"eg/cp-model-facts/v1";
 /// Framing domain of one entry's outgoing references.
@@ -57,6 +57,7 @@ pub fn entry_kind_token(kind: PackEntryKind) -> &'static str {
         PackEntryKind::ModelProfile => "model_profile",
         PackEntryKind::A2aCard => "a2a_card",
         PackEntryKind::Manifest => "manifest",
+        PackEntryKind::SkillFile => "skill_file",
     }
 }
 
@@ -130,6 +131,7 @@ pub fn annotations_digest(annotations: &PackAnnotations) -> Result<Digest256, St
     };
     let contract_version = optional_text(annotations.contract_version.as_deref());
     let sdk_pin = optional_text(annotations.sdk_contract_pin.as_deref());
+    let tool_mode = optional_text(annotations.tool_mode.map(tool_mode_token));
     Digest256::framed(
         ANNOTATIONS_DIGEST_DOMAIN,
         &[
@@ -151,6 +153,7 @@ pub fn annotations_digest(annotations: &PackAnnotations) -> Result<Digest256, St
             latencies[1].as_slice(),
             model.as_slice(),
             sdk_pin,
+            tool_mode,
         ],
     )
 }
@@ -188,6 +191,14 @@ fn declared_latencies(latency: Option<&DeclaredLatency>) -> [Vec<u8>; 2] {
         optional_u64(latency.map(|latency| u64::from(latency.p50_ms))),
         optional_u64(latency.map(|latency| u64::from(latency.p95_ms))),
     ]
+}
+
+/// The wire token of a declared tool mode, as the annotations digest frames it.
+pub fn tool_mode_token(mode: super::PackToolMode) -> &'static str {
+    match mode {
+        super::PackToolMode::Condensed => "condensed",
+        super::PackToolMode::Verbose => "verbose",
+    }
 }
 
 fn optional_text(value: Option<&str>) -> &[u8] {

@@ -33,6 +33,18 @@ pub fn escape_pack_name(name: &str) -> String {
     escaped
 }
 
+/// A connector id is a [`crate::contract::ResourceId`] that also contains no
+/// `/`: `mcp:<connector>/<kind>/<name>` is an unambiguous prefix only if the
+/// connector cannot itself contain the separator. A grant-scoped probe that
+/// sees a different tool set is its own connector
+/// (`<server>@grant-<16 hex of the grant digest>`).
+pub fn validate_connector(connector: &crate::contract::ResourceId) -> Result<(), String> {
+    if connector.as_str().contains('/') {
+        return Err("MALFORMED_INDEX: a connector id must not contain '/'".to_string());
+    }
+    Ok(())
+}
+
 /// The component id one pack entry publishes under.
 pub fn pack_component_id(connector: &str, kind: PackEntryKind, name: &str) -> String {
     format!(
@@ -40,4 +52,21 @@ pub fn pack_component_id(connector: &str, kind: PackEntryKind, name: &str) -> St
         entry_kind_token(kind),
         escape_pack_name(name)
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::contract::ResourceId;
+
+    #[test]
+    fn a_connector_id_never_contains_the_component_separator() {
+        assert!(validate_connector(&ResourceId::new("freshrss-mcp").unwrap()).is_ok());
+        assert!(validate_connector(
+            &ResourceId::new("freshrss-mcp@grant-0123456789abcdef").unwrap()
+        )
+        .is_ok());
+        let error = validate_connector(&ResourceId::new("fresh/rss").unwrap()).unwrap_err();
+        assert!(error.starts_with("MALFORMED_INDEX:"), "{error}");
+    }
 }

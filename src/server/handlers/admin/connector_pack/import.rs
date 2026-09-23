@@ -15,9 +15,14 @@ use crate::server::blob::engine_bodies::EngineBody;
 use crate::server::blob::BlobCursors;
 use crate::server::persistence::agent_library::AgentLibraryStore;
 
+mod annotations;
+mod catalog_attributes;
 mod facts;
+mod front_matter;
 mod json;
 mod planning;
+mod rdf_union;
+mod skill_files;
 mod validation;
 
 #[cfg(test)]

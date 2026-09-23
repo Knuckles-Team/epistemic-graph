@@ -191,6 +191,15 @@ fn scan_component_search_page(
     let limit = request.page_limit();
     let heads = read.open_owner_table(eg_storage::AGENT_COMPONENT_HEADS)?;
     let revisions = read.open_owner_table(eg_storage::AGENT_COMPONENT_REVISIONS)?;
+    let pack_heads = read.open_owner_table(eg_storage::CONNECTOR_PACK_HEADS)?;
+    let visible = |component_id: &str| {
+        super::connector_pack::visibility::pack_component_visible(component_id, |connector| {
+            Ok(pack_heads
+                .get((request.tenant_id.as_str(), connector))
+                .map_err(|error| error.to_string())?
+                .map(|row| row.value().to_vec()))
+        })
+    };
     let mut matched = Vec::new();
     let mut scanned = 0usize;
     let mut bytes = 0usize;
@@ -224,7 +233,9 @@ fn scan_component_search_page(
                 head_revision_row(&revisions, &request.tenant_id, component_id, head_revision)?;
             bytes = bytes.saturating_add(value.value().len());
             let entry = decode_revision::<ComponentLayer>(value.value())?;
-            if request.matches(&entry) {
+            // A pack component is searchable only while its connector's head
+            // is visible (PB1 readiness gate).
+            if request.matches(&entry) && visible(component_id)? {
                 matched.push(entry);
             }
             last_consumed = Some(component_id.to_string());

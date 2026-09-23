@@ -20,9 +20,14 @@ use eg_types::contract::{BoundedVec, Digest256, ResourceId};
 
 use super::agent_library::AgentLibraryStore;
 
+pub(crate) mod admin;
+pub(crate) mod admitted;
 pub(crate) mod commit;
 mod manifest;
+pub(crate) mod outbox;
+mod pins;
 pub(crate) mod projection;
+pub(crate) mod visibility;
 
 pub use manifest::{decode_relationship_mappings, decode_schema_mappings};
 

@@ -30,9 +30,10 @@ mod backup;
 mod cluster;
 #[cfg(feature = "redb")]
 mod component_content;
-// Refusal-only until its package lands, so it needs no durable owner and is
-// declared in every build -- the dispatch arm that reaches it carries no cfg.
-mod connector_pack;
+// Declared in every build -- the dispatch arm that reaches it carries no cfg;
+// each op refuses by name in a build without its durable substrates.
+// `pub(crate)` so the projection worker shares the admin re-projection path.
+pub(crate) mod connector_pack;
 #[cfg(feature = "redb")]
 mod saga;
 

@@ -11,20 +11,13 @@ use eg_types::connector_pack::{
     PackProjectionState, CONNECTOR_PACK_RESULT_SCHEMA_ID,
 };
 use eg_types::contract::{Digest256, ResourceId};
-use eg_types::mutation::MutationResult;
 use eg_types::mutation_batch::{DurabilityDomain, MutationOperation, MutationSurface};
 use eg_types::protocol::Method;
 use redb::ReadableTable;
 
+use super::admitted::{PackOwnerWrite, PackWriteEffects, PackWriteIdentity};
 use super::{ConnectorPackBodyHolderRow, ConnectorPackHeadRow, ConnectorPackMemberRow};
-use crate::server::persistence::agent_library::{
-    admitted_context, agent_library_operation_identity, owner_batch_receipt, resolve_nonce_first,
-    validate_context, AgentLibraryStore,
-};
-use crate::server::persistence::agent_revision::{
-    apply_owner_rows, finish_committed_ledger, finish_replayed, policy_admitted_context,
-    recorded_receipt, stage_batch, within_write,
-};
+use crate::server::persistence::agent_library::AgentLibraryStore;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PackProjectionBody {
@@ -158,85 +151,33 @@ impl AgentLibraryStore {
         plan: &ConnectorPackProjectionPlan,
         projection: PackProjectionState,
     ) -> Result<PackImportReceipt, String> {
-        validate_context(self, &context)?;
         validate_projection_identity(&context, plan, &projection)?;
-        let owner = self.scope_handle(&context.tenant_id)?;
-        let txn = self.mutations.open_write(&owner)?;
-        let replay_context = admitted_context(&context, "connector-pack:reproject")?;
-        let nonce = resolve_nonce_first(&self.mutations, &txn, &replay_context)?;
-        let operation = agent_library_operation_identity(
-            &owner,
-            &replay_context,
-            "connector-pack-reproject",
-            plan.connector.as_str(),
-            plan.head.binding_revision,
-            Some(&plan.record_id),
-        )?;
-        let replay = self.mutations.resolve_replay(&txn, &operation, &nonce)?;
-        if let Some(receipt) = recorded_receipt(replay, "connector pack projection")? {
-            let result = decode_replayed_receipt(&receipt)?;
-            return finish_replayed(&self.mutations, txn, &operation, &nonce, result, receipt);
-        }
-        let (txn, committed) = within_write(txn, |txn| {
-            let operations = projection_operations(plan, &projection);
-            let batch_context = policy_admitted_context(&replay_context, &operations)?;
-            let (_, staged) = stage_batch(
-                self,
-                txn,
-                &owner,
-                &batch_context,
-                (&operation, &nonce),
-                "connector pack projection",
-                |version, batch_id| {
-                    crate::server::persistence::agent_library::native_lifecycle_batch(
-                        &owner,
-                        &batch_context,
-                        batch_id,
-                        version,
-                        operations,
-                        Vec::new(),
-                    )
-                },
-            )?;
-            let mut updated = None;
-            apply_owner_rows(txn, &owner, &staged.batch, |write| {
-                updated = Some(apply_projection_rows(write, plan, projection.clone())?);
-                Ok(())
-            })?;
-            let updated = updated.ok_or_else(|| {
-                "connector pack projection owner rows produced no receipt".to_string()
-            })?;
-            let result = PackImportResult::Imported {
-                receipt: Box::new(updated.clone()),
-            };
-            let mutation_result = crate::server::persistence::agent_row::domain_result(
-                &result,
-                CONNECTOR_PACK_RESULT_SCHEMA_ID,
-                "connector pack projection",
-            )?;
-            let result_bytes =
-                eg_storage::encode_bounded(&mutation_result, "connector pack projection result")?;
-            let authority_receipt = owner_batch_receipt(
-                &operation,
-                &nonce,
-                &staged.batch,
-                "connector-pack-projection",
-                mutation_result,
-                staged.committed_version,
-                replay_context.created_at_ms,
-            )?;
-            finish_committed_ledger(
-                &self.mutations,
-                txn,
-                (&staged, &result_bytes),
-                replay_context.created_at_ms,
-                (&operation, &nonce, &authority_receipt),
-                "connector pack projection",
-            )?;
-            Ok((staged.batch, updated))
+        let identity = PackWriteIdentity {
+            purpose: "connector-pack:reproject",
+            kind: "connector-pack-reproject",
+            slug: "connector-pack-projection",
+            subject: plan.connector.as_str(),
+            revision: plan.head.binding_revision,
+            discriminator: Some(&plan.record_id),
+            result_schema: CONNECTOR_PACK_RESULT_SCHEMA_ID,
+            noun: "connector pack projection",
+        };
+        let effects = PackWriteEffects {
+            operations: projection_operations(plan, &projection),
+            outbox: Vec::new(),
+        };
+        let result = self.commit_pack_write(&context, identity, effects, |write, _| {
+            let updated = apply_projection_rows(write, plan, projection)?;
+            Ok(PackImportResult::Imported {
+                receipt: Box::new(updated),
+            })
         })?;
-        self.mutations.commit(txn, &committed.0)?;
-        Ok(committed.1)
+        match result {
+            PackImportResult::Imported { receipt } => Ok(*receipt),
+            PackImportResult::Unchanged { .. } | PackImportResult::Rejected { .. } => {
+                Err("CORRUPT_MUTATION_LEDGER: projection replay is not imported".into())
+            }
+        }
     }
 }
 
@@ -347,7 +288,7 @@ fn projection_operations(
 }
 
 fn apply_projection_rows(
-    write: &eg_transaction::AdmittedOwnerWrite<'_, eg_storage::AgentLibraryOwner>,
+    write: &PackOwnerWrite<'_>,
     plan: &ConnectorPackProjectionPlan,
     projection: PackProjectionState,
 ) -> Result<PackImportReceipt, String> {
@@ -396,28 +337,6 @@ fn apply_projection_rows(
         .insert((tenant, connector), head_bytes.as_slice())
         .map_err(|error| error.to_string())?;
     Ok(head.receipt)
-}
-
-fn decode_replayed_receipt(
-    receipt: &eg_types::mutation::MutationReceipt,
-) -> Result<PackImportReceipt, String> {
-    receipt.validate()?;
-    let MutationResult::DomainResult {
-        schema_id, payload, ..
-    } = &receipt.result
-    else {
-        return Err("CORRUPT_MUTATION_LEDGER: projection replay has no result".into());
-    };
-    if schema_id.as_str() != CONNECTOR_PACK_RESULT_SCHEMA_ID {
-        return Err("CORRUPT_MUTATION_LEDGER: projection schema differs".into());
-    }
-    match crate::server::persistence::agent_row::decode::<PackImportResult>(
-        payload.as_slice(),
-        "connector pack projection result",
-    )? {
-        PackImportResult::Imported { receipt } => Ok(*receipt),
-        _ => Err("CORRUPT_MUTATION_LEDGER: projection replay is not imported".into()),
-    }
 }
 
 #[cfg(test)]

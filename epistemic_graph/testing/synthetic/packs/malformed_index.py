@@ -35,7 +35,9 @@ def _with_index(
     """Change index fields after assembly, keeping the producer's pack digest honest."""
     data = pack.archive if archive_bytes is None else archive_bytes
     index = pack.index.model_copy(update=changes)
-    digest = pack_digest(index.connector, data, index.server, index.entries).hex()
+    digest = pack_digest(
+        index.connector, index.catalog, index.server, index.entries
+    ).hex()
     updated = index.model_dump() | {"pack_digest": digest}
     return BuiltPack.model_validate({"index": updated, "archive": data})
 
@@ -84,7 +86,7 @@ def g1_schema_version(spec: PackSpec) -> MalformedPack:
         "G1",
         "schema_version",
         "an unsupported schema version",
-        assemble(replace(spec, schema_version=2)),
+        assemble(replace(spec, schema_version=spec.schema_version + 1)),
         _MALFORMED,
     )
 
@@ -99,12 +101,34 @@ def g1_connector(spec: PackSpec) -> MalformedPack:
     )
 
 
+def g1_connector_slash(spec: PackSpec) -> MalformedPack:
+    return case(
+        "G1",
+        "connector_with_slash",
+        "a connector id containing the component-id separator",
+        assemble(replace(spec, connector="fresh/rss")),
+        _MALFORMED,
+    )
+
+
 def g1_long_name(spec: PackSpec) -> MalformedPack:
     return case(
         "G1",
         "name_over_256_bytes",
         "an entry name of 257 bytes",
         edited(spec, "prompt", name="n" * 257),
+        _MALFORMED,
+    )
+
+
+def g1_skill_file_traversal(spec: PackSpec) -> MalformedPack:
+    skill = first(spec, "skill")
+    escaping = content.skill_file(skill, "../secrets", b"#!/bin/sh\n")
+    return case(
+        "G1",
+        "skill_file_traversal",
+        "a skill supporting file whose path climbs out of its skill",
+        added(spec, escaping),
         _MALFORMED,
     )
 
@@ -392,7 +416,9 @@ INDEX_MUTATIONS: tuple[Mutation, ...] = (
     g1_unknown_kind,
     g1_schema_version,
     g1_connector,
+    g1_connector_slash,
     g1_long_name,
+    g1_skill_file_traversal,
     g2_entries,
     g2_body,
     g2_index,
