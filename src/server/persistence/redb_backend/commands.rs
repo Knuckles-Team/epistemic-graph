@@ -473,4 +473,10 @@ pub(crate) enum Cmd {
     MatViewOperatorStateScan {
         reply: std::sync::mpsc::SyncSender<MatViewScanResult>,
     },
+    /// Durably record the background node-payload scrub's cursor (EH-384) in
+    /// its own control-only maintenance write.
+    ScrubCursorPut {
+        cursor: crate::redb_store::scrub::ScrubCursor,
+        done: oneshot::Sender<Result<(), String>>,
+    },
 }

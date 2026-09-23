@@ -1898,6 +1898,20 @@ fn spawn_lifecycle_sweeps(state: &Arc<tokio::sync::RwLock<ServerState>>, txn_ttl
         }
     }
 
+    // ── Background node-payload scrub (EH-384, CONCEPT:EG-KG.storage.node-payload-scrub) ──
+    // ON by default: one bounded, resumable, read-only pass per shard per tick,
+    // so an unreadable node is named between restarts rather than on first read.
+    // `EPISTEMIC_GRAPH_STORAGE_SCRUB_SECS=0` turns it off.
+    #[cfg(feature = "redb")]
+    {
+        let scrub_state = state.clone();
+        spawn_periodic_sweep(
+            server::persistence::storage_scrub::interval_secs(),
+            "storage_scrub",
+            move || server_startup::storage_scrub_tick(scrub_state.clone()),
+        );
+    }
+
     // ── OCC transaction TTL sweep (CONCEPT:EG-KG.txn.multi-op-occ-acid safety rail) ─────────
     // Auto-roll-back transactions idle past the TTL so an abandoned client never
     // leaks a staged transaction forever. An abandoned txn never committed, so it

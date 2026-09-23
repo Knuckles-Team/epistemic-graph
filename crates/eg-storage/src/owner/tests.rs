@@ -70,15 +70,16 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // 18 -> 19: the Decide layer's `decision_records` (committed assembly
     // records, written in the same WTX as their `DecisionRecord` component).
     assert_eq!(owner_table_names(OwnerLayout::AgentLibrary).len(), 19);
-    // The authoritative graph shard `graph-N.redb`: 53 tables. That is the
+    // The authoritative graph shard `graph-N.redb`: 54 tables. That is the
     // complete physical census of the shard file (39 in `redb_store.rs`, 4
     // capacity-lease, 3 work-item-capability, 10 development-lane, plus
     // `raft_meta` and `encryption_canary` from `redb_backend.rs`, and the three
     // `series_*` tables the cross-modal atomic commit writes into the same
     // transaction) MINUS the eight `mutation_*` tables of the shard's retired
     // private ledger, which RF-RULING-004 gives to `MutationKernel` alone:
-    // 39 + 4 + 3 + 10 + 2 + 3 - 8 = 53.
-    assert_eq!(owner_table_names(OwnerLayout::GraphShard).len(), 53);
+    // 39 + 4 + 3 + 10 + 2 + 3 - 8 = 53, plus EH-384's file-wide
+    // `storage_scrub_cursor` = 54.
+    assert_eq!(owner_table_names(OwnerLayout::GraphShard).len(), 54);
     assert_eq!(owner_layouts().len(), 18);
 }
 
@@ -149,7 +150,9 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
     // layer's `decision_records`, `DomainService`: service 139 = 138 + 1.
     // 141 -> 143: the two DomainService SQL ANN tables (RF-019): service 141.
     // 143 -> 144: the edge-index registry (DomainService): service 142.
-    assert_eq!((names.len(), service, shared), (144, 142, 2));
+    // 144 -> 145: the graph shard's `storage_scrub_cursor` (EH-384),
+    // `DomainService` like every shard table: service 143.
+    assert_eq!((names.len(), service, shared), (145, 143, 2));
 }
 
 #[test]

@@ -81,6 +81,9 @@ mod matview_api;
 mod raft_api;
 #[cfg(all(test, feature = "raft"))]
 mod raft_linger_tests;
+mod scrub_api;
+#[cfg(test)]
+mod scrub_api_tests;
 mod shard_writer;
 #[cfg(feature = "tsdb")]
 mod timeseries;

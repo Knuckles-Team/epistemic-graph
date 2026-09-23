@@ -62,6 +62,7 @@ mod store_rows;
 mod store_state;
 mod store_state_tables;
 mod store_types;
+mod unreadable;
 
 pub(crate) use commit_timing::CommitPhaseTimer;
 pub(crate) use store_batch::*;
@@ -78,6 +79,7 @@ pub use store_rows::*;
 pub(crate) use store_state::*;
 pub(crate) use store_state_tables::*;
 pub(crate) use store_types::*;
+pub(crate) use unreadable::{NodeUnreadable, UnsealFailure};
 
 #[cfg(test)]
 mod commit_ops_phase_measurement;
@@ -92,6 +94,9 @@ pub(crate) mod development_lane;
 /// The graph shard as a kernel-owned store (RF-RULING-004 step 8).
 #[cfg(feature = "redb")]
 pub(crate) mod shard;
+/// Bounded background node-payload scrub (EH-384).
+#[cfg(feature = "redb")]
+pub(crate) mod scrub;
 pub(crate) mod work_item_capability;
 
 pub(crate) mod audit;
