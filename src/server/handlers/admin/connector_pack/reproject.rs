@@ -178,7 +178,7 @@ fn finish_projection(
             graph,
             graph_version,
         } if graph == &expected_graph && *graph_version == expected_graph_version => Ok(receipt),
-        PackProjectionState::Failed { code } => {
+        PackProjectionState::Failed { code, .. } => {
             Err(format!("PACK_PROJECTION_PREVIOUSLY_FAILED: {code}"))
         }
         _ => {
@@ -195,10 +195,11 @@ fn record_projection_failure(
     error: &str,
 ) -> String {
     let code = projection_error_code(error);
+    let detail = Some(projection_failure_detail(error));
     match store.commit_connector_pack_projection(
         context.clone(),
         plan,
-        PackProjectionState::Failed { code },
+        PackProjectionState::Failed { code, detail },
     ) {
         Ok(_) => error.to_string(),
         Err(persistence) => format!(
@@ -276,6 +277,22 @@ fn push_schema_document(
 }
 
 #[cfg(all(feature = "redb", feature = "blob", feature = "shacl"))]
+/// The failure's own message, bounded and free of control characters, so the
+/// head says why it is dark rather than only which class of failure it was.
+fn projection_failure_detail(error: &str) -> String {
+    let mut detail = String::new();
+    for character in error.chars() {
+        let character = if character.is_control() { ' ' } else { character };
+        if detail.len() + character.len_utf8()
+            > eg_types::connector_pack::MAX_PROJECTION_FAILURE_DETAIL_BYTES
+        {
+            break;
+        }
+        detail.push(character);
+    }
+    detail
+}
+
 fn projection_error_code(error: &str) -> String {
     let code = error.split_once(':').map_or(error, |(code, _)| code).trim();
     if code.is_empty()

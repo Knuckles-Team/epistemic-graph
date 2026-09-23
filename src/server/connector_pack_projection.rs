@@ -33,6 +33,9 @@ pub fn spawn(state: Arc<RwLock<ServerState>>) {
     drop(state);
 }
 
+#[cfg(all(feature = "redb", feature = "blob", feature = "shacl", feature = "security"))]
+mod grant;
+
 #[cfg(all(feature = "redb", feature = "blob", feature = "shacl"))]
 pub(crate) mod worker {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -210,6 +213,7 @@ pub(crate) mod worker {
         if head.visible_record_id.as_deref() == Some(head.record_id.as_str()) {
             return Ok(());
         }
+        grant_projection_access(state, tenant, record).await?;
         let plan = store.prepare_connector_pack_projection(tenant, &record.connector)?;
         let verified = service_context(&plan.record_id)?;
         let context = crate::server::handlers::admin::bind_agent_library_context(
@@ -225,6 +229,27 @@ pub(crate) mod worker {
         )
         .await
         .map(drop)
+    }
+
+    /// Let the projection actor write exactly this row's pack graph. A build
+    /// without the RBAC policy decides graph access by graph type alone, so
+    /// there is nothing to provision there.
+    async fn grant_projection_access(
+        state: &Arc<RwLock<ServerState>>,
+        tenant: &str,
+        record: &PackImportRecord,
+    ) -> Result<(), String> {
+        #[cfg(feature = "security")]
+        {
+            let graph =
+                crate::server::graph_schema::pack_projection_graph_name(tenant, &record.connector)?;
+            super::grant::ensure(&mut state.write().await.isolation, &graph)
+        }
+        #[cfg(not(feature = "security"))]
+        {
+            let _ = (state, tenant, record);
+            Ok(())
+        }
     }
 
     /// The engine service identity the worker projects under. Its operation
