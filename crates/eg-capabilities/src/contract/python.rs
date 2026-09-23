@@ -17,15 +17,19 @@ use super::results::{Body, Catalog, Declared};
 use super::{normalize, schema, Artifact};
 use crate::{ConsumerProfile, MethodDescriptor};
 
+mod adapters;
 mod digest;
 mod dto;
+mod dto_surfaces;
 mod package;
 mod runtime;
 
+use adapters::{TypedOperationAdapter, TYPED_OPERATION_ADAPTERS};
 use digest::digest_module;
 #[cfg(test)]
 use dto::CANONICAL_DIGEST_SPECS;
-use dto::{dto_module, dto_python_type, DtoSurface, DTO_SURFACES, SHARED_DTO_RESULT_MODELS};
+use dto::{dto_module, dto_python_type, SHARED_DTO_RESULT_MODELS};
+use dto_surfaces::{DtoSurface, DTO_SURFACES};
 use package::package_contract_module;
 use runtime::runtime_module;
 
@@ -34,97 +38,6 @@ const HEADER: &str =
 # Source of truth:\n\
 #   crates/eg-capabilities/src/domains/*.rs\n\
 # Do not edit by hand.\n";
-
-/// A typed adapter for one operation inside an existing tagged method.
-///
-/// This remains generator-owned: it does not mint a Method id or grow a
-/// hand-written client facade. The declaration only identifies the already
-/// served operation and the request/result DTOs its dynamic parent selects.
-struct TypedOperationAdapter {
-    method: &'static str,
-    operation: &'static str,
-    request_model: &'static str,
-    result_model: &'static str,
-    /// Tagged union aliases need pydantic's `TypeAdapter`; concrete models
-    /// expose `model_validate` directly.
-    result_is_union: bool,
-}
-
-const TYPED_OPERATION_ADAPTERS: &[TypedOperationAdapter] = &[
-    TypedOperationAdapter {
-        method: "AgentComponent",
-        operation: "search",
-        request_model: "AgentComponentSearchRequest",
-        result_model: "AgentComponentSearchPage",
-        result_is_union: false,
-    },
-    TypedOperationAdapter {
-        method: "AgentComponent",
-        operation: "content",
-        request_model: "AgentComponentContentRequest",
-        result_model: "AgentComponentContentResult",
-        result_is_union: false,
-    },
-    TypedOperationAdapter {
-        method: "AgentComponent",
-        operation: "current",
-        // Current's Rust wire variant carries its fields directly instead of
-        // nesting a separate request DTO. Reuse that generated operation type
-        // so Python cannot mint a second shape for the same contract.
-        request_model: "AgentComponentOpCurrent",
-        result_model: "AgentComponentEntry | None",
-        result_is_union: true,
-    },
-    TypedOperationAdapter {
-        method: "FleetCatalog",
-        operation: "record_discovery",
-        request_model: "FleetDiscoveryRecordRequest",
-        result_model: "FleetWriteReceipt",
-        result_is_union: false,
-    },
-    TypedOperationAdapter {
-        method: "FleetCatalog",
-        operation: "set_override",
-        request_model: "FleetOverrideSetRequest",
-        result_model: "FleetWriteReceipt",
-        result_is_union: false,
-    },
-    TypedOperationAdapter {
-        method: "FleetCatalog",
-        operation: "clear_override",
-        request_model: "FleetOverrideClearRequest",
-        result_model: "FleetWriteReceipt",
-        result_is_union: false,
-    },
-    TypedOperationAdapter {
-        method: "FleetCatalog",
-        operation: "list",
-        request_model: "FleetCatalogListRequest",
-        result_model: "FleetCatalogPage",
-        result_is_union: false,
-    },
-    TypedOperationAdapter {
-        method: "FleetCatalog",
-        operation: "lookup",
-        request_model: "FleetCatalogLookupRequest",
-        result_model: "FleetCatalogLookup",
-        result_is_union: false,
-    },
-    TypedOperationAdapter {
-        method: "ConnectorPack",
-        operation: "status",
-        request_model: "ConnectorPackStatusRequest",
-        result_model: "ConnectorPackStatus",
-        result_is_union: false,
-    },
-    TypedOperationAdapter {
-        method: "ConnectorPack",
-        operation: "import",
-        request_model: "ConnectorPackImportRequest",
-        result_model: "PackImportResult",
-        result_is_union: true,
-    },
-];
 
 /// Nested result DTOs that are part of a domain module's public import surface
 /// even when the generated sender annotations mention only their top-level
