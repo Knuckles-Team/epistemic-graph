@@ -431,9 +431,16 @@ mod tests {
             .attach_dynamic("admin:right".to_string(), admin("right", Some(right), None))
             .unwrap();
         let composed = validate_and_compose(&sources).unwrap();
+        // Only the two attached documents' `[ … ]` nodes: the composed shapes also hold
+        // the core governance shapes, whose own blank nodes are not under test.
+        let attached = ["http://example/A", "http://example/B"];
         let blanks: BTreeSet<String> = composed
             .shapes
             .iter()
+            .filter(|triple| {
+                matches!(triple.subject, eg_rdf::oxrdf::NamedOrBlankNodeRef::NamedNode(node)
+                    if attached.contains(&node.as_str()))
+            })
             .filter_map(|triple| match &triple.object {
                 eg_rdf::oxrdf::TermRef::BlankNode(node) => Some(node.as_str().to_string()),
                 _ => None,
