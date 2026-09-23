@@ -8,6 +8,7 @@ use std::time::Duration;
 use super::super::compose::{compose_validated_sources, ComposedSchema};
 use super::CompiledCache;
 use crate::graph::{GraphCore, GraphSchemaSource, GraphSchemaSources, SchemaSourceOrigin};
+use crate::test_rendezvous::{join_bounded, meet};
 use eg_types::contract::Digest256;
 
 const ONTOLOGY_A: &str = "@prefix ex: <http://example/eh382/> . \
@@ -135,29 +136,28 @@ fn a_changed_core_catalog_changes_the_identity_and_is_refused() {
 #[test]
 fn concurrent_misses_on_one_identity_compile_once() {
     const WRITERS: usize = 8;
-    let cache = CompiledCache::new(4);
-    let compiled = AtomicUsize::new(0);
-    let start = Barrier::new(WRITERS);
-    let results: Vec<Arc<u64>> = std::thread::scope(|scope| {
-        let handles: Vec<_> = (0..WRITERS)
-            .map(|_| {
-                scope.spawn(|| {
-                    start.wait();
-                    cache
-                        .get_or_compile(key(1), || {
-                            compiled.fetch_add(1, Ordering::SeqCst);
-                            std::thread::sleep(Duration::from_millis(100));
-                            Ok(7_u64)
-                        })
-                        .unwrap()
-                })
+    let cache = Arc::new(CompiledCache::new(4));
+    let compiled = Arc::new(AtomicUsize::new(0));
+    let start = Arc::new(Barrier::new(WRITERS));
+    let handles: Vec<_> = (0..WRITERS)
+        .map(|_| {
+            let (cache, compiled, start) = (cache.clone(), compiled.clone(), start.clone());
+            std::thread::spawn(move || {
+                meet(&start, "concurrent schema-cache writers");
+                cache
+                    .get_or_compile(key(1), || {
+                        compiled.fetch_add(1, Ordering::SeqCst);
+                        std::thread::sleep(Duration::from_millis(100));
+                        Ok(7_u64)
+                    })
+                    .unwrap()
             })
-            .collect();
-        handles
-            .into_iter()
-            .map(|handle| handle.join().unwrap())
-            .collect()
-    });
+        })
+        .collect();
+    let results: Vec<Arc<u64>> = handles
+        .into_iter()
+        .map(|handle| join_bounded(handle, "a concurrent schema-cache writer"))
+        .collect();
     assert_eq!(compiled.load(Ordering::SeqCst), 1);
     assert!(results.iter().all(|value| Arc::ptr_eq(value, &results[0])));
 }
