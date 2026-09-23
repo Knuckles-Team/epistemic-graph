@@ -460,6 +460,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         // EH-345: like `RegisterServer`, its writes self-translate into graph
         // primitives against `__commons__`, which carry their own domain.
         | Method::FleetCatalog { .. }
+        | Method::PolicyEvolution { .. }
         | Method::Reparent { .. }
         | Method::FinanceSurveillanceRisk { .. }
         | Method::AddEdge { .. }
