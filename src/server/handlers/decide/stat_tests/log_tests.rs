@@ -58,7 +58,7 @@ pub(super) async fn fit_from_the_engine_log(
     assert_eq!(exclusions.unapproved_principal, 0);
 }
 
-async fn log_op(h: &Harness, who: &str, op: DecisionLogOp) -> crate::protocol::Response {
+pub(super) async fn log_op(h: &Harness, who: &str, op: DecisionLogOp) -> crate::protocol::Response {
     let verified = VerifiedRequestContext::verified_for_test_in_tenant(who, TENANT);
     super::super::log::handle_decision_log(&h.state, 9, &verified, op).await
 }

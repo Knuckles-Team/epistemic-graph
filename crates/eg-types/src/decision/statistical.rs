@@ -6,6 +6,7 @@
 //! commits nothing. Whether a record is durable, and where, is a separate
 //! decision with its own method.
 
+pub mod belief;
 pub mod body;
 pub mod dataset;
 pub mod errors;
@@ -142,6 +143,11 @@ pub struct DecideRequest {
     /// At most [`MAX_DECIDE_RECORDS`].
     #[serde(default)]
     pub max_records: Option<u16>,
+    /// Times (strictly increasing, not after the decision's clock) at which
+    /// to report the head's belief over the same options (EH-297). Omitted
+    /// when empty.
+    #[serde(default, skip_serializing_if = "BoundedVec::is_empty")]
+    pub belief_as_of: BoundedVec<u64, 8>,
 }
 
 /// How the feature matrix the decision read is pinned.
@@ -215,6 +221,9 @@ pub struct StatisticalInputs {
     pub shortlist: ShortlistProvenance,
     #[serde(default)]
     pub exploration: Option<ExplorationRecord>,
+    /// The belief slices' stored inputs (EH-297); omitted when none.
+    #[serde(default, skip_serializing_if = "BoundedVec::is_empty")]
+    pub belief_slices: BoundedVec<belief::BeliefSliceInputs, 8>,
 }
 
 /// One statistical decision, recorded. Record version 2.
@@ -254,6 +263,9 @@ pub struct StatisticalDecisionRecord {
     /// The routed template and slot values of a `TemplateChoice` question.
     #[serde(default)]
     pub nl_binding: Option<nl::NlBinding>,
+    /// The head's belief at each requested slice (EH-297); omitted when none.
+    #[serde(default, skip_serializing_if = "BoundedVec::is_empty")]
+    pub belief: BoundedVec<belief::BeliefPoint, 8>,
     /// Synthetic evidence is labelled as such, always.
     pub synthetic_evidence: bool,
     pub record_digest: String,

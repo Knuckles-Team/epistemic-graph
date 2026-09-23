@@ -36,5 +36,6 @@ pub mod quant;
 pub mod refusal;
 pub mod scorer;
 mod targets;
+pub mod trajectory;
 
 pub use refusal::{Refusal, RefusalResult};
