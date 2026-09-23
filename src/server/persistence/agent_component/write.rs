@@ -43,6 +43,7 @@ impl AgentLibraryStore {
         validate_context(self, &request.context)?;
         request.component.validate()?;
         require_context_tenant::<ComponentLayer>(&request.context, &request.component.tenant_id)?;
+        super::super::decision_jobs::require_head_receipt(self, &request)?;
         let (expected_revision, owner) =
             revision_scope(self, &request.context, ComponentLayer::NOUN)?;
         let txn = self.mutations.open_write(&owner)?;

@@ -86,6 +86,13 @@ pub enum StatisticalOutcome {
         prediction_set: BoundedVec<String, 64>,
         risk: RiskStatement,
     },
+    /// An option chosen by the declared exploration budget, not by a score:
+    /// the propensity is the executed policy's exact probability, and no risk
+    /// claim is made.
+    Explored {
+        option_id: String,
+        propensity: UnitRationalWire,
+    },
     /// Scores only. `calibrated` says whether they mean anything numerically.
     Advisory {
         scores: BoundedVec<ScoredOption, 64>,
@@ -95,4 +102,26 @@ pub enum StatisticalOutcome {
     Abstained {
         reasons: BoundedVec<AbstainReason, 64>,
     },
+}
+
+/// The exact per-feature logit contributions of one option under a linear
+/// head: `weight x standardised value`, in schema order. Not an explanation of
+/// the calibrated probability or of the softmax.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct LinearExplanation {
+    pub option_id: String,
+    pub contributions: BoundedVec<QuantisedValue, 32>,
+}
+
+/// One audit-sampling draw. An acted decision is sampled into human review
+/// with a KNOWN inclusion probability, so review results re-enter calibration
+/// weighted by its inverse and the review queue carries no selection bias.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct AuditDraw {
+    pub inclusion_probability: UnitRationalWire,
+    pub sampled: bool,
 }

@@ -6,6 +6,13 @@
 //! commits nothing. Whether a record is durable, and where, is a separate
 //! decision with its own method.
 
+pub mod body;
+pub mod dataset;
+pub mod errors;
+pub mod features;
+pub mod head;
+pub mod keyed;
+pub mod nl;
 pub mod outcome;
 
 use serde::{Deserialize, Serialize};
@@ -19,9 +26,10 @@ use super::request::{DecisionPolicyRef, LibraryCandidateScope};
 use crate::agent_component::ComponentDependency;
 use crate::contract::BoundedVec;
 
+pub use errors::StatisticalErrorCode;
 pub use outcome::{
-    CalibrationMethod, CalibrationStatement, RiskMethod, RiskStatement, ScoredOption,
-    StatisticalOutcome,
+    AuditDraw, CalibrationMethod, CalibrationStatement, LinearExplanation, RiskMethod,
+    RiskStatement, ScoredOption, StatisticalOutcome,
 };
 
 /// The largest record batch one `Decide` may return.
@@ -77,10 +85,16 @@ pub struct StatisticalQuestion {
 pub enum CandidateSource {
     /// A tenant-bound agent library scope.
     AgentLibrary { scope: LibraryCandidateScope },
-    /// An RLS-filtered cross-modal plan -- the same public plan type
-    /// `Method::UnifiedQuery` accepts, so there is one plan vocabulary.
+    /// An RLS-filtered cross-modal plan over one named graph -- the same
+    /// public plan type `Method::UnifiedQuery` accepts, so there is one plan
+    /// vocabulary. The plan only names the candidate id set; it may not rank
+    /// or truncate before visibility, because a top-k taken over invisible
+    /// rows would move visible ones.
     #[cfg(feature = "query")]
-    Graph { plan: Box<crate::wire::Plan> },
+    Graph {
+        graph: String,
+        plan: Box<crate::wire::Plan>,
+    },
 }
 
 /// A typed question parameter. Values are typed, never substituted into text:
@@ -212,6 +226,16 @@ pub struct StatisticalDecisionRecord {
     pub outcome: StatisticalOutcome,
     #[serde(default)]
     pub calibration: Option<CalibrationStatement>,
+    /// Per-feature logit contributions of the chosen or top option; exact for
+    /// a linear head's logit only.
+    #[serde(default)]
+    pub explanation: Option<LinearExplanation>,
+    /// The audit-sampling draw of an acted decision (EH-026).
+    #[serde(default)]
+    pub audit: Option<AuditDraw>,
+    /// The routed template and slot values of a `TemplateChoice` question.
+    #[serde(default)]
+    pub nl_binding: Option<nl::NlBinding>,
     /// Synthetic evidence is labelled as such, always.
     pub synthetic_evidence: bool,
     pub record_digest: String,

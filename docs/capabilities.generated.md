@@ -212,8 +212,8 @@
 | `UpdateDevelopmentLaneQuota` | true | GraphRedb | `lane:quota` | true | true | false | Atomic | controller/admin-only monotonic server-owned quota policy with numeric expected_policy_revision CAS; now_ms is authority-normalized |
 | `ResourceStatsPage` | false | None | `service:control` | true | false | false | None | bounded ACL-filtered keyset page; summary suppresses detail arrays |
 | `AnalyticsJob` | ~true | JobsRedb | `jobs:write` | false | false | false | Atomic | runtime-conditional: Status is a read; Submit/Cancel/Resume commit through the native jobs.redb MutationBatch gateway |
-| `DecisionFit` | ~true | JobsRedb | `admin:decision-fit` | true | false | false | Atomic | runtime-conditional like AnalyticsJob: status is a read; submit commits a native MutationBatch in jobs.redb carrying the decision job row and its receipt, while the fitted draft is an engine-held Blob CAS body. Local-only authority, refused in clustered mode |
-| `DecisionEval` | ~true | JobsRedb | `admin:decision-eval` | true | false | false | Atomic | runtime-conditional like AnalyticsJob: status is a read; submit commits a native MutationBatch in jobs.redb carrying the evaluation job row and its receipt. Local-only authority, refused in clustered mode |
+| `DecisionFit` | ~true | ControlRedb | `admin:decision-fit` | true | false | false | Atomic | RF-ADR-010 DL-6, runtime-conditional: status is an authenticated tenant-bound read; submit runs one bounded deterministic fit to its terminal state and commits the job row and the draft head body in one agent_library.redb control-owner transaction. Local-only authority, refused in clustered mode |
+| `DecisionEval` | ~true | ControlRedb | `admin:decision-eval` | true | false | false | Atomic | RF-ADR-010 DL-6, runtime-conditional: status is an authenticated tenant-bound read; submit evaluates a draft or published head on admitted labels and commits the job row and its receipt in one agent_library.redb control-owner transaction; a DecisionHead publish requires a passed receipt. Local-only authority, refused in clustered mode |
 | `Statechart` | ~true | StatechartRedb | `statechart:write` | false | false | false | Atomic | runtime-conditional: GetState/List are reads; Define/Instantiate/SendEvent commit to the native statecharts.redb store (CONCEPT:INT-P2-2) |
 | `AddNode` | true | GraphRedb | `node:write` | false | true | true | Atomic |  |
 | `CreateNodeIfAbsent` | true | GraphRedb | `node:write` | false | true | true | Atomic | atomic create returns true only to the inserting writer, so its result is not cross-request cacheable |
@@ -363,7 +363,7 @@
 | `NlQuery` | false | None | `query:nl` | false | false | false | Snapshot |  |
 | `TxnUnifiedQuery` | false | None | `txn:read` | true | false | false | Saga |  |
 | `TxnUnifiedQueryText` | false | None | `txn:read` | true | false | false | Saga |  |
-| `Decide` | false | None | `query:decide` | true | false | false | Snapshot | RF-ADR-010 DL-2. Evaluate-only: scores library or RLS-filtered graph candidates under a pinned feature schema and head and answers a batch of records; it commits none of them |
+| `Decide` | false | None | `query:decide` | true | false | false | Snapshot | RF-ADR-010 DL-4. Evaluate-only: scores the tenant-visible library candidates under a pinned feature schema, head and policy and answers a batch of sealed statistical records; it commits none of them. Graph-sourced candidates are refused until graph-sourced records land |
 | `RunDatalogReasoning` | true | GraphRedb | `reasoning:write` | true | true | true | Atomic | state-backed MutationBatch commits inferred facts; operation-identity replay prevents duplicate materialization/audit/CDC |
 | `GetRdf` | false | None | `rdf:read` | true | false | false | Snapshot |  |
 | `Sparql` | false | None | `sparql:read` | true | false | false | Snapshot |  |

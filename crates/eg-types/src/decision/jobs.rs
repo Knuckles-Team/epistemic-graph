@@ -8,22 +8,15 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::numeric::QuantisedValue;
+use super::numeric::{QuantisedValue, UnitRationalWire};
 use super::request::DecisionPolicyRef;
+use super::statistical::dataset::LabelledDataset;
+use super::statistical::head::DecisionHeadBody;
 use super::statistical::CalibrationStatement;
+
+pub use super::statistical::head::HeadKind;
 use crate::agent_component::ComponentDependency;
 use crate::contract::BoundedVec;
-
-/// Which head shape a fit produces.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub enum HeadKind {
-    /// One weight per feature.
-    WeightedFeatures,
-    /// A listwise logistic model over the candidate set.
-    ListwiseLogistic,
-}
 
 /// What kind of labels the training records carry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,6 +62,12 @@ pub struct DecisionFitRequest {
     pub label_regime: LabelRegime,
     pub window: RecordWindow,
     pub optimiser: OptimiserSpec,
+    /// The labelled items, pinned: a full-label regime's `gold_set_digest`
+    /// must equal this dataset's digest.
+    pub dataset: LabelledDataset,
+    /// Commit principals whose bandit records may train. Empty admits none.
+    #[serde(default)]
+    pub approved_commit_principals: BoundedVec<String, 64>,
 }
 
 /// Which off-policy estimator an evaluation runs.
@@ -107,6 +106,11 @@ pub struct DecisionEvalRequest {
     #[serde(default)]
     pub gold_set_digest: Option<String>,
     pub window: RecordWindow,
+    /// The labelled items the candidate is evaluated on.
+    pub dataset: LabelledDataset,
+    /// Commit principals whose bandit records may be evaluated on.
+    #[serde(default)]
+    pub approved_commit_principals: BoundedVec<String, 64>,
 }
 
 /// Ask after one submitted job.
@@ -129,7 +133,61 @@ pub struct OpeEstimateView {
     pub upper: QuantisedValue,
     pub effective_sample_size: QuantisedValue,
     /// Share of logged probability mass the candidate policy does not cover.
-    pub unsupported_mass: super::numeric::UnitRationalWire,
+    pub unsupported_mass: UnitRationalWire,
+}
+
+/// Full-label metrics of a candidate head, each rate an exact fraction of the
+/// admitted items and each interval a Clopper-Pearson interval at `delta`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct FullLabelMetrics {
+    pub n_items: u64,
+    /// Top-1 lands in the acceptability set.
+    pub top1_hits: u64,
+    pub log_loss: QuantisedValue,
+    pub brier: QuantisedValue,
+    pub expected_calibration_error: QuantisedValue,
+    /// Prediction set meets the acceptability set.
+    pub covered: u64,
+    pub coverage_lower: UnitRationalWire,
+    pub coverage_upper: UnitRationalWire,
+    /// Items the act rule acted on, and how many of those were wrong.
+    pub acted: u64,
+    pub acted_wrong: u64,
+    pub act_risk_upper: UnitRationalWire,
+    /// Sum of prediction-set sizes; mean = this / n_items.
+    pub set_size_total: u64,
+}
+
+/// Why items were refused as labels, by reason.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct LabelExclusions {
+    pub outside_window: u64,
+    pub wrong_regime: u64,
+    pub llm_resolved: u64,
+    pub self_reported: u64,
+    pub not_observation: u64,
+    pub censored: u64,
+    pub below_fidelity_floor: u64,
+    pub propensity_not_executed_policy: u64,
+    pub pinned: u64,
+    pub unapproved_principal: u64,
+    pub zero_executed_propensity: u64,
+}
+
+/// One option's pooled success rate (Beta-Binomial, class -> option), reported
+/// only when its own trials reach the policy's `min_support`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct PooledRate {
+    pub class_key: String,
+    pub option_id: String,
+    pub trials: u64,
+    pub posterior_mean: QuantisedValue,
 }
 
 /// The receipt a head must carry before it may be published.
@@ -144,6 +202,15 @@ pub struct DecisionEvalReceipt {
     pub estimates: BoundedVec<OpeEstimateView, 8>,
     #[serde(default)]
     pub calibration: Option<CalibrationStatement>,
+    #[serde(default)]
+    pub metrics: Option<FullLabelMetrics>,
+    pub exclusions: LabelExclusions,
+    /// Bandit regime only: pooled per-option success rates at min support.
+    #[serde(default)]
+    pub pooled: BoundedVec<PooledRate, 64>,
+    /// Every promotion gate that failed, by name. Empty exactly when `passed`.
+    #[serde(default)]
+    pub failed_gates: BoundedVec<String, 16>,
     pub passed: bool,
     pub synthetic: bool,
 }
@@ -159,10 +226,13 @@ pub enum DecisionJobOutput {
         head_digest: String,
         training_records_digest: String,
         synthetic: bool,
+        /// The draft body itself; publishing it as a `DecisionHead` needs a
+        /// passed evaluation receipt naming `draft_sha256`.
+        draft: Box<DecisionHeadBody>,
+        exclusions: LabelExclusions,
     },
-    Eval {
-        receipt: DecisionEvalReceipt,
-    },
+    /// Boxed: a receipt is several times the size of every other arm.
+    Eval { receipt: Box<DecisionEvalReceipt> },
 }
 
 /// Where a job is.
@@ -172,8 +242,13 @@ pub enum DecisionJobOutput {
 pub enum DecisionJobState {
     Queued,
     Running,
-    Succeeded { output: DecisionJobOutput },
-    Failed { code: String },
+    /// Boxed: the output carries a whole head or receipt.
+    Succeeded {
+        output: Box<DecisionJobOutput>,
+    },
+    Failed {
+        code: String,
+    },
     Cancelled,
 }
 
@@ -216,8 +291,9 @@ macro_rules! decision_job_op {
         #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
         #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
         pub enum $name {
-            /// Enqueue the job. The only mutating op.
-            Submit { request: $request },
+            /// Enqueue the job. The only mutating op. Boxed: a submission
+            /// carries its whole labelled dataset.
+            Submit { request: Box<$request> },
             /// Read one submitted job's row.
             Status { request: DecisionJobStatusRequest },
         }

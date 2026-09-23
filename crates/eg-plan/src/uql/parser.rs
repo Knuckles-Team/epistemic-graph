@@ -182,6 +182,11 @@ pub fn parse(src: &str) -> Result<Plan, UqlError> {
     Ok(plan)
 }
 
+/// DecideText's clauses. Ordinary UQL refuses them by name rather than with the
+/// generic "expected a pipeline stage", so a caller who sent decision text to
+/// the query parser learns where it belongs (DECIDE-LAYER-DESIGN §5).
+const DECISION_CLAUSES: [&str; 4] = ["DECIDE", "ASSEMBLE", "COVERS", "VALIDATE"];
+
 struct Parser<'a> {
     toks: &'a [Token],
     pos: usize,
@@ -240,6 +245,12 @@ impl<'a> Parser<'a> {
         if let Some(op) = self.parse_epistemic_stage()? {
             ops.push(op);
             return Ok(());
+        }
+        if let Some(clause) = DECISION_CLAUSES.iter().find(|kw| self.peek_kw(kw)) {
+            return Err(self.err_here(&format!(
+                "DECISION_CLAUSE_IN_UQL: `{clause}` is a DecideText clause; ordinary UQL never \
+                 plans a decision (parse it with `eg_plan::decide_text::parse`)"
+            )));
         }
         Err(self.err_here(
             "expected a pipeline stage (`TRAVERSE`, `RANK`, `TEXT`, `FUSE`, `LIMIT`, \

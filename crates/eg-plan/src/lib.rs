@@ -72,6 +72,9 @@ pub mod leanrag;
 /// Plan is `query`-gated.
 pub mod uql;
 
+/// DecideText (EH-073): the decision front end, kept out of UQL and `wire::Op`.
+pub mod decide_text;
+
 /// The typed DAG plan representation (CONCEPT:EG-KG.query.plan-dag, E5 phase 1): [`dag::PlanDag`]
 /// generalizes the linear [`Plan`] into a real graph of operators (a node's `inputs` name
 /// its dependency nodes), with a lossless conversion from every existing linear `Plan` (a

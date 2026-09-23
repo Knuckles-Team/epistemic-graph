@@ -64,7 +64,10 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // its own owner file would split one authority in two (RF-RULING-004), so
     // this combined successor has one 17-table census and one frozen 8-table
     // predecessor; no ConnectorPack-only or write-back-only intermediate.
-    assert_eq!(owner_table_names(OwnerLayout::AgentLibrary).len(), 17);
+    // 17 -> 18: the Decide layer's `decision_artifacts` (job rows, evaluation
+    // receipts, fit drafts) in the same owner, so a `DecisionHead` publish
+    // reads its receipt from the authority that commits the head.
+    assert_eq!(owner_table_names(OwnerLayout::AgentLibrary).len(), 18);
     // The authoritative graph shard `graph-N.redb`: 53 tables. That is the
     // complete physical census of the shard file (39 in `redb_store.rs`, 4
     // capacity-lease, 3 work-item-capability, 10 development-lane, plus
@@ -137,7 +140,11 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
     // owner write, so `shared` stays the two CAS tables: service 127 = 124 + 3.
     // 129 -> 130: the SQL provider checkpoint head row. It is DomainService,
     // not another ledger, so service 128 = 127 + 1; `shared` is unchanged.
-    assert_eq!((names.len(), service, shared), (130, 128, 2));
+    // 130 -> 139: the ConnectorPack catalog's five and governed write-back's
+    // four Agent Library tables, all `DomainService` (this count was not moved
+    // when they landed). 139 -> 140: the Decide layer's `decision_artifacts`,
+    // also `DomainService`: service 138 = 128 + 9 + 1.
+    assert_eq!((names.len(), service, shared), (140, 138, 2));
 }
 
 #[test]
@@ -794,7 +801,10 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     // cursor high-water mark (`cas_holders`, `cas_retention`, `cas_counters`).
     // 147 -> 148: the SQL provider checkpoint table this lane adds. Every
     // registered mutation table must refuse plain recovery, including it.
-    assert_eq!(names.len(), 148);
+    // 148 -> 157: the ConnectorPack catalog's five and governed write-back's
+    // four Agent Library mutation tables (not moved when they landed).
+    // 157 -> 158: the Decide layer's `decision_artifacts`.
+    assert_eq!(names.len(), 158);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();

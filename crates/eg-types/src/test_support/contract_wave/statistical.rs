@@ -10,6 +10,12 @@ use crate::decision::{
     ShortlistProvenance, StatisticalOutcome, StatisticalQuestion, TypedParam, TypedValue,
 };
 
+use crate::decision::statistical::dataset::{
+    ItemLabel, LabelSource, LabelledDataset, LabelledItem, LoggedOutcome, OutcomeEvaluation,
+    OutcomeFidelity, PropensitySource, LABELLED_DATASET_SCHEMA_VERSION,
+};
+use crate::decision::EvidenceClass;
+
 use super::decision::{dependency, every_abstain_reason, unit_rational};
 use super::{bounded, digest_text};
 
@@ -112,6 +118,10 @@ pub fn every_statistical_outcome() -> Vec<StatisticalOutcome> {
                 n_calibration: 4_096,
             },
         },
+        StatisticalOutcome::Explored {
+            option_id: "option-b".to_string(),
+            propensity: unit_rational(1, 8),
+        },
         StatisticalOutcome::Advisory {
             scores: bounded(vec![ScoredOption {
                 option_id: "option-b".to_string(),
@@ -163,7 +173,7 @@ pub fn fit_ops() -> Vec<(&'static str, DecisionFitOp)> {
         (
             "DecisionFit.submit",
             DecisionFitOp::Submit {
-                request: DecisionFitRequest {
+                request: Box::new(DecisionFitRequest {
                     tenant_id: "tenant-a".to_string(),
                     idempotency_key: "fit-1".to_string(),
                     head_kind: HeadKind::ListwiseLogistic,
@@ -176,6 +186,8 @@ pub fn fit_ops() -> Vec<(&'static str, DecisionFitOp)> {
                         gold_set_digest: digest_text(0xb1),
                     },
                     window: window(),
+                    dataset: dataset(),
+                    approved_commit_principals: bounded(vec!["principal-a".to_string()]),
                     optimiser: OptimiserSpec {
                         max_iterations: 500,
                         tolerance: QuantisedValue {
@@ -184,7 +196,7 @@ pub fn fit_ops() -> Vec<(&'static str, DecisionFitOp)> {
                         },
                         seed: 42,
                     },
-                },
+                }),
             },
         ),
         (
@@ -205,7 +217,7 @@ pub fn eval_ops() -> Vec<(&'static str, DecisionEvalOp)> {
         (
             "DecisionEval.submit",
             DecisionEvalOp::Submit {
-                request: DecisionEvalRequest {
+                request: Box::new(DecisionEvalRequest {
                     tenant_id: "tenant-a".to_string(),
                     idempotency_key: "eval-1".to_string(),
                     candidate: EvalCandidate::DraftArtifact {
@@ -222,7 +234,9 @@ pub fn eval_ops() -> Vec<(&'static str, DecisionEvalOp)> {
                     ]),
                     gold_set_digest: Some(digest_text(0xb3)),
                     window: window(),
-                },
+                    dataset: dataset(),
+                    approved_commit_principals: bounded(vec!["principal-a".to_string()]),
+                }),
             },
         ),
         (
@@ -241,5 +255,56 @@ pub fn eval_ops() -> Vec<(&'static str, DecisionEvalOp)> {
 pub fn published_head_candidate() -> EvalCandidate {
     EvalCandidate::PublishedHead {
         head: dependency("head-a", AgentComponentKind::DecisionHead),
+    }
+}
+
+fn gold_item() -> LabelledItem {
+    LabelledItem {
+        item_id: "gold-1".to_string(),
+        recorded_at_ms: 1_650_000_000_000,
+        class_key: "eg:task/research".to_string(),
+        candidate_ids: bounded(vec!["option-a".to_string(), "option-b".to_string()]),
+        features: bounded(vec![1_000_000_000_000, 0]),
+        label: ItemLabel::Gold {
+            acceptable: bounded(vec!["option-a".to_string()]),
+            source: LabelSource::SyntheticConstruction,
+        },
+        audit_inclusion: None,
+    }
+}
+
+fn logged_item() -> LabelledItem {
+    LabelledItem {
+        item_id: "logged-1".to_string(),
+        label: ItemLabel::Logged(Box::new(LoggedOutcome {
+            executed: "option-b".to_string(),
+            logging_propensities: bounded(vec![unit_rational(1, 2), unit_rational(1, 2)]),
+            propensity_source: PropensitySource::ExecutedPolicy,
+            pinned: false,
+            commit_principal: "principal-a".to_string(),
+            evaluation: OutcomeEvaluation {
+                evaluation_id: "evaluation-1".to_string(),
+                class: EvidenceClass::Observation,
+                producer: "evaluator-a".to_string(),
+                selected_agent: "agent-b".to_string(),
+                lease_holder: "worker-b".to_string(),
+                fidelity: OutcomeFidelity::ToolCalls,
+                success: Some(true),
+            },
+        })),
+        audit_inclusion: Some(unit_rational(1, 20)),
+        ..gold_item()
+    }
+}
+
+/// A labelled dataset exercising both label shapes.
+pub fn dataset() -> LabelledDataset {
+    LabelledDataset {
+        schema_version: LABELLED_DATASET_SCHEMA_VERSION,
+        feature_schema_digest: digest_text(0xb4),
+        feature_names: bounded(vec!["recency".to_string()]),
+        scale: QuantScaleTag::Pico,
+        items: bounded(vec![gold_item(), logged_item()]),
+        synthetic: true,
     }
 }

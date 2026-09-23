@@ -2971,6 +2971,13 @@
       "maxItems": 64,
       "type": "array"
     },
+    "BoundedVec_LabelledItem_4096": {
+      "items": {
+        "$ref": "#/$defs/LabelledItem"
+      },
+      "maxItems": 4096,
+      "type": "array"
+    },
     "BoundedVec_ObjectiveLevelKind_8": {
       "items": {
         "$ref": "#/$defs/ObjectiveLevelKind"
@@ -3069,6 +3076,13 @@
       "maxItems": 64,
       "type": "array"
     },
+    "BoundedVec_UnitRationalWire_64": {
+      "items": {
+        "$ref": "#/$defs/UnitRationalWire"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
     "BoundedVec_WeightedLevel_8": {
       "items": {
         "$ref": "#/$defs/WeightedLevel"
@@ -3089,6 +3103,14 @@
         "type": "number"
       },
       "maxItems": 4096,
+      "type": "array"
+    },
+    "BoundedVec_int64_2048": {
+      "items": {
+        "format": "int64",
+        "type": "integer"
+      },
+      "maxItems": 2048,
       "type": "array"
     },
     "BoundedVec_string_1024": {
@@ -3247,8 +3269,11 @@
         },
         {
           "additionalProperties": false,
-          "description": "An RLS-filtered cross-modal plan -- the same public plan type\n`Method::UnifiedQuery` accepts, so there is one plan vocabulary.",
+          "description": "An RLS-filtered cross-modal plan over one named graph -- the same\npublic plan type `Method::UnifiedQuery` accepts, so there is one plan\nvocabulary. The plan only names the candidate id set; it may not rank\nor truncate before visibility, because a top-k taken over invisible\nrows would move visible ones.",
           "properties": {
+            "graph": {
+              "type": "string"
+            },
             "plan": {
               "$ref": "#/$defs/Plan"
             },
@@ -3259,6 +3284,7 @@
           },
           "required": [
             "source",
+            "graph",
             "plan"
           ],
           "type": "object"
@@ -5716,7 +5742,7 @@
       "oneOf": [
         {
           "additionalProperties": false,
-          "description": "Enqueue the job. The only mutating op.",
+          "description": "Enqueue the job. The only mutating op. Boxed: a submission\ncarries its whole labelled dataset.",
           "properties": {
             "op": {
               "const": "submit",
@@ -5756,8 +5782,17 @@
       "additionalProperties": false,
       "description": "Evaluate a candidate head against recorded decisions.",
       "properties": {
+        "approved_commit_principals": {
+          "$ref": "#/$defs/BoundedVec_string_64",
+          "default": [],
+          "description": "Commit principals whose bandit records may be evaluated on."
+        },
         "candidate": {
           "$ref": "#/$defs/EvalCandidate"
+        },
+        "dataset": {
+          "$ref": "#/$defs/LabelledDataset",
+          "description": "The labelled items the candidate is evaluated on."
         },
         "estimators": {
           "$ref": "#/$defs/BoundedVec_OpeEstimatorKind_8"
@@ -5788,7 +5823,8 @@
         "candidate",
         "policy",
         "estimators",
-        "window"
+        "window",
+        "dataset"
       ],
       "type": "object"
     },
@@ -5797,7 +5833,7 @@
       "oneOf": [
         {
           "additionalProperties": false,
-          "description": "Enqueue the job. The only mutating op.",
+          "description": "Enqueue the job. The only mutating op. Boxed: a submission\ncarries its whole labelled dataset.",
           "properties": {
             "op": {
               "const": "submit",
@@ -5837,6 +5873,15 @@
       "additionalProperties": false,
       "description": "Fit a decision head into a draft artifact.",
       "properties": {
+        "approved_commit_principals": {
+          "$ref": "#/$defs/BoundedVec_string_64",
+          "default": [],
+          "description": "Commit principals whose bandit records may train. Empty admits none."
+        },
+        "dataset": {
+          "$ref": "#/$defs/LabelledDataset",
+          "description": "The labelled items, pinned: a full-label regime's `gold_set_digest`\nmust equal this dataset's digest."
+        },
         "feature_schema": {
           "$ref": "#/$defs/ComponentDependency"
         },
@@ -5870,7 +5915,8 @@
         "policy",
         "label_regime",
         "window",
-        "optimiser"
+        "optimiser",
+        "dataset"
       ],
       "type": "object"
     },
@@ -8718,7 +8764,7 @@
       "oneOf": [
         {
           "const": "weighted_features",
-          "description": "One weight per feature.",
+          "description": "One weight per feature; an advisory score that never acts.",
           "type": "string"
         },
         {
@@ -8772,6 +8818,72 @@
         "objective"
       ],
       "type": "object"
+    },
+    "ItemLabel": {
+      "description": "The label of one item.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "acceptable": {
+              "$ref": "#/$defs/BoundedVec_string_64"
+            },
+            "label": {
+              "const": "gold",
+              "type": "string"
+            },
+            "source": {
+              "$ref": "#/$defs/LabelSource"
+            }
+          },
+          "required": [
+            "label",
+            "acceptable",
+            "source"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "One logged, executed decision.",
+          "properties": {
+            "commit_principal": {
+              "type": "string"
+            },
+            "evaluation": {
+              "$ref": "#/$defs/OutcomeEvaluation"
+            },
+            "executed": {
+              "type": "string"
+            },
+            "label": {
+              "const": "logged",
+              "type": "string"
+            },
+            "logging_propensities": {
+              "$ref": "#/$defs/BoundedVec_UnitRationalWire_64",
+              "description": "Aligned with the item's candidates; must sum to exactly one."
+            },
+            "pinned": {
+              "description": "A pinned decision had propensity one by fiat and is excluded from\noff-policy estimates.",
+              "type": "boolean"
+            },
+            "propensity_source": {
+              "$ref": "#/$defs/PropensitySource"
+            }
+          },
+          "required": [
+            "label",
+            "executed",
+            "logging_propensities",
+            "propensity_source",
+            "pinned",
+            "commit_principal",
+            "evaluation"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "JobKind": {
       "description": "Which analytics computation a job runs (CONCEPT:INT-P2-1).",
@@ -9835,6 +9947,114 @@
           "type": "object"
         }
       ]
+    },
+    "LabelSource": {
+      "description": "Who produced a full-label acceptability set.",
+      "oneOf": [
+        {
+          "enum": [
+            "human"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "synthetic_construction",
+          "description": "Ground truth by construction (the synthetic suite).",
+          "type": "string"
+        },
+        {
+          "const": "llm_resolved",
+          "description": "An LLM resolved an abstention. Never a label: a candidate for human\nlabelling only.",
+          "type": "string"
+        }
+      ]
+    },
+    "LabelledDataset": {
+      "additionalProperties": false,
+      "description": "A labelled dataset, pinned by digest in every job that reads it.",
+      "properties": {
+        "feature_names": {
+          "$ref": "#/$defs/BoundedVec_string_32"
+        },
+        "feature_schema_digest": {
+          "description": "`sha256:<hex>` of the feature schema body the rows were computed under.",
+          "type": "string"
+        },
+        "items": {
+          "$ref": "#/$defs/BoundedVec_LabelledItem_4096"
+        },
+        "scale": {
+          "$ref": "#/$defs/QuantScaleTag"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "synthetic": {
+          "description": "Synthetic evidence is labelled as such, always.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema_version",
+        "feature_schema_digest",
+        "feature_names",
+        "scale",
+        "items",
+        "synthetic"
+      ],
+      "type": "object"
+    },
+    "LabelledItem": {
+      "additionalProperties": false,
+      "description": "One labelled decision: its candidates, their feature rows and the label.",
+      "properties": {
+        "audit_inclusion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnitRationalWire"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Known inclusion probability of an audit-sampled item; its weight is the\ninverse (EH-026)."
+        },
+        "candidate_ids": {
+          "$ref": "#/$defs/BoundedVec_string_64"
+        },
+        "class_key": {
+          "description": "Calibration class (task class); Mondrian guarantees are per class.",
+          "type": "string"
+        },
+        "features": {
+          "$ref": "#/$defs/BoundedVec_int64_2048",
+          "description": "Row-major, `candidate_ids.len() x feature_names.len()`, on the\ndataset's scale."
+        },
+        "item_id": {
+          "type": "string"
+        },
+        "label": {
+          "$ref": "#/$defs/ItemLabel"
+        },
+        "recorded_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "item_id",
+        "recorded_at_ms",
+        "class_key",
+        "candidate_ids",
+        "features",
+        "label"
+      ],
+      "type": "object"
     },
     "LagrangeDual": {
       "additionalProperties": false,
@@ -11993,6 +12213,61 @@
         }
       ]
     },
+    "OutcomeEvaluation": {
+      "additionalProperties": false,
+      "description": "The independent evaluation behind a bandit label.",
+      "properties": {
+        "class": {
+          "$ref": "#/$defs/EvidenceClass"
+        },
+        "evaluation_id": {
+          "type": "string"
+        },
+        "fidelity": {
+          "$ref": "#/$defs/OutcomeFidelity"
+        },
+        "lease_holder": {
+          "description": "The lease holder that ran it; likewise excluded as a producer.",
+          "type": "string"
+        },
+        "producer": {
+          "type": "string"
+        },
+        "selected_agent": {
+          "description": "The agent the decision selected; a label it produced itself is a\nself-report.",
+          "type": "string"
+        },
+        "success": {
+          "default": null,
+          "description": "`None` is a censored run: neither a success nor a failure.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "evaluation_id",
+        "class",
+        "producer",
+        "selected_agent",
+        "lease_holder",
+        "fidelity"
+      ],
+      "type": "object"
+    },
+    "OutcomeFidelity": {
+      "description": "How completely the evaluated run was traced, plus the censored states.",
+      "enum": [
+        "full_step",
+        "tool_calls",
+        "final_output",
+        "trace_incomplete",
+        "outcome_uncertain",
+        "cancelled"
+      ],
+      "type": "string"
+    },
     "PackAnnotations": {
       "additionalProperties": false,
       "description": "Everything one entry declares beyond its bytes.",
@@ -13376,6 +13651,21 @@
             "leaf"
           ],
           "type": "object"
+        }
+      ]
+    },
+    "PropensitySource": {
+      "description": "Where a logged propensity came from.",
+      "oneOf": [
+        {
+          "const": "executed_policy",
+          "description": "The executed policy's exact probability.",
+          "type": "string"
+        },
+        {
+          "const": "head_mass",
+          "description": "A head's score copied in as if it were a propensity. Never admissible.",
+          "type": "string"
         }
       ]
     },

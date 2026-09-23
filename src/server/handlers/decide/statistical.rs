@@ -1,13 +1,30 @@
 //! `Method::Decide`: the statistical executor.
 //!
-//! Owned after S1 by the statistical package, which replaces the stub body
-//! with the candidate read, the feature matrix, the head evaluation and the
-//! calibrated outcome. It stays evaluate-only in 2.27.x.
+//! Served by [`super::stat_decide`] in a build with the `decide` feature; a
+//! build without it answers a typed refusal naming the feature.
 
-use crate::server::contract_wave::contract_wave_stub;
+use std::sync::Arc;
 
-contract_wave_stub! {
-    /// Answer a bounded batch of statistical decision records; commit none.
-    handle_decide(eg_types::decision::DecideRequest)
-        refuses "Decide", tested by statistical_stub_tests
+use tokio::sync::RwLock;
+
+use crate::protocol::Response;
+use crate::server::auth::VerifiedRequestContext;
+use crate::server::state::ServerState;
+
+/// Answer a batch of statistical decision records; commit none.
+pub(crate) async fn handle_decide(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    verified: &VerifiedRequestContext,
+    request: eg_types::decision::DecideRequest,
+) -> Response {
+    #[cfg(feature = "decide")]
+    {
+        super::stat_decide::handle_decide(state, req_id, verified, request).await
+    }
+    #[cfg(not(feature = "decide"))]
+    {
+        let _ = (state, verified, request);
+        Response::err(req_id, "Decide requires the `decide` feature")
+    }
 }
