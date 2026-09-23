@@ -123,6 +123,7 @@ fn search_view(
                 query,
                 k,
                 prefilter,
+                visible: None,
             },
         )
         .unwrap()
@@ -330,6 +331,7 @@ fn scope_and_query_family_mismatches_are_refused() {
         query,
         k: 1,
         prefilter: None,
+        visible: None,
     };
 
     let wrong_purpose = index
