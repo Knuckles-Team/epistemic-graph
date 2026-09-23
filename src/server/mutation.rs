@@ -127,7 +127,7 @@ pub use plan::{is_gateway_routed, method_variant_name, GatewayAuthzCtx, Mutation
 use plan::{CONSENSUS_FANOUT_METHODS, SELF_ROUTED_ADMIN_METHODS};
 
 pub use context::MutationCtx;
-use context::{advance_authoritative_manifest, idempotency_key, idempotency_store};
+use context::{advance_authoritative_manifest, idempotency_store, response_dedup_key};
 pub(crate) use context::{durable_receipt_method, LifecycleAttempt};
 
 pub use coalescer::commit_coalescable_mutation;
