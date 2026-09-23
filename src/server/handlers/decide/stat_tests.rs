@@ -127,7 +127,7 @@ impl Harness {
         draft.kind = AgentComponentKind::DecisionPolicy;
         draft.content_digest = eg_types::decision::digest::policy_digest(policy);
         draft.attributes.insert(
-            super::stat_support::DECISION_POLICY_ATTRIBUTE.to_string(),
+            eg_types::decision::policy::DECISION_POLICY_ATTRIBUTE.to_string(),
             serde_json::to_string(policy).unwrap(),
         );
         self.commit(draft, None).unwrap()
@@ -501,7 +501,7 @@ async fn exploration_on_a_security_question_is_refused_by_the_served_path() {
             None,
         )
         .unwrap();
-    let mut policy = super::stat_support::default_policy_for_tests();
+    let mut policy = eg_types::decision::DecisionPolicy::engine_default();
     policy.cold_start = ColdStart::Explore {
         budget: ExplorationBudget {
             fraction: rational(1, 2),

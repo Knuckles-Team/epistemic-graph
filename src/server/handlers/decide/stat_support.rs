@@ -13,10 +13,10 @@ use eg_types::agent_component::{AgentComponentEntry, AgentComponentKind, Compone
 use eg_types::decision::digest::policy_digest;
 use eg_types::decision::statistical::body::decode_body;
 use eg_types::decision::statistical::StatisticalErrorCode;
+use eg_types::decision::policy::policy_from_attributes;
 use eg_types::decision::{
-    ColdStart, DecisionPolicy, DecisionPolicyRef, ObjectiveLevelKind, ObjectiveOrder,
-    QuantScaleTag, QuantisedValue, StatisticalPolicy, TraceFidelityLevel, UnitRationalWire,
-    UnknownCostRule, DECISION_POLICY_SCHEMA_VERSION,
+    DecisionPolicy, DecisionPolicyRef, QuantScaleTag, QuantisedValue, StatisticalPolicy,
+    TraceFidelityLevel, UnitRationalWire,
 };
 
 use crate::server::persistence::agent_library::AgentLibraryStore;
@@ -89,54 +89,6 @@ pub(super) fn default_statistical_policy() -> StatisticalPolicy {
     }
 }
 
-/// The engine default policy. A shim with the same values as the assembly
-/// lane's `DecisionPolicy::engine_default()`, deleted in its favour at landing.
-fn engine_default_policy() -> DecisionPolicy {
-    DecisionPolicy {
-        schema_version: DECISION_POLICY_SCHEMA_VERSION,
-        objective: ObjectiveOrder::Lexicographic {
-            levels: eg_types::contract::BoundedVec::new(vec![
-                ObjectiveLevelKind::Uncovered,
-                ObjectiveLevelKind::Components,
-                ObjectiveLevelKind::DeclaredCost,
-                ObjectiveLevelKind::DeclaredP95Latency,
-            ])
-            .expect("four levels fit the eight-level bound"),
-        },
-        unknown_cost: UnknownCostRule::ExcludeWhenStrict,
-        accepted_gap: eg_types::solve::Scalar::new(0),
-        node_budget: eg_types::decision::policy::DEFAULT_DECISION_NODE_BUDGET,
-        max_templates: 8,
-        max_slots: 6,
-        max_nogood_rounds: 8,
-        max_why_not_per_slot: 3,
-        a2a_requires_observation: true,
-        cold_start: ColdStart::DeterministicOnly,
-        statistical: None,
-    }
-}
-
-/// The attribute a published `DecisionPolicy` carries its canonical JSON in.
-/// The assembly lane's encoding (`eg_types::decision::policy::
-/// {DECISION_POLICY_ATTRIBUTE, policy_from_attributes}`), mirrored until that
-/// lands and then deleted in its favour, so there is one policy codec.
-pub(super) const DECISION_POLICY_ATTRIBUTE: &str = "decision.policy";
-
-fn policy_from_attributes(
-    attributes: &std::collections::BTreeMap<String, String>,
-    content_digest: &str,
-) -> Result<DecisionPolicy, eg_types::decision::DecisionErrorCode> {
-    let unreadable = eg_types::decision::DecisionErrorCode::DecisionReplayMismatch;
-    let body = attributes
-        .get(DECISION_POLICY_ATTRIBUTE)
-        .ok_or(unreadable)?;
-    let policy: DecisionPolicy = serde_json::from_str(body).map_err(|_| unreadable)?;
-    if policy_digest(&policy) != content_digest {
-        return Err(unreadable);
-    }
-    policy.checked()
-}
-
 /// A resolved policy: the body, its digest and its statistical half.
 pub(super) struct ResolvedPolicy {
     pub(super) policy: DecisionPolicy,
@@ -151,7 +103,7 @@ pub(super) fn resolve_policy(
     reference: &DecisionPolicyRef,
 ) -> Result<ResolvedPolicy, String> {
     let policy = match reference {
-        DecisionPolicyRef::Default => engine_default_policy(),
+        DecisionPolicyRef::Default => DecisionPolicy::engine_default(),
         DecisionPolicyRef::Pinned { component } => {
             let entry = pinned_entry(
                 store,
@@ -172,10 +124,4 @@ pub(super) fn resolve_policy(
         policy,
         statistical,
     })
-}
-
-/// The engine default policy, for tests that pin a variant of it.
-#[cfg(test)]
-pub(super) fn default_policy_for_tests() -> DecisionPolicy {
-    engine_default_policy()
 }
