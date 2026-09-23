@@ -124,6 +124,20 @@ pub(in crate::server::persistence) fn write_revision<'a, L: RevisionLayer>(
     write: RevisionWrite<'_, L>,
     prepare: impl FnOnce(&Write<'a>, u64, &AgentLibraryMutationContext) -> Result<L::Entry, String>,
 ) -> Result<L::WriteResult, String> {
+    write_revision_with_rows::<L>(store, txn, owner, (tables, write), prepare, |_| Ok(()))
+}
+
+/// [`write_revision`], plus `side_rows`: owner rows of the same batch that
+/// belong to the revision (a committed decision record's verbatim body), so
+/// the revision and everything it names land in ONE transaction or not at all.
+pub(in crate::server::persistence) fn write_revision_with_rows<'a, L: RevisionLayer>(
+    store: &AgentLibraryStore,
+    txn: Write<'a>,
+    owner: &OwnedStoreHandle<Owner>,
+    (tables, write): (RevisionTables, RevisionWrite<'_, L>),
+    prepare: impl FnOnce(&Write<'a>, u64, &AgentLibraryMutationContext) -> Result<L::Entry, String>,
+    side_rows: impl FnOnce(&AdmittedOwnerWrite<'_, Owner>) -> Result<(), String>,
+) -> Result<L::WriteResult, String> {
     let (txn, admission) = within_write(txn, |txn| {
         admit_revision::<L>(&store.mutations, txn, owner, &write)
     })?;
@@ -151,6 +165,7 @@ pub(in crate::server::persistence) fn write_revision<'a, L: RevisionLayer>(
             operation: &operation,
             nonce: &nonce,
         },
+        side_rows,
     )
 }
 
@@ -234,6 +249,7 @@ fn commit_revision_in_write<L: RevisionLayer>(
     owner: &OwnedStoreHandle<Owner>,
     tables: RevisionTables,
     commit: RevisionCommit<'_, L>,
+    side_rows: impl FnOnce(&AdmittedOwnerWrite<'_, Owner>) -> Result<(), String>,
 ) -> Result<L::WriteResult, String> {
     let (operation, nonce) = (commit.operation, commit.nonce);
     let (txn, plan) = within_write(txn, |txn| {
@@ -246,7 +262,8 @@ fn commit_revision_in_write<L: RevisionLayer>(
                 plan.expected_revision,
                 &plan.entry,
                 plan.entry_bytes.as_slice(),
-            )
+            )?;
+            side_rows(owner_write)
         })?;
         let receipt = build_receipt::<L>(&plan, operation, nonce)?;
         finish_committed_ledger(

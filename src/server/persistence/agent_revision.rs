@@ -69,7 +69,7 @@ pub(super) use status::{decode_status_result, validate_status_record};
 pub(super) use write::{
     apply_owner_rows, finish_committed_ledger, finish_replayed, policy_admitted_context,
     require_context_tenant, retire_revision, revision_scope, stage_batch, within_write,
-    write_revision, RevisionWrite, StagedBatch,
+    write_revision, write_revision_with_rows, RevisionWrite, StagedBatch,
 };
 
 type Owner = eg_storage::AgentLibraryOwner;

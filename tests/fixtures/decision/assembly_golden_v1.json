@@ -1,0 +1,2856 @@
+[
+  {
+    "name": "research",
+    "record": {
+      "schema_version": 1,
+      "record_id": "decision:9438e84761c1a43f76fe94fd056c94c72802354f0c0520cc897998bdc1105252",
+      "tenant_id": "tenant-a",
+      "caller_principal": "caller-a",
+      "created_at_ms": 1700000000000,
+      "question": "assemble",
+      "candidate_source": {
+        "source": "agent_library",
+        "kinds": [
+          "model_profile",
+          "system_prompt",
+          "tool",
+          "toolset",
+          "skill",
+          "ontology",
+          "a2a_agent_card"
+        ],
+        "classification_under": null
+      },
+      "inputs": {
+        "request": {
+          "tenant_id": "tenant-a",
+          "requirements": {
+            "tasks": [
+              "eg:task/research"
+            ],
+            "capabilities": [],
+            "task_mappings": [],
+            "unmapped_task_digests": [],
+            "constraints": {
+              "max_components": null,
+              "context_budget_tokens": null,
+              "cost_budget": null,
+              "max_p95_latency_ms": null,
+              "require_tools": false,
+              "require_structured_output": false,
+              "modalities_in": [],
+              "modalities_out": []
+            },
+            "pins": [],
+            "denies": []
+          },
+          "candidates": {
+            "kinds": [
+              "model_profile",
+              "system_prompt",
+              "tool",
+              "toolset",
+              "skill",
+              "ontology",
+              "a2a_agent_card"
+            ],
+            "classification_under": null
+          },
+          "templates": [],
+          "policy": {
+            "policy": "default"
+          },
+          "solver": null
+        },
+        "candidates": [
+          {
+            "component_id": "model-cheap",
+            "kind": "model_profile",
+            "entry_revision": 1,
+            "definition_digest": "sha256:e411efa76adb7c5f208d2ca187d6e400525bf461ac141bc0d5f5da38bc83a6a6",
+            "lifecycle": "published",
+            "classification": [
+              "eg:capability/generation/text"
+            ],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "model_profile",
+              "provider": "provider",
+              "model_identity": "model-cheap-identity",
+              "context_window_tokens": 128000,
+              "max_output_tokens": 1,
+              "supports_tools": true,
+              "supports_structured_output": true,
+              "supports_vision": false,
+              "modalities": {
+                "input": [
+                  "eg:modality/text"
+                ],
+                "output": [
+                  "eg:modality/text"
+                ]
+              },
+              "cost": {
+                "currency": "USD",
+                "per_call_micros": 10,
+                "input_per_mtok_micros": null,
+                "output_per_mtok_micros": null,
+                "price_source": {
+                  "source": "publisher"
+                },
+                "quality": "declared"
+              },
+              "latency_declared": {
+                "p50_ms": 1,
+                "p95_ms": 100
+              },
+              "latency_observed_ref": null
+            },
+            "fact_premises": [
+              {
+                "subject": "model-cheap",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "model-cheap",
+                  "definition_digest": "sha256:e411efa76adb7c5f208d2ca187d6e400525bf461ac141bc0d5f5da38bc83a6a6"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "model-dear",
+            "kind": "model_profile",
+            "entry_revision": 1,
+            "definition_digest": "sha256:7eec2f867ab478b62678c20a69e7bc72b4298115d5f8a71224f317f4290594ed",
+            "lifecycle": "published",
+            "classification": [
+              "eg:capability/generation/text"
+            ],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "model_profile",
+              "provider": "provider",
+              "model_identity": "model-dear-identity",
+              "context_window_tokens": 200000,
+              "max_output_tokens": 1,
+              "supports_tools": true,
+              "supports_structured_output": true,
+              "supports_vision": false,
+              "modalities": {
+                "input": [
+                  "eg:modality/text"
+                ],
+                "output": [
+                  "eg:modality/text"
+                ]
+              },
+              "cost": {
+                "currency": "USD",
+                "per_call_micros": 900,
+                "input_per_mtok_micros": null,
+                "output_per_mtok_micros": null,
+                "price_source": {
+                  "source": "publisher"
+                },
+                "quality": "declared"
+              },
+              "latency_declared": {
+                "p50_ms": 1,
+                "p95_ms": 400
+              },
+              "latency_observed_ref": null
+            },
+            "fact_premises": [
+              {
+                "subject": "model-dear",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "model-dear",
+                  "definition_digest": "sha256:7eec2f867ab478b62678c20a69e7bc72b4298115d5f8a71224f317f4290594ed"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "ontology-a",
+            "kind": "ontology",
+            "entry_revision": 1,
+            "definition_digest": "sha256:e991a121a21ae33b85335889b1da7873d83c8128c2f2dfec129f90f8cca48484",
+            "lifecycle": "published",
+            "classification": [],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "opaque"
+            },
+            "fact_premises": [
+              {
+                "subject": "ontology-a",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "ontology-a",
+                  "definition_digest": "sha256:e991a121a21ae33b85335889b1da7873d83c8128c2f2dfec129f90f8cca48484"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "prompt-research",
+            "kind": "system_prompt",
+            "entry_revision": 1,
+            "definition_digest": "sha256:fc0b7b9b957389854d7676998ebba14b106f7de42f9df92fdce18cc9e9a7b514",
+            "lifecycle": "published",
+            "classification": [
+              "eg:capability/reasoning/plan"
+            ],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "system_prompt",
+              "prompt_mode": "static",
+              "token_estimate": 2000,
+              "variables": []
+            },
+            "fact_premises": [
+              {
+                "subject": "prompt-research",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "prompt-research",
+                  "definition_digest": "sha256:fc0b7b9b957389854d7676998ebba14b106f7de42f9df92fdce18cc9e9a7b514"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "skill-a",
+            "kind": "skill",
+            "entry_revision": 1,
+            "definition_digest": "sha256:6ba64c3d28f9788757d285c08cff17b809a7f96c43ca00746e2b8c255529461e",
+            "lifecycle": "published",
+            "classification": [],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "opaque"
+            },
+            "fact_premises": [
+              {
+                "subject": "skill-a",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "skill-a",
+                  "definition_digest": "sha256:6ba64c3d28f9788757d285c08cff17b809a7f96c43ca00746e2b8c255529461e"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "tool-summarize",
+            "kind": "tool",
+            "entry_revision": 1,
+            "definition_digest": "sha256:9bb19823ef9890af583f92f11b8d4c2d4e3ab55e9464f59897ac45367b02de38",
+            "lifecycle": "published",
+            "classification": [
+              "eg:capability/analysis/summarize"
+            ],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "tool",
+              "effect": "read",
+              "required_scopes": [],
+              "input_schema_digest": null,
+              "output_schema_digest": null,
+              "read_only_hint": null,
+              "destructive_hint": null,
+              "idempotent_hint": null,
+              "open_world_hint": null,
+              "modalities": {
+                "input": [],
+                "output": []
+              },
+              "cost": {
+                "currency": "USD",
+                "per_call_micros": 2,
+                "input_per_mtok_micros": null,
+                "output_per_mtok_micros": null,
+                "price_source": {
+                  "source": "publisher"
+                },
+                "quality": "declared"
+              },
+              "latency_declared": {
+                "p50_ms": 1,
+                "p95_ms": 50
+              }
+            },
+            "fact_premises": [
+              {
+                "subject": "tool-summarize",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "tool-summarize",
+                  "definition_digest": "sha256:9bb19823ef9890af583f92f11b8d4c2d4e3ab55e9464f59897ac45367b02de38"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "tool-swiss",
+            "kind": "tool",
+            "entry_revision": 1,
+            "definition_digest": "sha256:e7c7b6122d36878577de3490e7f4c89c215a14e6d8e28e4b568aadae04d02d6e",
+            "lifecycle": "published",
+            "classification": [
+              "eg:capability/retrieval/web-search",
+              "eg:capability/analysis/summarize"
+            ],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "tool",
+              "effect": "read",
+              "required_scopes": [],
+              "input_schema_digest": null,
+              "output_schema_digest": null,
+              "read_only_hint": null,
+              "destructive_hint": null,
+              "idempotent_hint": null,
+              "open_world_hint": null,
+              "modalities": {
+                "input": [],
+                "output": []
+              },
+              "cost": {
+                "currency": "USD",
+                "per_call_micros": 50,
+                "input_per_mtok_micros": null,
+                "output_per_mtok_micros": null,
+                "price_source": {
+                  "source": "publisher"
+                },
+                "quality": "declared"
+              },
+              "latency_declared": {
+                "p50_ms": 1,
+                "p95_ms": 50
+              }
+            },
+            "fact_premises": [
+              {
+                "subject": "tool-swiss",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "tool-swiss",
+                  "definition_digest": "sha256:e7c7b6122d36878577de3490e7f4c89c215a14e6d8e28e4b568aadae04d02d6e"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "tool-vector",
+            "kind": "tool",
+            "entry_revision": 1,
+            "definition_digest": "sha256:eb6ed101284f022e9f887c433b04fa6216d6641d4761cc834cab85bcbfdb9511",
+            "lifecycle": "published",
+            "classification": [
+              "eg:capability/retrieval/vector-search"
+            ],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "tool",
+              "effect": "read",
+              "required_scopes": [],
+              "input_schema_digest": null,
+              "output_schema_digest": null,
+              "read_only_hint": null,
+              "destructive_hint": null,
+              "idempotent_hint": null,
+              "open_world_hint": null,
+              "modalities": {
+                "input": [],
+                "output": []
+              },
+              "cost": {
+                "currency": "USD",
+                "per_call_micros": 3,
+                "input_per_mtok_micros": null,
+                "output_per_mtok_micros": null,
+                "price_source": {
+                  "source": "publisher"
+                },
+                "quality": "declared"
+              },
+              "latency_declared": {
+                "p50_ms": 1,
+                "p95_ms": 50
+              }
+            },
+            "fact_premises": [
+              {
+                "subject": "tool-vector",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "tool-vector",
+                  "definition_digest": "sha256:eb6ed101284f022e9f887c433b04fa6216d6641d4761cc834cab85bcbfdb9511"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "tool-web",
+            "kind": "tool",
+            "entry_revision": 1,
+            "definition_digest": "sha256:2c5839c0f6c4e72a3f02c737a79ce06d157828e6b22e99b7d740b90c79d1a5b4",
+            "lifecycle": "published",
+            "classification": [
+              "eg:capability/retrieval/web-search"
+            ],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "tool",
+              "effect": "read",
+              "required_scopes": [],
+              "input_schema_digest": null,
+              "output_schema_digest": null,
+              "read_only_hint": null,
+              "destructive_hint": null,
+              "idempotent_hint": null,
+              "open_world_hint": null,
+              "modalities": {
+                "input": [],
+                "output": []
+              },
+              "cost": {
+                "currency": "USD",
+                "per_call_micros": 5,
+                "input_per_mtok_micros": null,
+                "output_per_mtok_micros": null,
+                "price_source": {
+                  "source": "publisher"
+                },
+                "quality": "declared"
+              },
+              "latency_declared": {
+                "p50_ms": 1,
+                "p95_ms": 50
+              }
+            },
+            "fact_premises": [
+              {
+                "subject": "tool-web",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "tool-web",
+                  "definition_digest": "sha256:2c5839c0f6c4e72a3f02c737a79ce06d157828e6b22e99b7d740b90c79d1a5b4"
+                }
+              }
+            ]
+          }
+        ],
+        "ontology_digest": "sha256:d1817ceb463d7a3d97f5509ffe514641f05ef5bf7ec50a5f260e797b626dc783",
+        "policy": {
+          "schema_version": 1,
+          "objective": {
+            "order": "lexicographic",
+            "levels": [
+              "uncovered",
+              "components",
+              "declared_cost",
+              "declared_p95_latency"
+            ]
+          },
+          "unknown_cost": "exclude_when_strict",
+          "accepted_gap": "0",
+          "node_budget": 100000,
+          "max_templates": 8,
+          "max_slots": 6,
+          "max_nogood_rounds": 8,
+          "max_why_not_per_slot": 3,
+          "a2a_requires_observation": true,
+          "cold_start": {
+            "mode": "deterministic_only"
+          },
+          "statistical": null
+        },
+        "policy_digest": "sha256:7f5b46402082d1169d80cf7968c1c5548e809d2af135ad5202723cdffec55c77",
+        "catalog_digest": "sha256:55f79ebfd5e9c72c4afc87d01e2b2ccb0837cc42d5225562b06b4131a96cd8bc",
+        "solver": {
+          "algorithm": "depth_first_dual_ascent",
+          "node_budget": 100000
+        },
+        "templates": []
+      },
+      "inputs_digest": "sha256:a7c60d7f1315d24b0e7c995cdfaac1a77d5a356565bf026b3bed9e27cf30e1eb",
+      "resolution_kind": "optimization",
+      "evidence_class": "claim",
+      "derivation_class": "proof",
+      "trace_fidelity": {
+        "fidelity": "full_step"
+      },
+      "premises": [
+        {
+          "subject": "eg:capability/analysis/summarize",
+          "fact": "required_by:eg:task/research",
+          "class": "definition",
+          "provenance": {
+            "provenance": "native_ontology",
+            "ontology_digest": "sha256:d1817ceb463d7a3d97f5509ffe514641f05ef5bf7ec50a5f260e797b626dc783"
+          }
+        },
+        {
+          "subject": "eg:capability/reasoning/plan",
+          "fact": "required_by:eg:task/research",
+          "class": "definition",
+          "provenance": {
+            "provenance": "native_ontology",
+            "ontology_digest": "sha256:d1817ceb463d7a3d97f5509ffe514641f05ef5bf7ec50a5f260e797b626dc783"
+          }
+        },
+        {
+          "subject": "eg:capability/retrieval",
+          "fact": "required_by:eg:task/research",
+          "class": "definition",
+          "provenance": {
+            "provenance": "native_ontology",
+            "ontology_digest": "sha256:d1817ceb463d7a3d97f5509ffe514641f05ef5bf7ec50a5f260e797b626dc783"
+          }
+        },
+        {
+          "subject": "model-cheap",
+          "fact": "classification",
+          "class": "claim",
+          "provenance": {
+            "provenance": "publisher",
+            "component_id": "model-cheap",
+            "definition_digest": "sha256:e411efa76adb7c5f208d2ca187d6e400525bf461ac141bc0d5f5da38bc83a6a6"
+          }
+        },
+        {
+          "subject": "ontology-a",
+          "fact": "classification",
+          "class": "claim",
+          "provenance": {
+            "provenance": "publisher",
+            "component_id": "ontology-a",
+            "definition_digest": "sha256:e991a121a21ae33b85335889b1da7873d83c8128c2f2dfec129f90f8cca48484"
+          }
+        },
+        {
+          "subject": "prompt-research",
+          "fact": "classification",
+          "class": "claim",
+          "provenance": {
+            "provenance": "publisher",
+            "component_id": "prompt-research",
+            "definition_digest": "sha256:fc0b7b9b957389854d7676998ebba14b106f7de42f9df92fdce18cc9e9a7b514"
+          }
+        },
+        {
+          "subject": "skill-a",
+          "fact": "classification",
+          "class": "claim",
+          "provenance": {
+            "provenance": "publisher",
+            "component_id": "skill-a",
+            "definition_digest": "sha256:6ba64c3d28f9788757d285c08cff17b809a7f96c43ca00746e2b8c255529461e"
+          }
+        },
+        {
+          "subject": "tool-swiss",
+          "fact": "classification",
+          "class": "claim",
+          "provenance": {
+            "provenance": "publisher",
+            "component_id": "tool-swiss",
+            "definition_digest": "sha256:e7c7b6122d36878577de3490e7f4c89c215a14e6d8e28e4b568aadae04d02d6e"
+          }
+        }
+      ],
+      "eliminated": [],
+      "derivations": [
+        {
+          "required": "eg:capability/analysis/summarize",
+          "covered_by": "tool-swiss",
+          "chain": [
+            {
+              "narrower": "tool-swiss",
+              "broader": "eg:capability/analysis/summarize",
+              "source": {
+                "edge": "component_classification",
+                "component_id": "tool-swiss"
+              },
+              "class": "claim"
+            }
+          ]
+        },
+        {
+          "required": "eg:capability/reasoning/plan",
+          "covered_by": "prompt-research",
+          "chain": [
+            {
+              "narrower": "prompt-research",
+              "broader": "eg:capability/reasoning/plan",
+              "source": {
+                "edge": "component_classification",
+                "component_id": "prompt-research"
+              },
+              "class": "claim"
+            }
+          ]
+        },
+        {
+          "required": "eg:capability/retrieval",
+          "covered_by": "tool-swiss",
+          "chain": [
+            {
+              "narrower": "tool-swiss",
+              "broader": "eg:capability/retrieval/web-search",
+              "source": {
+                "edge": "component_classification",
+                "component_id": "tool-swiss"
+              },
+              "class": "claim"
+            },
+            {
+              "narrower": "eg:capability/retrieval/web-search",
+              "broader": "eg:capability/retrieval",
+              "source": {
+                "edge": "native_ontology"
+              },
+              "class": "definition"
+            }
+          ]
+        }
+      ],
+      "outcome": {
+        "outcome": "solved",
+        "graph_digest": "sha256:d11f8852e19bbfeb9555d353b21959b6c2d8bcc7e7bf970326e3933dda6fc79a",
+        "slots": [
+          {
+            "slot": "model_profile",
+            "component": {
+              "component_id": "model-cheap",
+              "kind": "model_profile",
+              "definition_digest": "sha256:e411efa76adb7c5f208d2ca187d6e400525bf461ac141bc0d5f5da38bc83a6a6"
+            }
+          },
+          {
+            "slot": "ontology",
+            "component": {
+              "component_id": "ontology-a",
+              "kind": "ontology",
+              "definition_digest": "sha256:e991a121a21ae33b85335889b1da7873d83c8128c2f2dfec129f90f8cca48484"
+            }
+          },
+          {
+            "slot": "system_prompt",
+            "component": {
+              "component_id": "prompt-research",
+              "kind": "system_prompt",
+              "definition_digest": "sha256:fc0b7b9b957389854d7676998ebba14b106f7de42f9df92fdce18cc9e9a7b514"
+            }
+          },
+          {
+            "slot": "skill",
+            "component": {
+              "component_id": "skill-a",
+              "kind": "skill",
+              "definition_digest": "sha256:6ba64c3d28f9788757d285c08cff17b809a7f96c43ca00746e2b8c255529461e"
+            }
+          },
+          {
+            "slot": "tool",
+            "component": {
+              "component_id": "tool-swiss",
+              "kind": "tool",
+              "definition_digest": "sha256:e7c7b6122d36878577de3490e7f4c89c215a14e6d8e28e4b568aadae04d02d6e"
+            }
+          }
+        ],
+        "certificate": {
+          "model_digest": "2253c60f7e8b94c964c77ae2bb6a6d72e319f38000ca5c5d4547e1f15275acb2",
+          "algorithm": "depth_first_dual_ascent",
+          "config": {
+            "node_budget": 100000,
+            "max_certificate_leaves": 64,
+            "bound_denominator": 1,
+            "accepted_gap": "0"
+          },
+          "status": "optimal",
+          "incumbent": {
+            "selected": [
+              true,
+              false,
+              true,
+              true,
+              true,
+              false,
+              true,
+              false,
+              false
+            ],
+            "objective": {
+              "levels": [
+                {
+                  "known": "5",
+                  "unknown_selected": 0
+                },
+                {
+                  "known": "60",
+                  "unknown_selected": 0
+                },
+                {
+                  "known": "150",
+                  "unknown_selected": 0
+                }
+              ],
+              "scalar": "3445565"
+            }
+          },
+          "lower_bound": "3445565",
+          "proof": {
+            "tree": {
+              "nodes": [
+                {
+                  "forced": {
+                    "var": 2,
+                    "value": true,
+                    "row": 7
+                  }
+                },
+                {
+                  "forced": {
+                    "var": 4,
+                    "value": true,
+                    "row": 6
+                  }
+                },
+                {
+                  "forced": {
+                    "var": 3,
+                    "value": true,
+                    "row": 4
+                  }
+                },
+                {
+                  "leaf": {
+                    "proof": {
+                      "bound": {
+                        "dual": {
+                          "denominator": 1,
+                          "entries": [
+                            {
+                              "row": 0,
+                              "numerator": "238590"
+                            },
+                            {
+                              "row": 2,
+                              "numerator": "238590"
+                            },
+                            {
+                              "row": 3,
+                              "numerator": "687781"
+                            },
+                            {
+                              "row": 5,
+                              "numerator": "238591"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "nodes_expanded": 1
+        }
+      },
+      "why_not": [
+        {
+          "component_id": "model-dear",
+          "slot": "model_profile",
+          "forced_objective": {
+            "levels": [
+              {
+                "known": "5",
+                "unknown_selected": 0
+              },
+              {
+                "known": "950",
+                "unknown_selected": 0
+              },
+              {
+                "known": "450",
+                "unknown_selected": 0
+              }
+            ],
+            "scalar": "4069755"
+          },
+          "violation": null
+        },
+        {
+          "component_id": "tool-summarize",
+          "slot": "tool",
+          "forced_objective": {
+            "levels": [
+              {
+                "known": "6",
+                "unknown_selected": 0
+              },
+              {
+                "known": "15",
+                "unknown_selected": 0
+              },
+              {
+                "known": "200",
+                "unknown_selected": 0
+              }
+            ],
+            "scalar": "4094741"
+          },
+          "violation": null
+        },
+        {
+          "component_id": "tool-vector",
+          "slot": "tool",
+          "forced_objective": {
+            "levels": [
+              {
+                "known": "6",
+                "unknown_selected": 0
+              },
+              {
+                "known": "15",
+                "unknown_selected": 0
+              },
+              {
+                "known": "200",
+                "unknown_selected": 0
+              }
+            ],
+            "scalar": "4094741"
+          },
+          "violation": null
+        },
+        {
+          "component_id": "tool-web",
+          "slot": "tool",
+          "forced_objective": {
+            "levels": [
+              {
+                "known": "6",
+                "unknown_selected": 0
+              },
+              {
+                "known": "17",
+                "unknown_selected": 0
+              },
+              {
+                "known": "200",
+                "unknown_selected": 0
+              }
+            ],
+            "scalar": "4096143"
+          },
+          "violation": null
+        }
+      ],
+      "record_digest": "sha256:9438e84761c1a43f76fe94fd056c94c72802354f0c0520cc897998bdc1105252"
+    },
+    "model": {
+      "variables": [
+        "s0.c0",
+        "s0.c1",
+        "s0.c2",
+        "s0.c3",
+        "s0.c4",
+        "s0.c5",
+        "s0.c6",
+        "s0.c7",
+        "s0.c8"
+      ],
+      "constraints": [
+        {
+          "label": "cover:eg:capability/analysis/summarize",
+          "body": {
+            "at_least": {
+              "vars": [
+                5,
+                6
+              ],
+              "k": 1
+            }
+          }
+        },
+        {
+          "label": "cover:eg:capability/reasoning/plan",
+          "body": {
+            "at_least": {
+              "vars": [
+                3
+              ],
+              "k": 1
+            }
+          }
+        },
+        {
+          "label": "cover:eg:capability/retrieval",
+          "body": {
+            "at_least": {
+              "vars": [
+                6,
+                7,
+                8
+              ],
+              "k": 1
+            }
+          }
+        },
+        {
+          "label": "s0.one:model_profile",
+          "body": {
+            "exactly_one": {
+              "vars": [
+                0,
+                1
+              ]
+            }
+          }
+        },
+        {
+          "label": "s0.one:system_prompt",
+          "body": {
+            "exactly_one": {
+              "vars": [
+                3
+              ]
+            }
+          }
+        },
+        {
+          "label": "s0.one:tool",
+          "body": {
+            "at_least": {
+              "vars": [
+                5,
+                6,
+                7,
+                8
+              ],
+              "k": 1
+            }
+          }
+        },
+        {
+          "label": "s0.one:skill",
+          "body": {
+            "at_least": {
+              "vars": [
+                4
+              ],
+              "k": 1
+            }
+          }
+        },
+        {
+          "label": "s0.one:ontology",
+          "body": {
+            "at_least": {
+              "vars": [
+                2
+              ],
+              "k": 1
+            }
+          }
+        },
+        {
+          "label": "tool-model:s0.c5",
+          "body": {
+            "implies_any": {
+              "antecedent": 5,
+              "consequents": [
+                0,
+                1
+              ]
+            }
+          }
+        },
+        {
+          "label": "tool-model:s0.c6",
+          "body": {
+            "implies_any": {
+              "antecedent": 6,
+              "consequents": [
+                0,
+                1
+              ]
+            }
+          }
+        },
+        {
+          "label": "tool-model:s0.c7",
+          "body": {
+            "implies_any": {
+              "antecedent": 7,
+              "consequents": [
+                0,
+                1
+              ]
+            }
+          }
+        },
+        {
+          "label": "tool-model:s0.c8",
+          "body": {
+            "implies_any": {
+              "antecedent": 8,
+              "consequents": [
+                0,
+                1
+              ]
+            }
+          }
+        }
+      ],
+      "objective": [
+        {
+          "label": "components",
+          "terms": [
+            {
+              "var": 0,
+              "coefficient": {
+                "known": 1
+              }
+            },
+            {
+              "var": 1,
+              "coefficient": {
+                "known": 1
+              }
+            },
+            {
+              "var": 2,
+              "coefficient": {
+                "known": 1
+              }
+            },
+            {
+              "var": 3,
+              "coefficient": {
+                "known": 1
+              }
+            },
+            {
+              "var": 4,
+              "coefficient": {
+                "known": 1
+              }
+            },
+            {
+              "var": 5,
+              "coefficient": {
+                "known": 1
+              }
+            },
+            {
+              "var": 6,
+              "coefficient": {
+                "known": 1
+              }
+            },
+            {
+              "var": 7,
+              "coefficient": {
+                "known": 1
+              }
+            },
+            {
+              "var": 8,
+              "coefficient": {
+                "known": 1
+              }
+            }
+          ]
+        },
+        {
+          "label": "declared_cost",
+          "terms": [
+            {
+              "var": 0,
+              "coefficient": {
+                "known": 10
+              }
+            },
+            {
+              "var": 1,
+              "coefficient": {
+                "known": 900
+              }
+            },
+            {
+              "var": 5,
+              "coefficient": {
+                "known": 2
+              }
+            },
+            {
+              "var": 6,
+              "coefficient": {
+                "known": 50
+              }
+            },
+            {
+              "var": 7,
+              "coefficient": {
+                "known": 3
+              }
+            },
+            {
+              "var": 8,
+              "coefficient": {
+                "known": 5
+              }
+            }
+          ]
+        },
+        {
+          "label": "declared_p95_latency",
+          "terms": [
+            {
+              "var": 0,
+              "coefficient": {
+                "known": 100
+              }
+            },
+            {
+              "var": 1,
+              "coefficient": {
+                "known": 400
+              }
+            },
+            {
+              "var": 5,
+              "coefficient": {
+                "known": 50
+              }
+            },
+            {
+              "var": 6,
+              "coefficient": {
+                "known": 50
+              }
+            },
+            {
+              "var": 7,
+              "coefficient": {
+                "known": 50
+              }
+            },
+            {
+              "var": 8,
+              "coefficient": {
+                "known": 50
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "research-cost-budget",
+    "record": {
+      "schema_version": 1,
+      "record_id": "decision:90c1769b869bef5d8ea85fc2f21d76da0003d80c5f0c5e88d227f42a0188df67",
+      "tenant_id": "tenant-a",
+      "caller_principal": "caller-a",
+      "created_at_ms": 1700000000000,
+      "question": "assemble",
+      "candidate_source": {
+        "source": "agent_library",
+        "kinds": [
+          "model_profile",
+          "system_prompt",
+          "tool",
+          "toolset",
+          "skill",
+          "ontology",
+          "a2a_agent_card"
+        ],
+        "classification_under": null
+      },
+      "inputs": {
+        "request": {
+          "tenant_id": "tenant-a",
+          "requirements": {
+            "tasks": [
+              "eg:task/research"
+            ],
+            "capabilities": [],
+            "task_mappings": [],
+            "unmapped_task_digests": [],
+            "constraints": {
+              "max_components": null,
+              "context_budget_tokens": null,
+              "cost_budget": {
+                "currency": "USD",
+                "max_micros": 25,
+                "strict": true
+              },
+              "max_p95_latency_ms": null,
+              "require_tools": false,
+              "require_structured_output": false,
+              "modalities_in": [],
+              "modalities_out": []
+            },
+            "pins": [],
+            "denies": []
+          },
+          "candidates": {
+            "kinds": [
+              "model_profile",
+              "system_prompt",
+              "tool",
+              "toolset",
+              "skill",
+              "ontology",
+              "a2a_agent_card"
+            ],
+            "classification_under": null
+          },
+          "templates": [],
+          "policy": {
+            "policy": "default"
+          },
+          "solver": null
+        },
+        "candidates": [
+          {
+            "component_id": "model-cheap",
+            "kind": "model_profile",
+            "entry_revision": 1,
+            "definition_digest": "sha256:e411efa76adb7c5f208d2ca187d6e400525bf461ac141bc0d5f5da38bc83a6a6",
+            "lifecycle": "published",
+            "classification": [
+              "eg:capability/generation/text"
+            ],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "model_profile",
+              "provider": "provider",
+              "model_identity": "model-cheap-identity",
+              "context_window_tokens": 128000,
+              "max_output_tokens": 1,
+              "supports_tools": true,
+              "supports_structured_output": true,
+              "supports_vision": false,
+              "modalities": {
+                "input": [
+                  "eg:modality/text"
+                ],
+                "output": [
+                  "eg:modality/text"
+                ]
+              },
+              "cost": {
+                "currency": "USD",
+                "per_call_micros": 10,
+                "input_per_mtok_micros": null,
+                "output_per_mtok_micros": null,
+                "price_source": {
+                  "source": "publisher"
+                },
+                "quality": "declared"
+              },
+              "latency_declared": {
+                "p50_ms": 1,
+                "p95_ms": 100
+              },
+              "latency_observed_ref": null
+            },
+            "fact_premises": [
+              {
+                "subject": "model-cheap",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "model-cheap",
+                  "definition_digest": "sha256:e411efa76adb7c5f208d2ca187d6e400525bf461ac141bc0d5f5da38bc83a6a6"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "model-dear",
+            "kind": "model_profile",
+            "entry_revision": 1,
+            "definition_digest": "sha256:7eec2f867ab478b62678c20a69e7bc72b4298115d5f8a71224f317f4290594ed",
+            "lifecycle": "published",
+            "classification": [
+              "eg:capability/generation/text"
+            ],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "model_profile",
+              "provider": "provider",
+              "model_identity": "model-dear-identity",
+              "context_window_tokens": 200000,
+              "max_output_tokens": 1,
+              "supports_tools": true,
+              "supports_structured_output": true,
+              "supports_vision": false,
+              "modalities": {
+                "input": [
+                  "eg:modality/text"
+                ],
+                "output": [
+                  "eg:modality/text"
+                ]
+              },
+              "cost": {
+                "currency": "USD",
+                "per_call_micros": 900,
+                "input_per_mtok_micros": null,
+                "output_per_mtok_micros": null,
+                "price_source": {
+                  "source": "publisher"
+                },
+                "quality": "declared"
+              },
+              "latency_declared": {
+                "p50_ms": 1,
+                "p95_ms": 400
+              },
+              "latency_observed_ref": null
+            },
+            "fact_premises": [
+              {
+                "subject": "model-dear",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "model-dear",
+                  "definition_digest": "sha256:7eec2f867ab478b62678c20a69e7bc72b4298115d5f8a71224f317f4290594ed"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "ontology-a",
+            "kind": "ontology",
+            "entry_revision": 1,
+            "definition_digest": "sha256:e991a121a21ae33b85335889b1da7873d83c8128c2f2dfec129f90f8cca48484",
+            "lifecycle": "published",
+            "classification": [],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "opaque"
+            },
+            "fact_premises": [
+              {
+                "subject": "ontology-a",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "ontology-a",
+                  "definition_digest": "sha256:e991a121a21ae33b85335889b1da7873d83c8128c2f2dfec129f90f8cca48484"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "prompt-research",
+            "kind": "system_prompt",
+            "entry_revision": 1,
+            "definition_digest": "sha256:fc0b7b9b957389854d7676998ebba14b106f7de42f9df92fdce18cc9e9a7b514",
+            "lifecycle": "published",
+            "classification": [
+              "eg:capability/reasoning/plan"
+            ],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "system_prompt",
+              "prompt_mode": "static",
+              "token_estimate": 2000,
+              "variables": []
+            },
+            "fact_premises": [
+              {
+                "subject": "prompt-research",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "prompt-research",
+                  "definition_digest": "sha256:fc0b7b9b957389854d7676998ebba14b106f7de42f9df92fdce18cc9e9a7b514"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "skill-a",
+            "kind": "skill",
+            "entry_revision": 1,
+            "definition_digest": "sha256:6ba64c3d28f9788757d285c08cff17b809a7f96c43ca00746e2b8c255529461e",
+            "lifecycle": "published",
+            "classification": [],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "opaque"
+            },
+            "fact_premises": [
+              {
+                "subject": "skill-a",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "skill-a",
+                  "definition_digest": "sha256:6ba64c3d28f9788757d285c08cff17b809a7f96c43ca00746e2b8c255529461e"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "tool-summarize",
+            "kind": "tool",
+            "entry_revision": 1,
+            "definition_digest": "sha256:9bb19823ef9890af583f92f11b8d4c2d4e3ab55e9464f59897ac45367b02de38",
+            "lifecycle": "published",
+            "classification": [
+              "eg:capability/analysis/summarize"
+            ],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "tool",
+              "effect": "read",
+              "required_scopes": [],
+              "input_schema_digest": null,
+              "output_schema_digest": null,
+              "read_only_hint": null,
+              "destructive_hint": null,
+              "idempotent_hint": null,
+              "open_world_hint": null,
+              "modalities": {
+                "input": [],
+                "output": []
+              },
+              "cost": {
+                "currency": "USD",
+                "per_call_micros": 2,
+                "input_per_mtok_micros": null,
+                "output_per_mtok_micros": null,
+                "price_source": {
+                  "source": "publisher"
+                },
+                "quality": "declared"
+              },
+              "latency_declared": {
+                "p50_ms": 1,
+                "p95_ms": 50
+              }
+            },
+            "fact_premises": [
+              {
+                "subject": "tool-summarize",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "tool-summarize",
+                  "definition_digest": "sha256:9bb19823ef9890af583f92f11b8d4c2d4e3ab55e9464f59897ac45367b02de38"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "tool-swiss",
+            "kind": "tool",
+            "entry_revision": 1,
+            "definition_digest": "sha256:e7c7b6122d36878577de3490e7f4c89c215a14e6d8e28e4b568aadae04d02d6e",
+            "lifecycle": "published",
+            "classification": [
+              "eg:capability/retrieval/web-search",
+              "eg:capability/analysis/summarize"
+            ],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "tool",
+              "effect": "read",
+              "required_scopes": [],
+              "input_schema_digest": null,
+              "output_schema_digest": null,
+              "read_only_hint": null,
+              "destructive_hint": null,
+              "idempotent_hint": null,
+              "open_world_hint": null,
+              "modalities": {
+                "input": [],
+                "output": []
+              },
+              "cost": {
+                "currency": "USD",
+                "per_call_micros": 50,
+                "input_per_mtok_micros": null,
+                "output_per_mtok_micros": null,
+                "price_source": {
+                  "source": "publisher"
+                },
+                "quality": "declared"
+              },
+              "latency_declared": {
+                "p50_ms": 1,
+                "p95_ms": 50
+              }
+            },
+            "fact_premises": [
+              {
+                "subject": "tool-swiss",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "tool-swiss",
+                  "definition_digest": "sha256:e7c7b6122d36878577de3490e7f4c89c215a14e6d8e28e4b568aadae04d02d6e"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "tool-vector",
+            "kind": "tool",
+            "entry_revision": 1,
+            "definition_digest": "sha256:eb6ed101284f022e9f887c433b04fa6216d6641d4761cc834cab85bcbfdb9511",
+            "lifecycle": "published",
+            "classification": [
+              "eg:capability/retrieval/vector-search"
+            ],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "tool",
+              "effect": "read",
+              "required_scopes": [],
+              "input_schema_digest": null,
+              "output_schema_digest": null,
+              "read_only_hint": null,
+              "destructive_hint": null,
+              "idempotent_hint": null,
+              "open_world_hint": null,
+              "modalities": {
+                "input": [],
+                "output": []
+              },
+              "cost": {
+                "currency": "USD",
+                "per_call_micros": 3,
+                "input_per_mtok_micros": null,
+                "output_per_mtok_micros": null,
+                "price_source": {
+                  "source": "publisher"
+                },
+                "quality": "declared"
+              },
+              "latency_declared": {
+                "p50_ms": 1,
+                "p95_ms": 50
+              }
+            },
+            "fact_premises": [
+              {
+                "subject": "tool-vector",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "tool-vector",
+                  "definition_digest": "sha256:eb6ed101284f022e9f887c433b04fa6216d6641d4761cc834cab85bcbfdb9511"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "tool-web",
+            "kind": "tool",
+            "entry_revision": 1,
+            "definition_digest": "sha256:2c5839c0f6c4e72a3f02c737a79ce06d157828e6b22e99b7d740b90c79d1a5b4",
+            "lifecycle": "published",
+            "classification": [
+              "eg:capability/retrieval/web-search"
+            ],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "tool",
+              "effect": "read",
+              "required_scopes": [],
+              "input_schema_digest": null,
+              "output_schema_digest": null,
+              "read_only_hint": null,
+              "destructive_hint": null,
+              "idempotent_hint": null,
+              "open_world_hint": null,
+              "modalities": {
+                "input": [],
+                "output": []
+              },
+              "cost": {
+                "currency": "USD",
+                "per_call_micros": 5,
+                "input_per_mtok_micros": null,
+                "output_per_mtok_micros": null,
+                "price_source": {
+                  "source": "publisher"
+                },
+                "quality": "declared"
+              },
+              "latency_declared": {
+                "p50_ms": 1,
+                "p95_ms": 50
+              }
+            },
+            "fact_premises": [
+              {
+                "subject": "tool-web",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "tool-web",
+                  "definition_digest": "sha256:2c5839c0f6c4e72a3f02c737a79ce06d157828e6b22e99b7d740b90c79d1a5b4"
+                }
+              }
+            ]
+          }
+        ],
+        "ontology_digest": "sha256:d1817ceb463d7a3d97f5509ffe514641f05ef5bf7ec50a5f260e797b626dc783",
+        "policy": {
+          "schema_version": 1,
+          "objective": {
+            "order": "lexicographic",
+            "levels": [
+              "uncovered",
+              "components",
+              "declared_cost",
+              "declared_p95_latency"
+            ]
+          },
+          "unknown_cost": "exclude_when_strict",
+          "accepted_gap": "0",
+          "node_budget": 100000,
+          "max_templates": 8,
+          "max_slots": 6,
+          "max_nogood_rounds": 8,
+          "max_why_not_per_slot": 3,
+          "a2a_requires_observation": true,
+          "cold_start": {
+            "mode": "deterministic_only"
+          },
+          "statistical": null
+        },
+        "policy_digest": "sha256:7f5b46402082d1169d80cf7968c1c5548e809d2af135ad5202723cdffec55c77",
+        "catalog_digest": "sha256:55f79ebfd5e9c72c4afc87d01e2b2ccb0837cc42d5225562b06b4131a96cd8bc",
+        "solver": {
+          "algorithm": "depth_first_dual_ascent",
+          "node_budget": 100000
+        },
+        "templates": []
+      },
+      "inputs_digest": "sha256:17c52e5fb774800f1210f06a7f3592dbfcf098c4c4f2a65cf2c63d04a7ee69b3",
+      "resolution_kind": "optimization",
+      "evidence_class": "claim",
+      "derivation_class": "proof",
+      "trace_fidelity": {
+        "fidelity": "full_step"
+      },
+      "premises": [
+        {
+          "subject": "eg:capability/analysis/summarize",
+          "fact": "required_by:eg:task/research",
+          "class": "definition",
+          "provenance": {
+            "provenance": "native_ontology",
+            "ontology_digest": "sha256:d1817ceb463d7a3d97f5509ffe514641f05ef5bf7ec50a5f260e797b626dc783"
+          }
+        },
+        {
+          "subject": "eg:capability/reasoning/plan",
+          "fact": "required_by:eg:task/research",
+          "class": "definition",
+          "provenance": {
+            "provenance": "native_ontology",
+            "ontology_digest": "sha256:d1817ceb463d7a3d97f5509ffe514641f05ef5bf7ec50a5f260e797b626dc783"
+          }
+        },
+        {
+          "subject": "eg:capability/retrieval",
+          "fact": "required_by:eg:task/research",
+          "class": "definition",
+          "provenance": {
+            "provenance": "native_ontology",
+            "ontology_digest": "sha256:d1817ceb463d7a3d97f5509ffe514641f05ef5bf7ec50a5f260e797b626dc783"
+          }
+        },
+        {
+          "subject": "model-cheap",
+          "fact": "classification",
+          "class": "claim",
+          "provenance": {
+            "provenance": "publisher",
+            "component_id": "model-cheap",
+            "definition_digest": "sha256:e411efa76adb7c5f208d2ca187d6e400525bf461ac141bc0d5f5da38bc83a6a6"
+          }
+        },
+        {
+          "subject": "ontology-a",
+          "fact": "classification",
+          "class": "claim",
+          "provenance": {
+            "provenance": "publisher",
+            "component_id": "ontology-a",
+            "definition_digest": "sha256:e991a121a21ae33b85335889b1da7873d83c8128c2f2dfec129f90f8cca48484"
+          }
+        },
+        {
+          "subject": "prompt-research",
+          "fact": "classification",
+          "class": "claim",
+          "provenance": {
+            "provenance": "publisher",
+            "component_id": "prompt-research",
+            "definition_digest": "sha256:fc0b7b9b957389854d7676998ebba14b106f7de42f9df92fdce18cc9e9a7b514"
+          }
+        },
+        {
+          "subject": "skill-a",
+          "fact": "classification",
+          "class": "claim",
+          "provenance": {
+            "provenance": "publisher",
+            "component_id": "skill-a",
+            "definition_digest": "sha256:6ba64c3d28f9788757d285c08cff17b809a7f96c43ca00746e2b8c255529461e"
+          }
+        },
+        {
+          "subject": "tool-summarize",
+          "fact": "classification",
+          "class": "claim",
+          "provenance": {
+            "provenance": "publisher",
+            "component_id": "tool-summarize",
+            "definition_digest": "sha256:9bb19823ef9890af583f92f11b8d4c2d4e3ab55e9464f59897ac45367b02de38"
+          }
+        },
+        {
+          "subject": "tool-vector",
+          "fact": "classification",
+          "class": "claim",
+          "provenance": {
+            "provenance": "publisher",
+            "component_id": "tool-vector",
+            "definition_digest": "sha256:eb6ed101284f022e9f887c433b04fa6216d6641d4761cc834cab85bcbfdb9511"
+          }
+        }
+      ],
+      "eliminated": [
+        {
+          "component_id": "model-dear",
+          "violation": {
+            "violation": "over_budget",
+            "level": "declared_cost"
+          }
+        },
+        {
+          "component_id": "tool-swiss",
+          "violation": {
+            "violation": "over_budget",
+            "level": "declared_cost"
+          }
+        }
+      ],
+      "derivations": [
+        {
+          "required": "eg:capability/analysis/summarize",
+          "covered_by": "tool-summarize",
+          "chain": [
+            {
+              "narrower": "tool-summarize",
+              "broader": "eg:capability/analysis/summarize",
+              "source": {
+                "edge": "component_classification",
+                "component_id": "tool-summarize"
+              },
+              "class": "claim"
+            }
+          ]
+        },
+        {
+          "required": "eg:capability/reasoning/plan",
+          "covered_by": "prompt-research",
+          "chain": [
+            {
+              "narrower": "prompt-research",
+              "broader": "eg:capability/reasoning/plan",
+              "source": {
+                "edge": "component_classification",
+                "component_id": "prompt-research"
+              },
+              "class": "claim"
+            }
+          ]
+        },
+        {
+          "required": "eg:capability/retrieval",
+          "covered_by": "tool-vector",
+          "chain": [
+            {
+              "narrower": "tool-vector",
+              "broader": "eg:capability/retrieval/vector-search",
+              "source": {
+                "edge": "component_classification",
+                "component_id": "tool-vector"
+              },
+              "class": "claim"
+            },
+            {
+              "narrower": "eg:capability/retrieval/vector-search",
+              "broader": "eg:capability/retrieval",
+              "source": {
+                "edge": "native_ontology"
+              },
+              "class": "definition"
+            }
+          ]
+        }
+      ],
+      "outcome": {
+        "outcome": "solved",
+        "graph_digest": "sha256:5e0a98bc1bd392ddb8e5ec4285060f6a99af6d782ac3c649a1f743e7c5135c40",
+        "slots": [
+          {
+            "slot": "model_profile",
+            "component": {
+              "component_id": "model-cheap",
+              "kind": "model_profile",
+              "definition_digest": "sha256:e411efa76adb7c5f208d2ca187d6e400525bf461ac141bc0d5f5da38bc83a6a6"
+            }
+          },
+          {
+            "slot": "ontology",
+            "component": {
+              "component_id": "ontology-a",
+              "kind": "ontology",
+              "definition_digest": "sha256:e991a121a21ae33b85335889b1da7873d83c8128c2f2dfec129f90f8cca48484"
+            }
+          },
+          {
+            "slot": "system_prompt",
+            "component": {
+              "component_id": "prompt-research",
+              "kind": "system_prompt",
+              "definition_digest": "sha256:fc0b7b9b957389854d7676998ebba14b106f7de42f9df92fdce18cc9e9a7b514"
+            }
+          },
+          {
+            "slot": "skill",
+            "component": {
+              "component_id": "skill-a",
+              "kind": "skill",
+              "definition_digest": "sha256:6ba64c3d28f9788757d285c08cff17b809a7f96c43ca00746e2b8c255529461e"
+            }
+          },
+          {
+            "slot": "tool",
+            "component": {
+              "component_id": "tool-summarize",
+              "kind": "tool",
+              "definition_digest": "sha256:9bb19823ef9890af583f92f11b8d4c2d4e3ab55e9464f59897ac45367b02de38"
+            }
+          },
+          {
+            "slot": "tool",
+            "component": {
+              "component_id": "tool-vector",
+              "kind": "tool",
+              "definition_digest": "sha256:eb6ed101284f022e9f887c433b04fa6216d6641d4761cc834cab85bcbfdb9511"
+            }
+          }
+        ],
+        "certificate": {
+          "model_digest": "96b13a4cf3507f3918977532ea64a3cd6ce72587be2bbd24acc75a5298b9a1ad",
+          "algorithm": "depth_first_dual_ascent",
+          "config": {
+            "node_budget": 100000,
+            "max_certificate_leaves": 64,
+            "bound_denominator": 1,
+            "accepted_gap": "0"
+          },
+          "status": "optimal",
+          "incumbent": {
+            "selected": [
+              true,
+              true,
+              true,
+              true,
+              true,
+              true,
+              false
+            ],
+            "objective": {
+              "levels": [
+                {
+                  "known": "6",
+                  "unknown_selected": 0
+                },
+                {
+                  "known": "15",
+                  "unknown_selected": 0
+                },
+                {
+                  "known": "200",
+                  "unknown_selected": 0
+                }
+              ],
+              "scalar": "35591"
+            }
+          },
+          "lower_bound": "35591",
+          "proof": {
+            "tree": {
+              "nodes": [
+                {
+                  "forced": {
+                    "var": 1,
+                    "value": true,
+                    "row": 7
+                  }
+                },
+                {
+                  "forced": {
+                    "var": 3,
+                    "value": true,
+                    "row": 6
+                  }
+                },
+                {
+                  "forced": {
+                    "var": 2,
+                    "value": true,
+                    "row": 4
+                  }
+                },
+                {
+                  "forced": {
+                    "var": 0,
+                    "value": true,
+                    "row": 3
+                  }
+                },
+                {
+                  "forced": {
+                    "var": 4,
+                    "value": true,
+                    "row": 0
+                  }
+                },
+                {
+                  "leaf": {
+                    "proof": {
+                      "bound": {
+                        "dual": {
+                          "denominator": 1,
+                          "entries": [
+                            {
+                              "row": 2,
+                              "numerator": "6074"
+                            }
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "nodes_expanded": 1
+        }
+      },
+      "why_not": [
+        {
+          "component_id": "tool-web",
+          "slot": "tool",
+          "forced_objective": {
+            "levels": [
+              {
+                "known": "6",
+                "unknown_selected": 0
+              },
+              {
+                "known": "17",
+                "unknown_selected": 0
+              },
+              {
+                "known": "200",
+                "unknown_selected": 0
+              }
+            ],
+            "scalar": "36093"
+          },
+          "violation": null
+        }
+      ],
+      "record_digest": "sha256:90c1769b869bef5d8ea85fc2f21d76da0003d80c5f0c5e88d227f42a0188df67"
+    },
+    "model": {
+      "variables": [
+        "s0.c0",
+        "s0.c2",
+        "s0.c3",
+        "s0.c4",
+        "s0.c5",
+        "s0.c7",
+        "s0.c8"
+      ],
+      "constraints": [
+        {
+          "label": "cover:eg:capability/analysis/summarize",
+          "body": {
+            "at_least": {
+              "vars": [
+                4
+              ],
+              "k": 1
+            }
+          }
+        },
+        {
+          "label": "cover:eg:capability/reasoning/plan",
+          "body": {
+            "at_least": {
+              "vars": [
+                2
+              ],
+              "k": 1
+            }
+          }
+        },
+        {
+          "label": "cover:eg:capability/retrieval",
+          "body": {
+            "at_least": {
+              "vars": [
+                5,
+                6
+              ],
+              "k": 1
+            }
+          }
+        },
+        {
+          "label": "s0.one:model_profile",
+          "body": {
+            "exactly_one": {
+              "vars": [
+                0
+              ]
+            }
+          }
+        },
+        {
+          "label": "s0.one:system_prompt",
+          "body": {
+            "exactly_one": {
+              "vars": [
+                2
+              ]
+            }
+          }
+        },
+        {
+          "label": "s0.one:tool",
+          "body": {
+            "at_least": {
+              "vars": [
+                4,
+                5,
+                6
+              ],
+              "k": 1
+            }
+          }
+        },
+        {
+          "label": "s0.one:skill",
+          "body": {
+            "at_least": {
+              "vars": [
+                3
+              ],
+              "k": 1
+            }
+          }
+        },
+        {
+          "label": "s0.one:ontology",
+          "body": {
+            "at_least": {
+              "vars": [
+                1
+              ],
+              "k": 1
+            }
+          }
+        },
+        {
+          "label": "tool-model:s0.c5",
+          "body": {
+            "implies_any": {
+              "antecedent": 4,
+              "consequents": [
+                0
+              ]
+            }
+          }
+        },
+        {
+          "label": "tool-model:s0.c7",
+          "body": {
+            "implies_any": {
+              "antecedent": 5,
+              "consequents": [
+                0
+              ]
+            }
+          }
+        },
+        {
+          "label": "tool-model:s0.c8",
+          "body": {
+            "implies_any": {
+              "antecedent": 6,
+              "consequents": [
+                0
+              ]
+            }
+          }
+        }
+      ],
+      "objective": [
+        {
+          "label": "components",
+          "terms": [
+            {
+              "var": 0,
+              "coefficient": {
+                "known": 1
+              }
+            },
+            {
+              "var": 1,
+              "coefficient": {
+                "known": 1
+              }
+            },
+            {
+              "var": 2,
+              "coefficient": {
+                "known": 1
+              }
+            },
+            {
+              "var": 3,
+              "coefficient": {
+                "known": 1
+              }
+            },
+            {
+              "var": 4,
+              "coefficient": {
+                "known": 1
+              }
+            },
+            {
+              "var": 5,
+              "coefficient": {
+                "known": 1
+              }
+            },
+            {
+              "var": 6,
+              "coefficient": {
+                "known": 1
+              }
+            }
+          ]
+        },
+        {
+          "label": "declared_cost",
+          "terms": [
+            {
+              "var": 0,
+              "coefficient": {
+                "known": 10
+              }
+            },
+            {
+              "var": 4,
+              "coefficient": {
+                "known": 2
+              }
+            },
+            {
+              "var": 5,
+              "coefficient": {
+                "known": 3
+              }
+            },
+            {
+              "var": 6,
+              "coefficient": {
+                "known": 5
+              }
+            }
+          ]
+        },
+        {
+          "label": "declared_p95_latency",
+          "terms": [
+            {
+              "var": 0,
+              "coefficient": {
+                "known": 100
+              }
+            },
+            {
+              "var": 4,
+              "coefficient": {
+                "known": 50
+              }
+            },
+            {
+              "var": 5,
+              "coefficient": {
+                "known": 50
+              }
+            },
+            {
+              "var": 6,
+              "coefficient": {
+                "known": 50
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "uncovered",
+    "record": {
+      "schema_version": 1,
+      "record_id": "decision:609e7946f40e1da51601ae64077d8d820beeadcafa0f2416d240112f722847d6",
+      "tenant_id": "tenant-a",
+      "caller_principal": "caller-a",
+      "created_at_ms": 1700000000000,
+      "question": "assemble",
+      "candidate_source": {
+        "source": "agent_library",
+        "kinds": [
+          "model_profile",
+          "system_prompt",
+          "tool",
+          "toolset",
+          "skill",
+          "ontology",
+          "a2a_agent_card"
+        ],
+        "classification_under": null
+      },
+      "inputs": {
+        "request": {
+          "tenant_id": "tenant-a",
+          "requirements": {
+            "tasks": [],
+            "capabilities": [
+              "eg:capability/action/process-exec"
+            ],
+            "task_mappings": [],
+            "unmapped_task_digests": [],
+            "constraints": {
+              "max_components": null,
+              "context_budget_tokens": null,
+              "cost_budget": null,
+              "max_p95_latency_ms": null,
+              "require_tools": false,
+              "require_structured_output": false,
+              "modalities_in": [],
+              "modalities_out": []
+            },
+            "pins": [],
+            "denies": []
+          },
+          "candidates": {
+            "kinds": [
+              "model_profile",
+              "system_prompt",
+              "tool",
+              "toolset",
+              "skill",
+              "ontology",
+              "a2a_agent_card"
+            ],
+            "classification_under": null
+          },
+          "templates": [],
+          "policy": {
+            "policy": "default"
+          },
+          "solver": null
+        },
+        "candidates": [
+          {
+            "component_id": "model-cheap",
+            "kind": "model_profile",
+            "entry_revision": 1,
+            "definition_digest": "sha256:e411efa76adb7c5f208d2ca187d6e400525bf461ac141bc0d5f5da38bc83a6a6",
+            "lifecycle": "published",
+            "classification": [
+              "eg:capability/generation/text"
+            ],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "model_profile",
+              "provider": "provider",
+              "model_identity": "model-cheap-identity",
+              "context_window_tokens": 128000,
+              "max_output_tokens": 1,
+              "supports_tools": true,
+              "supports_structured_output": true,
+              "supports_vision": false,
+              "modalities": {
+                "input": [
+                  "eg:modality/text"
+                ],
+                "output": [
+                  "eg:modality/text"
+                ]
+              },
+              "cost": {
+                "currency": "USD",
+                "per_call_micros": 10,
+                "input_per_mtok_micros": null,
+                "output_per_mtok_micros": null,
+                "price_source": {
+                  "source": "publisher"
+                },
+                "quality": "declared"
+              },
+              "latency_declared": {
+                "p50_ms": 1,
+                "p95_ms": 100
+              },
+              "latency_observed_ref": null
+            },
+            "fact_premises": [
+              {
+                "subject": "model-cheap",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "model-cheap",
+                  "definition_digest": "sha256:e411efa76adb7c5f208d2ca187d6e400525bf461ac141bc0d5f5da38bc83a6a6"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "model-dear",
+            "kind": "model_profile",
+            "entry_revision": 1,
+            "definition_digest": "sha256:7eec2f867ab478b62678c20a69e7bc72b4298115d5f8a71224f317f4290594ed",
+            "lifecycle": "published",
+            "classification": [
+              "eg:capability/generation/text"
+            ],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "model_profile",
+              "provider": "provider",
+              "model_identity": "model-dear-identity",
+              "context_window_tokens": 200000,
+              "max_output_tokens": 1,
+              "supports_tools": true,
+              "supports_structured_output": true,
+              "supports_vision": false,
+              "modalities": {
+                "input": [
+                  "eg:modality/text"
+                ],
+                "output": [
+                  "eg:modality/text"
+                ]
+              },
+              "cost": {
+                "currency": "USD",
+                "per_call_micros": 900,
+                "input_per_mtok_micros": null,
+                "output_per_mtok_micros": null,
+                "price_source": {
+                  "source": "publisher"
+                },
+                "quality": "declared"
+              },
+              "latency_declared": {
+                "p50_ms": 1,
+                "p95_ms": 400
+              },
+              "latency_observed_ref": null
+            },
+            "fact_premises": [
+              {
+                "subject": "model-dear",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "model-dear",
+                  "definition_digest": "sha256:7eec2f867ab478b62678c20a69e7bc72b4298115d5f8a71224f317f4290594ed"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "ontology-a",
+            "kind": "ontology",
+            "entry_revision": 1,
+            "definition_digest": "sha256:e991a121a21ae33b85335889b1da7873d83c8128c2f2dfec129f90f8cca48484",
+            "lifecycle": "published",
+            "classification": [],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "opaque"
+            },
+            "fact_premises": [
+              {
+                "subject": "ontology-a",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "ontology-a",
+                  "definition_digest": "sha256:e991a121a21ae33b85335889b1da7873d83c8128c2f2dfec129f90f8cca48484"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "prompt-research",
+            "kind": "system_prompt",
+            "entry_revision": 1,
+            "definition_digest": "sha256:fc0b7b9b957389854d7676998ebba14b106f7de42f9df92fdce18cc9e9a7b514",
+            "lifecycle": "published",
+            "classification": [
+              "eg:capability/reasoning/plan"
+            ],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "system_prompt",
+              "prompt_mode": "static",
+              "token_estimate": 2000,
+              "variables": []
+            },
+            "fact_premises": [
+              {
+                "subject": "prompt-research",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "prompt-research",
+                  "definition_digest": "sha256:fc0b7b9b957389854d7676998ebba14b106f7de42f9df92fdce18cc9e9a7b514"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "skill-a",
+            "kind": "skill",
+            "entry_revision": 1,
+            "definition_digest": "sha256:6ba64c3d28f9788757d285c08cff17b809a7f96c43ca00746e2b8c255529461e",
+            "lifecycle": "published",
+            "classification": [],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "opaque"
+            },
+            "fact_premises": [
+              {
+                "subject": "skill-a",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "skill-a",
+                  "definition_digest": "sha256:6ba64c3d28f9788757d285c08cff17b809a7f96c43ca00746e2b8c255529461e"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "tool-summarize",
+            "kind": "tool",
+            "entry_revision": 1,
+            "definition_digest": "sha256:9bb19823ef9890af583f92f11b8d4c2d4e3ab55e9464f59897ac45367b02de38",
+            "lifecycle": "published",
+            "classification": [
+              "eg:capability/analysis/summarize"
+            ],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "tool",
+              "effect": "read",
+              "required_scopes": [],
+              "input_schema_digest": null,
+              "output_schema_digest": null,
+              "read_only_hint": null,
+              "destructive_hint": null,
+              "idempotent_hint": null,
+              "open_world_hint": null,
+              "modalities": {
+                "input": [],
+                "output": []
+              },
+              "cost": {
+                "currency": "USD",
+                "per_call_micros": 2,
+                "input_per_mtok_micros": null,
+                "output_per_mtok_micros": null,
+                "price_source": {
+                  "source": "publisher"
+                },
+                "quality": "declared"
+              },
+              "latency_declared": {
+                "p50_ms": 1,
+                "p95_ms": 50
+              }
+            },
+            "fact_premises": [
+              {
+                "subject": "tool-summarize",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "tool-summarize",
+                  "definition_digest": "sha256:9bb19823ef9890af583f92f11b8d4c2d4e3ab55e9464f59897ac45367b02de38"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "tool-swiss",
+            "kind": "tool",
+            "entry_revision": 1,
+            "definition_digest": "sha256:e7c7b6122d36878577de3490e7f4c89c215a14e6d8e28e4b568aadae04d02d6e",
+            "lifecycle": "published",
+            "classification": [
+              "eg:capability/retrieval/web-search",
+              "eg:capability/analysis/summarize"
+            ],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "tool",
+              "effect": "read",
+              "required_scopes": [],
+              "input_schema_digest": null,
+              "output_schema_digest": null,
+              "read_only_hint": null,
+              "destructive_hint": null,
+              "idempotent_hint": null,
+              "open_world_hint": null,
+              "modalities": {
+                "input": [],
+                "output": []
+              },
+              "cost": {
+                "currency": "USD",
+                "per_call_micros": 50,
+                "input_per_mtok_micros": null,
+                "output_per_mtok_micros": null,
+                "price_source": {
+                  "source": "publisher"
+                },
+                "quality": "declared"
+              },
+              "latency_declared": {
+                "p50_ms": 1,
+                "p95_ms": 50
+              }
+            },
+            "fact_premises": [
+              {
+                "subject": "tool-swiss",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "tool-swiss",
+                  "definition_digest": "sha256:e7c7b6122d36878577de3490e7f4c89c215a14e6d8e28e4b568aadae04d02d6e"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "tool-vector",
+            "kind": "tool",
+            "entry_revision": 1,
+            "definition_digest": "sha256:eb6ed101284f022e9f887c433b04fa6216d6641d4761cc834cab85bcbfdb9511",
+            "lifecycle": "published",
+            "classification": [
+              "eg:capability/retrieval/vector-search"
+            ],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "tool",
+              "effect": "read",
+              "required_scopes": [],
+              "input_schema_digest": null,
+              "output_schema_digest": null,
+              "read_only_hint": null,
+              "destructive_hint": null,
+              "idempotent_hint": null,
+              "open_world_hint": null,
+              "modalities": {
+                "input": [],
+                "output": []
+              },
+              "cost": {
+                "currency": "USD",
+                "per_call_micros": 3,
+                "input_per_mtok_micros": null,
+                "output_per_mtok_micros": null,
+                "price_source": {
+                  "source": "publisher"
+                },
+                "quality": "declared"
+              },
+              "latency_declared": {
+                "p50_ms": 1,
+                "p95_ms": 50
+              }
+            },
+            "fact_premises": [
+              {
+                "subject": "tool-vector",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "tool-vector",
+                  "definition_digest": "sha256:eb6ed101284f022e9f887c433b04fa6216d6641d4761cc834cab85bcbfdb9511"
+                }
+              }
+            ]
+          },
+          {
+            "component_id": "tool-web",
+            "kind": "tool",
+            "entry_revision": 1,
+            "definition_digest": "sha256:2c5839c0f6c4e72a3f02c737a79ce06d157828e6b22e99b7d740b90c79d1a5b4",
+            "lifecycle": "published",
+            "classification": [
+              "eg:capability/retrieval/web-search"
+            ],
+            "required_capabilities": [],
+            "declared_capabilities": [],
+            "requires": [],
+            "facts": {
+              "facts": "tool",
+              "effect": "read",
+              "required_scopes": [],
+              "input_schema_digest": null,
+              "output_schema_digest": null,
+              "read_only_hint": null,
+              "destructive_hint": null,
+              "idempotent_hint": null,
+              "open_world_hint": null,
+              "modalities": {
+                "input": [],
+                "output": []
+              },
+              "cost": {
+                "currency": "USD",
+                "per_call_micros": 5,
+                "input_per_mtok_micros": null,
+                "output_per_mtok_micros": null,
+                "price_source": {
+                  "source": "publisher"
+                },
+                "quality": "declared"
+              },
+              "latency_declared": {
+                "p50_ms": 1,
+                "p95_ms": 50
+              }
+            },
+            "fact_premises": [
+              {
+                "subject": "tool-web",
+                "fact": "classification",
+                "class": "claim",
+                "provenance": {
+                  "provenance": "publisher",
+                  "component_id": "tool-web",
+                  "definition_digest": "sha256:2c5839c0f6c4e72a3f02c737a79ce06d157828e6b22e99b7d740b90c79d1a5b4"
+                }
+              }
+            ]
+          }
+        ],
+        "ontology_digest": "sha256:d1817ceb463d7a3d97f5509ffe514641f05ef5bf7ec50a5f260e797b626dc783",
+        "policy": {
+          "schema_version": 1,
+          "objective": {
+            "order": "lexicographic",
+            "levels": [
+              "uncovered",
+              "components",
+              "declared_cost",
+              "declared_p95_latency"
+            ]
+          },
+          "unknown_cost": "exclude_when_strict",
+          "accepted_gap": "0",
+          "node_budget": 100000,
+          "max_templates": 8,
+          "max_slots": 6,
+          "max_nogood_rounds": 8,
+          "max_why_not_per_slot": 3,
+          "a2a_requires_observation": true,
+          "cold_start": {
+            "mode": "deterministic_only"
+          },
+          "statistical": null
+        },
+        "policy_digest": "sha256:7f5b46402082d1169d80cf7968c1c5548e809d2af135ad5202723cdffec55c77",
+        "catalog_digest": "sha256:55f79ebfd5e9c72c4afc87d01e2b2ccb0837cc42d5225562b06b4131a96cd8bc",
+        "solver": {
+          "algorithm": "depth_first_dual_ascent",
+          "node_budget": 100000
+        },
+        "templates": []
+      },
+      "inputs_digest": "sha256:9b960a1fa7349130afcba858c16eb0fcd929210720fc901faf0a1b062cdbe7d0",
+      "resolution_kind": "abstention",
+      "evidence_class": "proof",
+      "derivation_class": "proof",
+      "trace_fidelity": {
+        "fidelity": "full_step"
+      },
+      "premises": [
+        {
+          "subject": "eg:capability/action/process-exec",
+          "fact": "required",
+          "class": "definition",
+          "provenance": {
+            "provenance": "request",
+            "field": "requirements.capabilities"
+          }
+        }
+      ],
+      "eliminated": [],
+      "derivations": [
+        {
+          "required": "eg:capability/action/process-exec",
+          "covered_by": null,
+          "chain": []
+        }
+      ],
+      "outcome": {
+        "outcome": "abstained",
+        "reasons": [
+          {
+            "reason": "uncovered_capability",
+            "iri": "eg:capability/action/process-exec"
+          }
+        ]
+      },
+      "why_not": [],
+      "record_digest": "sha256:609e7946f40e1da51601ae64077d8d820beeadcafa0f2416d240112f722847d6"
+    },
+    "model": null
+  }
+]

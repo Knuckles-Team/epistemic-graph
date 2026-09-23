@@ -305,7 +305,7 @@ solve = ["eg-compute/solve"]
 # RF-ADR-010: the Decide layer's handlers. The wire contract is unconditional
 # (the capability rows are, following the `SemanticIndex` precedent), so this
 # gates only the server-side implementation and the crates it needs.
-decide = ["solve", "eg-compute/decide", "eg-compute/decide-stats", "numeric", "jobs", "redb"]
+decide = ["solve", "eg-compute/decide", "eg-compute/decide-stats", "numeric", "jobs", "redb", "shacl"]
 # Native eg-ann IVF-PQ + OPQ + SQ8-refine vector index (CONCEPT:KG-2.207) as the
 # SemanticStore compression backend alongside the in-tree native HNSW index. Pure-Rust,
 # CPU integer-table serving (no GPU/native-ML/faiss in the tree). It is included in

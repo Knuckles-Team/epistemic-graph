@@ -1669,7 +1669,6 @@ mod tests {
                         kind: eg_types::agent_component::AgentComponentKind::Tool,
                         definition_digest: digest('9'),
                     }],
-                    provides: Vec::new(),
                     declared_capabilities: Vec::new(),
                     required_capabilities: Vec::new(),
                     declared_required_capabilities: Vec::new(),

@@ -36,8 +36,10 @@ mod connector_pack;
 #[cfg(feature = "redb")]
 mod saga;
 
+#[cfg(feature = "redb")]
+pub(crate) use agent::bind_agent_library_context;
 #[cfg(all(test, feature = "redb"))]
-pub(crate) use agent::{bind_agent_library_context, bind_agent_library_draft};
+pub(crate) use agent::bind_agent_library_draft;
 #[cfg(feature = "redb")]
 pub(crate) use agent::{
     handle_agent_component, handle_agent_graph, handle_agent_library, handle_agent_template,

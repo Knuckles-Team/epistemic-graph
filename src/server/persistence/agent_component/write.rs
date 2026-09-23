@@ -18,6 +18,7 @@ fn prepare_component_entry(
     next_revision: u64,
     replay_context: &AgentLibraryMutationContext,
 ) -> Result<AgentComponentEntry, String> {
+    super::super::decision_record::verify_policy_component(&request.component)?;
     super::pins::resolve_component_pins_in_write(
         txn,
         &request.context.tenant_id,

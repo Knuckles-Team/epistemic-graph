@@ -7,6 +7,8 @@
 pub(crate) mod assemble;
 pub(crate) mod commit;
 pub(crate) mod jobs;
+#[cfg(feature = "decide")]
+pub(crate) mod shape;
 pub(crate) mod statistical;
 
 pub(crate) use assemble::handle_agent_assemble;
