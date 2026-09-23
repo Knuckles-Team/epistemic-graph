@@ -113,6 +113,8 @@ pub(crate) const ACCESS_RS_MUTATES_CONDITIONAL: &[&str] = &[
     // EH-345: record_discovery/set_override/clear_override write; list/lookup read.
     "FleetCatalog",
     "DecisionLog",
+    // EH-346/EH-347: every op but `get` commits one immutable record.
+    "PolicyEvolution",
     "MutationOutbox",
     "WriteBack",
     // EH-280: only a scoped (branch-aware) batch commits its projection.
@@ -269,6 +271,9 @@ pub(crate) const NATIVE_GRAPHREDB_DURABLE: &[&str] = &[
     // `CompareAndSetNodeFields` against `__commons__`, the same lowering shape as
     // `RegisterServer` just above.
     "FleetCatalog",
+    // EH-346/EH-347: each write self-translates into ONE `CreateNodeIfAbsent`
+    // against the request graph, the same lowering shape as `FleetCatalog`.
+    "PolicyEvolution",
     "RunDatalogReasoning",
     // RF-ADR-009: SourceIngest prepares one governed ChangeEnvelope and calls
     // the existing ApplyChangeEnvelope authority. It owns no parallel graph
@@ -421,6 +426,8 @@ pub(crate) const AUDIT_RS_AUDITED: &[&str] = &[
     "RegisterServer",
     // EH-345: defense-in-depth marker; the real lines are the lowered primitives'.
     "FleetCatalog",
+    // EH-346/EH-347: defense-in-depth marker, like `FleetCatalog`.
+    "PolicyEvolution",
     "RemoveEdge",
     "RemoveNode",
     "RemoveTriples",
@@ -478,6 +485,8 @@ pub(crate) const CDC_RS_EMITS_CDC: &[&str] = &[
     "RegisterServer",
     // EH-345: defense-in-depth marker, like `RegisterServer`.
     "FleetCatalog",
+    // EH-346/EH-347: defense-in-depth marker, like `FleetCatalog`.
+    "PolicyEvolution",
     "RemoveEdge",
     "RemoveNode",
     "RunDatalogReasoning",
