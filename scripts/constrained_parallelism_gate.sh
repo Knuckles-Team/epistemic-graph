@@ -149,6 +149,14 @@ export CARGO_TARGET_DIR="$TARGET_DIR"
 # slow." Override with EG_CONSTRAINED_TIMEOUT for a slower/smaller runner;
 # never remove the bound.
 TIMEOUT_SECS="${EG_CONSTRAINED_TIMEOUT:-1200}"
+# EH-305: COMPILATION is not part of the contract. The 1200s/900s bounds above
+# measure constrained TEST EXECUTION; a cold facade build under a build host's
+# CPU quota takes about an hour, so bounding the build with the suite contract
+# killed every cold run before a single constrained test executed ("build failed
+# before constrained execution even started", 2026-09-19 and 2026-09-23). Every
+# `--no-run` compile gets its own, separate ceiling: still bounded (it never
+# hangs), never charged to the contract.
+BUILD_TIMEOUT_SECS="${EG_CONSTRAINED_BUILD_TIMEOUT:-7200}"
 TEST_TIMEOUT_SECS="${EG_CONSTRAINED_TEST_TIMEOUT:-900}"
 TERM_GRACE_SECS="${EG_CONSTRAINED_TERM_GRACE:-30}"
 KILL_GRACE_SECS="${EG_CONSTRAINED_KILL_GRACE:-10}"
@@ -176,7 +184,7 @@ n_cores=$(($(echo "$CORES" | tr ',' '\n' | wc -l)))
 echo "== GOC-70 constrained-parallelism gate =="
 echo "== environment: CPU affinity restricted to cores [$CORES] ($n_cores logical cores) =="
 echo "== host reports $(nproc) cores total; this run deliberately does not use them all =="
-echo "== lifecycle bounds: suite=${TIMEOUT_SECS}s test=${TEST_TIMEOUT_SECS}s TERM=${TERM_GRACE_SECS}s KILL=${KILL_GRACE_SECS}s =="
+echo "== lifecycle bounds: suite=${TIMEOUT_SECS}s test=${TEST_TIMEOUT_SECS}s TERM=${TERM_GRACE_SECS}s KILL=${KILL_GRACE_SECS}s build=${BUILD_TIMEOUT_SECS}s =="
 
 # Keep the test command unchanged while giving every invocation a private
 # process group, an absolute suite deadline, a per-test deadline, and bounded
@@ -194,8 +202,22 @@ bounded_test() {
     -- "$@"
 }
 
+# A compile under its own bound (see BUILD_TIMEOUT_SECS): same process-group
+# containment, never the test contract's deadline.
+bounded_build() {
+  local suite_name="$1"
+  shift
+  python3 scripts/bounded_test_runner.py \
+    --suite-name "$suite_name" \
+    --suite-timeout "$BUILD_TIMEOUT_SECS" \
+    --test-timeout "$BUILD_TIMEOUT_SECS" \
+    --term-grace "$TERM_GRACE_SECS" \
+    --kill-grace "$KILL_GRACE_SECS" \
+    -- "$@"
+}
+
 echo "-- step 1/2: unconstrained build (full host parallelism; compile cost must not be paid under 2-core affinity) --"
-if ! bounded_test "constrained-lib-build" cargo test --no-run -p epistemic-graph --features full --lib; then
+if ! bounded_build "constrained-lib-build" cargo test --no-run -p epistemic-graph --features full --lib; then
   echo "FAIL: build failed before constrained execution even started." >&2
   exit 1
 fi
@@ -280,6 +302,10 @@ bounded_kafka_test() {
 }
 
 echo "-- Kafka non-blocking contract: unconstrained build + exact selection proof --"
+if ! bounded_build "constrained-eg-stream-kafka-build" cargo test --no-run -p eg-stream --features cdc-kafka; then
+  echo "FAIL: eg-stream cdc-kafka build failed before the Kafka contract started." >&2
+  exit 1
+fi
 if kafka_test_list=$(bounded_test "constrained-eg-stream-kafka-list" cargo test -p eg-stream --features cdc-kafka -- --list --format terse); then
   printf '%s\n' "$kafka_test_list"
 else
@@ -318,7 +344,7 @@ if [ "${EG_CONSTRAINED_EXTRA_TESTS:-1}" != "0" ]; then
   EXTRA_TESTS="pgwire_roundtrip mysql_roundtrip mssql_roundtrip advanced_crossmodal_roundtrip incremental_server_indexes txn_recovery_key_decoupled_d_orc_50 external_compute_e2e"
   build_args=()
   for t in $EXTRA_TESTS; do build_args+=(--test "$t"); done
-  if ! bounded_test "constrained-extra-build" cargo test --no-run -p epistemic-graph --features full "${build_args[@]}"; then
+  if ! bounded_build "constrained-extra-build" cargo test --no-run -p epistemic-graph --features full "${build_args[@]}"; then
     echo "FAIL: extra-target build failed." >&2
     exit 1
   fi
