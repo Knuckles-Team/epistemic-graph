@@ -444,6 +444,30 @@ pub trait PersistenceBackend: Send + Sync {
         Ok(None)
     }
 
+    /// Answer one operator view of a consumer's stream on `graph_fname`'s
+    /// scope from one snapshot (X10). The default fails closed: only a backend
+    /// with the durable ledger has a stream to show.
+    #[cfg(feature = "redb")]
+    async fn read_mutation_outbox_view(
+        &self,
+        _graph_fname: &str,
+        _view: crate::server::outbox_operator::OutboxView,
+    ) -> Result<crate::server::outbox_operator::OutboxViewAnswer, String> {
+        Err("persistence backend does not support durable outbox views".to_string())
+    }
+
+    /// Apply one delivery-side write -- a consumer's `reject` or an
+    /// operator's `rewind` -- on the single-writer authority of
+    /// `graph_fname`'s shard (X10).
+    #[cfg(feature = "redb")]
+    async fn write_mutation_outbox(
+        &self,
+        _graph_fname: &str,
+        _write: crate::server::outbox_operator::OutboxWrite,
+    ) -> Result<crate::server::outbox_operator::OutboxWriteReply, String> {
+        Err("persistence backend does not support durable outbox writes".to_string())
+    }
+
     /// Latest lifecycle generation for a graph, used to fence stale retries.
     async fn read_mutation_lifecycle_head(
         &self,

@@ -442,6 +442,16 @@ macro_rules! writer_command_arms {
             let _ = done.send(result);
             false
         }
+        Cmd::MutationOutboxWrite { graph, write, done } => {
+            // Ordered after every pending graph mutation, like a claim or an
+            // ack: a rewind or reject must observe the committed stream.
+            flush(pending);
+            let result = shard.graph(&graph).and_then(|handle| {
+                crate::server::outbox_operator::operate(shard.mutations(), handle.as_ref(), *write)
+            });
+            let _ = done.send(result);
+            false
+        }
         Cmd::Shutdown { reply } => {
             let _ = reply.send(());
             true

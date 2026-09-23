@@ -389,6 +389,20 @@ pub struct JobStore {
 }
 
 impl JobStore {
+    /// The outbox operator's view of this store (X10): its one mutation
+    /// kernel, its read authority and its one serving scope, so the server's
+    /// `MutationOutbox` method can read and rewind this file's outbox through
+    /// the same owner-generic functions as every other owner.
+    pub fn outbox_owner(
+        &self,
+    ) -> (
+        &MutationKernel,
+        &StorageKernel,
+        &OwnedStoreHandle<JobsOwner>,
+    ) {
+        (&self.mutations, &self.kernel, &self.owner)
+    }
+
     /// Open (or create) the job store at an exact file path through the storage
     /// kernel.
     ///

@@ -21,9 +21,9 @@ use super::stage::{
     stage_receipt_index_key,
 };
 use super::{
-    corrupt, ensure, kernel_error, refused, semantic_contract_error, OperationAttribution,
-    SemanticCodeError, SemanticCodeStore, SemanticMutationReceipt, SEMANTIC_BINDING_CREATED_TOPIC,
-    SEMANTIC_STAGE_INTENT_TOPIC,
+    corrupt, ensure, is_stage_intent_topic, kernel_error, refused, semantic_contract_error,
+    OperationAttribution, SemanticCodeError, SemanticCodeStore, SemanticMutationReceipt,
+    SEMANTIC_BINDING_CREATED_TOPIC,
 };
 use eg_storage::{
     SemanticIndexOwner, SEMANTIC_BINDINGS, SEMANTIC_HEADS, SEMANTIC_SOURCE_PROGRESS,
@@ -413,7 +413,7 @@ fn refresh_replay_matches(
     let intent_event = batch
         .outbox
         .iter()
-        .find(|event| event.topic == SEMANTIC_STAGE_INTENT_TOPIC)
+        .find(|event| is_stage_intent_topic(&event.topic))
         .ok_or_else(|| corrupt("semantic refresh replay batch has no replacement S1 event"))?;
     let existing_intent: SemanticStageIntent = decode(&intent_event.payload)?;
     ensure(

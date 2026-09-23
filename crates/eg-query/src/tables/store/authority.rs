@@ -357,6 +357,46 @@ impl SqlAuthority {
         self.kernel.read_scope(owner)
     }
 
+    /// The owner handle of a scope that is already bound on this file,
+    /// resolved without writing. An operator view must not write, and an
+    /// operator rewind must not bind a scope nothing ever wrote to.
+    fn existing_scope(
+        &self,
+        identity: &MutationScopeIdentity,
+    ) -> Result<OwnedStoreHandle<SqlOwner>, String> {
+        let grant = self.kernel.authenticate_scope::<SqlOwner>(
+            self.grants.as_ref(),
+            identity.clone(),
+            self.principal.clone(),
+            &self.proof,
+        )?;
+        self.kernel.resolve_bound_scope(grant)?.ok_or_else(|| {
+            "OUTBOX_OWNER_UNKNOWN: no SQL catalog scope with that resource".to_string()
+        })
+    }
+
+    /// The operator view of one scope's outbox (X10). Read-only.
+    pub(crate) fn outbox_operator_view(
+        &self,
+        identity: &MutationScopeIdentity,
+        view: &eg_transaction::OutboxView,
+        now_ms: u64,
+    ) -> Result<eg_transaction::OutboxViewAnswer, String> {
+        let owner = self.existing_scope(identity)?;
+        let read = self.kernel.read_scope(&owner)?;
+        eg_transaction::read_outbox_view(&self.mutations, &read, view, now_ms)
+    }
+
+    /// An operator rewind (or consumer reject) on one scope's outbox (X10).
+    pub(crate) fn outbox_operator_write(
+        &self,
+        identity: &MutationScopeIdentity,
+        write: eg_transaction::OutboxWrite,
+    ) -> Result<eg_transaction::OutboxWriteReply, String> {
+        let owner = self.existing_scope(identity)?;
+        eg_transaction::operate_outbox(&self.mutations, &owner, write)
+    }
+
     /// One kernel-issued scoped read over the bootstrap scope -- the catalog
     /// view every read path uses. Owner rows are layout-bounded, not
     /// scope-bounded, because `__sql_catalog__` and its siblings carry no scope

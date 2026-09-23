@@ -1,11 +1,11 @@
 """What the generated contract must say about the 2.27.x contract wave.
 
 The original wave declared ten methods before any were served. ConnectorPack,
-the GraphSchema read/write surface, AgentAssemble, DecisionCommit, Solve and
-the statistical Decide/DecisionFit/DecisionEval surface have now graduated with
-handlers and generated clients; the remaining refusal-only methods must stay
-internal. Every request and result body remains schematized and digest
-identities remain reproducible.
+the GraphSchema read/write surface, AgentAssemble, DecisionCommit, Solve, the
+statistical Decide/DecisionFit/DecisionEval surface and the MutationOutbox
+operator surface have now graduated with handlers and generated clients; the
+remaining refusal-only methods must stay internal. Every request and result body
+remains schematized and digest identities remain reproducible.
 """
 
 from __future__ import annotations
@@ -42,6 +42,7 @@ PUBLIC_WAVE_METHODS = {
     "Decide",
     "DecisionFit",
     "DecisionEval",
+    "MutationOutbox",
 }
 INTERNAL_WAVE_METHODS = tuple(
     name for name in WAVE_METHODS if name not in PUBLIC_WAVE_METHODS

@@ -1879,12 +1879,40 @@ impl SemanticIndexService {
         self.store.claim_stage_leases(consumer, budget)
     }
 
+    /// Claim one queue class for one worker: its own consumer on its own
+    /// class topic, so no other class's rows are ever leased to it.
+    pub fn claim_stage_class(
+        &self,
+        worker: &str,
+        class: eg_types::semantic_index::SemanticQueueClass,
+        budget: &mut OutboxClaimBudget,
+    ) -> Result<OutboxClaimOutcome, SemanticCodeError> {
+        self.store.claim_stage_class(worker, class, budget)
+    }
+
     pub fn stage_status(
         &self,
         consumer: &str,
         now_ms: u64,
     ) -> Result<OutboxStatus, SemanticCodeError> {
         self.store.stage_status(consumer, now_ms)
+    }
+
+    /// The operator view of this binding's outbox (`Method::MutationOutbox`).
+    pub fn outbox_operator_view(
+        &self,
+        view: &eg_transaction::OutboxView,
+        now_ms: u64,
+    ) -> Result<eg_transaction::OutboxViewAnswer, SemanticCodeError> {
+        self.store.outbox_operator_view(view, now_ms)
+    }
+
+    /// An operator rewind on this binding's outbox (`Method::MutationOutbox`).
+    pub fn outbox_operator_write(
+        &self,
+        write: eg_transaction::OutboxWrite,
+    ) -> Result<eg_transaction::OutboxWriteReply, SemanticCodeError> {
+        self.store.outbox_operator_write(write)
     }
 
     /// Persist one terminal transition, publish the successor intent when its

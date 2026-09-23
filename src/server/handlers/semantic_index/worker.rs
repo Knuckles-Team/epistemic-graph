@@ -24,7 +24,7 @@ pub(super) async fn handle(ctx: &SemanticIndexContext<'_>, op: SemanticIndexOp) 
             ..
         } => claim(ctx, queue_class, limit, lease_ms).await,
         SemanticIndexOp::ValidateStageLease { lease, .. } => validate(ctx, *lease).await,
-        SemanticIndexOp::StageStatus { .. } => status(ctx).await,
+        SemanticIndexOp::StageStatus { queue_class, .. } => status(ctx, queue_class).await,
         SemanticIndexOp::CompleteStage {
             lease,
             transition,
@@ -88,27 +88,20 @@ async fn claim(
     let claimed = blocking(ctx.req_id, move || {
         let mut budget = OutboxClaimBudget::new(limit, lease_ms, now_ms)
             .map_err(eg_core::compute::semantic_ann_codes::SemanticCodeError::Refused)?;
-        let outcome = service.claim_stage_leases(&consumer, &mut budget)?;
+        let outcome = service.claim_stage_class(&consumer, queue_class, &mut budget)?;
         let mut entries = Vec::with_capacity(outcome.claims.len());
-        let mut released_other_class = 0u32;
         for lease in outcome.claims {
             let intent = service.validate_stage_lease(&lease, &consumer, now_ms)?;
-            if intent.stage.queue_class() == queue_class {
-                entries.push(SemanticStageLeaseEntry {
-                    lease,
-                    queue_class,
-                    intent,
-                });
-            } else {
-                service.release_stage_lease(&lease)?;
-                released_other_class = released_other_class.saturating_add(1);
-            }
+            entries.push(SemanticStageLeaseEntry {
+                lease,
+                queue_class,
+                intent,
+            });
         }
         Ok(SemanticStageLeasePage {
             queue_class,
             entries,
             more_available: outcome.more_available,
-            released_other_class,
         })
     })
     .await;
@@ -119,13 +112,10 @@ async fn validate(
     ctx: &SemanticIndexContext<'_>,
     lease: eg_types::mutation_batch::MutationOutboxLease,
 ) -> Response {
-    let consumer = ctx.authority.agent_id().to_string();
-    if lease.consumer != consumer {
-        return Response::err(
-            ctx.req_id,
-            "ACCESS_DENIED: semantic lease owner does not match verified carrier",
-        );
+    if let Err(error) = own_lease(&lease, ctx.authority) {
+        return Response::err(ctx.req_id, error);
     }
+    let consumer = ctx.authority.agent_id().to_string();
     let service = Arc::clone(&ctx.service);
     let now_ms = ctx.now_ms;
     reply::<ingestion_results::SemanticIndexValidateStageLease, _>(
@@ -137,8 +127,12 @@ async fn validate(
     )
 }
 
-async fn status(ctx: &SemanticIndexContext<'_>) -> Response {
-    let consumer = ctx.authority.agent_id().to_string();
+async fn status(
+    ctx: &SemanticIndexContext<'_>,
+    queue_class: eg_types::semantic_index::SemanticQueueClass,
+) -> Response {
+    let consumer =
+        eg_core::compute::semantic_ann_codes::stage_consumer(ctx.authority.agent_id(), queue_class);
     let service = Arc::clone(&ctx.service);
     let now_ms = ctx.now_ms;
     let status = blocking(ctx.req_id, move || service.stage_status(&consumer, now_ms))

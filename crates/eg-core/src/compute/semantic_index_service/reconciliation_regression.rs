@@ -632,7 +632,20 @@ fn leased_s1_completion_persists_the_explicit_authorization_time() {
         Some(retained),
         "replay retains exactly one canonical authorization time and artifact"
     );
-    let status = service.stage_status("semantic-s1-worker", 8).unwrap();
+    // Each queue class is its own consumer (`<worker>#<class>`): S1 and the
+    // S2 it derives sit in different classes, so the worker's figures are the
+    // sum over its class consumers.
+    let per_class: Vec<_> = crate::compute::semantic_ann_codes::SEMANTIC_QUEUE_CLASSES
+        .iter()
+        .map(|class| {
+            let consumer =
+                crate::compute::semantic_ann_codes::stage_consumer("semantic-s1-worker", *class);
+            service.stage_status(&consumer, 8).unwrap()
+        })
+        .collect();
+    let total = |field: fn(&eg_transaction::OutboxStatus) -> u64| -> u64 {
+        per_class.iter().map(field).sum()
+    };
     // The S1 lease is resolved, so nothing is in flight and one row is
     // delivered. `pending` is ONE, not zero: completing S1 with `successor:
     // None` does not publish nothing -- `validate_successor_intent` DERIVES the
@@ -641,9 +654,13 @@ fn leased_s1_completion_persists_the_explicit_authorization_time() {
     // The original `pending == 0` here assumed `None` meant "no successor" and
     // was therefore asserting that S1 completion is a dead end; it had never
     // run, because this module had never been compiled.
-    assert_eq!(status.inflight, 0);
-    assert_eq!(status.pending, 1, "completing S1 publishes its derived S2");
-    assert_eq!(status.delivered, 1);
+    assert_eq!(total(|status| u64::from(status.inflight)), 0);
+    assert_eq!(
+        total(|status| status.pending),
+        1,
+        "completing S1 publishes its derived S2"
+    );
+    assert_eq!(total(|status| status.delivered), 1);
 
     drop(service);
     let _ = std::fs::remove_dir_all(dir);
