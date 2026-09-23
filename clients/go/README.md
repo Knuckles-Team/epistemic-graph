@@ -32,13 +32,10 @@ Same framed-MessagePack transport as the Python client:
   claims, timestamp, nonce, and idempotency key. `Dial` rejects an empty secret,
   missing claims, empty or duplicate list entries, malformed delegation, and
   implicitly omitted `Roles`, `Scopes`, or `Delegation` slices before connecting.
-- **Canonical body:** the MAC covers the body the engine re-derives from the request it
-  DECODED (declaration order, serde defaults, sorted maps, float/byte widths), not the
-  bytes sent. The client computes it with the engine's own decoder and encoder: the
-  embedded `eg_method_codec.wasm` (crates/eg-method-codec, built by
-  `scripts/build_method_codec_wasm.py`, run through wazero). `vectors_test.go` replays
-  every contract method-body vector (body digest + engine envelope MAC) through the
-  signer. A request the engine could not decode is refused before it is sent.
+- **Canonical body:** the MAC covers the engine's canonical re-derivation of the
+  body, computed by the embedded `eg_method_codec.wasm` run through wazero (see the
+  [wire contract](https://github.com/Knuckles-Team/epistemic-graph/blob/main/docs/interfaces/clients.md#wire-contract-all-three)). `vectors_test.go` replays every contract method-body vector
+  through the signer.
 - **Correlation:** this client holds ONE connection and serializes each round-trip under
   a mutex, so responses are read in order (no out-of-order demux needed — unlike the
   pipelined Python client). Wrap concurrent callers accordingly.
