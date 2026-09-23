@@ -206,15 +206,15 @@ impl<'a> IndexValidator<'a> {
         };
         if section.length > limit {
             self.reject(
-                PackViolationCode::MalformedSections,
+                PackViolationCode::PackTooLarge,
                 Some(&entry.uri),
-                "section is out of range or exceeds its bound",
+                "section exceeds its served size bound",
             );
             return;
         }
         if Digest256::from_bytes(Sha256::digest(bytes).into()) != section.sha256 {
             self.reject(
-                PackViolationCode::ArchiveDigestMismatch,
+                PackViolationCode::PackDigestMismatch,
                 Some(&entry.uri),
                 "section digest differs from archive bytes",
             );
@@ -230,6 +230,9 @@ impl<'a> IndexValidator<'a> {
         self.validate_json_body(entry, body);
         self.validate_manifest_body(entry, body);
         self.validate_skill_body(entry, body);
+        if let Err(detail) = super::skill_files::validate_skill_file(entry) {
+            self.reject(PackViolationCode::MalformedIndex, Some(&entry.uri), detail);
+        }
     }
 
     fn validate_text_body(&mut self, entry: &PackEntry, body: &[u8]) {
@@ -270,11 +273,20 @@ impl<'a> IndexValidator<'a> {
     }
 
     fn validate_skill_body(&mut self, entry: &PackEntry, body: &[u8]) {
-        if entry.kind == PackEntryKind::Skill && !valid_skill_frontmatter(body, &entry.name) {
+        if entry.kind != PackEntryKind::Skill {
+            return;
+        }
+        if !valid_skill_frontmatter(body, &entry.name) {
             self.reject(
                 PackViolationCode::MalformedBody,
                 Some(&entry.uri),
                 "skill front matter is absent, unsafe, or does not name the entry",
+            );
+        } else if super::front_matter::declared_skill_type(body).is_err() {
+            self.reject(
+                PackViolationCode::MalformedBody,
+                Some(&entry.uri),
+                "skill front-matter type is not skill, workflow, graph or mcp_skill",
             );
         }
     }
@@ -372,19 +384,16 @@ impl<'a> IndexValidator<'a> {
     }
 
     fn validate_annotations(&mut self, entry: &PackEntry) {
-        for iri in entry
-            .annotations
-            .provides
-            .iter()
-            .chain(entry.annotations.requires_capabilities.iter())
-        {
-            if !valid_iri(iri) {
-                self.reject(
-                    PackViolationCode::InvalidAnnotation,
-                    Some(&entry.uri),
-                    "capability is not an absolute IRI",
-                );
-            }
+        let findings = super::annotations::check_annotations(entry.kind, &entry.annotations);
+        for (code, detail) in findings.violations {
+            self.reject(code, Some(&entry.uri), detail);
+        }
+        for (code, detail) in findings.warnings {
+            self.warnings.push(PackWarning {
+                code,
+                uri: Some(entry.uri.clone()),
+                detail,
+            });
         }
     }
 
@@ -504,6 +513,7 @@ fn text_kind(kind: PackEntryKind) -> bool {
             | PackEntryKind::ModelProfile
             | PackEntryKind::Resource
             | PackEntryKind::ResourceTemplate
+            | PackEntryKind::SkillFile
     )
 }
 
@@ -596,11 +606,12 @@ pub(super) fn declared_shape_iris(text: &str) -> BTreeSet<String> {
             {
                 return None;
             }
-            match triple.subject {
-                NamedOrBlankNode::NamedNode(node) => Some(node.as_str().to_string()),
-                NamedOrBlankNode::BlankNode(_) => None,
-                #[allow(unreachable_patterns)]
-                _ => None,
+            // Only a named shape can collide across files; a blank-node shape
+            // is scoped to its own file by construction.
+            if let NamedOrBlankNode::NamedNode(node) = triple.subject {
+                Some(node.as_str().to_string())
+            } else {
+                None
             }
         })
         .collect()
@@ -630,14 +641,13 @@ fn validate_rdf_unions(
     if ontologies.is_empty() && shapes.is_empty() {
         return Ok(());
     }
-    let ontology = ontologies.join("\n");
-    let shape_graph = shapes.join("\n");
-    let triples = eg_rdf::mapping::parse_turtle(&ontology).map_err(|_| {
+    let ontology = super::rdf_union::scoped_union(ontologies).map_err(|_| {
         (
             PackViolationCode::OntologyInvalid,
-            "ontology union is not valid Turtle",
+            "an ontology file is not valid Turtle",
         )
     })?;
+    let triples = ontology.triples;
     if triples.len() > 100_000 {
         return Err((
             PackViolationCode::ValidationBudgetExceeded,
@@ -661,21 +671,35 @@ fn validate_rdf_unions(
     if shapes.is_empty() {
         return Ok(());
     }
-    let shape_triples = eg_rdf::mapping::parse_turtle(&shape_graph).map_err(|_| {
+    validate_shapes_union(shapes, &ontology.ntriples, triples.len())
+}
+
+/// G15/G16 over the file-scoped shapes union, against the ontology union.
+#[cfg(all(feature = "owl", feature = "shacl"))]
+fn validate_shapes_union(
+    shapes: &[String],
+    ontology: &str,
+    ontology_triples: usize,
+) -> Result<(), (PackViolationCode, &'static str)> {
+    let shape_union = super::rdf_union::scoped_union(shapes).map_err(|_| {
         (
             PackViolationCode::ShapesInvalid,
-            "shapes union is not valid Turtle",
+            "a shapes file is not valid Turtle",
         )
     })?;
+    let shape_triples = shape_union.triples;
+    let shape_graph = shape_union.ntriples;
     const MAX_SHACL_STEPS: usize = 10_000_000;
-    if shape_triples.len().saturating_mul(triples.len().max(1)) > MAX_SHACL_STEPS {
+    if shape_triples.len().saturating_mul(ontology_triples.max(1)) > MAX_SHACL_STEPS {
         return Err((
             PackViolationCode::ValidationBudgetExceeded,
             "SHACL validation exceeds the deterministic evaluation budget",
         ));
     }
-    let upper = shape_graph.to_ascii_uppercase();
-    if upper.contains("SERVICE") {
+    if shapes
+        .iter()
+        .any(|document| document.to_ascii_uppercase().contains("SERVICE"))
+    {
         return Err((
             PackViolationCode::ShapesInvalid,
             "SHACL SPARQL SERVICE constraints are forbidden",
@@ -687,7 +711,7 @@ fn validate_rdf_unions(
             "shapes union is not a supported ICV policy",
         )
     })?;
-    let report = eg_shacl::validate_icv_turtle(&shape_graph, &ontology).map_err(|_| {
+    let report = eg_shacl::validate_icv_turtle(&shape_graph, ontology).map_err(|_| {
         (
             PackViolationCode::ShapesInvalid,
             "SHACL validation could not evaluate the shapes union",
@@ -719,17 +743,7 @@ fn validate_rdf_unions(
 
 pub(super) fn entry_description(entry: &PackEntry, body: &[u8]) -> Option<String> {
     if entry.kind == PackEntryKind::Skill {
-        let text = std::str::from_utf8(body).ok()?;
-        let rest = text
-            .strip_prefix("---\n")
-            .or_else(|| text.strip_prefix("---\r\n"))?;
-        let end = rest.find("\n---\n").or_else(|| rest.find("\r\n---\r\n"))?;
-        return rest[..end].lines().find_map(|line| {
-            let (key, value) = line.split_once(':')?;
-            (key.trim() == "description")
-                .then(|| value.split_whitespace().collect::<Vec<_>>().join(" "))
-                .filter(|value| !value.is_empty())
-        });
+        return super::front_matter::front_matter_value(body, "description");
     }
     serde_json::from_slice::<serde_json::Value>(body)
         .ok()?
@@ -802,13 +816,6 @@ pub(super) fn section_bytes<'a>(
     archive
         .get(start..end)
         .ok_or_else(|| "section outside archive".to_string())
-}
-
-fn valid_iri(value: &str) -> bool {
-    value.contains(':')
-        && !value
-            .bytes()
-            .any(|b| b.is_ascii_whitespace() || b.is_ascii_control())
 }
 
 fn violation(code: PackViolationCode, uri: Option<&str>, detail: &str) -> PackViolation {

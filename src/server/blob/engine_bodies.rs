@@ -72,12 +72,11 @@ pub(super) fn plan_engine_bodies(
         };
         let encoded = super::store::manifest::encode_manifest_bytes(&manifest)?;
         let manifest_digest = hex_digest(&encoded);
-        let content_hex = input.sha256.to_hex();
         planned.push(PlannedEngineBody {
             stored: StoredEngineBody {
                 sha256: input.sha256,
                 manifest_digest,
-                holder_id: format!("pack:{tenant_id}:{content_hex}"),
+                holder_id: engine_body_holder(tenant_id, &input.sha256),
                 length: input.body.len() as u64,
             },
             manifest,
@@ -86,6 +85,21 @@ pub(super) fn plan_engine_bodies(
         });
     }
     Ok(planned)
+}
+
+/// The holder namespace every engine pack body of `tenant_id` is held in.
+pub fn engine_body_holder_namespace(tenant_id: &str) -> String {
+    format!("pack:{tenant_id}")
+}
+
+/// The one set-like holder of one engine pack body: every component revision
+/// naming the same bytes shares it, so a retried copy never adds a count.
+pub fn engine_body_holder(tenant_id: &str, sha256: &Digest256) -> String {
+    format!(
+        "{}:{}",
+        engine_body_holder_namespace(tenant_id),
+        sha256.to_hex()
+    )
 }
 
 pub(super) fn batch_subject(bodies: &[PlannedEngineBody]) -> String {

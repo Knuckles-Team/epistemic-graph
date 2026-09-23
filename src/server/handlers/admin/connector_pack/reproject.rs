@@ -53,35 +53,39 @@ async fn serve_with_substrates(
             Ok(prepared) => prepared,
             Err(error) => return Response::err(req_id, error),
         };
-    let documents = match materialize_current_projection(state, &plan).await {
-        Ok(documents) => documents,
-        Err(error) => {
-            return Response::err(
-                req_id,
-                record_projection_failure(&store, &context, &plan, &error),
-            );
-        }
-    };
-    let committed = match commit_schema_projection(state, req_id, verified, &plan, documents).await
-    {
-        Ok(committed) => committed,
-        Err(error) => {
-            return Response::err(
-                req_id,
-                record_projection_failure(&store, &context, &plan, &error),
-            );
-        }
-    };
-    let receipt = match finish_projection(&store, context, &plan, committed) {
-        Ok(receipt) => receipt,
-        Err(error) => return Response::err(req_id, error),
-    };
-    Response::ok(
-        req_id,
-        ResultPayload::of_ref::<eg_types::result_contract::storage::ConnectorPackReproject>(
-            &receipt,
+    match project_head(state, req_id, verified, &store, context, &plan).await {
+        Ok(receipt) => Response::ok(
+            req_id,
+            ResultPayload::of_ref::<eg_types::result_contract::storage::ConnectorPackReproject>(
+                &receipt,
+            ),
         ),
-    )
+        Err(error) => Response::err(req_id, error),
+    }
+}
+
+/// Project `plan`'s head into its graph and flip the head visible, or record
+/// the projection as failed. Shared by the admin `Reproject` and the
+/// projection worker (PB1): both always project the CURRENT head, so a stale
+/// worker can never roll a newer projection back.
+#[cfg(all(feature = "redb", feature = "blob", feature = "shacl"))]
+pub(crate) async fn project_head(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    verified: &VerifiedRequestContext,
+    store: &crate::server::persistence::agent_library::AgentLibraryStore,
+    context: eg_types::agent_library::AgentLibraryMutationContext,
+    plan: &ConnectorPackProjectionPlan,
+) -> Result<eg_types::connector_pack::PackImportReceipt, String> {
+    let documents = match materialize_current_projection(state, plan).await {
+        Ok(documents) => documents,
+        Err(error) => return Err(record_projection_failure(store, &context, plan, &error)),
+    };
+    let committed = match commit_schema_projection(state, req_id, verified, plan, documents).await {
+        Ok(committed) => committed,
+        Err(error) => return Err(record_projection_failure(store, &context, plan, &error)),
+    };
+    finish_projection(store, context, plan, committed)
 }
 
 #[cfg(all(feature = "redb", feature = "blob", feature = "shacl"))]

@@ -10,8 +10,16 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from .._digest import framed, sha256_raw, u64_be
-from .model import Annotations, BuiltPack, ModelAnnotation, PackEntry, PackRef, Section
+from .._digest import framed, u64_be
+from .model import (
+    Annotations,
+    BuiltPack,
+    CatalogBinding,
+    ModelAnnotation,
+    PackEntry,
+    PackRef,
+    Section,
+)
 
 
 def _text(value: str | None) -> bytes:
@@ -49,7 +57,7 @@ def model_facts_digest(model: ModelAnnotation) -> bytes:
 def annotations_digest(a: Annotations) -> bytes:
     cost, latency = a.cost, a.latency_declared
     return framed(
-        b"eg/connector-pack-annotations/v1",
+        b"eg/connector-pack-annotations/v2",
         [
             string_list("eg/cp-provides/v1", a.provides),
             string_list("eg/cp-requires-capabilities/v1", a.requires_capabilities),
@@ -69,6 +77,7 @@ def annotations_digest(a: Annotations) -> bytes:
             _int(latency.p95_ms if latency else None),
             model_facts_digest(a.model) if a.model else b"",
             _text(a.sdk_contract_pin),
+            _text(a.tool_mode),
         ],
     )
 
@@ -80,13 +89,26 @@ def references_digest(references: Iterable[PackRef]) -> bytes:
     )
 
 
-def _section_digest(pack_archive: bytes, section: Section | None) -> bytes:
-    if section is None:
-        return b""
-    return sha256_raw(pack_archive[section.offset : section.offset + section.length])
+def catalog_digest(catalog: CatalogBinding) -> bytes:
+    return framed(
+        b"eg/mcp-catalog-binding/v1",
+        [
+            u64_be(catalog.configuration_revision),
+            u64_be(catalog.catalog_generation),
+            bytes.fromhex(catalog.snapshot_digest),
+            u64_be(catalog.child_connection_generation),
+            bytes.fromhex(catalog.authorization_scope_digest),
+        ],
+    )
 
 
-def entry_digest(archive: bytes, entry: PackEntry) -> bytes:
+def _section_digest(section: Section | None) -> bytes:
+    """A section is framed by the digest the index DECLARES for it, exactly as
+    the engine does; whether the archive bytes match is rule G5's check."""
+    return b"" if section is None else bytes.fromhex(section.sha256)
+
+
+def entry_digest(entry: PackEntry) -> bytes:
     return framed(
         b"eg/connector-pack-entry/v1",
         [
@@ -94,9 +116,9 @@ def entry_digest(archive: bytes, entry: PackEntry) -> bytes:
             _text(entry.uri),
             _text(entry.name),
             _text(entry.media_type),
-            _section_digest(archive, entry.body),
-            _section_digest(archive, entry.input_schema),
-            _section_digest(archive, entry.output_schema),
+            _section_digest(entry.body),
+            _section_digest(entry.input_schema),
+            _section_digest(entry.output_schema),
             annotations_digest(entry.annotations),
             references_digest(entry.references),
         ],
@@ -104,20 +126,26 @@ def entry_digest(archive: bytes, entry: PackEntry) -> bytes:
 
 
 def pack_digest(
-    connector: str, archive: bytes, server: PackEntry, entries: Iterable[PackEntry]
+    connector: str,
+    catalog: CatalogBinding,
+    server: PackEntry,
+    entries: Iterable[PackEntry],
 ) -> bytes:
     ordered = sorted(entries, key=lambda entry: entry.uri.encode())
     return framed(
-        b"eg/connector-pack/v1",
+        b"eg/connector-pack/v2",
         [
             _text(connector),
-            entry_digest(archive, server),
+            catalog_digest(catalog),
+            entry_digest(server),
             u64_be(len(ordered)),
-            *(entry_digest(archive, entry) for entry in ordered),
+            *(entry_digest(entry) for entry in ordered),
         ],
     )
 
 
 def recomputed_pack_digest(pack: BuiltPack) -> str:
     index = pack.index
-    return pack_digest(index.connector, pack.archive, index.server, index.entries).hex()
+    return pack_digest(
+        index.connector, index.catalog, index.server, index.entries
+    ).hex()

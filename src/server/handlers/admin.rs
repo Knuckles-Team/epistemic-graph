@@ -30,14 +30,17 @@ mod backup;
 mod cluster;
 #[cfg(feature = "redb")]
 mod component_content;
-// Refusal-only until its package lands, so it needs no durable owner and is
-// declared in every build -- the dispatch arm that reaches it carries no cfg.
-mod connector_pack;
+// Declared in every build -- the dispatch arm that reaches it carries no cfg;
+// each op refuses by name in a build without its durable substrates.
+// `pub(crate)` so the projection worker shares the admin re-projection path.
+pub(crate) mod connector_pack;
 #[cfg(feature = "redb")]
 mod saga;
 
+#[cfg(feature = "redb")]
+pub(crate) use agent::bind_agent_library_context;
 #[cfg(all(test, feature = "redb"))]
-pub(crate) use agent::{bind_agent_library_context, bind_agent_library_draft};
+pub(crate) use agent::bind_agent_library_draft;
 #[cfg(feature = "redb")]
 pub(crate) use agent::{
     handle_agent_component, handle_agent_graph, handle_agent_library, handle_agent_template,

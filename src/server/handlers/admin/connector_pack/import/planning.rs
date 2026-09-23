@@ -457,6 +457,17 @@ impl<'a> PlanCollector<'a> {
             self.server_pin
                 .ok_or_else(|| "MALFORMED_INDEX: pack has no server".to_string())?,
         )?;
+        let record_bytes = eg_storage::encode_bounded(&record, "connector pack import record")?;
+        if record_bytes.len() > eg_types::connector_pack::MAX_PACK_RECORD_BYTES {
+            return rejected(
+                self.request,
+                vec![violation(
+                    PackViolationCode::PackTooLarge,
+                    None,
+                    "the planned import record exceeds its served bound",
+                )],
+            );
+        }
         Ok(Prepared::Ready(Box::new(ReadyPlan {
             expected_head: self.request.expected_head.clone(),
             record,
@@ -546,10 +557,25 @@ fn import_record(
         },
         importer: request.context.caller_principal.clone(),
         committed_at_ms: request.context.created_at_ms,
+        projection: projection_for(&entries),
         entries: BoundedVec::new(entries)?,
         warnings: BoundedVec::new(warnings)?,
-        projection: PackProjectionState::Pending,
     })
+}
+
+/// A pack projects into its graph only when it publishes schema: with no live
+/// ontology or shapes entry there is nothing to project, and the head is
+/// visible as soon as it commits.
+fn projection_for(entries: &[PackEntryRecord]) -> PackProjectionState {
+    let projects = entries.iter().any(|entry| {
+        matches!(entry.kind, PackEntryKind::Ontology | PackEntryKind::Shapes)
+            && entry.disposition != PackDisposition::Withdrawn
+    });
+    if projects {
+        PackProjectionState::Pending
+    } else {
+        PackProjectionState::None
+    }
 }
 
 struct Desired {
@@ -558,7 +584,6 @@ struct Desired {
     body: Vec<u8>,
 }
 
-#[allow(clippy::too_many_arguments)]
 struct DesiredBuilder<'a> {
     request: &'a ConnectorPackImportRequest,
     server_uri: &'a str,
@@ -711,6 +736,7 @@ impl DesiredBuilder<'_> {
             attributes.insert("connector.manifest".into(), "true".into());
         }
         add_mcp_resource_attributes(&mut attributes, self.request, entry);
+        super::catalog_attributes::add_catalog_attributes(&mut attributes, entry, body);
         let (native_provides, declared_provides) =
             partition_capabilities(entry.annotations.provides.as_slice());
         let (native_requires, declared_requires) =

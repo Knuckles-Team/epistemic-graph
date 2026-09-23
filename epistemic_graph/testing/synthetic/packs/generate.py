@@ -34,9 +34,11 @@ def _tools(stream: SeededStream, connector: str, count: int) -> list[EntrySpec]:
 
 def _typical(stream: SeededStream, connector: str) -> list[EntrySpec]:
     tools = _tools(stream, connector, 12)
+    first_skill = content.skill(connector, 0, tools[:2])
     return [
         *tools,
-        content.skill(connector, 0, tools[:2]),
+        first_skill,
+        content.skill_file(first_skill, "scripts/run.sh", b"#!/bin/sh\necho run\n"),
         content.skill(connector, 1, tools[2:4]),
         content.prompt(connector, 0),
         content.ontology(connector, "core", 8),
