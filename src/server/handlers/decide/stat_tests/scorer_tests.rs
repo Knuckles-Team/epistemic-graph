@@ -139,12 +139,14 @@ async fn a_scorer_head_is_promoted_only_through_the_protocol_and_then_acts() {
         )
         .unwrap();
 
-    let request = request(
+    belief_slices_are_refused_without_a_head_or_in_the_future(&h, &fixture).await;
+    let mut request = request(
         &fixture.schema_pin,
         Some(head_pin),
         DecisionPolicyRef::Default,
         QuestionSafety::Ordinary,
     );
+    request.belief_as_of = BoundedVec::new(vec![1_000, 2_000]).unwrap();
     let batch = decide(&h, request).await.unwrap();
     let record = &batch.records.as_slice()[0];
     let StatisticalOutcome::Acted { option_id, .. } = &record.outcome else {
@@ -159,5 +161,48 @@ async fn a_scorer_head_is_promoted_only_through_the_protocol_and_then_acts() {
         record.calibration.map(|c| c.method),
         Some(eg_types::decision::statistical::CalibrationMethod::Conformal)
     );
+    belief_is_recorded_and_replayed(&h, record).await;
     decision_log_round_trip(&h, record.clone()).await;
+}
+
+/// EH-297 refusals: a belief needs a head, and no slice is after the clock.
+async fn belief_slices_are_refused_without_a_head_or_in_the_future(
+    h: &Harness,
+    fixture: &RouteFixture,
+) {
+    let mut headless = request(
+        &fixture.schema_pin,
+        None,
+        DecisionPolicyRef::Default,
+        QuestionSafety::Ordinary,
+    );
+    headless.belief_as_of = BoundedVec::new(vec![1_000]).unwrap();
+    let refused = decide(h, headless.clone()).await.unwrap_err();
+    assert!(refused.starts_with("PARAMETER_INVALID"), "{refused}");
+    headless.belief_as_of = BoundedVec::new(vec![2_000, 1_000]).unwrap();
+    let refused = decide(h, headless).await.unwrap_err();
+    assert!(refused.starts_with("PARAMETER_INVALID"), "{refused}");
+}
+
+/// EH-297: one belief point per slice over the same options, each slice's
+/// matrix stored; a record whose belief was altered fails verify-replay.
+async fn belief_is_recorded_and_replayed(h: &Harness, record: &StatisticalDecisionRecord) {
+    let times: Vec<u64> = record.belief.iter().map(|p| p.as_of_ms).collect();
+    assert_eq!(times, vec![1_000, 2_000]);
+    assert_eq!(record.inputs.belief_slices.len(), 2);
+    for point in &record.belief {
+        let p = point
+            .probabilities
+            .as_ref()
+            .expect("the head reads every slice");
+        assert_eq!(p.len(), 3, "the same three options, no more");
+    }
+    let mut forged = record.clone();
+    forged.belief = BoundedVec::new(vec![forged.belief.as_slice()[1].clone()]).unwrap();
+    forged.record_digest = eg_types::decision::digest::statistical_record_digest(&forged);
+    let op = DecisionLogOp::Commit {
+        record: Box::new(forged),
+    };
+    let refused = decode::<DecisionLogCommitted>(super::log_tests::log_op(h, "decider", op).await);
+    assert!(refused.unwrap_err().starts_with("DECISION_REPLAY_MISMATCH"));
 }
