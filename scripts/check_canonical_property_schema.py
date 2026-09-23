@@ -153,16 +153,16 @@ def _edge_writer_failures() -> list[str]:
 def _documentation_failures() -> list[str]:
     """The contract page exists, is navigable, and names every canonical term."""
     failures = []
-    docs = text("docs/architecture/canonical-property-schema.md")
+    docs = text("architecture/canonical-property-schema.md")
     nav = text("mkdocs.yml")
-    if "architecture/canonical-property-schema.md" not in nav:
+    if "canonical-property-schema.md" not in nav:
         failures.append(
             "mkdocs.yml: canonical property schema page is not in navigation"
         )
     for required in ("`relationship`", "`node_type`", "`rel_type`"):
         if required not in docs:
             failures.append(
-                f"docs/architecture/canonical-property-schema.md: missing contract "
+                f"architecture/canonical-property-schema.md: missing contract "
                 f"term {required}"
             )
     return failures

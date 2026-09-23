@@ -14,7 +14,7 @@ Every concept and component this repo's own registries and documentation nav dec
 - **Request authority** — `architecture/request_authority.md`
 - **Mutation batches** — `architecture/mutation_batch.md`
 - **Change envelopes** — `architecture/change_envelope.md`
-- **Canonical property schema** — `architecture/canonical-property-schema.md`
+- **Canonical property schema** — `https://github.com/Knuckles-Team/epistemic-graph/blob/main/architecture/canonical-property-schema.md`
 - **Modality serving** — `architecture/modality_serving.md`
 - **Program optimization** — `architecture/native-program-optimization.md`
 - **Distributed analytics and reasoning** — `architecture/distributed-analytics-reasoning.md`

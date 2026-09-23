@@ -47,6 +47,16 @@ AUTHORITATIVE_PAGES = (
     "architecture/hot-path-complexity.md",
 )
 
+# Authoritative pages that have been rehomed out of docs/ (D6): still required
+# in mkdocs nav (as an external link so the site keeps linking to them), but
+# their file now lives at this exact repo-root-relative path instead of under
+# docs/.
+AUTHORITATIVE_PAGES_OUTSIDE_DOCS = frozenset(
+    {
+        "architecture/canonical-property-schema.md",
+    }
+)
+
 GENERATED_METHODS = (
     "ClaimWorkItem",
     "ApplyChangeEnvelope",
@@ -103,7 +113,10 @@ def check_mkdocs() -> None:
     for page in AUTHORITATIVE_PAGES:
         if page not in config:
             fail(f"mkdocs navigation omits authoritative page: {page}")
-        if not (ROOT / "docs" / page).is_file():
+        if page in AUTHORITATIVE_PAGES_OUTSIDE_DOCS:
+            if not (ROOT / page).is_file():
+                fail(f"mkdocs authoritative page does not exist: {page}")
+        elif not (ROOT / "docs" / page).is_file():
             fail(f"mkdocs authoritative page does not exist: docs/{page}")
 
 
