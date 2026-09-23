@@ -386,6 +386,7 @@ class PackProjectionStateFailed(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     code: str
+    detail: str | None = None
     projection: Literal["failed"]
 
 
