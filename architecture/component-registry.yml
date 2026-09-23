@@ -3561,6 +3561,7 @@ components:
     contract_state: unknown_not_inventory_complete
     owned_crates:
       - "eg-pyengine"
+      - "eg-method-codec"
     owned_source_roots:
       - "crates/eg-pyengine/src/admin_ctl.rs"
       - "crates/eg-pyengine/src/authority.rs"
@@ -3595,8 +3596,11 @@ components:
       - "clients"
     public_contract_roots:
       - "crates/eg-pyengine/src/lib.rs"
+      - "crates/eg-method-codec/src/lib.rs"
     test_roots:
       - "crates/eg-pyengine/tests"
+      - "tests/test_canonical_body_served.py"
+      - "tests/test_method_body_vectors.py"
     generated_roots: []
     shared_roots: []
     shared_files: []
@@ -3617,6 +3621,7 @@ components:
         - "eg-pyengine -> eg-statechart [eg.job-plane]"
         - "eg-pyengine -> eg-tsdb [eg.timeseries]"
         - "eg-pyengine -> eg-wasm [eg.query-plan]"
+        - "eg-method-codec -> eg-types [eg.wire-contracts]"
       dev_dependencies: []
     observed_consumers: []
     al002_no_sync_io:

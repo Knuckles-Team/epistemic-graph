@@ -2934,6 +2934,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "eg-method-codec"
+version = "0.1.0"
+dependencies = [
+ "eg-types",
+ "rmp-serde",
+ "serde_json",
+]
+
+[[package]]
 name = "eg-modality"
 version = "0.1.0"
 dependencies = [
