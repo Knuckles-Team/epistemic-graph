@@ -731,3 +731,5 @@ use log_tests::{decision_log_round_trip, fit_from_the_engine_log};
 use log_tests::{retention_compacts_and_verifies, retention_retires};
 
 mod classes_tests;
+
+mod consumer_tests;

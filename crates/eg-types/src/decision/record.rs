@@ -49,6 +49,8 @@ pub enum CandidateSourceRecord {
     },
     /// An RLS-filtered graph plan, pinned by its plan digest.
     Graph { plan_digest: String },
+    /// Options the caller declared, pinned by the digest of the declaration.
+    Declared { options_digest: String },
 }
 
 /// How the conclusion was reached.

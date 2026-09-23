@@ -34,6 +34,7 @@ use eg_types::decision::{CandidateSourceRecord, QuantScaleTag, RecordWindow};
 
 use super::stat_executor::ExecutionContext;
 use super::stat_replay::replay;
+use super::stat_resolve::resolve;
 use super::stat_retention::{compact, full_record, verify, Retention};
 use super::stat_support::{default_statistical_policy, pinned_entry, refusal};
 use super::telemetry;
@@ -137,9 +138,11 @@ fn evaluations_of(
 fn visibility_of(record: &StatisticalDecisionRecord, principal: &str) -> RecordVisibility {
     match record.candidate_source {
         CandidateSourceRecord::AgentLibrary { .. } => RecordVisibility::Tenant,
-        CandidateSourceRecord::Graph { .. } => RecordVisibility::Principal {
-            principal: principal.to_string(),
-        },
+        CandidateSourceRecord::Graph { .. } | CandidateSourceRecord::Declared { .. } => {
+            RecordVisibility::Principal {
+                principal: principal.to_string(),
+            }
+        }
     }
 }
 
@@ -202,24 +205,39 @@ fn evaluate(
         ));
     }
     let key = evaluation_key(&evaluation.record_id, &evaluation.evaluation_id);
-    if let Some(bytes) = ctx.store.decision_artifact(ctx.tenant_id, &key)? {
-        let existing: StoredEvaluation = decode_artifact(&bytes, "decision outcome evaluation")?;
-        if existing.evaluation == evaluation && existing.producer == reader.principal {
-            return Ok(existing);
-        }
-        return Err(refusal(
-            StatisticalErrorCode::IdempotencyConflict,
-            "the evaluation id is recorded with other content",
-        ));
-    }
     let stored = StoredEvaluation {
         evaluation,
         producer: reader.principal.clone(),
         recorded_at_ms: ctx.now_ms,
     };
+    store_once(ctx, key, "evaluation", stored, |existing, fresh| {
+        existing.evaluation == fresh.evaluation && existing.producer == fresh.producer
+    })
+}
+
+/// Store `fresh` under `key` exactly once. A re-send with the same content
+/// from the same producer answers the stored row (idempotent replay);
+/// anything else under that key is a conflict, never an overwrite.
+pub(super) fn store_once<T: serde::Serialize + serde::de::DeserializeOwned>(
+    ctx: &ExecutionContext,
+    key: String,
+    noun: &str,
+    fresh: T,
+    same: impl Fn(&T, &T) -> bool,
+) -> Result<T, String> {
+    if let Some(bytes) = ctx.store.decision_artifact(ctx.tenant_id, &key)? {
+        let existing: T = decode_artifact(&bytes, noun)?;
+        if same(&existing, &fresh) {
+            return Ok(existing);
+        }
+        return Err(refusal(
+            StatisticalErrorCode::IdempotencyConflict,
+            format!("the {noun} id is recorded with other content"),
+        ));
+    }
     ctx.store
-        .put_decision_artifacts(ctx.tenant_id, &[(key, encode_artifact(&stored)?)])?;
-    Ok(stored)
+        .put_decision_artifacts(ctx.tenant_id, &[(key, encode_artifact(&fresh)?)])?;
+    Ok(fresh)
 }
 
 /// Visible, executed records of `question_id` (or of every question) inside
@@ -384,7 +402,7 @@ fn dispatch(
 ) -> Result<ResultPayload, String> {
     use eg_types::result_contract::coordination::{
         DecisionLogAggregate, DecisionLogCommit, DecisionLogCompact, DecisionLogEvaluate,
-        DecisionLogGet, DecisionLogVerify,
+        DecisionLogGet, DecisionLogResolve, DecisionLogVerify,
     };
     match op {
         DecisionLogOp::Commit { record } => {
@@ -402,6 +420,9 @@ fn dispatch(
         DecisionLogOp::Compact { policy, limit, .. } => ResultPayload::of::<DecisionLogCompact>(
             compact(ctx, &reader.retention, &policy, limit)?,
         ),
+        DecisionLogOp::Resolve { resolution, .. } => {
+            ResultPayload::of::<DecisionLogResolve>(resolve(ctx, reader, resolution)?)
+        }
         DecisionLogOp::Verify { record_id, .. } => ResultPayload::of::<DecisionLogVerify>(verify(
             ctx,
             reader,
