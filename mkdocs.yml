@@ -55,6 +55,14 @@ nav:
       - Numeric kernel: architecture/numeric_kernel.md
       - Hot-path complexity: architecture/hot-path-complexity.md
       - Market bars and trend signals: architecture/finance-market.md
+      - Graph backends and mirrors: architecture/graph-backends.md
+      - Service layer: architecture/service-layer.md
+      - Code intelligence: architecture/code-intelligence.md
+      - Vector index lifecycle: architecture/vector-index-lifecycle.md
+      - Ontology library and SHACL authority: architecture/ontology-library.md
+      - Ontology package federation: architecture/ontology-federation.md
+      - Epistemic Operations Protocol: architecture/epistemic-operations-protocol.md
+      - AIF argumentation: architecture/aif-argumentation.md
   - Components:
       - Overview: components/index.md
       - eg.types: components/eg-types.md
