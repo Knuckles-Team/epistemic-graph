@@ -53,7 +53,7 @@ from .generated.storage import (
 
 _PACK_DIGEST_DOMAIN = b"eg/connector-pack/v2"
 _ENTRY_DIGEST_DOMAIN = b"eg/connector-pack-entry/v1"
-_ANNOTATIONS_DIGEST_DOMAIN = b"eg/connector-pack-annotations/v1"
+_ANNOTATIONS_DIGEST_DOMAIN = b"eg/connector-pack-annotations/v2"
 _MODEL_FACTS_DIGEST_DOMAIN = b"eg/cp-model-facts/v1"
 _REFERENCES_DIGEST_DOMAIN = b"eg/connector-pack-references/v1"
 _CATALOG_DIGEST_DOMAIN = b"eg/mcp-catalog-binding/v1"
@@ -187,6 +187,11 @@ def _annotations_digest(annotations: PackAnnotations) -> bytes:
                 _optional_u64(latency.p95_ms if latency is not None else None),
                 _model_facts_digest(model) if model is not None else b"",
                 _text(annotations.sdk_contract_pin),
+                _text(
+                    annotations.tool_mode.value
+                    if annotations.tool_mode is not None
+                    else None
+                ),
             ],
         )
     )

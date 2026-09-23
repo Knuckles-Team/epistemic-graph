@@ -78,5 +78,5 @@ def case(
     )
 
 
-def base_spec(seed: int = 0) -> PackSpec:
-    return pack_spec(seed, "typical")
+def base_spec(seed: int = 0, connector: str = "synthetic-mcp") -> PackSpec:
+    return pack_spec(seed, "typical", connector)

@@ -36,6 +36,7 @@ from epistemic_graph.generated.connector_pack import (
     PackProducer,
     PackRef,
     PackSection,
+    PackToolMode,
     PackWriteErrorCode,
 )
 
@@ -80,6 +81,7 @@ def _annotations() -> PackAnnotations:
             supports_vision=False,
         ),
         sdk_contract_pin="sdk-d18-1",
+        tool_mode=PackToolMode.CONDENSED,
     )
 
 
@@ -121,6 +123,7 @@ def _vector_entries() -> list[PackEntry]:
         PackEntryKind.MODEL_PROFILE,
         PackEntryKind.A2A_CARD,
         PackEntryKind.MANIFEST,
+        PackEntryKind.SKILL_FILE,
     ]
     return [_entry(kind, f"entry-{position}") for position, kind in enumerate(kinds)]
 

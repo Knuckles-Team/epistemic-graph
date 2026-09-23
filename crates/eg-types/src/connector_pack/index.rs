@@ -30,6 +30,11 @@ pub enum PackEntryKind {
     ModelProfile,
     A2aCard,
     Manifest,
+    /// One supporting file of a skill (D11): a script, reference or asset the
+    /// skill's `SKILL.md` names by relative path. `name` is
+    /// `<skill>/<relative path>`, the URI `skill-file://<name>`, and the entry
+    /// references its skill's `SKILL.md`.
+    SkillFile,
 }
 
 /// Exact identity of the served MCP catalog snapshot this pack came from.

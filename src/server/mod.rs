@@ -411,6 +411,12 @@ pub mod reasoning_cascade;
 pub(crate) mod icv_guard;
 // The 2.27.x contract wave's refusal stubs. Deleted by the promotion commit.
 pub(crate) mod contract_wave;
+// PB1 — the connector-pack projection worker, the first Agent Library outbox
+// consumer. `pub` so the server binary can start it after catalog recovery.
+pub mod connector_pack_projection;
+// X10 — the operator and consumer surface over every owner's mutation outbox.
+#[cfg(feature = "redb")]
+pub(crate) mod outbox_operator;
 // X9 — keyed schema sources on one request graph.  The authority composes both
 // OWL and SHACL documents and is therefore present only in the certified SHACL
 // build (which implies `owl-dl`).  Minimal/server-only profiles must not pull
