@@ -28,6 +28,12 @@ pub mod sql;
 #[cfg(feature = "sql")]
 pub mod tables;
 
+/// Edge-native vector and text search under the user-managed index lifecycle
+/// (EH-351 / EH-352). Behind `sql` (it reuses eg-ann, eg-text and the SQL
+/// vector metrics).
+#[cfg(feature = "sql")]
+pub mod edge_index;
+
 #[cfg(feature = "sql")]
 pub use sql::{
     classify, default_spill_rows, exec_graph_table_typed_with_tables, exec_sql, exec_sql_arrow,
@@ -53,7 +59,7 @@ pub use tables::{
         SchemaMigration, SchemaMigrationApply, SchemaMigrationOperation, SchemaMigrationRecord,
         SchemaSnapshot, SecondaryIndexPolicy,
     },
-    AnnFallbackReason, AnnGenerationState, AnnIndexStatus, AnnLimits, AnnRefreshOutcome,
+    AnnFallbackReason, AnnIndexStatus, AnnLimits, AnnRefreshOutcome,
     AnnRefreshPolicy, AnnServeReceipt, AnnServingPath, AnnTopK, AnnTopKRequest, Cell, CmpOp,
     ColCheck, Column, ColumnType, ConflictAction, FunctionArg, FunctionReturns, IndexCatalogTxnOp,
     PropertyGraphGrantee, PropertyGraphPrivilegeOperation, PropertyGraphPrivilegeStatement,
