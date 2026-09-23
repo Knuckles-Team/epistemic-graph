@@ -20,7 +20,7 @@ pub const GRAPH_SCHEMA_RESULT_SCHEMA_VERSION: u16 = 1;
 /// Most schema sources one graph may carry.
 pub const MAX_GRAPH_SCHEMA_SOURCES: usize = 32;
 /// Largest immutable engine core catalog returned by list.
-pub const MAX_CORE_GRAPH_SCHEMA_SOURCES: usize = 32;
+pub const MAX_CORE_GRAPH_SCHEMA_SOURCES: usize = 64;
 /// Largest single shapes or ontology document.
 pub const MAX_SCHEMA_DOCUMENT_BYTES: usize = 2 << 20;
 /// Longest schema source key.
