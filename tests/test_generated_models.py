@@ -22,7 +22,7 @@ from epistemic_graph.generated._runtime import ContractViolation, OpaqueResult
 
 pytestmark = pytest.mark.no_engine
 
-_METHOD = TypeAdapter(models.Method)
+_METHOD: TypeAdapter[Any] = TypeAdapter(models.Method)
 
 
 def _set(document: Any, location: tuple[Any, ...], value: Any) -> None:

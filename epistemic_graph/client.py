@@ -405,13 +405,17 @@ def _native_numeric(requirement: str) -> Any:
 
 _METHOD_BODY_CODEC = "eg/method-body/v1"
 
+# The request frame carries no credential while its body is encoded: the
+# envelope is signed over the body, so it cannot already be inside it.
+_NO_CREDENTIAL = ""
+
 # The request-frame fields the transport decodes beside the flattened Method.
 # They never reach `Method::canonical_body_bytes`; they are present only so the
 # native codec decodes exactly the `Request` shape the server decodes.
 _METHOD_BODY_FRAME: dict[str, Any] = {
     "id": 0,
     "graph": "",
-    "auth_token": "",
+    "auth_token": _NO_CREDENTIAL,
     "agent_id": None,
 }
 

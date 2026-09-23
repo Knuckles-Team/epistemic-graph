@@ -9,6 +9,8 @@ digest the published client (and therefore the engine) computes.
 
 from __future__ import annotations
 
+from typing import get_args
+
 import pytest
 
 from epistemic_graph.connector_pack import pack_digest as client_pack_digest
@@ -17,7 +19,7 @@ from epistemic_graph.generated.connector_pack import (
     PackEntry,
 )
 from epistemic_graph.testing.synthetic.packs.catalogue import all_malformed
-from epistemic_graph.testing.synthetic.packs.generate import generate_pack
+from epistemic_graph.testing.synthetic.packs.generate import Profile, generate_pack
 
 pytestmark = pytest.mark.no_engine
 
@@ -32,10 +34,8 @@ def test_planted_variants_are_unique_per_rule() -> None:
     assert len(keys) == len(set(keys))
 
 
-@pytest.mark.parametrize(
-    "profile", ["typical", "largest_bytes", "largest_entries", "largest_bodies"]
-)
-def test_generated_pack_digest_is_the_client_digest(profile: str) -> None:
+@pytest.mark.parametrize("profile", get_args(Profile))
+def test_generated_pack_digest_is_the_client_digest(profile: Profile) -> None:
     pack = generate_pack(0, profile)
     index = pack.index.model_dump(mode="json")
     expected = client_pack_digest(

@@ -68,6 +68,15 @@ def require(condition: bool, message: str) -> None:
         raise SystemExit(f"current-only architecture gate failed: {message}")
 
 
+def generated_transport(domain: str) -> str:
+    """One domain's generated transport: its sender module plus the strict
+    nested models its request aliases name (EH-192), where the field shapes
+    now live."""
+    return read(f"epistemic_graph/generated/{domain}.py") + read(
+        "epistemic_graph/generated/models.py"
+    )
+
+
 def delimited_body(source: str, opener: str, closer: str) -> str:
     require(opener in source, f"missing contract block: {opener.strip()}")
     tail = source.split(opener, 1)[1]
@@ -360,7 +369,9 @@ def _check_transport_contract(
     )
 
 
-def _check_client_basic_contract(client: str, generated_query: str) -> None:
+def _check_client_basic_contract(
+    client: str, generated_query: str, generated_models: str
+) -> None:
     graphql_client = delimited_body(
         client,
         "    async def graphql(",
@@ -372,19 +383,22 @@ def _check_client_basic_contract(client: str, generated_query: str) -> None:
         and '"variables": variables' in graphql_client,
         "the Python client omits the explicit GraphQL variables field",
     )
+    # EH-192: request models are the strict nested models in `generated/models.py`;
+    # the domain module's `GraphQlRequest` is an alias of `MethodGraphQlParams`.
     graphql_request = delimited_body(
-        generated_query,
-        "class GraphQlRequest(BaseModel):",
-        "class KnowledgeStreamRequest(BaseModel):",
+        generated_models,
+        "class MethodGraphQlParams(BaseModel):",
+        "\nclass ",
     )
     graphql_sender = delimited_body(
         generated_query,
         "async def send_graph_ql(",
-        "class KnowledgeStreamRequest(BaseModel):",
+        "async def send_knowledge_stream(",
     )
     require(
-        "variables: Any | None = None" in graphql_request
-        and "GraphQlRequest.model_validate(params or {})" in graphql_sender
+        "GraphQlRequest = _models.MethodGraphQlParams" in generated_query
+        and "variables: Any | None = None" in graphql_request
+        and "MethodGraphQlParams.model_validate(params or {})" in graphql_sender
         and '"GraphQl"' in graphql_sender
         and "params" in graphql_sender,
         "the generated GraphQL transport no longer validates and forwards variables",
@@ -465,6 +479,11 @@ def _check_client_renew_tag_contract(client: str) -> None:
 
 
 def _check_generated_broker_transport_contract(generated_messaging: str) -> None:
+    # EH-192: the fields live on the strict `MethodBroker*Params` models the
+    # domain aliases name; clocks and leases are non-negative there.
+    renew = delimited_body(
+        generated_messaging, "class MethodBrokerRenewTagParams(BaseModel):", "\nclass "
+    )
     require(
         all(
             marker in generated_messaging
@@ -472,11 +491,16 @@ def _check_generated_broker_transport_contract(generated_messaging: str) -> None
                 "BrokerAckTagRequest",
                 "BrokerNackTagRequest",
                 "BrokerRenewTagRequest",
+                '"BrokerRenewTag"',
+            )
+        )
+        and all(
+            field in renew
+            for field in (
                 "consumer: str",
                 "delivery_tag: int",
-                "now_ms: int",
-                "lease_ms: int",
-                '"BrokerRenewTag"',
+                "now_ms: Annotated[int, Field(ge=0)]",
+                "lease_ms: Annotated[int, Field(ge=0)]",
             )
         ),
         "the generated broker transport lost owner and clock fields",
@@ -1044,8 +1068,9 @@ def main() -> None:
     external_compute_e2e = read("tests/external_compute_e2e.rs")
     client = read("epistemic_graph/client.py")
     generated_query = read("epistemic_graph/generated/query.py")
-    generated_graph = read("epistemic_graph/generated/graph.py")
-    generated_messaging = read("epistemic_graph/generated/messaging.py")
+    generated_models = read("epistemic_graph/generated/models.py")
+    generated_graph = generated_transport("graph")
+    generated_messaging = generated_transport("messaging")
     pregel = read("src/raft/pregel.rs")
     dist_handler = read("src/server/handlers/dist_compute.rs")
     icv_policy = read("crates/eg-shacl/src/policy.rs")
@@ -1120,7 +1145,7 @@ def main() -> None:
     _check_protocol(protocol, wire)
     _check_query_contract(schema, sql_exec, sql_mod, query_lib, plan_exec)
     _check_transport_contract(transport, server, server_main, external_compute_e2e)
-    _check_client_basic_contract(client, generated_query)
+    _check_client_basic_contract(client, generated_query, generated_models)
     _check_client_batch_contract(client, generated_graph, generated_messaging)
     _check_graph_fencing(graph)
     _check_mutation_routing(mutation_runtime, mutation_apply, graph_handler, access)

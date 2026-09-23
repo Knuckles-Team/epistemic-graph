@@ -2,18 +2,20 @@
 """Fail-closed OSV audit for the committed ``uv.lock``
 (CONCEPT:EG-KG.storage.python-dependency-cve-gate).
 
-This is the Python twin of agent-utilities' own ``scripts/audit_dependencies.py`` --
-same file, same conventions, deliberately not reinvented, so EG and AU share one
-audit contract. It closes the gap recorded in ``.config/deny.toml`` (commit 3027965e):
-``cargo-deny``/``.config/deny.toml`` + ``.config/cargo-audit-allow.txt`` audit the RUST graph
-only, and ``bandit`` is SAST over EG's own source, not an advisory check against
-installed packages -- so EG's Python client + wheel had no CVE gate at all. The
-ledger here (``.config/security-audit-allow.txt``) is the Python twin of the Rust side's
-``.config/cargo-audit-allow.txt``, and ``scripts/check_python_advisories.sh`` cross-
-validates it the same way ``scripts/check_cargo_advisories.sh`` cross-validates
-the Rust ledger against ``.config/deny.toml``: an accepted advisory can never exist
-without a live, dated justification, and a justification can never go stale
-without failing the gate.
+This is the Python twin of agent-utilities' own
+``scripts/audit_dependencies.py`` -- same file, same conventions, deliberately
+not reinvented, so EG and AU share one audit contract. It closes the gap
+recorded in ``.config/deny.toml`` (commit 3027965e):
+``cargo-deny``/``.config/deny.toml`` + ``.config/cargo-audit-allow.txt`` audit
+the RUST graph only, and ``bandit`` is SAST over EG's own source, not an
+advisory check against installed packages -- so EG's Python client + wheel had
+no CVE gate at all. The ledger here (``.config/security-audit-allow.txt``) is
+the Python twin of the Rust side's ``.config/cargo-audit-allow.txt``, and
+``scripts/check_python_advisories.sh`` cross- validates it the same way
+``scripts/check_cargo_advisories.sh`` cross-validates the Rust ledger against
+``.config/deny.toml``: an accepted advisory can never exist without a live,
+dated justification, and a justification can never go stale without failing the
+gate.
 
 The gate has no project-runtime dependencies.  It parses the lock with
 ``tomllib``, queries the fixed OSV HTTPS API, bounds every request/response, and
