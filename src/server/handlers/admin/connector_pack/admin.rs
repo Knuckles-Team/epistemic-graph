@@ -190,7 +190,7 @@ where
         request.purpose,
         true,
     )?;
-    tokio::task::spawn_blocking(move || write(&*store, context))
+    tokio::task::spawn_blocking(move || write(&store, context))
         .await
         .map_err(|error| format!("connector pack admin task failed: {error}"))?
 }
