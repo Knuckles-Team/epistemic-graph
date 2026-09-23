@@ -30,7 +30,24 @@ def _context() -> dict[str, object]:
 def _submit_request() -> dict[str, object]:
     return {
         "schema_version": "1",
-        "context": {},
+        # A decodable RequestContext v2: the signer now derives the eg2. body
+        # from the engine's own decoder, so the fixture must be a real request.
+        "context": {
+            "schema_version": "2",
+            "request_id": "request-1",
+            "subject_id": "subject-opaque",
+            "tenant_id": "tenant-fixture",
+            "agent_id": "agent-fixture",
+            "scopes": [],
+            "audience": "engine-fixture",
+            "authentication_method": "local_process",
+            "policy_version": "policy-v1",
+            "graph": "graph-fixture",
+            "placement_epoch": None,
+            "trace_id": "trace-1",
+            "issued_at_ms": 0,
+            "expires_at_ms": 1,
+        },
         "work_item_id": "work-1",
         "idempotency_key": "submit-retry-1",
         "command_digest": "a" * 64,

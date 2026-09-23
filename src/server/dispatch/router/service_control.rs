@@ -100,29 +100,10 @@ async fn health_response(state: &Arc<RwLock<ServerState>>, req_id: u64) -> Respo
     };
     let uptime_s = 0; // you can capture start time in ServerState
     let mem_bytes = 0;
-    let mut served_ops = vec![
-        "ParseFiles",
-        "IndexRepository",
-        "ObserveScreen",
-        "Discover",
-        "ApplyChangeEnvelope",
-        "ApplyChangeEnvelopes",
-        "GetChangeEnvelope",
-        "GetContentVersion",
-        "GetChangeCursor",
-        "KnowledgeStream",
-    ];
-    #[cfg(feature = "cost")]
-    served_ops.push("ResourceStatsPage");
+    let mut served_ops = registry_served_ops();
     append_native_resource_ops(&mut served_ops, native_resource_ops_available);
     append_native_capacity_ops(&mut served_ops, native_capacity_ops_available);
     append_native_work_item_ops(&mut served_ops, native_work_item_ops_available);
-    #[cfg(feature = "modality-serving")]
-    let served_ops = {
-        let mut served_ops = served_ops;
-        served_ops.push("ServedModality");
-        served_ops
-    };
     // ``version`` + ``ops`` let clients negotiate capabilities (e.g. only
     // use ``ParseFiles`` against an engine that advertises it) and fall
     // back gracefully against an older binary. (CONCEPT:EG-KG.query.dispatch-routing)
@@ -139,4 +120,83 @@ async fn health_response(state: &Arc<RwLock<ServerState>>, req_id: u64) -> Respo
             },
         ),
     )
+}
+
+/// Registry methods whose handler needs a server feature the method registry
+/// does not mirror, paired with whether this build compiled it.
+const BUILD_GATED_OPS: &[(&str, bool)] = &[("ResourceStatsPage", cfg!(feature = "cost"))];
+
+/// Methods advertised only when the persistence backend declares support; the
+/// `append_native_*` helpers own both the lists and the runtime condition.
+fn backend_gated_ops() -> Vec<&'static str> {
+    let mut ops = Vec::new();
+    append_native_resource_ops(&mut ops, true);
+    append_native_capacity_ops(&mut ops, true);
+    append_native_work_item_ops(&mut ops, true);
+    ops
+}
+
+/// Every method this build's registry (`eg_capabilities::method_descriptors`,
+/// the one the dispatcher is policy-checked against) serves unconditionally:
+/// the registry minus backend-gated methods (appended by their own condition),
+/// methods whose server feature is absent, and contract-wave methods whose
+/// handler has not landed. Never a hand list, so a served method cannot be
+/// missing from `client.supports(..)`.
+fn registry_served_ops() -> Vec<&'static str> {
+    let backend_gated = backend_gated_ops();
+    eg_capabilities::method_descriptors()
+        .map(|descriptor| descriptor.id.as_str())
+        .filter(|id| !backend_gated.contains(id) && !build_absent(id))
+        .filter(|id| !crate::server::contract_wave::PENDING_METHODS.contains(id))
+        .collect()
+}
+
+fn build_absent(id: &str) -> bool {
+    BUILD_GATED_OPS
+        .iter()
+        .any(|(gated, compiled)| *gated == id && !compiled)
+}
+
+#[cfg(test)]
+mod health_ops_tests {
+    use super::*;
+    use crate::server::contract_wave::PENDING_METHODS;
+
+    /// R5 (au-core): `AgentComponent` was served but absent from the old hand
+    /// list, so `client.supports("AgentComponent")` answered false.
+    #[test]
+    fn served_registry_methods_are_advertised() {
+        let served = registry_served_ops();
+        for id in [
+            "AgentComponent",
+            "ConnectorPack",
+            "CommitWorkItemResult",
+            "Health",
+        ] {
+            assert!(served.contains(&id), "{id} is served but not advertised");
+        }
+    }
+
+    /// Every withholding list names real registry methods (a stale or
+    /// misspelt entry would silently advertise nothing and withhold nothing),
+    /// and nothing withheld is advertised.
+    #[test]
+    fn withheld_methods_are_registry_methods_and_never_advertised() {
+        let registry: Vec<&str> = eg_capabilities::method_descriptors()
+            .map(|descriptor| descriptor.id.as_str())
+            .collect();
+        let served = registry_served_ops();
+        let build_gated = BUILD_GATED_OPS.iter().map(|(id, _)| *id);
+        for id in backend_gated_ops()
+            .into_iter()
+            .chain(PENDING_METHODS.iter().copied())
+        {
+            assert!(registry.contains(&id), "{id} is not a registry method");
+            assert!(!served.contains(&id), "{id} is withheld but advertised");
+        }
+        for id in build_gated {
+            assert!(registry.contains(&id), "{id} is not a registry method");
+            assert_eq!(served.contains(&id), !build_absent(id), "{id}");
+        }
+    }
 }

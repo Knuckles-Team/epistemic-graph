@@ -17,6 +17,20 @@ use crate::protocol::Response;
 /// The code every not-yet-served surface refuses with.
 pub(crate) const METHOD_NOT_YET_SERVED: &str = "METHOD_NOT_YET_SERVED";
 
+/// Whole methods whose handler is still a contract-wave stub. `Health.ops`
+/// withholds exactly these, so `client.supports(..)` never promises a stub;
+/// `pending_methods_are_exactly_the_stubbed_methods` pins the list against
+/// dispatch. The package that lands a handler deletes its entry.
+pub(crate) const PENDING_METHODS: &[&str] = &[
+    "AgentAssemble",
+    "DecisionCommit",
+    "Decide",
+    "DecisionFit",
+    "DecisionEval",
+    "Solve",
+    "MutationOutbox",
+];
+
 /// The one refusal body. `surface` is the method, or `Method.op`, the caller
 /// asked for.
 pub(crate) fn not_yet_served(req_id: u64, surface: &'static str) -> Response {
@@ -132,8 +146,8 @@ mod dispatch_reachability_tests {
     use eg_types::acl::RequestContextClaims;
     use eg_types::test_support::contract_wave::contract_wave_samples;
 
-    const SECRET: &str = "contract-wave-dispatch-secret";
-    const CALLER: &str = "wave-admin";
+    pub(super) const SECRET: &str = "contract-wave-dispatch-secret";
+    pub(super) const CALLER: &str = "wave-admin";
     /// The tenant `auth::request_context_policy()` expects under `cfg(test)`.
     const TENANT: &str = "tenant-shared";
 
@@ -157,7 +171,7 @@ mod dispatch_reachability_tests {
         hex::encode(Sha256::digest(surface.as_bytes()))
     }
 
-    fn signed(surface: &str, method: Method) -> Request {
+    pub(super) fn signed(surface: &str, method: Method) -> Request {
         let mut request = Request {
             id: 11,
             graph: "__commons__".to_string(),
@@ -233,5 +247,50 @@ mod dispatch_reachability_tests {
                 response.error
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod pending_method_tests {
+    use std::sync::Arc;
+
+    use tokio::sync::RwLock;
+
+    use super::dispatch_reachability_tests::{signed, CALLER, SECRET};
+    use super::{METHOD_NOT_YET_SERVED, PENDING_METHODS};
+    use crate::server::auth::dispatch_test_on_heap;
+    use crate::server::state::ServerState;
+    use eg_types::test_support::contract_wave::contract_wave_samples;
+
+    /// A wave method is pending exactly when dispatch still refuses one of its
+    /// samples under the METHOD's own name (an op-level stub such as
+    /// `ConnectorPack.bind` leaves its method served), so `Health.ops`, which
+    /// withholds `PENDING_METHODS`, tracks promotions.
+    #[tokio::test]
+    async fn pending_methods_are_exactly_the_stubbed_methods() {
+        let state = Arc::new(RwLock::new(ServerState::new_for_test(
+            SECRET,
+            ServerState::test_isolation(CALLER),
+        )));
+        let mut stubbed = Vec::new();
+        for (surface, method) in contract_wave_samples() {
+            let whole = surface.split('.').next().unwrap_or(surface);
+            // A nonce of its own: the reachability test signs the same
+            // surfaces, and the shared replay ledger refuses a reused nonce.
+            let label = format!("pending-method:{surface}");
+            let response = dispatch_test_on_heap(&state, signed(&label, method)).await;
+            let refusal = format!("{METHOD_NOT_YET_SERVED}: {whole} ");
+            if response
+                .error
+                .is_some_and(|error| error.starts_with(&refusal))
+            {
+                stubbed.push(whole);
+            }
+        }
+        let mut pending = PENDING_METHODS.to_vec();
+        pending.sort_unstable();
+        stubbed.sort_unstable();
+        stubbed.dedup();
+        assert_eq!(stubbed, pending);
     }
 }
