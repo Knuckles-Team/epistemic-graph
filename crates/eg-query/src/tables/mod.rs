@@ -36,8 +36,8 @@ pub mod schema;
 pub mod store;
 
 pub use ann_authority::{
-    AnnFallbackReason, AnnIndexStatus, AnnLimits, AnnRefreshOutcome,
-    AnnRefreshPolicy, AnnServeReceipt, AnnServingPath, AnnTopK, AnnTopKRequest, UserAnnAuthority,
+    AnnFallbackReason, AnnIndexStatus, AnnLimits, AnnRefreshOutcome, AnnRefreshPolicy,
+    AnnServeReceipt, AnnServingPath, AnnTopK, AnnTopKRequest, UserAnnAuthority,
 };
 pub use embedding_binding::{
     catalog_key as embedding_binding_catalog_key, decode_binding, default_target_column,
