@@ -189,4 +189,4 @@ turns it on:
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [Numeric Kernel](numeric_kernel.md) · [Engine Scaling Program](scaling_program.md) · [Multi-Raft Cluster Status](m2_raft_status.md) · [Agent Memory](../interfaces/memory.md).
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [Numeric Kernel](numeric_kernel.md) · [Engine Scaling Program](scaling_program.md) · [Multi-Raft Cluster Status](m2_raft_status.md) · [Agent Memory](../interfaces/memory.md).

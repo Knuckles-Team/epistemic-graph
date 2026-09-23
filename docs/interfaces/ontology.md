@@ -9,7 +9,7 @@ weighting** and **Ebbinghaus time-decay** of derived facts.
 > weighting, time-decay, distributed reasoning, the **OWL-DL tableau** (cardinality, `allValuesFrom`,
 > `owl-dl` feature), **SWRL user rules** (`swrlb:` built-ins) and `rdfs:range` completion are all
 > **supported** (EG-KG.ontology.owl-reasoning/059/060) — the EL/RL fast path stays the default. See the
-> [capability matrix](../capabilities.md#owl-reasoning-eg-rdfowl).
+> [capability matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md#owl-reasoning-eg-rdfowl).
 
 ## The lifecycle
 
@@ -84,4 +84,4 @@ See [build feature composition](../architecture/tiers.md).
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [SPARQL & RDF](sparql.md) · [Cypher & Bolt](cypher.md) · [Agent Memory](memory.md) · [Master-of-all Engine](../architecture/engine.md).
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [SPARQL & RDF](sparql.md) · [Cypher & Bolt](cypher.md) · [Agent Memory](memory.md) · [Master-of-all Engine](../architecture/engine.md).

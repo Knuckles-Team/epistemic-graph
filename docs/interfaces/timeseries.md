@@ -8,7 +8,7 @@ pure-Rust and shares the engine's one durability model.
 > planner (`Op::Window` execution, EG-KG.query.streaming-execution) with per-point retention trim (EG-KG.temporal.bucket-cutoff-trim). A columnar segment
 > layout backs analytical/SQL-window scans (EG-089), and a **PromQL** `/api/v1/query` HTTP API (EG-172)
 > serves the metric series. TimescaleDB hypertables + continuous aggregates (EG-117) layer on over pgwire.
-> See the [capability matrix](../capabilities.md#time-series-eg-tsdb).
+> See the [capability matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md#time-series-eg-tsdb).
 
 ## The store
 
@@ -85,4 +85,4 @@ surface (logs + PromQL + traces) — see [observability](observability.md).
 time-series store + `Op::Window` — see [sql](sql.md#create-extension).
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [SQL & pgwire](sql.md) · [Observability](observability.md) · [Messaging & Broker](messaging.md) · [Connecting (per-wire guide)](connecting.md).
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [SQL & pgwire](sql.md) · [Observability](observability.md) · [Messaging & Broker](messaging.md) · [Connecting (per-wire guide)](connecting.md).

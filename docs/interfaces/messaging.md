@@ -11,7 +11,7 @@ MQTT/STOMP by topic.
 > QoS/prefetch, replayable streams, publisher confirms + manual acks) is shipped (EG-275..284), as are the
 > AMQP (EG-275), MQTT (EG-281), and STOMP (EG-KG.ontology.stomp-frame-codec-unit) wires. Program B adds **effectively-exactly-once**
 > delivery (idempotent producer) + AMQP `confirm.select` / MQTT 5 frame exposure (EG-314). See the
-> [capability matrix](../capabilities.md).
+> [capability matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md).
 
 ## The broker model
 
@@ -111,4 +111,4 @@ replicated engine state, not a bolt-on daemon.*
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [Key-value & Blob](kv_blob.md) · [Observability](observability.md) · [Time-series](timeseries.md) · [Connecting (per-wire guide)](connecting.md).
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [Key-value & Blob](kv_blob.md) · [Observability](observability.md) · [Time-series](timeseries.md) · [Connecting (per-wire guide)](connecting.md).

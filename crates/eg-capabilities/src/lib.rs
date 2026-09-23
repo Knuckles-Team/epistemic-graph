@@ -309,8 +309,8 @@ pub fn method_policy_entries() -> impl Iterator<Item = (&'static str, MethodPoli
 /// the same deterministic domain declaration order.
 ///
 /// This is the canonical registry RF-RULING-003 makes EG the sole owner of: every
-/// generated artifact under `contract/`, `docs/capabilities.generated.md`, and the
-/// generated Python client are projections of this one iterator.
+/// generated artifact under `contract/` (including `contract/capabilities.generated.md`)
+/// and the generated Python client are projections of this one iterator.
 pub fn method_descriptors() -> impl Iterator<Item = MethodDescriptor> {
     domains::descriptors()
 }
@@ -654,7 +654,7 @@ pub fn gen_ledger() -> String {
          > truth (CONCEPT:EG-P0-1)** -- regenerate with `cargo run -p eg-capabilities \n\
          > --features contract --bin gen_contract`. It is derived directly from the eleven current domain `ROWS` \n\
          > declarations under `crates/eg-capabilities/src/domains/`. Inventory gates keep \n\
-         > them exact for every `Method` variant. `docs/capabilities.md` describes surface-level feature \n\
+         > them exact for every `Method` variant. `contract/capabilities.md` describes surface-level feature \n\
          > parity; this generated table is authoritative for per-method policy.\n>\n\
          > `mutates` marked `~true` means the value is a conservative UPPER BOUND: the real \n\
          > runtime answer is conditional (an operation, a `writeback` flag, or a parsed \n\

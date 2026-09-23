@@ -10,7 +10,7 @@ plan. GeoSPARQL surfaces it over SPARQL; SQL `ST_*` functions surface it over pg
 > GeoParquet** (EG-KG.domains.geo-formats) — DE-9IM + RCC8/Egenhofer relations (EG-KG.ontology.de-9im-relations/155), constructive algebra (EG-KG.ontology.concept-9),
 > CRS + reprojection + geodesic distance (EG-KG.domains.coordinate-reference-system/262/256), a durable R-tree index (EG-KG.domains.spatial-strtree-index), map tiles
 > (EG-KG.domains.map-tiles), routing/isochrones/TSP (EG-KG.domains.geo-routing) with **turn-restrictions + time-windows** (EG-KG.domains.geo-partitioning), and
-> map-based task tracking (EG-KG.domains.geo-task) are shipped. See the [capability matrix](../capabilities.md).
+> map-based task tracking (EG-KG.domains.geo-task) are shipped. See the [capability matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md).
 
 ## Geometry model (EG-KG.ontology.singles-concept/257)
 
@@ -85,4 +85,4 @@ nearest resource — the field-ops / urban-planning task layer over the spatial 
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [SPARQL & RDF](sparql.md) · [Agent Memory](memory.md) · [SQL & pgwire](sql.md) · [Connecting (per-wire guide)](connecting.md).
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [SPARQL & RDF](sparql.md) · [Agent Memory](memory.md) · [SQL & pgwire](sql.md) · [Connecting (per-wire guide)](connecting.md).

@@ -155,7 +155,7 @@ RF-RULING-003 made the contract itself the gate. `crates/eg-capabilities` declar
 `MethodDescriptor` per `Method` variant, and
 `cargo run -p eg-capabilities --features contract --bin gen_contract -- --check`
 regenerates `contract/methods.json`, `contract/schemas/*.json`, `contract/receipt.json`,
-`docs/capabilities.generated.md` and `epistemic_graph/generated/*.py` in memory, then
+`contract/capabilities.generated.md` and `epistemic_graph/generated/*.py` in memory, then
 byte-diffs the committed tree. "Does the Python client send this method" is now the
 descriptor's `consumer_profiles` field, and a method with no consumer is
 `stability: internal` on its own row — so the old
@@ -168,4 +168,4 @@ the descriptor but no generator emits them yet.
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [Connecting (per-wire guide)](connecting.md) · [SQL & pgwire](sql.md) · [Messaging & Broker](messaging.md) · [KV-cache (vLLM/LMCache)](kvcache.md).
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [Connecting (per-wire guide)](connecting.md) · [SQL & pgwire](sql.md) · [Messaging & Broker](messaging.md) · [KV-cache (vLLM/LMCache)](kvcache.md).

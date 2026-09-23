@@ -10,7 +10,7 @@ data** — a triple is a node, an edge, or a property depending on its object.
 > `FROM`/`FROM NAMED`, and an SPO/POS index with selectivity join-ordering are **shipped**
 > (EG-050..057, EG-KG.ontology.order-by-values-exists/135). GeoSPARQL + RCC8/Egenhofer (EG-KG.ontology.concept-10/155), the full RDF serialization matrix
 > (JSON-LD/TriG/N-Quads/RDF-XML, EG-KG.ontology.eg-concrete-syntax-matrix/137), SHACL/ShEx/ICV validation (EG-KG.ontology.concept-6/133/146), and OBDA/R2RML
-> virtual graphs (EG-101) are also in. See the [capability matrix](../capabilities.md#sparql-eg-rdf).
+> virtual graphs (EG-101) are also in. See the [capability matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md#sparql-eg-rdf).
 
 ## RDF ↔ property-graph mapping
 
@@ -132,4 +132,4 @@ Loaded ontologies are reasoned over by the OWL 2 EL⁺/RL engine — see the
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [Ontology lifecycle](ontology.md) · [Cypher & Bolt](cypher.md) · [GraphQL](graphql.md) · [GIS / Spatial](gis.md) · [Connecting (per-wire guide)](connecting.md).
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [Ontology lifecycle](ontology.md) · [Cypher & Bolt](cypher.md) · [GraphQL](graphql.md) · [GIS / Spatial](gis.md) · [Connecting (per-wire guide)](connecting.md).

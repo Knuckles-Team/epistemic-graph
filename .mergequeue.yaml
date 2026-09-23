@@ -466,7 +466,7 @@ gates:
       - 'clients/js/**'
 
 # No generated files are regenerated on land for this repo yet. If
-# `docs/capabilities.generated.md` (eg-capabilities' generated ledger) starts
+# `contract/capabilities.generated.md` (eg-capabilities' generated ledger) starts
 # conflicting across candidates, declare it here together with its generator and
 # the queue will regenerate it from the already-merged tree instead of rejecting
 # the candidate or picking a side.

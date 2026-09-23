@@ -8,7 +8,7 @@ The `ann` feature gives a native, pure-Rust approximate-nearest-neighbour index 
 > scatter-gather** (EG-319, completing the EG-KG.retrieval.scatter-gather gather leaf), hybrid metadata pre-filtering pushed into the
 > ANN probe (EG-070), an exact/flat index + recall harness (EG-KG.query.concept-5), and pgvector distance operators + **real
 > ANN index pushdown** (EG-115/116/313) are all shipped. See the
-> [capability matrix](../capabilities.md#vector-ann-eg-ann-eg-core).
+> [capability matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md#vector-ann-eg-ann-eg-core).
 
 ## What the index is
 
@@ -92,4 +92,4 @@ neg-inner `<#>`), pushed down to the ANN index by `CREATE INDEX … USING hnsw/i
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [SQL & pgwire](sql.md) · [Agent Memory](memory.md) · [Numeric Kernel](../architecture/numeric_kernel.md) · [Analytics Program](../architecture/analytics_program.md) · [Connecting (per-wire guide)](connecting.md).
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [SQL & pgwire](sql.md) · [Agent Memory](memory.md) · [Numeric Kernel](../architecture/numeric_kernel.md) · [Analytics Program](../architecture/analytics_program.md) · [Connecting (per-wire guide)](connecting.md).

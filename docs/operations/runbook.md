@@ -330,7 +330,7 @@ is mandatory for any served binary. Startup fails if it is absent.
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [Deployment (database)](../deployment.md) ·
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [Deployment (database)](../deployment.md) ·
 [Cost Model & Capacity](../cost_model.md) · [Cluster Deployment](../architecture/cluster_deployment.md) ·
 [Observability](../interfaces/observability.md).
 

@@ -2,7 +2,7 @@
 
 > This is an **internal, contributor-facing** page, not a capability ledger. The
 > authoritative operation-by-operation status lives in the
-> **[capability matrix](capabilities.md)** and its generated companion. The
+> **[capability matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md)** and its generated companion. The
 > authoritative `CONCEPT:EG-*` definitions live in [concepts](concepts.md).
 
 The current engine contract is defined by the capability matrix, the owning
@@ -47,8 +47,8 @@ and an executable gate.
 
 ## Current release references
 
-- [Capabilities and parity](capabilities.md) is the human-readable operation matrix.
-- [Generated capability ledger](capabilities.generated.md) is the machine-checked per-method contract.
+- [Capabilities and parity](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) is the human-readable operation matrix.
+- [Generated capability ledger](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.generated.md) is the machine-checked per-method contract.
 - [North Star](north_star.md) records cross-modal seam coverage.
 - [Build feature composition](architecture/tiers.md) defines the main build, `cluster`, and `full-extras`.
 - [Native program optimization](architecture/native-program-optimization.md) defines the 13-family, 14-modality optimization plane.

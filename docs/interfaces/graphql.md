@@ -12,7 +12,7 @@ subscription-only SSE carrier; it is not a second query/mutation endpoint.
 > Status snapshot: read queries and mutations (`createNode`/`updateNode`/`deleteNode`/`addEdge`/`removeEdge`)
 > are supported, along with CDC subscriptions (EG-064), fragments / variables / directives (EG-KG.query.fragments-variables-directives), relay
 > pagination (EG-KG.query.graphql-cursors), **Apollo Federation v2** subgraph support (EG-295), and production hardening
-> (APQ + depth/complexity limits, EG-KG.domains.graphql-enterprise-hardening). See the [capability matrix](../capabilities.md#graphql-eg-graphql).
+> (APQ + depth/complexity limits, EG-KG.domains.graphql-enterprise-hardening). See the [capability matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md#graphql-eg-graphql).
 
 ## Supported queries
 
@@ -136,4 +136,4 @@ These protect the federated subgraph.
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [Cypher & Bolt](cypher.md) · [SPARQL & RDF](sparql.md) · [SQL & pgwire](sql.md) · [Connecting (per-wire guide)](connecting.md).
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [Cypher & Bolt](cypher.md) · [SPARQL & RDF](sparql.md) · [SQL & pgwire](sql.md) · [Connecting (per-wire guide)](connecting.md).

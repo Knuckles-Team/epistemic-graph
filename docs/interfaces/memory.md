@@ -11,7 +11,7 @@ preserving operations. (Localized maintenance, not global reorganization, per ar
 > (EG-222), LeanRAG retrieval (EG-195), trajectory memory (EG-099), and the scene-graph world model
 > (EG-087) are shipped — and Program B **exposes them over the wire** (current `Method`s + dispatch +
 > authoritative redb persistence), so AU/MCP drive them remotely rather than in-process only (EG-KG.memory.eg-batch-decay-caller). See the
-> [capability matrix](../capabilities.md).
+> [capability matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md).
 
 ## Hierarchical summary tier (EG-KG.compute.hierarchical-summary-tier-eg)
 
@@ -97,5 +97,5 @@ store.
 drives the *policy* (when to summarize / consolidate / decay); the engine guarantees the *mechanics* are
 fast, deterministic, and provenance-preserving.*
 
-**See also:** [Capabilities matrix](../capabilities.md) · [Ontology lifecycle](ontology.md) ·
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [Ontology lifecycle](ontology.md) ·
 [Vector / ANN](vector.md) · [GIS / Spatial](gis.md) · [Client Drivers](clients.md).

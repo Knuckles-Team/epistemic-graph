@@ -239,5 +239,5 @@ Every subsystem above shares four invariants that keep this "one engine" and not
 4. **One reactive substrate.** The CDC hub that drives streaming/continuous-queries also feeds eg-stream
    windows and cross-replica cache invalidation, so the broker, CEP, and observability all ride the same feed.
 
-See the [capabilities matrix](../capabilities.md) for the per-operation truth table and
+See the [capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) for the per-operation truth table and
 [concepts](../concepts.md) for the authoritative `CONCEPT:EG-*` definitions.

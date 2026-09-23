@@ -24,7 +24,7 @@ matrix — `SELECT`/`ASK`/`CONSTRUCT`/`DESCRIBE`, BGP + property paths, OPTIONAL
 aggregates, sub-SELECT, `VALUES`, true named graphs (`FROM`/`FROM NAMED`/`GRAPH ?g`), SPARQL
 1.1 `UPDATE` (`INSERT/DELETE DATA`, `DELETE/INSERT WHERE`, `CREATE/DROP GRAPH`), SHACL/ShEx
 validation and `SERVICE` federation. RDF-star and the JSON-LD/TriG/N-Quads/RDF-XML
-serialization matrix are supported. See `docs/capabilities.md` → *SPARQL (`eg-rdf`)*.
+serialization matrix are supported. See `contract/capabilities.md` → *SPARQL (`eg-rdf`)*.
 
 ## The wire way (epistemic-graph owns it)
 The `/sparql` HTTP listener (feature `sparql-http`) is **opt-in**: build with `sparql-http`

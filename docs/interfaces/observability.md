@@ -11,7 +11,7 @@ pipeline can enrich a record from the graph, and a query can join logs against g
 > set** (EG-302) — and distributed traces + trace search (EG-163) are shipped. Program B also adds the
 > engine's **own** telemetry egress: OTLP export + a Prometheus remote-write receiver (EG-316), and
 > **typed** SQL/SPARQL result fusion for federated search (EG-KG.query.schema-typed-fusion-sql). See the
-> [capability matrix](../capabilities.md).
+> [capability matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md).
 
 All the HTTP surfaces below share **one** obs listener: `EPISTEMIC_GRAPH_OBS_ADDR` (`--obs-addr`, default
 `127.0.0.1:5080`).
@@ -147,6 +147,6 @@ ingest.
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [Time-series](timeseries.md) ·
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [Time-series](timeseries.md) ·
 [Messaging & Broker](messaging.md) · [Connecting (per-wire guide)](connecting.md) ·
 [Operations Runbook](../operations/runbook.md).
