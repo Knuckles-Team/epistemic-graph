@@ -77,6 +77,7 @@ from .generated.server_registry import (
     RegisteredServerView,
 )
 from .parser import RustASTParser
+from .policy_evolution import PolicyEvolutionClient, PolicyEvolutionRefused
 
 
 def _add_editable_native_overlay() -> None:
@@ -128,6 +129,8 @@ __all__ = [
     "FleetCatalogLookupRequest",
     "FleetCatalogPage",
     "FleetCatalogSnapshotError",
+    "PolicyEvolutionClient",
+    "PolicyEvolutionRefused",
     "FleetDiscoveryRecordRequest",
     "FleetOverrideClearRequest",
     "FleetOverrideSetRequest",
