@@ -72,8 +72,16 @@ pub enum WorkItemCancelStatus {
 /// A terminal-direction WorkItem transition (`CommitWorkItemResult`,
 /// `CancelWorkItem`). The WorkItem id and fence are present once the item was found;
 /// the fence is present only when the transition applied.
+///
+/// Each instantiation gets its own schema name: without the rename schemars
+/// named the second one `WorkItemTransition2`, a name no author chose (caught
+/// by `no_schema_definition_name_is_shared_by_distinct_types`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+#[cfg_attr(
+    feature = "contract-schema",
+    schemars(rename = "WorkItemTransition_{Status}")
+)]
 pub struct WorkItemTransition<Status> {
     pub status: Status,
     #[serde(default, skip_serializing_if = "Option::is_none")]
