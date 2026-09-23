@@ -29288,6 +29288,61 @@
       ],
       "type": "string"
     },
+    "NativeOutboxScope": {
+      "description": "Which ledger scope of a native store an operation names.\n\nThe Agent Library and the jobs store keep one outbox per tenant; a\nsemantic index keeps one per binding, and a SQL catalog one per resource\nscope. The selector names the scope the store actually keys its outbox by,\nso an operator can reach every outbox without the engine guessing.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The tenant's one scope (Agent Library, jobs).",
+          "properties": {
+            "scope": {
+              "const": "tenant",
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "One semantic binding's serving scope.",
+          "properties": {
+            "binding_id": {
+              "type": "string"
+            },
+            "scope": {
+              "const": "semantic_binding",
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "binding_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "One resource scope of the tenant's shared SQL catalog.",
+          "properties": {
+            "resource": {
+              "type": "string"
+            },
+            "scope": {
+              "const": "sql_resource",
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "resource"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "NativeOutboxStore": {
       "description": "Which native owner's outbox this is.\n\nClosed, and closed on purpose: an outbox nobody named is an outbox nobody\nmonitors, so a new durable owner has to be added here to be operable.",
       "enum": [
@@ -30633,6 +30688,12 @@
         {
           "additionalProperties": false,
           "properties": {
+            "scope": {
+              "$ref": "#/$defs/NativeOutboxScope",
+              "default": {
+                "scope": "tenant"
+              }
+            },
             "store": {
               "$ref": "#/$defs/NativeOutboxStore"
             },
@@ -30862,6 +30923,18 @@
             "string",
             "null"
           ]
+        },
+        "tool_mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PackToolMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How the SDK exposes a tool's arguments: `condensed` for the single\n`action` + `params_json` shape, `verbose` otherwise. A declaration of\nthe pack builder, which has the schema; the engine never re-derives it.\nMeaningful on tools only."
         }
       },
       "type": "object"
@@ -30910,7 +30983,8 @@
             "read_only_hint": null,
             "required_scopes": [],
             "requires_capabilities": [],
-            "sdk_contract_pin": null
+            "sdk_contract_pin": null,
+            "tool_mode": null
           }
         },
         "body": {
@@ -30977,7 +31051,8 @@
         "shapes",
         "model_profile",
         "a2a_card",
-        "manifest"
+        "manifest",
+        "skill_file"
       ],
       "type": "string"
     },
@@ -31108,6 +31183,14 @@
         "sha256"
       ],
       "type": "object"
+    },
+    "PackToolMode": {
+      "description": "How an SDK tool presents its arguments.",
+      "enum": [
+        "condensed",
+        "verbose"
+      ],
+      "type": "string"
     },
     "PipelineSpec": {
       "description": "The full composable pipeline recipe: ordered feature steps → split → model. Stored\n(minus the split) inside the `:Model` artifact so eval/predict rebuild features\nIDENTICALLY from the same recipe without the caller re-specifying it.",
@@ -35079,7 +35162,7 @@
             },
             "queue_class": {
               "$ref": "#/$defs/SemanticQueueClass",
-              "description": "The tier this worker serves. Rows whose stage belongs to another\nclass are released back unexecuted rather than handed to a worker\nthat cannot do them -- tier selection is the whole point of a\ntiered queue, so it has to be expressible on the wire."
+              "description": "The tier this worker serves. Each class is its own topic and its\nown consumer (`<worker>#<class>`), so a claim can only ever lease\nrows of this class -- tier selection is the whole point of a\ntiered queue, so it has to be expressible on the wire."
             },
             "tenant_id": {
               "type": "string"
@@ -35128,7 +35211,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "The bounded queue's per-consumer liveness, capacity and in-flight count.",
+          "description": "The bounded queue's per-consumer liveness, capacity and in-flight count,\nfor this worker's consumer of one queue class.",
           "properties": {
             "binding_id": {
               "type": "string"
@@ -35140,6 +35223,9 @@
               "const": "stage_status",
               "type": "string"
             },
+            "queue_class": {
+              "$ref": "#/$defs/SemanticQueueClass"
+            },
             "tenant_id": {
               "type": "string"
             }
@@ -35148,7 +35234,8 @@
             "op",
             "tenant_id",
             "binding_id",
-            "consumer"
+            "consumer",
+            "queue_class"
           ],
           "type": "object"
         },

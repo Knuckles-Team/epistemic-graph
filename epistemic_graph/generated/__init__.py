@@ -357,6 +357,7 @@ SEND_BY_METHOD = {
     "MiningPipelineTrain": compute.send_mining_pipeline_train,
     "MintWorkItemClaimCapability": coordination.send_mint_work_item_claim_capability,
     "MultiGraphBatchUpdate": transactions.send_multi_graph_batch_update,
+    "MutationOutbox": transactions.send_mutation_outbox,
     "NlQuery": query.send_nl_query,
     "NodeCount": graph.send_node_count,
     "NodeIds": graph.send_node_ids,

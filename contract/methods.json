@@ -18714,7 +18714,9 @@
       "stability": "stable"
     },
     {
-      "consumer_profiles": [],
+      "consumer_profiles": [
+        "python"
+      ],
       "domain": "transactions",
       "error_set": [
         "INVALID_ARGUMENT",
@@ -18729,7 +18731,7 @@
         "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
       ],
       "id": "MutationOutbox",
-      "note": "X10, runtime-conditional: status and dead_letters are reads; rewind resets one consumer's durable cursor through bounded eg-transaction transactions, so it is a saga rather than one atomic write. Local-only authority, refused in clustered mode",
+      "note": "X10, runtime-conditional: status and dead_letters are reads; rewind resets one consumer's durable cursor through bounded eg-transaction transactions, so it is a saga rather than one atomic write. Targets a graph's outbox, or a native store of the verified tenant through a typed scope selector (tenant for Agent Library and jobs, binding for a semantic index, resource for the shared SQL catalog). Local-only authority, refused in clustered mode",
       "policy": {
         "audited": false,
         "authz_action": "admin:outbox",
@@ -18763,7 +18765,7 @@
         "schema": "contract/schemas/result.transactions.json#/methods/MutationOutbox",
         "selected_by": "op"
       },
-      "stability": "internal"
+      "stability": "stable"
     }
   ]
 }

@@ -1155,3 +1155,58 @@ async def send_rollback(
         idempotency_key=idempotency_key,
     )
     return expect_bool("Rollback", payload)
+
+
+class MutationOutboxRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        MutationOutbox
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/MutationOutbox
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: Any
+
+
+async def send_mutation_outbox(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        MutationOutbox
+    Authorization:
+        admin:outbox
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/MutationOutbox
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    MutationOutboxRequest.model_validate(params or {})
+    payload = await client._send(
+        "MutationOutbox",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("MutationOutbox", payload)

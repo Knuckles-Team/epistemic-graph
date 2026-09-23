@@ -30,10 +30,12 @@ pub enum PackEntryKind {
     ModelProfile,
     A2aCard,
     Manifest,
-    /// One supporting file of a skill (D11): a script, reference or asset the
-    /// skill's `SKILL.md` names by relative path. `name` is
-    /// `<skill>/<relative path>`, the URI `skill-file://<name>`, and the entry
-    /// references its skill's `SKILL.md`.
+    // One supporting file of a skill (D11): a script, reference or asset the
+    // skill's `SKILL.md` names by relative path. `name` is
+    // `<skill>/<relative path>`, the URI `skill-file://<name>`, and the entry
+    // references its skill's `SKILL.md`. A plain comment, like its siblings':
+    // a doc comment would make schemars split this variant out of the enum
+    // and the generated Python type would stop being an Enum.
     SkillFile,
 }
 
