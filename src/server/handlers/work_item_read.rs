@@ -1,5 +1,6 @@
-//! EH-219 typed WorkItem reads (`GetWorkItem`, `ListWorkItems`) and the
-//! graph-os EG-2 control-lease read (`GetControlLease`).
+//! EH-219 typed WorkItem reads (`GetWorkItem`, `ListWorkItems`), the
+//! graph-os EG-2 control-lease read (`GetControlLease`) and the EH-348 Gap
+//! reads (`GapGet`, `GapList`).
 //!
 //! Dispatch has already resolved the graph, its ACL and placement, and (under
 //! raft) made the read linearizable on the placement leader. What this module
@@ -41,6 +42,13 @@ pub(crate) enum WorkItemRead {
         tenant: String,
         lease_id: String,
     },
+    /// EH-348: one canonical Gap.
+    Gap {
+        tenant: String,
+        gap_id: String,
+    },
+    /// EH-348: one page of Gaps.
+    Gaps(eg_types::work_market::GapListRequest),
 }
 
 impl WorkItemRead {
@@ -49,7 +57,8 @@ impl WorkItemRead {
             Self::Get { tenant, .. } | Self::Outcome { tenant, .. } => tenant,
             Self::List(request) => &request.tenant,
             Self::ControlLeases(request) => &request.tenant,
-            Self::ControlLease { tenant, .. } => tenant,
+            Self::ControlLease { tenant, .. } | Self::Gap { tenant, .. } => tenant,
+            Self::Gaps(request) => &request.tenant,
         }
     }
 }
@@ -81,7 +90,8 @@ async fn serve_native(
     read: WorkItemRead,
 ) -> Result<ResultPayload, String> {
     use eg_types::result_contract::coordination::{
-        GetControlLease, GetWorkItem, GetWorkItemOutcome, ListControlLeases, ListWorkItems,
+        GapGet, GapList, GetControlLease, GetWorkItem, GetWorkItemOutcome, ListControlLeases,
+        ListWorkItems,
     };
     let backend = persistence
         .as_ref()
@@ -115,6 +125,12 @@ async fn serve_native(
                 .read_control_lease(graph, &tenant, &lease_id)
                 .await?,
         ),
+        WorkItemRead::Gap { tenant, gap_id } => {
+            ResultPayload::of::<GapGet>(backend.read_gap(graph, &tenant, &gap_id).await?)
+        }
+        WorkItemRead::Gaps(request) => {
+            ResultPayload::of::<GapList>(backend.list_gaps(graph, request).await?)
+        }
     }
 }
 
