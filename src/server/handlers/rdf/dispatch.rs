@@ -130,13 +130,14 @@ async fn try_handle_sparql(
             query,
             base_iri,
             type_convention,
+            explain,
         } => Some(
             super::sparql::handle_sparql(
                 req_id,
                 core,
                 query.clone(),
-                base_iri.clone(),
-                type_convention.clone(),
+                eg_rdf::sparql::Projection::from_wire(base_iri, type_convention),
+                super::sparql::SparqlProofMode::of(*explain),
                 #[cfg(feature = "security")]
                 caller,
                 #[cfg(feature = "security")]
@@ -252,6 +253,7 @@ async fn try_handle_rules(
         query_predicate,
         min_confidence,
         derived_only,
+        explain,
     } = method
     else {
         return None;
@@ -265,6 +267,7 @@ async fn try_handle_rules(
             query_predicate: query_predicate.clone(),
             min_confidence: *min_confidence,
             derived_only: *derived_only,
+            explain: *explain,
             #[cfg(feature = "security")]
             caller,
             #[cfg(feature = "security")]
