@@ -1,27 +1,16 @@
 from __future__ import annotations
 
-import importlib.util
 import io
 import json
-import sys
 import tarfile
 from pathlib import Path
 from typing import Any
 
 import pytest
+from _script_loader import load_script
 
 ROOT = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.no_engine
-
-
-def _load_script(name: str):
-    path = ROOT / "scripts" / f"{name}.py"
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 def _metric_summary(value: int = 0) -> dict[str, int]:
@@ -68,14 +57,14 @@ def _native_file(
 
 @pytest.fixture(scope="module")
 def contract():
-    scanner_contract = _load_script("scanner_contract")
+    scanner_contract = load_script("scanner_contract")
     return scanner_contract.load_contract(ROOT / "pyproject.toml")
 
 
 def test_scanner_environment_drops_git_selectors_but_can_keep_staged_index(
     monkeypatch,
 ):
-    scanner_contract = _load_script("scanner_contract")
+    scanner_contract = load_script("scanner_contract")
     monkeypatch.setenv("GIT_DIR", "/tmp/wrong-repository")
     monkeypatch.setenv("GIT_WORK_TREE", "/tmp/wrong-worktree")
     monkeypatch.setenv("GIT_INDEX_FILE", "/tmp/staged-index")
@@ -106,7 +95,7 @@ def test_directory_exclusions_are_root_anchored_unless_recursive(contract):
 
 def test_scanner_source_manifest_uses_only_supported_census_inputs(contract):
     assert contract.cargo_deny_version == "0.20.2"
-    manifest = _load_script("list_scanner_sources")
+    manifest = load_script("list_scanner_sources")
     paths = [
         "src/main.rs",
         "crates/eg-core/src/lib.rs",
@@ -128,8 +117,8 @@ def test_scanner_source_manifest_uses_only_supported_census_inputs(contract):
 
 
 def _load_kiss_census():
-    _load_script("scanner_contract")
-    return _load_script("check_kiss_census")
+    load_script("scanner_contract")
+    return load_script("check_kiss_census")
 
 
 def test_kiss_census_worker_count_is_resource_bounded():
@@ -199,7 +188,7 @@ def test_kiss_census_validate_fails_closed(status, output, message, capsys):
 
 
 def test_cccc_registry_excludes_unsupported_frontends():
-    scanner_contract = _load_script("scanner_contract")
+    scanner_contract = load_script("scanner_contract")
     assert not {"cpp", "cs", "scala"} & set(scanner_contract.CCCC_LANGUAGES)
     assert not {".cc", ".cpp", ".cxx", ".cs", ".scala"} & set(
         scanner_contract.CCCC_SUPPORTED_SUFFIXES
@@ -207,7 +196,7 @@ def test_cccc_registry_excludes_unsupported_frontends():
 
 
 def test_cccc_census_validator_requires_native_summary(tmp_path):
-    validator = _load_script("validate_cccc_census")
+    validator = load_script("validate_cccc_census")
     report = tmp_path / "cccc.json"
     valid = {
         "files": [_native_file("src/empty.py", cognitive=1, cyclomatic=1)],
@@ -234,7 +223,7 @@ def test_cccc_census_validator_requires_native_summary(tmp_path):
 
 
 def test_cccc_census_validator_rejects_file_parse_errors(tmp_path):
-    validator = _load_script("validate_cccc_census")
+    validator = load_script("validate_cccc_census")
     report = tmp_path / "cccc.json"
     report.write_text(
         json.dumps(
@@ -258,7 +247,7 @@ def test_cccc_census_validator_rejects_file_parse_errors(tmp_path):
 
 
 def test_cccc_census_validator_requires_exact_nul_manifest_coverage(tmp_path):
-    validator = _load_script("validate_cccc_census")
+    validator = load_script("validate_cccc_census")
     report = tmp_path / "cccc.json"
     manifest = tmp_path / "sources.nul"
 
@@ -295,7 +284,7 @@ def test_cccc_census_validator_requires_exact_nul_manifest_coverage(tmp_path):
 def test_cccc_validator_counts_recursive_native_children_without_inventing_rows(
     tmp_path,
 ):
-    validator = _load_script("validate_cccc_census")
+    validator = load_script("validate_cccc_census")
     report = tmp_path / "cccc.json"
     nested_functions = [
         {
@@ -352,7 +341,7 @@ def test_cccc_validator_counts_recursive_native_children_without_inventing_rows(
 def test_complexity_terms_require_zero_is_opt_in_and_fails_actionable_backlog(
     tmp_path, capsys
 ):
-    terms = _load_script("report_complexity_terms")
+    terms = load_script("report_complexity_terms")
     report = tmp_path / "cccc.json"
     functions = [
         {
@@ -394,7 +383,7 @@ def test_complexity_terms_require_zero_is_opt_in_and_fails_actionable_backlog(
 def test_complexity_terms_keeps_accepted_dispatch_visible_and_zero_gate_passes(
     tmp_path, capsys
 ):
-    terms = _load_script("report_complexity_terms")
+    terms = load_script("report_complexity_terms")
     report = tmp_path / "cccc.json"
     source_lines = (ROOT / "src/server/wire/mod.rs").read_text().splitlines()
     line = next(
@@ -447,7 +436,7 @@ def test_complexity_terms_keeps_accepted_dispatch_visible_and_zero_gate_passes(
 
 
 def test_complexity_terms_rejects_non_native_function_numbers(tmp_path):
-    terms = _load_script("report_complexity_terms")
+    terms = load_script("report_complexity_terms")
     report = tmp_path / "cccc.json"
     function = {
         "name": "complex",
@@ -502,7 +491,7 @@ def test_complexity_terms_rejects_non_native_function_numbers(tmp_path):
 
 
 def test_relative_to_root_rejects_escape_and_accepts_absolute_inside(tmp_path):
-    scanner_contract = _load_script("scanner_contract")
+    scanner_contract = load_script("scanner_contract")
     root = tmp_path / "repo"
     root.mkdir()
     inside = root / "src" / "main.rs"
@@ -517,7 +506,7 @@ def test_relative_to_root_rejects_escape_and_accepts_absolute_inside(tmp_path):
 
 
 def test_contract_rejects_unknown_scanner_keys(tmp_path):
-    scanner_contract = _load_script("scanner_contract")
+    scanner_contract = load_script("scanner_contract")
     source = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
     changed = source.replace(
         "[tool.epistemic_graph.scanners]\n",
@@ -532,7 +521,7 @@ def test_contract_rejects_unknown_scanner_keys(tmp_path):
 
 
 def test_complexity_parser_keeps_nested_children_and_duplicate_names():
-    complexity = _load_script("check_complexity_staged")
+    complexity = load_script("check_complexity_staged")
     measured: dict[str, list[tuple[int, int, int, bool]]] = {}
     complexity._walk(
         {
@@ -575,7 +564,7 @@ def test_complexity_parser_requires_a_start_line():
     Silently treating it as non-exempt would also make it silently
     unreportable; the gate distinguishes "cannot run" from "found nothing".
     """
-    complexity = _load_script("check_complexity_staged")
+    complexity = load_script("check_complexity_staged")
     with pytest.raises(SystemExit) as raised:
         complexity._walk(
             {"name": "outer", "cyclomatic": 2, "cognitive": 1, "children": []},
@@ -586,7 +575,7 @@ def test_complexity_parser_requires_a_start_line():
 
 
 def test_complexity_judge_catches_over_cap_duplicate_name():
-    complexity = _load_script("check_complexity_staged")
+    complexity = load_script("check_complexity_staged")
     metrics = complexity.Metrics
     before = {"submit": [metrics(30, 20, 1, False)]}
     after = {"submit": [metrics(30, 20, 1, False), metrics(12, 16, 60, False)]}
@@ -603,7 +592,7 @@ def test_complexity_accepts_exhaustive_dispatch_growing_by_a_variant():
     gate that then failed the variant addition would push the author toward the
     lookup table the rule is designed to prevent.
     """
-    complexity = _load_script("check_complexity_staged")
+    complexity = load_script("check_complexity_staged")
     metrics = complexity.Metrics
     before = {"dispatch_kind": [metrics(32, 1, 2076, True)]}
     after = {"dispatch_kind": [metrics(33, 1, 2076, True)]}
@@ -613,7 +602,7 @@ def test_complexity_accepts_exhaustive_dispatch_growing_by_a_variant():
 
 def test_complexity_fails_when_a_dispatcher_leaves_the_accepted_class():
     """Growing a catch-all arm restores the full cyclomatic value at once."""
-    complexity = _load_script("check_complexity_staged")
+    complexity = load_script("check_complexity_staged")
     metrics = complexity.Metrics
     before = {"dispatch_kind": [metrics(32, 1, 2076, True)]}
     after = {"dispatch_kind": [metrics(32, 1, 2076, False)]}
@@ -624,7 +613,7 @@ def test_complexity_fails_when_a_dispatcher_leaves_the_accepted_class():
 
 
 def test_complexity_never_exempts_cognitive_complexity():
-    complexity = _load_script("check_complexity_staged")
+    complexity = load_script("check_complexity_staged")
     metrics = complexity.Metrics
     after = {"handle": [metrics(32, 16, 10, True)]}
 
@@ -632,7 +621,7 @@ def test_complexity_never_exempts_cognitive_complexity():
 
 
 def test_complexity_parser_rejects_missing_report_summary(monkeypatch):
-    complexity = _load_script("check_complexity_staged")
+    complexity = load_script("check_complexity_staged")
     monkeypatch.setattr(complexity, "_resolve_cccc", lambda: "/opt/cccc")
 
     class Result:
@@ -647,7 +636,7 @@ def test_complexity_parser_rejects_missing_report_summary(monkeypatch):
 
 
 def test_dupehound_schema_rejects_inconsistent_status_payload():
-    dupehound = _load_script("check_dupehound")
+    dupehound = load_script("check_dupehound")
     finding = {
         "file": "src/new.py",
         "line": 4,
@@ -701,7 +690,7 @@ def _valid_report(root: Path) -> dict:
 
 
 def test_jscpd_report_rejects_inconsistent_count_and_root_escape(tmp_path):
-    jscpd = _load_script("check_duplication")
+    jscpd = load_script("check_duplication")
     root = tmp_path / "repo"
     root.mkdir()
 
@@ -725,7 +714,7 @@ def test_jscpd_report_rejects_inconsistent_count_and_root_escape(tmp_path):
 
 
 def test_archive_extraction_rejects_path_traversal(tmp_path):
-    jscpd = _load_script("check_duplication")
+    jscpd = load_script("check_duplication")
     destination = tmp_path / "snapshot"
     destination.mkdir()
     stream = io.BytesIO()

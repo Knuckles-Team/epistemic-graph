@@ -1,6 +1,5 @@
 use super::*;
-use crate::agent_component::{AgentComponentFacts, AgentComponentKind};
-use crate::agent_library::AgentLibraryLifecycle;
+use crate::agent_component::AgentComponentKind;
 use crate::decision::request::{ClaimProvenance, ClaimedTaskMapping};
 
 const ONTOLOGY: &str = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
@@ -10,19 +9,12 @@ fn bounded<T, const N: usize>(values: Vec<T>) -> BoundedVec<T, N> {
 }
 
 fn candidate(component_id: &str, classification: &[&str]) -> CandidateFacts {
-    CandidateFacts {
-        component_id: component_id.to_string(),
-        kind: AgentComponentKind::Tool,
-        entry_revision: 1,
-        definition_digest: ONTOLOGY.to_string(),
-        lifecycle: AgentLibraryLifecycle::Published,
-        classification: bounded(classification.iter().map(|t| t.to_string()).collect()),
-        required_capabilities: BoundedVec::default(),
-        declared_capabilities: BoundedVec::default(),
-        requires: BoundedVec::default(),
-        facts: AgentComponentFacts::Opaque,
-        fact_premises: BoundedVec::default(),
-    }
+    crate::test_support::decision::published_candidate(
+        component_id,
+        AgentComponentKind::Tool,
+        ONTOLOGY,
+        classification,
+    )
 }
 
 fn requirements(tasks: &[&str], capabilities: &[&str]) -> AssemblyRequirements {

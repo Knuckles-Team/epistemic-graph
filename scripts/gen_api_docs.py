@@ -564,19 +564,26 @@ def main() -> int:
             print(f"wrote {path.relative_to(ROOT)}")
         return 0
 
-    stale = []
-    for path, content in files.items():
-        if not path.is_file() or path.read_text(encoding="utf-8") != content:
-            stale.append(path.relative_to(ROOT))
+    return check_rendered(files, "gen_api_docs")
+
+
+def check_rendered(files: dict[Path, str], program: str) -> int:
+    """Compare committed output with a fresh render; the one freshness check
+    shared by ``--check`` and ``check_api_contract_docs.py``."""
+    stale = [
+        path.relative_to(ROOT)
+        for path, content in files.items()
+        if not path.is_file() or path.read_text(encoding="utf-8") != content
+    ]
     if stale:
         print(
-            "gen_api_docs: FAIL: stale relative to contract/: "
+            f"{program}: FAIL: stale relative to contract/: "
             + ", ".join(str(p) for p in stale)
             + ". Run: python3 scripts/gen_api_docs.py --write",
             file=sys.stderr,
         )
         return 1
-    print(f"gen_api_docs: PASS ({len(files)} generated files match contract/)")
+    print(f"{program}: PASS ({len(files)} generated files match contract/)")
     return 0
 
 

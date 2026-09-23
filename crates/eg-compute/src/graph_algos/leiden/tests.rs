@@ -49,7 +49,7 @@ fn assert_all_communities_connected(edges: &[(&str, &str, f64)], communities: &[
 /// EH-283 CPM-large-gamma and default-quality-golden tests further down: one
 /// definition, reused, rather than three hand-copies of the same nested
 /// clique-edge loop (jscpd/dupehound).
-fn two_cliques_bridge_edges() -> Vec<(&'static str, &'static str, f64)> {
+pub(super) fn two_cliques_bridge_edges() -> Vec<(&'static str, &'static str, f64)> {
     let mut edges: Vec<(&str, &str, f64)> = Vec::new();
     let clique1 = ["a", "b", "c", "d"];
     let clique2 = ["w", "x", "y", "z"];
@@ -62,6 +62,41 @@ fn two_cliques_bridge_edges() -> Vec<(&'static str, &'static str, f64)> {
     }
     edges.push(("d", "w", 1.0));
     edges
+}
+
+/// Three triangles joined in a ring by half-weight bridges -- the structure
+/// that stresses local-moving order-dependence; shared with the hierarchy
+/// tests.
+pub(super) fn ring_of_triangles_edges() -> Vec<(&'static str, &'static str, f64)> {
+    let mut edges: Vec<(&str, &str, f64)> = Vec::new();
+    let triangles = [["a1", "a2", "a3"], ["b1", "b2", "b3"], ["c1", "c2", "c3"]];
+    for t in &triangles {
+        edges.push((t[0], t[1], 1.0));
+        edges.push((t[1], t[2], 1.0));
+        edges.push((t[0], t[2], 1.0));
+    }
+    edges.push(("a3", "b1", 0.5));
+    edges.push(("b3", "c1", 0.5));
+    edges.push(("c3", "a1", 0.5));
+    edges
+}
+
+/// A wall-clock budget over `n` nodes expired, was reported, and bounded the
+/// kernel's run time.
+pub(super) fn assert_budget_expired(
+    deadline_hit: bool,
+    elapsed: std::time::Duration,
+    budget: std::time::Duration,
+    n: usize,
+) {
+    assert!(
+        deadline_hit,
+        "a {budget:?} budget over {n} nodes must expire"
+    );
+    assert!(
+        elapsed < std::time::Duration::from_secs(3),
+        "budget {budget:?} did not bound the kernel: elapsed={elapsed:?}"
+    );
 }
 
 #[test]
@@ -105,16 +140,7 @@ fn leiden_finds_two_communities_in_two_cliques_matching_louvain() {
 fn leiden_communities_stay_connected_on_a_ring_of_cliques() {
     // A trickier structure: three triangles connected in a ring by single
     // bridge edges (a-shape known to stress local-moving order-dependence).
-    let mut edges: Vec<(&str, &str, f64)> = Vec::new();
-    let triangles = [["a1", "a2", "a3"], ["b1", "b2", "b3"], ["c1", "c2", "c3"]];
-    for t in &triangles {
-        edges.push((t[0], t[1], 1.0));
-        edges.push((t[1], t[2], 1.0));
-        edges.push((t[0], t[2], 1.0));
-    }
-    edges.push(("a3", "b1", 0.5));
-    edges.push(("b3", "c1", 0.5));
-    edges.push(("c3", "a1", 0.5));
+    let edges = ring_of_triangles_edges();
 
     let g = AdjacencyGraph::from_edges(edges.clone());
     let res = leiden(&g, &LeidenConfig::default());
@@ -194,14 +220,7 @@ fn leiden_wall_clock_budget_truncates_large_graph_and_flags_it() {
     );
     let elapsed = started.elapsed();
 
-    assert!(
-        truncated.deadline_hit,
-        "a {budget:?} budget over {N} nodes must expire"
-    );
-    assert!(
-        elapsed < std::time::Duration::from_secs(3),
-        "budget {budget:?} did not bound the kernel: elapsed={elapsed:?}"
-    );
+    assert_budget_expired(truncated.deadline_hit, elapsed, budget, N);
     assert_covers(&truncated.communities, N);
 }
 

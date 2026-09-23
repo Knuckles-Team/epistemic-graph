@@ -1,3 +1,4 @@
+use super::tests::{assert_budget_expired, ring_of_triangles_edges, two_cliques_bridge_edges};
 use super::*;
 use crate::SplitMix64;
 
@@ -46,17 +47,7 @@ fn assert_strict_nesting<N: Clone + Eq + StdHash + Ord + std::fmt::Debug>(
 
 #[test]
 fn hierarchy_nests_strictly_on_two_bridged_cliques() {
-    let mut edges: Vec<(&str, &str, f64)> = Vec::new();
-    let clique1 = ["a", "b", "c", "d"];
-    let clique2 = ["w", "x", "y", "z"];
-    for c in [&clique1, &clique2] {
-        for i in 0..c.len() {
-            for j in (i + 1)..c.len() {
-                edges.push((c[i], c[j], 1.0));
-            }
-        }
-    }
-    edges.push(("d", "w", 1.0));
+    let edges = two_cliques_bridge_edges();
     let g = AdjacencyGraph::from_edges(edges);
     let hierarchy = leiden_hierarchy(&g, &LeidenConfig::default());
     assert_strict_nesting(&hierarchy, g.nodes());
@@ -75,16 +66,7 @@ fn hierarchy_nests_strictly_on_two_bridged_cliques() {
 
 #[test]
 fn hierarchy_ring_of_triangles_nests_strictly_and_is_deterministic() {
-    let mut edges: Vec<(&str, &str, f64)> = Vec::new();
-    let triangles = [["a1", "a2", "a3"], ["b1", "b2", "b3"], ["c1", "c2", "c3"]];
-    for t in &triangles {
-        edges.push((t[0], t[1], 1.0));
-        edges.push((t[1], t[2], 1.0));
-        edges.push((t[0], t[2], 1.0));
-    }
-    edges.push(("a3", "b1", 0.5));
-    edges.push(("b3", "c1", 0.5));
-    edges.push(("c3", "a1", 0.5));
+    let edges = ring_of_triangles_edges();
     let g = AdjacencyGraph::from_edges(edges);
     let h1 = leiden_hierarchy(&g, &LeidenConfig::default());
     assert_strict_nesting(&h1, g.nodes());
@@ -310,14 +292,7 @@ fn leiden_hierarchy_wall_clock_budget_truncates_and_flags_it() {
     );
     let elapsed = started.elapsed();
 
-    assert!(
-        truncated.deadline_hit,
-        "a {budget:?} budget over {N} nodes must expire"
-    );
-    assert!(
-        elapsed < std::time::Duration::from_secs(3),
-        "budget {budget:?} did not bound the kernel: elapsed={elapsed:?}"
-    );
+    assert_budget_expired(truncated.deadline_hit, elapsed, budget, N);
     // Whatever levels DID complete must still be a real, strictly nested
     // hierarchy — truncation drops coarser levels, it never corrupts the
     // ones already built.

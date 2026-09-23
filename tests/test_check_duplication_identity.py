@@ -11,24 +11,13 @@ same way `enforce()` compares two real snapshots via `keys()`.
 
 from __future__ import annotations
 
-import importlib.util
-import sys
 from pathlib import Path
 
 import pytest
+from _script_loader import load_script
 
 ROOT = Path(__file__).resolve().parents[1]
 pytestmark = pytest.mark.no_engine
-
-
-def _load_script(name: str):
-    path = ROOT / "scripts" / f"{name}.py"
-    spec = importlib.util.spec_from_file_location(name, path)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
 
 
 def _clone(root: Path, first: str, second: str, fragment: str = "return value") -> dict:
@@ -57,7 +46,7 @@ def _report(*clones: dict) -> dict:
 def test_relocated_fragment_between_new_file_pair_is_not_new(tmp_path):
     """(a) A fragment that only MOVED -- same content, different file pair,
     same total occurrence count -- must not read as a new pair."""
-    jscpd = _load_script("check_duplication")
+    jscpd = load_script("check_duplication")
     root = tmp_path / "repo"
 
     before = _report(_clone(root, "src/monolith.py", "src/other.py"))
@@ -74,7 +63,7 @@ def test_second_occurrence_of_known_content_is_still_new(tmp_path):
     its digest already existed in the base tree elsewhere -- is still
     reported as new: the ordinal only suppresses a pair when the total
     occurrence count did not increase."""
-    jscpd = _load_script("check_duplication")
+    jscpd = load_script("check_duplication")
     root = tmp_path / "repo"
 
     before = _report(_clone(root, "src/a.py", "src/b.py"))
@@ -93,7 +82,7 @@ def test_second_occurrence_of_known_content_is_still_new(tmp_path):
 
 
 def test_a_wholly_new_fragment_is_caught(tmp_path):
-    jscpd = _load_script("check_duplication")
+    jscpd = load_script("check_duplication")
     root = tmp_path / "repo"
 
     before = _report(_clone(root, "src/a.py", "src/b.py", fragment="return value"))
@@ -107,7 +96,7 @@ def test_a_wholly_new_fragment_is_caught(tmp_path):
 
 
 def test_ordinal_assignment_is_deterministic_across_runs(tmp_path):
-    jscpd = _load_script("check_duplication")
+    jscpd = load_script("check_duplication")
     root = tmp_path / "repo"
     document = _report(
         _clone(root, "src/a.py", "src/b.py"),
@@ -128,7 +117,7 @@ def test_whitespace_and_known_receiver_prefix_still_normalise_to_one_identity(tm
     """Pre-existing normalisation (indentation + the named ctx./context./
     coordination. receiver-prefix rewrite) must still collapse to the same
     digest after the path-independent identity change."""
-    jscpd = _load_script("check_duplication")
+    jscpd = load_script("check_duplication")
     root = tmp_path / "repo"
 
     indented = _clone(
@@ -145,7 +134,7 @@ def test_whitespace_and_known_receiver_prefix_still_normalise_to_one_identity(tm
 
 
 def test_genuinely_different_fragments_never_collide(tmp_path):
-    jscpd = _load_script("check_duplication")
+    jscpd = load_script("check_duplication")
     root = tmp_path / "repo"
 
     one = _clone(root, "src/a.py", "src/b.py", fragment="return 1")

@@ -12,8 +12,8 @@ import hashlib
 import struct
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Protocol
 
+from ._transport import EngineTransport
 from .generated.agent_component import (
     AgentComponentContentRequest,
     AgentComponentContentResult,
@@ -62,17 +62,6 @@ _REQUIRES_CAPABILITIES_DOMAIN = b"eg/cp-requires-capabilities/v1"
 _MODALITIES_IN_DOMAIN = b"eg/cp-modalities-in/v1"
 _MODALITIES_OUT_DOMAIN = b"eg/cp-modalities-out/v1"
 _REQUIRED_SCOPES_DOMAIN = b"eg/cp-required-scopes/v1"
-
-
-class _Transport(Protocol):
-    async def _send(
-        self,
-        method: str,
-        params: dict[str, Any] | None,
-        graph: str | None,
-        *,
-        idempotency_key: str | None,
-    ) -> Any: ...
 
 
 class ConnectorPackWriteError(RuntimeError):
@@ -402,7 +391,7 @@ class ConnectorPackClient:
 
     DEFAULT_CHUNK_SIZE = 1 << 20
 
-    def __init__(self, client: _Transport) -> None:
+    def __init__(self, client: EngineTransport) -> None:
         self._client = client
 
     async def status(

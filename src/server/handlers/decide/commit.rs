@@ -9,19 +9,15 @@
 //! as a `DecisionRecord` component plus its verbatim body. A repeat of the
 //! same record is an idempotent replay.
 
-use std::sync::Arc;
-
-use tokio::sync::RwLock;
-
+use super::SharedState;
 use crate::protocol::Response;
 use crate::server::auth::VerifiedRequestContext;
-use crate::server::state::ServerState;
 use eg_types::decision::DecisionCommitRequest;
 
 /// Commit one `DecisionRecord` as a component revision, idempotently.
 #[cfg(feature = "decide")]
 pub(crate) async fn handle_decision_commit(
-    state: &Arc<RwLock<ServerState>>,
+    state: &SharedState,
     req_id: u64,
     verified: &VerifiedRequestContext,
     request: DecisionCommitRequest,
@@ -39,7 +35,7 @@ pub(crate) async fn handle_decision_commit(
 
 #[cfg(feature = "decide")]
 async fn commit(
-    state: &Arc<RwLock<ServerState>>,
+    state: &SharedState,
     req_id: u64,
     verified: &VerifiedRequestContext,
     request: DecisionCommitRequest,
@@ -92,7 +88,7 @@ async fn commit(
 /// name.
 #[cfg(not(feature = "decide"))]
 pub(crate) async fn handle_decision_commit(
-    _state: &Arc<RwLock<ServerState>>,
+    _state: &SharedState,
     req_id: u64,
     _verified: &VerifiedRequestContext,
     _request: DecisionCommitRequest,

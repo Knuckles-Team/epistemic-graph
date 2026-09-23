@@ -12,34 +12,11 @@ Run:  python3 scripts/check_api_contract_docs.py
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-from gen_api_docs import Contract, rendered_files
-
-ROOT = Path(__file__).resolve().parent.parent
+from gen_api_docs import Contract, check_rendered, rendered_files
 
 
 def main() -> int:
-    contract = Contract()
-    files = rendered_files(contract)
-
-    stale = []
-    for path, content in files.items():
-        if not path.is_file() or path.read_text(encoding="utf-8") != content:
-            stale.append(path.relative_to(ROOT))
-    if stale:
-        print(
-            "check_api_contract_docs: FAIL: stale relative to contract/: "
-            + ", ".join(str(p) for p in stale)
-            + ". Run: python3 scripts/gen_api_docs.py --write",
-            file=sys.stderr,
-        )
-        return 1
-    print(
-        f"check_api_contract_docs: PASS ({len(files)} generated files match contract/)"
-    )
-    return 0
+    return check_rendered(rendered_files(Contract()), "check_api_contract_docs")
 
 
 if __name__ == "__main__":

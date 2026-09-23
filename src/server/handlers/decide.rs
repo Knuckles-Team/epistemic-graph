@@ -4,6 +4,9 @@
 //! and the two admin jobs. Each entry point's signature is frozen by the
 //! contract wave; the package that lands a handler replaces only its body.
 
+/// The server state every Decide entry point is handed.
+type SharedState = std::sync::Arc<tokio::sync::RwLock<crate::server::state::ServerState>>;
+
 pub(crate) mod assemble;
 pub(crate) mod commit;
 pub(crate) mod jobs;

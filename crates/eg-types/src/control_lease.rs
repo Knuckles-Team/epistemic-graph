@@ -106,10 +106,7 @@ impl ControlLeaseStatus {
     }
 
     pub fn from_stored(stored: &str) -> Option<Self> {
-        STORED_STATUS
-            .iter()
-            .find(|(text, _)| *text == stored)
-            .map(|(_, status)| *status)
+        crate::work_item_read::stored_value(&STORED_STATUS, stored)
     }
 }
 

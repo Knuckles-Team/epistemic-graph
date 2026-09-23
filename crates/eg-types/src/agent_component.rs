@@ -417,6 +417,28 @@ pub struct AgentComponentDraft {
     pub source_revision_digest: String,
 }
 
+/// The component a draft names and the bytes it pins.
+#[derive(Debug, Clone, Copy)]
+pub struct DraftSubject<'a> {
+    pub component_id: &'a str,
+    pub kind: AgentComponentKind,
+    pub version: &'a str,
+    pub content_digest: &'a str,
+    pub summary: &'a str,
+}
+
+/// Who publishes a draft, under which purpose and policy, from which source
+/// revision.
+#[derive(Debug, Clone, Copy)]
+pub struct DraftPublication<'a> {
+    pub tenant_id: &'a str,
+    pub actor_scope: &'a str,
+    pub purpose_id: &'a str,
+    pub policy_digest: &'a str,
+    pub source_revision: &'a str,
+    pub source_revision_digest: &'a str,
+}
+
 /// One durable, published component revision.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -591,6 +613,36 @@ impl AgentComponentEntry {
 }
 
 impl AgentComponentDraft {
+    /// A native draft with opaque facts that declares nothing selectable: no
+    /// content ref, classification, requirements, capabilities or attributes.
+    /// Engine-written records (a committed decision) and fixtures start here
+    /// and add what they carry with struct-update syntax, so a new mandatory
+    /// draft field is one line here rather than one at every builder.
+    pub fn bare(subject: DraftSubject<'_>, publication: DraftPublication<'_>) -> Self {
+        Self {
+            component_id: subject.component_id.to_string(),
+            kind: subject.kind,
+            version: subject.version.to_string(),
+            content_digest: subject.content_digest.to_string(),
+            content_ref: None,
+            facts: AgentComponentFacts::Opaque,
+            provenance: ComponentProvenance::Native,
+            summary: subject.summary.to_string(),
+            classification: Vec::new(),
+            requires: Vec::new(),
+            declared_capabilities: Vec::new(),
+            required_capabilities: Vec::new(),
+            declared_required_capabilities: Vec::new(),
+            attributes: BTreeMap::new(),
+            tenant_id: publication.tenant_id.to_string(),
+            actor_scope: publication.actor_scope.to_string(),
+            purpose_id: publication.purpose_id.to_string(),
+            policy_digest: publication.policy_digest.to_string(),
+            source_revision: publication.source_revision.to_string(),
+            source_revision_digest: publication.source_revision_digest.to_string(),
+        }
+    }
+
     /// Every L1 record this component pins: what it `requires`, plus the MCP
     /// server its provenance names.
     ///
@@ -1175,28 +1227,23 @@ mod tests {
     }
 
     fn draft(component_id: &str, kind: AgentComponentKind) -> AgentComponentDraft {
-        AgentComponentDraft {
-            component_id: component_id.into(),
-            kind,
-            version: "1.0.0".into(),
-            content_digest: digest('1'),
-            content_ref: None,
-            facts: AgentComponentFacts::Opaque,
-            provenance: ComponentProvenance::Native,
-            summary: format!("test component {component_id}"),
-            classification: Vec::new(),
-            requires: Vec::new(),
-            declared_capabilities: Vec::new(),
-            required_capabilities: Vec::new(),
-            declared_required_capabilities: Vec::new(),
-            attributes: BTreeMap::new(),
-            tenant_id: "tenant-a".into(),
-            actor_scope: "agent-builder".into(),
-            purpose_id: "agent-construction".into(),
-            policy_digest: digest('7'),
-            source_revision: "rev-1".into(),
-            source_revision_digest: digest('8'),
-        }
+        AgentComponentDraft::bare(
+            DraftSubject {
+                component_id,
+                kind,
+                version: "1.0.0",
+                content_digest: &digest('1'),
+                summary: &format!("test component {component_id}"),
+            },
+            DraftPublication {
+                tenant_id: "tenant-a",
+                actor_scope: "agent-builder",
+                purpose_id: "agent-construction",
+                policy_digest: &digest('7'),
+                source_revision: "rev-1",
+                source_revision_digest: &digest('8'),
+            },
+        )
     }
 
     /// Model facts with every selection field at its neutral value, so a test

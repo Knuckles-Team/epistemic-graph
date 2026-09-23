@@ -18,6 +18,7 @@
 //! components, graphs and templates; [`ComponentLayer`] is what this layer
 //! supplies to it.
 
+use std::ops::ControlFlow;
 use std::sync::Arc;
 
 use eg_storage::ScopedRead;
@@ -202,42 +203,34 @@ fn scan_component_search_page(
     // always the request's, so paging cannot walk out of the tenant prefix no
     // matter what a caller hands back.
     let start = resume_after.unwrap_or("");
-    for row in heads
-        .range((request.tenant_id.as_str(), start)..)
-        .map_err(|error| error.to_string())?
-    {
-        let (key, head_revision) = row.map_err(|error| error.to_string())?;
-        let (row_tenant, component_id) = key.value();
-        // `range_from` is open-ended: without this the scan walks into the
-        // NEXT tenant's components and would return them.
-        if row_tenant != request.tenant_id {
-            break;
-        }
-        // The cursor is EXCLUSIVE; the range start is inclusive.
-        if resume_after == Some(component_id) {
-            continue;
-        }
-        if matched.len() >= limit
-            || scanned >= MAX_AGENT_COMPONENT_SEARCH_SCAN
-            || (scanned > 0 && bytes >= MAX_AGENT_COMPONENT_SEARCH_BYTES)
-        {
-            truncated = true;
-            break;
-        }
-        scanned += 1;
-        let Some(value) = revisions
-            .get((row_tenant, component_id, head_revision.value()))
-            .map_err(|error| error.to_string())?
-        else {
-            return Err("agent component head points to a missing revision".to_string());
-        };
-        bytes = bytes.saturating_add(value.value().len());
-        let entry = decode_revision::<ComponentLayer>(value.value())?;
-        if request.matches(&entry) {
-            matched.push(entry);
-        }
-        last_consumed = Some(component_id.to_string());
-    }
+    scan_tenant_heads(
+        &heads,
+        &request.tenant_id,
+        start,
+        |component_id, head_revision| {
+            // The cursor is EXCLUSIVE; the range start is inclusive.
+            if resume_after == Some(component_id) {
+                return Ok(ControlFlow::Continue(()));
+            }
+            if matched.len() >= limit
+                || scanned >= MAX_AGENT_COMPONENT_SEARCH_SCAN
+                || (scanned > 0 && bytes >= MAX_AGENT_COMPONENT_SEARCH_BYTES)
+            {
+                truncated = true;
+                return Ok(ControlFlow::Break(()));
+            }
+            scanned += 1;
+            let value =
+                head_revision_row(&revisions, &request.tenant_id, component_id, head_revision)?;
+            bytes = bytes.saturating_add(value.value().len());
+            let entry = decode_revision::<ComponentLayer>(value.value())?;
+            if request.matches(&entry) {
+                matched.push(entry);
+            }
+            last_consumed = Some(component_id.to_string());
+            Ok(ControlFlow::Continue(()))
+        },
+    )?;
     let next_cursor = match (truncated, last_consumed) {
         (true, Some(component_id)) => Some(eg_types::agent_component::encode_search_cursor(
             &request.tenant_id,
@@ -249,6 +242,43 @@ fn scan_component_search_page(
         entries: matched,
         next_cursor,
     })
+}
+
+/// Visit one tenant's component heads from `start` (inclusive), in key order,
+/// as `(component_id, head_revision)`, until `visit` breaks or the tenant ends.
+/// `range` is open-ended: the tenant bound is enforced HERE, once, so no
+/// caller's scan can walk into the next tenant's components.
+pub(super) fn scan_tenant_heads(
+    heads: &redb::ReadOnlyTable<(&'static str, &'static str), u64>,
+    tenant_id: &str,
+    start: &str,
+    mut visit: impl FnMut(&str, u64) -> Result<ControlFlow<()>, String>,
+) -> Result<(), String> {
+    for row in heads
+        .range((tenant_id, start)..)
+        .map_err(|error| error.to_string())?
+    {
+        let (key, head_revision) = row.map_err(|error| error.to_string())?;
+        let (row_tenant, component_id) = key.value();
+        if row_tenant != tenant_id || visit(component_id, head_revision.value())?.is_break() {
+            break;
+        }
+    }
+    Ok(())
+}
+
+/// The revision row a head points at; a head naming a missing revision is a
+/// corrupt owner, refused by name.
+pub(super) fn head_revision_row(
+    revisions: &redb::ReadOnlyTable<(&'static str, &'static str, u64), &'static [u8]>,
+    tenant_id: &str,
+    component_id: &str,
+    head_revision: u64,
+) -> Result<redb::AccessGuard<'static, &'static [u8]>, String> {
+    revisions
+        .get((tenant_id, component_id, head_revision))
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "agent component head points to a missing revision".to_string())
 }
 
 /// [`ComponentLayer::verb`]'s dispatch, kept as a free function so the
@@ -391,28 +421,26 @@ pub(crate) fn test_component_draft(
     tenant_id: &str,
     component_id: &str,
 ) -> eg_types::agent_component::AgentComponentDraft {
-    eg_types::agent_component::AgentComponentDraft {
-        component_id: component_id.to_string(),
-        kind: eg_types::agent_component::AgentComponentKind::Tool,
-        version: "1.0.0".to_string(),
-        content_digest: format!("sha256:{}", "1".repeat(64)),
-        content_ref: None,
-        facts: eg_types::agent_component::AgentComponentFacts::Opaque,
-        provenance: eg_types::agent_component::ComponentProvenance::Native,
-        summary: format!("test component {component_id}"),
-        classification: Vec::new(),
-        requires: Vec::new(),
-        declared_capabilities: Vec::new(),
-        required_capabilities: Vec::new(),
-        declared_required_capabilities: Vec::new(),
-        attributes: Default::default(),
-        tenant_id: tenant_id.to_string(),
-        actor_scope: "action-scope:a".to_string(),
-        purpose_id: "agent-component:publish".to_string(),
-        policy_digest: super::agent_library::current_agent_library_policy_digest().unwrap(),
-        source_revision: "rev-1".to_string(),
-        source_revision_digest: format!("sha256:{}", "8".repeat(64)),
-    }
+    use eg_types::agent_component::{
+        AgentComponentDraft, AgentComponentKind, DraftPublication, DraftSubject,
+    };
+    AgentComponentDraft::bare(
+        DraftSubject {
+            component_id,
+            kind: AgentComponentKind::Tool,
+            version: "1.0.0",
+            content_digest: &format!("sha256:{}", "1".repeat(64)),
+            summary: &format!("test component {component_id}"),
+        },
+        DraftPublication {
+            tenant_id,
+            actor_scope: "action-scope:a",
+            purpose_id: "agent-component:publish",
+            policy_digest: &super::agent_library::current_agent_library_policy_digest().unwrap(),
+            source_revision: "rev-1",
+            source_revision_digest: &format!("sha256:{}", "8".repeat(64)),
+        },
+    )
 }
 
 /// The `AgentComponentFacts::Tool` shape every fixture in this module wants:

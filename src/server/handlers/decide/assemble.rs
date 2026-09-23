@@ -7,13 +7,9 @@
 //! certificate covers. Nothing here commits; the record becomes durable only
 //! through `DecisionCommit`.
 
-use std::sync::Arc;
-
-use tokio::sync::RwLock;
-
+use super::SharedState;
 use crate::protocol::Response;
 use crate::server::auth::VerifiedRequestContext;
-use crate::server::state::ServerState;
 use eg_types::decision::AssemblyRequest;
 
 /// The audit target every Decide-layer decision line is written under.
@@ -24,7 +20,7 @@ pub(crate) const DECIDE_AUDIT_TARGET: &str = "eg::decide::audit";
 /// outcome is `Solved` -- the graph draft it proves.
 #[cfg(feature = "decide")]
 pub(crate) async fn handle_agent_assemble(
-    state: &Arc<RwLock<ServerState>>,
+    state: &SharedState,
     req_id: u64,
     verified: &VerifiedRequestContext,
     request: AssemblyRequest,
@@ -45,7 +41,7 @@ pub(crate) async fn handle_agent_assemble(
 
 #[cfg(feature = "decide")]
 async fn assemble_for(
-    state: &Arc<RwLock<ServerState>>,
+    state: &SharedState,
     verified: &VerifiedRequestContext,
     request: AssemblyRequest,
 ) -> Result<eg_types::decision::AssemblyResult, String> {
@@ -132,7 +128,7 @@ pub(crate) fn audit_line(
 /// name.
 #[cfg(not(feature = "decide"))]
 pub(crate) async fn handle_agent_assemble(
-    _state: &Arc<RwLock<ServerState>>,
+    _state: &SharedState,
     req_id: u64,
     _verified: &VerifiedRequestContext,
     _request: AssemblyRequest,

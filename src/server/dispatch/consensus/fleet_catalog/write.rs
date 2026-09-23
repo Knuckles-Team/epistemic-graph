@@ -273,17 +273,15 @@ pub(super) async fn clear_override(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eg_types::fleet_catalog::{DiscoveryCounts, DiscoveryOutcome, DiscoveryScope};
+    use eg_types::fleet_catalog::DiscoveryScope;
 
     fn write() -> RecordWrite {
-        let body = DiscoveryBody {
-            server_name: "github".to_string(),
-            scope: DiscoveryScope::TenantLocal,
-            connector: eg_types::contract::ResourceId::new("github").unwrap(),
-            outcome: DiscoveryOutcome::Reachable,
-            counts: DiscoveryCounts::default(),
-            observer: "principal:sha256:ab".to_string(),
-        };
+        let body = DiscoveryBody::reachable_for_tests(
+            "github",
+            "github",
+            DiscoveryScope::TenantLocal,
+            "principal:sha256:ab",
+        );
         let ids = (
             discovery_node_id("tenant-a", "github", &body.scope),
             discovery_record_id("github", &body.scope),

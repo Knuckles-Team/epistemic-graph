@@ -9,7 +9,6 @@
 //! bisection line search in [`crate::detkernel::optimise`]. No randomness, no
 //! parallelism, fixed sweep order: the same items produce the same bits.
 
-use eg_types::contract::BoundedVec;
 use eg_types::decision::digest::digest_text;
 use eg_types::decision::jobs::OptimiserSpec;
 use eg_types::decision::statistical::body::content_digest_of;
@@ -23,7 +22,7 @@ use eg_types::decision::StatisticalPolicy;
 use super::admission::Regime;
 use super::fit_calibrate::calibrate;
 use super::quant::{q32, raw_value, value_of};
-use super::refusal::{Refusal, RefusalResult};
+use super::refusal::{bounded, Refusal, RefusalResult};
 use crate::detkernel::kernels::softmax;
 use crate::detkernel::optimise::minimise_convex_unbounded;
 
@@ -263,11 +262,6 @@ fn regime_tag(regime: Regime) -> FittedRegime {
         Regime::FullLabel => FittedRegime::FullLabel,
         Regime::BanditLabel => FittedRegime::BanditLabel,
     }
-}
-
-fn bounded<T, const N: usize>(values: Vec<T>) -> RefusalResult<BoundedVec<T, N>> {
-    BoundedVec::new(values)
-        .map_err(|detail| Refusal::new(StatisticalErrorCode::DatasetInvalid, detail))
 }
 
 /// The digest of the admitted items, in the order they were admitted.

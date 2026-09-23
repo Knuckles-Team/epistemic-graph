@@ -67,7 +67,16 @@
 //! at all, only a `primitive_type` wrapping its own `identifier`.
 #![cfg(feature = "ast-extended")]
 
-use eg_compute::parser::tree_sitter::parse_file;
+use eg_compute::parser::tree_sitter::{parse_file, ParseResult};
+
+/// The unresolved dependency targets (`depends_on_raw` edges) a parse emitted.
+fn raw_deps(r: &ParseResult) -> Vec<&str> {
+    r.edges
+        .iter()
+        .filter(|e| e.edge_type == "depends_on_raw")
+        .map(|e| e.target.as_str())
+        .collect()
+}
 
 /// Find a symbol by name in a parsed file, returning its properties.
 fn sym(path: &str, src: &str, name: &str) -> std::collections::HashMap<String, String> {
@@ -342,12 +351,7 @@ end
         .unwrap_or_else(|| panic!("no zero_arg symbol: {r:?}"));
     assert_eq!(zero_arg.properties["symbol_type"], "Function");
 
-    let raw_deps: Vec<&str> = r
-        .edges
-        .iter()
-        .filter(|e| e.edge_type == "depends_on_raw")
-        .map(|e| e.target.as_str())
-        .collect();
+    let raw_deps = raw_deps(&r);
     assert!(raw_deps.contains(&"Enum"), "{raw_deps:?}");
     assert!(raw_deps.contains(&"MyApp.Helper"), "{raw_deps:?}");
     assert!(raw_deps.contains(&"Logger"), "{raw_deps:?}");
@@ -419,12 +423,7 @@ end module mymod
     assert_eq!(g["symbol_type"], "Function");
     assert_eq!(g["kind_detail"], "subroutine");
 
-    let raw_deps: Vec<&str> = r
-        .edges
-        .iter()
-        .filter(|e| e.edge_type == "depends_on_raw")
-        .map(|e| e.target.as_str())
-        .collect();
+    let raw_deps = raw_deps(&r);
     assert!(raw_deps.contains(&"iso_fortran_env"), "{raw_deps:?}");
 }
 
@@ -469,12 +468,7 @@ end.
     let area = sym("mounit.pas", src, "Area");
     assert_eq!(area["symbol_type"], "Function");
 
-    let raw_deps: Vec<&str> = r
-        .edges
-        .iter()
-        .filter(|e| e.edge_type == "depends_on_raw")
-        .map(|e| e.target.as_str())
-        .collect();
+    let raw_deps = raw_deps(&r);
     assert!(raw_deps.contains(&"SysUtils"), "{raw_deps:?}");
     assert!(raw_deps.contains(&"Classes"), "{raw_deps:?}");
 }
@@ -529,12 +523,7 @@ fn dreammaker_type_proc_and_include() {
     assert_eq!(helper["symbol_type"], "Function");
     assert_eq!(helper["kind_detail"], "function");
 
-    let raw_deps: Vec<&str> = r
-        .edges
-        .iter()
-        .filter(|e| e.edge_type == "depends_on_raw")
-        .map(|e| e.target.as_str())
-        .collect();
+    let raw_deps = raw_deps(&r);
     assert!(
         raw_deps.iter().any(|d| d.contains("other.dm")),
         "{raw_deps:?}"

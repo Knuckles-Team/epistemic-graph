@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from _client_fixtures import RecordingTransport, SentCall
 from pydantic import ValidationError
 
 from epistemic_graph.client import GraphOperationsClient
@@ -53,21 +54,10 @@ def _result_payload() -> dict[str, Any]:
     }
 
 
-class _Client:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, dict[str, Any] | None]] = []
-
-    async def _send(
-        self,
-        method: str,
-        params: dict[str, Any] | None,
-        graph: str | None,
-        *,
-        idempotency_key: str | None,
-    ) -> dict[str, Any]:
-        self.calls.append((method, params))
-        assert graph is None
-        assert idempotency_key is None
+class _Client(RecordingTransport):
+    def reply(self, call: SentCall) -> dict[str, Any]:
+        assert call.graph is None
+        assert call.idempotency_key is None
         return _result_payload()
 
 
@@ -88,7 +78,7 @@ async def test_public_client_returns_one_typed_outcome_per_file_in_order() -> No
         IndexFileStatus.SUCCESS,
         IndexFileStatus.UNSUPPORTED,
     ]
-    assert [method for method, _ in client.calls] == ["IndexRepository"]
+    assert [call.method for call in client.sent] == ["IndexRepository"]
 
 
 @pytest.mark.no_engine

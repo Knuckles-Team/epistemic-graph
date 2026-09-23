@@ -6,4 +6,5 @@
 //! enable it.
 
 pub mod contract_wave;
+pub mod decision;
 pub mod sql_source;

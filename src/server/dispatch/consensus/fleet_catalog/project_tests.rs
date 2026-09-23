@@ -1,6 +1,6 @@
 use super::super::records::RecordMeta;
 use super::*;
-use eg_types::fleet_catalog::{DiscoveryCounts, DiscoveryOutcome, DiscoveryScope};
+use eg_types::fleet_catalog::DiscoveryScope;
 
 const DIGEST: &str = "sha256:0000000000000000000000000000000000000000000000000000000000000000";
 
@@ -63,14 +63,12 @@ fn discovery(server: &str, connector: &str, visibility: FleetVisibility) -> Visi
                 content_digest: "c".to_string(),
                 written_at_ms: 5,
             },
-            body: DiscoveryBody {
-                server_name: server.to_string(),
-                scope: DiscoveryScope::TenantLocal,
-                connector: ResourceId::new(connector).unwrap(),
-                outcome: DiscoveryOutcome::Reachable,
-                counts: DiscoveryCounts::default(),
-                observer: "principal:sha256:observer".to_string(),
-            },
+            body: DiscoveryBody::reachable_for_tests(
+                server,
+                connector,
+                DiscoveryScope::TenantLocal,
+                "principal:sha256:observer",
+            ),
         },
         visibility,
     }

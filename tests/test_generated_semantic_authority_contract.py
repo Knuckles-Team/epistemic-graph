@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 
 import pytest
+from _client_fixtures import PayloadTransport
 
 from epistemic_graph.generated import reasoning
 from epistemic_graph.generated.reasoning import (
@@ -19,26 +19,9 @@ from epistemic_graph.generated.reasoning import (
 pytestmark = pytest.mark.no_engine
 
 
-class _Client:
-    def __init__(self, payloads: dict[str, dict[str, Any]]) -> None:
-        self.payloads = payloads
-        self.calls: list[tuple[str, dict[str, Any] | None, str | None, str | None]] = []
-
-    async def _send(
-        self,
-        method: str,
-        params: dict[str, Any] | None,
-        graph: str | None,
-        *,
-        idempotency_key: str | None,
-    ) -> dict[str, Any]:
-        self.calls.append((method, params, graph, idempotency_key))
-        return self.payloads[method]
-
-
 def test_committed_shacl_validation_returns_its_atomic_schema_identity() -> None:
     digest = "11" * 32
-    client = _Client(
+    client = PayloadTransport(
         {
             "ShaclValidate": {
                 "schema_digests": [digest],
@@ -60,14 +43,14 @@ def test_committed_shacl_validation_returns_its_atomic_schema_identity() -> None
     assert isinstance(report, ShaclValidationReport)
     assert report.schema_digests == [digest]
     assert report.composed_digest == digest
-    assert client.calls == [
+    assert client.sent == [
         ("ShaclValidate", {"shapes": None, "data_graph": ""}, "tenant", None)
     ]
 
 
 def test_owl_reason_property_proof_is_fully_typed() -> None:
     digest = "22" * 32
-    client = _Client(
+    client = PayloadTransport(
         {
             "OwlReason": {
                 "schema_digests": [digest],
@@ -116,7 +99,7 @@ def test_owl_reason_property_proof_is_fully_typed() -> None:
 
 def test_explain_and_materialization_results_are_typed() -> None:
     digest = "33" * 32
-    client = _Client(
+    client = PayloadTransport(
         {
             "OwlExplain": {
                 "schema_digests": [digest],

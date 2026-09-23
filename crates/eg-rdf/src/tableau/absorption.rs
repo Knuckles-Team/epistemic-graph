@@ -30,21 +30,40 @@ pub(super) struct Tbox {
     unfold: HashMap<String, Vec<Dl>>,
 }
 
-/// The concepts a label member deterministically adds to its own node: the conjuncts
-/// of `C₁ ⊓ … ⊓ Cₙ`, and the absorbed right sides `D` of every `A ⊑ D` for a named `A`.
-pub(super) fn deterministic_consequences<'a>(tbox: &'a Tbox, concept: &'a Dl) -> &'a [Dl] {
+/// The outer shape of a concept, as absorption sees it. One exhaustive match over
+/// every `Dl` variant, so a new constructor must be classified here once rather
+/// than in each rule that dispatches on it.
+enum Head<'a> {
+    Atom(&'a str),
+    Top,
+    And(&'a [Dl]),
+    /// Every other constructor: never absorbed, and adds nothing deterministically.
+    Complex,
+}
+
+fn head(concept: &Dl) -> Head<'_> {
     match concept {
-        Dl::And(conjuncts) => conjuncts,
-        Dl::Atom(class) => tbox.unfold.get(class).map_or(&[], Vec::as_slice),
-        Dl::Top
-        | Dl::Bottom
+        Dl::Atom(class) => Head::Atom(class),
+        Dl::Top => Head::Top,
+        Dl::And(conjuncts) => Head::And(conjuncts),
+        Dl::Bottom
         | Dl::Not(_)
         | Dl::Or(_)
         | Dl::Some(_, _)
         | Dl::All(_, _)
         | Dl::Min(_, _, _)
         | Dl::Max(_, _, _)
-        | Dl::Nominal(_) => &[],
+        | Dl::Nominal(_) => Head::Complex,
+    }
+}
+
+/// The concepts a label member deterministically adds to its own node: the conjuncts
+/// of `C₁ ⊓ … ⊓ Cₙ`, and the absorbed right sides `D` of every `A ⊑ D` for a named `A`.
+pub(super) fn deterministic_consequences<'a>(tbox: &'a Tbox, concept: &'a Dl) -> &'a [Dl] {
+    match head(concept) {
+        Head::And(conjuncts) => conjuncts,
+        Head::Atom(class) => tbox.unfold.get(class).map_or(&[], Vec::as_slice),
+        Head::Top | Head::Complex => &[],
     }
 }
 
@@ -54,22 +73,14 @@ pub(super) fn deterministic_consequences<'a>(tbox: &'a Tbox, concept: &'a Dl) ->
 pub(super) fn build_tbox(ont: &DlOntology) -> Tbox {
     let mut tbox = Tbox::default();
     for (c, d) in &ont.gcis {
-        match c {
-            Dl::Atom(class) => tbox
+        match head(c) {
+            Head::Atom(class) => tbox
                 .unfold
-                .entry(class.clone())
+                .entry(class.to_string())
                 .or_default()
                 .push(d.clone().nnf()),
-            Dl::Top => tbox.global.push(d.clone().nnf()),
-            Dl::Bottom
-            | Dl::Not(_)
-            | Dl::And(_)
-            | Dl::Or(_)
-            | Dl::Some(_, _)
-            | Dl::All(_, _)
-            | Dl::Min(_, _, _)
-            | Dl::Max(_, _, _)
-            | Dl::Nominal(_) => tbox
+            Head::Top => tbox.global.push(d.clone().nnf()),
+            Head::And(_) | Head::Complex => tbox
                 .global
                 .push(Dl::Or(vec![c.clone().negate(), d.clone().nnf()]).nnf()),
         }

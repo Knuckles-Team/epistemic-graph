@@ -4,6 +4,7 @@ import asyncio
 from typing import Any, cast
 
 import pytest
+from _client_fixtures import RecordingTransport, SentCall
 
 import epistemic_graph
 from epistemic_graph.client import EpistemicGraphClient
@@ -64,22 +65,16 @@ def _page(
     }
 
 
-class _Transport:
-    def __init__(self, pages: list[dict[str, Any]]) -> None:
-        self.pages = pages
-        self.calls: list[tuple[str, dict[str, Any] | None]] = []
+class _Transport(RecordingTransport):
+    """Answers the Nth call with the Nth page; the fleet catalog is graph-free."""
 
-    async def _send(
-        self,
-        method: str,
-        params: dict[str, Any] | None,
-        graph: str | None,
-        *,
-        idempotency_key: str | None,
-    ) -> dict[str, Any]:
-        assert graph is None
-        self.calls.append((method, params))
-        return self.pages[len(self.calls) - 1]
+    def __init__(self, pages: list[dict[str, Any]]) -> None:
+        super().__init__()
+        self.pages = pages
+
+    def reply(self, call: SentCall) -> dict[str, Any]:
+        assert call.graph is None
+        return self.pages[len(self.sent) - 1]
 
 
 def _client(pages: list[dict[str, Any]]) -> tuple[FleetCatalogClient, _Transport]:
@@ -104,7 +99,7 @@ def test_list_all_pages_one_digest_fenced_snapshot_through_the_list_op() -> None
         "mcp:github/tool/alpha",
         "mcp:github/tool/bravo",
     ]
-    method, params = transport.calls[1]
+    method, params, _graph, _key = transport.sent[1]
     assert method == "FleetCatalog"
     assert params is not None
     assert params["op"]["op"] == "list"
@@ -151,8 +146,8 @@ def test_writes_use_their_own_typed_operations() -> None:
         )
     )
     assert written.disposition == "written"
-    assert transport.calls[0][1] is not None
-    assert transport.calls[0][1]["op"]["op"] == "record_discovery"
+    assert transport.sent[0][1] is not None
+    assert transport.sent[0][1]["op"]["op"] == "record_discovery"
     asyncio.run(
         client.set_override(
             epistemic_graph.FleetOverrideSetRequest.model_validate(
@@ -164,7 +159,7 @@ def test_writes_use_their_own_typed_operations() -> None:
             )
         )
     )
-    op = transport.calls[1][1]
+    op = transport.sent[1][1]
     assert op is not None
     assert op["op"]["op"] == "set_override"
     assert op["op"]["request"]["expected_revision"] == 0
