@@ -5,7 +5,7 @@
 > repository fixture is the evidence; `LAB-PROVEN` means a bounded throwaway run
 > produced evidence; `LIVE` means a deployed observation identifies the artifact;
 > `1M-CERTIFIED` means the exact one-million-user/agent workload report identifies
-> the artifact and result. See the [scale claim register](scale_claims.md), which
+> the artifact and result. See the [scale claim register](https://github.com/Knuckles-Team/epistemic-graph/blob/main/architecture/scale_claims.md), which
 > is checked against source anchors. This page makes no `LIVE` or `1M-CERTIFIED`
 > claim unless it names that evidence explicitly.
 

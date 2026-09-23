@@ -55,7 +55,7 @@ distributed/durability claim.
 | Page | What it covers |
 |---|---|
 | [Engine Scaling Program (M1/M2/M3)](scaling_program.md) | The claim-status vocabulary (`DESIGNED`/`IMPLEMENTED`/`UNIT-PROVEN`/`LAB-PROVEN`/`LIVE`) and the milestone map for the whole scaling program. |
-| [Scale claim register](scale_claims.md) | The machine-readable evidence-state register backing the M1/M2/M3 docs. |
+| [Scale claim register](https://github.com/Knuckles-Team/epistemic-graph/blob/main/architecture/scale_claims.md) | The machine-readable evidence-state register backing the M1/M2/M3 docs. |
 | [Multi-Raft cluster status (M2)](m2_raft_status.md) | Current-main status and handoff for M2 Raft hardening. |
 | [Catalog-driven resharding (M3)](m3_resharding.md) | Current-main status handoff for catalog-driven resharding. |
 | [M3 cross-node elasticity planner](m3-cross-node-elasticity.md) | The policy-only planning layer for cross-node graph/shard elasticity — proposals only; placement/reshard stays the sole mutator. |
