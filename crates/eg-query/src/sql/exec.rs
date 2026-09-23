@@ -125,7 +125,14 @@ pub fn exec_sql(
     cancel: &CancellationToken,
 ) -> Result<QueryResult, String> {
     let nodes = infer_nodes(view)?;
-    run(view, nodes, StoreCatalog::default(), sql, cancel)
+    run(
+        view,
+        nodes,
+        Vec::new(),
+        StoreCatalog::default(),
+        sql,
+        cancel,
+    )
 }
 
 /// Run read-only `sql` over a set of pre-built in-memory Arrow tables — NO graph. Anything
@@ -271,7 +278,14 @@ pub fn exec_sql_typed_cancellable(
     cancel: &CancellationToken,
 ) -> Result<TypedQueryResult, String> {
     let nodes = infer_nodes(view)?;
-    run_typed(view, nodes, StoreCatalog::default(), sql, cancel)
+    run_typed(
+        view,
+        nodes,
+        Vec::new(),
+        StoreCatalog::default(),
+        sql,
+        cancel,
+    )
 }
 
 /// Run `sql` over `view` AND the user tables in `store` (CONCEPT:EG-KG.query.register-user-tables-alongside). Identical
@@ -378,6 +392,7 @@ pub fn exec_sql_cached(
     run(
         view,
         tables.nodes,
+        Vec::new(),
         StoreCatalog::default(),
         sql,
         &CancellationToken::new(),
@@ -1067,7 +1082,14 @@ pub fn exec_sql_arrow_cancellable(
     cancel: &CancellationToken,
 ) -> Result<(SchemaRef, Vec<arrow::record_batch::RecordBatch>), String> {
     let nodes = infer_nodes(view)?;
-    run_arrow(view, nodes, StoreCatalog::default(), sql, cancel)
+    run_arrow(
+        view,
+        nodes,
+        Vec::new(),
+        StoreCatalog::default(),
+        sql,
+        cancel,
+    )
 }
 
 /// Shared driver identical to [`run`]/[`run_typed`] up through the DataFusion collect,

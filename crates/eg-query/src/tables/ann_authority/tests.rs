@@ -257,7 +257,10 @@ fn the_worker_activates_and_the_probe_serves_the_maintained_generation() {
         exact_ids(&store, &index, &query, 5, None)
     );
     let status = &store.ann_index_status().unwrap()[0];
-    assert_eq!((status.state, status.stale), (ManagedIndexState::Active, false));
+    assert_eq!(
+        (status.state, status.stale),
+        (ManagedIndexState::Active, false)
+    );
     assert_eq!((status.generation, status.lag_epochs), (Some(1), 0));
 }
 
@@ -325,7 +328,10 @@ fn a_replayed_refresh_is_idempotent_and_a_write_makes_the_index_stale() {
     ));
     insert(&store, 60, &vectors(1, 5));
     let stale = &store.ann_index_status().unwrap()[0];
-    assert_eq!((stale.state, stale.stale), (ManagedIndexState::Active, true));
+    assert_eq!(
+        (stale.state, stale.stale),
+        (ManagedIndexState::Active, true)
+    );
     assert!(stale.lag_epochs >= 1, "a write is visible as lag");
 
     assert!(matches!(
