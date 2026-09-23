@@ -54,7 +54,7 @@ impl Default for Bm25 {
 /// Corpus-level statistics for true IDF (CONCEPT:EG-KG.query.bm25-ranking-snippets): document count, average
 /// document length (in tokens) and the per-term document frequency. Build one with
 /// [`Corpus::from_docs`] to score many documents against a query with a *shared* IDF.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Corpus {
     n_docs: usize,
     avgdl: f32,
