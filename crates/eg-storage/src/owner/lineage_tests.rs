@@ -87,8 +87,10 @@ fn every_predecessor_is_a_different_table_set_with_a_derived_code() {
 fn every_declared_predecessor_file_is_refused_by_name_without_a_write() {
     let dir = tempfile::tempdir().unwrap();
     for layout in ALL_LAYOUTS {
-        for predecessor in layout_predecessors(layout) {
-            let path = dir.path().join(format!("{}.redb", layout.canonical_name()));
+        for (generation, predecessor) in layout_predecessors(layout).iter().enumerate() {
+            let path = dir
+                .path()
+                .join(format!("{}-{generation}.redb", layout.canonical_name()));
             create_predecessor_owner_file(&path, identity(), predecessor).unwrap();
             let before = file_digest(&path);
             let error = crate::kernel::open_physical_with(

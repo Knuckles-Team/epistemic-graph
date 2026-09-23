@@ -204,8 +204,7 @@ impl<'p> Probe<'p> {
         let mut rows: Vec<Scored> = pairs
             .iter()
             .flat_map(|pair| self.pair_edges(pair))
-            .filter_map(|edge| self.admit(&edge).map(|value| self.score(edge, &value)))
-            .flatten()
+            .filter_map(|edge| self.admit(&edge).and_then(|value| self.score(edge, &value)))
             .collect();
         rows.extend(self.walk(generation)?);
         Ok(best(rows, self.request.k))
