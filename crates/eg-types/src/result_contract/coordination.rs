@@ -36,6 +36,9 @@ use crate::native_control::{
     CapacityStatusResult, SubmitWorkItemResult, SubmitWorkItemsResult,
 };
 use crate::work_item_read::{WorkItemOutcomeView, WorkItemPage, WorkItemView};
+use crate::work_market::{
+    GapPage, GapSettled, GapTransitioned, GapUpserted, GapView, WorkOfferRecorded,
+};
 
 method_results! {
     visit_coordination;
@@ -71,6 +74,14 @@ method_results! {
     TransitionControlLease(TransitionControlLease) => Json<ControlLeaseTransition>;
     GetControlLease(GetControlLease) => Raw<Option<ControlLeaseView>>;
     ListControlLeases(ListControlLeases) => Raw<ControlLeasePage>;
+    // EH-348 work market. `GapGet` is `null` when no Gap with this id is
+    // visible to the verified tenant.
+    GapUpsert(GapUpsert) => Json<GapUpserted>;
+    GapTransition(GapTransition) => Json<GapTransitioned>;
+    GapSettle(GapSettle) => Json<GapSettled>;
+    WorkOfferPut(WorkOfferPut) => Json<WorkOfferRecorded>;
+    GapGet(GapGet) => Raw<Option<GapView>>;
+    GapList(GapList) => Raw<GapPage>;
     ReserveWorkItemResources(ReserveWorkItemResources) => Raw<ResourceReservationResult>;
     ReleaseWorkItemResources(ReleaseWorkItemResources) => Raw<ResourceReservationResult>;
     ReclaimWorkItemResources(ReclaimWorkItemResources) => Raw<ResourceReservationResult>;
