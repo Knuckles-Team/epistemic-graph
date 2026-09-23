@@ -166,12 +166,28 @@ _CHAR_LITERAL = re.compile(
 _STRING_LITERAL_START = re.compile(r'(?:b|c)?"')
 
 
-def _blank_span(masked: list[str], source: str, start: int, end: int) -> None:
-    """Blank one masked span in place, retaining source offsets and newlines."""
+# Every position at which `_rust_lexical_span` can open a token, as ONE
+# alternation in the same priority order.  `search` therefore stops at exactly
+# the first index where the per-index probe would succeed, so the masker jumps
+# between candidate tokens in C instead of probing every character in Python.
+_LEXICAL_START = re.compile(
+    "|".join(
+        (
+            r"//",
+            r"/\*",
+            _RAW_LITERAL_START.pattern,
+            _CHAR_LITERAL.pattern,
+            _STRING_LITERAL_START.pattern,
+        )
+    )
+)
+_NON_NEWLINE = re.compile(r"[^\n]")
 
-    for position in range(start, end):
-        if source[position] != "\n":
-            masked[position] = " "
+
+def _blanked(segment: str) -> str:
+    """Blank one masked span, retaining its length and newlines."""
+
+    return _NON_NEWLINE.sub(" ", segment)
 
 
 def _line_comment_end(source: str, start: int) -> int:
@@ -253,18 +269,24 @@ def _rust_lexical_span(source: str, index: int) -> tuple[int, bool] | None:
 def _rust_mask(source: str, *, literals: bool) -> str:
     """Blank comments and optionally literals while retaining source offsets."""
 
-    masked = list(source)
-    index = 0
-    while index < len(source):
+    pieces: list[str] = []
+    copied = 0
+    candidate = _LEXICAL_START.search(source)
+    while candidate is not None:
+        index = candidate.start()
         span = _rust_lexical_span(source, index)
         if span is None:
-            index += 1
-            continue
+            raise SystemExit(
+                f"Rust source scanner failed: token-start pattern disagrees at {index}"
+            )
         end, is_literal = span
         if literals or not is_literal:
-            _blank_span(masked, source, index, end)
-        index = end
-    return "".join(masked)
+            pieces.append(source[copied:index])
+            pieces.append(_blanked(source[index:end]))
+            copied = end
+        candidate = _LEXICAL_START.search(source, end)
+    pieces.append(source[copied:])
+    return "".join(pieces)
 
 
 def _rust_code_mask(source: str) -> str:
