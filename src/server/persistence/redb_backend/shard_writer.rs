@@ -204,8 +204,8 @@ impl ShardWriter {
         //
         // No schema bootstrap runs here any more. `StorageKernel::create_owner`
         // materializes the WHOLE declared `OwnerLayout::GraphShard` census — the 41
-        // scope-prefixed tables, the 12 file-wide ones (`raft_meta` and
-        // `encryption_canary` among them) and the ledger — and re-validates it on
+        // scope-prefixed tables, the 13 file-wide ones (`raft_meta`,
+        // `encryption_canary` and `storage_scrub_cursor` among them) and the ledger — and re-validates it on
         // every open, so the hand-written `initialize_canonical_tables` bootstrap
         // that used to run here is deleted: beside `create_owner` it would be a
         // second physical authority over the same file.
@@ -425,5 +425,61 @@ impl Drop for ShardWriter {
         // before the next in-process open, rather than detaching a resource-owning
         // thread until the scheduler happens to observe channel disconnect.
         self.shutdown();
+    }
+}
+
+/// The routing read guard a caller may carry into a blocking shard task, so an
+/// online reshard cannot flip the shard it resolved while the task waits.
+pub(super) type RoutingHold = Option<tokio::sync::OwnedRwLockReadGuard<()>>;
+
+impl ShardWriter {
+    /// Run one typed MVCC read of THIS shard on Tokio's blocking pool, off the
+    /// writer thread, with the shard's value cipher. `hold` is kept alive until
+    /// the read has run.
+    pub(super) async fn read_off_writer<T, F>(
+        &self,
+        hold: RoutingHold,
+        read: F,
+    ) -> Result<T, String>
+    where
+        T: Send + 'static,
+        F: for<'a> FnOnce(&'a Shard, crate::redb_store::DurableCrypto<'a>) -> Result<T, String>
+            + Send
+            + 'static,
+    {
+        let shard = self
+            .shard
+            .upgrade()
+            .ok_or_else(|| "redb writer thread is gone".to_string())?;
+        #[cfg(feature = "security")]
+        let cipher = self.cipher.clone();
+        tokio::task::spawn_blocking(move || {
+            let _hold = hold;
+            #[cfg(feature = "security")]
+            let crypto = crate::redb_store::DurableCrypto::new(cipher.as_ref());
+            #[cfg(not(feature = "security"))]
+            let crypto = crate::redb_store::DurableCrypto::none();
+            read(shard.as_ref(), crypto)
+        })
+        .await
+        .map_err(|error| format!("redb snapshot read join error: {error}"))?
+    }
+
+    /// Enqueue one writer command with a blocking send on Tokio's blocking
+    /// pool: a saturated writer propagates backpressure and never drops it.
+    pub(super) async fn send_off_reactor(
+        &self,
+        hold: RoutingHold,
+        cmd: Cmd,
+        what: &str,
+    ) -> Result<(), String> {
+        let tx = self.tx.clone();
+        tokio::task::spawn_blocking(move || {
+            let _hold = hold;
+            tx.send(cmd).map_err(|_| ())
+        })
+        .await
+        .map_err(|error| format!("{what} join error: {error}"))?
+        .map_err(|_| "redb writer thread is gone".to_string())
     }
 }

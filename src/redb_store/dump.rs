@@ -259,7 +259,7 @@ fn read_graph_core_rows(
     for row in nodes_table.scope_rows()? {
         let (k, v) = row?;
         let (_, id) = k.value();
-        nodes.push((id.to_string(), crypto.unseal(v.value())?));
+        nodes.push((id.to_string(), crypto.unseal_node(graph, id, v.value())?));
     }
     let edges_table = read.scoped_owner_table(EDGES)?;
     let mut edges = Vec::new();
@@ -317,7 +317,7 @@ pub(crate) fn read_catalog_record(
 /// The boot scan's primitive, and the first half of [`read_all_dumps`]: a graph
 /// scope cannot be bound until its name is known, and the name is only knowable
 /// from here.
-fn read_graph_catalog(shard: &Shard) -> Result<Vec<(String, GraphMetaRecord)>, String> {
+pub(crate) fn read_graph_catalog(shard: &Shard) -> Result<Vec<(String, GraphMetaRecord)>, String> {
     let control = shard.control_read()?;
     let catalog = control.open_owner_table(GRAPH_META)?;
     let mut out = Vec::new();
@@ -428,13 +428,13 @@ pub(crate) fn graph_dump_page_node_row_step(
     crypto: DurableCrypto<'_>,
 ) -> Result<GraphDumpPageNodeRowStep, String> {
     let (k, v) = row?;
-    let (_, id) = k.value();
+    let (graph, id) = k.value();
     if resume_after.is_some_and(|cursor| id <= cursor) {
         return Ok(GraphDumpPageNodeRowStep::BeforeCursor);
     }
     Ok(GraphDumpPageNodeRowStep::Pushed(
         id.to_string(),
-        crypto.unseal(v.value())?,
+        crypto.unseal_node(graph, id, v.value())?,
     ))
 }
 
