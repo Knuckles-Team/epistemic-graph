@@ -264,5 +264,9 @@ pre-commit run --config .config/pre-commit.yaml cccc-census --hook-stage manual 
 pre-commit run --config .config/pre-commit.yaml kiss-census --hook-stage manual --all-files
 ```
 
-A whole-tree KISS census is ~9 minutes single-threaded; parallelise with
-`xargs -0 -P 14` over `python3 scripts/list_scanner_sources.py kiss`.
+The `kiss-census` hook runs ONE `kiss check .` over the repository root (about
+15 seconds). A per-file census treated every file as its own codebase, so the
+cross-file duplication, orphan-module, dependency-depth and cycle rules could
+never fire, and it paid KISS's Rust role scan once per file (137 minutes in the
+hosted scanner job). The whole-tree run reports every per-file finding plus the
+cross-file ones; `scripts/check_kiss_census.py` records the measured comparison.
