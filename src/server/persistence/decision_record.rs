@@ -387,4 +387,4 @@ fn snapshot_check(
 mod sources;
 
 #[cfg(all(test, feature = "decide"))]
-mod tests;
+pub(crate) mod tests;
