@@ -311,13 +311,15 @@ pub struct ServerState {
     /// + triggers off it. PURE in-memory (bounded ring + Notify) — no second redb file.
     #[cfg(feature = "streaming")]
     pub cdc: Option<Arc<crate::server::cdc::CdcHub>>,
-    /// WASM-sandboxed UDF registry (CONCEPT:EG-KG.query.rowset-execution, feature `wasm-udf`). Holds the
-    /// compiled, cached `UdfModule`s an agent pushed via `RegisterUdf`; `RunUdf` + the
-    /// `Op::Udf` plan op look up + run them sandboxed (fuel + memory limits, NO host
-    /// caps). Always present (empty) with the feature on — UDFs are process-global, not
-    /// per-graph. Behind `Arc` so the off-lock compute path clones a handle cheaply.
+    /// WASM-sandboxed UDF catalog (CONCEPT:EG-KG.query.rowset-execution, feature `wasm-udf`). Holds the
+    /// compiled, cached `UdfModule`s an agent pushed via `RegisterUdf`, keyed by
+    /// `(verified tenant scope, id)` (EH-374); `RunUdf` looks up + runs only the
+    /// caller's own tenant's modules sandboxed (fuel + memory limits, NO host caps), so
+    /// no tenant can run or shadow another's UDF. Always present (empty) with the
+    /// feature on — not per-graph. Behind `Arc` so the off-lock compute path clones a
+    /// handle cheaply.
     #[cfg(feature = "wasm-udf")]
-    pub udf_registry: Arc<eg_wasm::UdfRegistry>,
+    pub udf_registry: Arc<crate::server::udf_catalog::UdfCatalog>,
     /// Materialized views of distributed-compute results (CONCEPT:EG-KG.storage.feature, feature
     /// `compute-dist`). The in-RAM index of named, incrementally-maintained matviews;
     /// the durable copy lives in redb (the handler persists + reloads on boot). Mutex

@@ -61,7 +61,7 @@ pub(crate) async fn make_state(
     #[cfg(feature = "streaming")]
     let cdc: Option<Arc<crate::server::cdc::CdcHub>> = None;
     #[cfg(feature = "wasm-udf")]
-    let udf_registry = Arc::new(eg_wasm::UdfRegistry::new());
+    let udf_registry = Arc::<crate::server::udf_catalog::UdfCatalog>::default();
     #[cfg(feature = "compute-dist")]
     let matviews = Arc::new(parking_lot::Mutex::new(
         crate::raft::pregel::MatViewStore::new(),
