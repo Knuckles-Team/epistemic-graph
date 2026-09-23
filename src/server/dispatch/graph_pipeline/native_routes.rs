@@ -268,6 +268,10 @@ async fn route_work_item_reads(
         Method::GetControlLease { tenant, lease_id } => {
             handlers::work_item_read::WorkItemRead::ControlLease { tenant, lease_id }
         }
+        Method::GapGet { tenant, gap_id } => {
+            handlers::work_item_read::WorkItemRead::Gap { tenant, gap_id }
+        }
+        Method::GapList { request } => handlers::work_item_read::WorkItemRead::Gaps(request),
         other => return Err(other),
     };
     #[cfg(feature = "raft")]

@@ -582,6 +582,10 @@ def _check_mutation_applier_inventory(
         "IssueControlLease",
         "TransitionControlLease",
         "PolicyEvolutionStore",
+        "GapUpsert",
+        "GapTransition",
+        "GapSettle",
+        "WorkOfferPut",
     }
     require(
         work_items == expected_work_items,

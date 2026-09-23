@@ -376,6 +376,7 @@ pub(crate) fn apply_native_work_item_family_operation(
     batch: &MutationBatch,
     generated_result: &mut Option<Vec<u8>>,
     crypto: DurableCrypto<'_>,
+    committed_at_ms: u64,
 ) -> Result<(), String> {
     let result = apply_work_item_rows(super::work_item::WorkItemApplyRequest {
         graph: graph_fname,
@@ -388,6 +389,9 @@ pub(crate) fn apply_native_work_item_family_operation(
         pressure_index: &mut tables.lane_pressure_index,
         policies: &tables.lane_policies,
         native_work_items: &mut tables.graph.native_work_items,
+        edges: &mut tables.graph.edges,
+        command_sequences: &mut tables.graph.command_sequences,
+        committed_at_ms,
         crypto,
     })?
     .ok_or_else(|| "WorkItem mutation produced no durable result".to_string())?;
@@ -416,6 +420,7 @@ pub(crate) fn apply_native_commit_work_item_result_operation(
     tables: &mut NativeOperationTables<'_>,
     generated_result: &mut Option<Vec<u8>>,
     crypto: DurableCrypto<'_>,
+    committed_at_ms: u64,
 ) -> Result<(), String> {
     let result = apply_work_item_rows(super::work_item::WorkItemApplyRequest {
         graph: graph_fname,
@@ -428,6 +433,9 @@ pub(crate) fn apply_native_commit_work_item_result_operation(
         pressure_index: &mut tables.lane_pressure_index,
         policies: &tables.lane_policies,
         native_work_items: &mut tables.graph.native_work_items,
+        edges: &mut tables.graph.edges,
+        command_sequences: &mut tables.graph.command_sequences,
+        committed_at_ms,
         crypto,
     })?
     .ok_or_else(|| "WorkItem mutation produced no durable result".to_string())?;
@@ -569,6 +577,7 @@ fn apply_one_native_operation_row(
             batch,
             generated_result,
             crypto,
+            committed_at_ms,
         ),
         method @ Method::CommitWorkItemResult { .. } => {
             apply_native_commit_work_item_result_operation(
@@ -578,6 +587,7 @@ fn apply_one_native_operation_row(
                 tables,
                 generated_result,
                 crypto,
+                committed_at_ms,
             )
         }
         method @ (Method::ReserveWorkItemResources { .. }

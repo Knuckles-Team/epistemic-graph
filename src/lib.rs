@@ -59,6 +59,10 @@ macro_rules! work_item_kernel_writes {
             | $crate::protocol::Method::IssueControlLease { .. }
             | $crate::protocol::Method::TransitionControlLease { .. }
             | $crate::protocol::Method::PolicyEvolutionStore { .. }
+            | $crate::protocol::Method::GapUpsert { .. }
+            | $crate::protocol::Method::GapTransition { .. }
+            | $crate::protocol::Method::GapSettle { .. }
+            | $crate::protocol::Method::WorkOfferPut { .. }
     };
 }
 

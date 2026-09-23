@@ -90,6 +90,34 @@ fn writes(tenant: &str) -> Vec<(&'static str, Value)> {
             json!({"request": {"tenant": tenant, "lease_id": "l",
             "expected_revision": 1, "to": "revoked", "idempotency_key": "k"}}),
         ),
+        (
+            "GapUpsert",
+            json!({"request": {"tenant": tenant, "gap_id": "gap:a:b",
+            "source": "a", "signature": "b", "statement": "s", "severity_ppm": 1,
+            "evidence": [{"digest": format!("sha256:{}", "0".repeat(64)),
+            "kind": "k", "reference": "r"}],
+            "work": {"kind": "gap_remediation", "max_attempts": 1},
+            "idempotency_key": "k"}}),
+        ),
+        (
+            "GapTransition",
+            json!({"request": {"tenant": tenant, "gap_id": "gap:a:b",
+            "expected_revision": 1, "to": "deferred", "reference": "r",
+            "idempotency_key": "k"}}),
+        ),
+        (
+            "GapSettle",
+            json!({"request": {"tenant": tenant, "gap_id": "gap:a:b",
+            "idempotency_key": "k"}}),
+        ),
+        (
+            "WorkOfferPut",
+            json!({"request": {"tenant": tenant, "gap_id": "gap:a:b",
+            "expected_offer_version": 0, "offer": {"expected_utility_micros": 1,
+            "probability_of_closure_ppm": 1, "expected_cost_microunits": 1,
+            "cost_uncertainty_ppm": 0, "blast_radius": "local", "reversible": true,
+            "evidence_digests": ["d"]}, "idempotency_key": "k"}}),
+        ),
     ]
 }
 
