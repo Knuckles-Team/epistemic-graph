@@ -35,14 +35,14 @@ pub use sql::{
     exec_sql_typed_cancellable, exec_sql_typed_with_tables,
     exec_sql_typed_with_tables_cached_cancellable, exec_sql_typed_with_tables_cancellable,
     infer_param_sites, parse_create_ann_index, plan_ann_search, plan_bm25_search,
-    returning_columns, schema_probe_sql, AlterTableAction, AlterTablePlan, AnnIndexPlan, AnnMethod,
-    AnnSearchPlan, Bm25SearchPlan, CancellationToken, ColumnDef, ContinuousAggPlan, CopyFormat,
-    CopyPlan, CreateFunctionPlan, CreateTablePlan, CreateViewPlan, DeleteNodes, DeleteNodesJoin,
-    DeleteTable, DropFunctionPlan, DropTablePlan, DropViewPlan, GraphTableQuery, HypertablePlan,
-    InsertNode, InsertNodes, InsertNodesSelect, InsertSelect, InsertTable, OnConflict,
-    OnConflictAction, ParamLiteralType, ParamSite, PgColType, QueryResult, SqlCache,
-    SqlContextCache, StatementKind, StreamOutcome, TableWhereEq, TypedColumn, TypedQueryResult,
-    UpdateNodes, UpdateNodesJoin, UpdateTable, VectorMetric, WhereEq,
+    require_single_read, returning_columns, schema_probe_sql, AlterTableAction, AlterTablePlan,
+    AnnIndexPlan, AnnMethod, AnnSearchPlan, Bm25SearchPlan, CancellationToken, ColumnDef,
+    ContinuousAggPlan, CopyFormat, CopyPlan, CreateFunctionPlan, CreateTablePlan, CreateViewPlan,
+    DeleteNodes, DeleteNodesJoin, DeleteTable, DropFunctionPlan, DropTablePlan, DropViewPlan,
+    GraphTableQuery, HypertablePlan, InsertNode, InsertNodes, InsertNodesSelect, InsertSelect,
+    InsertTable, OnConflict, OnConflictAction, ParamLiteralType, ParamSite, PgColType, QueryResult,
+    SqlCache, SqlContextCache, StatementKind, StreamOutcome, TableWhereEq, TypedColumn,
+    TypedQueryResult, UpdateNodes, UpdateNodesJoin, UpdateTable, VectorMetric, WhereEq,
 };
 
 #[cfg(feature = "sql")]
