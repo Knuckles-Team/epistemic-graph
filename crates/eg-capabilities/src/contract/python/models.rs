@@ -20,7 +20,8 @@ use std::fmt::Write as _;
 use serde_json::{Map, Value};
 
 use super::super::results::{Catalog, Declared};
-use super::dto::{ref_name, DTO_SURFACES};
+use super::dto::ref_name;
+use super::dto_surfaces::DTO_SURFACES;
 
 mod hoist;
 mod render;
