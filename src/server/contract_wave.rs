@@ -6,11 +6,11 @@
 //! proof that every declared surface is served is a compile error, not a
 //! checklist.
 //!
-//! The stubs are generated from one macro rather than written out ten times.
-//! Ten hand-written functions with the same body are ten structural clones the
-//! duplication gates would (correctly) refuse, and a package replacing one of
-//! them replaces the macro invocation with a real function of the same
-//! signature, which is exactly the rule the wave's R6 states.
+//! Every 2.27.x wave surface is now served (train 3: Decide/assembly on train 2,
+//! DecisionLog, ConnectorPack admin and MutationOutbox), so the stub-declaring
+//! macro is gone and `PENDING_METHODS` is empty. What stays is the refusal
+//! code, the shared test macro for a future wave, and the two dispatch tests
+//! that pin every declared surface to its real handler.
 
 use crate::protocol::Response;
 
@@ -21,15 +21,7 @@ pub(crate) const METHOD_NOT_YET_SERVED: &str = "METHOD_NOT_YET_SERVED";
 /// withholds exactly these, so `client.supports(..)` never promises a stub;
 /// `pending_methods_are_exactly_the_stubbed_methods` pins the list against
 /// dispatch. The package that lands a handler deletes its entry.
-pub(crate) const PENDING_METHODS: &[&str] = &[
-    "AgentAssemble",
-    "DecisionCommit",
-    "Decide",
-    "DecisionFit",
-    "DecisionEval",
-    "Solve",
-    "MutationOutbox",
-];
+pub(crate) const PENDING_METHODS: &[&str] = &[];
 
 /// The one refusal body. `surface` is the method, or `Method.op`, the caller
 /// asked for.
@@ -73,45 +65,6 @@ macro_rules! contract_wave_stub_test {
         }
     };
 }
-
-/// Declare one contract-wave stub and the test that pins its refusal.
-///
-/// Two shapes, because two exist: an authenticated surface takes the server
-/// state and the verified context, and a pure-compute one takes neither.
-macro_rules! contract_wave_stub {
-    (
-        $(#[$stub_meta:meta])*
-        $name:ident($request:ty) refuses $surface:literal, tested by $test:ident
-    ) => {
-        $(#[$stub_meta])*
-        pub(crate) async fn $name(
-            _state: &std::sync::Arc<tokio::sync::RwLock<crate::server::state::ServerState>>,
-            req_id: u64,
-            _verified: &crate::server::auth::VerifiedRequestContext,
-            _request: $request,
-        ) -> crate::protocol::Response {
-            crate::server::contract_wave::not_yet_served(req_id, $surface)
-        }
-
-        $crate::contract_wave_stub_test!($test, $surface);
-    };
-    (
-        $(#[$stub_meta:meta])*
-        pure $name:ident($request:ty) refuses $surface:literal, tested by $test:ident
-    ) => {
-        $(#[$stub_meta])*
-        pub(crate) async fn $name(
-            req_id: u64,
-            _request: $request,
-        ) -> crate::protocol::Response {
-            crate::server::contract_wave::not_yet_served(req_id, $surface)
-        }
-
-        $crate::contract_wave_stub_test!($test, $surface);
-    };
-}
-
-pub(crate) use contract_wave_stub;
 
 /// Assert that `surface` has a refusal body naming it, and nothing else.
 ///
