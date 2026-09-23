@@ -207,7 +207,13 @@ fn sparql_virtual(
         #[cfg(feature = "rdf")]
         eg_rdf::sparql::QueryOutcome::Graph(_) => (Vec::new(), Vec::new()),
     };
-    Ok(crate::protocol::SparqlResult { vars, rows })
+    // OBDA answers are rewritten scans over foreign tables, not graph triples, so
+    // there is no graph witness to attach (EH-197 proofs are `Sparql`-only).
+    Ok(crate::protocol::SparqlResult {
+        vars,
+        rows,
+        proofs: Vec::new(),
+    })
 }
 
 // ── external relational OBDA source + SPARQL→SQL predicate pushdown (W4.11) ──────────────────

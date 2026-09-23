@@ -292,6 +292,9 @@ pub struct QueryResult {
 pub struct SparqlResult {
     pub vars: Vec<String>,
     pub rows: Vec<Vec<Option<String>>>,
+    /// One witness proof per row, in row order, when the request asked to `explain`
+    /// (EH-197); empty otherwise.
+    pub proofs: Vec<crate::rdf_report::SparqlRowProof>,
 }
 
 /// Materialized result of a `Method::OwlReason` run (CONCEPT:EG-KG.ontology.incremental-materialization). Returned via

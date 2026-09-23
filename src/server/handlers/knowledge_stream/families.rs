@@ -186,6 +186,7 @@ async fn execute_rdf(
                 query: query.to_string(),
                 base_iri: base_iri.to_string(),
                 type_convention: type_convention.to_string(),
+                explain: false,
             },
             #[cfg(feature = "security")]
             rls,
