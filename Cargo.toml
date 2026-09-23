@@ -1983,6 +1983,22 @@ codegen-units = 1
 panic = "unwind"
 strip = true
 
+# The Go/JavaScript clients' embedded eg2. method-body codec
+# (`crates/eg-method-codec`, built for wasm32-unknown-unknown by
+# `scripts/build_method_codec_wasm.py`). The module is committed into both
+# clients and re-derived byte-for-byte in CI, so every setting is chosen for
+# the smallest reproducible module: optimize for size ("z"), fat LTO, one
+# codegen unit, no debug info, stripped, and abort-on-panic (the module has no
+# host to unwind into).
+[profile.method-codec]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+debug = false
+strip = true
+panic = "abort"
+
 # Size-optimized release profile for the "contains-all smallest" pre-packaged build
 # (the Pi never compiles — wheels are cross-built in CI, so the C-dep/long compile is
 # a build-host concern only). Inherits `release` but trades runtime speed for a
@@ -1992,20 +2008,6 @@ strip = true
 # DATABASE — unwind keeps a panic recoverable at the dispatch boundary instead of
 # aborting the whole process and masking a recoverable error. Normal `release` builds
 # are unaffected (this is a separate named profile).
-# The Go/JavaScript clients' embedded eg2. method-body codec
-# (`crates/eg-method-codec`, built for wasm32-unknown-unknown by
-# `scripts/build_method_codec_wasm.py`). The module is committed into both
-# clients and re-derived byte-for-byte in CI, so every setting here is chosen
-# for a small, reproducible module: one codegen unit, fat LTO, stripped, and
-# abort-on-panic (the module has no host to unwind into).
-[profile.method-codec]
-inherits = "release"
-opt-level = "s"
-lto = "fat"
-codegen-units = 1
-strip = true
-panic = "abort"
-
 [profile.release-tiny]
 inherits = "release"
 opt-level = "z"
