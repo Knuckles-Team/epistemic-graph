@@ -76,4 +76,58 @@ impl Method {
     pub fn canonical_body_bytes(&self) -> Vec<u8> {
         rmp_serde::to_vec_named(self).unwrap_or_default()
     }
+
+    /// [`Self::canonical_body_bytes`] of the `Method` one MessagePack request
+    /// frame carries, decoded exactly as the transport decodes a frame
+    /// (`rmp_serde::from_slice::<Request>`). A client that signs this value
+    /// signs precisely what the server re-derives for the `eg2.` MAC, for every
+    /// method, without restating field order, defaults, map ordering or
+    /// float/byte widths. The frame's `auth_token` does not affect the result.
+    pub fn canonical_body_of_request_frame(frame: &[u8]) -> Result<Vec<u8>, String> {
+        let request: Request = rmp_serde::from_slice(frame).map_err(|error| {
+            format!("request frame does not decode as a typed Request: {error}")
+        })?;
+        let body = request.method.canonical_body_bytes();
+        if body.is_empty() {
+            return Err("typed Method re-serialization failed".to_string());
+        }
+        Ok(body)
+    }
+}
+
+#[cfg(test)]
+mod canonical_frame_tests {
+    use super::*;
+
+    fn frame(params: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&serde_json::json!({
+            "params": params,
+            "method": "CancelRequest",
+            "agent_id": null,
+            "auth_token": "eg2.ignored",
+            "graph": "g",
+            "id": 1,
+        }))
+        .expect("a JSON frame encodes")
+    }
+
+    #[test]
+    fn a_frame_yields_the_body_its_typed_method_re_serializes() {
+        let expected = Method::CancelRequest { target_req_id: 7 }.canonical_body_bytes();
+        let body = Method::canonical_body_of_request_frame(&frame(
+            serde_json::json!({"target_req_id": 7}),
+        ));
+        assert_eq!(body, Ok(expected));
+    }
+
+    #[test]
+    fn a_frame_the_transport_cannot_decode_is_refused() {
+        let refused = Method::canonical_body_of_request_frame(&frame(
+            serde_json::json!({"target_req_id": "seven"}),
+        ));
+        assert!(
+            refused.is_err(),
+            "an undecodable frame has no canonical body"
+        );
+    }
 }

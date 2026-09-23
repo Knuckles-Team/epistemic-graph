@@ -36,6 +36,20 @@ where
     Option::<T>::deserialize(deserializer)
 }
 
+/// [`deserialize_required_option`] for a MessagePack blob field that stays a
+/// plain `Vec<u8>` (an integer array) when re-serialized. Accepting a `bin`
+/// as well as an array matters because `Request` flattens `Method`: serde then
+/// buffers the frame, and a buffered `bin` no longer satisfies a plain
+/// `Vec<u8>` sequence visitor, so the Python client's binary blobs failed
+/// decoding with "invalid request encoding".
+fn deserialize_required_blob<'de, D>(deserializer: D) -> Result<Option<Vec<u8>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Option::<serde_bytes::ByteBuf>::deserialize(deserializer)
+        .map(|blob| blob.map(serde_bytes::ByteBuf::into_vec))
+}
+
 /// Versioned native capability request.  The engine derives every authority
 /// field (tenant, owner, lease epoch/fence, attempt, and expiry) from the
 /// authenticated request context and the live WorkItem row; callers provide
@@ -209,9 +223,9 @@ pub struct CasWorkItemMetadataRequest {
     pub expected_checkpoint_id: Option<String>,
     #[serde(deserialize_with = "deserialize_required_option")]
     pub set_checkpoint_id: Option<String>,
-    #[serde(deserialize_with = "deserialize_required_option")]
+    #[serde(deserialize_with = "deserialize_required_blob")]
     pub expected_metadata_msgpack: Option<Vec<u8>>,
-    #[serde(deserialize_with = "deserialize_required_option")]
+    #[serde(deserialize_with = "deserialize_required_blob")]
     pub set_metadata_msgpack: Option<Vec<u8>>,
     #[serde(deserialize_with = "deserialize_required_option")]
     pub expected_prio_bucket: Option<i64>,

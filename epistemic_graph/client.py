@@ -23,7 +23,6 @@ import math
 import os
 import secrets
 import ssl
-import struct
 import threading
 import time
 from collections.abc import Awaitable, Callable, Mapping
@@ -363,49 +362,6 @@ _BINARY_PAYLOAD_METHODS = frozenset(
     }
 )
 
-_DIRECT_F32_VECTOR_FIELDS = {
-    "CloseChannel": frozenset({"summary_embedding"}),
-    "AddEmbedding": frozenset({"embedding"}),
-    "SemanticSearch": frozenset({"query_embedding"}),
-    "Discover": frozenset({"query_embedding"}),
-    "TxnAddEmbedding": frozenset({"embedding"}),
-}
-_PLAN_F32_METHODS = frozenset(
-    {
-        "UnifiedQuery",
-        "ExplainPlan",
-        "ExplainProvenance",
-        "ExplainPolicy",
-        "PlanMatViewDefine",
-        "TxnPlanWriteback",
-        "TxnUnifiedQuery",
-        "MineCluster",
-        "MineAnomaly",
-        "MineClassifyFit",
-        "MineClassifyPredict",
-        "MineReduce",
-    }
-)
-
-# Current Rust `Method` fields typed `BTreeMap<String, _>` (CausalEstimate/
-# CausalCounterfactual's `do_values`/`actual`) always serialize in SORTED key
-# order -- a `BTreeMap` iterates that way by construction, unlike an ordinary
-# Rust map. The `eg2.` MAC's canonical body hash is recomputed server-side from
-# `rmp_serde::to_vec_named` of the DESERIALIZED, then re-serialized typed
-# `Method` (`Method::canonical_body_bytes`), so it always sees these fields
-# key-sorted -- regardless of what order the wire bytes carried them in. A
-# caller-supplied Python `dict` preserves INSERTION order, so a caller passing
-# e.g. ``{"z": 1.0, "x": 1.5, "y": 1.95}`` (an unsorted unit) would otherwise
-# hash a different byte sequence than the server recomputes, failing with
-# "Authentication failed" whenever the dict has more than one key in
-# non-alphabetical insertion order. Sorting only these known fields (mirroring
-# `_DIRECT_F32_VECTOR_FIELDS`'s per-method-per-field precedent) reproduces the
-# server's `BTreeMap` order without guessing at the whole schema.
-_BTREEMAP_SORTED_FIELDS = {
-    "CausalEstimate": frozenset({"do_values"}),
-    "CausalCounterfactual": frozenset({"actual", "do_values"}),
-}
-
 # These nested request fields are intentionally plain Rust ``Vec<u8>`` rather
 # than ``#[serde(with = "serde_bytes")]`` in the current server protocol.  The
 # transport may carry them as MessagePack ``bin`` (rmp-serde accepts bin while
@@ -415,396 +371,6 @@ _BTREEMAP_SORTED_FIELDS = {
 _CANONICAL_ARRAY_BYTE_FIELDS = frozenset(
     {"expected_metadata_msgpack", "set_metadata_msgpack"}
 )
-
-
-class _CanonicalF32:
-    """One schema-declared Rust ``f32`` in the signed method body.
-
-    Python's msgpack encoder represents every ordinary ``float`` as MessagePack
-    float64. Rust deserializes the wire value into the method DTO first and then
-    hashes ``rmp_serde::to_vec_named(Method)``, which represents ``f32`` fields as
-    MessagePack float32. Retaining this marker only in the canonical signing copy
-    lets both sides hash the same typed DTO without changing the transport value.
-    """
-
-    __slots__ = ("encoded",)
-
-    def __init__(self, value: Any, *, field: str) -> None:
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise TypeError(f"{field} must contain finite f32 values")
-        try:
-            encoded = struct.pack(">f", float(value))
-        except (OverflowError, struct.error, ValueError) as error:
-            raise ValueError(f"{field} must contain finite f32 values") from error
-        if not math.isfinite(struct.unpack(">f", encoded)[0]):
-            raise ValueError(f"{field} must contain finite f32 values")
-        self.encoded = encoded
-
-
-def _mark_f32_vector(container: dict[str, Any], field: str, *, path: str) -> None:
-    value = container.get(field)
-    if value is None:
-        return
-    if not isinstance(value, list | tuple):
-        raise TypeError(f"{path} must be a list of finite f32 values")
-    container[field] = [
-        item
-        if isinstance(item, _CanonicalF32)
-        else _CanonicalF32(item, field=f"{path}[{index}]")
-        for index, item in enumerate(value)
-    ]
-
-
-def _mark_f32_scalar(container: dict[str, Any], field: str, *, path: str) -> None:
-    if field in container and not isinstance(container[field], _CanonicalF32):
-        container[field] = _CanonicalF32(container[field], field=path)
-
-
-def _mark_op_rank(payload: dict[str, Any], current: str) -> None:
-    _mark_f32_vector(payload, "query", path=f"{current}.query")
-
-
-def _mark_op_rank_mmr(payload: dict[str, Any], current: str) -> None:
-    _mark_f32_scalar(payload, "lambda", path=f"{current}.lambda")
-
-
-def _mark_op_fuse_rrf(payload: dict[str, Any], current: str) -> None:
-    """``FuseRrf`` carries an f32 ``k`` AND nested op branches to recurse into."""
-    _mark_f32_scalar(payload, "k", path=f"{current}.k")
-    branches = payload.get("branches")
-    if not isinstance(branches, list):
-        return
-    for branch_index, branch in enumerate(branches):
-        if isinstance(branch, list):
-            _mark_plan_ops(branch, ops_path=f"{current}.branches[{branch_index}]")
-
-
-# The only ``wire::Op`` variants carrying f32-typed schema fields.
-_PLAN_OP_F32_MARKERS = {
-    "Rank": _mark_op_rank,
-    "RankMmr": _mark_op_rank_mmr,
-    "FuseRrf": _mark_op_fuse_rrf,
-}
-
-
-def _mark_plan_ops(ops: list[Any], *, ops_path: str) -> None:
-    """Mark the f32 fields of one op list, recursing through nested branches."""
-    for index, op in enumerate(ops):
-        if not isinstance(op, dict) or len(op) != 1:
-            continue
-        tag, payload = next(iter(op.items()))
-        if not isinstance(payload, dict):
-            continue
-        marker = _PLAN_OP_F32_MARKERS.get(tag)
-        if marker is not None:
-            marker(payload, f"{ops_path}[{index}].{tag}")
-
-
-def _mark_plan_f32(plan: Any, *, path: str) -> None:
-    """Apply the current ``wire::Op`` f32 schema recursively to one Plan."""
-
-    if not isinstance(plan, dict) or not isinstance(plan.get("ops"), list):
-        return
-    _mark_plan_ops(plan["ops"], ops_path=f"{path}.ops")
-
-
-def _sort_btreemap_field(container: dict[str, Any], field: str) -> None:
-    """Reorder one ``BTreeMap``-typed field's keys to match Rust's sorted
-    iteration order (see ``_BTREEMAP_SORTED_FIELDS``). No-op if absent/not a
-    dict -- an omitted key is a separate (and separately handled) concern."""
-
-    value = container.get(field)
-    if isinstance(value, dict):
-        container[field] = {key: value[key] for key in sorted(value)}
-
-
-def _sorted_json_value(value: Any) -> Any:
-    """Recursively sort every object's keys in an opaque JSON blob to match
-    Rust ``serde_json::Value``'s ``Map`` -- this workspace does not enable
-    serde_json's ``preserve_order`` feature (no ``indexmap`` in its Cargo.lock
-    dependency list), so ``serde_json::Map`` is BTreeMap-backed and ALWAYS
-    iterates/serializes an object's keys in sorted order, at every nesting
-    depth, regardless of what order they were inserted in.
-
-    A field typed plain ``serde_json::Value`` on the Rust side (e.g.
-    ``VizRenderRequest::spec_json``, carrying an opaque caller-provided
-    ``eg_viz_core::ViewSpec`` the wire protocol never types) is exactly such a
-    blob: the server's ``eg2.`` MAC canonical-body recomputation re-serializes
-    the DESERIALIZED value, which is always key-sorted -- but a caller-built
-    Python dict (e.g. ``{"version": 1, "marks": [...]}``, whose insertion
-    order is neither alphabetical nor Rust's declared field order, because
-    there IS no declared field order for an opaque blob) hashes its own
-    insertion order. The two diverge on any object with more than one key
-    that isn't already alphabetically ordered, failing with "Authentication
-    failed" before the request ever reaches its handler -- the same MAC class
-    documented on ``_BTREEMAP_SORTED_FIELDS``, generalized to unbounded
-    nesting depth since a JSON blob (unlike a flat ``BTreeMap<String, V>``
-    field) has no fixed schema to enumerate known field names for."""
-
-    if isinstance(value, dict):
-        return {key: _sorted_json_value(value[key]) for key in sorted(value)}
-    if isinstance(value, list):
-        return [_sorted_json_value(item) for item in value]
-    return value
-
-
-def _reorder_dict_keys(value: Any, order: tuple[str, ...]) -> Any:
-    """Return a copy of dict ``value`` with the keys in ``order`` moved first
-    (in that order); any other keys keep their existing relative order after
-    them. No-op for a non-dict. See ``_canonical_fitted_model`` for why this
-    matters to the ``eg2.`` MAC, not just aesthetics."""
-
-    if not isinstance(value, dict):
-        return value
-    ordered = {key: value[key] for key in order if key in value}
-    for key, item in value.items():
-        if key not in ordered:
-            ordered[key] = item
-    return ordered
-
-
-def _canonical_decision_tree(tree: Any) -> Any:
-    """Reorder one ``crate::wire::DecisionTree``/``TreeNode`` blob's keys to
-    Rust's declared field order (``feature, threshold, left, right, value``
-    per node) -- see ``_canonical_fitted_model``."""
-
-    if not isinstance(tree, dict):
-        return tree
-    nodes = tree.get("nodes")
-    if isinstance(nodes, list):
-        tree = {
-            **tree,
-            "nodes": [
-                _reorder_dict_keys(
-                    node, ("feature", "threshold", "left", "right", "value")
-                )
-                for node in nodes
-            ],
-        }
-    return _reorder_dict_keys(tree, ("nodes",))
-
-
-# Rust STRUCT DECLARATION order per estimator kind -- the order
-# `rmp_serde::to_vec_named` writes, which is what the `eg2.` MAC hashes.
-_FITTED_MODEL_KEY_ORDER = {
-    "Linear": ("coefficients", "intercept"),
-    "Forest": ("trees",),
-    "GradientBoosting": ("init", "learning_rate", "trees"),
-    "AdaBoost": ("trees", "weights"),
-    "Svr": ("support_vectors", "dual_coef", "intercept", "kernel", "gamma"),
-}
-# The kinds whose `trees` list must itself be canonicalized element-wise.
-_FITTED_MODEL_ENSEMBLE_KINDS = frozenset({"Forest", "GradientBoosting", "AdaBoost"})
-
-
-def _canonical_fitted_inner(kind: Any, inner: dict[str, Any]) -> Any:
-    """Canonicalize ONE estimator kind's inner model blob."""
-    if kind == "Tree":
-        return _canonical_decision_tree(inner)
-    order = _FITTED_MODEL_KEY_ORDER.get(kind)
-    if order is None:
-        return inner
-    if kind in _FITTED_MODEL_ENSEMBLE_KINDS:
-        trees = inner.get("trees")
-        if isinstance(trees, list):
-            inner = {**inner, "trees": [_canonical_decision_tree(t) for t in trees]}
-    return _reorder_dict_keys(inner, order)
-
-
-def _canonical_fitted_model(model: Any) -> Any:
-    """Reorder a ``crate::wire::FittedModel`` blob's dict keys to match Rust's
-    struct declaration order, for THIS client's own canonical signing copy only
-    (the actual wire payload -- what ``predict_estimator`` sends -- is untouched).
-
-    ``fit_estimator``'s response and ``predict_estimator``'s ``model`` request
-    argument are the identical blob shape, but a *response* payload is built
-    off a ``serde_json``-shaped path (alphabetically-keyed) while the `eg2.`
-    MAC's canonical body hash is recomputed from `Method::canonical_body_bytes`
-    (`rmp_serde::to_vec_named`, Rust DECLARATION order) once the server
-    deserializes `predict_estimator`'s request into a typed `Method`. A caller
-    that -- like every real caller -- just forwards `fit_estimator`'s own
-    response dict back into `predict_estimator` therefore hashes it in the
-    WRONG order (e.g. a `TreeNode`'s alphabetical `feature, left, right,
-    threshold, value` instead of the declared `feature, threshold, left,
-    right, value`), failing with "Authentication failed" before
-    `predict_estimator` ever runs -- for every non-`Linear` estimator kind
-    (`Linear`'s own two fields happen to already coincide in both orders).
-    """
-
-    if not isinstance(model, dict):
-        return model
-    inner = model.get("model")
-    if isinstance(inner, dict):
-        inner = _canonical_fitted_inner(model.get("kind"), inner)
-    reordered = dict(model)
-    if isinstance(inner, dict):
-        reordered["model"] = inner
-    return _reorder_dict_keys(reordered, ("kind", "model"))
-
-
-def _mark_method_f32(method_wire: dict[str, Any], *, path: str = "method") -> None:
-    """Mark current Rust ``f32`` fields only at typed ``Method`` schema paths."""
-
-    method = method_wire.get("method")
-    params = method_wire.get("params")
-    if not isinstance(method, str) or not isinstance(params, dict):
-        return
-
-    _mark_method_f32_direct_fields(method, params, path=path)
-
-    if method == "Viz":
-        _mark_method_f32_viz(params)
-
-    if method == "KnowledgeStream":
-        _mark_method_f32_knowledge_stream(params, path=path)
-    elif method == "ServedModality":
-        _mark_method_f32_served_modality(params, path=path)
-    elif method == "ApplyChangeEnvelope":
-        _mark_method_f32_apply_change_envelope(params, path=path)
-    elif method == "ApplyChangeEnvelopes":
-        _mark_method_f32_apply_change_envelopes(params, path=path)
-
-
-def _mark_method_f32_direct_fields(
-    method: str, params: dict[str, Any], *, path: str
-) -> None:
-    """BTreeMap key-sort, ``DsPredictEstimator`` model canonicalization, direct f32
-    vector fields, and Plan f32 fields -- every schema-declared shape that is keyed
-    directly off ``method`` rather than requiring its own nested parse."""
-    for field in _BTREEMAP_SORTED_FIELDS.get(method, ()):
-        _sort_btreemap_field(params, field)
-
-    if method == "DsPredictEstimator" and isinstance(params.get("model"), dict):
-        params["model"] = _canonical_fitted_model(params["model"])
-
-    for field in _DIRECT_F32_VECTOR_FIELDS.get(method, ()):
-        _mark_f32_vector(params, field, path=f"{path}.{method}.{field}")
-
-    if method in _PLAN_F32_METHODS:
-        _mark_plan_f32(
-            params.get("plan"),
-            path=f"{path}.{method}.params.plan",
-        )
-
-
-def _mark_method_f32_viz(params: dict[str, Any]) -> None:
-    op = params.get("op")
-    render = op.get("Render") if isinstance(op, dict) else None
-    if not isinstance(render, dict):
-        return
-    if "spec_json" in render:
-        render["spec_json"] = _sorted_json_value(render["spec_json"])
-    dataset = render.get("dataset")
-    inline = dataset.get("InlineColumns") if isinstance(dataset, dict) else None
-    if isinstance(inline, dict):
-        _sort_btreemap_field(inline, "columns")
-
-
-def _mark_method_f32_knowledge_stream(params: dict[str, Any], *, path: str) -> None:
-    request = params.get("request")
-    query = request.get("query") if isinstance(request, dict) else None
-    if not (isinstance(query, dict) and query.get("family") == "vector"):
-        return
-    _mark_f32_vector(
-        query,
-        "query_embedding",
-        path=f"{path}.KnowledgeStream.request.query.query_embedding",
-    )
-
-
-def _mark_method_f32_served_modality(params: dict[str, Any], *, path: str) -> None:
-    operation = params.get("op")
-    predicate = operation.get("predicate") if isinstance(operation, dict) else None
-    if not (
-        isinstance(predicate, dict) and predicate.get("predicate") == "audio_window"
-    ):
-        return
-    _mark_f32_scalar(
-        predicate,
-        "minimum_rms",
-        path=f"{path}.ServedModality.op.predicate.minimum_rms",
-    )
-
-
-def _mark_method_f32_apply_change_envelope(
-    params: dict[str, Any], *, path: str
-) -> None:
-    # The sole typed nested-Method carrier is
-    # ChangeEnvelope.mutation.operations[].method. Do not recursively inspect
-    # arbitrary maps: GraphQl.variables and GraphLearnPredict.model are
-    # serde_json::Value and keys named ``method``/``plan`` remain ordinary JSON.
-    envelope = params.get("envelope")
-    mutation = envelope.get("mutation") if isinstance(envelope, dict) else None
-    operations = mutation.get("operations") if isinstance(mutation, dict) else None
-    if not isinstance(operations, list):
-        return
-    for index, operation in enumerate(operations):
-        nested_method = operation.get("method") if isinstance(operation, dict) else None
-        if isinstance(nested_method, dict):
-            _mark_method_f32(
-                nested_method,
-                path=(
-                    f"{path}.ApplyChangeEnvelope.params.envelope.mutation"
-                    f".operations[{index}].method"
-                ),
-            )
-
-
-def _mark_method_f32_apply_change_envelopes(
-    params: dict[str, Any], *, path: str
-) -> None:
-    # Plural of the above: mark f32 in each batched envelope's typed nested
-    # operation methods so the batch's signed body byte-matches the server.
-    envelopes = params.get("envelopes")
-    if not isinstance(envelopes, list):
-        return
-    for env_index, envelope in enumerate(envelopes):
-        _mark_method_f32_one_envelope_operations(env_index, envelope, path=path)
-
-
-def _mark_method_f32_one_envelope_operations(
-    env_index: int, envelope: Any, *, path: str
-) -> None:
-    mutation = envelope.get("mutation") if isinstance(envelope, dict) else None
-    operations = mutation.get("operations") if isinstance(mutation, dict) else None
-    if not isinstance(operations, list):
-        return
-    for index, operation in enumerate(operations):
-        nested_method = operation.get("method") if isinstance(operation, dict) else None
-        if isinstance(nested_method, dict):
-            _mark_method_f32(
-                nested_method,
-                path=(
-                    f"{path}.ApplyChangeEnvelopes.params.envelopes"
-                    f"[{env_index}].mutation.operations[{index}].method"
-                ),
-            )
-
-
-def _pack_canonical_msgpack(value: Any) -> bytes:
-    """Pack canonical method data with per-field f32/f64 width preserved."""
-
-    packer = msgpack.Packer(use_bin_type=True)
-    output = bytearray()
-
-    def pack(item: Any) -> None:
-        if isinstance(item, _CanonicalF32):
-            output.append(0xCA)
-            output.extend(item.encoded)
-        elif isinstance(item, dict):
-            output.extend(packer.pack_map_header(len(item)))
-            for key, child in item.items():
-                pack(key)
-                pack(child)
-        elif isinstance(item, list | tuple):
-            output.extend(packer.pack_array_header(len(item)))
-            for child in item:
-                pack(child)
-        else:
-            output.extend(packer.pack(item))
-
-    pack(value)
-    return bytes(output)
 
 
 def _pack_binary_msgpack(value: Any) -> bytes:
@@ -824,17 +390,52 @@ def _pack_binary_msgpack(value: Any) -> bytes:
 _SQL_SOURCE_CODEC = "eg/sql-source/v1"
 
 
-def _sql_source_native_codec() -> Any:
-    """Resolve lazily, after the package's editable native overlay is installed."""
+def _native_numeric(requirement: str) -> Any:
+    """Resolve the bundled native module lazily, after the package's editable
+    native overlay is installed; ``requirement`` names what needs it."""
     from .client_capabilities import ClientCapabilityError
 
     try:
         # The compiled kernel ships no type stub, so it is resolved by name.
-        numeric = importlib.import_module(f"{__package__}.numeric")
+        return importlib.import_module(f"{__package__}.numeric")
     except ImportError as exc:
+        raise ClientCapabilityError(f"{requirement} requires the native codec") from exc
+
+
+_METHOD_BODY_CODEC = "eg/method-body/v1"
+
+# The request-frame fields the transport decodes beside the flattened Method.
+# They never reach `Method::canonical_body_bytes`; they are present only so the
+# native codec decodes exactly the `Request` shape the server decodes.
+_METHOD_BODY_FRAME: dict[str, Any] = {
+    "id": 0,
+    "graph": "",
+    "auth_token": "",
+    "agent_id": None,
+}
+
+
+def _method_body_codec() -> Any:
+    """The native eg-types codec that owns every ``eg2.`` canonical body."""
+    from .client_capabilities import ClientCapabilityError
+
+    numeric = _native_numeric("eg2. request signing")
+    if getattr(
+        numeric, "__method_body_codec__", None
+    ) != _METHOD_BODY_CODEC or not callable(
+        getattr(numeric, "_canonical_request_body", None)
+    ):
         raise ClientCapabilityError(
-            "SQL source preparation requires the native codec"
-        ) from exc
+            "eg2. request signing requires the current native codec"
+        )
+    return numeric
+
+
+def _sql_source_native_codec() -> Any:
+    """Resolve lazily, after the package's editable native overlay is installed."""
+    from .client_capabilities import ClientCapabilityError
+
+    numeric = _native_numeric("SQL source preparation")
     helpers = ("_prepare_sql_source_batch", "_canonical_sql_source_json")
     limits = getattr(numeric, "__sql_source_limits__", None)
     valid_limits = (
@@ -970,22 +571,37 @@ def _sql_source_method_body(method: str, params: dict[str, Any] | None) -> bytes
     return _prepare_sql_source_batch(_sql_source_batch_param(params)).method_body
 
 
-def _python_method_body(method: str, params: dict[str, Any] | None) -> bytes:
-    method_wire: dict[str, Any] = {"method": method}
+def _engine_method_body(method: str, params: dict[str, Any] | None) -> bytes:
+    """``Method::canonical_body_bytes`` of the request this client sends.
+
+    The server MACs the body it RE-SERIALIZES from the typed ``Method`` it
+    decoded (Rust declaration order, defaults materialized, maps sorted, f32
+    and byte widths per field), not the bytes that rode the wire. The request
+    is therefore packed exactly as the transport packs it and handed to the
+    same eg-types decoder and encoder, so no field order or default is restated
+    here. A request the engine cannot decode is refused before it is sent.
+    """
+    frame = dict(_METHOD_BODY_FRAME, method=method)
     if params is not None:
-        method_wire["params"] = _canonicalize_method_value(params, method=method)
-    _mark_method_f32(method_wire)
-    return _pack_canonical_msgpack(method_wire)
+        frame["params"] = params
+    try:
+        return _method_body_codec()._canonical_request_body(
+            msgpack.packb(frame, use_bin_type=True)
+        )
+    except ValueError as exc:
+        raise ValueError(
+            f"{method} request is not a valid engine request: {exc}"
+        ) from exc
 
 
-# Methods whose canonical body is produced by a native codec, not by Python.
+# Methods whose wire body is also prepared by a dedicated native codec.
 _NATIVE_METHOD_BODIES: dict[str, Callable[[str, dict[str, Any] | None], bytes]] = {
     "SqlSourceBatch": _sql_source_method_body,
 }
 
 
 def _canonical_method_body(method: str, params: dict[str, Any] | None = None) -> bytes:
-    return _NATIVE_METHOD_BODIES.get(method, _python_method_body)(method, params)
+    return _NATIVE_METHOD_BODIES.get(method, _engine_method_body)(method, params)
 
 
 def _canonicalize_method_value(value: Any, *, method: str, field: str = "") -> Any:
