@@ -1,4 +1,4 @@
-"""The typed decision client builds exactly what the contract schema accepts (EH-065)."""
+"""The typed decision client builds what the contract schema accepts (EH-065)."""
 
 from __future__ import annotations
 
@@ -71,7 +71,9 @@ def valid(node: dict[str, Any], value: Any) -> bool:
 def _options() -> list[dc.DeclaredOption]:
     return [
         dc.DeclaredOption("plan-hyde", {"threshold": dc.q32_of(0.38)}),
-        dc.DeclaredOption("plan-deep", {"threshold": dc.q32_of(0.28)}, {"label": "deep"}),
+        dc.DeclaredOption(
+            "plan-deep", {"threshold": dc.q32_of(0.28)}, {"label": "deep"}
+        ),
     ]
 
 
