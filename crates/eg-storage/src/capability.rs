@@ -12,7 +12,7 @@ use crate::owner::row_key::{is_control_scope, owner_row_key, OwnerRowScope, RowK
 use crate::physical::binding::{
     binding_for_read, binding_for_write, ledger_scope_key, retire_scope_in,
 };
-use crate::physical::root::PhysicalStore;
+use crate::physical::root::{PhysicalStore, ValidatedWrite};
 use crate::physical::write_authority::{BindingProof, TxnAuthority};
 use crate::recovery::evidence::{strict_snapshot_read, StrictRecoveryEvidence};
 use crate::scoped::{
@@ -20,7 +20,7 @@ use crate::scoped::{
 };
 use crate::tables::LedgerRowScope;
 use eg_types::MutationScopeIdentity;
-use redb::{ReadOnlyTable, ReadTransaction, Table, TableDefinition, TableHandle, WriteTransaction};
+use redb::{ReadOnlyTable, ReadTransaction, Table, TableDefinition, TableHandle};
 use std::marker::PhantomData;
 use std::sync::Arc;
 
@@ -55,15 +55,15 @@ fn permit_table(store: &PhysicalStore, name: &str) -> Result<(), String> {
 /// produces `Sole` and only [`crate::MutationOwnerAuthority::group_write_capabilities`]
 /// produces `Member`.
 enum WriteTxn {
-    /// Boxed so the two variants are the same size: a `redb::WriteTransaction`
+    /// Boxed so the two variants are the same size: a validated `redb::WriteTransaction`
     /// is ~600 bytes and a shared handle is one word, and one heap word per
     /// physical write transaction is nothing beside the transaction itself.
-    Sole(Box<WriteTransaction>),
-    Member(Arc<WriteTransaction>),
+    Sole(Box<ValidatedWrite>),
+    Member(Arc<ValidatedWrite>),
 }
 
 impl WriteTxn {
-    fn get(&self) -> &WriteTransaction {
+    fn get(&self) -> &ValidatedWrite {
         match self {
             Self::Sole(transaction) => transaction.as_ref(),
             Self::Member(transaction) => transaction,
@@ -116,7 +116,7 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
     /// capability on a transaction it does not already hold.
     pub(crate) fn open_member(
         store: &'a PhysicalStore,
-        transaction: Arc<WriteTransaction>,
+        transaction: Arc<ValidatedWrite>,
         txn: Arc<TxnAuthority>,
         owner: &OwnedStoreHandle<D>,
     ) -> Result<Self, String> {
@@ -435,7 +435,7 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
     pub fn commit(self) -> Result<(), String> {
         self.refuse_if_poisoned()?;
         match self.transaction {
-            WriteTxn::Sole(transaction) => crate::physical::root::commit_durably(*transaction),
+            WriteTxn::Sole(transaction) => (*transaction).commit(),
             WriteTxn::Member(_) => Err(GROUP_MEMBER_CANNOT_END.to_string()),
         }
     }
@@ -444,9 +444,7 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
     /// the same reason [`Self::commit`] is.
     pub fn abort(self) -> Result<(), String> {
         match self.transaction {
-            WriteTxn::Sole(transaction) => {
-                (*transaction).abort().map_err(|error| error.to_string())
-            }
+            WriteTxn::Sole(transaction) => (*transaction).abort(),
             WriteTxn::Member(_) => Err(GROUP_MEMBER_CANNOT_END.to_string()),
         }
     }
@@ -467,9 +465,9 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
         let transaction = Arc::try_unwrap(transaction)
             .map_err(|_| "an admitted scope group member is still live".to_string())?;
         if commit {
-            crate::physical::root::commit_durably(transaction)
+            transaction.commit()
         } else {
-            transaction.abort().map_err(|error| error.to_string())
+            transaction.abort()
         }
     }
 }

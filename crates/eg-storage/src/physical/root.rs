@@ -61,15 +61,44 @@ const RETIRED_PROTOTYPE_TABLES: &[&str] = &[
 /// anything else, because there is nothing else to select.
 pub(crate) const WRITE_DURABILITY: redb::Durability = redb::Durability::Immediate;
 
-/// Commit one kernel write transaction at [`WRITE_DURABILITY`].
+/// A redb write transaction whose store authority -- persisted root, owner
+/// manifest, declared table census -- [`PhysicalStore::begin_write`] proved
+/// inside it (EH-390).
 ///
-/// The one place a mutation capability ends its redb transaction durably, so
-/// the `redb_commit` phase span (EH-290: the `Durability::Immediate` fsync plus
-/// redb's own page flush) is measured identically for a sole writer and for a
-/// scope group.
-pub(crate) fn commit_durably(transaction: WriteTransaction) -> Result<(), String> {
-    let _phase = tracing::debug_span!("commit_phase", phase = "redb_commit").entered();
-    transaction.commit().map_err(|error| error.to_string())
+/// Only `begin_write` can construct one: the field is private to this module
+/// and there is no other constructor. The scope-binding check and every write
+/// capability take a `ValidatedWrite`, so code holding a raw
+/// `redb::WriteTransaction` cannot reach them at all; skipping the census is a
+/// compile error, not a convention. It dereferences to the transaction for
+/// row access, which is one-way: a raw transaction never becomes a token.
+pub(crate) struct ValidatedWrite {
+    transaction: WriteTransaction,
+}
+
+impl ValidatedWrite {
+    /// Commit at [`WRITE_DURABILITY`].
+    ///
+    /// The one place a kernel write transaction ends durably, so the
+    /// `redb_commit` phase span (EH-290: the `Durability::Immediate` fsync plus
+    /// redb's own page flush) is measured identically for a sole writer and
+    /// for a scope group.
+    pub(crate) fn commit(self) -> Result<(), String> {
+        let _phase = tracing::debug_span!("commit_phase", phase = "redb_commit").entered();
+        self.transaction.commit().map_err(|error| error.to_string())
+    }
+
+    /// Discard the transaction.
+    pub(crate) fn abort(self) -> Result<(), String> {
+        self.transaction.abort().map_err(|error| error.to_string())
+    }
+}
+
+impl std::ops::Deref for ValidatedWrite {
+    type Target = WriteTransaction;
+
+    fn deref(&self) -> &WriteTransaction {
+        &self.transaction
+    }
 }
 
 /// Non-serializable proof that a store root was derived from and matched the
@@ -114,7 +143,7 @@ impl PhysicalStore {
 
     /// Begin the one physical write transaction, revalidating physical root,
     /// persisted root, manifest authority and the declared table census first.
-    pub(crate) fn begin_write(&self) -> Result<WriteTransaction, String> {
+    pub(crate) fn begin_write(&self) -> Result<ValidatedWrite, String> {
         // The read-only refusal is here as well as in the kernel's withheld
         // mutation authority: one bound is on the token, this one is on the
         // physical file, so neither a leaked token nor a crate-internal caller
@@ -127,7 +156,7 @@ impl PhysicalStore {
         let transaction = self.begin_durable_write()?;
         tracing::debug_span!("commit_phase", phase = "write_authority_validation")
             .in_scope(|| self.validate_write_authority(&transaction))?;
-        Ok(transaction)
+        Ok(ValidatedWrite { transaction })
     }
 
     /// Revalidate the persisted root, the owner manifest and the declared
