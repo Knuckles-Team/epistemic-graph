@@ -52,12 +52,15 @@ fn stored_matrix(record: &StatisticalDecisionRecord) -> Result<FeatureMatrix, St
     })
 }
 
-/// Only an executed decision is logged: an advisory score or an abstention
-/// has no executed option an outcome could evaluate.
-fn executed(outcome: &StatisticalOutcome) -> bool {
+/// An executed decision is logged so an outcome can evaluate it; an
+/// abstention is logged so its escalation can be resolved against it
+/// (EH-037). An advisory score executed nothing and resolves nothing.
+fn loggable(outcome: &StatisticalOutcome) -> bool {
     matches!(
         outcome,
-        StatisticalOutcome::Acted { .. } | StatisticalOutcome::Explored { .. }
+        StatisticalOutcome::Acted { .. }
+            | StatisticalOutcome::Explored { .. }
+            | StatisticalOutcome::Abstained { .. }
     )
 }
 
@@ -77,10 +80,10 @@ pub(super) fn replay(
     if statistical_record_digest(record) != record.record_digest {
         return Err(mismatch("the record digest does not match its content"));
     }
-    if !executed(&record.outcome) {
+    if !loggable(&record.outcome) {
         return Err(refusal(
             StatisticalErrorCode::ParameterInvalid,
-            "only an acted or explored decision is logged",
+            "only an acted, explored or abstained decision is logged",
         ));
     }
     let inputs = &record.inputs;
