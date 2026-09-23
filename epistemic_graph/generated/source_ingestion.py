@@ -85,9 +85,9 @@ class SourceIngestionBatch(BaseModel):
     mode: SourceIngestionMode
     provider_checkpoint: SourceCheckpoint
     records: BoundedVec_SourceRecord_1024
-    relationships: BoundedVec_SourceRelationship_4096 | None = None
+    relationships: BoundedVec_SourceRelationship_4096 = Field(default_factory=list)
     strict_schema: bool
-    withdrawals: BoundedVec_SourceWithdrawal_1024 | None = None
+    withdrawals: BoundedVec_SourceWithdrawal_1024 = Field(default_factory=list)
 
 
 class SourceIngestionDisposition(str, Enum):

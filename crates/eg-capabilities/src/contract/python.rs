@@ -240,8 +240,8 @@ fn mapping_type(node: &serde_json::Value, render: fn(&serde_json::Value) -> Stri
     }
 }
 
-/// `(field name, annotation, required)` for one method, from its request subschema.
-fn request_fields(id: &str, subschema: &serde_json::Value) -> Vec<(String, String, bool)> {
+/// `(field name, annotation, presence)` for one method, from its request subschema.
+fn request_fields(id: &str, subschema: &serde_json::Value) -> Vec<(String, String, FieldPresence)> {
     let Some(params) = subschema.get("properties").and_then(|p| p.get("params")) else {
         return Vec::new();
     };
@@ -264,13 +264,93 @@ fn request_field(
     required: &[&str],
     name: &str,
     node: &serde_json::Value,
-) -> (String, String, bool) {
+) -> (String, String, FieldPresence) {
     let annotation = if DTO_SURFACES.iter().any(|surface| surface.method == id) {
         dto_python_type(node)
     } else {
         python_type(node)
     };
-    (name.to_string(), annotation, required.contains(&name))
+    let presence = FieldPresence::of(required.contains(&name), node);
+    (name.to_string(), annotation, presence)
+}
+
+/// How one model field is declared. A serde-defaulted collection carries
+/// `"default": []` in its schema and is rendered as an empty-list default, never
+/// as `T | None = None`: the engine decodes an absent list as empty but refuses
+/// `null` for it, so `None` would be a value the wire contract does not accept.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum FieldPresence {
+    Required,
+    Optional,
+    EmptyList,
+}
+
+impl FieldPresence {
+    fn of(required: bool, node: &serde_json::Value) -> Self {
+        let empty_list_default = node
+            .get("default")
+            .and_then(|value| value.as_array())
+            .is_some_and(|values| values.is_empty());
+        match (required, empty_list_default) {
+            (true, _) => Self::Required,
+            (false, true) => Self::EmptyList,
+            (false, false) => Self::Optional,
+        }
+    }
+
+    /// `(declared annotation, default expression)`; the default is `None` for a
+    /// required field. `alias` binds a keyword-renamed field to its wire key.
+    fn declaration(self, annotation: &str, alias: Option<&str>) -> (String, Option<String>) {
+        let alias = alias.map(|name| format!(", alias=\"{name}\""));
+        match (self, alias) {
+            (Self::Required, None) => (annotation.to_string(), None),
+            (Self::Required, Some(alias)) => {
+                (annotation.to_string(), Some(format!("Field(...{alias})")))
+            }
+            (Self::Optional, None) => (optional(annotation), Some("None".to_string())),
+            (Self::Optional, Some(alias)) => {
+                (optional(annotation), Some(format!("Field(None{alias})")))
+            }
+            (Self::EmptyList, alias) => (
+                annotation.to_string(),
+                Some(format!(
+                    "Field(default_factory={}{})",
+                    empty_factory(annotation),
+                    alias.unwrap_or_default()
+                )),
+            ),
+        }
+    }
+}
+
+/// The Python constructor of an empty `annotation`. A `Vec<u8>` field is
+/// described by the schema as an array too, but binds to Python `bytes`, whose
+/// empty value is `b""`, not `[]`.
+fn empty_factory(annotation: &str) -> &'static str {
+    if annotation == "bytes" {
+        "bytes"
+    } else {
+        "list"
+    }
+}
+
+/// One model field line, shared by request models and nested DTOs.
+fn push_field(out: &mut String, name: &str, annotation: &str, presence: FieldPresence) {
+    let keyword = is_python_keyword(name);
+    let (declared, default) = presence.declaration(annotation, keyword.then_some(name));
+    let field = if keyword {
+        format!("{name}_")
+    } else {
+        name.to_string()
+    };
+    match default {
+        Some(default) => {
+            let _ = writeln!(out, "    {field}: {declared} = {default}");
+        }
+        None => {
+            let _ = writeln!(out, "    {field}: {declared}");
+        }
+    }
 }
 
 /// Python keywords a wire field name may collide with. A model field is then emitted
@@ -295,7 +375,7 @@ fn optional(annotation: &str) -> String {
     format!("{annotation} | None")
 }
 
-fn push_model(out: &mut String, id: &str, fields: &[(String, String, bool)]) {
+fn push_model(out: &mut String, id: &str, fields: &[(String, String, FieldPresence)]) {
     let _ = writeln!(out, "class {id}Request(BaseModel):");
     let _ = writeln!(out, "    \"\"\"Validate one engine-contract request body.");
     out.push('\n');
@@ -314,25 +394,8 @@ fn push_model(out: &mut String, id: &str, fields: &[(String, String, bool)]) {
         return;
     }
     out.push('\n');
-    for (name, annotation, required) in fields {
-        if is_python_keyword(name) {
-            let default = if *required { "..." } else { "None" };
-            let declared = if *required {
-                annotation.to_string()
-            } else {
-                optional(annotation)
-            };
-            let _ = writeln!(
-                out,
-                "    {name}_: {declared} = Field({default}, alias=\"{name}\")"
-            );
-        } else if *required {
-            let _ = writeln!(out, "    {name}: {annotation}");
-        } else {
-            // An `anyOf` that already carries a null branch renders as `T | None`;
-            // appending a second one is valid Python and ugly output.
-            let _ = writeln!(out, "    {name}: {} = None", optional(annotation));
-        }
+    for (name, annotation, presence) in fields {
+        push_field(out, name, annotation, *presence);
     }
 }
 

@@ -12,6 +12,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::mutation_batch::MutationBatch;
 
+mod material;
+pub use material::MaterialClass;
+use material::TextRule;
+
 pub const CHANGE_ENVELOPE_VERSION: u16 = 1;
 
 /// Server cap on the number of envelopes one `ApplyChangeEnvelopes` batch may carry.
@@ -209,6 +213,11 @@ pub struct ChangeEnvelope {
     #[serde(default)]
     pub lineage: Vec<LineageRecord>,
     pub privacy: PrivacyAttestation,
+    /// How inline material values are screened for host identity (EH-280).
+    /// Absent on the wire means `Attested`, so every existing envelope keeps
+    /// its exact serialized form and digest.
+    #[serde(default, skip_serializing_if = "MaterialClass::is_attested")]
+    pub material_class: MaterialClass,
     /// GOC-03 — the [`crate::commit_descriptor::CommitDescriptor::commit_seq`]
     /// this envelope's mutation was published under, once the durable
     /// commit-descriptor index is wired into the commit path (GOC-03-W03/W05).
@@ -535,23 +544,26 @@ mod validation {
     }
 
     fn validate_operations(envelope: &ChangeEnvelope) -> Result<(), String> {
+        let rule = envelope.material_class.value_rule();
         for operation in &envelope.mutation.operations {
             match &operation.method {
                 crate::protocol::Method::AddNode {
                     node_id,
                     properties_msgpack,
-                } => validate_op_add_node(node_id, properties_msgpack)?,
+                } => validate_op_add_node(node_id, properties_msgpack, rule)?,
                 crate::protocol::Method::AddEdge {
                     source_id,
                     target_id,
                     properties_msgpack,
-                } => validate_op_add_edge(source_id, target_id, properties_msgpack)?,
+                } => validate_op_add_edge(source_id, target_id, properties_msgpack, rule)?,
                 crate::protocol::Method::RemoveNode { node_id } => validate_safe_text(node_id)?,
                 crate::protocol::Method::CompareAndSetNodeFields {
                     node_id,
                     conditions_msgpack,
                     updates_msgpack,
-                } => validate_op_compare_and_set(node_id, conditions_msgpack, updates_msgpack)?,
+                } => {
+                    validate_op_compare_and_set(node_id, conditions_msgpack, updates_msgpack, rule)?
+                }
                 crate::protocol::Method::RemoveEdge {
                     source_id,
                     target_id,
@@ -581,9 +593,13 @@ fn validate_governance_proof(
     Ok(())
 }
 
-fn validate_op_add_node(node_id: &str, properties_msgpack: &[u8]) -> Result<(), String> {
+fn validate_op_add_node(
+    node_id: &str,
+    properties_msgpack: &[u8],
+    rule: TextRule,
+) -> Result<(), String> {
     validate_safe_text(node_id)?;
-    validate_msgpack_privacy(properties_msgpack)?;
+    validate_msgpack_material(properties_msgpack, rule)?;
     Ok(())
 }
 
@@ -591,10 +607,11 @@ fn validate_op_add_edge(
     source_id: &str,
     target_id: &str,
     properties_msgpack: &[u8],
+    rule: TextRule,
 ) -> Result<(), String> {
     validate_safe_text(source_id)?;
     validate_safe_text(target_id)?;
-    validate_msgpack_privacy(properties_msgpack)?;
+    validate_msgpack_material(properties_msgpack, rule)?;
     Ok(())
 }
 
@@ -602,10 +619,11 @@ fn validate_op_compare_and_set(
     node_id: &str,
     conditions_msgpack: &[u8],
     updates_msgpack: &[u8],
+    rule: TextRule,
 ) -> Result<(), String> {
     validate_safe_text(node_id)?;
-    validate_msgpack_privacy(conditions_msgpack)?;
-    validate_msgpack_privacy(updates_msgpack)?;
+    validate_msgpack_material(conditions_msgpack, rule)?;
+    validate_msgpack_material(updates_msgpack, rule)?;
     Ok(())
 }
 
@@ -639,19 +657,21 @@ fn validate_safe_text(value: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn validate_json_privacy(value: &serde_json::Value) -> Result<(), String> {
+/// Screen every string VALUE with `rule` and every object KEY with the strict
+/// rule (keys are engine-chosen property names in every material class).
+fn validate_json_material(value: &serde_json::Value, rule: TextRule) -> Result<(), String> {
     match value {
-        serde_json::Value::String(text) => validate_safe_text(text),
+        serde_json::Value::String(text) => rule(text),
         serde_json::Value::Array(values) => {
             for value in values {
-                validate_json_privacy(value)?;
+                validate_json_material(value, rule)?;
             }
             Ok(())
         }
         serde_json::Value::Object(values) => {
             for (key, value) in values {
                 validate_safe_text(key)?;
-                validate_json_privacy(value)?;
+                validate_json_material(value, rule)?;
             }
             Ok(())
         }
@@ -659,7 +679,7 @@ fn validate_json_privacy(value: &serde_json::Value) -> Result<(), String> {
     }
 }
 
-fn validate_msgpack_privacy(bytes: &[u8]) -> Result<(), String> {
+fn validate_msgpack_material(bytes: &[u8], rule: TextRule) -> Result<(), String> {
     crate::msgpack::validate_single_value(
         bytes,
         crate::msgpack::MsgpackLimits::new(8 * 1024 * 1024, 200_000, 64),
@@ -667,7 +687,12 @@ fn validate_msgpack_privacy(bytes: &[u8]) -> Result<(), String> {
     .map_err(|_| "inline material must be bounded valid MessagePack JSON".to_string())?;
     let value: serde_json::Value = rmp_serde::from_slice(bytes)
         .map_err(|_| "inline material must be valid MessagePack JSON".to_string())?;
-    validate_json_privacy(&value)
+    validate_json_material(&value, rule)
+}
+
+/// Caller-attested material (outbox, evidence, features): the strict rule.
+fn validate_msgpack_privacy(bytes: &[u8]) -> Result<(), String> {
+    validate_msgpack_material(bytes, validate_safe_text)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -842,6 +867,7 @@ mod tests {
                 sanitizer_version: "sanitizer-v1".into(),
                 sanitized_payload_digest: "b".repeat(64),
             },
+            material_class: MaterialClass::Attested,
             commit_seq: None,
             commit_descriptor_ref: None,
         }

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from ._runtime import (
     OpaqueResult,
@@ -236,7 +236,7 @@ class SqlRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    params_msgpack: bytes | None = None
+    params_msgpack: bytes = Field(default_factory=bytes)
     query: str
 
 

@@ -208,14 +208,14 @@ class PackAnnotations(BaseModel):
     destructive_hint: bool | None = None
     idempotent_hint: bool | None = None
     latency_declared: DeclaredLatency | None = None
-    modalities_in: BoundedVec_string_64 | None = None
-    modalities_out: BoundedVec_string_64 | None = None
+    modalities_in: BoundedVec_string_64 = Field(default_factory=list)
+    modalities_out: BoundedVec_string_64 = Field(default_factory=list)
     model: PackModelFacts | None = None
     open_world_hint: bool | None = None
-    provides: BoundedVec_string_64 | None = None
+    provides: BoundedVec_string_64 = Field(default_factory=list)
     read_only_hint: bool | None = None
-    required_scopes: BoundedVec_string_64 | None = None
-    requires_capabilities: BoundedVec_string_64 | None = None
+    required_scopes: BoundedVec_string_64 = Field(default_factory=list)
+    requires_capabilities: BoundedVec_string_64 = Field(default_factory=list)
     sdk_contract_pin: str | None = None
 
 
@@ -247,7 +247,7 @@ class PackEntry(BaseModel):
     media_type: str
     name: str
     output_schema: PackSection | None = None
-    references: BoundedVec_PackRef_64 | None = None
+    references: BoundedVec_PackRef_64 = Field(default_factory=list)
     uri: str
 
 

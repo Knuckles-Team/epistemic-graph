@@ -253,6 +253,7 @@ fn marker_event_id(method: &Method) -> Option<&'static str> {
 fn source_ingestion_marker_event_id(method: &Method) -> Option<&'static str> {
     match method {
         Method::SourceIngest { .. } => Some("__source_ingest"),
+        Method::IndexRepository { scope: Some(_), .. } => Some("__index_repository"),
         _ => x9_marker_event_id(method),
     }
 }

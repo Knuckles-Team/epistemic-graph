@@ -2,7 +2,7 @@
 
 use std::fmt::Write as _;
 
-use super::{mapping_type, optional, HEADER};
+use super::{mapping_type, push_field, FieldPresence, HEADER};
 
 /// One generated nested-DTO surface. The renderer is schema-driven: roots name
 /// JSON-Schema definitions and every transitive `$ref` is collected from the
@@ -559,12 +559,8 @@ fn push_dto_fields(out: &mut String, node: &serde_json::Value) {
         return;
     };
     for (name, schema) in properties {
-        let annotation = dto_python_type(schema);
-        if required.contains(&name.as_str()) {
-            let _ = writeln!(out, "    {name}: {annotation}");
-        } else {
-            let _ = writeln!(out, "    {name}: {} = None", optional(&annotation));
-        }
+        let presence = FieldPresence::of(required.contains(&name.as_str()), schema);
+        push_field(out, name, &dto_python_type(schema), presence);
     }
 }
 

@@ -1660,6 +1660,7 @@ fn build_envelope(
             sanitizer_version: "source-ingestion-v1".into(),
             sanitized_payload_digest: batch_digest.to_hex(),
         },
+        material_class: eg_types::change_envelope::MaterialClass::Attested,
         commit_seq: None,
         commit_descriptor_ref: None,
     };

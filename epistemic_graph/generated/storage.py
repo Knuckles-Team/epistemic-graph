@@ -829,7 +829,7 @@ class TsAppendRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     bucket_ns: int
-    field_names: list[str] | None = None
+    field_names: list[str] = Field(default_factory=list)
     n_fields: int
     points_msgpack: bytes
     series_id: str
@@ -1861,7 +1861,7 @@ class ExportSqliteFileRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     path: str
-    tables: list[str] | None = None
+    tables: list[str] = Field(default_factory=list)
 
 
 async def send_export_sqlite_file(

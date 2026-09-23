@@ -386,6 +386,7 @@ fn change_envelope_projection_failure_never_partially_publishes() {
             sanitizer_version: "sanitizer-v1".into(),
             sanitized_payload_digest: "b".repeat(64),
         },
+        material_class: eg_types::change_envelope::MaterialClass::Attested,
         commit_seq: None,
         commit_descriptor_ref: None,
     };

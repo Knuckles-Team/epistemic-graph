@@ -284,7 +284,7 @@
 | `ServedModality` | ~true | GraphRedb | `modality:write` | false | true | true | Atomic | runtime-conditional: authority/query/events/capabilities are verified read snapshots; ingest/delete/cold/restore commit an encrypted state-backed MutationBatch |
 | `ParseFile` | false | None | `compute:parse` | true | false | false | None |  |
 | `ParseFiles` | false | None | `compute:parse` | true | false | false | None |  |
-| `IndexRepository` | false | None | `compute:parse` | true | false | false | None |  |
+| `IndexRepository` | ~true | GraphRedb | `source:ingest` | true | true | true | Saga | EH-280 runtime-conditional: without `scope` a stateless parse+resolve of the submitted files; with `scope` each unique blob is parsed once and the :Blob/:FileVersion/:Branch projection (tombstones remove membership) commits as one content-addressed ChangeEnvelope through ApplyChangeEnvelope, replaying an unchanged batch |
 | `ObserveScreen` | false | None | `compute:vision` | false | false | false | None |  |
 | `AddEmbedding` | true | GraphRedb | `node:write` | false | true | false | Atomic |  |
 | `SemanticIndex` | true | SemanticIndexRedb | `semantic:binding-write` | true | false | false | Atomic | RF-019's S1-S6 tiered ingestion queue. Runtime-conditional like the four agent layers, but over SIX authz actions rather than two: binding lifecycle is semantic:binding-write, S1 admission semantic:source-admit, subscribe/claim/release semantic:stage-claim, stage completion semantic:stage-complete, and the reads semantic:binding-read / semantic:stage-read. The row names the binding-write leg; SemanticIndexOp::authz_action is the authority for each operation |

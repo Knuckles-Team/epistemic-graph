@@ -76,10 +76,10 @@ class IndexRefStatus(str, Enum):
 class IndexRepositoryScope(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    file_versions: BoundedVec_IndexFileVersion_262144 | None = None
+    file_versions: BoundedVec_IndexFileVersion_262144 = Field(default_factory=list)
     refs: BoundedVec_IndexRef_4096
     repository_id: str
-    tombstones: BoundedVec_IndexTombstone_262144 | None = None
+    tombstones: BoundedVec_IndexTombstone_262144 = Field(default_factory=list)
 
 
 class IndexResult(BaseModel):

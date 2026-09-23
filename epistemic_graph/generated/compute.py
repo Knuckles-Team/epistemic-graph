@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from ._runtime import (
     OpaqueResult,
@@ -5653,7 +5653,7 @@ class MineClusterRequest(BaseModel):
     algorithm: Any | None = None
     as_claim: bool | None = None
     eps: float | None = None
-    features: list[list[float]] | None = None
+    features: list[list[float]] = Field(default_factory=list)
     k: int | None = None
     linkage: Any | None = None
     max_iter: int | None = None
@@ -5718,7 +5718,7 @@ class MineAnomalyRequest(BaseModel):
 
     algorithm: Any | None = None
     as_claim: bool | None = None
-    features: list[list[float]] | None = None
+    features: list[list[float]] = Field(default_factory=list)
     gamma: float | None = None
     k: int | None = None
     kernel: Any | None = None
@@ -5729,7 +5729,7 @@ class MineAnomalyRequest(BaseModel):
     seed: int | None = None
     source: Any | None = None
     threshold: float | None = None
-    values: list[float] | None = None
+    values: list[float] = Field(default_factory=list)
     writeback: bool | None = None
 
 
@@ -5794,8 +5794,8 @@ class MineClassifyFitRequest(BaseModel):
     lr: float | None = None
     plan: Any | None = None
     source: Any | None = None
-    x: list[list[float]] | None = None
-    y: list[int] | None = None
+    x: list[list[float]] = Field(default_factory=list)
+    y: list[int] = Field(default_factory=list)
 
 
 async def send_mine_classify_fit(
@@ -5851,7 +5851,7 @@ class MineClassifyPredictRequest(BaseModel):
     plan: Any | None = None
     source: Any | None = None
     writeback: bool | None = None
-    x: list[list[float]] | None = None
+    x: list[list[float]] = Field(default_factory=list)
 
 
 async def send_mine_classify_predict(
@@ -5909,7 +5909,7 @@ class MineReduceRequest(BaseModel):
     algorithm: Any | None = None
     as_claim: bool | None = None
     epochs: int | None = None
-    labels: list[int] | None = None
+    labels: list[int] = Field(default_factory=list)
     lr: float | None = None
     min_dist: float | None = None
     n_components: int | None = None
@@ -5919,7 +5919,7 @@ class MineReduceRequest(BaseModel):
     seed: int | None = None
     source: Any | None = None
     writeback: bool | None = None
-    x: list[list[float]] | None = None
+    x: list[list[float]] = Field(default_factory=list)
 
 
 async def send_mine_reduce(
@@ -6031,7 +6031,7 @@ class GraphLearnPredictRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    candidate_pairs: list[list[Any]] | None = None
+    candidate_pairs: list[list[Any]] = Field(default_factory=list)
     model: Any
     source: Any
     top_k: int | None = None
@@ -6094,8 +6094,8 @@ class MiningPipelineTrainRequest(BaseModel):
     source: Any | None = None
     spec: Any
     writeback: bool | None = None
-    x: list[list[float]] | None = None
-    y: list[int] | None = None
+    x: list[list[float]] = Field(default_factory=list)
+    y: list[int] = Field(default_factory=list)
 
 
 async def send_mining_pipeline_train(
@@ -6210,7 +6210,7 @@ class MiningPipelinePredictRequest(BaseModel):
     source: Any | None = None
     version: int | None = None
     writeback: bool | None = None
-    x: list[list[float]] | None = None
+    x: list[list[float]] = Field(default_factory=list)
 
 
 async def send_mining_pipeline_predict(
@@ -6268,8 +6268,8 @@ class MiningPipelineEvaluateRequest(BaseModel):
     name: str
     source: Any | None = None
     version: int | None = None
-    x: list[list[float]] | None = None
-    y: list[int] | None = None
+    x: list[list[float]] = Field(default_factory=list)
+    y: list[int] = Field(default_factory=list)
 
 
 async def send_mining_pipeline_evaluate(
@@ -6376,7 +6376,7 @@ class MineSequenceRequest(BaseModel):
     algorithm: Any | None = None
     as_claim: bool | None = None
     min_support: float | None = None
-    sequences: list[list[str]] | None = None
+    sequences: list[list[str]] = Field(default_factory=list)
     source: Any | None = None
     writeback: bool | None = None
 
@@ -6445,7 +6445,7 @@ class MineForecastRequest(BaseModel):
     period: int | None = None
     q: int | None = None
     series_id: str | None = None
-    values: list[float] | None = None
+    values: list[float] = Field(default_factory=list)
     writeback: bool | None = None
 
 
@@ -6505,7 +6505,7 @@ class MineTextRequest(BaseModel):
     alpha: float | None = None
     as_claim: bool | None = None
     beta: float | None = None
-    docs: list[list[str]] | None = None
+    docs: list[list[str]] = Field(default_factory=list)
     iterations: int | None = None
     k: int | None = None
     seed: int | None = None
@@ -6627,13 +6627,13 @@ class MineEntityResolveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     as_claim: bool | None = None
-    block_keys: list[str] | None = None
+    block_keys: list[str] = Field(default_factory=list)
     bucket_precision: int | None = None
-    ids: list[str] | None = None
-    records: list[list[str]] | None = None
+    ids: list[str] = Field(default_factory=list)
+    records: list[list[str]] = Field(default_factory=list)
     source: Any | None = None
     threshold: float | None = None
-    vectors: list[list[float]] | None = None
+    vectors: list[list[float]] = Field(default_factory=list)
     writeback: bool | None = None
 
 
@@ -6690,9 +6690,9 @@ class MineCausalImpactRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     as_claim: bool | None = None
-    control: list[float] | None = None
+    control: list[float] = Field(default_factory=list)
     intervention_index: int | None = None
-    series: list[float] | None = None
+    series: list[float] = Field(default_factory=list)
     series_id: str | None = None
     writeback: bool | None = None
 
@@ -6751,7 +6751,7 @@ class MineProcessRequest(BaseModel):
 
     as_claim: bool | None = None
     process_id: str | None = None
-    traces: list[list[str]] | None = None
+    traces: list[list[str]] = Field(default_factory=list)
     writeback: bool | None = None
 
 
@@ -6809,10 +6809,10 @@ class MineRootCauseRequest(BaseModel):
 
     as_claim: bool | None = None
     decay: float | None = None
-    edges: list[list[Any]] | None = None
+    edges: list[list[Any]] = Field(default_factory=list)
     max_hops: int | None = None
-    nodes: list[str] | None = None
-    scores: list[float] | None = None
+    nodes: list[str] = Field(default_factory=list)
+    scores: list[float] = Field(default_factory=list)
     symptom: str | None = None
     writeback: bool | None = None
 
@@ -6871,10 +6871,10 @@ class MineRiskPropagationRequest(BaseModel):
 
     as_claim: bool | None = None
     damping: float | None = None
-    edges: list[list[Any]] | None = None
+    edges: list[list[Any]] = Field(default_factory=list)
     max_iterations: int | None = None
-    nodes: list[str] | None = None
-    seed: list[float] | None = None
+    nodes: list[str] = Field(default_factory=list)
+    seed: list[float] = Field(default_factory=list)
     tolerance: float | None = None
     writeback: bool | None = None
 
@@ -6991,7 +6991,7 @@ class MineRetrievalQualityRequest(BaseModel):
     as_claim: bool | None = None
     k: int | None = None
     query_id: str | None = None
-    traces: list[Any] | None = None
+    traces: list[Any] = Field(default_factory=list)
     writeback: bool | None = None
 
 

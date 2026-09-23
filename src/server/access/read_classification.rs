@@ -116,7 +116,6 @@ pub(super) const RLS_ROUTED: &[&str] = &[
     "HasNode",
     "HasNodesBatch",
     "InDegree",
-    "IndexRepository",
     "KnowledgeStream",
     "ListGraphs",
     "ListRegisteredServers",

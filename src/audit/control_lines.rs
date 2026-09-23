@@ -115,6 +115,13 @@ fn source_control_audit_line(method: &Method) -> Option<String> {
             .batch_digest()
             .ok()
             .map(|digest| format!("SOURCE_INGEST|{digest}")),
+        Method::IndexRepository {
+            scope: Some(scope), ..
+        } => Some(format!(
+            "INDEX_REPOSITORY|{}|{}",
+            scope.repository_id,
+            scope.file_versions.len()
+        )),
         Method::WriteBack { op } => Some(format!(
             "WRITE_BACK|{}|{}",
             op.tenant_id(),

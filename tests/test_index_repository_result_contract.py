@@ -56,6 +56,7 @@ def _result_payload() -> dict[str, Any]:
 class _Client:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any] | None]] = []
+        self.graphs: list[str | None] = []
 
     async def _send(
         self,
@@ -66,7 +67,7 @@ class _Client:
         idempotency_key: str | None,
     ) -> dict[str, Any]:
         self.calls.append((method, params))
-        assert graph is None
+        self.graphs.append(graph)
         assert idempotency_key is None
         return _result_payload()
 
@@ -89,6 +90,7 @@ async def test_public_client_returns_one_typed_outcome_per_file_in_order() -> No
         IndexFileStatus.UNSUPPORTED,
     ]
     assert [method for method, _ in client.calls] == ["IndexRepository"]
+    assert client.graphs == [None]
 
 
 @pytest.mark.no_engine
@@ -128,7 +130,7 @@ async def test_branch_aware_scope_travels_as_the_typed_wire_field() -> None:
     )
     client: Any = _Client()
     await GraphOperationsClient(client).index_repository(
-        [("src/main.py", b""), ("README.txt", b"")], scope=scope
+        [("src/main.py", b""), ("README.txt", b"")], scope=scope, graph="repositories"
     )
 
     params = client.calls[0][1]
@@ -137,6 +139,7 @@ async def test_branch_aware_scope_travels_as_the_typed_wire_field() -> None:
         "refs": [
             {"ref_name": "refs/heads/main", "revision_id": "a" * 40, "status": "live"}
         ],
+        "tombstones": [],
         "file_versions": [
             {
                 "ref_name": "refs/heads/main",
@@ -145,3 +148,4 @@ async def test_branch_aware_scope_travels_as_the_typed_wire_field() -> None:
             }
         ],
     }
+    assert client.graphs == ["repositories"]
