@@ -19,7 +19,7 @@ use super::super::dto::{
     tagged_variants, variant_tag, JSON_VALUE_TYPES, SCOPED_PATCH_DIGEST_SPECS,
 };
 use super::super::names::field_identifier;
-use super::super::{optional, HEADER};
+use super::super::{FieldPresence, HEADER};
 use super::hoist::fresh_name;
 
 const WIDTH: usize = 88;
@@ -136,14 +136,13 @@ impl Renderer<'_> {
     /// an alias minted for the annotation.
     fn field(&mut self, owner: &str, wire: &str, schema: &Value, required: bool) -> String {
         let (identifier, aliased) = field_identifier(wire);
-        let default = field_default(wire, required, aliased);
+        let presence = FieldPresence::of(required, schema);
         let mut annotation = dto_python_type(schema);
         for _ in 0..2 {
-            let declared = if required {
-                annotation.clone()
-            } else {
-                optional(&annotation)
-            };
+            let (declared, default) = presence.declaration(&annotation, aliased.then_some(wire));
+            let default = default
+                .map(|value| format!(" = {value}"))
+                .unwrap_or_default();
             let line = format!("    {identifier}: {declared}{default}");
             if width(&line) <= WIDTH {
                 return format!("{line}\n");
@@ -265,15 +264,6 @@ fn map_value(node: &Value) -> Option<&Value> {
         .get("additionalProperties")
         .filter(|value| value.is_object())?;
     (is_map && node.get("properties").is_none()).then_some(value)
-}
-
-fn field_default(wire: &str, required: bool, aliased: bool) -> String {
-    match (aliased, required) {
-        (true, true) => format!(" = Field(..., alias={wire:?})"),
-        (true, false) => format!(" = Field(None, alias={wire:?})"),
-        (false, true) => String::new(),
-        (false, false) => " = None".to_string(),
-    }
 }
 
 /// A top-level union of bare names: the formatter parenthesizes it as a whole.

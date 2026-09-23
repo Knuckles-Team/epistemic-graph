@@ -555,10 +555,11 @@ fn index_repository_emits_typed_ordered_file_outcomes() {
     assert!(dto.contains(
         "file_versions: BoundedVec_IndexFileVersion_262144 = Field(default_factory=list)"
     ));
-    let query = generated
-        .get("epistemic_graph/generated/query.py")
-        .expect("query domain module");
-    assert!(query.contains("params_msgpack: bytes = Field(default_factory=bytes)"));
+    // Request models are rendered once, in the strict model module.
+    let models = generated
+        .get("epistemic_graph/generated/models.py")
+        .expect("strict request models");
+    assert!(models.contains("params_msgpack: bytes = Field(default_factory=bytes)"));
     assert!(dto.contains("max_length=8"));
 
     let ingestion = generated
