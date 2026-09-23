@@ -85,5 +85,6 @@ nav:
       - Soak and chaos benchmarks: benchmarks-soak.md
       - Quality terms: quality-gate-terms.md
       - Ecosystem glossary: glossary.md
+      - Skill graph reference: reference/skill-graph.generated.md
   - Status: status.md
   - For AI agents: https://github.com/Knuckles-Team/epistemic-graph/blob/main/AGENTS.md
