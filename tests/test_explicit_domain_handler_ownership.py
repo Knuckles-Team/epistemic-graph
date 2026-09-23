@@ -5,8 +5,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 HANDLERS = ROOT / "src" / "server" / "handlers"
+
+pytestmark = pytest.mark.no_engine
 
 WORK_ITEM_METHODS = {
     "ClaimWorkItem",
@@ -57,6 +61,13 @@ def test_dispatch_routes_to_handlers_without_domain_classifiers() -> None:
         else ROOT / "src" / "server" / "dispatch.rs"
     )
     dispatch = dispatch_path.read_text()
+    # The native WorkItem/DevelopmentLane routes live in the pipeline's
+    # declared child modules (e.g. `graph_pipeline/native_routes.rs`).
+    if dispatch_path == split_pipeline:
+        dispatch += "\n".join(
+            path.read_text()
+            for path in sorted((split_pipeline.parent / "graph_pipeline").glob("*.rs"))
+        )
     split_governance = (
         ROOT / "src" / "server" / "dispatch" / "graph_pipeline" / "work_governance.rs"
     )

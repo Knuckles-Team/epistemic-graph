@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use crate::protocol::{Method, Response, ResultPayload};
 use crate::server::persistence::PersistenceBackend;
+use eg_types::result_contract::coordination;
 
 /// Already-authorized graph and placement context for one development-lane op.
 pub(crate) struct HandleContext<'a> {
@@ -127,65 +128,56 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
                     )
                 })
         }
-        method @ (Method::ReserveDevelopmentLane { .. }
-        | Method::RenewDevelopmentLane { .. }
-        | Method::ObserveDevelopmentLane { .. }
-        | Method::FinishDevelopmentLane { .. }
-        | Method::CleanupDevelopmentLane { .. }
-        | Method::UpdateDevelopmentLaneQuota { .. }) => {
-            let declared = development_lane_commit_result(&method);
-            let operation = match prepare(&ctx).await {
-                Ok(operation) => operation,
-                Err(response) => return Ok(response),
-            };
-            operation
-                .backend
-                .commit_development_lane(&operation.graph, method, operation.now_ms)
-                .await
-                .map(|receipt| Response::ok(ctx.req_id, declared(&receipt)))
-                .unwrap_or_else(|error| {
-                    Response::err(
-                        ctx.req_id,
-                        format!("development-lane commit failed: {error}"),
-                    )
-                })
+        method @ Method::ReserveDevelopmentLane { .. } => {
+            let declared = ResultPayload::of_receipt::<coordination::ReserveDevelopmentLane>;
+            commit(&ctx, method, declared).await
+        }
+        method @ Method::RenewDevelopmentLane { .. } => {
+            let declared = ResultPayload::of_receipt::<coordination::RenewDevelopmentLane>;
+            commit(&ctx, method, declared).await
+        }
+        method @ Method::ObserveDevelopmentLane { .. } => {
+            let declared = ResultPayload::of_receipt::<coordination::ObserveDevelopmentLane>;
+            commit(&ctx, method, declared).await
+        }
+        method @ Method::FinishDevelopmentLane { .. } => {
+            let declared = ResultPayload::of_receipt::<coordination::FinishDevelopmentLane>;
+            commit(&ctx, method, declared).await
+        }
+        method @ Method::CleanupDevelopmentLane { .. } => {
+            let declared = ResultPayload::of_receipt::<coordination::CleanupDevelopmentLane>;
+            commit(&ctx, method, declared).await
+        }
+        method @ Method::UpdateDevelopmentLaneQuota { .. } => {
+            let declared = ResultPayload::of_receipt::<coordination::UpdateDevelopmentLaneQuota>;
+            commit(&ctx, method, declared).await
         }
         other => return Err(other),
     };
     Ok(response)
 }
 
-/// The declared result a development-lane commit receipt is served as.
-fn development_lane_commit_result(method: &Method) -> fn(&[u8]) -> Result<ResultPayload, String> {
-    match method {
-        Method::ReserveDevelopmentLane { .. } => {
-            ResultPayload::of_receipt::<
-                eg_types::result_contract::coordination::ReserveDevelopmentLane,
-            >
-        }
-        Method::RenewDevelopmentLane { .. } => {
-            ResultPayload::of_receipt::<eg_types::result_contract::coordination::RenewDevelopmentLane>
-        }
-        Method::ObserveDevelopmentLane { .. } => {
-            ResultPayload::of_receipt::<
-                eg_types::result_contract::coordination::ObserveDevelopmentLane,
-            >
-        }
-        Method::FinishDevelopmentLane { .. } => {
-            ResultPayload::of_receipt::<
-                eg_types::result_contract::coordination::FinishDevelopmentLane,
-            >
-        }
-        Method::CleanupDevelopmentLane { .. } => {
-            ResultPayload::of_receipt::<
-                eg_types::result_contract::coordination::CleanupDevelopmentLane,
-            >
-        }
-        Method::UpdateDevelopmentLaneQuota { .. } => {
-            ResultPayload::of_receipt::<
-                eg_types::result_contract::coordination::UpdateDevelopmentLaneQuota,
-            >
-        }
-        _ => |_| Err("development-lane commit receipt for a non-lane method".to_string()),
-    }
+/// Commit one development-lane write and serve its receipt as `declared`, the
+/// result type the caller's own match arm names -- so the write surface has no
+/// wildcard that could hand a future `Method` a lane receipt type.
+async fn commit(
+    ctx: &HandleContext<'_>,
+    method: Method,
+    declared: fn(&[u8]) -> Result<ResultPayload, String>,
+) -> Response {
+    let operation = match prepare(ctx).await {
+        Ok(operation) => operation,
+        Err(response) => return response,
+    };
+    operation
+        .backend
+        .commit_development_lane(&operation.graph, method, operation.now_ms)
+        .await
+        .map(|receipt| Response::ok(ctx.req_id, declared(&receipt)))
+        .unwrap_or_else(|error| {
+            Response::err(
+                ctx.req_id,
+                format!("development-lane commit failed: {error}"),
+            )
+        })
 }
