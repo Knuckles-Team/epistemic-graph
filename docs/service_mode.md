@@ -117,12 +117,8 @@ Communication uses **length-prefixed MessagePack framing** (see
 `src/server.rs::handle_connection` and `src/protocol.rs`), *not* JSON or
 newline delimiting. Each message — in both directions — is:
 
-```
-┌────────────────────────┬──────────────────────────────┐
-│ 4-byte big-endian u32  │ MessagePack-encoded body     │
-│ (body length in bytes) │ (a map; see shapes below)    │
-└────────────────────────┴──────────────────────────────┘
-```
+a 4-byte big-endian `u32` (the body length in bytes) immediately followed by
+the MessagePack-encoded body (a map; see shapes below).
 
 Because the frame length is explicit, binary payloads containing `0x0A`
 (newline) bytes round-trip intact — newline framing would corrupt them.

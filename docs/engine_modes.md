@@ -16,28 +16,21 @@ service protocol see [Service Mode](service_mode.md).
 
 ## The resolution decision flow
 
-```mermaid
-flowchart TB
-    START["Process needs an engine"]
-    REMOTE{"Agent Utilities GRAPH_SERVICE_ENDPOINTS<br/>contains a configured endpoint?"}
-    USEREMOTE["mode = remote: connect to the configured endpoint, never autostart"]
-    PROBE{"local endpoint already serving?<br/>(cheap connect probe, or verified spawn-lock holder)"}
-    SHARE["mode = shared: reuse the running engine, spawn nothing"]
-    LOCK["acquire per-socket engine_spawn_guard (first-one-wins flock)"]
-    RECHECK{"peer just started one?<br/>(double-checked probe)"}
-    SPAWN["mode = autostart: spawn a detached, supervised engine"]
-    CONNECT["connect"]
-    FAILLOUD["fail loud: unreachable configured remote"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Engine-mode resolution</p>
 
-    START --> REMOTE
-    REMOTE -->|yes, reachable| USEREMOTE --> CONNECT
-    REMOTE -->|yes, unreachable| FAILLOUD
-    REMOTE -->|no| PROBE
-    PROBE -->|yes| SHARE --> CONNECT
-    PROBE -->|no| LOCK --> RECHECK
-    RECHECK -->|yes| SHARE
-    RECHECK -->|no| SPAWN --> CONNECT
-```
+When a process needs an engine, it first checks whether Agent Utilities'
+`GRAPH_SERVICE_ENDPOINTS` configures an endpoint. If so and it's reachable,
+mode is **remote**: connect to it, never autostart. If configured but
+unreachable, fail loud rather than silently spawning a divergent local
+engine. If nothing is configured, probe whether a local endpoint is already
+serving (a cheap connect probe, or a verified spawn-lock holder); if so,
+mode is **shared**: reuse it, spawn nothing. If not, acquire the per-socket
+`engine_spawn_guard` (first-one-wins `flock`) and double-check whether a
+peer just started one — if so, share it; if not, mode is **autostart**:
+spawn a detached, supervised engine. Every path ends in connect.
+
+</div>
 
 - **remote** — an endpoint is configured (e.g. the engine runs in Docker on another host). The resolver
   returns it and **never autostarts**; an unreachable configured remote stays fail-loud rather than
@@ -67,21 +60,20 @@ lifecycle behaviours make sharing safe:
   normal service. SIGTERM/SIGINT drains cleanly in **both** modes. Commit-before-ack means a stop never
   drops an acknowledged write and requires no final checkpoint.
 
-```mermaid
-stateDiagram-v2
-    [*] --> Starting: autostart under spawn-guard
-    Starting --> Serving: bind socket, accept connections
-    Serving --> Serving: client connects / disconnects (refcount changes)
-    Serving --> IdleWatch: refcount reaches 0 (idle-shutdown-secs > 0)
-    IdleWatch --> Serving: a client reconnects
-    IdleWatch --> Draining: idle for N seconds
-    Serving --> Draining: SIGTERM / SIGINT
-    Draining --> [*]: clean exit
-    note right of Draining
-        Persistent lifecycle (idle-shutdown-secs = 0 / unset):
-        never enters IdleWatch — runs forever like a service.
-    end note
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Autostart lifecycle states</p>
+
+An autostarted engine begins **Starting** (under the spawn-guard), moves to
+**Serving** once it binds the socket and accepts connections, and stays
+there as clients connect/disconnect (refcount changes). If
+`idle-shutdown-secs > 0` and the refcount reaches 0, it moves to
+**IdleWatch**: a reconnect returns it to Serving, or it stays idle for N
+seconds and moves to **Draining**. Serving also moves directly to Draining
+on SIGTERM/SIGINT. Draining ends in a clean exit. With a persistent
+lifecycle (`idle-shutdown-secs` = 0 or unset), the engine never enters
+IdleWatch at all — it runs forever like a normal service.
+
+</div>
 
 ---
 
