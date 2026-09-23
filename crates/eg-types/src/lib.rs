@@ -188,6 +188,10 @@ pub mod control_lease;
 // EH-400 — declared freshness: `eg:volatilityClass`, per-class invalidation events and
 // foreign-source watermarks (the `FreshnessFeed` wire shapes).
 pub mod freshness;
+// EH-348 — the graph-driven work market: the canonical `:Gap` paired with its
+// one native WorkItem, the versioned derived `WorkOffer`, and the deterministic
+// legal-offer ranking stage the `Decide` layer runs.
+pub mod work_market;
 // D-VZ-1 (lanes V4 "engine integration" / V6 "graph-native marks") — the native
 // visualization engine's wire op (`VizOp`), gated `viz`. Lives here (not in
 // `eg-viz-core`, which sits in a separate small leaf DAG, not below eg-types) for

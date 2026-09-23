@@ -62,7 +62,11 @@ impl Method {
             | Self::CasWorkItemMetadata { .. }
             | Self::IssueControlLease { .. }
             | Self::TransitionControlLease { .. }
-            | Self::PolicyEvolutionStore { .. } => MethodWriteFamily::WorkItemLease,
+            | Self::PolicyEvolutionStore { .. }
+            | Self::GapUpsert { .. }
+            | Self::GapTransition { .. }
+            | Self::GapSettle { .. }
+            | Self::WorkOfferPut { .. } => MethodWriteFamily::WorkItemLease,
             Self::ReserveWorkItemResources { .. }
             | Self::ReleaseWorkItemResources { .. }
             | Self::ReclaimWorkItemResources { .. }
