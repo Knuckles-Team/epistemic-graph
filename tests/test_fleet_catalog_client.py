@@ -140,11 +140,13 @@ def test_writes_use_their_own_typed_operations() -> None:
     client, transport = _client([receipt, receipt])
     written = asyncio.run(
         client.record_discovery(
-            epistemic_graph.FleetDiscoveryRecordRequest(
-                server_name="github",
-                scope={"authority": "tenant_local"},
-                connector="github",
-                outcome={"status": "unreachable", "error": "connection refused"},
+            epistemic_graph.FleetDiscoveryRecordRequest.model_validate(
+                {
+                    "server_name": "github",
+                    "scope": {"authority": "tenant_local"},
+                    "connector": "github",
+                    "outcome": {"status": "unreachable", "error": "connection refused"},
+                }
             )
         )
     )
@@ -153,10 +155,12 @@ def test_writes_use_their_own_typed_operations() -> None:
     assert transport.calls[0][1]["op"]["op"] == "record_discovery"
     asyncio.run(
         client.set_override(
-            epistemic_graph.FleetOverrideSetRequest(
-                component_id="mcp:skills/skill/triage",
-                value={"field": "skill_type", "skill_type": "workflow"},
-                expected_revision=0,
+            epistemic_graph.FleetOverrideSetRequest.model_validate(
+                {
+                    "component_id": "mcp:skills/skill/triage",
+                    "value": {"field": "skill_type", "skill_type": "workflow"},
+                    "expected_revision": 0,
+                }
             )
         )
     )

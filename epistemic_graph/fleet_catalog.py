@@ -21,6 +21,7 @@ from .generated.cluster import (
 )
 from .generated.fleet_catalog import (
     FleetCatalogCursor,
+    FleetCatalogKind,
     FleetCatalogListRequest,
     FleetCatalogLookup,
     FleetCatalogLookupRequest,
@@ -103,7 +104,7 @@ class FleetCatalogClient:
 
     async def list_all(
         self,
-        kind: str,
+        kind: FleetCatalogKind | str,
         *,
         query: str | None = None,
         grant_digests: Iterable[str] = (),
@@ -124,7 +125,7 @@ class FleetCatalogClient:
         while True:
             page = await self.page(
                 FleetCatalogListRequest(
-                    kind=kind,
+                    kind=FleetCatalogKind(kind),
                     query=query,
                     grant_digests=digests,
                     limit=page_size,
