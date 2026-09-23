@@ -7,6 +7,7 @@ pub(crate) mod integrity;
 pub(crate) mod manifest;
 pub(crate) mod read_only;
 pub(crate) mod root;
+pub(crate) mod write_authority;
 
 #[cfg(test)]
 mod tests;

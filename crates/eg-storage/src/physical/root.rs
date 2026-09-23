@@ -6,6 +6,7 @@ use crate::physical::incarnation::{
 };
 use crate::physical::integrity::{authenticate_with, PrivatePayloadIntegrity};
 use crate::physical::manifest::OwnerManifest;
+use crate::physical::write_authority::WriteValidationCounters;
 use crate::tables::{open_declared_ledger_tables, STORE_ROOT};
 use redb::{Database, ReadTransaction, ReadableDatabase, TableHandle, WriteTransaction};
 use std::path::PathBuf;
@@ -94,6 +95,8 @@ pub(crate) struct PhysicalStore {
     /// check reads it, so the same file opened with different options is the
     /// same store.
     options: StoreOpenOptions,
+    /// How often each write-authority check has run on this handle (EH-390).
+    validations: WriteValidationCounters,
 }
 
 impl PhysicalStore {
@@ -129,7 +132,13 @@ impl PhysicalStore {
 
     /// Revalidate the persisted root, the owner manifest and the declared
     /// table census INSIDE a freshly opened write transaction.
+    ///
+    /// This is the transaction's ONE store-authority check (EH-390): a
+    /// capability's later scope proofs rely on it rather than repeating it.
+    /// See [`crate::physical::write_authority`] for why nothing inside or
+    /// outside the transaction can invalidate it before commit.
     fn validate_write_authority(&self, transaction: &WriteTransaction) -> Result<(), String> {
+        self.validations.store_authority_checked();
         validate_handle_write(&self.handle, transaction)?;
         let manifest = &self.owner_manifest;
         let persisted =
@@ -191,6 +200,7 @@ impl PhysicalStore {
             private_integrity,
             owner_manifest,
             options: StoreOpenOptions::default(),
+            validations: WriteValidationCounters::default(),
         }
     }
 
@@ -204,6 +214,10 @@ impl PhysicalStore {
 
     pub(crate) fn options(&self) -> StoreOpenOptions {
         self.options
+    }
+
+    pub(crate) fn validations(&self) -> &WriteValidationCounters {
+        &self.validations
     }
 }
 
