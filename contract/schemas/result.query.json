@@ -2840,6 +2840,26 @@
       ],
       "type": "object"
     },
+    "BlastRadius": {
+      "description": "How far a change made for this offer can reach.",
+      "oneOf": [
+        {
+          "const": "local",
+          "description": "One module or file set.",
+          "type": "string"
+        },
+        {
+          "const": "repository",
+          "description": "One repository.",
+          "type": "string"
+        },
+        {
+          "const": "fleet",
+          "description": "Several repositories or the running fleet.",
+          "type": "string"
+        }
+      ]
+    },
     "BlobReference": {
       "properties": {
         "blob_id": {
@@ -9895,6 +9915,265 @@
       "required": [
         "layer",
         "interp"
+      ],
+      "type": "object"
+    },
+    "GapEvidenceInput": {
+      "additionalProperties": false,
+      "description": "One evidence signal a caller submits.",
+      "properties": {
+        "digest": {
+          "description": "`sha256:<64 hex>` of the evidence; the dedupe identity.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "The signal family, e.g. `failure_cluster`, `code_audit`, `research`.",
+          "type": "string"
+        },
+        "reference": {
+          "description": "Where the evidence lives (a node id, a run id, a report ref).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "digest",
+        "kind",
+        "reference"
+      ],
+      "type": "object"
+    },
+    "GapListRequest": {
+      "additionalProperties": false,
+      "description": "`GapList`: `tenant`'s Gaps, optionally of one status and source.",
+      "properties": {
+        "cursor": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "source": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GapStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tenant": {
+          "description": "Must equal the verified request tenant.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant",
+        "limit"
+      ],
+      "type": "object"
+    },
+    "GapSettleRequest": {
+      "additionalProperties": false,
+      "description": "`GapSettle`: record the Gap's current WorkItem outcome as evidence. The\nengine reads the outcome from the WorkItem row; the caller names only the\nGap.",
+      "properties": {
+        "gap_id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "tenant": {
+          "description": "Must equal the verified request tenant.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant",
+        "gap_id",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "GapStatus": {
+      "description": "Where a Gap is in its lifecycle.",
+      "oneOf": [
+        {
+          "const": "open",
+          "description": "Discovered and unaddressed; its WorkItem is schedulable.",
+          "type": "string"
+        },
+        {
+          "const": "specified",
+          "description": "A specification is in flight.",
+          "type": "string"
+        },
+        {
+          "const": "resolved",
+          "description": "Closed on evidence.",
+          "type": "string"
+        },
+        {
+          "const": "deferred",
+          "description": "Parked: its last attempt ended without closing it.",
+          "type": "string"
+        }
+      ]
+    },
+    "GapTransitionRequest": {
+      "additionalProperties": false,
+      "description": "`GapTransition`: move a Gap along a legal edge, compare-and-set on the\nrevision the caller read.",
+      "properties": {
+        "expected_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "gap_id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "reference": {
+          "description": "The specification, resolution evidence or deferral reason.",
+          "type": "string"
+        },
+        "tenant": {
+          "description": "Must equal the verified request tenant.",
+          "type": "string"
+        },
+        "to": {
+          "$ref": "#/$defs/GapTransitionTarget"
+        }
+      },
+      "required": [
+        "tenant",
+        "gap_id",
+        "expected_revision",
+        "to",
+        "reference",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "GapTransitionTarget": {
+      "description": "The state a transition moves a Gap to.",
+      "oneOf": [
+        {
+          "const": "specified",
+          "description": "A specification is in flight; `reference` names it.",
+          "type": "string"
+        },
+        {
+          "const": "resolved",
+          "description": "Closed on evidence; `reference` names it.",
+          "type": "string"
+        },
+        {
+          "const": "deferred",
+          "description": "Parked; `reference` names why.",
+          "type": "string"
+        }
+      ]
+    },
+    "GapUpsertRequest": {
+      "additionalProperties": false,
+      "description": "`GapUpsert`: fold evidence into one canonical Gap and ensure its WorkItem.",
+      "properties": {
+        "concept_ids": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "domain": {
+          "default": "",
+          "type": "string"
+        },
+        "evidence": {
+          "description": "1 ..= 16 signals.",
+          "items": {
+            "$ref": "#/$defs/GapEvidenceInput"
+          },
+          "type": "array"
+        },
+        "gap_id": {
+          "description": "The canonical `gap:<source>:<signature>` id.",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "description": "Caller-stable retry identity for this upsert.",
+          "type": "string"
+        },
+        "severity_ppm": {
+          "description": "Severity in parts per million (0 ..= 1_000_000).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "signature": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "statement": {
+          "type": "string"
+        },
+        "tenant": {
+          "description": "Must equal the verified request tenant.",
+          "type": "string"
+        },
+        "work": {
+          "$ref": "#/$defs/GapWorkSpec"
+        }
+      },
+      "required": [
+        "tenant",
+        "gap_id",
+        "source",
+        "signature",
+        "statement",
+        "severity_ppm",
+        "evidence",
+        "work",
+        "idempotency_key"
+      ],
+      "type": "object"
+    },
+    "GapWorkSpec": {
+      "additionalProperties": false,
+      "description": "The WorkItem a Gap schedules as.",
+      "properties": {
+        "kind": {
+          "description": "The WorkItem kind (and queue), e.g. `gap_remediation`.",
+          "type": "string"
+        },
+        "max_attempts": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "max_attempts"
       ],
       "type": "object"
     },
@@ -28031,6 +28310,172 @@
             "params"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Fold evidence into `request.tenant`'s ONE canonical Gap and ensure its\nnative WorkItem, atomically: a new Gap is created together with its\nWorkItem or not at all; evidence the Gap has not seen reopens a closed\nGap as a new generation with a new WorkItem; evidence it has seen\nchanges nothing. See [`crate::work_market`].",
+          "properties": {
+            "method": {
+              "const": "GapUpsert",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/GapUpsertRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Move a Gap along a legal lifecycle edge, compare-and-set on the\nrevision the caller read.",
+          "properties": {
+            "method": {
+              "const": "GapTransition",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/GapTransitionRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Record the Gap's current WorkItem outcome, read by the engine from the\nWorkItem row, as evidence on the Gap; a terminal outcome closes a live\nGap (succeeded -> resolved, otherwise deferred).",
+          "properties": {
+            "method": {
+              "const": "GapSettle",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/GapSettleRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Record the versioned, derived pricing of a live Gap's current\nWorkItem, compare-and-set on the offer version the caller read. The\nengine computes the deterministic utility rate.",
+          "properties": {
+            "method": {
+              "const": "WorkOfferPut",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/WorkOfferPutRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The caller's view of one Gap, or `null` when no Gap with this id is\nvisible to `tenant` (which must equal the verified tenant).",
+          "properties": {
+            "method": {
+              "const": "GapGet",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "gap_id": {
+                  "type": "string"
+                },
+                "tenant": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tenant",
+                "gap_id"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "One bounded page of `request.tenant`'s Gaps in row-key order,\noptionally of one status and source. A listing, never a ranking.",
+          "properties": {
+            "method": {
+              "const": "GapList",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/GapListRequest"
+                }
+              },
+              "required": [
+                "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -39270,6 +39715,117 @@
         "schema_version",
         "work_item_id",
         "capability"
+      ],
+      "type": "object"
+    },
+    "WorkOffer": {
+      "additionalProperties": false,
+      "description": "The pricing inputs of one offer. Every money and probability figure is a\nfixed-point integer; the evidence it cites must already be on the Gap.",
+      "properties": {
+        "blast_radius": {
+          "$ref": "#/$defs/BlastRadius"
+        },
+        "cooldown_until_ms": {
+          "default": 0,
+          "description": "No attempt before this time (0 = none).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cost_uncertainty_ppm": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "depends_on_gap_ids": {
+          "default": [],
+          "description": "Canonical ids of Gaps that must be resolved first.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "evidence_digests": {
+          "description": "The Gap evidence this pricing was derived from (at least one).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "expected_cost_microunits": {
+          "description": "Token/GPU/CI/time cost, in the market's cost microunits.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expected_utility_micros": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "probability_of_closure_ppm": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "repository_scope": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "required_capabilities": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "reversible": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "expected_utility_micros",
+        "probability_of_closure_ppm",
+        "expected_cost_microunits",
+        "cost_uncertainty_ppm",
+        "blast_radius",
+        "reversible",
+        "evidence_digests"
+      ],
+      "type": "object"
+    },
+    "WorkOfferPutRequest": {
+      "additionalProperties": false,
+      "description": "`WorkOfferPut`: price the Gap's current WorkItem, compare-and-set on the\noffer version the caller read (0 when the Gap had none).",
+      "properties": {
+        "expected_offer_version": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "gap_id": {
+          "type": "string"
+        },
+        "idempotency_key": {
+          "type": "string"
+        },
+        "offer": {
+          "$ref": "#/$defs/WorkOffer"
+        },
+        "tenant": {
+          "description": "Must equal the verified request tenant.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant",
+        "gap_id",
+        "expected_offer_version",
+        "offer",
+        "idempotency_key"
       ],
       "type": "object"
     },

@@ -203,6 +203,12 @@
 | `TransitionControlLease` | true | GraphRedb | `lease:write` | true | true | false | Atomic | one-way active to revoked/expired, CAS on the read revision |
 | `ListControlLeases` | false | None | `lease:read` | true | false | false | Snapshot | bounded tenant-bound control-lease page filtered by kind/status/grant pairs |
 | `GetControlLease` | false | None | `lease:read` | true | false | false | Snapshot | tenant-bound native control-lease view |
+| `GapUpsert` | true | GraphRedb | `gap:write` | true | true | false | Atomic | one tenant-bound canonical Gap and its native WorkItem commit together or not at all; only unseen evidence changes or reopens it |
+| `GapTransition` | true | GraphRedb | `gap:write` | true | true | false | Atomic | legal-edge Gap lifecycle move, CAS on the read revision |
+| `GapSettle` | true | GraphRedb | `gap:write` | true | true | false | Atomic | engine-read terminal WorkItem outcome recorded as Gap evidence in the same transaction |
+| `WorkOfferPut` | true | GraphRedb | `work:offer-write` | true | true | false | Atomic | versioned derived offer on a live Gap's WorkItem citing only held evidence; engine-computed fixed-point utility rate |
+| `GapGet` | false | None | `gap:read` | true | false | false | Snapshot | tenant-bound canonical Gap view |
+| `GapList` | false | None | `gap:read` | true | false | false | Snapshot | bounded tenant-bound Gap page in row-key order; a listing, never a ranking |
 | `ReserveWorkItemResources` | true | GraphRedb | `resource:reserve` | true | true | false | Atomic | controller-only atomic host admission and WorkItem fence validation |
 | `ReleaseWorkItemResources` | true | GraphRedb | `resource:reserve` | true | true | false | Atomic | controller-only lifecycle release with retained tombstone |
 | `ReclaimWorkItemResources` | true | GraphRedb | `resource:reserve` | true | true | false | Atomic | controller-only expiry/supersession reclaim with retained tombstone |

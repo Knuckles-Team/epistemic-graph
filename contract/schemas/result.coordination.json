@@ -177,6 +177,26 @@
       ],
       "type": "object"
     },
+    "BlastRadius": {
+      "description": "How far a change made for this offer can reach.",
+      "oneOf": [
+        {
+          "const": "local",
+          "description": "One module or file set.",
+          "type": "string"
+        },
+        {
+          "const": "repository",
+          "description": "One repository.",
+          "type": "string"
+        },
+        {
+          "const": "fleet",
+          "description": "Several repositories or the running fleet.",
+          "type": "string"
+        }
+      ]
+    },
     "BoundedVec_OpeEstimateView_8": {
       "items": {
         "$ref": "#/$defs/OpeEstimateView"
@@ -2664,6 +2684,407 @@
         "1"
       ],
       "type": "string"
+    },
+    "GapEvidence": {
+      "additionalProperties": false,
+      "description": "One evidence entry as the Gap records it.",
+      "properties": {
+        "digest": {
+          "type": "string"
+        },
+        "generation": {
+          "description": "The generation the evidence arrived in.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "recorded_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "reference": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "digest",
+        "kind",
+        "reference",
+        "generation",
+        "recorded_at_ms"
+      ],
+      "type": "object"
+    },
+    "GapPage": {
+      "additionalProperties": false,
+      "description": "One page of `GapList`.",
+      "properties": {
+        "gaps": {
+          "items": {
+            "$ref": "#/$defs/GapView"
+          },
+          "type": "array"
+        },
+        "next_cursor": {
+          "description": "`Some` when more remains to be scanned; a page may be empty and still\ncarry one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "gaps"
+      ],
+      "type": "object"
+    },
+    "GapSettleOutcome": {
+      "description": "How a settle resolved.",
+      "oneOf": [
+        {
+          "const": "resolved",
+          "description": "The WorkItem succeeded; the Gap is resolved on its evidence.",
+          "type": "string"
+        },
+        {
+          "const": "deferred",
+          "description": "The WorkItem ended without success; the Gap is parked until new\nevidence reopens it.",
+          "type": "string"
+        },
+        {
+          "const": "recorded",
+          "description": "The outcome was recorded; the Gap had already been closed another way.",
+          "type": "string"
+        },
+        {
+          "const": "pending",
+          "description": "The WorkItem has not reached a terminal state; nothing was written.",
+          "type": "string"
+        },
+        {
+          "const": "unchanged",
+          "description": "This WorkItem's outcome is already on the Gap; nothing was written.",
+          "type": "string"
+        },
+        {
+          "const": "not_found",
+          "description": "No Gap with this id is visible to the tenant.",
+          "type": "string"
+        }
+      ]
+    },
+    "GapSettled": {
+      "additionalProperties": false,
+      "description": "Result of `GapSettle`.",
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "gap": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GapView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outcome": {
+          "$ref": "#/$defs/GapSettleOutcome"
+        }
+      },
+      "required": [
+        "outcome",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "GapStatus": {
+      "description": "Where a Gap is in its lifecycle.",
+      "oneOf": [
+        {
+          "const": "open",
+          "description": "Discovered and unaddressed; its WorkItem is schedulable.",
+          "type": "string"
+        },
+        {
+          "const": "specified",
+          "description": "A specification is in flight.",
+          "type": "string"
+        },
+        {
+          "const": "resolved",
+          "description": "Closed on evidence.",
+          "type": "string"
+        },
+        {
+          "const": "deferred",
+          "description": "Parked: its last attempt ended without closing it.",
+          "type": "string"
+        }
+      ]
+    },
+    "GapTransitionOutcome": {
+      "description": "How a transition resolved.",
+      "oneOf": [
+        {
+          "enum": [
+            "applied"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "conflict",
+          "description": "The edge is not legal from the Gap's status, or it moved past the\ncaller's revision.",
+          "type": "string"
+        },
+        {
+          "const": "not_found",
+          "description": "No Gap with this id is visible to the tenant.",
+          "type": "string"
+        }
+      ]
+    },
+    "GapTransitioned": {
+      "additionalProperties": false,
+      "description": "Result of `GapTransition`. On `conflict` the CURRENT view is returned.",
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "gap": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GapView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outcome": {
+          "$ref": "#/$defs/GapTransitionOutcome"
+        }
+      },
+      "required": [
+        "outcome",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "GapUpsertOutcome": {
+      "description": "How an upsert resolved.",
+      "oneOf": [
+        {
+          "const": "created",
+          "description": "A new Gap and its first WorkItem.",
+          "type": "string"
+        },
+        {
+          "const": "merged",
+          "description": "New evidence folded into a live Gap.",
+          "type": "string"
+        },
+        {
+          "const": "reopened",
+          "description": "New evidence reopened a closed Gap with a new WorkItem.",
+          "type": "string"
+        },
+        {
+          "const": "unchanged",
+          "description": "Nothing the Gap had not already seen; nothing was written.",
+          "type": "string"
+        }
+      ]
+    },
+    "GapUpserted": {
+      "additionalProperties": false,
+      "description": "Result of `GapUpsert`.",
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "gap": {
+          "$ref": "#/$defs/GapView"
+        },
+        "outcome": {
+          "$ref": "#/$defs/GapUpsertOutcome"
+        },
+        "work_item_created": {
+          "description": "Whether this upsert admitted the Gap's current WorkItem.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "outcome",
+        "gap",
+        "work_item_created",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "GapView": {
+      "additionalProperties": false,
+      "description": "The caller's view of one Gap.",
+      "properties": {
+        "concept_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "created_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "domain": {
+          "type": "string"
+        },
+        "evidence": {
+          "description": "The most recent evidence, oldest first.",
+          "items": {
+            "$ref": "#/$defs/GapEvidence"
+          },
+          "type": "array"
+        },
+        "evidence_count": {
+          "description": "Every evidence entry ever recorded, including those no longer retained.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "gap_id": {
+          "type": "string"
+        },
+        "generation": {
+          "description": "1 at creation; +1 each time new evidence reopens a closed Gap.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "offer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkOfferView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The current generation's derived offer, if one was priced."
+        },
+        "offer_version": {
+          "description": "The last offer version ever recorded on this Gap (0 = never priced).\nMonotonic across generations, so an offer compare-and-set can never\nconfuse two generations' offers.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "priority_bucket": {
+          "description": "The WorkItem priority bucket, 0 (critical) ..= 3 (background).",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "revision": {
+          "description": "Row revision: 1 at creation, bumped by every native write.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "severity_ppm": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "signature": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "spec_refs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "statement": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/GapStatus"
+        },
+        "updated_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "work": {
+          "$ref": "#/$defs/GapWorkSpec"
+        },
+        "work_item_id": {
+          "description": "The current generation's native WorkItem.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "gap_id",
+        "source",
+        "signature",
+        "statement",
+        "domain",
+        "severity_ppm",
+        "priority_bucket",
+        "status",
+        "generation",
+        "work_item_id",
+        "work",
+        "evidence",
+        "evidence_count",
+        "concept_ids",
+        "spec_refs",
+        "offer_version",
+        "created_at_ms",
+        "updated_at_ms",
+        "revision"
+      ],
+      "type": "object"
+    },
+    "GapWorkSpec": {
+      "additionalProperties": false,
+      "description": "The WorkItem a Gap schedules as.",
+      "properties": {
+        "kind": {
+          "description": "The WorkItem kind (and queue), e.g. `gap_remediation`.",
+          "type": "string"
+        },
+        "max_attempts": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "max_attempts"
+      ],
+      "type": "object"
     },
     "GraphResourceStats": {
       "description": "Per-graph resource snapshot (CONCEPT:EG-KG.compute.lane-v).",
@@ -5785,6 +6206,184 @@
       ],
       "type": "object"
     },
+    "WorkOffer": {
+      "additionalProperties": false,
+      "description": "The pricing inputs of one offer. Every money and probability figure is a\nfixed-point integer; the evidence it cites must already be on the Gap.",
+      "properties": {
+        "blast_radius": {
+          "$ref": "#/$defs/BlastRadius"
+        },
+        "cooldown_until_ms": {
+          "default": 0,
+          "description": "No attempt before this time (0 = none).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cost_uncertainty_ppm": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "depends_on_gap_ids": {
+          "default": [],
+          "description": "Canonical ids of Gaps that must be resolved first.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "evidence_digests": {
+          "description": "The Gap evidence this pricing was derived from (at least one).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "expected_cost_microunits": {
+          "description": "Token/GPU/CI/time cost, in the market's cost microunits.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expected_utility_micros": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "probability_of_closure_ppm": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "repository_scope": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "required_capabilities": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "reversible": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "expected_utility_micros",
+        "probability_of_closure_ppm",
+        "expected_cost_microunits",
+        "cost_uncertainty_ppm",
+        "blast_radius",
+        "reversible",
+        "evidence_digests"
+      ],
+      "type": "object"
+    },
+    "WorkOfferPutOutcome": {
+      "description": "How an offer write resolved.",
+      "oneOf": [
+        {
+          "enum": [
+            "applied"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "conflict",
+          "description": "The Gap is not live, or its offer moved past the caller's version.",
+          "type": "string"
+        },
+        {
+          "const": "not_found",
+          "description": "No Gap with this id is visible to the tenant.",
+          "type": "string"
+        }
+      ]
+    },
+    "WorkOfferRecorded": {
+      "additionalProperties": false,
+      "description": "Result of `WorkOfferPut`. On `conflict` the CURRENT Gap is returned.",
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "gap": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GapView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "outcome": {
+          "$ref": "#/$defs/WorkOfferPutOutcome"
+        }
+      },
+      "required": [
+        "outcome",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "WorkOfferView": {
+      "additionalProperties": false,
+      "description": "The recorded offer: its inputs, version and engine-computed rate.",
+      "properties": {
+        "generation": {
+          "description": "The Gap generation (and so the WorkItem) this offer prices.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "offer": {
+          "$ref": "#/$defs/WorkOffer"
+        },
+        "offered_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stage": {
+          "type": "string"
+        },
+        "utility_rate": {
+          "description": "The rate at [`DEFAULT_COST_FLOOR_MICROUNITS`].",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "version": {
+          "description": "1 for the first offer on a Gap, +1 per replacement, across\ngenerations (see `GapView::offer_version`).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "work_item_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "generation",
+        "work_item_id",
+        "offer",
+        "utility_rate",
+        "stage",
+        "offered_at_ms"
+      ],
+      "type": "object"
+    },
     "WorkerJobClaim": {
       "description": "`AnalyticsJob` op `WorkerClaim`: the claimed job and the lease fencing it.",
       "properties": {
@@ -6083,6 +6682,73 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/DevelopmentLaneFinishResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GapGet": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/GapView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GapList": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/GapPage"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GapSettle": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/GapSettled"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GapTransition": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/GapTransitioned"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "GapUpsert": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/GapUpserted"
           }
         }
       },
@@ -6504,6 +7170,18 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/WorkItemClaimCapabilityResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "WorkOfferPut": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/WorkOfferRecorded"
           }
         }
       },

@@ -1450,6 +1450,329 @@ async def send_get_control_lease(
     return OpaqueResult("GetControlLease", payload)
 
 
+class GapUpsertRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        GapUpsert
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/GapUpsert
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: Any
+
+
+async def send_gap_upsert(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        GapUpsert
+    Authorization:
+        gap:write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/GapUpsert
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    GapUpsertRequest.model_validate(params or {})
+    payload = await client._send(
+        "GapUpsert",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("GapUpsert", payload)
+
+
+class GapTransitionRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        GapTransition
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/GapTransition
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: Any
+
+
+async def send_gap_transition(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        GapTransition
+    Authorization:
+        gap:write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/GapTransition
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    GapTransitionRequest.model_validate(params or {})
+    payload = await client._send(
+        "GapTransition",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("GapTransition", payload)
+
+
+class GapSettleRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        GapSettle
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/GapSettle
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: Any
+
+
+async def send_gap_settle(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        GapSettle
+    Authorization:
+        gap:write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/GapSettle
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    GapSettleRequest.model_validate(params or {})
+    payload = await client._send(
+        "GapSettle",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("GapSettle", payload)
+
+
+class WorkOfferPutRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        WorkOfferPut
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/WorkOfferPut
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: Any
+
+
+async def send_work_offer_put(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        WorkOfferPut
+    Authorization:
+        work:offer-write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/WorkOfferPut
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    WorkOfferPutRequest.model_validate(params or {})
+    payload = await client._send(
+        "WorkOfferPut",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("WorkOfferPut", payload)
+
+
+class GapGetRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        GapGet
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/GapGet
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    gap_id: str
+    tenant: str
+
+
+async def send_gap_get(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        GapGet
+    Authorization:
+        gap:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/GapGet
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    GapGetRequest.model_validate(params or {})
+    payload = await client._send(
+        "GapGet",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("GapGet", payload)
+
+
+class GapListRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        GapList
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/GapList
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: Any
+
+
+async def send_gap_list(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        GapList
+    Authorization:
+        gap:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/GapList
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    GapListRequest.model_validate(params or {})
+    payload = await client._send(
+        "GapList",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("GapList", payload)
+
+
 class ReserveWorkItemResourcesRequest(BaseModel):
     """Validate one engine-contract request body.
 

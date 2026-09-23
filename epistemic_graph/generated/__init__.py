@@ -261,6 +261,11 @@ SEND_BY_METHOD = {
     "FiredTriggers": messaging.send_fired_triggers,
     "Fork": graph.send_fork,
     "FromMsgpack": storage.send_from_msgpack,
+    "GapGet": coordination.send_gap_get,
+    "GapList": coordination.send_gap_list,
+    "GapSettle": coordination.send_gap_settle,
+    "GapTransition": coordination.send_gap_transition,
+    "GapUpsert": coordination.send_gap_upsert,
     "GetBlastRadius": compute.send_get_blast_radius,
     "GetChangeCursor": query.send_get_change_cursor,
     "GetChangeEnvelope": query.send_get_change_envelope,
@@ -478,5 +483,6 @@ SEND_BY_METHOD = {
     "Viz": ingestion.send_viz,
     "Watch": messaging.send_watch,
     "WhatChanged": query.send_what_changed,
+    "WorkOfferPut": coordination.send_work_offer_put,
     "WriteBack": storage.send_write_back,
 }
