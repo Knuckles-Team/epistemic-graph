@@ -40,6 +40,7 @@ from .generated.server_registry import (
     RegisteredServerListRequest,
     RegisteredServerView,
 )
+from .work_market import GapClient, WorkMarketClient
 
 logger = logging.getLogger(__name__)
 
@@ -15063,6 +15064,8 @@ class EpistemicGraphClient:
         self.nodes = NodeClient(self)
         self.work_items = WorkItemClient(self)
         self.control_leases = ControlLeaseClient(self)
+        self.gaps = GapClient(self)
+        self.work_market = WorkMarketClient(self)
         self.capacity_leases = CapacityLeaseClient(self)
         self.development_lanes = DevelopmentLaneClient(self)
         self.changes = ChangeEnvelopeClient(self)
@@ -16156,6 +16159,8 @@ class SyncEpistemicGraphClient:
         self.nodes = self._SyncWrapper(self._client.nodes, self._loop)
         self.work_items = self._SyncWrapper(self._client.work_items, self._loop)
         self.control_leases = self._SyncWrapper(self._client.control_leases, self._loop)
+        self.gaps = self._SyncWrapper(self._client.gaps, self._loop)
+        self.work_market = self._SyncWrapper(self._client.work_market, self._loop)
         self.capacity_leases = self._SyncWrapper(
             self._client.capacity_leases, self._loop
         )
