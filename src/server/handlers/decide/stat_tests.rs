@@ -30,6 +30,7 @@ use eg_types::decision::statistical::log::{
     DecisionLogCommitted, DecisionLogEntry, DecisionLogOp, DecisionOutcomeEvaluation,
     OutcomeAggregate, OutcomeAggregateRequest, StoredEvaluation,
 };
+use eg_types::decision::statistical::FeatureMatrixRef;
 use eg_types::decision::statistical::StatisticalDecisionRecord;
 use eg_types::decision::statistical::{
     CandidateSource, DecideRequest, DecisionBatch, QuestionKind, QuestionSafety,
@@ -59,11 +60,12 @@ struct Harness {
 
 impl Harness {
     async fn new() -> Self {
+        Self::with_isolation(crate::isolation::IsolationLayer::new()).await
+    }
+
+    async fn with_isolation(isolation: crate::isolation::IsolationLayer) -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let mut server = ServerState::new_for_test(
-            "decide-stat-test-secret",
-            crate::isolation::IsolationLayer::new(),
-        );
+        let mut server = ServerState::new_for_test("decide-stat-test-secret", isolation);
         server.persist_dir = Some(dir.path().to_string_lossy().into_owned());
         let state = Arc::new(RwLock::new(server));
         let store = state.write().await.ensure_agent_library().unwrap();
@@ -667,4 +669,110 @@ async fn foreign_tenants_and_graph_candidates_are_refused() {
         .await
         .unwrap_err()
         .starts_with("COMPONENT_PIN_MISMATCH"));
+}
+
+/// EH-059: graph candidates are the rows a SELECT-only plan returns over the
+/// caller's RLS-filtered snapshot; a ranking stage is refused and an
+/// unregistered caller is refused by the graph ACL before any row is read.
+#[cfg(feature = "query")]
+#[tokio::test]
+async fn graph_candidates_are_read_through_acl_rls_and_a_select_only_plan() {
+    let h = Harness::with_isolation(ServerState::test_isolation("decider")).await;
+    {
+        let mut guard = h.state.write().await;
+        guard
+            .registry
+            .create_graph("kg-decide", crate::protocol::GraphType::Team, None)
+            .unwrap();
+        let core = guard.registry.get("kg-decide").unwrap().core.clone();
+        for (id, score, summary) in [
+            ("n-a", 0.9, "web search engine"),
+            ("n-b", 0.1, "file writer"),
+        ] {
+            let props = serde_json::json!({"type": "Tool", "score": score, "summary": summary});
+            core.add_node(id.to_string(), rmp_serde::to_vec_named(&props).unwrap());
+        }
+    }
+    let body = FeatureSchemaBody {
+        schema_version: FEATURE_SCHEMA_VERSION,
+        features: BoundedVec::new(vec![
+            FeatureSpec {
+                name: "score".to_string(),
+                kind: FeatureKind::Number {
+                    key: "score".to_string(),
+                },
+                missing: MissingValue::Abstain,
+            },
+            FeatureSpec {
+                name: "text".to_string(),
+                kind: FeatureKind::TextBm25 {
+                    key: "summary".to_string(),
+                    param: "query".to_string(),
+                },
+                missing: MissingValue::Abstain,
+            },
+        ])
+        .unwrap(),
+    };
+    let schema_pin = h
+        .publish(
+            "schema-graph",
+            AgentComponentKind::FeatureSchema,
+            "graph features",
+            Some(&body),
+            None,
+        )
+        .unwrap();
+    let graph_request = |plan: eg_types::wire::Plan| {
+        let mut request = request(
+            &schema_pin,
+            None,
+            DecisionPolicyRef::Default,
+            QuestionSafety::Ordinary,
+        );
+        request.candidates = CandidateSource::Graph {
+            graph: "kg-decide".to_string(),
+            plan: Box::new(plan),
+        };
+        request
+    };
+    let select = eg_types::wire::Plan::new(vec![eg_types::wire::Op::Scan {
+        label: "Tool".to_string(),
+    }]);
+    let batch = decide(&h, graph_request(select.clone())).await.unwrap();
+    let record = &batch.records.as_slice()[0];
+    let FeatureMatrixRef::Inline {
+        candidate_ids,
+        values,
+        ..
+    } = &record.inputs.feature_matrix
+    else {
+        panic!("inline matrix")
+    };
+    assert_eq!(
+        candidate_ids.as_slice(),
+        ["n-a".to_string(), "n-b".to_string()]
+    );
+    assert_eq!(values.len(), 4, "two visible rows, two features");
+    assert!(matches!(
+        record.candidate_source,
+        eg_types::decision::CandidateSourceRecord::Graph { .. }
+    ));
+
+    let ranked = eg_types::wire::Plan::new(vec![
+        eg_types::wire::Op::Scan {
+            label: "Tool".to_string(),
+        },
+        eg_types::wire::Op::RankText {
+            query: "web".to_string(),
+        },
+    ]);
+    let refused = decide(&h, graph_request(ranked)).await.unwrap_err();
+    assert!(refused.starts_with("CANDIDATE_PLAN_REFUSED"), "{refused}");
+
+    let stranger = VerifiedRequestContext::verified_for_test_in_tenant("stranger", TENANT);
+    let denied = decode::<DecisionBatch>(
+        super::statistical::handle_decide(&h.state, 3, &stranger, graph_request(select)).await,
+    );
+    assert!(denied.unwrap_err().starts_with("ACCESS_DENIED"));
 }
