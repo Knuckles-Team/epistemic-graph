@@ -35,7 +35,7 @@ text = ["query", "dep:eg-text", "eg-text/tantivy", "eg-types/text"]
 # eg-rdf's pure-Rust `owl` (EL⁺ reasoner) + `sparql` evaluator. IMPLIES `query` (the
 # ops live inside the `query`-gated `Op` enum, beside the DataFusion FILTER leg). A
 # default/Pi build sets neither feature → no eg-rdf reasoner/evaluator linked here.
-owl = ["query", "dep:eg-rdf", "eg-rdf/owl", "eg-rdf/sparql", "eg-types/owl-plan"]
+owl = ["query", "dep:eg-rdf", "eg-rdf/owl", "eg-rdf/sparql", "dep:eg-shacl", "eg-types/owl-plan"]
 # The WASM `Udf` TRANSFORM op (CONCEPT:KG-2.228): run a registered, sandboxed
 # WebAssembly UDF over the current RowSet inside a UnifiedQuery plan. Pulls eg-wasm's
 # wasmtime runtime + turns on the `wasm-udf` wire variant in eg-types. IMPLIES `query`
@@ -297,6 +297,10 @@ eg-text = { path = "../eg-text", optional = true }
 # #[cfg(feature = "owl")]; pure-Rust (oxrdf/oxttl/spargebra), so it adds NO native dep
 # (a default/Pi build links none of it).
 eg-rdf = { path = "../eg-rdf", optional = true }
+# EH-196 — the SHACL engine behind the UQL `VALIDATE SHAPE` stage (`owl` feature: the
+# semantic plan ops share one gate). Pure Rust; its eg-rdf/spargebra deps are already
+# pulled by `owl`.
+eg-shacl = { path = "../eg-shacl", optional = true }
 # The pure-Rust spatial modality (geometry + WKT + planar predicates + packed Hilbert
 # R-tree) backing the `SpatialScan` op + spatial `Pred`s (feature `geo`, CONCEPT:EG-083).
 # Optional + only referenced under #[cfg(feature = "geo")]; only-serde leaf crate (NO
