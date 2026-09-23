@@ -57,6 +57,8 @@ repos:
   - id: detect-private-key
   - id: trailing-whitespace
   - id: end-of-file-fixer
+    # Vendored, byte-for-byte upstream Swagger UI (docs/assets/swagger-ui/NOTICE.md).
+    exclude: ^docs/assets/swagger-ui/swagger-ui(-bundle\.js|\.css)$
 - repo: https://github.com/astral-sh/ruff-pre-commit
   rev: 6fec9b7edb08fd9989088709d864a7826dc74e80 # v0.15.12
   hooks:
@@ -115,7 +117,8 @@ repos:
   hooks:
   - id: codespell
     args: ["-L", "ans,linar,nam,tread,ot,ser,inh,copyin,unparseable,implementors,implementor,nd,datas,alls,re-declaring,re-declares,fals,paeth", "--ignore-words=.config/codespell.ignore"]
-    exclude: ^(tests/|test/|scripts/|script/|.*lock.*|Cargo.lock|\.specify/)
+    # docs/assets/swagger-ui/: vendored minified upstream bundle, not prose.
+    exclude: ^(tests/|test/|scripts/|script/|.*lock.*|Cargo.lock|\.specify/|docs/assets/swagger-ui/swagger-ui(-bundle\.js|\.css)$)
 - repo: https://github.com/PyCQA/bandit
   rev: 92ae8b82fb422a639f0ed8d99e96cea769594e08 # 1.9.4
   hooks:

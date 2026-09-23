@@ -525,7 +525,6 @@ def render_index_page(contract: Contract) -> str:
     for domain in DOMAINS:
         count = len(contract.methods_by_domain(domain))
         lines.append(f"| [{domain}]({domain}.md) | {count} |")
-    lines.append("")
     return "\n".join(lines) + "\n"
 
 
