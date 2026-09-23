@@ -4,22 +4,43 @@ use crate::graph::{GraphCore, GraphView};
 use crate::protocol::{Response, ResultPayload};
 use crate::server::compute::compute_off_lock;
 
-/// Evaluate a SPARQL SELECT against the caller-visible graph snapshot.
+/// Whether a SPARQL response carries per-row witness proofs (EH-197).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SparqlProofMode {
+    Rows,
+    RowsWithProofs,
+}
+
+impl SparqlProofMode {
+    /// The mode a request's `explain` flag asks for.
+    pub(super) fn of(explain: bool) -> Self {
+        if explain {
+            Self::RowsWithProofs
+        } else {
+            Self::Rows
+        }
+    }
+}
+
+/// Evaluate a SPARQL SELECT against the caller-visible graph snapshot. `proj` is the
+/// request's LPG→RDF projection: an empty `base_iri` keeps the identity projection; a
+/// caller-supplied namespace and convention project the live property graph into
+/// that vocabulary.
 #[cfg(feature = "sparql")]
 pub(super) async fn handle_sparql(
     req_id: u64,
     core: Arc<GraphCore>,
     query: String,
-    base_iri: String,
-    type_convention: String,
+    proj: eg_rdf::sparql::Projection,
+    mode: SparqlProofMode,
     #[cfg(feature = "security")] caller: &str,
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
 ) -> Response {
-    // An empty `base_iri` keeps the identity projection; a caller-supplied namespace
-    // and convention project the live property graph into that vocabulary.
-    let proj = eg_rdf::sparql::Projection::from_wire(&base_iri, &type_convention);
     #[cfg(feature = "result-cache")]
-    let cache_key = format!("{query}\u{0}{base_iri}\u{0}{type_convention}");
+    let cache_key = format!(
+        "{query}\u{0}{:?}\u{0}{}\u{0}{mode:?}",
+        proj.base_iri, proj.camel_type
+    );
     #[cfg(feature = "result-cache")]
     let hash = sparql_cache_hash(
         &cache_key,
@@ -49,8 +70,7 @@ pub(super) async fn handle_sparql(
     evaluate_sparql(
         req_id,
         snap,
-        query,
-        proj,
+        (query, proj, mode),
         #[cfg(feature = "result-cache")]
         core,
         #[cfg(feature = "result-cache")]
@@ -148,26 +168,22 @@ fn sparql_snapshot_uncached(
 async fn evaluate_sparql(
     req_id: u64,
     snap: Arc<GraphView>,
-    query: String,
-    proj: eg_rdf::sparql::Projection,
+    (query, proj, mode): (String, eg_rdf::sparql::Projection, SparqlProofMode),
     #[cfg(feature = "result-cache")] core: Arc<GraphCore>,
     #[cfg(feature = "result-cache")] hash: u128,
     #[cfg(feature = "result-cache")] version: u64,
 ) -> Response {
     match compute_off_lock(req_id, move || {
-        eg_rdf::sparql::execute(
+        run_sparql(
             &eg_rdf::sparql::Dataset::new(&snap, Vec::new()),
             &query,
             &proj,
-            None,
+            mode,
         )
-        .map(eg_rdf::sparql::QueryOutcome::into_table)
     })
     .await
     {
-        Ok(Ok(result)) => {
-            let (vars, rows) = result.to_rows();
-            let wire = crate::protocol::SparqlResult { vars, rows };
+        Ok(Ok(wire)) => {
             match ResultPayload::of_ref::<eg_types::result_contract::reasoning::Sparql>(&wire) {
                 Ok(payload) => {
                     #[cfg(feature = "result-cache")]
@@ -185,4 +201,23 @@ async fn evaluate_sparql(
         Ok(Err(msg)) => Response::err(req_id, format!("SPARQL error: {msg}")),
         Err(resp) => resp,
     }
+}
+
+/// Evaluate `query` and project it to the wire table, with a witness proof per row
+/// when `mode` asks for one.
+fn run_sparql(
+    ds: &eg_rdf::sparql::Dataset,
+    query: &str,
+    proj: &eg_rdf::sparql::Projection,
+    mode: SparqlProofMode,
+) -> Result<crate::protocol::SparqlResult, String> {
+    let (table, proofs) = match mode {
+        SparqlProofMode::Rows => (
+            eg_rdf::sparql::execute(ds, query, proj, None)?.into_table(),
+            Vec::new(),
+        ),
+        SparqlProofMode::RowsWithProofs => eg_rdf::sparql::execute_explained(ds, query, proj)?,
+    };
+    let (vars, rows) = table.to_rows();
+    Ok(crate::protocol::SparqlResult { vars, rows, proofs })
 }

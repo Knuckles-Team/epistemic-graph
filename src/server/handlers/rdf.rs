@@ -78,6 +78,7 @@ mod run_rules_dispatch_tests {
                     query_predicate: Some("grandparent".into()),
                     min_confidence: 0.0,
                     derived_only: true,
+                    explain: false,
                 },
             ),
         )

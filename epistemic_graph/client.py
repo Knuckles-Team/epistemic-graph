@@ -12442,6 +12442,47 @@ class RdfClient:
             rows.append(dict(zip(vars_, row, strict=False)))
         return rows
 
+    async def sparql_explain(
+        self,
+        query: str,
+        base_iri: str = "",
+        type_convention: str = "",
+    ) -> list[dict[str, Any]]:
+        """Run a SPARQL ``SELECT`` like :meth:`sparql`, returning each row WITH its
+        witness proof (EH-197).
+
+        Each item is ``{"row": {var: value}, "witnesses": [...], "coverage": ...}``.
+        ``witnesses`` are the ground triples of the graph
+        (``{"subject", "predicate", "object", "object_kind"}``) that instantiate the
+        query's patterns under that row. ``coverage`` is ``"complete"`` when they
+        prove the row, and ``"partial"`` when the query uses algebra a witness does
+        not certify (property paths, UNION, MINUS, aggregates, GRAPH, SERVICE, FROM)
+        or the search hit its budget.
+        """
+        result = (
+            await _gen.reasoning.send_sparql(
+                self._client,
+                {
+                    "query": query,
+                    "base_iri": base_iri,
+                    "type_convention": type_convention,
+                    "explain": True,
+                },
+            )
+        ).payload
+        if not result:
+            return []
+        vars_: list[str] = result.get("vars", [])
+        rows = result.get("rows", [])
+        return [
+            {
+                "row": dict(zip(vars_, rows[proof["row"]], strict=False)),
+                "witnesses": proof["witnesses"],
+                "coverage": proof["coverage"],
+            }
+            for proof in result.get("proofs", [])
+        ]
+
     async def owl_reason(
         self,
         ontology: str | None = None,

@@ -3,14 +3,12 @@
 use std::collections::{BTreeSet, HashMap};
 
 use super::builtins::{eval_builtin, swrl_builtin_name};
+use super::proof::{FactKey, Justification};
 use super::syntax::{is_same_as, pred_matches};
 use super::{Atom, RTerm, Rule, RuleSet};
 use crate::owl::Ontology;
 
 // ── The fact base + forward-chaining engine ──────────────────────────────────
-
-/// A ground fact key: `(predicate, canonical-args)`.
-type FactKey = (String, Vec<String>);
 
 /// The forward-chaining engine state: the ground-fact base, per-fact confidence, the
 /// `owl:sameAs` union-find, and the derivation bookkeeping.
@@ -22,8 +20,10 @@ struct Engine {
     conf: HashMap<FactKey, f64>,
     /// facts that were DERIVED (not asserted) — for the result's `derived` set.
     derived: BTreeSet<FactKey>,
-    /// the rule label that first derived each fact.
-    rule_of: HashMap<FactKey, String>,
+    /// The derivation that set each derived fact's CURRENT confidence (EH-197): the
+    /// rule and the ground body facts it consumed. A fact whose confidence comes from
+    /// its own assertion has no entry — it is a proof leaf.
+    justification: HashMap<FactKey, Justification>,
     /// union-find parent map for `owl:sameAs` equality.
     uf: HashMap<String, String>,
     /// derived/asserted `sameAs` pairs (canonical reps).
@@ -34,15 +34,46 @@ struct Engine {
     conflicts: Vec<String>,
 }
 
-/// The rest of a body-atom walk that [`Engine::eval_at`] threads unchanged through its
-/// per-atom helpers: the full rule body + current position, and the solutions
-/// accumulator. Bundled into one struct so those helpers stay under this workspace's
-/// clippy::too_many_arguments cap (`conf_acc`/`binding` vary per attempt, so they stay
-/// as separate arguments rather than living here).
+/// The rest of a body-atom walk that [`Engine::eval_at`] threads through its per-atom
+/// helpers: the full rule body + current position, the ground facts matched so far
+/// (the premises of the derivation being built), and the solutions accumulator.
+/// Bundled into one struct so those helpers stay under the argument cap
+/// (`conf_acc`/`binding` vary per attempt, so they stay as separate arguments).
 struct Walk<'a, 'b> {
     body: &'a [Atom],
     idx: usize,
-    out: &'b mut Vec<(HashMap<String, String>, f64)>,
+    premises: Vec<FactKey>,
+    out: &'b mut Vec<BodySolution>,
+}
+
+/// One satisfying assignment of a rule body: the variable binding, the product of the
+/// matched facts' confidences, and those matched ground facts in body order.
+struct BodySolution {
+    binding: HashMap<String, String>,
+    confidence: f64,
+    premises: Vec<FactKey>,
+}
+
+/// Where a fact being added came from.
+#[derive(Clone, Copy)]
+enum FactOrigin<'a> {
+    /// A base fact of the input.
+    Asserted,
+    /// The head of `rule`, fired over the ground body facts `premises`.
+    Derived {
+        rule: &'a str,
+        premises: &'a [FactKey],
+    },
+}
+
+/// The fact-base state [`Engine::canonicalize`] rebuilds under the current
+/// union-find.
+#[derive(Default)]
+struct Canonical {
+    by_pred: HashMap<String, BTreeSet<Vec<String>>>,
+    conf: HashMap<FactKey, f64>,
+    derived: BTreeSet<FactKey>,
+    justification: HashMap<FactKey, Justification>,
 }
 
 impl Engine {
@@ -74,15 +105,10 @@ impl Engine {
     }
 
     /// Add (or raise the confidence of) a ground fact. Returns whether membership was
-    /// added OR the confidence rose. `derived` marks an inferred (vs asserted) fact.
-    fn add_fact(
-        &mut self,
-        pred: &str,
-        args: &[String],
-        conf: f64,
-        label: &str,
-        derived: bool,
-    ) -> bool {
+    /// added OR the confidence rose. `origin` says whether it is asserted or which
+    /// derivation produced it; the derivation is recorded whenever it sets the fact's
+    /// confidence, so a proof always explains the confidence the result reports.
+    fn add_fact(&mut self, pred: &str, args: &[String], conf: f64, origin: FactOrigin<'_>) -> bool {
         let cargs: Vec<String> = args.iter().map(|a| self.rep(a)).collect();
         let key = (pred.to_string(), cargs.clone());
         let added = self
@@ -95,48 +121,80 @@ impl Engine {
         let raised = combined > prev + 1e-9;
         if added || raised {
             self.conf.insert(key.clone(), combined);
-        }
-        if added {
-            if derived {
-                self.derived.insert(key.clone());
-            }
-            self.rule_of.entry(key).or_insert_with(|| label.to_string());
+            self.record_origin(key, added, origin);
         }
         added || raised
     }
 
-    /// Re-canonicalise every fact through the current union-find (congruence closure):
-    /// facts of now-equal individuals collapse onto their representative, MAX-merging
-    /// confidence. Run after a round that performed any union so subsequent rounds see
-    /// the merged ABox.
-    fn canonicalize(&mut self) {
-        let mut new_by_pred: HashMap<String, BTreeSet<Vec<String>>> = HashMap::new();
-        let mut new_conf: HashMap<FactKey, f64> = HashMap::new();
-        let mut new_derived: BTreeSet<FactKey> = BTreeSet::new();
-        let mut new_rule_of: HashMap<FactKey, String> = HashMap::new();
-        for (pred, tuples) in &self.by_pred {
-            for t in tuples {
-                let ct: Vec<String> = t.iter().map(|a| self.rep(a)).collect();
-                let old_key = (pred.clone(), t.clone());
-                let new_key = (pred.clone(), ct.clone());
-                new_by_pred.entry(pred.clone()).or_default().insert(ct);
-                let c = self.conf.get(&old_key).copied().unwrap_or(1.0);
-                let slot = new_conf.entry(new_key.clone()).or_insert(0.0);
-                if c > *slot {
-                    *slot = c;
+    /// Record which origin set `key`'s current confidence.
+    fn record_origin(&mut self, key: FactKey, added: bool, origin: FactOrigin<'_>) {
+        match origin {
+            FactOrigin::Asserted => {
+                self.justification.remove(&key);
+            }
+            FactOrigin::Derived { rule, premises } => {
+                if added {
+                    self.derived.insert(key.clone());
                 }
-                if self.derived.contains(&old_key) {
-                    new_derived.insert(new_key.clone());
-                }
-                if let Some(lbl) = self.rule_of.get(&old_key) {
-                    new_rule_of.entry(new_key).or_insert_with(|| lbl.clone());
-                }
+                let premises = premises.to_vec();
+                let rule = rule.to_string();
+                self.justification
+                    .insert(key, Justification { rule, premises });
             }
         }
-        self.by_pred = new_by_pred;
-        self.conf = new_conf;
-        self.derived = new_derived;
-        self.rule_of = new_rule_of;
+    }
+
+    /// Re-canonicalise every fact through the current union-find (congruence closure):
+    /// facts of now-equal individuals collapse onto their representative, MAX-merging
+    /// confidence (the justification of whichever fact supplied the max survives, its
+    /// premises re-canonicalised too). Run after a round that performed any union so
+    /// subsequent rounds see the merged ABox.
+    fn canonicalize(&mut self) {
+        let mut next = Canonical::default();
+        for (pred, tuples) in &self.by_pred {
+            for t in tuples {
+                self.fold_fact(pred, t, &mut next);
+            }
+        }
+        self.by_pred = next.by_pred;
+        self.conf = next.conf;
+        self.derived = next.derived;
+        self.justification = next.justification;
+    }
+
+    /// Fold one stored fact into its canonical form in `next`.
+    fn fold_fact(&self, pred: &str, tuple: &[String], next: &mut Canonical) {
+        let old_key = (pred.to_string(), tuple.to_vec());
+        let new_key = self.canonical_key(&old_key);
+        next.by_pred
+            .entry(pred.to_string())
+            .or_default()
+            .insert(new_key.1.clone());
+        if self.derived.contains(&old_key) {
+            next.derived.insert(new_key.clone());
+        }
+        let c = self.conf.get(&old_key).copied().unwrap_or(1.0);
+        let slot = next.conf.entry(new_key.clone()).or_insert(0.0);
+        if c <= *slot {
+            return;
+        }
+        *slot = c;
+        match self.justification.get(&old_key) {
+            Some(j) => {
+                let premises = j.premises.iter().map(|k| self.canonical_key(k)).collect();
+                let rule = j.rule.clone();
+                next.justification
+                    .insert(new_key, Justification { rule, premises });
+            }
+            None => {
+                next.justification.remove(&new_key);
+            }
+        }
+    }
+
+    /// `key` with every argument replaced by its equality representative.
+    fn canonical_key(&self, key: &FactKey) -> FactKey {
+        (key.0.clone(), key.1.iter().map(|a| self.rep(a)).collect())
     }
 
     /// Detect clashes: a `differentFrom` pair forced equal is an instance inconsistency.
@@ -151,42 +209,56 @@ impl Engine {
         }
     }
 
-    /// Evaluate a rule body, producing every satisfying `(binding, body-confidence)`.
-    fn eval_body(&self, body: &[Atom]) -> Vec<(HashMap<String, String>, f64)> {
+    /// Evaluate a rule body, producing every satisfying binding with its confidence
+    /// and the ground facts it matched.
+    fn eval_body(&self, body: &[Atom]) -> Vec<BodySolution> {
         let mut out = Vec::new();
-        self.eval_at(body, 0, &mut HashMap::new(), 1.0, &mut out);
+        let mut walk = Walk {
+            body,
+            idx: 0,
+            premises: Vec::new(),
+            out: &mut out,
+        };
+        self.eval_at(&mut walk, &mut HashMap::new(), 1.0);
         out
     }
 
-    fn eval_at(
-        &self,
-        body: &[Atom],
-        idx: usize,
-        binding: &mut HashMap<String, String>,
-        conf_acc: f64,
-        out: &mut Vec<(HashMap<String, String>, f64)>,
-    ) {
-        if idx == body.len() {
-            out.push((binding.clone(), conf_acc));
+    fn eval_at(&self, walk: &mut Walk, binding: &mut HashMap<String, String>, conf_acc: f64) {
+        let body = walk.body;
+        let Some(atom) = body.get(walk.idx) else {
+            walk.out.push(BodySolution {
+                binding: binding.clone(),
+                confidence: conf_acc,
+                premises: walk.premises.clone(),
+            });
             return;
-        }
-        let atom = &body[idx];
-        let mut walk = Walk { body, idx, out };
+        };
         if let Some(bn) = swrl_builtin_name(&atom.pred) {
-            eval_builtin_atom(self, bn, atom, binding, conf_acc, &mut walk);
+            eval_builtin_atom(self, bn, atom, binding, conf_acc, walk);
             return;
         }
-        eval_fact_atom(self, atom, binding, conf_acc, &mut walk);
+        eval_fact_atom(self, atom, binding, conf_acc, walk);
+    }
+
+    /// Continue the walk at the next body atom.
+    fn descend(&self, walk: &mut Walk, binding: &mut HashMap<String, String>, conf_acc: f64) {
+        walk.idx += 1;
+        self.eval_at(walk, binding, conf_acc);
+        walk.idx -= 1;
     }
 
     /// Apply one rule, deriving its head facts; returns whether anything changed.
     fn apply_rule(&mut self, rule: &Rule) -> bool {
         let mut changed = false;
         let solutions = self.eval_body(&rule.body);
-        for (binding, body_conf) in solutions {
-            let conf = (rule.conf * body_conf).clamp(0.0, 1.0);
+        for solution in solutions {
+            let conf = (rule.conf * solution.confidence).clamp(0.0, 1.0);
+            let origin = FactOrigin::Derived {
+                rule: &rule.name,
+                premises: &solution.premises,
+            };
             for head in &rule.head {
-                if self.apply_head_atom(head, &binding, conf, &rule.name) {
+                if self.apply_head_atom(head, &solution.binding, conf, origin) {
                     changed = true;
                 }
             }
@@ -202,7 +274,7 @@ impl Engine {
         head: &Atom,
         binding: &HashMap<String, String>,
         conf: f64,
-        rule_name: &str,
+        origin: FactOrigin<'_>,
     ) -> bool {
         let Some(args) = self.instantiate_head_args(head, binding) else {
             return false;
@@ -210,7 +282,7 @@ impl Engine {
         if is_same_as(&head.pred) && args.len() == 2 {
             self.union(&args[0], &args[1])
         } else {
-            self.add_fact(&head.pred, &args, conf, rule_name, true)
+            self.add_fact(&head.pred, &args, conf, origin)
         }
     }
 
@@ -275,7 +347,7 @@ fn eval_builtin_atom(
             binding.insert(v.clone(), val);
             newly_bound.push(v);
         }
-        engine.eval_at(walk.body, walk.idx + 1, binding, conf_acc, walk.out);
+        engine.descend(walk, binding, conf_acc);
         for v in newly_bound {
             binding.remove(&v);
         }
@@ -325,12 +397,11 @@ fn try_bind_tuple(
         .zip(tuple.iter())
         .all(|(arg, val)| try_bind_one_arg(engine, arg, val, binding, &mut newly_bound));
     if ok {
-        let fconf = engine
-            .conf
-            .get(&(fp.to_string(), tuple.to_vec()))
-            .copied()
-            .unwrap_or(1.0);
-        engine.eval_at(walk.body, walk.idx + 1, binding, conf_acc * fconf, walk.out);
+        let premise = (fp.to_string(), tuple.to_vec());
+        let fconf = engine.conf.get(&premise).copied().unwrap_or(1.0);
+        walk.premises.push(premise);
+        engine.descend(walk, binding, conf_acc * fconf);
+        walk.premises.pop();
     }
     for v in newly_bound {
         binding.remove(&v);
@@ -366,7 +437,7 @@ pub(super) fn reason_facts(
 ) -> super::RuleReasonResult {
     let mut eng = Engine::default();
     for (pred, args, conf) in facts {
-        eng.add_fact(pred, args, *conf, "asserted", false);
+        eng.add_fact(pred, args, *conf, FactOrigin::Asserted);
     }
     for (a, b) in &ont.same_as {
         eng.union(a, b);
@@ -400,5 +471,6 @@ pub(super) fn reason_facts(
         same_as: eng.same_pairs.iter().cloned().collect(),
         consistent: eng.conflicts.is_empty(),
         conflicts: eng.conflicts,
+        derivations: super::proof::RuleDerivations::new(eng.conf, eng.justification),
     }
 }

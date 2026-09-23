@@ -299,6 +299,7 @@ ex:bob   ex:parent ex:carol .
         query_predicate: Some("grandparent".into()),
         min_confidence: 0.0,
         derived_only: true,
+        explain: false,
     };
     let resp = run_rule_reasoning(&req).unwrap();
     assert_eq!(resp.registered_rules.len(), 1);
@@ -313,4 +314,94 @@ ex:bob   ex:parent ex:carol .
     assert_eq!(f.predicate, "grandparent");
     assert!(f.derived);
     assert!((f.confidence - 0.8).abs() < 1e-9);
+}
+
+fn family_request(explain: bool) -> RuleReasonRequest {
+    RuleReasonRequest {
+        ontology_ttl: r#"
+@prefix ex: <http://ex/> .
+ex:alice ex:parent ex:bob .
+ex:bob   ex:parent ex:carol .
+ex:carol ex:parent ex:dave .
+"#
+        .into(),
+        rules: vec![
+            "base: parent(?x,?y) -> ancestor(?x,?y) @0.9".into(),
+            "step: ancestor(?x,?y) ^ parent(?y,?z) -> ancestor(?x,?z) @0.5".into(),
+        ],
+        query_predicate: Some("ancestor".into()),
+        min_confidence: 0.0,
+        derived_only: true,
+        explain,
+    }
+}
+
+fn fact<'a>(resp: &'a RuleReasonResponse, args: &[String]) -> &'a RuleFact {
+    resp.facts
+        .iter()
+        .find(|f| f.args == args)
+        .unwrap_or_else(|| panic!("missing ancestor{args:?} in {:?}", resp.facts))
+}
+
+/// EH-197: an explained fact carries the rule that set its confidence and the ground
+/// body facts it fired over, recursively, down to asserted leaves.
+#[test]
+fn explained_facts_carry_their_derivation_down_to_asserted_leaves() {
+    let resp = run_rule_reasoning(&family_request(true)).unwrap();
+    let deep = fact(&resp, &[c("alice"), c("dave")]);
+    let proof = deep.proof.as_ref().expect("explain attaches a proof");
+    assert_eq!(proof.rule, "step");
+    assert!((proof.confidence - deep.confidence).abs() < 1e-12);
+    assert_eq!(proof.premises.len(), 2);
+    let (ancestor, parent) = (&proof.premises[0], &proof.premises[1]);
+    assert_eq!(ancestor.predicate, "ancestor");
+    assert_eq!(ancestor.args, vec![c("alice"), c("carol")]);
+    assert_eq!(ancestor.rule, "step");
+    assert_eq!(parent.rule, ASSERTED_RULE);
+    assert!(parent.premises.is_empty());
+    // Walk to the bottom: step -> step -> base -> asserted parent(alice, bob).
+    let base = &ancestor.premises[0];
+    assert_eq!(base.rule, "base");
+    assert_eq!(base.premises[0].rule, ASSERTED_RULE);
+    assert_eq!(base.premises[0].args, vec![c("alice"), c("bob")]);
+    assert!(!proof.truncated);
+    // Confidences compose exactly as the rule engine multiplied them.
+    assert!((base.confidence - 0.9).abs() < 1e-12);
+    assert!((ancestor.confidence - 0.45).abs() < 1e-12);
+}
+
+/// Without `explain` the response carries no proofs — the opt-in keeps the default
+/// response the size it always was.
+#[test]
+fn unexplained_facts_carry_no_proof() {
+    let resp = run_rule_reasoning(&family_request(false)).unwrap();
+    assert!(!resp.facts.is_empty());
+    assert!(resp.facts.iter().all(|f| f.proof.is_none()));
+}
+
+/// A proof is always the derivation behind the confidence the fact REPORTS: when a
+/// second rule later raises a fact's confidence, the proof switches to that rule.
+#[test]
+fn the_proof_explains_the_reported_maximum_confidence() {
+    let ttl = r#"
+@prefix ex: <http://ex/> .
+ex:alice ex:knows ex:bob .
+ex:alice ex:worksWith ex:bob .
+"#;
+    let triples = parse_turtle(ttl).unwrap();
+    let ont = crate::owl::parse_ontology(&triples);
+    let mut rs = RuleSet::new();
+    rs.add_str("weak: knows(?x,?y) -> trusts(?x,?y) @0.3")
+        .unwrap();
+    rs.add_str("strong: worksWith(?x,?y) -> trusts(?x,?y) @0.8")
+        .unwrap();
+    let res = reason_triples(&triples, &ont, &rs);
+    let args = [c("alice"), c("bob")];
+    let proof = res.derivations.proof("trusts", &args).expect("holds");
+    assert_eq!(proof.rule, "strong");
+    assert!((proof.confidence - 0.8).abs() < 1e-12);
+    assert!(res
+        .derivations
+        .proof("trusts", &[c("bob"), c("alice")])
+        .is_none());
 }
