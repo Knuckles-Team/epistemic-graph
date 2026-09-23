@@ -231,6 +231,13 @@
         "value": "1"
       }
     ],
+    "DECISION_LOG_SCHEMA_VERSION": [
+      {
+        "file": "crates/eg-types/src/decision/statistical/log.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
     "DECISION_POLICY_SCHEMA_VERSION": [
       {
         "file": "crates/eg-types/src/decision.rs",
