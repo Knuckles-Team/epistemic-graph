@@ -13,14 +13,15 @@ weighting** and **Ebbinghaus time-decay** of derived facts.
 
 ## The lifecycle
 
-```mermaid
-flowchart LR
-    LOAD["1. Load<br/>OWL/RDFS as RDF"] --> MAP["2. Map<br/>onto the property graph"]
-    MAP --> REASON["3. Reason<br/>EL⁺/RL fixpoint closure"]
-    REASON --> QUERY["4. Query<br/>SPARQL / REASON / SQL"]
-    QUERY --> EVOLVE["5. Evolve<br/>incremental add_axioms"]
-    EVOLVE --> REASON
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Ontology lifecycle</p>
+
+**1. Load** OWL/RDFS as RDF → **2. Map** onto the property graph →
+**3. Reason** (EL⁺/RL fixpoint closure) → **4. Query** (SPARQL / REASON /
+SQL) → **5. Evolve** (incremental `add_axioms`), which feeds back into
+**3. Reason** for the next fixpoint pass.
+
+</div>
 
 ### 1–2. Load & map
 

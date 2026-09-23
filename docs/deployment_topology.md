@@ -6,26 +6,19 @@ other wire protocols) with nothing else installed. Everything below the engine i
 diagram is **optional** and additive: each component uses the engine, none is required
 to run it.
 
-```mermaid
-flowchart TD
-    subgraph Core["Always required — the database"]
-        EG["epistemic-graph<br/>(epistemic-graph-server)<br/>durable multi-modal DB · pgwire/SQL/Cypher/SPARQL/vector/tsdb"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Component topology</p>
 
-    subgraph Optional["Optional — enhance, never required"]
-        AU["agent-utilities<br/>orchestrator + KG hub (graph-os)"]
-        WEBUI["agent-webui<br/>web visualization of the DB"]
-        TUI["agent-terminal-ui<br/>terminal client"]
-        GBOT["geniusbot<br/>desktop cockpit"]
-    end
+`epistemic-graph` (the `epistemic-graph-server`: a durable multi-modal DB
+speaking pgwire/SQL/Cypher/SPARQL/vector/tsdb) is the one always-required
+component. Everything else is optional, enhancing it: `psql`/DBeaver/BI/
+ORMs/drivers connect over the Postgres wire (port 5433); `agent-utilities`
+(the orchestrator + KG hub, `graph-os`) connects over MessagePack RPC
+(port 9100) or UDS. `agent-webui`, `agent-terminal-ui`, and `geniusbot` all
+talk to `agent-utilities`; `agent-webui` can also read the database
+directly.
 
-    SQL["psql · DBeaver · BI · ORMs · drivers"] -->|Postgres wire :5433| EG
-    AU -->|MessagePack RPC :9100 / UDS| EG
-    WEBUI --> AU
-    TUI --> AU
-    GBOT --> AU
-    WEBUI -. can also read the DB directly .-> EG
-```
+</div>
 
 ---
 

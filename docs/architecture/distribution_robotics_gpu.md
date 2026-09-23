@@ -26,26 +26,20 @@ applies it via the same canonical mutation applier as Raft. Capacity
 guardrails — a circuit breaker, a per-tenant quota, and backpressure — protect the primary from
 a slow/hostile region or a greedy tenant.
 
-```mermaid
-flowchart LR
-  subgraph Primary [Primary region]
-    W[dispatch commit] -->|append LSN| LOG[(ReplicationLog\nbounded ring)]
-    LOG --> SRV["/replicate?since=n serve"]
-  end
-  subgraph Follower [Follower region — read replica]
-    CB{CircuitBreaker\nallow?}
-    PULL[run_replica_follower\npull loop] --> CB
-    CB -->|closed / half-open| SRV
-    SRV -->|ordered tail| APPLY[apply_replicated_batch\ncanonical mutation applier]
-    APPLY --> REG[(local registry\nread-serve)]
-    CB -->|open: fail fast| SKIP[skip tick]
-  end
-  CLIENT[Local reads] --> REG
-  subgraph Guards [EG-323 capacity guardrails]
-    G[CapacityGuard\nper-tenant quota + backpressure]
-  end
-  REQ[Requests] --> G -->|Admit / Quota / Backpressure| REG
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Cross-region replication</p>
+
+In the primary region, each dispatch commit appends an LSN to the
+`ReplicationLog` (a bounded ring), which serves `/replicate?since=n`. In the
+follower region (a read replica), `run_replica_follower`'s pull loop checks
+the `CircuitBreaker`: when closed or half-open, it pulls the ordered tail
+from the primary and applies it via `apply_replicated_batch` (the canonical
+mutation applier) into the local registry; when open, it fails fast and
+skips the tick. Local reads are served from that local registry. Separately,
+all requests pass through the EG-323 `CapacityGuard` (per-tenant quota +
+backpressure) before reaching the registry — Admit, Quota, or Backpressure.
+
+</div>
 
 * **`ReplicationLog::since(cursor)`** returns the ordered ops after the cursor and a
   `ReplicaLag`: a follower whose cursor predates the retained ring is told `Behind` (re-snapshot)
@@ -72,20 +66,21 @@ participants EXECUTE it deterministically with **no vote round and no abort**. A
 order IS agreement on the outcome, so a crashed coordinator is resolved by any node replaying the
 replicated sequence — there is no in-doubt window.
 
-```mermaid
-sequenceDiagram
-  participant C as Coordinator
-  participant S as CalvinSequencer
-  participant D as Decision Raft group
-  participant P as Participant groups
-  C->>S: assign() → GlobalSeq
-  Note over C,S: deterministic_order() gives ANY node the same total order
-  C->>D: replicate_sequence(txn, seq)  (the atomic point)
-  D-->>C: quorum-committed + applied (readable on every replica)
-  C->>P: apply_sequenced (GroupId order, NO vote / NO prepare)
-  C->>D: clear_replicated_decision (GC)
-  Note over C,P: Crash after replicate_sequence? recover_sequenced() on ANY node<br/>learns the seq and REPLAYS to completion — no blocking window
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Calvin commit sequence</p>
+
+The coordinator asks `CalvinSequencer` to `assign()` a `GlobalSeq`;
+`deterministic_order()` gives any node the same total order. The
+coordinator replicates that sequence to the decision Raft group
+(`replicate_sequence(txn, seq)` — the atomic point), which returns once
+quorum-committed and applied, readable on every replica. The coordinator
+then applies it to participant groups in `GroupId` order — no vote, no
+prepare — and clears the replicated decision for garbage collection. If the
+coordinator crashes after `replicate_sequence`, `recover_sequenced()` on any
+node learns the sequence and replays it to completion — there is no
+blocking window.
+
+</div>
 
 Opt-in per call via the `calvin` feature (implies `nonblocking` to reuse the EG-KG.txn.harness-crash replicated
 decision-graph helpers); the default cross-shard path is byte-for-byte unchanged. **Honest
@@ -103,20 +98,17 @@ Joins a ROS2 graph WITHOUT a DDS stack by speaking the standard `rosbridge_suite
 JSON messages over a WebSocket to a `rosbridge_server`. No CycloneDDS/rmw/`ros` C toolchain — a
 pure-Rust `tokio-tungstenite` client.
 
-```mermaid
-flowchart LR
-  subgraph Engine
-    CDC[(CDC feed)] --> C2P[cdc_to_publish]
-    P2M[publish_to_request] --> APPLY[authenticated dispatch → MutationBatch gateway]
-  end
-  subgraph WS [rosbridge WebSocket]
-    C2P -->|op:publish| RB[rosbridge_server]
-    RB -->|op:publish inbound| P2M
-    ADV[op:advertise] --> RB
-    SUB[op:subscribe] --> RB
-  end
-  RB <--> ROS[ROS2 nodes / topics]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">ROS2 bridge dataflow</p>
+
+Engine → ROS2: the CDC feed feeds `cdc_to_publish`, which sends an
+`op:publish` message to `rosbridge_server`, forwarded to ROS2 nodes/topics.
+ROS2 → engine: an `op:subscribe` (and `op:advertise`) registers with
+`rosbridge_server`; an inbound `op:publish` from ROS2 feeds
+`publish_to_request`, which goes through authenticated dispatch to the
+`MutationBatch` gateway.
+
+</div>
 
 * **Engine → ROS2:** tail the CDC feed for a graph; each change becomes a rosbridge
   `{"op":"publish","topic":…,"msg":{"data":…}}` (`cdc_to_publish`).
@@ -159,14 +151,17 @@ swappable WITHOUT touching the index/tensor code. The pure-Rust CPU backend is A
 and is the byte-for-byte ground truth; the real CUDA backend is selected only when built AND a
 device initialises.
 
-```mermaid
-flowchart TD
-  SEARCH["FlatIndex::search / Tensor::elementwise"] --> DISPATCH["batch_distances / elementwise_dispatch"]
-  DISPATCH --> ACTIVE{active_backend}
-  ACTIVE -->|gpu-cuda built + device present| CUDA[CudaBackend\nNVRTC kernel launch]
-  ACTIVE -->|else / no device / launch error| CPU[CpuBackend\npure-Rust, ground truth]
-  CUDA -.transient failure.-> CPU
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">GPU/CPU dispatch seam</p>
+
+`FlatIndex::search`/`Tensor::elementwise` calls `batch_distances`/
+`elementwise_dispatch`, which checks `active_backend`: when `gpu-cuda` is
+built and a device is present, it runs `CudaBackend` (NVRTC kernel launch);
+otherwise — no device, or a launch error — it runs `CpuBackend` (pure-Rust,
+the ground truth). A transient CUDA failure also falls back to the CPU
+backend.
+
+</div>
 
 * **`DistanceBackend`** (eg-ann) / **`TensorBackend`** (eg-tensor): `batch_distance` /
   `elementwise` over a flat buffer. Every backend must agree with the CPU backend to within

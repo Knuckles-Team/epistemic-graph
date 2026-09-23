@@ -8,23 +8,19 @@ authority.
 
 ## Commit sequence
 
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant G as Commit gateway
-    participant S as Isolated staging graph
-    participant D as Authoritative redb
-    participant P as Serving projections
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Commit sequence</p>
 
-    C->>G: verified request + mutation
-    G->>G: authz, placement, policy, idempotency, version/fence
-    G->>S: execute against authoritative snapshot
-    S-->>G: state image + deterministic result
-    G->>D: batch + state digest/image + result + outbox
-    D-->>G: durable commit / durable replay result
-    G->>P: publish committed snapshot
-    G-->>C: acknowledge stored result
-```
+The client sends a verified request + mutation to the commit gateway, which
+checks authz, placement, policy, idempotency, and version/fence, then
+executes against the isolated staging graph (against the authoritative
+snapshot). Staging returns a state image and deterministic result. The
+gateway writes the batch plus state digest/image, result, and outbox to the
+authoritative redb, which returns a durable commit (or durable replay)
+result. The gateway then publishes the committed snapshot to serving
+projections and acknowledges the stored result back to the client.
+
+</div>
 
 The four concrete process boundaries in this sequence are exercised against the
 exact promoted executable, not an in-process substitute. See

@@ -88,14 +88,12 @@ Two independent constraints rule out adding pyo3 directly to the facade crate
    `EmbeddedEngine` as a library dependency; it has to sit **parallel to `eg-compute`**,
    talking to `eg-core` directly, the same layer `EmbeddedEngine` itself talks to.
 
-```
- eg-types → eg-ann → eg-core → eg-compute ─┐
-                        │                   ├→ epistemic-graph (facade)
-                        └── eg-pyengine ────┘        │  bin target: epistemic-graph-server
-                             (feature pyo3-engine,     │  lib target: re-exports eg-{types,core,compute}
-                              optional dep of facade)  │  + src/embedded.rs (EmbeddedEngine, Rust API)
-                                                        └  #[cfg(feature="pyo3-engine")] pub use eg_pyengine;
-```
+`eg-types` → `eg-ann` → `eg-core` → `eg-compute` and, parallel to it,
+`eg-core` → `eg-pyengine` (feature `pyo3-engine`, an optional dependency of
+the facade) both feed the `epistemic-graph` facade. The facade's `bin`
+target is `epistemic-graph-server`; its `lib` target re-exports
+`eg-{types,core,compute}` plus `src/embedded.rs`'s `EmbeddedEngine` (Rust
+API), and under `#[cfg(feature="pyo3-engine")]` also `pub use eg_pyengine`.
 
 `crates/eg-pyengine` is therefore **not** a wrapper around `EmbeddedEngine` — it is a
 second, minimal implementation of the *same pattern* (open a registry, resolve a graph's
@@ -404,29 +402,28 @@ folding a *second*, independently-built pyo3 extension into that same wheel; thi
 workstream's engine binding is the second instance of the identical pattern, run
 alongside the first:
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│ 1. maturin build --release --features full,ast-extended                 │
-│    (bindings="bin", repo root pyproject.toml)                           │
-│    → dist/epistemic_graph-X.Y.Z-*.whl                                   │
-│      = epistemic-graph-server binary + pure-python epistemic_graph/     │
-├─────────────────────────────────────────────────────────────────────────┤
-│ 2. maturin build --release -m crates/eg-numeric/Cargo.toml \            │
-│      --features python        (existing)                                │
-│    → numeric-wheel/*.whl  (epistemic_graph.numeric)                     │
-├─────────────────────────────────────────────────────────────────────────┤
-│ 2b. maturin build --release -m crates/eg-pyengine/Cargo.toml \          │
-│       --features python       (NEW, this workstream)                    │
-│     → engine-wheel/*.whl  (epistemic_graph.engine)                      │
-├─────────────────────────────────────────────────────────────────────────┤
-│ 3. python scripts/inject_numeric_kernel.py   dist/*.whl numeric-wheel/*.whl │
-│ 3b. python scripts/inject_pyengine.py        dist/*.whl engine-wheel/*.whl  │
-│     (NEW script, same RECORD-rewrite/mode-preserving zip surgery as 3)   │
-├─────────────────────────────────────────────────────────────────────────┤
-│ Result: ONE wheel — epistemic-graph-server binary +                     │
-│         epistemic_graph/{numeric,engine}.abi3.so + pure-python package  │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+<ol class="site-flow">
+  <li class="site-flow__step">
+    <div class="site-flow__title">Build the server wheel</div>
+    <div class="site-flow__body"><code>maturin build --release --features full,ast-extended</code> (<code>bindings="bin"</code>, repo root <code>pyproject.toml</code>) → <code>dist/epistemic_graph-X.Y.Z-*.whl</code> = the <code>epistemic-graph-server</code> binary + the pure-Python <code>epistemic_graph/</code> package.</div>
+  </li>
+  <li class="site-flow__step">
+    <div class="site-flow__title">Build the numeric extension (existing)</div>
+    <div class="site-flow__body"><code>maturin build --release -m crates/eg-numeric/Cargo.toml --features python</code> → <code>numeric-wheel/*.whl</code> (<code>epistemic_graph.numeric</code>).</div>
+  </li>
+  <li class="site-flow__step">
+    <div class="site-flow__title">Build the engine extension (new, this workstream)</div>
+    <div class="site-flow__body"><code>maturin build --release -m crates/eg-pyengine/Cargo.toml --features python</code> → <code>engine-wheel/*.whl</code> (<code>epistemic_graph.engine</code>).</div>
+  </li>
+  <li class="site-flow__step">
+    <div class="site-flow__title">Inject both extensions into the server wheel</div>
+    <div class="site-flow__body"><code>python scripts/inject_numeric_kernel.py dist/*.whl numeric-wheel/*.whl</code>, then <code>python scripts/inject_pyengine.py dist/*.whl engine-wheel/*.whl</code> (new script, the same RECORD-rewrite/mode-preserving zip surgery).</div>
+  </li>
+  <li class="site-flow__step">
+    <div class="site-flow__title">Result</div>
+    <div class="site-flow__body">One wheel: the <code>epistemic-graph-server</code> binary, <code>epistemic_graph/{numeric,engine}.abi3.so</code>, and the pure-Python package.</div>
+  </li>
+</ol>
 
 `scripts/inject_pyengine.py` is not shipped by this workstream (see §11) but is a
 near-mechanical copy of `scripts/inject_numeric_kernel.py` — same `_find_kernel_extension`

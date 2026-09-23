@@ -45,7 +45,7 @@ algorithm", not "add a surface".
 | Layer | Where |
 |-------|-------|
 | Engine impl | `crates/eg-compute/src/mining/{association,cluster,anomaly}.rs` — pure-Rust, dependency-light, deterministic |
-| Protocol | `Method::Mine{Associate,Cluster,Anomaly}` in the `// ── Mining ──` section of `crates/eg-types/src/protocol.rs` (feature `mining`) |
+| Protocol | `Method::Mine{Associate,Cluster,Anomaly}` in the `// Mining` section of `crates/eg-types/src/protocol.rs` (feature `mining`) |
 | Handler | `src/server/handlers/mining.rs` — graph-derived rows + write-back over the live `GraphCore` |
 | Client | `client.mining.{associate,cluster,anomaly}(...)` (`epistemic_graph/client.py`) |
 | graph-os MCP | `graph_mine action="associate\|cluster\|anomaly"` (agent-utilities `engine_surface_tools.py`) — plus the granular `engine_mining` verb |

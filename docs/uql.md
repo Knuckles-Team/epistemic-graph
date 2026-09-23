@@ -65,7 +65,7 @@ pred_list  = pred { "AND" pred } ;
 pred       = prop ( ">" | "<" | ( "=" | "==" ) ) value ;
 value      = num | string | ident ;
 id         = ident | string ;                                      (* QUOTE ids with - . : @ *)
-(* ── epistemic (E2, CONCEPT:EG-KG.epistemic.epistemic-substrate) ── *)
+(* epistemic (E2, CONCEPT:EG-KG.epistemic.epistemic-substrate) *)
 evidence_for        = "EVIDENCE" "FOR" id ;
 contradicts         = "CONTRADICTS" id ;
 supported_by        = "SUPPORTED" "BY" id ;

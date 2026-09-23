@@ -14,19 +14,20 @@ is byte-for-byte unchanged.
 
 ## Where it lives
 
-```
-src/raft/harness/
-├── mod.rs            # run_gauntlet() — elect → load → fault → heal → assert
-├── cluster.rs        # Cluster: managed N-node in-process redb-authoritative raft
-│                     #   cluster with kill / restart / partition / read controls
-├── nemesis.rs        # Nemesis: the 4 fault primitives, schedulable + seeded
-├── loadgen.rs        # concurrent writers → recorded History
-├── history.rs        # the (op, ack/err, timestamp) op log
-├── checker.rs        # the invariant model over history + final state
-└── gauntlet_test.rs  # `cargo test --features harness raft::harness` — the gauntlet
-src/bin/nemesis.rs    # `cargo run --features harness --bin nemesis` — the soak runner
-src/raft/network.rs   # partition::{partition,isolate,heal,reachable} gate (cfg-gated)
-```
+- `src/raft/harness/`
+    - `mod.rs` — `run_gauntlet()`: elect → load → fault → heal → assert
+    - `cluster.rs` — `Cluster`: managed N-node in-process redb-authoritative
+      raft cluster with kill/restart/partition/read controls
+    - `nemesis.rs` — `Nemesis`: the 4 fault primitives, schedulable + seeded
+    - `loadgen.rs` — concurrent writers → recorded `History`
+    - `history.rs` — the (op, ack/err, timestamp) op log
+    - `checker.rs` — the invariant model over history + final state
+    - `gauntlet_test.rs` — `cargo test --features harness raft::harness`,
+      the gauntlet
+- `src/bin/nemesis.rs` — `cargo run --features harness --bin nemesis`, the
+  soak runner
+- `src/raft/network.rs` — `partition::{partition,isolate,heal,reachable}`
+  gate (cfg-gated)
 
 ## The nemesis (4 fault primitives)
 

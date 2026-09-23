@@ -21,6 +21,24 @@ Every concept and component this repo's own registries and documentation nav dec
 - **Analytics program** — `architecture/analytics_program.md`
 - **Numeric kernel** — `architecture/numeric_kernel.md`
 - **Hot-path complexity** — `architecture/hot-path-complexity.md`
+- **Graph backends and mirrors** — `architecture/graph-backends.md`
+- **Service layer** — `architecture/service-layer.md`
+- **Code intelligence** — `architecture/code-intelligence.md`
+- **Vector index lifecycle** — `architecture/vector-index-lifecycle.md`
+- **Ontology library and SHACL authority** — `architecture/ontology-library.md`
+- **Ontology package federation** — `architecture/ontology-federation.md`
+- **Epistemic Operations Protocol** — `architecture/epistemic-operations-protocol.md`
+- **AIF argumentation** — `architecture/aif-argumentation.md`
+
+## Components
+
+- **Overview** — `components/index.md`
+- **eg.types** — `components/eg-types.md`
+- **eg.core** — `components/eg-core.md`
+- **eg.storage-transaction** — `components/eg-storage-transaction.md`
+- **eg.query-reasoning** — `components/eg-query-reasoning.md`
+- **eg.server-protocol** — `components/eg-server-protocol.md`
+- **eg.composition** — `components/eg-composition.md`
 
 ## For AI agents
 
@@ -28,9 +46,9 @@ Every concept and component this repo's own registries and documentation nav dec
 
 ## Generated contract methods
 
-- **cluster (contract domain)** (30 methods) — `contract/methods.json#cluster`
+- **cluster (contract domain)** (31 methods) — `contract/methods.json#cluster`
 - **compute (contract domain)** (133 methods) — `contract/methods.json#compute`
-- **coordination (contract domain)** (38 methods) — `contract/methods.json#coordination`
+- **coordination (contract domain)** (44 methods) — `contract/methods.json#coordination`
 - **graph (contract domain)** (64 methods) — `contract/methods.json#graph`
 - **ingestion (contract domain)** (14 methods) — `contract/methods.json#ingestion`
 - **messaging (contract domain)** (42 methods) — `contract/methods.json#messaging`
@@ -76,12 +94,26 @@ Every concept and component this repo's own registries and documentation nav dec
 
 - **Capabilities** — `capabilities.md`
 - **Generated method ledger** — `capabilities.generated.md`
+- **API reference** — `api/index.md`
+- **Cluster API** — `api/cluster.md`
+- **Compute API** — `api/compute.md`
+- **Coordination API** — `api/coordination.md`
+- **Graph API** — `api/graph.md`
+- **Ingestion API** — `api/ingestion.md`
+- **Messaging API** — `api/messaging.md`
+- **Query API** — `api/query.md`
+- **Reasoning API** — `api/reasoning.md`
+- **Security API** — `api/security.md`
+- **Storage API** — `api/storage.md`
+- **Transactions API** — `api/transactions.md`
+- **OpenAPI / Swagger UI** — `swagger-ui.md`
 - **Concepts** — `concepts.md`
 - **Cost and capacity** — `cost_model.md`
 - **Transport benchmarks** — `benchmarks.md`
 - **Soak and chaos benchmarks** — `benchmarks-soak.md`
 - **Quality terms** — `quality-gate-terms.md`
 - **Ecosystem glossary** — `glossary.md`
+- **Skill graph reference** — `reference/skill-graph.generated.md`
 
 ## Start
 
