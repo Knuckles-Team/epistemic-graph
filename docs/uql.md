@@ -47,7 +47,88 @@ regenerate it with `cargo run -p eg-plan --example uql_grammar`.
 
 <!-- BEGIN GENERATED: uql-grammar -->
 ```text
-PENDING-GENERATION
+warning: function `strings` is never used
+   --> crates/eg-types/src/wire_query_uql.rs:255:4
+    |
+255 | fn strings(items: &[String]) -> String {
+    |    ^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: associated function `place_narrower` is never used
+   --> crates/eg-plan/src/cost.rs:150:19
+    |
+ 99 | impl CostModel {
+    | -------------- associated function in this implementation
+...
+150 |     pub(crate) fn place_narrower(
+    |                   ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+statement          = [ "UQL" int ";" ] [ "EXPLAIN" | "PROFILE" ] { binding } pipeline ;
+binding            = "LET" name "=" pipeline ";" ;
+pipeline           = head { "|>" stage } ;
+head               = source | stage | "FROM" name | "JOIN" name "," name { "," name } ;
+match              = "MATCH" "(" [ ":" name ] ")" [ "WHERE" pred ] ;
+foreign            = "FOREIGN" id | "FOREIGN" "SCAN" string [ "JOIN" ] | "FOREIGN" "HTTP" string [ "PATH" string ] "ID" string [ "SCORE" string ] [ "JOIN" ] ;
+sparql             = "SPARQL" string "VAR" string ;   (* feature `owl` *)
+tsscan             = "TSSCAN" string_list "FROM" num "TO" num ;   (* feature `timeseries` *)
+sensor             = "SENSOR" "FUSE" string_list "TOLERANCE" int | "SENSOR" "ALIGN" "[" string interp { "," string interp } "]" "CLOCK" clock [ "TOLERANCE" int ] ;   (* feature `timeseries` *)
+clock              = "UNIFORM" "FROM" int "TO" int "STEP" int | "TUMBLING" "WIDTH" int "STEP" int ;
+interp             = "NEAREST" | "LINEAR" | "ASOF_HOLD" ;
+filter             = "WHERE" pred ;
+as_of              = "AS" "OF" [ "TX" | "VALID" ] ts ;
+valid_as_of        = "VALID" "AS" "OF" ts ;
+reason             = "REASON" ( iri | string | name ) [ "ONTOLOGY" string ] ;   (* feature `owl` *)
+evidence_for       = "EVIDENCE" "FOR" id ;   (* feature `epistemic` *)
+contradicts        = "CONTRADICTS" id ;   (* feature `epistemic` *)
+supported_by       = "SUPPORTED" "BY" id ;   (* feature `epistemic` *)
+explain_belief     = "EXPLAIN" "BELIEF" id ;   (* feature `epistemic` *)
+spatial_scan       = "SPATIAL" "SCAN" id "BBOX" "[" signed_num "," signed_num "," signed_num "," signed_num "]" ;   (* feature `geo` *)
+tensor_scan        = "TENSOR" "SCAN" id ;   (* feature `tensor` *)
+traverse           = "TRAVERSE" ( "-" "[" rel "]" ( "->" | "-" ) | "<-" "[" rel "]" "-" | name ) [ hops ] ;
+rel                = ( ":" name | "*" ) [ "WHERE" pred ] ;
+hops               = "{" int [ ( "," | ".." ) int ] "}" ;
+rank               = "RANK" "BY" "~" ( vector | string | param ) ;
+text               = "TEXT" string ;   (* feature `text` *)
+fuse               = "FUSE" [ "K" num ] ( "[" branch "]" { "[" branch "]" } | "(" name { "," name } ")" ) ;   (* feature `text` *)
+branch             = stage { "|>" stage } ;
+rerank             = "RERANK" ( "NODE_DISTANCE" "FROM" id | "MENTIONS" | "MMR" num int ) ;
+window             = "WINDOW" num [ unit ] [ agg ] ;
+unit               = "ns" | "us" | "ms" | "s" | "m" | "min" | "h" | "d" (plural forms accepted) ;
+agg                = "MEAN" | "AVG" | "SUM" | "MIN" | "MAX" | "COUNT" | "FIRST" | "LAST" ;
+limit              = "LIMIT" ( int | param ) ;
+return             = "RETURN" name { "," name } ;
+udf                = "UDF" id ;   (* feature `wasm-udf` *)
+reproject          = "REPROJECT" "TO" int [ "FROM" int ] ;   (* feature `geo` *)
+spatial_op         = "SPATIAL" ( "BUFFER" num | "CONVEX_HULL" | "SIMPLIFY" num | "CENTROID" | ( "UNION" | "INTERSECTION" | "DIFFERENCE" ) string ) ;   (* feature `geo` *)
+tensor_op          = "TENSOR" ( "SLICE" "[" int ":" int { "," int ":" int } "]" | "REDUCE" ( "SUM" | "MEAN" | "MAX" | "MIN" ) "AXIS" int | ( "ADD" | "SUB" | "MUL" | "DIV" ) num ) ;   (* feature `tensor` *)
+cep                = "CEP" cep_node "WINDOW" ( "SLIDING" | "TUMBLING" ) int ;   (* feature `stream` *)
+cep_node           = "SEQ" "(" [ matcher { "," matcher } ] ")" | "WITHIN" int "(" cep_node ")" | "ABSENCE" matcher "THEN" "NOT" matcher "WITHIN" int ;
+matcher            = "{" [ "KEY" string ] [ "WHERE" cep_pred { "AND" cep_pred } ] "}" ;
+cep_pred           = name ( "=" json | ">" signed_num | "<" signed_num | "EXISTS" ) ;
+validate_shape     = "VALIDATE" "SHAPE" ( iri | string | name ) [ "USING" string ] [ "KEEP" ( "CONFORMING" | "VIOLATING" ) ] ;   (* feature `owl` *)
+prob               = "PROB" ( "EXPECTATION" | "MARGINAL" [ "AT" num ] [ "LABEL" string ] | "CONDITIONAL" ( "BERNOULLI" num num | "GAUSSIAN" num_list "VARIANCE" num ) | "SAMPLE" "SEED" int ) ;   (* feature `probabilistic` *)
+belief_as_of       = "BELIEF" "AS" "OF" ts ;   (* feature `epistemic` *)
+source_reliability = "SOURCE" "RELIABILITY" id ;   (* feature `epistemic` *)
+confidence         = "CONFIDENCE" ;   (* feature `epistemic` *)
+pred               = conj { "OR" conj } ;
+conj               = neg { "AND" neg } ;
+neg                = "NOT" neg | "(" pred ")" | atom ;
+atom               = name cmp scalar | name [ "NOT" ] "IN" ( "(" scalar { "," scalar } ")" | param ) | name [ "NOT" ] "BETWEEN" scalar "AND" scalar | name "IS" [ "NOT" ] "NULL" | path ( "EXISTS" | ( "=" | "==" ) json | "@>" json ) | spatial_pred ;
+cmp                = "=" | "==" | "!=" | "<>" | ">" | ">=" | "<" | "<=" ;
+spatial_pred       = "SPATIAL" ( "WITHIN" | "CONTAINS" | "COVERS" | "TOUCHES" | "CROSSES" | "OVERLAPS" | "EQUALS" | "DISJOINT" ) "(" name "," string ")" | "SPATIAL" "DWITHIN" "(" name "," string "," num ")" ;   (* feature `geo` *)
+path               = jsonpath | "JSONPATH" string ;
+json               = scalar | "NULL" | "JSON" string ;
+scalar             = string | signed_num | "TRUE" | "FALSE" | name | param ;
+ts                 = "@" signed_num | param ;
+vector             = "[" [ signed_num { "," signed_num } ] "]" ;
+string_list        = "[" [ string { "," string } ] "]" ;
+num_list           = "[" [ signed_num { "," signed_num } ] "]" ;
+signed_num         = [ "-" ] number | param ;
+id                 = name | string | param ;
+name               = ident | quoted_ident ;
 ```
 <!-- END GENERATED: uql-grammar -->
 

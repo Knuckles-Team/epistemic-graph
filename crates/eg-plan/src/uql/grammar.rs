@@ -196,7 +196,7 @@ pub const PRODUCTIONS: &[Production] = &[
       "\"RERANK\" ( \"NODE_DISTANCE\" \"FROM\" id | \"MENTIONS\" | \"MMR\" num int )",
       "RankNodeDistance / RankMentions / RankMmr", "MATCH (:Doc) |> RERANK MMR 0.5 10"),
     p("window", Stage, &["WINDOW"], None, "\"WINDOW\" num [ unit ] [ agg ]",
-      "Window{secs} / WindowAgg{secs, agg}", "TSSCAN ['cpu'] FROM 0 TO 60 |> WINDOW 500 ms SUM"),
+      "Window{secs} / WindowAgg{secs, agg}", "MATCH (:Reading) |> WINDOW 500 ms SUM"),
     p("unit", Aux, &[], None,
       "\"ns\" | \"us\" | \"ms\" | \"s\" | \"m\" | \"min\" | \"h\" | \"d\" (plural forms accepted)",
       "seconds scale", ""),

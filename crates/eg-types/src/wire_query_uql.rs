@@ -252,6 +252,7 @@ fn list<T>(items: &[T], each: impl Fn(&T) -> Printed) -> Printed {
     Ok(format!("[{}]", parts.join(", ")))
 }
 
+#[cfg(feature = "timeseries")]
 fn strings(items: &[String]) -> String {
     let parts: Vec<String> = items.iter().map(|s| uql_quote(s)).collect();
     format!("[{}]", parts.join(", "))
@@ -320,11 +321,7 @@ pub fn uql_op(op: &Op) -> Printed {
             ontology,
         } => reason(target_class, ontology),
         #[cfg(feature = "owl-plan")]
-        Op::SparqlBgp { query, var } => Ok(format!(
-            "SPARQL {} VAR {}",
-            uql_quote(query),
-            uql_quote(var)
-        )),
+        Op::SparqlBgp { query, var } => Ok(sparql(query, var)),
         #[cfg(feature = "owl-plan")]
         Op::ValidateShape {
             shape,
@@ -340,16 +337,9 @@ pub fn uql_op(op: &Op) -> Printed {
         Op::WindowAgg { secs, agg } => window_agg(*secs, agg),
         Op::Foreign { name } => keyword_quoted("FOREIGN", name),
         #[cfg(feature = "geo")]
-        Op::SpatialScan { layer, bbox } => Ok(format!(
-            "SPATIAL SCAN {} BBOX {}",
-            uql_quote(layer),
-            list(bbox, |v| uql_num(*v))?
-        )),
+        Op::SpatialScan { layer, bbox } => spatial_scan(layer, bbox),
         #[cfg(feature = "geo")]
-        Op::Reproject { to_epsg, from_epsg } => Ok(match from_epsg {
-            Some(from) => format!("REPROJECT TO {to_epsg} FROM {from}"),
-            None => format!("REPROJECT TO {to_epsg}"),
-        }),
+        Op::Reproject { to_epsg, from_epsg } => Ok(reproject(*to_epsg, *from_epsg)),
         #[cfg(feature = "geo")]
         Op::SpatialOp { kind } => spatial_op(kind),
         #[cfg(feature = "tensor")]
@@ -362,10 +352,7 @@ pub fn uql_op(op: &Op) -> Printed {
         Op::SensorFuse {
             streams,
             tolerance_ns,
-        } => Ok(format!(
-            "SENSOR FUSE {} TOLERANCE {tolerance_ns}",
-            strings(streams)
-        )),
+        } => Ok(sensor_fuse(streams, *tolerance_ns)),
         #[cfg(feature = "timeseries")]
         Op::SensorAlign {
             streams,
@@ -373,12 +360,7 @@ pub fn uql_op(op: &Op) -> Printed {
             tolerance_ns,
         } => Ok(sensor_align(streams, clock, *tolerance_ns)),
         #[cfg(feature = "timeseries")]
-        Op::TsScan { series, from, to } => Ok(format!(
-            "TSSCAN {} FROM {} TO {}",
-            strings(series),
-            uql_num(*from)?,
-            uql_num(*to)?
-        )),
+        Op::TsScan { series, from, to } => ts_scan(series, *from, *to),
         #[cfg(feature = "probabilistic")]
         Op::Probabilistic { query } => probabilistic(query),
         #[cfg(feature = "epistemic")]
@@ -398,6 +380,43 @@ pub fn uql_op(op: &Op) -> Printed {
         Op::Limit { k } => Ok(format!("LIMIT {k}")),
         Op::Project { channels } => project(channels),
     }
+}
+
+#[cfg(feature = "owl-plan")]
+fn sparql(query: &str, var: &str) -> String {
+    format!("SPARQL {} VAR {}", uql_quote(query), uql_quote(var))
+}
+
+#[cfg(feature = "geo")]
+fn spatial_scan(layer: &str, bbox: &[f64; 4]) -> Printed {
+    Ok(format!(
+        "SPATIAL SCAN {} BBOX {}",
+        uql_quote(layer),
+        list(bbox, |v| uql_num(*v))?
+    ))
+}
+
+#[cfg(feature = "geo")]
+fn reproject(to_epsg: u32, from_epsg: Option<u32>) -> String {
+    match from_epsg {
+        Some(from) => format!("REPROJECT TO {to_epsg} FROM {from}"),
+        None => format!("REPROJECT TO {to_epsg}"),
+    }
+}
+
+#[cfg(feature = "timeseries")]
+fn sensor_fuse(streams: &[String], tolerance_ns: u64) -> String {
+    format!("SENSOR FUSE {} TOLERANCE {tolerance_ns}", strings(streams))
+}
+
+#[cfg(feature = "timeseries")]
+fn ts_scan(series: &[String], from: f64, to: f64) -> Printed {
+    Ok(format!(
+        "TSSCAN {} FROM {} TO {}",
+        strings(series),
+        uql_num(from)?,
+        uql_num(to)?
+    ))
 }
 
 fn filter(preds: &[Pred]) -> Printed {

@@ -343,7 +343,11 @@ eg-stream = { path = "../eg-stream", optional = true }
 # links none of it. eg-tsdb does NOT depend on eg-plan — no dependency cycle.
 eg-tsdb = { path = "../eg-tsdb", optional = true }
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+# `float_roundtrip`: UQL's JSON literals (`JSON '[…]'`, JSONPath/CEP values) must parse back to
+# the EXACT f64 the printer wrote (UQL-06 print/parse identity). serde_json's default float
+# parser can be off by one ulp on 17-digit inputs; this feature makes it correctly rounded.
+# It only makes parsing more exact (feature unification applies it workspace-wide).
+serde_json = { version = "1.0", features = ["float_roundtrip"] }
 rmp-serde = "1.3"
 # ── federation (CONCEPT:KG-2.232) — all optional + only referenced under
 # #[cfg(feature = "federation")], so a default/Pi build links NONE of them. ──

@@ -637,7 +637,6 @@ fn epistemic_clauses_not_in_build() {
         "MATCH (:C) |> CONTRADICTS \"c1\"",
         "MATCH (:C) |> SUPPORTED BY \"c1\"",
         "MATCH (:C) |> BELIEF AS OF @1",
-        "MATCH (:C) |> VALID AS OF @1",
         "MATCH (:C) |> SOURCE RELIABILITY \"s1\"",
         "MATCH (:C) |> CONFIDENCE",
         "MATCH (:C) |> EXPLAIN BELIEF \"c1\"",
