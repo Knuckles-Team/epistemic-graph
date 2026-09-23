@@ -142,11 +142,17 @@ pub fn premises() -> Vec<PremiseRef> {
                 evaluation_id: "evaluation-a".to_string(),
             },
         ),
+        (
+            PremiseClass::Definition,
+            PremiseProvenance::Request {
+                field: "requirements.capabilities".to_string(),
+            },
+        ),
     ]
     .into_iter()
     .map(|(class, provenance)| PremiseRef {
         subject: "component-a".to_string(),
-        fact: "provides".to_string(),
+        fact: "classification".to_string(),
         class,
         provenance,
     })
@@ -176,6 +182,8 @@ pub fn every_violation() -> Vec<Violation> {
         Violation::TemplateValidation {
             code: "SLOT_KIND_MISMATCH".to_string(),
         },
+        Violation::UnknownLatencyUnderBudget,
+        Violation::InfeasibleWhenForced,
     ]
 }
 
@@ -261,6 +269,7 @@ fn inputs() -> DecisionInputs {
             algorithm: Algorithm::DepthFirstDualAscent,
             node_budget: 100_000,
         },
+        templates: bounded(Vec::new()),
     }
 }
 

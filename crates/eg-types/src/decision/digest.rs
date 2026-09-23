@@ -9,7 +9,7 @@
 use serde::Serialize;
 
 use super::policy::DecisionPolicy;
-use super::record::{DecisionInputs, DecisionRecord};
+use super::record::{CandidateFacts, DecisionInputs, DecisionRecord};
 use super::statistical::StatisticalDecisionRecord;
 use crate::agent_library::AgentLibraryLifecycle;
 use crate::solve::Sha256Digest;
@@ -44,12 +44,23 @@ pub fn digest_text<T: Serialize>(domain: &str, value: &T) -> String {
 
 /// The digest of one assembly record.
 ///
-/// Computed over the record with its own `record_digest` field cleared, which
-/// is the only way a field can carry the digest of the value that contains it.
+/// Computed over the record with its own `record_digest` AND `record_id`
+/// fields cleared: the id is minted from the digest, so both are derived from
+/// the rest of the record and neither can be an input to it.
 pub fn record_digest(record: &DecisionRecord) -> String {
     let mut subject = record.clone();
     subject.record_digest = String::new();
+    subject.record_id = String::new();
     digest_text(DECISION_RECORD_DIGEST_DOMAIN, &subject)
+}
+
+/// The durable component id a record with `record_digest` is committed as:
+/// `"decision:" + hex`.
+pub fn record_id(record_digest: &str) -> String {
+    let hex = record_digest
+        .strip_prefix(DIGEST_TEXT_PREFIX)
+        .unwrap_or(record_digest);
+    format!("{}{hex}", super::DECISION_COMPONENT_ID_PREFIX)
 }
 
 /// The digest of one statistical record, cleared the same way.
@@ -87,4 +98,21 @@ pub fn catalog_digest(members: &[(&str, &str, AgentLibraryLifecycle)]) -> String
         .collect();
     sorted.sort_unstable_by_key(|member| (member.component_id, member.definition_digest));
     digest_text(DECISION_CATALOG_DIGEST_DOMAIN, &sorted)
+}
+
+/// The catalog digest of a candidate list: `(id, definition digest,
+/// lifecycle)` of each candidate. The one place both the assembly read and
+/// the commit's compare-and-set compute it.
+pub fn candidates_catalog_digest(candidates: &[CandidateFacts]) -> String {
+    let members: Vec<_> = candidates
+        .iter()
+        .map(|candidate| {
+            (
+                candidate.component_id.as_str(),
+                candidate.definition_digest.as_str(),
+                candidate.lifecycle,
+            )
+        })
+        .collect();
+    catalog_digest(&members)
 }

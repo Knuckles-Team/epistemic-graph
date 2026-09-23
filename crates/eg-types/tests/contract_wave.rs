@@ -431,7 +431,6 @@ fn sample_entry() -> AgentComponentEntry {
         summary: "a sample component".to_string(),
         classification: vec!["eg:capability/retrieval".to_string()],
         requires: Vec::new(),
-        provides: Vec::new(),
         declared_capabilities: vec!["urn:vendor:search".to_string()],
         required_capabilities: vec!["eg:capability/action".to_string()],
         declared_required_capabilities: Vec::new(),

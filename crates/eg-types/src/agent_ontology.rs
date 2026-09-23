@@ -296,7 +296,6 @@ const fn task(
     }
 }
 
-/// Resolve one term, or `None` if it is not in the native vocabulary.
 /// The digest domain of the baked-in vocabulary.
 pub const AGENT_ONTOLOGY_DIGEST_DOMAIN: &str = "eg/agent-ontology/v1";
 
@@ -328,6 +327,7 @@ pub fn ontology_digest() -> String {
     crate::decision::digest::digest_text(AGENT_ONTOLOGY_DIGEST_DOMAIN, &view)
 }
 
+/// Resolve one term, or `None` if it is not in the native vocabulary.
 pub fn term(iri: &str) -> Option<&'static OntologyTerm> {
     AGENT_ONTOLOGY.iter().find(|entry| entry.iri == iri)
 }
@@ -361,6 +361,45 @@ pub fn is_a(iri: &str, ancestor: &str) -> bool {
         current = term(broader);
     }
     false
+}
+
+/// The `narrower -> broader` steps that prove `iri` is `ancestor`, nearest
+/// first. Empty when the two are the same term; `None` when `iri` is not
+/// subsumed by `ancestor` at all.
+///
+/// This is [`is_a`] with its working shown: a decision record stores the
+/// chain so a reader can re-check every step against the vocabulary instead
+/// of trusting a boolean.
+pub fn broader_chain(iri: &str, ancestor: &str) -> Option<Vec<(&'static str, &'static str)>> {
+    if iri == ancestor {
+        return Some(Vec::new());
+    }
+    let mut chain = Vec::new();
+    let mut current = term(iri)?;
+    for _ in 0..MAX_DEPTH {
+        let broader = current.broader?;
+        chain.push((current.iri, broader));
+        if broader == ancestor {
+            return Some(chain);
+        }
+        current = term(broader)?;
+    }
+    None
+}
+
+/// Whether `broader` is the declared immediate parent of `narrower`.
+pub fn is_direct_broader(narrower: &str, broader: &str) -> bool {
+    term(narrower).and_then(|entry| entry.broader) == Some(broader)
+}
+
+/// Whether `iri` is a native task term other than the task root.
+pub fn is_task(iri: &str) -> bool {
+    iri != TASK_ROOT && is_native(iri) && is_a(iri, TASK_ROOT)
+}
+
+/// Whether `iri` is a native capability term.
+pub fn is_capability(iri: &str) -> bool {
+    is_native(iri) && is_a(iri, CAPABILITY_ROOT)
 }
 
 /// Every ancestor of `iri`, nearest first, excluding itself.
@@ -545,6 +584,51 @@ mod tests {
         assert!(capabilities_for_task("eg:task/operate")
             .iter()
             .any(|required| is_a(required, "eg:capability/action")));
+    }
+
+    #[test]
+    fn a_broader_chain_shows_each_step_and_agrees_with_is_a() {
+        let chain = broader_chain("eg:capability/retrieval/web-search", CAPABILITY_ROOT)
+            .expect("web search is a capability");
+        assert_eq!(
+            chain,
+            vec![
+                (
+                    "eg:capability/retrieval/web-search",
+                    "eg:capability/retrieval"
+                ),
+                ("eg:capability/retrieval", CAPABILITY_ROOT),
+            ]
+        );
+        assert!(chain
+            .iter()
+            .all(|(narrower, broader)| is_direct_broader(narrower, broader)));
+        assert_eq!(
+            broader_chain("eg:task/research", "eg:task/research"),
+            Some(Vec::new())
+        );
+        for entry in AGENT_ONTOLOGY {
+            for other in AGENT_ONTOLOGY {
+                assert_eq!(
+                    broader_chain(entry.iri, other.iri).is_some(),
+                    is_a(entry.iri, other.iri),
+                    "{} vs {}",
+                    entry.iri,
+                    other.iri
+                );
+            }
+        }
+        assert!(broader_chain("acme:x", CAPABILITY_ROOT).is_none());
+    }
+
+    #[test]
+    fn task_and_capability_terms_are_told_apart() {
+        assert!(is_task("eg:task/research"));
+        assert!(!is_task(TASK_ROOT));
+        assert!(!is_task("eg:capability/retrieval"));
+        assert!(is_capability("eg:capability/retrieval"));
+        assert!(!is_capability("eg:modality/text"));
+        assert!(!is_capability("acme:capability/x"));
     }
 
     #[test]

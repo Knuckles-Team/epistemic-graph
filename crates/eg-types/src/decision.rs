@@ -21,6 +21,7 @@
 //! Every algorithm -- derivation, solving, verification, execution, fitting --
 //! lives above this module. These are data types and their bounds.
 
+pub mod derivation;
 pub mod digest;
 pub mod errors;
 pub mod jobs;
@@ -71,12 +72,13 @@ pub use record::{
     AbstainReason, CandidateFacts, CandidateSourceRecord, CoverageDerivation, DecisionInputs,
     DecisionOutcome, DecisionQuestion, DecisionRecord, DerivationClass, DerivationEdge, EdgeSource,
     Elimination, EvidenceClass, PremiseClass, PremiseProvenance, PremiseRef, ResolutionKind,
-    SlotAssignment, SolverIdentity, TraceFidelity, Violation, WhyNot,
+    SlotAssignment, SolverIdentity, TemplateFacts, TraceFidelity, Violation, WhyNot,
 };
 pub use request::{
     AssemblyConstraints, AssemblyRequest, AssemblyRequirements, AssemblyResult, ClaimProvenance,
     ClaimedTaskMapping, CostBudget, DecisionCommitRequest, DecisionCommitResult, DecisionPolicyRef,
-    LibraryCandidateScope, SolverBudget, DECISION_COMPONENT_ID_PREFIX,
+    LibraryCandidateScope, SolverBudget, ASSEMBLY_RESULT_SCHEMA_VERSION,
+    DECISION_COMMIT_RESULT_SCHEMA_VERSION, DECISION_COMPONENT_ID_PREFIX,
 };
 pub use statistical::{
     CalibrationMethod, CalibrationStatement, CandidateSource, DecideRequest, DecisionBatch,

@@ -12,7 +12,7 @@ use crate::agent_component::{
     AgentComponentCommittedResult, AgentComponentKind, ComponentDependency,
 };
 use crate::agent_graph::AgentGraphDraft;
-use crate::agent_library::AgentLibraryMutationContext;
+use crate::agent_library::{AgentLibraryEntryDraft, AgentLibraryMutationContext};
 use crate::contract::BoundedVec;
 use crate::delegation::AgentGraphEntryRef;
 
@@ -158,9 +158,21 @@ pub struct AssemblyRequest {
 pub struct AssemblyResult {
     pub schema_version: u16,
     pub record: DecisionRecord,
-    /// `Some` exactly when the record's outcome is `Solved`.
+    /// `Some` exactly when the record's outcome is `Solved`: a one-agent
+    /// graph whose agent node pins [`Self::agent`]. Its `synthesis_evidence`
+    /// is empty until the record is committed; the caller then sets it to the
+    /// committed `DecisionRecord` component and publishes it (§4.6).
     #[serde(default)]
     pub graph: Option<AgentGraphDraft>,
+    /// The assembled agents the graph runs, one per slot (one for the
+    /// one-agent graph); empty exactly when `graph` is `None`. Each must be
+    /// published before the graph that pins it.
+    #[serde(default)]
+    pub agents: BoundedVec<AgentLibraryEntryDraft, 8>,
+    /// The exact integer programme the record's certificate was issued over,
+    /// so a client can verify the certificate without trusting the engine.
+    #[serde(default)]
+    pub model: Option<crate::solve::ModelSpec>,
 }
 
 /// Commit one assembly record as a durable `DecisionRecord` component.
@@ -188,6 +200,11 @@ pub struct DecisionCommitResult {
     pub replayed: bool,
 }
 
+/// Format identity (RF-ADR-006) of [`AssemblyResult`].
+pub const ASSEMBLY_RESULT_SCHEMA_VERSION: u16 = 1;
+/// Format identity (RF-ADR-006) of [`DecisionCommitResult`].
+pub const DECISION_COMMIT_RESULT_SCHEMA_VERSION: u16 = 1;
+
 /// The reserved component-id prefix every committed decision record carries.
 pub const DECISION_COMPONENT_ID_PREFIX: &str = "decision:";
 
@@ -201,6 +218,28 @@ pub fn pinned_policy_component(policy: &DecisionPolicyRef) -> Option<&ComponentD
 
 /// Whether `candidate` only tightens `policy`'s solver budget.
 pub fn solver_budget_tightens(policy: &DecisionPolicy, candidate: &SolverBudget) -> bool {
-    candidate.node_budget <= policy.node_budget
-        && candidate.max_why_not_per_slot <= policy.max_why_not_per_slot
+    loosened_solver_field(policy, candidate).is_none()
+}
+
+/// The first solver-budget field `candidate` would widen past `policy`, if any.
+pub fn loosened_solver_field(
+    policy: &DecisionPolicy,
+    candidate: &SolverBudget,
+) -> Option<&'static str> {
+    if candidate.node_budget > policy.node_budget {
+        return Some("node_budget");
+    }
+    if candidate.max_why_not_per_slot > policy.max_why_not_per_slot {
+        return Some("max_why_not_per_slot");
+    }
+    None
+}
+
+/// The budget a request actually runs under: the policy's, tightened by the
+/// request's own when it names one.
+pub fn effective_solver_budget(policy: &DecisionPolicy, request: &AssemblyRequest) -> SolverBudget {
+    request.solver.unwrap_or(SolverBudget {
+        node_budget: policy.node_budget,
+        max_why_not_per_slot: policy.max_why_not_per_slot,
+    })
 }

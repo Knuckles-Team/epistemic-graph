@@ -25,6 +25,23 @@ pub enum PremiseClass {
     Proof,
 }
 
+impl PremiseClass {
+    /// How far a conclusion resting on this premise can be trusted, highest
+    /// first. The declaration order above is the wire order and says nothing
+    /// about strength, so strength is a table rather than `Ord`.
+    ///
+    /// A definition does not weaken anything: it is governed vocabulary, not a
+    /// statement about the world (DECIDE-LAYER-DESIGN §3.2).
+    pub const fn strength(self) -> u8 {
+        match self {
+            Self::Definition => 3,
+            Self::Proof => 2,
+            Self::Observation => 1,
+            Self::Claim => 0,
+        }
+    }
+}
+
 /// Where a premise came from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "provenance", rename_all = "snake_case", deny_unknown_fields)]
@@ -53,6 +70,8 @@ pub enum PremiseProvenance {
     },
     /// A recorded evaluation.
     Observation { evaluation_id: String },
+    /// The request itself: a requirement the caller stated in `field`.
+    Request { field: String },
 }
 
 /// One fact the decision used.
@@ -97,6 +116,11 @@ pub enum Violation {
     TemplateValidation {
         code: String,
     },
+    /// A latency ceiling is in force and the component declares no p95. An
+    /// undeclared latency is never read as zero.
+    UnknownLatencyUnderBudget,
+    /// Forcing this component into the assembly leaves no feasible answer.
+    InfeasibleWhenForced,
 }
 
 /// One eliminated candidate and the rule that removed it.

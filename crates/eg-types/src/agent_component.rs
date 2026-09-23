@@ -390,11 +390,6 @@ pub struct AgentComponentDraft {
     /// What this component needs, each pinned to an exact revision.
     #[serde(default)]
     pub requires: Vec<ComponentDependency>,
-    /// Capability names this component satisfies. The matching half of
-    /// `requires` for selection: an optimizer looks for a component that
-    /// PROVIDES what a role needs.
-    #[serde(default)]
-    pub provides: Vec<String>,
     /// Capability IRIs the publisher DECLARES this component provides, as
     /// distinct from the curated `classification` above. A declaration is a
     /// claim and is recorded as one, so a decision that leans on it is
@@ -441,8 +436,6 @@ pub struct AgentComponentEntry {
     pub classification: Vec<String>,
     #[serde(default)]
     pub requires: Vec<ComponentDependency>,
-    #[serde(default)]
-    pub provides: Vec<String>,
     #[serde(default)]
     pub declared_capabilities: Vec<String>,
     #[serde(default)]
@@ -506,7 +499,6 @@ impl AgentComponentEntry {
             summary: draft.summary,
             classification: draft.classification,
             requires: draft.requires,
-            provides: draft.provides,
             declared_capabilities: draft.declared_capabilities,
             required_capabilities: draft.required_capabilities,
             declared_required_capabilities: draft.declared_required_capabilities,
@@ -584,7 +576,6 @@ impl AgentComponentEntry {
             summary: self.summary.clone(),
             classification: self.classification.clone(),
             requires: self.requires.clone(),
-            provides: self.provides.clone(),
             declared_capabilities: self.declared_capabilities.clone(),
             required_capabilities: self.required_capabilities.clone(),
             declared_required_capabilities: self.declared_required_capabilities.clone(),
@@ -773,11 +764,10 @@ fn put_provenance(hasher: &mut Sha256, provenance: &ComponentProvenance) {
     }
 }
 
-/// The four capability lists, each sorted, so two callers that declared the
+/// The three capability lists, each sorted, so two callers that declared the
 /// same capabilities in a different order have declared the SAME component.
 fn put_capability_lists(hasher: &mut Sha256, draft: &AgentComponentDraft) {
     for names in [
-        &draft.provides,
         &draft.declared_capabilities,
         &draft.required_capabilities,
         &draft.declared_required_capabilities,
@@ -1196,7 +1186,6 @@ mod tests {
             summary: format!("test component {component_id}"),
             classification: Vec::new(),
             requires: Vec::new(),
-            provides: Vec::new(),
             declared_capabilities: Vec::new(),
             required_capabilities: Vec::new(),
             declared_required_capabilities: Vec::new(),
@@ -1415,7 +1404,6 @@ mod tests {
                     package_version: "1.0.0".into(),
                 }
             }),
-            ("provides", |d| d.provides = vec!["cap:reasoning".into()]),
             ("attributes", |d| {
                 d.attributes.insert("tier".into(), "premium".into());
             }),
@@ -1647,11 +1635,55 @@ mod tests {
         );
     }
 
+    // ---- stored-row compatibility ----
+
+    /// A model profile stored before its selection facts existed decodes with
+    /// every optional fact absent -- never as zero -- and a row still carrying
+    /// the deleted `provides` list is refused by name rather than read.
+    #[test]
+    fn a_stored_row_without_optional_facts_decodes_and_provides_is_refused() {
+        let mut model = draft("model:a", AgentComponentKind::ModelProfile);
+        model.facts = model_facts(8_000, 1_000);
+        let entry = AgentComponentEntry::publish(model, 1, 1_000).expect("publishes");
+        let mut row = serde_json::to_value(&entry).expect("encodes");
+        let facts = row["facts"].as_object_mut().expect("tagged facts object");
+        for optional in [
+            "modalities",
+            "cost",
+            "latency_declared",
+            "latency_observed_ref",
+        ] {
+            facts.remove(optional);
+        }
+        let decoded: AgentComponentEntry =
+            serde_json::from_value(row.clone()).expect("a row without optional facts decodes");
+        let AgentComponentFacts::ModelProfile {
+            cost,
+            latency_declared,
+            latency_observed_ref,
+            modalities,
+            ..
+        } = &decoded.facts
+        else {
+            panic!("model facts decode as model facts");
+        };
+        assert!(cost.is_none() && latency_declared.is_none() && latency_observed_ref.is_none());
+        assert_eq!(modalities, &ModalityFacts::default());
+        decoded
+            .validate()
+            .expect("the decoded row still re-derives its digest");
+
+        row["provides"] = serde_json::json!(["eg:capability/retrieval"]);
+        let refused = serde_json::from_value::<AgentComponentEntry>(row)
+            .expect_err("a row carrying the deleted field is refused");
+        assert!(refused.to_string().contains("provides"), "{refused}");
+    }
+
     // ---- digest coverage ----
 
     /// A tool component with every optional slot populated, so no mutator below
     /// is vacuous. `draft()` leaves `content_ref`, `classification`,
-    /// `requires`, `provides` and `attributes` empty and its facts `Opaque`.
+    /// `requires` and `attributes` empty and its facts `Opaque`.
     fn full_draft() -> AgentComponentDraft {
         let mut full = draft("tool:search", AgentComponentKind::Tool);
         full.content_ref = Some("cas:tool:search".into());
@@ -1666,7 +1698,6 @@ mod tests {
             kind: AgentComponentKind::McpServer,
             definition_digest: digest('a'),
         }];
-        full.provides = vec!["eg:capability/retrieval/web-search".into()];
         full.attributes = BTreeMap::from([("vendor".to_string(), "acme".to_string())]);
         full
     }
@@ -1689,7 +1720,6 @@ mod tests {
             summary: _,
             classification: _,
             requires: _,
-            provides: _,
             declared_capabilities: _,
             required_capabilities: _,
             declared_required_capabilities: _,
@@ -1808,9 +1838,6 @@ mod tests {
                     definition_digest: digest('b'),
                 }]
             }),
-            ("provides", |d| {
-                d.provides = vec!["eg:capability/analysis/summarize".into()]
-            }),
             ("declared_capabilities", |d| {
                 d.declared_capabilities = vec!["urn:vendor:summarize".into()]
             }),
@@ -1856,7 +1883,7 @@ mod tests {
 
     #[test]
     fn declaring_a_set_in_another_order_is_the_same_component() {
-        // `classification`, `requires` and `provides` are SETS -- duplicates are
+        // `classification`, `requires` and `declared_capabilities` are SETS -- duplicates are
         // refused -- so declaration order carries no meaning and must not make
         // an otherwise identical publish a different revision. The sorts in
         // `definition_digest` are what makes that true; nothing else permutes
@@ -1866,7 +1893,7 @@ mod tests {
             "eg:capability/retrieval/web-search".into(),
             "eg:capability/analysis/summarize".into(),
         ];
-        base.provides = vec![
+        base.declared_capabilities = vec![
             "eg:capability/retrieval/web-search".into(),
             "eg:capability/analysis/summarize".into(),
         ];
@@ -1884,7 +1911,7 @@ mod tests {
         ];
         let mut permuted = base.clone();
         permuted.classification.reverse();
-        permuted.provides.reverse();
+        permuted.declared_capabilities.reverse();
         permuted.requires.reverse();
         assert_ne!(permuted, base, "the permutation must actually permute");
 
