@@ -595,14 +595,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [ -f .kiss/kiss.toml ] || { echo "KISS census: missing .kiss/kiss.toml" >&2; exit 2; }
+          [ -f .config/kiss.toml ] || { echo "KISS census: missing .config/kiss.toml" >&2; exit 2; }
           [ ! -e .kissconfig ] || { echo "KISS census: .kissconfig is forbidden" >&2; exit 2; }
           mapfile -d "" files < <(python3 scripts/list_scanner_sources.py kiss)
           [ "${#files[@]}" -gt 0 ] || { echo "KISS census: no tracked Rust source files" >&2; exit 2; }
           total=0
           for path in "${files[@]}"; do
             set +e
-            output="$(kiss check --config .kiss/kiss.toml --lang rust "$path" 2>&1)"
+            output="$(kiss check --config .config/kiss.toml --lang rust "$path" 2>&1)"
             status=$?
             set -e
             if grep -q "Unknown config key" <<< "$output"; then printf "%s\\n" "$output" >&2; echo "KISS census: KISS rejected a config key" >&2; exit 2; fi
@@ -614,7 +614,7 @@ jobs:
           printf "KISS census: %s tracked Rust file(s), %s violation(s); findings are advisory\\n" "${#files[@]}" "$total"
 
       - name: Python import architecture (import-linter)
-        run: lint-imports --config .importlinter --no-cache
+        run: lint-imports --config .config/importlinter.ini --no-cache
       - name: JavaScript dependency architecture (dependency-cruiser)
         working-directory: clients/js
         run: depcruise --validate --config .dependency-cruiser.cjs index.mjs
@@ -1243,7 +1243,7 @@ jobs:
   pages:
     name: Deploy GitHub Pages
     if: github.event_name == 'push'
-    uses: Knuckles-Team/pipelines/.github/workflows/pages_pipeline.yml@444b232c7975e125a24b17d53ff615f5ad26a4cd
+    uses: Knuckles-Team/pipelines/.github/workflows/pages_pipeline.yml@1d12b14a9f51c889316591c6314f4fc835660870
     with:
       content_source: docs
       shared_theme_enabled: true

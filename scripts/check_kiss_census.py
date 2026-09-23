@@ -112,7 +112,7 @@ def scan_one(kiss_bin: str, path: str, env: dict[str, str]) -> ScanResult:
                 kiss_bin,
                 "check",
                 "--config",
-                ".kiss/kiss.toml",
+                ".config/kiss.toml",
                 "--lang",
                 "rust",
                 path,
@@ -205,8 +205,8 @@ def main() -> int:
     got = version.stdout.decode("utf-8", errors="replace").strip()
     if got != f"kiss {expected}":
         fail(f"expected kiss {expected}, got {got}")
-    if not (ROOT / ".kiss/kiss.toml").is_file():
-        fail("missing .kiss/kiss.toml")
+    if not (ROOT / ".config/kiss.toml").is_file():
+        fail("missing .config/kiss.toml")
     if (ROOT / ".kissconfig").exists() or (ROOT / ".kissconfig").is_symlink():
         fail(".kissconfig is forbidden because it disables measured rules")
 

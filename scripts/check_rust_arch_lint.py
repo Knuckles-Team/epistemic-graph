@@ -36,7 +36,7 @@ from rust_lexer import _rust_code_mask
 from scanner_contract import load_contract, resolve_binary, run_git, sanitized_env
 
 ROOT = Path(__file__).resolve().parent.parent
-POLICY = ROOT / "arch-lint.toml"
+POLICY = ROOT / ".config" / "arch-lint.toml"
 SCHEMA = "eg-arch-lint-gate/v1"
 
 RULES = {

@@ -138,7 +138,7 @@ while IFS= read -r -d '' path; do
 done < "$CHANGED_PATHS"
 
 if [ "${#files[@]}" -eq 0 ]; then
-  echo "kiss(staged): OK: no staged Rust source covered by .kiss/kiss.toml"
+  echo "kiss(staged): OK: no staged Rust source covered by .config/kiss.toml"
   exit 0
 fi
 
@@ -181,7 +181,7 @@ PY
 }
 
 VERSION="$(read_contract)" || die "could not load the pinned KISS version"
-CFG="$STAGED_ROOT/.kiss/kiss.toml"
+CFG="$STAGED_ROOT/.config/kiss.toml"
 KISS="${KISS_BIN:-}"
 if [ -z "$KISS" ]; then
   if [ -n "${HOME:-}" ] && [ -x "$HOME/.local/bin/kiss" ]; then
@@ -199,7 +199,7 @@ GOT="$(scanner_cmd "$KISS" --version 2>/dev/null)" || die "kiss --version failed
 [ "$GOT" = "kiss $VERSION" ] || die \
   "version drift: expected 'kiss $VERSION', got '$GOT'"
 [ -f "$CFG" ] && [ ! -L "$CFG" ] || die \
-  "missing staged .kiss/kiss.toml (hand-authored KISS thresholds)"
+  "missing staged .config/kiss.toml (hand-authored KISS thresholds)"
 cfg_resolved="$(realpath -- "$CFG" 2>/dev/null)" || die "could not resolve $CFG"
 case "$cfg_resolved" in
   "$STAGED_ROOT"/*) ;;

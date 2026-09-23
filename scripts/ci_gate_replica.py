@@ -145,7 +145,7 @@ import push_gate_evidence
 # (the hooks, release.yml) already has this file's own directory as
 # `sys.path[0]` and needs no bootstrap. The one other caller — the meta-tests,
 # which load this file by path via `importlib` rather than executing it —
-# gets `scripts/` on `sys.path` from `pythonpath = scripts` in pytest.ini
+# gets `scripts/` on `sys.path` from `pythonpath = ["scripts"]` in pyproject.toml's [tool.pytest.ini_options]
 # instead. Neither caller needs `scripts/` to be importable as a dotted
 # package from the repo root, so the import below is a bare sibling import,
 # not `from scripts import push_gate_evidence`.

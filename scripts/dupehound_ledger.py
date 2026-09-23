@@ -44,7 +44,7 @@ from typing import Any
 import tomllib
 
 ROOT = Path(__file__).resolve().parent.parent
-REGISTER_PATH = ROOT / "dupehound-distinct.toml"
+REGISTER_PATH = ROOT / ".config" / "dupehound-distinct.toml"
 
 
 class LedgerError(ValueError):

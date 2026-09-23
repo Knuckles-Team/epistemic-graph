@@ -12,7 +12,7 @@ directory carried workspace-level program content into a package repo.
 This gate enforces an **allowlist**, not a denylist. A denylist only catches the
 junk somebody already thought of; an allowlist means a genuinely new root entry
 has to be justified once, deliberately, by someone editing this file (for a
-dotfile) or the sibling ``.repo-layout.toml`` manifest (for everything else).
+dotfile) or the ``.config/repo-layout.toml`` manifest (for everything else).
 
 It reads the **tracked** file set (``git ls-files``), never the filesystem --
 walking the filesystem makes a gate fire on build output and gitignored
@@ -28,12 +28,10 @@ fleet's Extend-Before-Invent convention (see MEMORY
 original from a hardcoded ``ALLOWED_DIRS``/``ALLOWED_FILES`` pair into a
 manifest-driven engine precisely so this port needs ZERO logic changes: the
 only thing that differs between repos is ``ALLOWED_DOTFILES`` immediately
-below. This repo tracks ``.cargo-audit-allow.txt`` (Rust, cargo-deny),
-``.security-audit-allow.txt`` (Python, the ``dependency-audit`` OSV gate added
-2026-09-11) and ``.vulture_ignore``. An earlier version of this comment said EG
-had the cargo ledger *instead of* agent-utilities' Python one; EG now has both,
-because it ships a Python client and wheel whose dependencies need auditing too.
-and the contents of this repo's own ``.repo-layout.toml``. Two holes this
+below (only the dot-files a tool discovers exclusively at the root; both
+audit ledgers, ``.config/cargo-audit-allow.txt`` for Rust and
+``.config/security-audit-allow.txt`` for the Python client and wheel, live
+under ``.config/``) and the contents of this repo's own ``.config/repo-layout.toml``. Two holes this
 engine closed relative to the pre-CX-HYG-01 original, both of which let a
 real tracked artifact sit unchallenged at a repo root:
 
@@ -80,7 +78,7 @@ from _git_subprocess_env import (
 strip_inherited_git_repository_env()
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-MANIFEST_PATH = REPO_ROOT / ".repo-layout.toml"
+MANIFEST_PATH = REPO_ROOT / ".config" / "repo-layout.toml"
 
 # Dot-FILES that are conventional and self-describing -- their name alone
 # tells a reader what tool owns them, so (unlike a directory, and unlike the
@@ -90,22 +88,22 @@ MANIFEST_PATH = REPO_ROOT / ".repo-layout.toml"
 # editing the manifest is for everything else.
 ALLOWED_DOTFILES: frozenset[str] = frozenset(
     {
-        # The manifest THIS GATE READS. A bootstrap omission: without it the
-        # gate fails on its own config file, so wiring it as a blocking hook
-        # would have bricked every commit in the repo. Caught by the known-bad
-        # proof, not by review.
-        ".repo-layout.toml",
-        ".bumpversion.cfg",  # release version bump config (bump2version)
-        ".cargo-audit-allow.txt",  # risk-accepted RUSTSEC/OSV ledger (cargo-deny gate)
-        ".security-audit-allow.txt",  # risk-accepted Python OSV ledger (dep-audit gate)
-        ".dockerignore",  # Docker build-context exclusions
-        ".env.example",  # non-secret catalog of explicit process-env keys
-        ".gitattributes",  # git attributes (line endings, diff drivers, ...)
-        ".gitignore",  # git exclusion patterns
-        ".importlinter",  # import-linter contract config (import-linter-architecture)
-        ".mergequeue.yaml",  # merge-queue config
-        ".python-version",  # exact Python patch used by local tooling and CI
-        ".vulture_ignore",  # vulture dead-code false-positive whitelist
+        # Only dot-files a tool discovers exclusively at the repository root.
+        # Every tool input with a path override lives under .config/ instead
+        # (pre-commit, bump2version, cargo-deny + its ledger, the Python audit
+        # ledger, import-linter, arch-lint, KISS, dupehound register, nextest,
+        # the security contract, this gate's manifest), pytest settings are
+        # folded into pyproject.toml, and docker/Dockerfile.dockerignore
+        # replaces a root .dockerignore.
+        ".gitattributes",  # git reads attributes only from the root file
+        ".gitignore",  # git reads the root exclusion file
+        # repository-manager's merge queue, lane doctor and validation policy
+        # read <repo>/.mergequeue.yaml only
+        ".mergequeue.yaml",
+        # uv (and pyenv) discover the pinned interpreter only from a
+        # .python-version in the working directory or its parents; CI's
+        # setup-python reads the same file
+        ".python-version",
     }
 )
 
@@ -161,7 +159,7 @@ class ManifestError(Exception):
 
 
 def load_manifest() -> tuple[dict[str, str], dict[str, str]]:
-    """Load ``.repo-layout.toml``'s ``[dirs]``/``[files]`` tables.
+    """Load ``.config/repo-layout.toml``'s ``[dirs]``/``[files]`` tables.
 
     Every value must be a non-empty string reason -- an empty or missing
     reason defeats the point of the manifest (see its own header: "a manifest
@@ -170,7 +168,7 @@ def load_manifest() -> tuple[dict[str, str], dict[str, str]]:
     if not MANIFEST_PATH.exists():
         raise ManifestError(
             f"{MANIFEST_PATH} does not exist. Every repo this gate runs in "
-            "needs a .repo-layout.toml declaring its tracked root entries "
+            "needs a .config/repo-layout.toml declaring its tracked root entries "
             "(see check_root_hygiene.py's module docstring)."
         )
     try:
@@ -309,13 +307,13 @@ def report_violations(hygiene: RootHygiene) -> None:
             "  * it belongs inside a package  -> move it under the package source dir "
             "or scripts/\n"
             "  * it genuinely belongs at root -> add a one-line reason to "
-            ".repo-layout.toml\n"
+            ".config/repo-layout.toml\n"
             "    (dirs/files) or, for a conventional self-describing dot-file, to\n"
             "    ALLOWED_DOTFILES in scripts/check_root_hygiene.py\n"
         )
     if hygiene.stale_dirs or hygiene.stale_files:
         print(
-            "\nA declared .repo-layout.toml entry no longer exists in the tracked "
+            "\nA declared .config/repo-layout.toml entry no longer exists in the tracked "
             "tree.\n"
             "Remove it from the manifest -- a stale entry is exactly the fiction this\n"
             "manifest exists to prevent (see its own header).\n"

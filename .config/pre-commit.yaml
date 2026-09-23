@@ -101,7 +101,7 @@ repos:
       )\.py$
     stages: [pre-commit, pre-push, manual]
 - repo: https://github.com/Knuckles-Team/pipelines
-  rev: 7ae41925ca0a62c1fdb64197e0bb1859c1903a15 # shared README/AGENTS public-surface contract
+  rev: 1d12b14a9f51c889316591c6314f4fc835660870 # public-surface contract; shared theme reads .config/
   hooks:
   - id: public-surface
     stages: [pre-commit, manual]
@@ -151,13 +151,13 @@ repos:
   # Python dependency CVE gate -- the twin of `cargo-deny-advisories` below, for
   # the RESOLVED Python surface (`uv.lock`), not just the Rust one. Ports
   # agent-utilities' own `scripts/audit_dependencies.py` +
-  # `.security-audit-allow.txt` here unmodified in convention: this repo ships a
+  # `.config/security-audit-allow.txt` here unmodified in convention: this repo ships a
   # Python client and a wheel, and until this hook existed that surface had NO
   # CVE gate at all (`bandit` above is SAST over our own source, not an advisory
   # check against installed packages, and `cargo-deny-advisories` covers the
-  # Rust graph only -- see deny.toml, commit 3027965e, for the gap this closes).
+  # Rust graph only -- see .config/deny.toml, commit 3027965e, for the gap this closes).
   # Fail-closed the same way as the Rust gate: any OSV advisory against a
-  # resolved dependency is a hard failure unless `.security-audit-allow.txt` has
+  # resolved dependency is a hard failure unless `.config/security-audit-allow.txt` has
   # a justified, <=90-day-expiring line for that exact advisory/package pair,
   # and the ledger is cross-validated in BOTH directions -- an accepted advisory
   # that stops appearing in live OSV results (fixed, or no longer resolved)
@@ -170,7 +170,7 @@ repos:
     name: audit Python dependencies for known CVEs (OSV)
     entry: python3 scripts/audit_dependencies.py uv.lock
     language: system
-    files: ^(uv\.lock|pyproject\.toml|\.security-audit-allow\.txt|scripts/audit_dependencies\.py)$
+    files: ^(uv\.lock|pyproject\.toml|\.config/security-audit-allow\.txt|scripts/audit_dependencies\.py)$
     pass_filenames: false
 - repo: local
   hooks:
@@ -201,7 +201,7 @@ repos:
   - id: check-bumpversion
     name: validate bumpversion config
     entry: |-
-      bash -c 'if [ -f ".bumpversion.cfg" ]; then bump2version patch --dry-run --allow-dirty; fi'
+      bump2version --config-file .config/bumpversion.cfg patch --dry-run --allow-dirty
     language: system
     pass_filenames: false
     always_run: true
@@ -308,7 +308,7 @@ repos:
       got="$(python3 -c "from importlib.metadata import version; print(version(\"import-linter\"))")" || { echo "import-linter: package metadata is unavailable" >&2; exit 2; }
       [ "$got" = "$expected" ] || { echo "import-linter: expected $expected, got $got" >&2; exit 2; }
       lint-imports --version >/dev/null 2>&1 || { echo "import-linter: lint-imports --version failed" >&2; exit 2; }
-      exec lint-imports --config .importlinter --no-cache
+      exec lint-imports --config .config/importlinter.ini --no-cache
       '
     language: system
     pass_filenames: false
@@ -784,11 +784,11 @@ repos:
   # from the automatic pre-push stage. To run it standalone:
   #   cargo nextest run -p eg-jobs -p eg-statechart --test replay_determinism --no-fail-fast
   # W0.12 — Rust dependency CVE gate: fail-closed `cargo deny check advisories`
-  # against `deny.toml`, mirroring the Python side's fail-closed OSV gate
+  # against `.config/deny.toml`, mirroring the Python side's fail-closed OSV gate
   # (`dependency-audit` hook / `scripts/audit_dependencies.py` +
-  # `.security-audit-allow.txt`). The wrapper cross-validates deny.toml's
+  # `.config/security-audit-allow.txt`). The wrapper cross-validates .config/deny.toml's
   # `[advisories].ignore` list against the justified, <=90-day-expiring
-  # `.cargo-audit-allow.txt` ledger before running the real check, and fails
+  # `.config/cargo-audit-allow.txt` ledger before running the real check, and fails
   # closed (with install instructions) if cargo-deny itself isn't installed —
   # never a silent pass. The blocking release `scanner-quality` job provisions
   # the exact contract-pinned binary and invokes this same wrapper. The local
@@ -798,7 +798,7 @@ repos:
     name: cargo deny check advisories (Rust dependency CVE gate)
     entry: scripts/check_cargo_advisories.sh
     language: system
-    files: ^(Cargo\.lock|Cargo\.toml|crates/.*/Cargo\.toml|deny\.toml|\.cargo-audit-allow\.txt|pyproject\.toml|scripts/scanner_contract\.py|scripts/check_cargo_advisories\.sh)$
+    files: ^(Cargo\.lock|Cargo\.toml|crates/.*/Cargo\.toml|\.config/deny\.toml|\.config/cargo-audit-allow\.txt|pyproject\.toml|scripts/scanner_contract\.py|scripts/check_cargo_advisories\.sh)$
     pass_filenames: false
   # crates.io-only dependency edict (AGENTS.md, "crates.io-only Rust dependency
   # edict"): fails if any Cargo.toml adds a `git = ` source or an

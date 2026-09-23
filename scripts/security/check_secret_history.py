@@ -71,7 +71,7 @@ When one specific historical hit is confirmed, by a human, not to be a live
 secret, and rewriting that commit is a materially worse outcome than
 recording the exception, ``secret_history_reviewed_exceptions.toml``
 (same directory as this file) may carry ONE entry for it — modeled directly
-on ``dupehound-distinct.toml``'s precedent (EH-264/EH-268): each entry pins
+on ``.config/dupehound-distinct.toml``'s precedent (EH-264/EH-268): each entry pins
 the EXACT commit, file, pattern name, AND a sha256 digest of the exact
 matched line text, plus a written ``reason`` a reviewer can check against
 the actual commit. An entry matches ONE finding only — not the file, not the
@@ -148,7 +148,7 @@ _REQUIRED_EXCEPTION_KEYS = frozenset(
 
 
 def _context_digest(context: str) -> str:
-    """Content pin for one matched line, mirroring dupehound-distinct.toml's
+    """Content pin for one matched line, mirroring .config/dupehound-distinct.toml's
     function-digest pin: if the underlying text changes at all, the digest
     changes, the exception stops matching, and the finding returns."""
     return "sha256:" + hashlib.sha256(context.encode("utf-8")).hexdigest()

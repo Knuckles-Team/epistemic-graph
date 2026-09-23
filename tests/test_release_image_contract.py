@@ -10,7 +10,7 @@ pytestmark = pytest.mark.no_engine
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCKERFILE = ROOT / "docker" / "Dockerfile"
-DOCKERIGNORE = ROOT / ".dockerignore"
+DOCKERIGNORE = ROOT / "docker" / "Dockerfile.dockerignore"
 PYTHON_IMAGE = (
     "python:3.14-slim@sha256:"
     "cea0e6040540fb2b965b6e7fb5ffa00871e632eef63719f0ea54bca189ce14a6"

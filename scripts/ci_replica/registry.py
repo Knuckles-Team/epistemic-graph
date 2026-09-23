@@ -264,10 +264,10 @@ BUILD_AFFECTING_FILE_PATTERNS: tuple[str, ...] = (
     # inputs.  A diff in one of these files must not permit callers to skip the
     # workflow-derived gate on the grounds that no Rust source changed.
     "pyproject.toml",
-    ".kiss/**",
+    ".config/kiss.toml",
     ".kissconfig",
-    ".importlinter",
-    "arch-lint.toml",
+    ".config/importlinter.ini",
+    ".config/arch-lint.toml",
     "**/.dependency-cruiser.cjs",
     "**/.dependency-cruiser.js",
     "clients/js/package.json",
