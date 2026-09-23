@@ -13,7 +13,7 @@ use super::common::{
     approved, dataset, gold_dataset, logged_item, statistical, window, SCHEMA_DIGEST,
 };
 
-fn optimiser() -> OptimiserSpec {
+pub(super) fn optimiser() -> OptimiserSpec {
     OptimiserSpec {
         max_iterations: 60,
         tolerance: QuantisedValue {
@@ -24,7 +24,7 @@ fn optimiser() -> OptimiserSpec {
     }
 }
 
-fn rules(regime: Regime, approved: &[String]) -> AdmissionRules<'_> {
+pub(super) fn rules(regime: Regime, approved: &[String]) -> AdmissionRules<'_> {
     AdmissionRules {
         regime,
         window: window(),
@@ -33,7 +33,7 @@ fn rules(regime: Regime, approved: &[String]) -> AdmissionRules<'_> {
     }
 }
 
-fn fitted(kind: HeadKind, data: &LabelledDataset) -> DecisionHeadBody {
+pub(super) fn fitted(kind: HeadKind, data: &LabelledDataset) -> DecisionHeadBody {
     let stat = statistical();
     let admitted = admit(data, &rules(Regime::FullLabel, &[]));
     let spec = FitSpec {

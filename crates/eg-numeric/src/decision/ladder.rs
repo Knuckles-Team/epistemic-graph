@@ -1,28 +1,29 @@
 //! Step 4 of the resolution ladder: the statistical act/abstain rule.
 //!
 //! A head may make the engine ACT only when all of this holds: it is a
-//! full-label listwise head, it carries a calibration with a certified act
-//! threshold and risk statement, its calibration sample reaches the policy's
-//! `n_min`, and its alpha, epsilon and delta are no looser than the policy's.
+//! full-label listwise head (linear or the resident scorer), it carries a
+//! calibration with a certified act threshold and risk statement, its
+//! calibration sample reaches the policy's `n_min`, its alpha, epsilon and
+//! delta are no looser than the policy's, and -- for the state at hand -- the
+//! act rule holds ([`act_rule`]: a conformal claim, the top probability at the
+//! threshold, the top option inside the prediction set).
 //! Anything less is at most an advisory score labelled uncalibrated -- and
 //! only when the policy's cold-start mode allows advisory output at all.
 //! Propensities are the executed policy's, never the head's mass.
 
 use eg_types::contract::BoundedVec;
-use eg_types::decision::statistical::head::{
-    DecisionHeadBody, FittedRegime, HeadCalibration, HeadKind,
-};
+use eg_types::decision::statistical::head::{DecisionHeadBody, FittedRegime, HeadCalibration};
 use eg_types::decision::statistical::{
-    AuditDraw, CalibrationMethod, CalibrationStatement, RiskStatement, ScoredOption,
-    StatisticalErrorCode, StatisticalOutcome,
+    AuditDraw, CalibrationStatement, RiskStatement, ScoredOption, StatisticalErrorCode,
+    StatisticalOutcome,
 };
 use eg_types::decision::{
     AbstainReason, ColdStart, DecisionPolicy, StatisticalPolicy, UnitRationalWire,
 };
 
 use super::exploration::{audit, logging_vector, plan, ExplorationPermit, ExplorationPlan};
-use super::head_eval::{prediction_set, top_index, Evaluated};
-use super::quant::{exact_wire, q32, value_of};
+use super::head_eval::{act_rule, calibration_statement, top_index, Evaluated};
+use super::quant::{exact_wire, q32};
 use super::refusal::{Refusal, RefusalResult};
 
 /// What the rule reads.
@@ -68,7 +69,7 @@ fn acting_calibration<'a>(
     head: &'a DecisionHeadBody,
     policy: &StatisticalPolicy,
 ) -> Option<(&'a HeadCalibration, RiskStatement)> {
-    if head.kind != HeadKind::ListwiseLogistic || head.regime != FittedRegime::FullLabel {
+    if !head.kind.is_listwise() || head.regime != FittedRegime::FullLabel {
         return None;
     }
     let calibration = head.calibration.as_ref()?;
@@ -79,17 +80,6 @@ fn acting_calibration<'a>(
         && no_looser(risk.epsilon, policy.epsilon)
         && no_looser(risk.delta, policy.delta);
     admissible.then_some((calibration, risk))
-}
-
-fn statement(calibration: &HeadCalibration) -> CalibrationStatement {
-    CalibrationStatement {
-        method: CalibrationMethod::Temperature,
-        alpha: Some(calibration.alpha),
-        coverage_lower: Some(calibration.coverage_lower),
-        coverage_upper: Some(calibration.coverage_upper),
-        n_calibration: calibration.n_calibration,
-        synthetic: calibration.synthetic,
-    }
 }
 
 fn abstained() -> StatisticalOutcome {
@@ -178,9 +168,8 @@ fn act_or_abstain(
     propensity: UnitRationalWire,
 ) -> RefusalResult<LadderResult> {
     let probabilities = reading.probabilities.as_deref().unwrap_or(&reading.logits);
-    let top = top_index(probabilities);
-    let threshold = calibration.act_threshold.map(value_of);
-    let acts = matches!((top, threshold), (Some(t), Some(lambda)) if probabilities[t] >= lambda);
+    let rule = act_rule(probabilities, calibration);
+    let (acts, top) = (rule.acts, rule.top);
     let logging = match (acts, top) {
         (true, Some(top)) => {
             logging_vector(inputs.candidate_ids.len(), Some(top), budget(inputs.permit))?
@@ -192,10 +181,7 @@ fn act_or_abstain(
             StatisticalOutcome::Acted {
                 option_id: inputs.candidate_ids[top].clone(),
                 propensity,
-                prediction_set: ids(
-                    inputs,
-                    &prediction_set(probabilities, value_of(calibration.set_threshold)),
-                )?,
+                prediction_set: ids(inputs, &rule.prediction_set)?,
                 risk,
             },
             Some(top),
@@ -205,7 +191,7 @@ fn act_or_abstain(
     };
     Ok(LadderResult {
         outcome,
-        calibration: Some(statement(calibration)),
+        calibration: Some(calibration_statement(calibration)),
         explained,
         audit: audit_draw,
         logging,
