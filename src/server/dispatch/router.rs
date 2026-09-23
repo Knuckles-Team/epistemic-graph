@@ -50,7 +50,7 @@ use graph_lifecycle::dispatch_graph_lifecycle_methods;
 use identity_access::dispatch_identity_and_access_methods;
 #[cfg(feature = "security")]
 use lifecycle::apply_rbac_admin;
-pub(in crate::server::dispatch) use lifecycle::create_graph;
+pub(in crate::server::dispatch) use lifecycle::{create_graph, GraphLifecycleRequest};
 use lifecycle::{delete_graph, dispatch_get_identity, index_kind_label, index_validity_label};
 use resource_cost::dispatch_resource_cost_methods;
 use service_control::dispatch_service_control_methods;

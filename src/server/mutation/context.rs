@@ -54,7 +54,7 @@ pub struct MutationCtx<'a> {
 /// Which graph-lifecycle request this is — the `CreateGraph`/`DeleteGraph`
 /// sibling of [`MutationCtx`]'s retry identity.
 ///
-/// `action` + `graph` + `principal` + `idempotency_key` are exactly what
+/// `action` + `tenant_scope` + `graph` + `principal` + `idempotency_key` are exactly what
 /// `mutation_batch::lifecycle_batch_id` hashes into the durable batch id, and
 /// `request_id` + `attempt_nonce` are the per-attempt halves the kernel's replay
 /// ledger consumes. Neither half addresses a lifecycle commit on its own: the
@@ -69,6 +69,8 @@ pub struct MutationCtx<'a> {
 pub(crate) struct LifecycleAttempt<'a> {
     /// The lifecycle verb (`"create"` / `"delete"`) the batch id is keyed on.
     pub(crate) action: &'a str,
+    /// Verified carrier tenant scope (EH-375) — never a request field.
+    pub(crate) tenant_scope: &'a str,
     /// The durable graph name, NOT the sanitized on-disk file name.
     pub(crate) graph: &'a str,
     pub(crate) request_id: u64,

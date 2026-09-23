@@ -59,15 +59,21 @@ pub(crate) fn principal_fingerprint(principal: &str) -> Result<String, String> {
 
 /// Stable lifecycle batch id used both before the first commit and by a retry
 /// reconciling a crash after durability but before registry publication.
+///
+/// Keyed by the VERIFIED tenant scope as well as the principal (EH-375): graph names
+/// are global and a verified `agent_id` is not tenant-qualified, so without the
+/// tenant two tenants' principals sharing an agent id and an idempotency key would
+/// address ONE lifecycle batch and replay each other's CreateGraph/DeleteGraph result.
 pub(crate) fn lifecycle_batch_id(
     action: &str,
+    tenant_scope: &str,
     graph: &str,
     principal: Option<&str>,
     idempotency_key: &str,
 ) -> String {
     opaque_idempotency_key_for_context(
         &format!("lifecycle-{action}"),
-        graph,
+        tenant_scope,
         graph,
         principal,
         idempotency_key,
