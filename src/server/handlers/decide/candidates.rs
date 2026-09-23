@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 
 use eg_numeric::decision::candidate::CandidateView;
 use eg_types::agent_component::{AgentComponentEntry, AgentComponentSearchRequest};
+use eg_types::decision::statistical::declared::{check_declared, DeclaredOption};
 use eg_types::decision::statistical::log::RecordVisibility;
 use eg_types::decision::statistical::{CandidateSource, StatisticalErrorCode};
 use eg_types::decision::{CandidateSourceRecord, LibraryCandidateScope, MAX_ASSEMBLY_CANDIDATES};
@@ -27,6 +28,8 @@ use super::stat_classes::{current_rules, derive, DerivedClasses};
 use super::stat_support::refusal;
 use crate::server::persistence::agent_library::AgentLibraryStore;
 
+/// Domain of a declared option set's digest.
+const DECLARED_OPTIONS_DOMAIN: &str = "eg/decide-declared-options/v1";
 /// Page size of the library read.
 const PAGE: u32 = 256;
 /// Most pages one read walks before it refuses as unbounded.
@@ -257,6 +260,50 @@ pub(super) fn graph_candidates(
     })
 }
 
+/// Declared candidates: the caller's own options, each fact a claim, visible
+/// to the declaring principal only. Validated before any feature reads them.
+pub(super) fn declared_candidates(
+    options: &[DeclaredOption],
+    principal: &str,
+) -> Result<ReadCandidates, String> {
+    check_declared(options)
+        .map_err(|detail| refusal(StatisticalErrorCode::ParameterInvalid, detail))?;
+    let views = options
+        .iter()
+        .map(|option| {
+            let mut view = CandidateView::from_row(
+                option.option_id.clone(),
+                option
+                    .numbers
+                    .iter()
+                    .map(|n| (n.key.clone(), n.q32))
+                    .collect(),
+                option
+                    .texts
+                    .iter()
+                    .map(|t| (t.key.clone(), t.text.clone()))
+                    .collect(),
+            );
+            view.classification = option.classification.iter().cloned().collect();
+            view
+        })
+        .collect();
+    Ok(ReadCandidates {
+        views,
+        entries: Vec::new(),
+        record: CandidateSourceRecord::Declared {
+            options_digest: eg_types::decision::digest::digest_text(
+                DECLARED_OPTIONS_DOMAIN,
+                &options,
+            ),
+        },
+        visibility: RecordVisibility::Principal {
+            principal: principal.to_string(),
+        },
+        derived: DerivedClasses::default(),
+    })
+}
+
 /// Read the options `source` names. Graph candidates need the caller's
 /// filtered snapshot, which [`super::stat_decide`] takes under the state lock.
 pub(super) fn read_candidates(
@@ -268,6 +315,7 @@ pub(super) fn read_candidates(
 ) -> Result<ReadCandidates, String> {
     match source {
         CandidateSource::AgentLibrary { scope } => library_candidates(store, tenant_id, scope),
+        CandidateSource::Declared { options } => declared_candidates(options.as_slice(), principal),
         CandidateSource::Graph { graph, plan } => {
             let view = graph_view.ok_or_else(|| {
                 refusal(
