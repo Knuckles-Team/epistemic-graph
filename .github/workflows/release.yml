@@ -122,13 +122,13 @@ jobs:
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Test (lower crates, all features)
-        run: cargo test -p eg-types -p eg-core -p eg-compute --all-features --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test -p eg-types -p eg-core -p eg-compute --all-features --no-fail-fast
       # The checked ledger is the canonical all-Method projection. The ordinary
       # feature-selected registry is intentionally smaller, so this named profile
       # is the only meaningful exact generated-artifact comparison. This step is
       # also executed verbatim by the blocking local manual CI-gate replica.
       - name: Test (canonical capability policy and generated ledger)
-        run: cargo test --locked -p eg-capabilities --features contract --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-capabilities --features contract --no-fail-fast
       # The facade's sqlite `.db` round-trip test diffs against a real sqlite3 CLI and
       # FAILS without one. Provision the pinned, sha256-verified CLI rather than
       # relying on whatever sqlite3 the runner image happens to ship.
@@ -139,17 +139,17 @@ jobs:
           sqlite3_bin="$(scripts/fetch_sqlite3.sh "$RUNNER_TEMP/eg-sqlite3")"
           echo "EG_SQLITE3=$sqlite3_bin" >> "$GITHUB_ENV"
       - name: Test (SQLite format differential conformance)
-        run: cargo test --locked -p eg-sqlite-format --test differential --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-sqlite-format --test differential --no-fail-fast
       # DE7 (durable-execution-native.md): replay-determinism crash-and-reopen
       # proofs for eg-jobs/eg-statechart.
       - name: Test (replay-determinism — eg-jobs/eg-statechart crash-replay proofs, DE7)
-        run: cargo test -p eg-jobs -p eg-statechart --test replay_determinism --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test -p eg-jobs -p eg-statechart --test replay_determinism --no-fail-fast
       # The fuzz + concurrency-chaos proptest suite (long random valid pipelines,
       # snapshot-isolation under contention) — a correctness test, kept here
       # (release-critical) rather than moving with the rest of the former
       # optional `benchmarks` job (which reports performance feedback).
       - name: Query-pipeline fuzz + chaos (eg-plan)
-        run: cargo test -p eg-plan --features "query,owl,text,timeseries,federation" --test fuzz_pipelines --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test -p eg-plan --features "query,owl,text,timeseries,federation" --test fuzz_pipelines --no-fail-fast
       - name: Install pytest
         run: pip install pytest
       - name: Epistemic Operations manifest ⇄ Rust DTO parity
@@ -317,20 +317,20 @@ jobs:
       # sqlite3 CLI for the facade `.db` round-trip test (see `gates`).
       - *eg-gates-sqlite
       - name: Test (facade full)
-        run: cargo test -p epistemic-graph --features full --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph --features full --no-fail-fast
       # These real-model tests fail loudly when their fixture is absent. Fetch the
       # pinned, sha256-verified model and WAV, export both paths, then exercise the
       # provider rather than counting an unconfigured test as a pass.
       - name: Provision pinned Whisper real-model fixture
         run: scripts/fetch_whisper_test_fixture.sh "$RUNNER_TEMP/eg-whisper-test" >> "$GITHUB_ENV"
       - name: Test (Whisper real-model transcription and cancellation)
-        run: cargo test --locked -p eg-asr-whisper --test real_transcription --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-asr-whisper --test real_transcription --no-fail-fast
       # The blob RSS-bound tests read WHOLE-PROCESS RSS, so they are #[ignore]d out
       # of the parallel run above (a concurrent sibling's 256MB blob inflates the
       # shared RSS past the cap). Run them here in isolation — serial + ignored — so
       # the memory-regression coverage stays in CI without the parallel pollution.
       - name: Test (memory-regression — RSS bounds, isolated)
-        run: cargo test -p epistemic-graph --features full --no-fail-fast bounded_memory -- --ignored --test-threads=1
+        run: python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph --features full --no-fail-fast bounded_memory -- --ignored --test-threads=1
 
   gates-variants:
     name: gates (slim server + raft cluster)
@@ -346,7 +346,7 @@ jobs:
       - *eg-gates-cache
 
       - name: Test (slim server — gated-out methods return the not-built error)
-        run: cargo test -p epistemic-graph --no-default-features --features server --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph --no-default-features --features server --no-fail-fast
       # The Raft cluster layer is an opt-in build layer outside `full` (see
       # MATURIN_FEATURES above), so no step above compiles its code or runs its
       # tests: `cluster` (raft HA), `harness` (the in-process multi-node cluster
@@ -354,9 +354,9 @@ jobs:
       # these steps a red raft suite, or an integration test that only fails to
       # compile under this feature set, reaches a release unnoticed.
       - name: Test (raft cluster — consensus, placement, and multi-group unit tests)
-        run: "cargo test --locked -p epistemic-graph --features cluster,harness,calvin --lib --no-fail-fast -- raft::"
+        run: "python3 scripts/cargo_test_rescue.py cargo test --locked -p epistemic-graph --features cluster,harness,calvin --lib --no-fail-fast -- raft::"
       - name: Test (raft cluster — ack-lost commit retry reconciliation)
-        run: cargo test --locked -p epistemic-graph --features cluster,harness,calvin --test txn_reconcile_ack_lost_retry --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p epistemic-graph --features cluster,harness,calvin --test txn_reconcile_ack_lost_retry --no-fail-fast
 
   # ── eg-tts-piper synthesis against a REAL onnxruntime.
   #
@@ -405,7 +405,7 @@ jobs:
           export ORT_DYLIB_PATH
           test -f "$ORT_DYLIB_PATH"
           echo "ORT_DYLIB_PATH=$ORT_DYLIB_PATH"
-          cargo test --locked -p eg-tts-piper --all-features --no-fail-fast
+          python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-tts-piper --all-features --no-fail-fast
 
   # ── Runtime contracts. These checks guard authorization, lifecycle,
   # modality, reasoning, release-campaign, and persisted-schema behavior.
