@@ -108,6 +108,11 @@ pub mod reasoning;
 // certificates and an independent verifier. Integer-only, no heavy deps.
 #[cfg(feature = "solve")]
 pub mod solve;
+// Decide layer packages A2/A5 — the assembly decision function: step-1b
+// eliminations, the typed model over the legal remainder, the solve with its
+// no-good loop, why-not re-solves and the sealed, replayable record.
+#[cfg(feature = "decide")]
+pub mod assemble;
 // CONCEPT:EG-KG.compute.reasoning-closure-gpu — semi-naive integer-interned rewrite of
 // the `reasoning` fixpoint, with the transitive-closure join factored behind a
 // `ClosureBackend` seam (CPU always-on + feature-gated CUDA kernel). Rides `reasoning`;

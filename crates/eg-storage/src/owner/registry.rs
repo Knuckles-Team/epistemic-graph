@@ -248,6 +248,12 @@ pub const CONNECTOR_PACK_BODY_HOLDERS: TableDefinition<'static, (&str, &str, &st
 /// Administrative importer binding per tenant and connector.
 pub const CONNECTOR_PACK_BINDINGS: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("connector_pack_bindings");
+/// Committed decision records, verbatim, per tenant and record id. Written in
+/// the same Agent Library transaction as the `DecisionRecord` component
+/// revision that names it, and never deleted: a record is immutable evidence
+/// a published graph may pin (DECIDE-LAYER-DESIGN §4.5).
+pub const DECISION_RECORDS: TableDefinition<'static, (&str, &str), &[u8]> =
+    TableDefinition::new("decision_records");
 /// D18 source change sets are immutable after creation.
 pub const WRITE_BACK_CHANGE_SETS: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("write_back_change_sets");
@@ -369,6 +375,7 @@ macro_rules! visit_owner_tables {
                 $visit!(CONNECTOR_PACK_IMPORTS);
                 $visit!(CONNECTOR_PACK_BODY_HOLDERS);
                 $visit!(CONNECTOR_PACK_BINDINGS);
+                $visit!(DECISION_RECORDS);
                 $visit!(WRITE_BACK_CHANGE_SETS);
                 $visit!(WRITE_BACK_IDEMPOTENCY);
                 $visit!(WRITE_BACK_RECEIPTS);
@@ -599,6 +606,7 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
             "connector_pack_imports",
             "connector_pack_body_holders",
             "connector_pack_bindings",
+            "decision_records",
             "write_back_change_sets",
             "write_back_idempotency",
             "write_back_receipts",

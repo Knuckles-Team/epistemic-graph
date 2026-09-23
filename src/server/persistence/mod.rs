@@ -68,6 +68,8 @@ pub mod agent_template;
 #[cfg(feature = "redb")]
 pub mod connector_pack;
 #[cfg(feature = "redb")]
+pub mod decision_record;
+#[cfg(feature = "redb")]
 pub mod write_back;
 
 #[cfg(feature = "redb")]

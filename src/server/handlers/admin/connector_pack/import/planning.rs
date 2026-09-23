@@ -730,7 +730,6 @@ impl DesiredBuilder<'_> {
             summary: bounded_summary(entry, body),
             classification: native_provides,
             requires,
-            provides: entry.annotations.provides.as_slice().to_vec(),
             declared_capabilities: declared_provides,
             required_capabilities: native_requires,
             declared_required_capabilities: declared_requires,

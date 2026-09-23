@@ -387,7 +387,7 @@ pub type AgentComponentStoreRef = Arc<AgentLibraryStore>;
 /// growth that pushed these builders' shared boilerplate over the clone
 /// gate's detection floor once already.
 #[cfg(test)]
-fn test_component_draft(
+pub(crate) fn test_component_draft(
     tenant_id: &str,
     component_id: &str,
 ) -> eg_types::agent_component::AgentComponentDraft {
@@ -402,7 +402,6 @@ fn test_component_draft(
         summary: format!("test component {component_id}"),
         classification: Vec::new(),
         requires: Vec::new(),
-        provides: Vec::new(),
         declared_capabilities: Vec::new(),
         required_capabilities: Vec::new(),
         declared_required_capabilities: Vec::new(),
@@ -422,7 +421,7 @@ fn test_component_draft(
 /// module's two `Tool`-kind fixture builders, for the same reason
 /// `test_component_draft` exists.
 #[cfg(test)]
-fn test_tool_facts(
+pub(crate) fn test_tool_facts(
     effect: eg_types::agent_component::ToolEffect,
 ) -> eg_types::agent_component::AgentComponentFacts {
     eg_types::agent_component::AgentComponentFacts::Tool {

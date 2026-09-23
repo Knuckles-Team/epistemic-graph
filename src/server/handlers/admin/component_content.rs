@@ -18,7 +18,38 @@ pub(crate) async fn handle_component_content(
     verified: &VerifiedRequestContext,
     request: eg_types::agent_component::AgentComponentContentRequest,
 ) -> Response {
+    // A committed decision record's body is engine-owned too, but it lives in
+    // the Agent Library transaction that committed it, not in the Blob CAS.
+    if request
+        .component_id
+        .starts_with(eg_types::decision::DECISION_COMPONENT_ID_PREFIX)
+    {
+        return serve_decision_record(store, req_id, verified, &request);
+    }
     serve_component_content(state, store, req_id, verified, request).await
+}
+
+fn serve_decision_record(
+    store: &AgentLibraryStore,
+    req_id: u64,
+    verified: &VerifiedRequestContext,
+    request: &eg_types::agent_component::AgentComponentContentRequest,
+) -> Response {
+    if request.tenant_id != verified.tenant() {
+        return Response::err(
+            req_id,
+            "ACCESS_DENIED: component content tenant must match verified request tenant",
+        );
+    }
+    match store.decision_record_content(&request.tenant_id, &request.component_id) {
+        Ok(result) => Response::ok(
+            req_id,
+            ResultPayload::of_ref::<eg_types::result_contract::storage::AgentComponentContent>(
+                &result,
+            ),
+        ),
+        Err(error) => Response::err(req_id, error),
+    }
 }
 
 async fn serve_component_content(
