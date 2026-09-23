@@ -133,7 +133,7 @@ repos:
     # repo's own env (eg is Python 3.11; the tool needs >=3.12) and
     # --prerelease=allow is required because agent-utilities depends on
     # fastmcp>=4.0.0b1.
-    entry: bash -c 'P=../agents/repository-manager; [ -d "$P" ] || P=repository-manager; uv run --no-project --python 3.12 --prerelease=allow --with "$P" python -m repository_manager.dependency_readiness .'
+    entry: bash -c 'CANON_ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"; P=""; d="$CANON_ROOT"; while [ "$d" != "/" ]; do [ -d "$d/agent-packages/agents/repository-manager" ] && { P="$d/agent-packages/agents/repository-manager"; break; }; d=$(dirname "$d"); done; [ -n "$P" ] || P=repository-manager; uv run --no-project --python 3.12 --prerelease=allow --with "$P" python -m repository_manager.dependency_readiness .'
     language: system
     pass_filenames: false
     always_run: true
