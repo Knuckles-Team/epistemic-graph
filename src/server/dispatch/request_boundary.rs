@@ -89,6 +89,13 @@ pub(super) fn append_native_work_item_ops(ops: &mut Vec<&'static str>, available
             "TransitionControlLease",
             "GetControlLease",
             "ListControlLeases",
+            // EH-348: the work market shares the WorkItem kernel.
+            "GapUpsert",
+            "GapTransition",
+            "GapSettle",
+            "WorkOfferPut",
+            "GapGet",
+            "GapList",
         ]);
     }
 }
@@ -463,6 +470,9 @@ mod native_resource_capability_tests {
                 "TransitionControlLease",
                 "GetControlLease",
                 "ListControlLeases",
+                "GapUpsert",
+                "GapGet",
+                "GapList",
             ] {
                 assert_eq!(ops.contains(&op), available, "{op} when {available}");
             }

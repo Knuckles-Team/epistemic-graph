@@ -19,7 +19,7 @@ use super::*;
 
 type NodeRow = serde_json::Map<String, serde_json::Value>;
 
-fn load_row(
+pub(super) fn load_row(
     nodes: &ScopedOwnerTableMut<'_, (&str, &str), &[u8]>,
     graph: &str,
     lease_id: &str,

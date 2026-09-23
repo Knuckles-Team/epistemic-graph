@@ -65,6 +65,7 @@ mod control_lease;
 mod dispatch;
 mod lease;
 mod policy_record;
+mod market;
 mod read;
 mod row_guard;
 mod submit;
@@ -78,6 +79,7 @@ pub(crate) use control_lease::{apply_control_lease_rows, list_control_leases, re
 pub(crate) use dispatch::*;
 pub(crate) use lease::*;
 pub(crate) use policy_record::apply_policy_record_rows;
+pub(crate) use market::{apply_native_record_rows, list_gaps, read_gap, NativeRecordRequest};
 pub(crate) use read::{list_work_items, read_work_item, read_work_item_outcome};
 pub(crate) use row_guard::refuse_generic_native_row_write;
 pub(crate) use submit::*;

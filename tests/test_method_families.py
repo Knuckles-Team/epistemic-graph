@@ -68,6 +68,10 @@ _WORK_ITEM_METHODS = frozenset(
         "IssueControlLease",
         "TransitionControlLease",
         "PolicyEvolutionStore",
+        "GapUpsert",
+        "GapTransition",
+        "GapSettle",
+        "WorkOfferPut",
     }
 )
 _RESOURCE_AND_CAPACITY_WRITES = frozenset(
@@ -124,6 +128,10 @@ _DURABLE_AT_BASE = (
         "IssueControlLease",
         "TransitionControlLease",
         "PolicyEvolutionStore",
+        "GapUpsert",
+        "GapTransition",
+        "GapSettle",
+        "WorkOfferPut",
         "ClearGraph",
         "AddEmbedding",
     }
@@ -154,6 +162,10 @@ _ATOMIC_BATCH_ROWS_AT_BASE = frozenset(
         "IssueControlLease",
         "TransitionControlLease",
         "PolicyEvolutionStore",
+        "GapUpsert",
+        "GapTransition",
+        "GapSettle",
+        "WorkOfferPut",
         "ReserveWorkItemResources",
         "ReleaseWorkItemResources",
         "ReclaimWorkItemResources",
