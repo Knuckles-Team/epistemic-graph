@@ -218,7 +218,10 @@ repos:
     stages: [pre-commit]
   - id: jscpd-differential
     name: jscpd — differential clone gate (new pairs only)
-    entry: python3 scripts/check_duplication.py enforce
+    # The base is the remote tip a push replaces (scripts/gate_base_ref.sh), as
+    # in CI; without one, enforce compares HEAD with HEAD and never sees a
+    # committed pair. It reads the committed tree (HEAD), not the worktree.
+    entry: bash -c 'base="$(bash scripts/gate_base_ref.sh)" && exec python3 scripts/check_duplication.py enforce --base-ref "$base"'
     language: system
     pass_filenames: false
     require_serial: true
@@ -581,12 +584,12 @@ repos:
   # build-host landing gate and hosted CI use: one gate definition, so a push
   # sees exactly the checks CI will run -- including the jscpd/dupehound diff
   # over the whole pushed range (github.event.before = the remote tip being
-  # replaced; origin/main for a new branch). Advisory jobs count as blocking
+  # replaced; see scripts/gate_base_ref.sh for the fallbacks). Advisory jobs count as blocking
   # here. The cargo jobs run at landing on a build host (see
   # docs/quality-gate-terms.md "Landing gate").
   - id: ci-replica-static
     name: CI replica — no-cargo release jobs over the pushed range (pre-push)
-    entry: bash -c 'base="${PRE_COMMIT_FROM_REF:-}"; case "$base" in ""|0000000000000000000000000000000000000000) base=origin/main ;; esac; exec bash scripts/ci_gate_replica.sh --jobs lint-and-architecture,documentation-advisory,scanner-quality --all-blocking --base-ref "$base"'
+    entry: bash -c 'base="$(bash scripts/gate_base_ref.sh)" && exec bash scripts/ci_gate_replica.sh --jobs lint-and-architecture,documentation-advisory,scanner-quality --all-blocking --base-ref "$base"'
     language: system
     pass_filenames: false
     always_run: true

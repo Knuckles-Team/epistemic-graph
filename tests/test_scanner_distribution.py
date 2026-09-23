@@ -380,7 +380,9 @@ def test_scanner_toolchain_cache_key_spells_out_every_install_pin():
     cache = steps["Restore pinned scanner toolchain"]
     install = steps["Provision pinned scanner toolchain"]
     key = cache["with"]["key"]
-    assert install["if"] == "steps.scanner-cache.outputs.cache-hit != 'true'"
+    assert install["if"] == (
+        "${{ !cancelled() && steps.scanner-cache.outputs.cache-hit != 'true' }}"
+    )
     assert cache["with"]["path"] == "${{ runner.temp }}/epistemic-graph-scanners"
     script = install["run"]
     pins = re.findall(r"--rev (\S+) --root \S+ (\S+)", script)
@@ -396,7 +398,8 @@ def test_scanner_toolchain_cache_key_spells_out_every_install_pin():
     for version, name in pins:
         assert f"{name}-{version}" in key, f"cache key misses pin {name} {version}"
     verify = steps["Verify scanner versions"]
-    assert "if" not in verify, "version verification must run on cache hits too"
+    # Version verification runs on cache hits too (only cancellation skips it).
+    assert verify.get("if") == "${{ !cancelled() }}"
 
 
 def test_replica_never_installs_a_tool_during_a_gate():
@@ -418,3 +421,12 @@ def test_replica_never_installs_a_tool_during_a_gate():
         row for row in plan if "[local: verify pinned tool present]" in row["name"]
     ]
     assert len(setup_rows) == len(module.LOCAL_SETUP_STEPS)
+
+
+def test_scanner_job_reports_every_step_after_a_failure():
+    """One red scanner must not hide the rest (57a12eb06: a red jscpd step left
+    CCCC, KISS, import-linter, depcruise and arch-lint unrun)."""
+    steps = _workflow()["jobs"]["scanner-quality"]["steps"]
+    for step in steps:
+        if "run" in step:
+            assert str(step.get("if", "")).startswith("${{ !cancelled()"), step["name"]
