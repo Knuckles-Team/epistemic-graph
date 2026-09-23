@@ -922,6 +922,16 @@ repos:
     # the one intentional adaptation: this repo's own top-level source
     # trees, not agent-utilities'). This repo publishes to a public GitHub
     # org, same as agent-utilities.
+    #
+    # EH-235: also runs at `pre-push` (not just `pre-commit`), so the check
+    # covers the FINAL tree about to leave this machine, not just each
+    # individual commit -- a commit that predates a since-fixed leak, or a
+    # merge/rebase that reintroduces one without a fresh commit touching the
+    # offending file, would otherwise never be re-scanned before `git push`.
+    # `always_run: true` + `pass_filenames: false` already make every stage
+    # scan the whole tracked tree, so no additional wiring is needed beyond
+    # this stage list.
+    stages: [pre-commit, pre-push, manual]
     pass_filenames: false
     always_run: true
 
