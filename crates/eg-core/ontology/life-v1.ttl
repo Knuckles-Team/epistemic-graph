@@ -1,0 +1,204 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix obo: <http://purl.obolibrary.org/obo/> .
+@prefix dwc: <http://rs.tdwg.org/dwc/terms/> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix wd: <http://www.wikidata.org/entity/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# World-model base ontology (operator ruling 2026-09-22, night), life module.
+#
+# A THIN native TBox placed under the core BFO layer, with skos mappings (never
+# imports) to the canonical external ontologies (verified against OLS4 / Wikidata).
+# Large vocabularies are DATA: taxa (NCBI Taxonomy / GBIF), GO biological-process terms and UBERON anatomy terms are ingested as INDIVIDUALS of a core
+# :ReferenceTerm class, never one OWL class per term, so reasoning stays bounded by
+# this document (EH-355). Shared vocabulary (:ReferenceTerm, :instanceOfTerm,
+# :termCurie, :quantityValue, :unitCode, observation properties, the RO-aligned
+# relations) lives in core-foundation; this module only uses it.
+
+<http://knuckles.team/kg/life> a owl:Ontology ;
+    rdfs:label "World Model — Life" ;
+    rdfs:comment "Organisms and taxa (taxa as individuals), biological and pathological processes, anatomy hooks and organism occurrence observations; BFO-placed and mapped to COB, NCBITaxon/Darwin Core/TAXRANK, GO, OGMS, UBERON and Wikidata." ;
+    owl:imports <http://knuckles.team/kg/core> .
+
+# ── Organisms and taxonomy ────────────────────────────────────────────────────────
+
+:Organism a owl:Class ;
+    rdfs:label "Organism" ;
+    rdfs:comment "A living individual — an animal, plant, fungus, microbe — or a formerly living one. BFO:Object." ;
+    rdfs:subClassOf bfo:0000030 ;
+    skos:exactMatch obo:COB_0000022,
+        wd:Q7239 .
+
+:Person rdfs:subClassOf :Organism .
+
+:Taxon a owl:Class ;
+    rdfs:label "Taxon" ;
+    rdfs:comment "A taxonomic unit (a species, a genus, a family …) as circumscribed by a taxonomy such as NCBI Taxonomy or the GBIF backbone. Taxa are INDIVIDUALS of this class, linked by :parentTaxon and ranked by :taxonRank — never one OWL class per species. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf :ReferenceTerm ;
+    skos:exactMatch dwc:Taxon,
+        wd:Q16521 .
+
+:TaxonRank a owl:Class ;
+    rdfs:label "Taxon Rank" ;
+    rdfs:comment "A level of a taxonomic hierarchy (species, genus, family …). The principal ranks are declared below as individuals; other ranks are ingested the same way. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:exactMatch obo:TAXRANK_0000000,
+        wd:Q427626 .
+
+:inTaxon a owl:ObjectProperty ;
+    rdfs:label "in taxon" ;
+    rdfs:comment "A material entity (an organism, an anatomical entity, a food portion from an organism) is of the given taxon (RO in taxon)." ;
+    rdfs:subPropertyOf :instanceOfTerm ;
+    rdfs:domain bfo:0000040 ;
+    rdfs:range :Taxon ;
+    skos:exactMatch obo:RO_0002162 .
+
+:parentTaxon a owl:ObjectProperty ;
+    rdfs:label "parent taxon" ;
+    rdfs:comment "The immediately enclosing taxon in the source taxonomy. Deliberately NOT transitive: a full taxonomy has millions of taxa, and ancestry is a query-time path, not a materialized closure." ;
+    rdfs:domain :Taxon ;
+    rdfs:range :Taxon ;
+    skos:closeMatch dwc:parentNameUsageID .
+
+:taxonRank a owl:ObjectProperty ;
+    rdfs:label "taxon rank" ;
+    rdfs:domain :Taxon ;
+    rdfs:range :TaxonRank ;
+    skos:closeMatch dwc:taxonRank .
+
+:scientificName a owl:DatatypeProperty ;
+    rdfs:label "scientific name" ;
+    rdfs:comment "The full scientific name of a taxon, e.g. Vulpes vulpes." ;
+    rdfs:domain :Taxon ;
+    rdfs:range xsd:string ;
+    skos:exactMatch dwc:scientificName .
+
+:ncbiTaxonId a owl:DatatypeProperty ;
+    rdfs:label "NCBI Taxonomy id" ;
+    rdfs:comment "The NCBI Taxonomy identifier (the NCBITaxon_<id> OBO class)." ;
+    rdfs:domain :Taxon ;
+    rdfs:range xsd:string .
+
+:gbifTaxonKey a owl:DatatypeProperty ;
+    rdfs:label "GBIF taxon key" ;
+    rdfs:comment "The GBIF backbone taxonomy usage key." ;
+    rdfs:domain :Taxon ;
+    rdfs:range xsd:string .
+
+:rank-domain a :TaxonRank ;
+    rdfs:label "domain" ;
+    skos:exactMatch wd:Q146481 .
+
+:rank-kingdom a :TaxonRank ;
+    rdfs:label "kingdom" ;
+    skos:exactMatch obo:TAXRANK_0000017,
+        wd:Q36732 .
+
+:rank-phylum a :TaxonRank ;
+    rdfs:label "phylum" ;
+    skos:exactMatch obo:TAXRANK_0000001,
+        wd:Q38348 .
+
+:rank-class a :TaxonRank ;
+    rdfs:label "class" ;
+    skos:exactMatch obo:TAXRANK_0000002,
+        wd:Q37517 .
+
+:rank-order a :TaxonRank ;
+    rdfs:label "order" ;
+    skos:exactMatch obo:TAXRANK_0000003,
+        wd:Q36602 .
+
+:rank-family a :TaxonRank ;
+    rdfs:label "family" ;
+    skos:exactMatch obo:TAXRANK_0000004,
+        wd:Q35409 .
+
+:rank-genus a :TaxonRank ;
+    rdfs:label "genus" ;
+    skos:exactMatch obo:TAXRANK_0000005,
+        wd:Q34740 .
+
+:rank-species a :TaxonRank ;
+    rdfs:label "species" ;
+    skos:exactMatch obo:TAXRANK_0000006,
+        wd:Q7432 .
+
+:rank-subspecies a :TaxonRank ;
+    rdfs:label "subspecies" ;
+    skos:exactMatch obo:TAXRANK_0000023,
+        wd:Q68947 .
+
+# ── Biological processes and anatomy hooks ────────────────────────────────────────
+
+:BiologicalProcess a owl:Class ;
+    rdfs:label "Biological Process" ;
+    rdfs:comment "A process carried out by one or more organisms or their parts — photosynthesis in a leaf, digestion in a gut, a migration. Its kind is a GO biological-process term (:instanceOfTerm a :BiologicalProcessTerm). BFO:Process." ;
+    rdfs:subClassOf bfo:0000015 ;
+    skos:exactMatch obo:GO_0008150,
+        wd:Q2996394 .
+
+:PathologicalProcess a owl:Class ;
+    rdfs:label "Pathological Process" ;
+    rdfs:comment "A biological process that realizes a disease or clinical condition (the course of an infection, tumour growth). BFO:Process." ;
+    rdfs:subClassOf :BiologicalProcess ;
+    skos:exactMatch obo:OGMS_0000061 .
+
+:BiologicalProcessTerm a owl:Class ;
+    rdfs:label "Biological Process Term" ;
+    rdfs:comment "A Gene Ontology biological-process term ingested as an individual; it names a kind of :BiologicalProcess." ;
+    rdfs:subClassOf :ReferenceTerm ;
+    skos:relatedMatch obo:GO_0008150 .
+
+:AnatomicalEntity a owl:Class ;
+    rdfs:label "Anatomical Entity" ;
+    rdfs:comment "A part of an organism's body — an organ, a tissue, a cell (hook for UBERON/CL). Related to its organism with core :partOf; its kind is an :AnatomyTerm. BFO:MaterialEntity." ;
+    rdfs:subClassOf bfo:0000040 ;
+    skos:closeMatch obo:UBERON_0001062,
+        wd:Q4936952 .
+
+:AnatomyTerm a owl:Class ;
+    rdfs:label "Anatomy Term" ;
+    rdfs:comment "An UBERON (or CL) anatomy term ingested as an individual; it names a kind of :AnatomicalEntity." ;
+    rdfs:subClassOf :ReferenceTerm ;
+    skos:relatedMatch obo:UBERON_0001062 .
+
+:taxonCapableOf a owl:ObjectProperty ;
+    rdfs:label "taxon capable of" ;
+    rdfs:comment "Organisms of a taxon can carry out processes of a GO kind (RO capable of, lifted to the taxon: the GO-annotation aggregate for a species)." ;
+    rdfs:domain :Taxon ;
+    rdfs:range :BiologicalProcessTerm ;
+    skos:closeMatch obo:RO_0002215 .
+
+# ── Organism observations ─────────────────────────────────────────────────────────
+
+:OrganismObservation a owl:Class ;
+    rdfs:label "Organism Observation" ;
+    rdfs:comment "An occurrence record: an organism of an identified taxon observed at a place and time (a GBIF / iNaturalist occurrence)." ;
+    rdfs:subClassOf :Observation ;
+    skos:closeMatch dwc:Occurrence ;
+    skos:broadMatch sosa:Observation .
+
+:observedOrganism a owl:ObjectProperty ;
+    rdfs:label "observed organism" ;
+    rdfs:subPropertyOf :observedEntity ;
+    rdfs:domain :OrganismObservation ;
+    rdfs:range :Organism .
+
+:observedTaxon a owl:ObjectProperty ;
+    rdfs:label "observed taxon" ;
+    rdfs:comment "The taxon the observed organism was identified as." ;
+    rdfs:domain :OrganismObservation ;
+    rdfs:range :Taxon .
+
+# ── Wiring into medical ───────────────────────────────────────────────────────────
+
+# medical: a clinical condition is borne by an organism (a patient is a person,
+# a person is an organism) and is realized in pathological processes (:hasRealization).
+:ClinicalCondition rdfs:subClassOf [ a owl:Restriction ;
+        owl:onProperty :inheresIn ;
+        owl:someValuesFrom :Organism ] .

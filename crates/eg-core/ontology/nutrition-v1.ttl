@@ -1,0 +1,149 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix obo: <http://purl.obolibrary.org/obo/> .
+@prefix wd: <http://www.wikidata.org/entity/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# World-model base ontology (operator ruling 2026-09-22, night), nutrition module.
+#
+# A THIN native TBox placed under the core BFO layer, with skos mappings (never
+# imports) to the canonical external ontologies (verified against OLS4 / Wikidata).
+# Large vocabularies are DATA: ChEBI chemical entities, FoodOn / FoodData Central foods are ingested as INDIVIDUALS of a core
+# :ReferenceTerm class, never one OWL class per term, so reasoning stays bounded by
+# this document (EH-355). Shared vocabulary (:ReferenceTerm, :instanceOfTerm,
+# :termCurie, :quantityValue, :unitCode, observation properties, the RO-aligned
+# relations) lives in core-foundation; this module only uses it.
+
+<http://knuckles.team/kg/nutrition> a owl:Ontology ;
+    rdfs:label "World Model — Nutrition" ;
+    rdfs:comment "Chemical entities and nutrients (ChEBI terms as individuals), foods, consumption, nutritional requirements as dispositions borne by organisms, published reference intakes and food composition; mapped to ChEBI, FoodOn, RO and Wikidata." ;
+    owl:imports <http://knuckles.team/kg/core>, <http://knuckles.team/kg/life> .
+
+# ── Chemistry, food and nutrition ─────────────────────────────────────────────────
+
+:ChemicalEntityTerm a owl:Class ;
+    rdfs:label "Chemical Entity Term" ;
+    rdfs:comment "A ChEBI entry (a molecular entity, a group, or a chemical class such as vitamin C) ingested as an individual; it names a kind of chemical entity." ;
+    rdfs:subClassOf :ReferenceTerm ;
+    skos:relatedMatch obo:CHEBI_24431,
+        wd:Q79529 .
+
+:Nutrient a owl:Class ;
+    rdfs:label "Nutrient" ;
+    rdfs:comment "A chemical-entity term whose instances play a nutrient role for some organism (energy, structure, or regulation of metabolism). The nutrient ↔ ChEBI link is this subclassing plus :termCurie." ;
+    rdfs:subClassOf :ChemicalEntityTerm ;
+    skos:relatedMatch obo:CHEBI_33284,
+        wd:Q181394 .
+
+:Food a owl:Class ;
+    rdfs:label "Food" ;
+    rdfs:comment "A portion of material that an organism eats or drinks for nutrition. Its kind is a :FoodTerm (FoodOn or a food-composition database entry). BFO:MaterialEntity." ;
+    rdfs:subClassOf bfo:0000040 ;
+    skos:closeMatch obo:FOODON_00002403,
+        wd:Q2095 .
+
+:FoodTerm a owl:Class ;
+    rdfs:label "Food Term" ;
+    rdfs:comment "A FoodOn food product type or a food-composition database food (USDA FoodData Central, national tables) ingested as an individual; it names a kind of :Food." ;
+    rdfs:subClassOf :ReferenceTerm ;
+    skos:relatedMatch obo:FOODON_00002403 .
+
+:consumes a owl:ObjectProperty ;
+    rdfs:label "consumes" ;
+    rdfs:comment "An organism eats or drinks a material entity — a food portion, another organism (RO eats)." ;
+    rdfs:domain :Organism ;
+    rdfs:range bfo:0000040 ;
+    skos:closeMatch obo:RO_0002470 .
+
+:taxonEats a owl:ObjectProperty ;
+    rdfs:label "taxon eats" ;
+    rdfs:comment "Organisms of a taxon eat things of a kind — a food term or a prey taxon (taxon-level diet interaction, as published by GloBI)." ;
+    rdfs:domain :Taxon ;
+    rdfs:range :ReferenceTerm ;
+    skos:closeMatch obo:RO_0002470 .
+
+:NutritionalRequirement a owl:Class ;
+    rdfs:label "Nutritional Requirement" ;
+    rdfs:comment "An organism's need for a nutrient: a BFO disposition borne by the organism, realized in its metabolic processes. Not a document — a published recommended intake is a separate :NutrientReferenceIntake." ;
+    rdfs:subClassOf bfo:0000016,
+        [ a owl:Restriction ;
+            owl:onProperty :inheresIn ;
+            owl:someValuesFrom :Organism ] ;
+    skos:relatedMatch obo:CHEBI_33284 .
+
+:nutritionalRequirementOf a owl:ObjectProperty ;
+    rdfs:label "nutritional requirement of" ;
+    rdfs:comment "The world-model meaning of the shared :inheresIn: the organism that bears a nutritional requirement." ;
+    rdfs:subPropertyOf :inheresIn ;
+    rdfs:domain :NutritionalRequirement ;
+    rdfs:range :Organism .
+
+:requirementForNutrient a owl:ObjectProperty ;
+    rdfs:label "requirement for nutrient" ;
+    rdfs:comment "The nutrient a nutritional requirement is a requirement for." ;
+    rdfs:domain :NutritionalRequirement ;
+    rdfs:range :Nutrient .
+
+:requiresNutrient a owl:ObjectProperty ;
+    rdfs:label "requires nutrient" ;
+    rdfs:comment "An organism requires a nutrient: derived from the requirement it bears (bearerOf ∘ requirementForNutrient), or asserted directly." ;
+    rdfs:domain :Organism ;
+    rdfs:range :Nutrient ;
+    owl:propertyChainAxiom ( :bearerOf :requirementForNutrient ) .
+
+:NutrientReferenceIntake a owl:Class ;
+    rdfs:label "Nutrient Reference Intake" ;
+    rdfs:comment "A published reference value for a taxon's intake of one nutrient — an RDA, AI, EAR or UL from a dietary reference intake table, or an animal nutrient requirement — optionally per life stage. It is the species-level information ABOUT nutritional requirements. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:relatedMatch wd:Q181394 .
+
+:referenceTaxon a owl:ObjectProperty ;
+    rdfs:label "reference taxon" ;
+    rdfs:domain :NutrientReferenceIntake ;
+    rdfs:range :Taxon .
+
+:referenceNutrient a owl:ObjectProperty ;
+    rdfs:label "reference nutrient" ;
+    rdfs:domain :NutrientReferenceIntake ;
+    rdfs:range :Nutrient .
+
+:lifeStage a owl:DatatypeProperty ;
+    rdfs:label "life stage" ;
+    rdfs:comment "The life stage / population group a reference intake applies to (e.g. adult female 19-30 y, lactation, puppy)." ;
+    rdfs:domain :NutrientReferenceIntake ;
+    rdfs:range xsd:string .
+
+:FoodCompositionRecord a owl:Class ;
+    rdfs:label "Food Composition Record" ;
+    rdfs:comment "A food-composition database entry (e.g. a USDA FoodData Central food) giving the nutrient content of one food kind. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:relatedMatch obo:FOODON_00002403 .
+
+:describesFood a owl:ObjectProperty ;
+    rdfs:label "describes food" ;
+    rdfs:domain :FoodCompositionRecord ;
+    rdfs:range :FoodTerm .
+
+:hasNutrientAmount a owl:ObjectProperty ;
+    rdfs:label "has nutrient amount" ;
+    rdfs:domain :FoodCompositionRecord ;
+    rdfs:range :NutrientAmount .
+
+:NutrientAmount a owl:Class ;
+    rdfs:label "Nutrient Amount" ;
+    rdfs:comment "The amount of one nutrient per reference quantity of a food (:quantityValue, :unitCode, per 100 g unless stated). BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 ;
+    skos:relatedMatch obo:CHEBI_33284 .
+
+:amountOfNutrient a owl:ObjectProperty ;
+    rdfs:label "amount of nutrient" ;
+    rdfs:domain :NutrientAmount ;
+    rdfs:range :Nutrient .
+
+:fdcId a owl:DatatypeProperty ;
+    rdfs:label "FoodData Central id" ;
+    rdfs:domain :FoodCompositionRecord ;
+    rdfs:range xsd:string .
