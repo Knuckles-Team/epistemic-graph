@@ -3,6 +3,7 @@
 @prefix : <http://knuckles.team/kg#> .
 @prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
 @prefix bibo: <http://purl.org/ontology/bibo/> .
+@prefix obo: <http://purl.obolibrary.org/obo/> .
 @prefix fibo-org: <https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/> .
 @prefix foaf: <http://xmlns.com/foaf/0.1/> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
@@ -497,7 +498,8 @@ necessarily depends on what it extends.""" ;
     rdfs:comment "Inverse of partOf. Links a whole to its parts." ;
     rdfs:domain bfo:0000001 ;
     rdfs:range bfo:0000001 ;
-    owl:inverseOf :partOf .
+    owl:inverseOf :partOf ;
+    skos:closeMatch obo:BFO_0000051 .
 
 :hasRendition a owl:ObjectProperty ;
     rdfs:label "has rendition" ;
@@ -534,7 +536,8 @@ necessarily depends on what it extends.""" ;
     rdfs:label "occurred at" ;
     rdfs:comment "Links an Event to the Place where it happened." ;
     rdfs:domain :Event ;
-    rdfs:range :Place .
+    rdfs:range :Place ;
+    rdfs:subPropertyOf :occursIn .
 
 :parentFragment a owl:ObjectProperty ;
     rdfs:label "parent fragment" ;
@@ -770,7 +773,8 @@ Works for Person→Asset, Organization→System, Team→SoftwareProject, etc."""
     rdfs:comment """Links any entity to an Event it participated in.
 Aligned to prov:wasAssociatedWith (inverse direction).""" ;
     rdfs:domain bfo:0000001 ;
-    rdfs:range :Event .
+    rdfs:range :Event ;
+    rdfs:subPropertyOf :participatesIn .
 
 :selfHealedVia a owl:ObjectProperty ;
     rdfs:label "self healed via" ;
@@ -832,7 +836,8 @@ that controls it.  Works for System→Policy, Organization→Regulation, etc."""
     rdfs:comment "Links an Event to an entity that participated. Inverse of participatedIn." ;
     rdfs:domain :Event ;
     rdfs:range bfo:0000001 ;
-    owl:inverseOf :participatedIn .
+    owl:inverseOf :participatedIn ;
+    rdfs:subPropertyOf :hasParticipant .
 
 :hasAncestor a owl:ObjectProperty,
         owl:TransitiveProperty ;
@@ -864,7 +869,8 @@ Works for Person→Person (mentor), Document→Concept, Event→Decision, etc.""
     rdfs:comment """Spatial or logical containment.  Transitivity enables
 Server→Rack→DataCenter→Region inference.  Works for physical and virtual.""" ;
     rdfs:domain bfo:0000004 ;
-    rdfs:range :Place .
+    rdfs:range :Place ;
+    skos:closeMatch obo:RO_0001025 .
 
 :ownedBy a owl:ObjectProperty ;
     rdfs:label "owned by" ;
@@ -942,7 +948,8 @@ Module→System→Platform inference. BFO-standard mereology.  A part necessaril
 depends on its whole, so partOf is a sub-property of dependsOn.""" ;
     rdfs:domain bfo:0000001 ;
     rdfs:range bfo:0000001 ;
-    rdfs:subPropertyOf :dependsOn .
+    rdfs:subPropertyOf :dependsOn ;
+    skos:closeMatch obo:BFO_0000050 .
 
 bfo:0000002 a owl:Class ;
     rdfs:label "Continuant" ;
@@ -964,6 +971,91 @@ bfo:0000016 a owl:Class ;
     rdfs:label "Disposition" ;
     rdfs:comment "BFO:Disposition — a realizable entity its bearer has in virtue of its own physical make-up." ;
     rdfs:subClassOf bfo:0000017 .
+
+bfo:0000040 a owl:Class ;
+    rdfs:label "Material Entity" ;
+    rdfs:comment "BFO:MaterialEntity — an independent continuant that has some portion of matter as part (organisms, anatomical structures, environmental systems, food portions)." ;
+    rdfs:subClassOf bfo:0000004 .
+
+bfo:0000030 a owl:Class ;
+    rdfs:label "Object" ;
+    rdfs:comment "BFO:Object — a material entity that is spatially extended, maximally self-connected and self-contained (an organism, a cell)." ;
+    rdfs:subClassOf bfo:0000040 .
+
+# ── RO/BFO-aligned shared relations (world-model ruling 2026-09-22) ─────────────
+# Core-wide domain/range only, at the BFO level; a module that needs a narrower
+# meaning declares a module-local sub-property (shared-property rule).
+
+:participatesIn a owl:ObjectProperty ;
+    rdfs:label "participates in" ;
+    rdfs:comment "A continuant takes part in a process (RO participates in). The prov-style :participatedIn is its Event-ranged sub-property." ;
+    rdfs:domain bfo:0000002 ;
+    rdfs:range bfo:0000015 ;
+    owl:inverseOf :hasParticipant ;
+    skos:exactMatch obo:RO_0000056 .
+
+:hasParticipant a owl:ObjectProperty ;
+    rdfs:label "has participant" ;
+    rdfs:comment "A process has a continuant taking part in it (RO has participant). Inverse of participatesIn." ;
+    rdfs:domain bfo:0000015 ;
+    rdfs:range bfo:0000002 ;
+    skos:exactMatch obo:RO_0000057 .
+
+:occursIn a owl:ObjectProperty ;
+    rdfs:label "occurs in" ;
+    rdfs:comment "A process unfolds within an independent continuant — a cell, an organism, a habitat, a weather system, a region (BFO occurs in). :occurredAt is its Place-ranged sub-property." ;
+    rdfs:domain bfo:0000015 ;
+    rdfs:range bfo:0000004 ;
+    skos:exactMatch obo:BFO_0000066 .
+
+:hasInput a owl:ObjectProperty ;
+    rdfs:label "has input" ;
+    rdfs:comment "A process consumes, transforms or otherwise takes a continuant as input (RO has input)." ;
+    rdfs:subPropertyOf :hasParticipant ;
+    skos:exactMatch obo:RO_0002233 .
+
+:hasOutput a owl:ObjectProperty ;
+    rdfs:label "has output" ;
+    rdfs:comment "A process produces a continuant (RO has output)." ;
+    rdfs:subPropertyOf :hasParticipant ;
+    skos:exactMatch obo:RO_0002234 .
+
+:regulates a owl:ObjectProperty ;
+    rdfs:label "regulates" ;
+    rdfs:comment "One process modulates the frequency, rate or extent of another (RO regulates)." ;
+    rdfs:domain bfo:0000015 ;
+    rdfs:range bfo:0000015 ;
+    skos:exactMatch obo:RO_0002211 .
+
+:inheresIn a owl:ObjectProperty ;
+    rdfs:label "inheres in" ;
+    rdfs:comment "A specifically dependent continuant (a quality, disposition, role, condition) depends on its bearer (RO inheres in / characteristic of)." ;
+    rdfs:domain bfo:0000020 ;
+    rdfs:range bfo:0000004 ;
+    owl:inverseOf :bearerOf ;
+    skos:exactMatch obo:RO_0000052 .
+
+:bearerOf a owl:ObjectProperty ;
+    rdfs:label "bearer of" ;
+    rdfs:comment "An independent continuant bears a specifically dependent continuant (RO bearer of / has characteristic). Inverse of inheresIn." ;
+    rdfs:domain bfo:0000004 ;
+    rdfs:range bfo:0000020 ;
+    skos:exactMatch obo:RO_0000053 .
+
+:hasRealization a owl:ObjectProperty ;
+    rdfs:label "has realization" ;
+    rdfs:comment "A realizable entity (a disposition, a function, a role) is realized in a process (BFO has realization)." ;
+    rdfs:domain bfo:0000017 ;
+    rdfs:range bfo:0000015 ;
+    owl:inverseOf :realizationOf ;
+    skos:exactMatch obo:BFO_0000054 .
+
+:realizationOf a owl:ObjectProperty ;
+    rdfs:label "realization of" ;
+    rdfs:comment "A process realizes a realizable entity (BFO realizes). Inverse of hasRealization; named apart from the software module's :realizes (a class symbol realizes an interface)." ;
+    rdfs:domain bfo:0000015 ;
+    rdfs:range bfo:0000017 ;
+    skos:exactMatch obo:BFO_0000055 .
 
 :Artifact a owl:Class ;
     rdfs:label "Artifact" ;

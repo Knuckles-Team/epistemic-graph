@@ -14,6 +14,8 @@
 
 pub(crate) mod attach_pack;
 pub(crate) mod compose;
+#[cfg(test)]
+mod world_model_tests;
 
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -571,13 +573,13 @@ mod tests {
                 _ => None,
             })
             .collect();
-        // The listing reports exactly the immutable core catalog: all 31 core
-        // artifacts (30 ontologies and the governance shapes).
+        // The listing reports exactly the immutable core catalog: all 32 core
+        // artifacts (31 ontologies and the governance shapes).
         let catalog = core.schema_sources();
         let catalog_ids: std::collections::BTreeSet<_> =
             catalog.core.keys().map(String::as_str).collect();
         assert_eq!(core_ids, catalog_ids);
-        assert_eq!(core_ids.len(), 31);
+        assert_eq!(core_ids.len(), 32);
         for anchor in [
             "core:catalog@1",
             "core:foundation@1",

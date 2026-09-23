@@ -32,4 +32,5 @@
         <http://knuckles.team/kg/software>,
         <http://knuckles.team/kg/system>,
         <http://knuckles.team/kg/trm>,
+        <http://knuckles.team/kg/world_model>,
         <http://knuckles.team/kg/worldview> .
