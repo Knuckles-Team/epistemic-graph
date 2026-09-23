@@ -32,7 +32,7 @@ pub enum EdgeQuery<'a> {
 }
 
 /// One edge search.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct EdgeSearchRequest<'a> {
     /// The caller's tenant and purpose; must equal the index's.
     pub scope: &'a EdgeScope,
@@ -43,6 +43,9 @@ pub struct EdgeSearchRequest<'a> {
     /// edge's own owner), applied inside the walk. `None` admits every edge the
     /// view holds.
     pub prefilter: Option<&'a RowPredicate>,
+    /// The caller's row-level security over the edge's own property blob (the
+    /// graph's `can_see_row` on the served path), applied inside the walk.
+    pub visible: Option<&'a dyn Fn(&[u8]) -> bool>,
 }
 
 /// One result edge.
@@ -318,6 +321,9 @@ impl<'p> Probe<'p> {
             .edge_properties
             .get(&(edge.source.clone(), edge.target.clone()))?
             .get(edge.ordinal as usize)?;
+        if !self.request.visible.is_none_or(|visible| visible(blob)) {
+            return None;
+        }
         let properties = decode_properties(blob)?;
         if !self
             .request
