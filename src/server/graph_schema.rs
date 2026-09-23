@@ -13,6 +13,7 @@
 //! ordering rather than maintaining a second control-plane commit path.
 
 pub(crate) mod attach_pack;
+pub(crate) mod compiled;
 pub(crate) mod compose;
 #[cfg(test)]
 mod world_model_tests;
