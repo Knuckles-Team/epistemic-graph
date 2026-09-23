@@ -459,6 +459,7 @@ impl MutationOwnerAuthority {
 
         let transaction = Arc::new(self.store.begin_write()?);
         let poison = Arc::new(AtomicBool::new(false));
+        let _open_members = tracing::debug_span!("commit_phase", phase = "open_members").entered();
         let mut capabilities = Vec::with_capacity(members.len() + 1);
         for owner in std::iter::once(&control).chain(members.iter()) {
             match PhysicalWriteCapability::open_member(
