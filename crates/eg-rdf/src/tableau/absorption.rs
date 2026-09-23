@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use super::{Dl, DlOntology};
+use super::{Completion, Dl, DlOntology};
 
 /// The TBox as the tableau consumes it, split by [`build_tbox`].
 #[derive(Debug, Default)]
@@ -28,6 +28,12 @@ pub(super) struct Tbox {
     /// Absorbed GCIs: `unfold[A]` holds every `D` with `A ⊑ D`, added to a label by
     /// the deterministic unfolding rule once `A` is in it.
     unfold: HashMap<String, Vec<Dl>>,
+    /// Role-absorbed `rdfs:domain` (`∃p.⊤ ⊑ D`): `domain[p]` is added to the source of
+    /// every `p`-edge (or sub-role edge).
+    domain: HashMap<String, Vec<Dl>>,
+    /// Role-absorbed `rdfs:range` (`⊤ ⊑ ∀p.R`): `range[p]` is added to the target of
+    /// every `p`-edge (or sub-role edge).
+    range: HashMap<String, Vec<Dl>>,
 }
 
 /// The outer shape of a concept, as absorption sees it. One exhaustive match over
@@ -72,6 +78,18 @@ pub(super) fn deterministic_consequences<'a>(tbox: &'a Tbox, concept: &'a Dl) ->
 /// `¬C ⊔ D`.
 pub(super) fn build_tbox(ont: &DlOntology) -> Tbox {
     let mut tbox = Tbox::default();
+    for (role, class) in &ont.domains {
+        tbox.domain
+            .entry(role.clone())
+            .or_default()
+            .push(class.clone());
+    }
+    for (role, class) in &ont.ranges {
+        tbox.range
+            .entry(role.clone())
+            .or_default()
+            .push(class.clone());
+    }
     for (c, d) in &ont.gcis {
         match head(c) {
             Head::Atom(class) => tbox
@@ -86,6 +104,52 @@ pub(super) fn build_tbox(ont: &DlOntology) -> Tbox {
         }
     }
     tbox
+}
+
+/// Role absorption (EH-363). `∃p.⊤ ⊑ D` and `⊤ ⊑ ∀p.R` are deterministic in the
+/// completion graph: an edge `x –e→ y` with `e ⊑* p` puts `D` into `L(x)` and `R` into
+/// `L(y)`. Internalizing `∃p.⊤ ⊑ D` instead would put one `⊔` per domain axiom into
+/// every label — the choice-point explosion absorption exists to avoid.
+impl Completion {
+    pub(super) fn step_role_absorption(&mut self) -> bool {
+        if self.tbox.domain.is_empty() && self.tbox.range.is_empty() {
+            return false;
+        }
+        let mut changed = false;
+        for i in self.reps() {
+            for (edge, target) in self.out_edges(i) {
+                let (domains, ranges) = self.role_consequences(&edge);
+                for class in domains {
+                    changed |= self.add_label(i, class);
+                }
+                for class in ranges {
+                    if self.add_label(target, class) {
+                        self.inherit_deps(target, i);
+                        changed = true;
+                    }
+                }
+            }
+        }
+        changed
+    }
+
+    /// The domain and range classes an `edge`-role edge implies, over `edge` and all its
+    /// super-roles.
+    fn role_consequences(&self, edge: &str) -> (Vec<Dl>, Vec<Dl>) {
+        let supers = self.roles.super_roles.get(edge).into_iter().flatten();
+        let roles: Vec<&str> = std::iter::once(edge)
+            .chain(supers.map(String::as_str))
+            .collect();
+        let collect = |table: &HashMap<String, Vec<Dl>>| -> Vec<Dl> {
+            roles
+                .iter()
+                .filter_map(|role| table.get(*role))
+                .flatten()
+                .cloned()
+                .collect()
+        };
+        (collect(&self.tbox.domain), collect(&self.tbox.range))
+    }
 }
 
 #[cfg(test)]

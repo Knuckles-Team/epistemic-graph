@@ -58,6 +58,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use oxrdf::{BlankNode, NamedNode, NamedOrBlankNode, Term, Triple};
 
 mod budget;
+pub(crate) mod disjoint;
 mod filler;
 
 pub use budget::{BudgetExhausted, DerivationBudget};
@@ -448,7 +449,7 @@ pub fn validate_supported_profile(triples: &[Triple]) -> Result<(), String> {
             }
         }
     }
-    Ok(())
+    disjoint::validate_member_bounds(triples)
 }
 
 /// Expand OWL's n-ary `AllDisjointClasses` axiom into the pairwise
@@ -463,26 +464,19 @@ fn expand_all_disjoint_classes(idx: &TripleIndex, triples: &[Triple], ont: &mut 
             continue;
         }
         let subject = term_key(&triple.subject.clone().into());
-        for members in idx.objects(&subject, OWL_MEMBERS) {
-            let classes: Vec<String> = parse_rdf_list(idx, members)
+        for members in disjoint::member_lists(idx, &subject) {
+            let classes: Vec<String> = members
                 .into_iter()
                 .filter_map(|term| match term {
                     Term::NamedNode(node) => Some(iri(node.as_str())),
                     _ => None,
                 })
                 .collect();
-            for left in 0..classes.len() {
-                for right in (left + 1)..classes.len() {
-                    let a = classes[left].clone();
-                    let b = classes[right].clone();
-                    ont.disjoint.push((
-                        a.clone(),
-                        b.clone(),
-                        format!("AllDisjointClasses({}, {})", short(&a), short(&b)),
-                    ));
-                    register_class(ont, &a);
-                    register_class(ont, &b);
-                }
+            for (a, b) in disjoint::unordered_pairs(&classes) {
+                let label = format!("AllDisjointClasses({}, {})", short(&a), short(&b));
+                register_class(ont, &a);
+                register_class(ont, &b);
+                ont.disjoint.push((a, b, label));
             }
         }
     }

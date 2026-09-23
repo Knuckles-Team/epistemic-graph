@@ -59,7 +59,7 @@ use std::rc::Rc;
 
 use oxrdf::{Term, Triple};
 
-use crate::owl::{iri, parse_rdf_list, parse_rdf_list_mapped, term_key, TripleIndex};
+use crate::owl::{disjoint, iri, parse_rdf_list, parse_rdf_list_mapped, term_key, TripleIndex};
 
 mod abox;
 mod absorption;
@@ -78,6 +78,8 @@ pub use terminology::reason_dl_terminology;
 const RDF_TYPE: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type";
 const RDFS_SUBCLASS_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subClassOf";
 const RDFS_SUBPROPERTY_OF: &str = "http://www.w3.org/2000/01/rdf-schema#subPropertyOf";
+const RDFS_DOMAIN: &str = "http://www.w3.org/2000/01/rdf-schema#domain";
+const RDFS_RANGE: &str = "http://www.w3.org/2000/01/rdf-schema#range";
 
 const OWL_THING: &str = "http://www.w3.org/2002/07/owl#Thing";
 const OWL_NOTHING: &str = "http://www.w3.org/2002/07/owl#Nothing";
@@ -100,6 +102,7 @@ const OWL_QUALIFIED_CARDINALITY: &str = "http://www.w3.org/2002/07/owl#qualified
 const OWL_ON_CLASS: &str = "http://www.w3.org/2002/07/owl#onClass";
 const OWL_TRANSITIVE_PROPERTY: &str = "http://www.w3.org/2002/07/owl#TransitiveProperty";
 const OWL_FUNCTIONAL_PROPERTY: &str = "http://www.w3.org/2002/07/owl#FunctionalProperty";
+const OWL_ALL_DISJOINT_CLASSES: &str = "http://www.w3.org/2002/07/owl#AllDisjointClasses";
 const OWL_SAME_AS: &str = "http://www.w3.org/2002/07/owl#sameAs";
 const OWL_DIFFERENT_FROM: &str = "http://www.w3.org/2002/07/owl#differentFrom";
 
@@ -110,8 +113,8 @@ const STRUCTURAL_PREDICATES: &[&str] = &[
     RDF_TYPE,
     RDFS_SUBCLASS_OF,
     RDFS_SUBPROPERTY_OF,
-    "http://www.w3.org/2000/01/rdf-schema#domain",
-    "http://www.w3.org/2000/01/rdf-schema#range",
+    RDFS_DOMAIN,
+    RDFS_RANGE,
     "http://www.w3.org/2000/01/rdf-schema#label",
     "http://www.w3.org/2000/01/rdf-schema#comment",
     "http://www.w3.org/2000/01/rdf-schema#seeAlso",
@@ -267,6 +270,10 @@ pub struct DlOntology {
     pub classes: BTreeSet<String>,
     /// Every named individual mentioned in the ABox.
     pub individuals: BTreeSet<String>,
+    /// `rdfs:domain` — `∃p.⊤ ⊑ D` as `(p, D)`, decided by role absorption, not a GCI.
+    pub domains: Vec<(String, Dl)>,
+    /// `rdfs:range` — `⊤ ⊑ ∀p.R` as `(p, R)`, decided by role absorption, not a GCI.
+    pub ranges: Vec<(String, Dl)>,
 }
 
 impl DlOntology {
@@ -328,6 +335,14 @@ fn apply_disjoint_with_triple(idx: &TripleIndex, ont: &mut DlOntology, s: &str, 
     }
 }
 
+/// `p rdfs:domain D` / `p rdfs:range R` — recorded for role absorption (EH-363):
+/// the sound `∃p.⊤ ⊑ D` / `⊤ ⊑ ∀p.R`, never `D`/`R` as a class inclusion.
+fn push_role_class(idx: &TripleIndex, into: &mut Vec<(String, Dl)>, p: &str, class: &str) {
+    if let std::option::Option::Some(c) = parse_dl(idx, class) {
+        into.push((p.to_string(), c.nnf()));
+    }
+}
+
 /// `s rdf:type o` — either a vocabulary declaration, a transitive/functional
 /// role marker, an ABox class assertion (named or anonymous class), split
 /// out of `parse_dl_ontology` (extract-method, cx/wD8) — same terms, same
@@ -342,6 +357,19 @@ fn apply_rdf_type_triple(idx: &TripleIndex, ont: &mut DlOntology, s: &str, ok: &
                 // A functional role is the global axiom ⊤ ⊑ ≤1 r.⊤.
                 ont.gcis
                     .push((Dl::Top, Dl::Max(1, s.to_string(), Box::new(Dl::Top))));
+            }
+            // Pairwise `Cᵢ ⊑ ¬Cⱼ`, like owl:disjointWith (EH-363); the axiom node is not
+            // an individual.
+            OWL_ALL_DISJOINT_CLASSES => {
+                for members in disjoint::member_lists(idx, s) {
+                    let classes: Vec<Dl> = members
+                        .iter()
+                        .filter_map(|m| parse_dl(idx, &term_key(m)))
+                        .collect();
+                    for (a, b) in disjoint::unordered_pairs(&classes) {
+                        ont.gcis.push((a.nnf(), b.negate()));
+                    }
+                }
             }
             // Vocabulary declarations carry no ABox content.
             "http://www.w3.org/2002/07/owl#Class"
@@ -411,6 +439,8 @@ pub fn parse_dl_ontology(triples: &[Triple]) -> DlOntology {
             RDFS_SUBCLASS_OF => apply_subclass_of_triple(&idx, &mut ont, &s, &ok),
             OWL_EQUIVALENT_CLASS => apply_equivalent_class_triple(&idx, &mut ont, &s, &ok),
             OWL_DISJOINT_WITH => apply_disjoint_with_triple(&idx, &mut ont, &s, &ok),
+            RDFS_DOMAIN => push_role_class(&idx, &mut ont.domains, &s, &ok),
+            RDFS_RANGE => push_role_class(&idx, &mut ont.ranges, &s, &ok),
             RDFS_SUBPROPERTY_OF => {
                 if let Term::NamedNode(sup) = o {
                     ont.sub_roles.push((s.clone(), iri(sup.as_str())));
@@ -1045,7 +1075,9 @@ impl Completion {
         let changed2 = self.step_and_unfold_rule();
         // (2) ∀-rule (+ transitive-role folding).
         let changed3 = self.step_all_rule();
-        changed0 || changed1 || changed2 || changed3
+        // (3) Role-absorbed domain and range.
+        let changed4 = self.step_role_absorption();
+        changed0 || changed1 || changed2 || changed3 || changed4
     }
 
     /// Apply the deterministic GENERATING rules once (`∃`, `≥`) — lowest priority, and
