@@ -660,10 +660,10 @@ ex:parent a owl:AsymmetricProperty .
         // 880 migrated triples less the two list-cell triples of `:Incident`, which
         // was removed from the Person/Organization/Server/Event disjointness because
         // it is a subclass of `:Event` (EH-356), plus the 8 triples declaring BFO
-        // realizable entity and disposition, the category of `:Skill`; plus 75 for the
+        // realizable entity and disposition, the category of `:Skill`; plus 90 for the
         // world model: BFO material entity and object, and the RO/BFO-aligned shared
         // relations with their mappings.
-        assert_eq!(triples.len(), 961);
+        assert_eq!(triples.len(), 976);
         for required in [
             "http://knuckles.team/kg#Concept",
             "http://knuckles.team/kg#Evidence",
@@ -690,10 +690,10 @@ ex:parent a owl:AsymmetricProperty .
         // AllDisjointClasses list of its own superclass `:Event` — 2. Then +99: the
         // module-local domain/range of 12 other shared properties (and the double domain
         // of infrastructure's :runsOn) moved onto 24 module-local sub-properties. Then
-        // +8: BFO realizable entity and disposition, declared for `:Skill`. Then +444 for
+        // +8: BFO realizable entity and disposition, declared for `:Skill`. Then +459 for
         // the world model: the world_model module (368), its catalog import (1) and the
-        // foundation's BFO material entity/object and RO-aligned relations (75).
-        assert_eq!(composed.ontology.len(), 13_141);
+        // foundation's BFO material entity/object and RO-aligned relations (90).
+        assert_eq!(composed.ontology.len(), 13_156);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -725,7 +725,7 @@ ex:parent a owl:AsymmetricProperty .
         // authority triples change.
         assert_eq!(ontology_subjects.len(), 31);
         assert_eq!(imports, 61);
-        assert_eq!(semantic_axioms, 12_981);
+        assert_eq!(semantic_axioms, 12_996);
 
         let count_type = |object: &str| {
             composed
@@ -754,7 +754,7 @@ ex:parent a owl:AsymmetricProperty .
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#inverseOf"),
-            34
+            35
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#propertyChainAxiom"),
