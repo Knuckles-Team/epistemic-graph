@@ -1442,6 +1442,29 @@
       ],
       "type": "object"
     },
+    "ControlLeasePage": {
+      "additionalProperties": false,
+      "description": "One page of `ListControlLeases`.",
+      "properties": {
+        "leases": {
+          "items": {
+            "$ref": "#/$defs/ControlLeaseView"
+          },
+          "type": "array"
+        },
+        "next_cursor": {
+          "description": "`Some` when more remains to be scanned; a page may be empty and still\ncarry one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "leases"
+      ],
+      "type": "object"
+    },
     "ControlLeaseStatus": {
       "description": "Where a control lease is in its one-way lifecycle.",
       "oneOf": [
@@ -8655,6 +8678,18 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/KgDelegateResult"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "ListControlLeases": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/ControlLeasePage"
           }
         }
       },
