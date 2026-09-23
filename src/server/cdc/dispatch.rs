@@ -246,16 +246,21 @@ fn marker_event_id(method: &Method) -> Option<&'static str> {
         Method::RunDatalogReasoning { .. } => Some("__run_datalog_reasoning"),
         Method::ClearLedger | Method::ApplyLedger { .. } => Some("__ledger"),
         Method::CompactNodesByType { .. } => Some("__compact_nodes_by_type"),
-        _ => source_ingestion_marker_event_id(method)
-            .or_else(|| fleet_catalog_marker_event_id(method)),
+        _ => source_ingestion_marker_event_id(method).or_else(|| op_family_marker_event_id(method)),
     }
 }
 
-/// EH-345: defense-in-depth, like `RegisterServer`'s marker -- a fleet catalog
-/// write self-translates into `CreateNodeIfAbsent`/`CompareAndSetNodeFields`,
-/// whose own node events are the real ones. Reads emit nothing.
-fn fleet_catalog_marker_event_id(method: &Method) -> Option<&'static str> {
-    matches!(method, Method::FleetCatalog { op } if op.is_mutation()).then_some("__fleet_catalog")
+/// Defense-in-depth, like `RegisterServer`'s marker, for the op families whose
+/// writes self-translate into graph primitives -- the fleet catalog (EH-345)
+/// into `CreateNodeIfAbsent`/`CompareAndSetNodeFields`, policy evolution
+/// (EH-346/EH-347) into one `CreateNodeIfAbsent` -- whose own node events are
+/// the real ones. Reads emit nothing.
+fn op_family_marker_event_id(method: &Method) -> Option<&'static str> {
+    match method {
+        Method::FleetCatalog { op } if op.is_mutation() => Some("__fleet_catalog"),
+        Method::PolicyEvolution { op } if op.is_mutation() => Some("__policy_evolution"),
+        _ => None,
+    }
 }
 
 fn source_ingestion_marker_event_id(method: &Method) -> Option<&'static str> {

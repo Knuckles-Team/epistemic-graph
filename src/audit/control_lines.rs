@@ -50,22 +50,26 @@ pub(super) fn admin_audit_line(method: &Method) -> Option<String> {
             "ICV_CONFIGURE|{}|{mode}",
             graph.as_deref().unwrap_or("<default>")
         )),
-        _ => fleet_catalog_audit_line(method),
+        _ => op_family_audit_line(method),
     }
 }
 
 // X9. The line names WHAT was done and to WHICH keyed source, and nothing
 // else: the documents themselves are graph content, and an audit line is
 // not a place to copy them.
-/// EH-345: defense-in-depth, like `REGISTER_SERVER` above -- a fleet catalog
-/// write lowers into exactly one `CREATE_NODE_IF_ABSENT`/`CAS_NODE` line, which
-/// is the durable one. Reads are never audited.
-fn fleet_catalog_audit_line(method: &Method) -> Option<String> {
-    let Method::FleetCatalog { op } = method else {
-        return None;
+/// Defense-in-depth, like `REGISTER_SERVER` above, for the op families whose
+/// writes lower into graph primitives: a fleet catalog (EH-345) write lowers
+/// into one `CREATE_NODE_IF_ABSENT`/`CAS_NODE` line and a policy-evolution
+/// (EH-346/EH-347) write into one `CREATE_NODE_IF_ABSENT` line, which are the
+/// durable ones. Reads are never audited, and a record body is graph content,
+/// never copied here.
+fn op_family_audit_line(method: &Method) -> Option<String> {
+    let (family, mutation, name) = match method {
+        Method::FleetCatalog { op } => ("FLEET_CATALOG", op.is_mutation(), op.name()),
+        Method::PolicyEvolution { op } => ("POLICY_EVOLUTION", op.is_mutation(), op.name()),
+        _ => return None,
     };
-    op.is_mutation()
-        .then(|| format!("FLEET_CATALOG|{}", op.name()))
+    mutation.then(|| format!("{family}|{name}"))
 }
 
 pub(super) fn graph_schema_audit_line(method: &Method) -> Option<String> {
