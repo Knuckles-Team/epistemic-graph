@@ -4,8 +4,9 @@
 //!   tenant.** Every WorkItem transition (`ClaimWorkItem`, `RenewWorkItemLease`,
 //!   `CommitWorkItemResult`, `CancelWorkItem`, `DeferWorkItem`,
 //!   `CasWorkItemMetadata`), every admission (`SubmitWorkItem`,
-//!   `SubmitWorkItems` incl. each child, `KgDelegate`) and every control-lease
-//!   write names a tenant in its body. That name is a correlation, never an
+//!   `SubmitWorkItems` incl. each child, `KgDelegate`), every control-lease
+//!   write and every work-market write (`GapUpsert`, `GapTransition`,
+//!   `GapSettle`, `WorkOfferPut`) names a tenant in its body. That name is a correlation, never an
 //!   authority claim: a mismatch is `ACCESS_DENIED`, with no aggregate-reader or
 //!   `kg:admin` exception -- the same rule the typed reads apply.
 //! * **Fleet event streams are written only by the fleet event authority.** A
@@ -76,7 +77,10 @@ fn work_item_body_tenants(method: &Method) -> Vec<&str> {
             .chain(request.requests.iter().map(|child| &child.context))
             .map(|context| context.tenant_id.as_str())
             .collect(),
-        _ => Vec::new(),
+        // EH-348 work-market writes share the kernel and its tenant rule.
+        other => eg_types::work_market::market_write_scope(other)
+            .map(|(tenant, _)| vec![tenant])
+            .unwrap_or_default(),
     }
 }
 

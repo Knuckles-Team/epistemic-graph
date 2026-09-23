@@ -574,6 +574,10 @@ def _check_mutation_applier_inventory(
         # graph-os EG-2: native control-lease writes in the same WorkItem kernel.
         "IssueControlLease",
         "TransitionControlLease",
+        "GapUpsert",
+        "GapTransition",
+        "GapSettle",
+        "WorkOfferPut",
     }
     require(
         work_items == expected_work_items,

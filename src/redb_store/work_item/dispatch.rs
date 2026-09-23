@@ -30,6 +30,15 @@ pub(crate) struct WorkItemApplyRequest<'args, 'table, 'crypto> {
         &'args ScopedOwnerTableMut<'table, (&'static str, &'static str), &'static [u8]>,
     pub(crate) native_work_items:
         &'args mut ScopedOwnerTableMut<'table, (&'static str, &'static str), &'static [u8]>,
+    /// Edge and command-sequence rows, and the batch's authoritative time:
+    /// what a `GapUpsert` needs to admit its WorkItem (EH-348).
+    pub(crate) edges: &'args mut ScopedOwnerTableMut<
+        'table,
+        (&'static str, &'static str, &'static str, u32),
+        &'static [u8],
+    >,
+    pub(crate) command_sequences: &'args mut ScopedOwnerTableMut<'table, &'static str, u64>,
+    pub(crate) committed_at_ms: u64,
     pub(crate) crypto: DurableCrypto<'crypto>,
 }
 
@@ -47,6 +56,9 @@ pub(crate) fn apply_work_item_rows(
         pressure_index,
         policies,
         native_work_items,
+        edges,
+        command_sequences,
+        committed_at_ms,
         crypto,
     } = request;
     match method {
@@ -158,8 +170,18 @@ pub(crate) fn apply_work_item_rows(
             nodes: &mut *nodes,
             crypto,
         }),
-        // graph-os EG-2 control-lease writes share this kernel; anything else
-        // is not a WorkItem-family row transition and answers `None`.
-        other => apply_control_lease_rows(graph, other, nodes, crypto),
+        // graph-os EG-2 control-lease and EH-348 work-market writes share this
+        // kernel; anything else is not a WorkItem-family row transition and
+        // answers `None`.
+        other => apply_native_record_rows(NativeRecordRequest {
+            graph,
+            batch_id,
+            method: other,
+            nodes,
+            edges,
+            command_sequences,
+            committed_at_ms,
+            crypto,
+        }),
     }
 }

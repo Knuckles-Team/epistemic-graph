@@ -9,6 +9,7 @@ use eg_types::control_lease::{ControlLeasePage, ControlLeaseView, ListControlLea
 use eg_types::work_item_read::{
     WorkItemListRequest, WorkItemOutcomeView, WorkItemPage, WorkItemView,
 };
+use eg_types::work_market::{GapListRequest, GapPage, GapView};
 
 use super::RedbBackend;
 
@@ -91,6 +92,28 @@ impl RedbBackend {
         request: ListControlLeasesRequest,
     ) -> Result<ControlLeasePage, String> {
         let read: TenantListRead<_, _> = crate::redb_store::work_item::list_control_leases;
+        self.tenant_list_read(graph_fname, request, read).await
+    }
+
+    /// `GapGet`: one canonical Gap of `tenant`.
+    pub(crate) async fn read_gap(
+        &self,
+        graph_fname: &str,
+        tenant: &str,
+        gap_id: &str,
+    ) -> Result<Option<GapView>, String> {
+        let read: TenantPointRead<_> = crate::redb_store::work_item::read_gap;
+        self.tenant_point_read(graph_fname, tenant, gap_id, read)
+            .await
+    }
+
+    /// `GapList`: one bounded, tenant-bound page of Gaps.
+    pub(crate) async fn list_gaps(
+        &self,
+        graph_fname: &str,
+        request: GapListRequest,
+    ) -> Result<GapPage, String> {
+        let read: TenantListRead<_, _> = crate::redb_store::work_item::list_gaps;
         self.tenant_list_read(graph_fname, request, read).await
     }
 
