@@ -195,6 +195,8 @@ where
         #[cfg(feature = "geo")]
         let served_spatial =
             crate::server::secondary_indexes::ServedSpatialIndex::new(core.clone());
+        #[cfg(all(feature = "shacl", feature = "owl-plan"))]
+        let served_shapes = crate::server::handlers::rdf::ServedShapes::new(&core);
         // Fast path (CONCEPT:EG-KG.query.served-vector-index-binding): no staged embeddings this txn ⇒
         // search the COMMITTED store directly through a guard — no clone, no forced
         // HNSW rebuild. Only when the txn actually staged embeddings do we need a
@@ -214,6 +216,8 @@ where
                     spatial: Some(&served_spatial),
                     #[cfg(feature = "federation")]
                     foreign: Some(&*foreign_sources),
+                    #[cfg(all(feature = "shacl", feature = "owl-plan"))]
+                    shapes: Some(&served_shapes),
                     #[cfg(not(any(feature = "text", feature = "geo")))]
                     _marker: std::marker::PhantomData,
                 },
@@ -239,6 +243,8 @@ where
                     spatial: Some(&served_spatial),
                     #[cfg(feature = "federation")]
                     foreign: Some(&*foreign_sources),
+                    #[cfg(all(feature = "shacl", feature = "owl-plan"))]
+                    shapes: Some(&served_shapes),
                     #[cfg(not(any(feature = "text", feature = "geo")))]
                     _marker: std::marker::PhantomData,
                 },

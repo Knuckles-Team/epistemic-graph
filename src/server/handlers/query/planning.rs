@@ -226,6 +226,11 @@ pub(crate) struct ServedIndexes<'a> {
     /// never a silent empty set, never silently-local rows.
     #[cfg(feature = "federation")]
     pub foreign: Option<&'a dashmap::DashMap<String, eg_types::wire::ForeignSourceSpec>>,
+    /// EH-196 — the graph's composed GraphSchema SHACL shapes
+    /// (`handlers::rdf::ServedShapes`), which a `VALIDATE SHAPE` stage without its own
+    /// `USING` document validates against. `None` ⇒ such a stage is a typed error.
+    #[cfg(all(feature = "shacl", feature = "owl-plan"))]
+    pub shapes: Option<&'a dyn eg_plan::exec::ShapeSource>,
     // Keeps `'a` used even when neither `text` nor `geo` is built, so `ServedIndexes<'_>`
     // stays a valid (zero-field-active) type in every feature combination.
     #[cfg(not(any(feature = "text", feature = "geo")))]
@@ -278,6 +283,8 @@ pub(crate) fn run_unified(
     let served_text = served.text;
     #[cfg(feature = "geo")]
     let served_spatial = served.spatial;
+    #[cfg(all(feature = "shacl", feature = "owl-plan"))]
+    let served_shapes = served.shapes;
     #[cfg(not(any(feature = "text", feature = "geo", feature = "federation")))]
     let ServedIndexes { .. } = served;
     use eg_plan::PlanCtx;
@@ -366,6 +373,11 @@ pub(crate) fn run_unified(
     // documented-but-unreachable "TensorOp requires a bound tensor store" error.
     #[cfg(feature = "tensor")]
     let ctx = run_unified_bind_tensor(ctx);
+    #[cfg(all(feature = "shacl", feature = "owl-plan"))]
+    let ctx = match served_shapes {
+        Some(shapes) => ctx.with_shape_source(shapes),
+        None => ctx,
+    };
     let result = eg_plan::execute(&eg_plan::Plan::new(ops), &ctx)?;
     Ok(result
         .rows()
@@ -520,6 +532,8 @@ pub(crate) async fn run_unified_off_lock(
         #[cfg(feature = "geo")]
         let served_spatial =
             crate::server::secondary_indexes::ServedSpatialIndex::new(core_for_ctx.clone());
+        #[cfg(all(feature = "shacl", feature = "owl-plan"))]
+        let served_shapes = crate::server::handlers::rdf::ServedShapes::new(&core_for_ctx);
         let semantic_guard = core_for_ctx.semantic_store.read();
         run_unified(
             plan,
@@ -532,6 +546,8 @@ pub(crate) async fn run_unified_off_lock(
                 spatial: Some(&served_spatial),
                 #[cfg(feature = "federation")]
                 foreign: Some(&*foreign_sources),
+                #[cfg(all(feature = "shacl", feature = "owl-plan"))]
+                shapes: Some(&served_shapes),
                 #[cfg(not(any(feature = "text", feature = "geo")))]
                 _marker: std::marker::PhantomData,
             },
@@ -592,6 +608,8 @@ mod tensor_served_round_trip_tests {
             spatial: None,
             #[cfg(feature = "federation")]
             foreign: None,
+            #[cfg(all(feature = "shacl", feature = "owl-plan"))]
+            shapes: None,
             #[cfg(not(any(feature = "text", feature = "geo")))]
             _marker: std::marker::PhantomData,
         }

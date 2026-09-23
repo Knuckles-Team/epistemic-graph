@@ -30,6 +30,8 @@ mod triples;
 mod validation;
 
 pub(in crate::server) use dispatch::try_handle;
+#[cfg(all(feature = "shacl", feature = "owl-plan"))]
+pub(in crate::server) use validation::ServedShapes;
 #[cfg(feature = "owl")]
 pub(in crate::server) use reasoning::try_handle_distributed;
 

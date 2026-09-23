@@ -110,6 +110,12 @@ pub struct PlanCtx<'a> {
     /// (a trait object), so no feature gate: a plan that never uses `Op::RankEmbed` is
     /// unchanged whether or not an embedder is bound.
     pub embedder: Option<&'a dyn TextEmbedder>,
+    /// The graph's own SHACL shapes for a `VALIDATE SHAPE` stage that names no `USING`
+    /// shapes graph (EH-196): a served query binds an adapter over the graph's composed
+    /// GraphSchema shapes. `None` makes such a stage a clean typed error. Gated on `owl`
+    /// with the operator itself.
+    #[cfg(feature = "owl")]
+    pub shape_source: Option<&'a dyn ShapeSource>,
     /// CONCEPT:EG-KG.query.reason-decay-in-plan — the wall-clock `(now, default_half_life)`
     /// that makes an `Op::Reason` compute TIME-DECAYED OWL confidence IN-PLAN, so a single
     /// fused plan can BOTH bi-temporal `AsOf`-reselect liveness AND Ebbinghaus-decay-reweight
@@ -163,6 +169,15 @@ pub struct PlanCtx<'a> {
 /// same shape [`crate::knowledge_batch`]'s Arrow projection and the vector `Rank`
 /// leg's `SemanticStore` guard-borrow use elsewhere in this workstream (bind the
 /// LIVE structure, don't clone/rebuild it per query).
+/// A source of SHACL shapes for `VALIDATE SHAPE` (EH-196) — the graph's composed
+/// GraphSchema shapes on the served path. Resolved lazily: only a stage that names no
+/// `USING` shapes graph asks, so a query without one never composes the schema.
+#[cfg(feature = "owl")]
+pub trait ShapeSource: Send + Sync {
+    /// The shapes graph, or why the graph has none to offer.
+    fn shapes(&self) -> Result<eg_shacl::Graph, String>;
+}
+
 #[cfg(feature = "text")]
 pub trait TextSource: Send + Sync {
     /// BM25 top-`k` for `query` — same contract as `eg_text::TextIndex::search`:
@@ -351,6 +366,8 @@ impl<'a> PlanCtx<'a> {
             embedder: None,
             #[cfg(feature = "owl")]
             decay: None,
+            #[cfg(feature = "owl")]
+            shape_source: None,
             #[cfg(feature = "epistemic")]
             belief_policy: None,
             #[cfg(feature = "geo")]
@@ -383,6 +400,15 @@ impl<'a> PlanCtx<'a> {
     #[cfg(feature = "geo")]
     pub fn with_spatial(mut self, spatial: &'a dyn SpatialSource) -> Self {
         self.spatial = Some(spatial);
+        self
+    }
+
+    /// Attach the graph-stored SHACL shapes a `VALIDATE SHAPE` stage without its own
+    /// `USING` document validates against (EH-196). Without this call such a stage is a
+    /// typed error, so a default ctx is byte-for-byte the old one.
+    #[cfg(feature = "owl")]
+    pub fn with_shape_source(mut self, shapes: &'a dyn ShapeSource) -> Self {
+        self.shape_source = Some(shapes);
         self
     }
 
