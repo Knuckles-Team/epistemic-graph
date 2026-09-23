@@ -58,6 +58,10 @@ pub mod decision;
 // beside the server registry, and the typed projection that joins them with
 // connector-pack `AgentComponent`s. Pure serde; the handler lives in the server.
 pub mod fleet_catalog;
+// EH-346/EH-347 — capture-first open-weight policy evolution: the capability,
+// capture, model-policy version, training-run and evaluation records EG owns.
+// Pure serde; EG records and relates, it never trains.
+pub mod policy_evolution;
 // CONCEPT:EG-KG.sharding.semantic-embedding-store-backed — the pinned embedding-space
 // identity (`EmbeddingSpaceRef`) + stamped-vector (`StampedVector`) currency shared
 // by BOTH `eg-core::compute::semantic` backends, plus their two dimensionality

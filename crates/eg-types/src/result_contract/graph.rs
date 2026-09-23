@@ -2,6 +2,7 @@
 
 use super::transactions::SparqlUpdateReport;
 use super::Dynamic;
+use crate::policy_evolution::{PolicyRecordReceipt, PolicyRecordView};
 use crate::rdf_report::LoadReport;
 use crate::types::{
     CompactNodesResult, DecayStats, GraphDiff, GraphMetrics, PropertyBlob, PruneStats, ScenePose,
@@ -82,4 +83,12 @@ method_results! {
     CompactNodesByType(CompactNodesByType) => Json<CompactNodesResult>;
     AddTriples(AddTriples) => Raw<LoadReport>;
     RemoveTriples(RemoveTriples) => Count<u64>;
+    // EH-346/EH-347 policy evolution. The §1.1 method names are the result ids.
+    PolicyCapabilityPut(PolicyEvolution / "put_capability") => Raw<PolicyRecordReceipt>;
+    PolicyCaptureCommit(PolicyEvolution / "commit_capture") => Raw<PolicyRecordReceipt>;
+    ModelPolicyVersionRegister(PolicyEvolution / "register_model_policy_version") => Raw<PolicyRecordReceipt>;
+    TrainingRunCommit(PolicyEvolution / "commit_training_run") => Raw<PolicyRecordReceipt>;
+    PolicyEvaluationCommit(PolicyEvolution / "commit_policy_evaluation") => Raw<PolicyRecordReceipt>;
+    // `null` when no record with this id is visible in the request graph.
+    PolicyRecordGet(PolicyEvolution / "get") => Raw<Option<PolicyRecordView>>;
 }
