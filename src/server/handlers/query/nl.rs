@@ -141,9 +141,9 @@ pub(crate) async fn handle_nl_query(
     // See the `UnifiedQuery` arm: push vector + lexical legs into the live
     // persistent indexes via a guard taken INSIDE the off-lock closure.
     let core_for_ctx = core.clone();
-    // CONCEPT:EG-KG.query.closure-backed-source — the CALLER'S tenant-scoped foreign
+    // CONCEPT:EG-KG.query.closure-backed-source — the CALLER'S owner-scoped foreign
     // registry (EH-373): an NL-planned `FOREIGN "<name>"` / `Named` `ForeignScan` leg
-    // resolves only sources the caller's verified tenant registered.
+    // resolves only sources the caller (tenant+principal) registered.
     #[cfg(feature = "federation")]
     let foreign = match served_foreign_leg(state, &plan, read_authority).await {
         Ok(foreign) => foreign,

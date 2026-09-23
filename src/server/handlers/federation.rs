@@ -2,14 +2,15 @@
 //!
 //! `RegisterForeignSource` records a named EXTERNAL source (a remote epistemic-graph
 //! engine or an HTTP/JSON API — [`eg_types::wire::ForeignSourceSpec`]) in the
-//! tenant-scoped [`crate::server::foreign_catalog::ForeignSourceCatalog`] on
-//! `ServerState`, under the caller's VERIFIED tenant scope (EH-373). The actual
+//! owner-scoped [`crate::server::foreign_catalog::ForeignSourceCatalog`] on
+//! `ServerState`, under the caller's VERIFIED owner — tenant+principal (EH-373). The actual
 //! cross-engine / HTTP fetch is driven by the unified-query handlers: an inline-spec
 //! `Op::ForeignScan` resolves itself, and a `Named` `Op::ForeignScan` / an `Op::Foreign`
 //! (the UQL `FOREIGN "<name>"` marker) resolves through the registry
-//! `ForeignSourceCatalog::registry_for` builds from the caller's tenant's entries only
-//! (CONCEPT:EG-KG.query.closure-backed-source). One tenant can therefore neither use nor
-//! overwrite another tenant's registration, even under the same name. Rows a foreign
+//! `ForeignSourceCatalog::registry_for` builds from the caller's own entries only
+//! (CONCEPT:EG-KG.query.closure-backed-source). One principal can therefore neither use
+//! nor overwrite another principal's registration, even under the same name (one engine
+//! is bound to one tenant; the tenant stays inside the owner key). Rows a foreign
 //! source returns are not RLS-filtered. A lightweight, non-blocking insert — no
 //! off-reactor work needed.
 

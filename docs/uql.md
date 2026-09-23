@@ -85,7 +85,7 @@ explain_belief      = "EXPLAIN" "BELIEF" id ;
 | `MATCH (:Label)` | `Scan{label}` | base | Seed every node whose `type == Label`. |
 | `MATCH (:Label) WHERE p…` | `Scan` + `Filter` | `query` | Inline `WHERE` is sugar for a following filter. |
 | `REASON <Class>` | `Reason{target_class}` | `owl` | Seed every individual the OWL 2 reasoner **infers** to be a member of `<Class>` — including those with no asserted type edge. |
-| `FOREIGN "<name>"` | `Foreign{name}` | base (resolve: `federation`) | Seed from an external source (remote engine / HTTP-JSON / SQL) registered by the caller's own tenant; another tenant's name resolves as unregistered. Foreign rows are not RLS-filtered. |
+| `FOREIGN "<name>"` | `Foreign{name}` | base (resolve: `federation`) | Seed from an external source (remote engine / HTTP-JSON / SQL) registered by the caller itself (owner = tenant+principal); another principal's name resolves as unregistered. Foreign rows are not RLS-filtered. |
 
 ### Transform stages
 

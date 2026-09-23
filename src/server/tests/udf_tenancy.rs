@@ -1,7 +1,8 @@
-//! EH-374 WASM UDF tenancy proofs through the FULL served dispatch chain
+//! EH-374 WASM UDF ownership proofs through the FULL served dispatch chain
 //! (CONCEPT:EG-KG.query.rowset-execution). `RegisterUdf` used to write ONE
-//! process-global `id → module` registry, so a tenant could run another tenant's UDF
-//! and shadow it by re-registering the same id.
+//! process-global `id → module` registry, so a principal could run another principal's
+//! UDF and shadow it by re-registering the same id. One engine is bound to one tenant,
+//! so these run as two principals (`worker1`, `worker2`) of that tenant.
 
 use super::*;
 
@@ -46,28 +47,31 @@ fn raw_output(resp: &crate::protocol::Response) -> Vec<u8> {
     }
 }
 
-/// Tenant B can neither run tenant A's UDF (it resolves as unregistered) nor shadow it
-/// (B's registration of the same id is B's own module; A still runs A's).
+/// Principal B can neither run principal A's UDF (it resolves as unregistered) nor
+/// shadow it (B's registration of the same id is B's own module; A still runs A's).
 #[tokio::test]
-async fn udf_ids_are_tenant_scoped_through_dispatch() {
+async fn udf_ids_are_owner_scoped_through_dispatch() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    let state = test_state();
-    assert_ok(&dispatch_in_tenant(&state, 930, "tenant-a", register(IDENTITY_WAT)).await);
+    let state = multi_tenant_state().await;
+    assert_ok(&dispatch_as(&state, 930, "worker1", register(IDENTITY_WAT)).await);
 
-    let refused = dispatch_in_tenant(&state, 931, "tenant-b", run(b"probe")).await;
-    let err = refused.error.expect("tenant B must not run tenant A's UDF");
-    assert!(
-        err.contains("no UDF registered under id 'shared_id'") && !err.contains("ACCESS_DENIED"),
-        "a cross-tenant UDF id must look unregistered, got: {err}"
+    let refused = dispatch_as(&state, 931, "worker2", run(b"probe")).await;
+    let err = refused
+        .error
+        .expect("principal B must not run principal A's UDF");
+    assert_eq!(
+        err, "udf ABI error: no UDF registered under id 'shared_id'",
+        "a cross-principal UDF id must be the exact not-found (not ACCESS_DENIED, not the \
+         envelope tenant-binding refusal)"
     );
 
-    assert_ok(&dispatch_in_tenant(&state, 932, "tenant-b", register(CONSTANT_WAT)).await);
-    let a_out = raw_output(&dispatch_in_tenant(&state, 933, "tenant-a", run(b"payload")).await);
+    assert_ok(&dispatch_as(&state, 932, "worker2", register(CONSTANT_WAT)).await);
+    let a_out = raw_output(&dispatch_as(&state, 933, "worker1", run(b"payload")).await);
     assert_eq!(
         a_out,
         b"payload".to_vec(),
-        "tenant B must not shadow tenant A's UDF"
+        "principal B must not shadow principal A's UDF"
     );
-    let b_out = raw_output(&dispatch_in_tenant(&state, 934, "tenant-b", run(b"payload")).await);
-    assert_eq!(b_out, vec![0xbb], "tenant B runs its own module");
+    let b_out = raw_output(&dispatch_as(&state, 934, "worker2", run(b"payload")).await);
+    assert_eq!(b_out, vec![0xbb], "principal B runs its own module");
 }

@@ -125,7 +125,7 @@ pub(crate) fn plan_needs_spatial(ops: &[eg_plan::Op]) -> bool {
 /// Does `ops` NAME a registered foreign source — an `Op::Foreign` (the UQL
 /// `FOREIGN "<name>"` marker) or a `Named` `Op::ForeignScan`, at the top level or nested
 /// inside an `Op::FuseRrf` branch (CONCEPT:EG-KG.query.closure-backed-source, mirroring
-/// `plan_needs_text`)? Drives whether a served path builds the caller's tenant-scoped
+/// `plan_needs_text`)? Drives whether a served path builds the caller's owner-scoped
 /// foreign-source registry at all
 /// (`crate::server::foreign_catalog::ForeignSourceCatalog::resolve_for_plan`), so a
 /// non-federated plan pays nothing. A self-describing (inline-spec)
@@ -199,12 +199,12 @@ pub(crate) struct ServedIndexes<'a> {
     pub text: Option<&'a crate::server::secondary_indexes::ServedTextIndex>,
     #[cfg(feature = "geo")]
     pub spatial: Option<&'a crate::server::secondary_indexes::ServedSpatialIndex>,
-    /// CONCEPT:EG-KG.query.closure-backed-source — the CALLER'S tenant-scoped foreign
+    /// CONCEPT:EG-KG.query.closure-backed-source — the CALLER'S owner-scoped foreign
     /// registry (EH-373), built by
     /// [`crate::server::foreign_catalog::ForeignSourceCatalog::registry_for`] from only the
-    /// caller's verified tenant's `RegisterForeignSource` entries. An `Op::Foreign` (the
-    /// UQL `FOREIGN "<name>"` marker) / a `Named` `Op::ForeignScan` resolves through it, so
-    /// another tenant's source name resolves as not-registered. `None` ⇒ no registry is
+    /// caller's own (tenant+principal) `RegisterForeignSource` entries. An `Op::Foreign`
+    /// (the UQL `FOREIGN "<name>"` marker) / a `Named` `Op::ForeignScan` resolves through
+    /// it, so another principal's source name resolves as not-registered. `None` ⇒ no registry is
     /// bound and a name-resolving op stays a clean typed error — never a silent empty
     /// set, never silently-local rows.
     #[cfg(feature = "federation")]
@@ -313,7 +313,7 @@ pub(crate) fn run_unified(
     // `spatial_scan`'s prior ephemeral-build fallback — byte-for-byte the old behavior.
     #[cfg(feature = "geo")]
     let ctx = run_unified_bind_spatial(ctx, &ops, served_spatial);
-    // CONCEPT:EG-KG.query.closure-backed-source — bind the caller's tenant-scoped
+    // CONCEPT:EG-KG.query.closure-backed-source — bind the caller's owner-scoped
     // foreign registry so a served `Op::Foreign` (`FOREIGN "<name>"`) / a `Named`
     // `Op::ForeignScan` resolves the caller's OWN registered sources (EH-373).
     #[cfg(feature = "federation")]
@@ -368,7 +368,7 @@ pub(crate) fn run_unified_bind_spatial<'a>(
 }
 
 /// The `Op::Foreign`/`Op::ForeignScan` leg-binding of [`run_unified`]
-/// (CONCEPT:EG-KG.query.closure-backed-source): attach the caller's tenant-scoped registry, if any.
+/// (CONCEPT:EG-KG.query.closure-backed-source): attach the caller's owner-scoped registry, if any.
 #[cfg(feature = "federation")]
 pub(crate) fn run_unified_bind_foreign<'a>(
     ctx: eg_plan::PlanCtx<'a>,
@@ -443,8 +443,9 @@ pub(crate) type UnifiedRunOutcome = Result<Result<Vec<(String, Option<f32>)>, St
 
 /// The verified-carrier-scoped legs of one served unified plan, resolved once per
 /// request before the result-cache probe: the tsdb `(tenant, namespace)` scope and the
-/// caller's tenant-scoped foreign-source registry (EH-373). Both are derived from the
-/// verified read authority only, and both make a result tenant-specific, so
+/// caller's owner-scoped (tenant+principal) foreign-source registry (EH-373). Both are
+/// derived from the verified read authority only, and both make a result
+/// caller-specific, so
 /// [`Self::salt_cache_key`] folds them into the result-cache key.
 #[cfg(feature = "query")]
 #[derive(Default)]
@@ -452,7 +453,7 @@ pub(crate) struct ServedPlanLegs {
     #[cfg(feature = "tsdb")]
     pub(crate) tsdb_scope: Option<(String, String)>,
     #[cfg(feature = "federation")]
-    pub(crate) foreign: Option<crate::server::foreign_catalog::TenantForeignRegistry>,
+    pub(crate) foreign: Option<crate::server::foreign_catalog::OwnedForeignRegistry>,
 }
 
 #[cfg(feature = "query")]
@@ -479,7 +480,8 @@ impl ServedPlanLegs {
     }
 
     /// Append the tenant-specific parts of these legs to a result-cache key payload
-    /// (the tsdb tenant + namespace first, byte-identical to the prior tsdb salt).
+    /// (the tsdb tenant + namespace first, byte-identical to the prior tsdb salt, then the
+    /// foreign registry's owner scope).
     #[cfg(feature = "result-cache")]
     pub(crate) fn salt_cache_key(&self, payload: &mut Vec<u8>) {
         #[cfg(feature = "tsdb")]
@@ -489,7 +491,7 @@ impl ServedPlanLegs {
         }
         #[cfg(feature = "federation")]
         if let Some(foreign) = self.foreign.as_ref() {
-            payload.extend_from_slice(foreign.tenant_scope().as_bytes());
+            payload.extend_from_slice(foreign.owner_scope().as_bytes());
         }
         #[cfg(not(any(feature = "tsdb", feature = "federation")))]
         let _ = payload;

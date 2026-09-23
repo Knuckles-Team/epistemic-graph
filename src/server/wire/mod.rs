@@ -4572,9 +4572,9 @@ impl WireSession {
             Some((tenant, graph)) => (Some(tenant), Some(graph)),
             None => (None, None),
         };
-        // CONCEPT:EG-KG.query.closure-backed-source — the session's tenant-scoped foreign
+        // CONCEPT:EG-KG.query.closure-backed-source — the session's owner-scoped foreign
         // registry (EH-373): a wire-path `FOREIGN "<name>"` / `Named` `ForeignScan` leg
-        // resolves only sources the session's verified tenant registered.
+        // resolves only sources the session's verified principal registered.
         #[cfg(feature = "federation")]
         let foreign = {
             let catalog = self.state.read().await.foreign_sources.clone();

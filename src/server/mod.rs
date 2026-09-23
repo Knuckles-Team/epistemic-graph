@@ -376,13 +376,13 @@ pub(crate) mod graph_tile_source;
 // lease has lapsed. Always declared (mirrors `semantic_activation` above) — the
 // sweep is a no-op when nothing has registered.
 pub(crate) mod handlers;
-// Tenant-scoped foreign-source catalog (CONCEPT:EG-KG.query.query-federation, EH-373): the one
-// place a caller's verified tenant scope selects which registered sources a plan may resolve.
+// Owner-scoped foreign-source catalog (CONCEPT:EG-KG.query.query-federation, EH-373): the one
+// place a caller's verified owner (tenant+principal) selects which sources a plan may resolve.
 #[cfg(feature = "federation")]
 pub mod foreign_catalog;
-// Tenant-scoped WASM UDF catalog (CONCEPT:EG-KG.query.rowset-execution, EH-374):
-// `RegisterUdf`/`RunUdf` resolve ids only within the caller's verified tenant.
 pub mod registry_reaper;
+// Owner-scoped WASM UDF catalog (CONCEPT:EG-KG.query.rowset-execution, EH-374):
+// `RegisterUdf`/`RunUdf` resolve ids only within the caller's verified owner (tenant+principal).
 #[cfg(feature = "wasm-udf")]
 pub mod udf_catalog;
 // MutationPlan + the single commit gateway (CONCEPT:EG-P0-2): consumes
@@ -1186,47 +1186,8 @@ mod tests {
     }
 
     fn request(id: u64, graph: &str, agent_id: Option<&str>, method: Method) -> Request {
-        request_in_tenant(id, graph, agent_id, "tenant-shared", method)
-    }
-
-    /// Dispatch `method` on `__commons__` signed for the verified `tenant` (EH-373/EH-374
-    /// cross-tenant tests).
-    #[cfg(any(feature = "federation", feature = "wasm-udf"))]
-    async fn dispatch_in_tenant(
-        state: &Arc<RwLock<ServerState>>,
-        id: u64,
-        tenant: &str,
-        method: Method,
-    ) -> Response {
-        dispatch_on_heap(
-            state,
-            request_in_tenant(id, "__commons__", None, tenant, method),
-        )
-        .await
-    }
-
-    /// [`request`] signed for an explicit verified `tenant` (EH-373 tenancy tests).
-    fn request_in_tenant(
-        id: u64,
-        graph: &str,
-        agent_id: Option<&str>,
-        tenant: &str,
-        method: Method,
-    ) -> Request {
         static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        let effective_agent = agent_id.unwrap_or("system");
-        let claims = RequestContextClaims {
-            principal: effective_agent.to_string(),
-            tenant: tenant.to_string(),
-            audience: "epistemic-graph-test".to_string(),
-            agent_id: effective_agent.to_string(),
-            roles: vec!["test".to_string()],
-            scopes: vec!["*".to_string()],
-            policy_version: "policy-test".to_string(),
-            delegation: Vec::new(),
-            node: None,
-            priority: None,
-        };
+        let claims = test_claims(agent_id.unwrap_or("system"));
         // The idempotency key must identify the OPERATION, not just the request
         // id. `request(1, ...)` is called 21 times across this module with
         // different methods, and keying on `id` alone gave every one of them
@@ -1243,8 +1204,6 @@ mod tests {
             use sha2::{Digest, Sha256};
             let mut hasher = Sha256::new();
             hasher.update(graph.as_bytes());
-            hasher.update([0]);
-            hasher.update(tenant.as_bytes());
             hasher.update([0]);
             hasher.update(rmp_serde::to_vec_named(&method).unwrap_or_default());
             hex::encode(hasher.finalize())
@@ -1275,6 +1234,46 @@ mod tests {
             },
         );
         request
+    }
+
+    /// The signed claims [`request`] issues for `agent` in the deployment's one tenant.
+    fn test_claims(agent: &str) -> RequestContextClaims {
+        RequestContextClaims {
+            principal: agent.to_string(),
+            tenant: "tenant-shared".to_string(),
+            audience: "epistemic-graph-test".to_string(),
+            agent_id: agent.to_string(),
+            roles: vec!["test".to_string()],
+            scopes: vec!["*".to_string()],
+            policy_version: "policy-test".to_string(),
+            delegation: Vec::new(),
+            node: None,
+            priority: None,
+        }
+    }
+
+    /// The verified carrier the server derives for a [`request`] made as `agent`
+    /// (EH-373/EH-374 owner-scoped catalogs key on its `owner_scope`).
+    #[cfg(any(feature = "federation", feature = "wasm-udf"))]
+    fn carrier_as(agent: &str) -> crate::server::access::CarrierAuthority {
+        let context = crate::server::auth::VerifiedRequestContext::from_verified_claims(
+            test_claims(agent),
+            "carrier-as".to_string(),
+        );
+        crate::server::access::CarrierAuthority::from_verified(&context)
+            .expect("verified test carrier")
+    }
+
+    /// Dispatch `method` on `__commons__` signed as `agent` (EH-373/EH-374
+    /// cross-principal tests).
+    #[cfg(any(feature = "federation", feature = "wasm-udf"))]
+    async fn dispatch_as(
+        state: &Arc<RwLock<ServerState>>,
+        id: u64,
+        agent: &str,
+        method: Method,
+    ) -> Response {
+        dispatch_on_heap(state, request(id, "__commons__", Some(agent), method)).await
     }
 
     fn add_node(node_id: &str) -> Method {
@@ -2248,15 +2247,11 @@ mod tests {
             other => panic!("expected the registered name, got {other:?}"),
         }
         let s = state.read().await;
-        let owner = crate::server::access::CarrierAuthority::from_verified(
-            &crate::server::auth::VerifiedRequestContext::verified_for_test("system"),
-        )
-        .expect("verified test carrier");
         assert!(
             s.foreign_sources
-                .spec_for(owner.tenant_scope(), "papers_api")
+                .spec_for(&carrier_as("system"), "papers_api")
                 .is_some(),
-            "the source must be recorded on ServerState under the caller's verified tenant"
+            "the source must be recorded on ServerState under the caller's verified owner"
         );
     }
 

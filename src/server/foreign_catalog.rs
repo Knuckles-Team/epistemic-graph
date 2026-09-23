@@ -1,33 +1,40 @@
-//! Tenant-scoped foreign-source catalog (CONCEPT:EG-KG.query.query-federation, EH-373).
+//! Owner-scoped foreign-source catalog (CONCEPT:EG-KG.query.query-federation, EH-373).
 //!
 //! `Method::RegisterForeignSource` records a named [`ForeignSourceSpec`]. A
 //! `RemoteEngine` spec carries a shared `secret` and a signed request `context`, so a
 //! registration is a credential. Before EH-373 the server kept ONE process-global
-//! `name → spec` map and every tenant's plan resolved against it: a tenant holding only
-//! `query:unified` could name another principal's source (`FOREIGN "<name>"`, a `Named`
-//! `Op::ForeignScan`, or an NL-planned query) and make the server spend that
+//! `name → spec` map and every caller's plan resolved against it: any principal holding
+//! only `query:unified` could name another principal's source (`FOREIGN "<name>"`, a
+//! `Named` `Op::ForeignScan`, or an NL-planned query) and make the server spend that
 //! principal's credential on its behalf — a confused deputy.
 //!
 //! This module is the ONE place that scoping happens:
 //!
-//! * entries are keyed by `(tenant scope, name)`; the tenant scope comes only from a
-//!   [`CarrierAuthority`], which is derived from the verified request envelope and
-//!   never from a request field;
+//! * entries are keyed by `(owner, name)`, where the owner is
+//!   [`CarrierAuthority::owner_scope`] — the verified tenant AND principal (actor). It
+//!   comes only from a [`CarrierAuthority`] derived from the verified request envelope,
+//!   never from a request field. One engine is bound to ONE tenant
+//!   (`EPISTEMIC_GRAPH_TENANT`; every verified carrier carries it), so the principal is
+//!   the boundary that matters today; the tenant stays inside the owner scope so
+//!   cross-tenant stays closed if engines ever serve more than one tenant. This is the
+//!   same least-privilege ownership the SQL catalog uses.
 //! * [`ForeignSourceCatalog::registry_for`] is the only way to turn catalog entries into
 //!   the executor's [`ForeignSourceRegistry`], and it copies only the caller's own
-//!   tenant's entries. Every served plan path (`UnifiedQuery`, `UnifiedQueryText`, the
+//!   entries. Every served plan path (`UnifiedQuery`, `UnifiedQueryText`, the
 //!   policy-lease text path, in-txn UQL, `NlQuery`, and the wire-protocol UQL path)
 //!   builds its registry through [`ForeignSourceCatalog::resolve_for_plan`].
 //!
-//! A name registered by another tenant resolves exactly like a name nobody
+//! Sharing a source with other principals is not supported: each principal registers
+//! its own (an explicit use grant through the engine's RBAC grants is a ledgered
+//! follow-up). A name another owner registered resolves exactly like a name nobody
 //! registered: the eg-plan registry's "no foreign source registered under name" error,
 //! listing only the caller's own names. It is deliberately NOT `ACCESS_DENIED`, which
-//! would tell a caller that some other tenant uses that name.
+//! would tell a caller that some other principal uses that name.
 //!
 //! **Foreign rows are not RLS-filtered.** A foreign source's rows come from outside
 //! the local snapshot, so the row-level visibility filter that governs local graph
 //! reads never sees them. Their only access control is the remote side's own
-//! authorization of the registered credential, plus this tenant scoping of who may
+//! authorization of the registered credential, plus this owner scoping of who may
 //! use that credential.
 //!
 //! Registrations live in memory only. `RegisterForeignSource` is a `ControlRedb`
@@ -44,73 +51,74 @@ use tokio::sync::RwLock;
 use super::access::{CarrierAuthority, GraphReadAuthority};
 use super::state::ServerState;
 
-/// `(verified tenant scope, source name)` — the catalog key.
+/// `(verified owner scope, source name)` — the catalog key.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct CatalogKey {
-    tenant_scope: String,
+    owner_scope: String,
     name: String,
 }
 
-/// Every tenant's registered foreign sources, partitioned by verified tenant scope.
+/// Every owner's registered foreign sources, partitioned by verified owner
+/// (tenant+principal) scope.
 #[derive(Default)]
 pub struct ForeignSourceCatalog {
     entries: DashMap<CatalogKey, ForeignSourceSpec>,
 }
 
-/// A caller's tenant-scoped registry, built by [`ForeignSourceCatalog::registry_for`].
-/// It remembers the tenant scope so result caches can key on it.
-pub(crate) struct TenantForeignRegistry {
-    tenant_scope: String,
+/// A caller's owner-scoped registry, built by [`ForeignSourceCatalog::registry_for`].
+/// It remembers the owner scope so result caches can key on it.
+pub(crate) struct OwnedForeignRegistry {
+    owner_scope: String,
     registry: ForeignSourceRegistry,
 }
 
-impl TenantForeignRegistry {
-    /// The verified tenant scope this registry was built for.
-    pub(crate) fn tenant_scope(&self) -> &str {
-        &self.tenant_scope
+impl OwnedForeignRegistry {
+    /// The verified owner (tenant+principal) scope this registry was built for.
+    pub(crate) fn owner_scope(&self) -> &str {
+        &self.owner_scope
     }
 
-    /// The executor registry holding only this tenant's sources.
+    /// The executor registry holding only this owner's sources.
     pub(crate) fn registry(&self) -> &ForeignSourceRegistry {
         &self.registry
     }
 }
 
 impl ForeignSourceCatalog {
-    /// Record (or replace) `owner`'s source `name`. Another tenant's entry under the
+    /// Record (or replace) `owner`'s source `name`. Another owner's entry under the
     /// same name is a different key, so it can be neither read nor overwritten here.
     pub(crate) fn register(&self, owner: &CarrierAuthority, name: String, spec: ForeignSourceSpec) {
         let key = CatalogKey {
-            tenant_scope: owner.tenant_scope().to_string(),
+            owner_scope: owner.owner_scope().to_string(),
             name,
         };
         self.entries.insert(key, spec);
     }
 
-    /// THE scoping chokepoint: the executor registry holding only `caller`'s tenant's
-    /// sources.
-    pub(crate) fn registry_for(&self, caller: &CarrierAuthority) -> TenantForeignRegistry {
-        let tenant_scope = caller.tenant_scope();
+    /// THE scoping chokepoint: the executor registry holding only `caller`'s own
+    /// (tenant+principal) sources.
+    pub(crate) fn registry_for(&self, caller: &CarrierAuthority) -> OwnedForeignRegistry {
+        let owner_scope = caller.owner_scope();
         let mut registry = ForeignSourceRegistry::new();
         for entry in self.entries.iter() {
-            if entry.key().tenant_scope == tenant_scope {
+            if entry.key().owner_scope == owner_scope {
                 registry.register_spec(entry.key().name.clone(), entry.value().clone());
             }
         }
-        TenantForeignRegistry {
-            tenant_scope: tenant_scope.to_string(),
+        OwnedForeignRegistry {
+            owner_scope: owner_scope.to_string(),
             registry,
         }
     }
 
     /// Resolve the registry a served plan needs: `None` when the plan names no
-    /// registered source, the caller's tenant registry otherwise. A name-resolving plan
+    /// registered source, the caller's own registry otherwise. A name-resolving plan
     /// without a verified carrier is refused rather than run with no scope.
     pub(crate) fn resolve_for_plan(
         &self,
         ops: &[eg_plan::Op],
         caller: Option<&CarrierAuthority>,
-    ) -> Result<Option<TenantForeignRegistry>, String> {
+    ) -> Result<Option<OwnedForeignRegistry>, String> {
         if !crate::server::handlers::query::plan_needs_foreign(ops) {
             return Ok(None);
         }
@@ -124,17 +132,21 @@ impl ForeignSourceCatalog {
         Ok(Some(self.registry_for(caller)))
     }
 
-    /// The spec `tenant_scope` registered under `name`, if any.
+    /// The spec `owner` registered under `name`, if any.
     #[cfg(test)]
-    pub(crate) fn spec_for(&self, tenant_scope: &str, name: &str) -> Option<ForeignSourceSpec> {
+    pub(crate) fn spec_for(
+        &self,
+        owner: &CarrierAuthority,
+        name: &str,
+    ) -> Option<ForeignSourceSpec> {
         let key = CatalogKey {
-            tenant_scope: tenant_scope.to_string(),
+            owner_scope: owner.owner_scope().to_string(),
             name: name.to_string(),
         };
         self.entries.get(&key).map(|entry| entry.value().clone())
     }
 
-    /// Whether no tenant has registered any source.
+    /// Whether no owner has registered any source.
     pub(crate) fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
@@ -147,7 +159,7 @@ pub(crate) async fn served_foreign_leg(
     state: &Arc<RwLock<ServerState>>,
     plan: &eg_plan::Plan,
     read_authority: Option<&GraphReadAuthority>,
-) -> Result<Option<TenantForeignRegistry>, String> {
+) -> Result<Option<OwnedForeignRegistry>, String> {
     let catalog = state.read().await.foreign_sources.clone();
     catalog.resolve_for_plan(
         &plan.ops,
@@ -158,21 +170,22 @@ pub(crate) async fn served_foreign_leg(
 /// The executor registry a resolved leg binds, if any — the `ServedIndexes::foreign`
 /// value every served plan path passes to `run_unified`.
 pub(crate) fn bound_registry(
-    foreign: &Option<TenantForeignRegistry>,
+    foreign: &Option<OwnedForeignRegistry>,
 ) -> Option<&ForeignSourceRegistry> {
-    foreign.as_ref().map(TenantForeignRegistry::registry)
+    foreign.as_ref().map(OwnedForeignRegistry::registry)
 }
 
 #[cfg(test)]
 mod tests {
-    //! EH-373 catalog-level proofs: `(tenant, name)` keying, per-tenant resolution, and
-    //! no cross-tenant overwrite. The served-path proofs (UnifiedQuery, UQL text, NL)
+    //! EH-373 catalog-level proofs: `(owner, name)` keying, per-owner resolution, and
+    //! no cross-owner overwrite. The served-path proofs (UnifiedQuery, UQL text, NL)
     //! live in `server::tests::foreign_tenancy`.
     use super::*;
     use crate::server::auth::VerifiedRequestContext;
 
-    fn carrier(tenant: &str) -> CarrierAuthority {
-        let context = VerifiedRequestContext::verified_for_test_in_tenant("agent-x", tenant);
+    /// A verified carrier for `agent` in the deployment's one tenant.
+    fn carrier(agent: &str) -> CarrierAuthority {
+        let context = VerifiedRequestContext::verified_for_test(agent);
         CarrierAuthority::from_verified(&context).expect("verified test carrier")
     }
 
@@ -192,30 +205,31 @@ mod tests {
     }
 
     #[test]
-    fn same_name_resolves_to_each_tenants_own_spec() {
-        let (a, b) = (carrier("tenant-a"), carrier("tenant-b"));
+    fn same_name_resolves_to_each_owners_own_spec() {
+        let (a, b) = (carrier("agent-a"), carrier("agent-b"));
+        assert_eq!(a.tenant_scope(), b.tenant_scope(), "one engine, one tenant");
         let catalog = ForeignSourceCatalog::default();
         catalog.register(&a, "src".into(), http_spec("http://a.invalid/"));
         catalog.register(&b, "src".into(), http_spec("http://b.invalid/"));
         assert_eq!(
-            catalog.spec_for(a.tenant_scope(), "src"),
+            catalog.spec_for(&a, "src"),
             Some(http_spec("http://a.invalid/"))
         );
         assert_eq!(
-            catalog.spec_for(b.tenant_scope(), "src"),
+            catalog.spec_for(&b, "src"),
             Some(http_spec("http://b.invalid/")),
-            "tenant B's registration must not overwrite tenant A's"
+            "principal B's registration must not overwrite principal A's"
         );
         for caller in [&a, &b] {
             let scoped = catalog.registry_for(caller);
-            assert_eq!(scoped.tenant_scope(), caller.tenant_scope());
+            assert_eq!(scoped.owner_scope(), caller.owner_scope());
             assert_eq!(scoped.registry().len(), 1, "only the caller's own entry");
         }
     }
 
     #[test]
-    fn another_tenants_name_resolves_as_not_registered() {
-        let (a, b) = (carrier("tenant-a"), carrier("tenant-b"));
+    fn another_owners_name_resolves_as_not_registered() {
+        let (a, b) = (carrier("agent-a"), carrier("agent-b"));
         let catalog = ForeignSourceCatalog::default();
         catalog.register(&a, "secret_src".into(), http_spec("http://a.invalid/"));
         let scoped = catalog
@@ -224,12 +238,12 @@ mod tests {
             .expect("a FOREIGN plan binds a registry");
         assert!(scoped.registry().is_empty());
         let err = match scoped.registry().resolve("secret_src") {
-            Ok(_) => panic!("tenant B must not resolve tenant A's source"),
+            Ok(_) => panic!("principal B must not resolve principal A's source"),
             Err(err) => err,
         };
         assert!(
             err.contains("no foreign source registered") && !err.contains("ACCESS_DENIED"),
-            "cross-tenant resolution must look exactly like an unregistered name: {err}"
+            "cross-owner resolution must look exactly like an unregistered name: {err}"
         );
     }
 

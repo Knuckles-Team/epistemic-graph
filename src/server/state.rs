@@ -313,9 +313,9 @@ pub struct ServerState {
     pub cdc: Option<Arc<crate::server::cdc::CdcHub>>,
     /// WASM-sandboxed UDF catalog (CONCEPT:EG-KG.query.rowset-execution, feature `wasm-udf`). Holds the
     /// compiled, cached `UdfModule`s an agent pushed via `RegisterUdf`, keyed by
-    /// `(verified tenant scope, id)` (EH-374); `RunUdf` looks up + runs only the
-    /// caller's own tenant's modules sandboxed (fuel + memory limits, NO host caps), so
-    /// no tenant can run or shadow another's UDF. Always present (empty) with the
+    /// `(verified owner, id)` — tenant+principal (EH-374); `RunUdf` looks up + runs only
+    /// the caller's own modules sandboxed (fuel + memory limits, NO host caps), so no
+    /// principal can run or shadow another's UDF. Always present (empty) with the
     /// feature on — not per-graph. Behind `Arc` so the off-lock compute path clones a
     /// handle cheaply.
     #[cfg(feature = "wasm-udf")]
@@ -327,12 +327,13 @@ pub struct ServerState {
     #[cfg(feature = "compute-dist")]
     pub matviews: Arc<Mutex<crate::raft::pregel::MatViewStore>>,
     /// Registered FOREIGN sources for query federation (CONCEPT:EG-KG.query.query-federation, feature
-    /// `federation`), keyed by `(verified tenant scope, name)` (EH-373).
-    /// `RegisterForeignSource` records the caller's
-    /// [`eg_types::wire::ForeignSourceSpec`] under the caller's tenant, and every served
+    /// `federation`), keyed by `(verified owner, name)` (EH-373), where the owner is the
+    /// caller's tenant+principal (`CarrierAuthority::owner_scope`; one engine is bound to
+    /// one tenant, so the principal is the working boundary). `RegisterForeignSource`
+    /// records the caller's [`eg_types::wire::ForeignSourceSpec`] under its owner, and every served
     /// plan path builds its executor `eg_plan::federation::ForeignSourceRegistry` through
     /// [`crate::server::foreign_catalog::ForeignSourceCatalog::registry_for`], which copies
-    /// only the caller's tenant's entries — so a `Named` `Op::ForeignScan` / an
+    /// only the caller's own entries — so a `Named` `Op::ForeignScan` / an
     /// `Op::Foreign` marker resolves only the caller's own sources
     /// (CONCEPT:EG-KG.query.closure-backed-source). The inline-spec `Op::ForeignScan` path
     /// carries its own spec and does not read it. Rows from a foreign source are NOT
