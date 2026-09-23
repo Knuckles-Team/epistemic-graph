@@ -12,6 +12,7 @@
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix schema: <http://schema.org/> .
 @prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
 @prefix time: <http://www.w3.org/2006/time#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
@@ -1075,6 +1076,68 @@ bfo:0000030 a owl:Class ;
     rdfs:domain bfo:0000015 ;
     rdfs:range bfo:0000017 ;
     skos:exactMatch obo:BFO_0000055 .
+
+# ── Shared world-model vocabulary: reference terms, quantities, observations ──────
+# Used by the life, environment and nutrition modules; declared once here so no
+# module constrains a shared property.
+
+:ReferenceTerm a owl:Class ;
+    rdfs:label "Reference Term" ;
+    rdfs:comment "An entry of an external reference vocabulary — a taxonomy, an OBO ontology, a food or chemical database — ingested as an individual. It stands for a KIND (the external class it names), so particulars link to it with :instanceOfTerm. BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031,
+        skos:Concept .
+
+:instanceOfTerm a owl:ObjectProperty ;
+    rdfs:label "instance of term" ;
+    rdfs:comment "A particular is an instance of the kind a reference term names (this organism of that species, this habitat of that ENVO type, this process of that GO type)." ;
+    rdfs:subPropertyOf :classifiedAs ;
+    rdfs:range :ReferenceTerm .
+
+:termCurie a owl:DatatypeProperty ;
+    rdfs:label "term CURIE" ;
+    rdfs:comment "The compact identifier of a reference term in its source vocabulary, e.g. NCBITaxon:9606, GO:0015979, ENVO:01000174, CHEBI:29073, FOODON:03301710, PATO:0000146, UBERON:0000948." ;
+    rdfs:domain :ReferenceTerm ;
+    rdfs:range xsd:string .
+
+:wikidataId a owl:DatatypeProperty ;
+    rdfs:label "Wikidata id" ;
+    rdfs:comment "The Wikidata item id (Q-number) of the named thing this node describes; the entity-resolution key for named places, taxa, foods and chemicals." ;
+    rdfs:range xsd:string .
+
+:quantityValue a owl:DatatypeProperty ;
+    rdfs:label "quantity value" ;
+    rdfs:comment "The numeric magnitude of a measured or reference quantity; its unit is :unitCode." ;
+    rdfs:range xsd:decimal .
+
+:unitCode a owl:DatatypeProperty ;
+    rdfs:label "unit code" ;
+    rdfs:comment "The UCUM code of the unit a :quantityValue is expressed in (e.g. mg, ug, kcal, Cel, mm/h)." ;
+    rdfs:range xsd:string .
+
+:QualityTerm a owl:Class ;
+    rdfs:label "Quality Term" ;
+    rdfs:comment "A PATO quality (or an observed-property vocabulary entry such as a CF standard name) ingested as an individual — the property an observation measures, e.g. PATO:0000146 temperature." ;
+    rdfs:subClassOf :ReferenceTerm ;
+    skos:relatedMatch obo:PATO_0000001 .
+
+:observedEntity a owl:ObjectProperty ;
+    rdfs:label "observed entity" ;
+    rdfs:comment "The entity an observation is about — the feature of interest (sosa:hasFeatureOfInterest)." ;
+    rdfs:domain :Observation ;
+    skos:closeMatch sosa:hasFeatureOfInterest .
+
+:observedQuality a owl:ObjectProperty ;
+    rdfs:label "observed quality" ;
+    rdfs:comment "The quality an observation measures (sosa:observedProperty)." ;
+    rdfs:domain :Observation ;
+    rdfs:range :QualityTerm ;
+    skos:closeMatch sosa:observedProperty .
+
+:observationTime a owl:DatatypeProperty ;
+    rdfs:label "observation time" ;
+    rdfs:comment "When the observed phenomenon happened (sosa:phenomenonTime)." ;
+    rdfs:domain :Observation ;
+    rdfs:range xsd:dateTime .
 
 :Artifact a owl:Class ;
     rdfs:label "Artifact" ;

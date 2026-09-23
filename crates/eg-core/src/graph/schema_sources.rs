@@ -14,9 +14,9 @@ use eg_types::contract::Digest256;
 use super::LegacyIntegrityPolicy;
 
 /// Closed upper bound for one binary's immutable catalog.  The current catalog
-/// contains the aggregate document, foundation, 28 domain TBoxes, and the core
-/// governance-shape slice (31 artifacts); 64 leaves room to split the world model
-/// into its own modules (EH-364).  It is deliberately independent of the dynamic
+/// contains the aggregate document, foundation, 31 domain TBoxes (the world model
+/// as its life, environment and nutrition modules), the core governance-shape
+/// slice and the world-model shapes (35 artifacts, EH-364).  It is deliberately independent of the dynamic
 /// 32-source tenant quota, and equal to the wire bound
 /// `eg_types::graph_schema::MAX_CORE_GRAPH_SCHEMA_SOURCES`.
 pub const MAX_CORE_SCHEMA_SOURCES: usize = 64;
@@ -722,10 +722,28 @@ fn core_specs() -> &'static [CoreSpec] {
             ontology: Some(include_str!("../../ontology/trm-v1.ttl")),
         },
         CoreSpec {
-            module: "world_model",
+            module: "life",
             version: 1,
             shapes: None,
-            ontology: Some(include_str!("../../ontology/world_model-v1.ttl")),
+            ontology: Some(include_str!("../../ontology/life-v1.ttl")),
+        },
+        CoreSpec {
+            module: "environment",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/environment-v1.ttl")),
+        },
+        CoreSpec {
+            module: "nutrition",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/nutrition-v1.ttl")),
+        },
+        CoreSpec {
+            module: "world-model-shapes",
+            version: 1,
+            shapes: Some(include_str!("../../ontology/world_model-v1.shapes.ttl")),
+            ontology: None,
         },
         CoreSpec {
             module: "worldview",
@@ -803,7 +821,7 @@ mod tests {
     fn core_catalog_has_one_version_per_module_and_is_outside_dynamic_quota() {
         let sources = GraphSchemaSources::default();
         sources.validate().unwrap();
-        assert_eq!(sources.core.len(), 32);
+        assert_eq!(sources.core.len(), 35);
         assert!(sources.dynamic.is_empty());
         assert!(sources.core.keys().all(|id| id.starts_with("core:")));
     }
@@ -1090,7 +1108,7 @@ mod tests {
             ),
             (
                 "catalog",
-                "f02c09a4db260ad77c603c2f830039a292cf2400cfea77eeaa3e28752c5b2fd4",
+                "4218d431f13e6b14ed8cc987c59ba9c5ff51a046042bc7d0ae8c1ff97a6bcf0a",
             ),
             (
                 "company",
@@ -1106,7 +1124,7 @@ mod tests {
             ),
             (
                 "foundation",
-                "8fa0ffd37eead55e8729489dd10cbf1c3ffc224a9e65138ca7b3ef4b59d1b8b3",
+                "cd3a0e736d9174d582e8b3c321966a4cd7ebf5c1264ac6640d78f4a54dc47378",
             ),
             (
                 "documentation",
@@ -1122,7 +1140,7 @@ mod tests {
             ),
             (
                 "governance-shapes",
-                "780810e89b786f2864ebc423f8a3c1ae9ae4662df86c9a4ba28d31601a461164",
+                "8195ee0454e851d182b14c9d30e1bcfa2638b44719964cd51e08d75cdc13b12d",
             ),
             (
                 "government",
@@ -1185,8 +1203,20 @@ mod tests {
                 "2e5d9cffcfc8e8915470641e85766f3ce775919539f22c57746d5a5e29d6c55d",
             ),
             (
-                "world_model",
-                "2364f8c67845c4e2e4f4b29aa20b17b9cc42f78e5b3391a249fbb8acc94fbf62",
+                "life",
+                "c5f0d321f894e5852f868a1d85d7a2a11bfad5ea91921f2d8f6a6e0a89a03566",
+            ),
+            (
+                "environment",
+                "21af644bc9b2499efb9cde3e73a6b9b9eee05ccb118382beb7c1a2f8c07e56a8",
+            ),
+            (
+                "nutrition",
+                "06772fb766c86eda3c3acf70dda010a948f6917c496415a0df1a64ae2dac27ad",
+            ),
+            (
+                "world-model-shapes",
+                "f2be16c304237069bc97b91afc01ac90c846a3f466b7d7ace89ed3e210acdb8d",
             ),
             (
                 "worldview",

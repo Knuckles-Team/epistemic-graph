@@ -573,13 +573,13 @@ mod tests {
                 _ => None,
             })
             .collect();
-        // The listing reports exactly the immutable core catalog: all 32 core
-        // artifacts (31 ontologies and the governance shapes).
+        // The listing reports exactly the immutable core catalog: all 35 core
+        // artifacts (33 ontologies, the governance shapes and the world-model shapes).
         let catalog = core.schema_sources();
         let catalog_ids: std::collections::BTreeSet<_> =
             catalog.core.keys().map(String::as_str).collect();
         assert_eq!(core_ids, catalog_ids);
-        assert_eq!(core_ids.len(), 32);
+        assert_eq!(core_ids.len(), 35);
         for anchor in [
             "core:catalog@1",
             "core:foundation@1",
