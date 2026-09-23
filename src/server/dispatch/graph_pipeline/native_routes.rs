@@ -246,12 +246,14 @@ async fn route_work_item_reads(
             cursor,
             limit,
             kind,
+            metadata_match,
         } => handlers::work_item_read::WorkItemRead::List(
             eg_types::work_item_read::WorkItemListRequest {
                 tenant,
                 cursor,
                 limit,
                 kind,
+                metadata_match,
             },
         ),
         Method::GetWorkItemOutcome {

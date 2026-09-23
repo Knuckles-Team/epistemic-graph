@@ -26,6 +26,7 @@ fn list(limit: u32, cursor: Option<String>, kind: Option<&str>) -> WorkItemListR
         cursor,
         limit,
         kind: kind.map(str::to_string),
+        metadata_match: None,
     }
 }
 
@@ -186,4 +187,29 @@ fn request_bounds_are_enforced() {
     assert!(validate_work_item_get("tenant-a", "").is_err());
     assert!(validate_work_item_get("", "wi-1").is_err());
     validate_work_item_get("tenant-a", "wi-1").unwrap();
+}
+
+#[test]
+fn a_metadata_match_selects_exact_top_level_pairs_and_is_bounded() {
+    let mut rows = mixed_rows();
+    rows[2]
+        .1
+        .insert("metadata".into(), json!({"correlation_id": "c-9", "x": 1}));
+    let mut request = list(100, None, None);
+    request.metadata_match = json!({"correlation_id": "c-9"}).as_object().cloned();
+    request.validate().unwrap();
+    let ids: Vec<String> = page(&rows, &request)
+        .items
+        .into_iter()
+        .map(|item| item.work_item_id)
+        .collect();
+    assert_eq!(ids, ["wi-2"]);
+
+    request.metadata_match = Some(Map::new());
+    assert!(request.validate().is_err());
+    let too_many: Map<String, Value> = (0..=MAX_WORK_ITEM_METADATA_MATCH_KEYS)
+        .map(|index| (format!("k{index}"), json!(index)))
+        .collect();
+    request.metadata_match = Some(too_many);
+    assert!(request.validate().is_err());
 }

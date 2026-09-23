@@ -21,14 +21,29 @@ use crate::protocol::Method;
 /// the durable row that the transaction actually publishes.
 pub(super) fn lower_terminal_outcome_extensions(
     batch_id: &str,
-    methods: Vec<Method>,
+    mut methods: Vec<Method>,
 ) -> Result<(Vec<Method>, Vec<MutationOutboxIntent>), String> {
+    methods
+        .iter_mut()
+        .for_each(|method| bind_engine_fields(batch_id, method));
     let Some(extension) = terminal_extension(&methods)? else {
         return Ok((methods, Vec::new()));
     };
     validate_terminal_extension(batch_id, &methods, extension)?;
     let terminal_intent = run_event_intent(batch_id, extension)?;
     Ok((methods, vec![terminal_intent]))
+}
+
+/// graph-os EG-4: the outbox id and receipt digests are engine-derived; a
+/// caller leaves them empty and the engine fills them here, before validation.
+fn bind_engine_fields(batch_id: &str, method: &mut Method) {
+    if let Method::CommitWorkItemResult {
+        outcome_extension: Some(extension),
+        ..
+    } = method
+    {
+        extension.bind_engine_fields(batch_id);
+    }
 }
 
 fn terminal_extension(
@@ -374,6 +389,30 @@ mod tests {
         assert_eq!(outbox[0].headers["outcome"], "succeeded");
         assert_eq!(outbox[0].headers["completeness"], "complete");
         assert_eq!(outbox[0].headers["missing_refs"], "[]");
+    }
+
+    #[test]
+    fn an_extension_left_blank_is_bound_to_the_native_batch_by_the_engine() {
+        let mut blank = extension("");
+        for receipt in &mut blank.receipt_nodes {
+            receipt.payload_digest.clear();
+        }
+        let (methods, outbox) =
+            lower_terminal_outcome_extensions("batch:test", vec![terminal(blank)]).unwrap();
+        assert_eq!(outbox[0].key, "batch:test");
+        let Method::CommitWorkItemResult {
+            outcome_extension: Some(bound),
+            ..
+        } = &methods[0]
+        else {
+            panic!("the terminal operation keeps its extension");
+        };
+        assert_eq!(bound.outcome_bundle.outbox_id, "batch:test");
+        assert_eq!(bound.run_event.outbox_id, "batch:test");
+        assert!(bound
+            .receipt_nodes
+            .iter()
+            .all(|receipt| receipt.outbox_id == "batch:test"));
     }
 
     #[test]

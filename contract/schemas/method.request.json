@@ -30367,6 +30367,15 @@
               "minimum": 0,
               "type": "integer"
             },
+            "metadata_match": {
+              "additionalProperties": true,
+              "default": null,
+              "description": "Keep only items whose top-level `metadata` holds every one of these\nkey/value pairs exactly (at most 8 keys) -- e.g. a correlation id or\nan event subject (graph-os EG-5). Filters within the same bounded\nscan, so it never widens a page's cost.",
+              "type": [
+                "object",
+                "null"
+              ]
+            },
             "tenant": {
               "type": "string"
             }

@@ -45,6 +45,7 @@ fn list(limit: u32, cursor: Option<String>) -> WorkItemListRequest {
         cursor,
         limit,
         kind: None,
+        metadata_match: None,
     }
 }
 
