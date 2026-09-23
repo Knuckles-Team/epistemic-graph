@@ -323,21 +323,28 @@ fn write_generation_in(wtx: &SqlWrite<'_>, write: &GenerationWrite<'_>) -> Resul
     let mut keep = vec![POINTER_GENERATION, stored.generation];
     keep.extend(write.keeps);
     remove_generations_except_in(wtx, write.index, &keep)?;
+    write_parts_in(wtx, write.index, stored)
+}
+
+/// Write `stored`'s manifest and payload parts under `index` and point the live
+/// pointer at it.
+pub(super) fn write_parts_in(
+    wtx: &SqlWrite<'_>,
+    index: &str,
+    stored: &StoredGeneration,
+) -> Result<(), String> {
     let mut generations = wtx.open_table(SQL_ANN_GENERATIONS)?;
     generations
-        .insert(
-            (write.index, stored.generation, 0u64),
-            stored.manifest.as_slice(),
-        )
+        .insert((index, stored.generation, 0u64), stored.manifest.as_slice())
         .map_err(map_err)?;
     for (offset, chunk) in stored.payload.chunks(PAYLOAD_PART_BYTES).enumerate() {
         generations
-            .insert((write.index, stored.generation, offset as u64 + 1), chunk)
+            .insert((index, stored.generation, offset as u64 + 1), chunk)
             .map_err(map_err)?;
     }
     generations
         .insert(
-            (write.index, POINTER_GENERATION, 0u64),
+            (index, POINTER_GENERATION, 0u64),
             stored.generation.to_be_bytes().as_slice(),
         )
         .map_err(map_err)?;
@@ -367,6 +374,17 @@ fn read_generation(
         manifest,
         payload,
     }))
+}
+
+/// The generation the live pointer of `index` names, when there is one.
+pub(super) fn read_generation_in(
+    rtx: &SqlRead<'_>,
+    index: &str,
+) -> Result<Option<StoredGeneration>, String> {
+    match live_generation_number(rtx, index)? {
+        Some(generation) => read_generation(rtx, index, generation),
+        None => Ok(None),
+    }
 }
 
 fn live_generation_number(rtx: &SqlRead<'_>, index: &str) -> Result<Option<u64>, String> {
@@ -432,11 +450,7 @@ impl TableStore {
         &self,
         index: &str,
     ) -> Result<Option<StoredGeneration>, String> {
-        let rtx = self.authority.read()?;
-        match live_generation_number(&rtx, index)? {
-            Some(generation) => read_generation(&rtx, index, generation),
-            None => Ok(None),
-        }
+        read_generation_in(&self.authority.read()?, index)
     }
 
     /// Persisted generation `generation` of `index`.

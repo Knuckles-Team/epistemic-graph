@@ -93,6 +93,10 @@ pub const SQL_ANN_GENERATIONS: TableDefinition<'static, (&str, u64, u64), &[u8]>
 /// change epoch, which is what per-table ANN staleness compares against.
 pub const SQL_ANN_DIRTY: TableDefinition<'static, (&str, u64), u64> =
     TableDefinition::new("__sql_ann_dirty__");
+/// User-managed edge-native indexes (EH-351/EH-352): `(graph, index name) ->
+/// msgpack spec`. Their generations share `__sql_ann_generations__`.
+pub const SQL_EDGE_INDEXES: TableDefinition<'static, (&str, &str), &[u8]> =
+    TableDefinition::new("__sql_edge_indexes__");
 const SQL_STR_BYTES: [TableDefinition<'static, &str, &[u8]>; 7] = [
     TableDefinition::new("__sql_catalog__"),
     TableDefinition::new("__sql_functions__"),
@@ -338,6 +342,7 @@ macro_rules! visit_owner_tables {
                 $visit!(SQL_SOURCE_CHECKPOINTS);
                 $visit!(SQL_ANN_GENERATIONS);
                 $visit!(SQL_ANN_DIRTY);
+                $visit!(SQL_EDGE_INDEXES);
             }
             OwnerLayout::Blob => {
                 $visit!(BLOB_CHUNKS);
@@ -577,6 +582,7 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
             "__sql_source_checkpoints__",
             "__sql_ann_generations__",
             "__sql_ann_dirty__",
+            "__sql_edge_indexes__",
         ],
         OwnerLayout::Blob => &[
             "cas_chunks",
