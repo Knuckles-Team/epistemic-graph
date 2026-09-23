@@ -1,0 +1,232 @@
+//! EH-291 / EH-294 / EH-296 / EH-297 / EH-300: the resident scorer's served
+//! path -- fixed-point kernels, the cross-host golden vector, legality, the
+//! shortlist, encode-once scoring and trajectory-prefix belief.
+
+use eg_numeric::decision::scorer::fixed::{exp_non_positive, softmax, ONE};
+use eg_numeric::decision::scorer::forward::{read, EncodedState, Scorer, EXCLUDED_LOGIT};
+use eg_numeric::decision::scorer::legal::{shortlist, LegalSet};
+use eg_numeric::decision::scorer::trajectory::{belief, Prefix};
+use eg_types::decision::digest::digest_text;
+use eg_types::decision::statistical::head::{
+    DecisionHeadBody, FeatureStandardisation, FittedRegime, HeadKind, DECISION_HEAD_SCHEMA_VERSION,
+};
+use eg_types::decision::statistical::scorer::OptionAttentionParams;
+use eg_types::decision::{QuantScaleTag, QuantisedValue};
+
+use super::common::{bounded, SCHEMA_DIGEST};
+
+/// Digest of the golden fixture's integer outputs. Reproduced independently
+/// by an integer-only Python port of the kernels; it must be the same on
+/// every host (checked on R820 and GR1080).
+const GOLDEN_DIGEST: &str =
+    "sha256:918ab491393590240314694cae472deb42b0ebf9b7546ba019c1c29672ee1beb";
+const GOLDEN_DOMAIN: &str = "eg/decision-scorer-golden/v1";
+const WIDTH: usize = 4;
+const FEATURES: usize = 2;
+const OPTIONS: usize = 4;
+
+fn q(value: i64) -> QuantisedValue {
+    QuantisedValue {
+        scale: QuantScaleTag::Q32,
+        value,
+    }
+}
+
+/// A deterministic parameter pattern in `[-0.5, 0.5]`.
+fn pattern(n: usize, salt: usize) -> Vec<i64> {
+    (0..n)
+        .map(|k| (((k * 7 + salt * 13) % 17) as i64 - 8) << 28)
+        .collect()
+}
+
+fn params(shortlist: u8) -> OptionAttentionParams {
+    OptionAttentionParams {
+        width: WIDTH as u8,
+        shortlist,
+        embed: bounded(pattern(FEATURES * WIDTH, 1)),
+        embed_bias: bounded(pattern(WIDTH, 2)),
+        query: bounded(pattern(WIDTH * WIDTH, 3)),
+        key: bounded(pattern(WIDTH * WIDTH, 4)),
+        value: bounded(pattern(WIDTH * WIDTH, 5)),
+        self_weight: bounded(pattern(WIDTH, 6)),
+        context_weight: bounded(pattern(WIDTH, 7)),
+    }
+}
+
+fn head(shortlist: u8) -> DecisionHeadBody {
+    let spec = FeatureStandardisation {
+        center: q(ONE / 4),
+        scale: q(2 * ONE),
+        lower: q(-8 * ONE),
+        upper: q(8 * ONE),
+    };
+    DecisionHeadBody {
+        schema_version: DECISION_HEAD_SCHEMA_VERSION,
+        kind: HeadKind::OptionAttention,
+        regime: FittedRegime::FullLabel,
+        feature_schema_digest: SCHEMA_DIGEST.to_string(),
+        standardisation: bounded(vec![spec; FEATURES]),
+        weights: bounded(vec![q(ONE), q(-ONE / 2)]),
+        calibration: None,
+        training_records_digest: "sha256:golden".to_string(),
+        n_training: 0,
+        synthetic: true,
+        scorer: Some(Box::new(params(shortlist))),
+    }
+}
+
+/// Raw `Q32` rows in `[-1.5, 1.5]`.
+fn rows() -> Vec<Vec<i64>> {
+    (0..OPTIONS)
+        .map(|r| {
+            (0..FEATURES)
+                .map(|f| (((r * 5 + f * 3) % 7) as i64 - 3) << 31)
+                .collect()
+        })
+        .collect()
+}
+
+fn views(rows: &[Vec<i64>]) -> Vec<&[i64]> {
+    rows.iter().map(Vec::as_slice).collect()
+}
+
+#[test]
+fn the_fixed_point_kernels_are_accurate_where_it_matters() {
+    assert_eq!(exp_non_positive(0), ONE);
+    let half = exp_non_positive(-2_977_044_472); // -ln 2
+    assert!((half - ONE / 2).abs() < 16, "e^-ln2 = {half}");
+    assert_eq!(exp_non_positive(-1000 * ONE), 0);
+    let p = softmax(&[ONE, 0, -ONE, 3 * ONE]);
+    let total: i64 = p.iter().sum();
+    assert!((total - ONE).abs() < 8, "softmax mass {total}");
+    assert!(p[3] > p[0] && p[0] > p[1] && p[1] > p[2]);
+}
+
+#[test]
+fn the_golden_vector_is_bit_identical_across_hosts() {
+    let head = head(3);
+    let rows = rows();
+    let legal = LegalSet::derive(OPTIONS, &[]);
+    let scoring = read(&head, &views(&rows), &legal)
+        .expect("reads")
+        .expect("in distribution");
+    let exps: Vec<i64> = (0..40).map(|k| exp_non_positive(-k * (ONE / 3))).collect();
+    let spread = softmax(&[ONE, 0, -ONE, 3 * ONE]);
+    let digest = digest_text(
+        GOLDEN_DOMAIN,
+        &(&exps, &spread, &scoring.logits, &scoring.probabilities),
+    );
+    assert_eq!(
+        scoring
+            .logits
+            .iter()
+            .filter(|&&z| z == EXCLUDED_LOGIT)
+            .count(),
+        1,
+        "shortlist 3 of 4: one option is never scored"
+    );
+    assert_eq!(
+        digest, GOLDEN_DIGEST,
+        "golden outputs: logits {:?} probabilities {:?}",
+        scoring.logits, scoring.probabilities
+    );
+}
+
+#[test]
+fn an_eliminated_option_is_never_scored_and_moves_nothing() {
+    let head = head(8);
+    let mut rows = rows();
+    // Option 1 is eliminated by the deterministic rungs; give it a row that
+    // would dominate attention and is out of range besides.
+    rows[1] = vec![1_000 * ONE; FEATURES];
+    let with_illegal = read(&head, &views(&rows), &LegalSet::derive(OPTIONS, &[1]))
+        .expect("reads")
+        .expect("the illegal row is never standardised, so never out of range");
+    assert_eq!(with_illegal.probabilities[1], 0);
+    assert_eq!(with_illegal.logits[1], EXCLUDED_LOGIT);
+    assert!(
+        with_illegal.standardised[1].is_empty(),
+        "its row was never read"
+    );
+
+    let mut benign = rows.clone();
+    benign[1] = vec![0; FEATURES];
+    let reference = read(&head, &views(&benign), &LegalSet::derive(OPTIONS, &[1]))
+        .expect("reads")
+        .expect("in distribution");
+    assert_eq!(
+        with_illegal, reference,
+        "an eliminated option's content cannot move any legal option's score"
+    );
+    let legal_mass: i64 = with_illegal.probabilities.iter().sum();
+    assert!((legal_mass - ONE).abs() < 8);
+}
+
+#[test]
+fn the_shortlist_bounds_what_is_scored_and_breaks_ties_by_option_order() {
+    assert_eq!(shortlist(&[(0, 5), (1, 9), (2, 5), (3, 1)], 2), vec![1, 0]);
+    assert_eq!(
+        shortlist(&[(0, 5), (1, 9), (2, 5), (3, 1)], 3),
+        vec![0, 1, 2]
+    );
+    let head = head(2);
+    let rows = rows();
+    let scoring = read(&head, &views(&rows), &LegalSet::derive(OPTIONS, &[]))
+        .expect("reads")
+        .expect("in distribution");
+    let scored = scoring.probabilities.iter().filter(|&&p| p > 0).count();
+    assert_eq!(scored, 2, "a shortlist of two scores two options");
+}
+
+#[test]
+fn one_encode_serves_several_questions_exactly() {
+    let head = head(4);
+    let scorer = Scorer::of(&head).expect("scorer");
+    let rows = rows();
+    let state =
+        EncodedState::encode(&scorer, &views(&rows), &LegalSet::derive(OPTIONS, &[])).unwrap();
+    for question in [vec![0, 2], vec![1, 2, 3]] {
+        let eliminated: Vec<usize> = (0..OPTIONS).filter(|i| !question.contains(i)).collect();
+        let alone = read(
+            &head,
+            &views(&rows),
+            &LegalSet::derive(OPTIONS, &eliminated),
+        )
+        .unwrap()
+        .unwrap();
+        let shared = state.score(&scorer, &question);
+        assert_eq!(shared.logits, alone.logits, "question {question:?}");
+        assert_eq!(shared.probabilities, alone.probabilities);
+    }
+}
+
+#[test]
+fn trajectory_belief_reads_one_state_over_time() {
+    let head = head(4);
+    let early = rows();
+    let mut late = rows();
+    late[2] = vec![3 * ONE / 2; FEATURES];
+    let (early_views, late_views) = (views(&early), views(&late));
+    let legal = LegalSet::derive(OPTIONS, &[]);
+    let prefixes = [
+        Prefix {
+            as_of_ms: 10,
+            rows: &early_views,
+        },
+        Prefix {
+            as_of_ms: 20,
+            rows: &late_views,
+        },
+    ];
+    let trajectory = belief(&head, &prefixes, &legal).expect("believes");
+    assert_eq!(trajectory.len(), 2);
+    let first = trajectory[0].probabilities.as_ref().expect("in range");
+    let second = trajectory[1].probabilities.as_ref().expect("in range");
+    assert_ne!(first, second, "the belief moves with the state");
+    let single = read(&head, &early_views, &legal).unwrap().unwrap();
+    assert_eq!(first, &single.probabilities, "each slice is one decision");
+
+    let reversed = [prefixes[1], prefixes[0]];
+    let refusal = belief(&head, &reversed, &legal).expect_err("time must increase");
+    assert_eq!(refusal.code, "PARAMETER_INVALID");
+}

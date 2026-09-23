@@ -4,6 +4,7 @@
 //! through [`q32`] or [`unit_wire`], which quantise with ties-to-even. Every
 //! record digest is therefore over integers.
 
+use eg_types::decision::statistical::dataset::{LabelledDataset, LabelledItem};
 use eg_types::decision::statistical::StatisticalErrorCode;
 use eg_types::decision::{QuantScaleTag, QuantisedValue, UnitRationalWire};
 
@@ -73,4 +74,18 @@ pub fn unit_wire(value: f64) -> RefusalResult<UnitRationalWire> {
     let clamped = value.clamp(0.0, 1.0);
     let scaled = quantise(clamped, QuantScale::Pico)?;
     exact_wire(scaled.unsigned_abs(), PROBABILITY_DENOMINATOR)
+}
+
+/// One labelled item's rows on `Q32`, the scale every head reads.
+pub fn item_rows(dataset: &LabelledDataset, item: &LabelledItem) -> RefusalResult<Vec<Vec<i64>>> {
+    let width = dataset.feature_names.len().max(1);
+    item.features
+        .as_slice()
+        .chunks(width)
+        .map(|row| {
+            row.iter()
+                .map(|&v| Ok(quantise(raw_value(v, dataset.scale), QuantScale::Q32)?))
+                .collect()
+        })
+        .collect()
 }

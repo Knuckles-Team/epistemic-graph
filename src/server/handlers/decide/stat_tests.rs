@@ -276,9 +276,18 @@ fn succeeded(job: &DecisionJobRecord) -> &DecisionJobOutput {
     }
 }
 
-#[tokio::test]
-async fn fit_evaluate_publish_and_decide_end_to_end() {
-    let h = Harness::new().await;
+/// What the route fixture publishes and reads back.
+struct RouteFixture {
+    schema_pin: ComponentDependency,
+    schema_digest: String,
+    ids: Vec<String>,
+    values: Vec<i64>,
+}
+
+/// Publish three tools and the route feature schema, then decide without a
+/// head under the default (deterministic-only) policy: that abstains, records
+/// the matrix exactly, and returns it for fixtures shaped like it.
+async fn route_fixture(h: &Harness) -> RouteFixture {
     h.publish(
         "tool-a-search",
         AgentComponentKind::Tool,
@@ -318,7 +327,7 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
     // No head under the default (deterministic-only) policy: abstain, with the
     // matrix recorded exactly and the record digest reproducible.
     let batch = decide(
-        &h,
+        h,
         request(
             &schema_pin,
             None,
@@ -348,8 +357,25 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
     let ids: Vec<String> = candidate_ids.iter().cloned().collect();
     assert_eq!(ids[0], "tool-a-search");
 
+    RouteFixture {
+        schema_pin,
+        schema_digest,
+        ids,
+        values: values.as_slice().to_vec(),
+    }
+}
+
+#[tokio::test]
+async fn fit_evaluate_publish_and_decide_end_to_end() {
+    let h = Harness::new().await;
+    let RouteFixture {
+        schema_pin,
+        schema_digest,
+        ids,
+        values,
+    } = route_fixture(&h).await;
     // Fit on 400 gold items shaped like the live matrix.
-    let data = dataset(&schema_digest, &ids, values.as_slice(), 400);
+    let data = dataset(&schema_digest, &ids, &values, 400);
     let gold = super::stat_jobs::dataset_digest(&data).unwrap();
     let fit_request = DecisionFitRequest {
         tenant_id: TENANT.to_string(),
@@ -730,3 +756,5 @@ mod learning_tests;
 mod evaluator_tests;
 
 mod nl_tests;
+
+mod scorer_tests;
