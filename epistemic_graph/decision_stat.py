@@ -136,3 +136,9 @@ def body_attributes_for_publish(body: Any) -> dict[str, Any]:
     """The ``content_digest`` and ``attributes`` of an ``AgentComponentDraft``."""
     digest, attributes = encode_body(body)
     return {"content_digest": digest, "attributes": attributes}
+
+
+def outcome_rate(question_id: str) -> dict[str, Any]:
+    """The pooled success rate of an option under ``question_id``, read from
+    the decision log (needs a policy with ``tenant_public_features``)."""
+    return {"feature": "outcome_rate", "question_id": question_id}

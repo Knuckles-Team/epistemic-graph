@@ -14,12 +14,14 @@ use eg_numeric::decision::head_eval::{
     check_compatible, explanation, read_head, Evaluated, HeadReading,
 };
 use eg_numeric::decision::ladder::{decide, LadderInputs, LadderResult};
-use eg_types::agent_component::{AgentComponentEntry, AgentComponentKind};
+use eg_types::agent_component::{AgentComponentKind, ComponentDependency};
 use eg_types::contract::BoundedVec;
 use eg_types::decision::statistical::features::FeatureSchemaBody;
 use eg_types::decision::statistical::head::DecisionHeadBody;
 use eg_types::decision::statistical::keyed::{decision_seed, exploration_key};
-use eg_types::decision::statistical::{DecideRequest, StatisticalErrorCode, StatisticalOutcome};
+use eg_types::decision::statistical::{
+    DecideRequest, StatisticalErrorCode, StatisticalOutcome, StatisticalQuestion, TypedParam,
+};
 use eg_types::decision::AbstainReason;
 
 use super::stat_support::{pinned_body, refusal, ResolvedPolicy};
@@ -48,24 +50,23 @@ pub(super) struct Executed {
     pub(super) seed: [u8; 32],
 }
 
-/// Read and validate the feature schema and head a request pins.
+/// Read and validate the feature schema and head a decision pins.
 pub(super) fn pinned_inputs(
     ctx: &ExecutionContext,
-    request: &DecideRequest,
+    schema_pin: &ComponentDependency,
+    head_pin: Option<&ComponentDependency>,
 ) -> Result<Pinned, String> {
     let (schema, schema_digest) = pinned_body::<FeatureSchemaBody>(
         ctx.store,
         ctx.tenant_id,
-        &request.feature_schema,
+        schema_pin,
         AgentComponentKind::FeatureSchema,
         StatisticalErrorCode::FeatureSchemaInvalid,
     )?;
     let schema = schema
         .checked()
         .map_err(|detail| refusal(StatisticalErrorCode::FeatureSchemaInvalid, detail))?;
-    let head = request
-        .head
-        .as_ref()
+    let head = head_pin
         .map(|pin| {
             let (body, digest) = pinned_body::<DecisionHeadBody>(
                 ctx.store,
@@ -95,6 +96,7 @@ fn abstained(reason: AbstainReason) -> LadderResult {
         calibration: None,
         explained: None,
         audit: None,
+        logging: Vec::new(),
     }
 }
 
@@ -117,62 +119,53 @@ fn head_reading(
 /// The state digest the exploration seed is keyed on: everything the decision
 /// read, so a caller cannot change the draw without changing the inputs.
 pub(super) fn state_digest(
-    request: &DecideRequest,
-    matrix: Option<&FeatureMatrix>,
+    question: &StatisticalQuestion,
+    params: &[TypedParam],
+    matrix: &FeatureMatrix,
     policy: &ResolvedPolicy,
     now_ms: u64,
 ) -> String {
-    let values = matrix.map(|m| (&m.candidate_ids, &m.values));
     eg_types::decision::digest::digest_text(
         "eg/decide-state/v1",
         &(
-            &request.question,
-            values,
+            question,
+            Some((&matrix.candidate_ids, &matrix.values)),
             &policy.digest,
-            &request.params,
+            params,
             now_ms,
         ),
     )
 }
 
-/// Run the ladder over the candidates.
-pub(super) fn execute(
-    ctx: &ExecutionContext,
-    request: &DecideRequest,
+/// What the decision function reads once the matrix exists. `execute` builds
+/// it from live candidates; the log's verify-replay builds it from a record.
+pub(super) struct MatrixInputs<'a> {
+    pub(super) question: &'a StatisticalQuestion,
+    pub(super) params: &'a [TypedParam],
+    pub(super) now_ms: u64,
+    pub(super) server_secret: &'a [u8],
+}
+
+/// The decision function over a complete matrix: head reading, drift check,
+/// keyed seed and the act/abstain ladder.
+pub(super) fn run_on_matrix(
+    inputs: &MatrixInputs,
     pinned: &Pinned,
     policy: &ResolvedPolicy,
-    entries: &[AgentComponentEntry],
+    matrix: FeatureMatrix,
 ) -> Result<Executed, String> {
-    let exploration = permit(&policy.policy, &request.question).map_err(|r| r.render())?;
-    let views: Vec<CandidateView> = entries.iter().map(CandidateView::from_component).collect();
-    let inputs = FeatureInputs {
-        params: request.params.as_slice(),
-        now_ms: ctx.now_ms,
-    };
-    let outcome = feature_matrix(&pinned.schema, &views, &inputs).map_err(|r| r.render())?;
-    let matrix = match outcome {
-        MatrixOutcome::Complete(matrix) => matrix,
-        MatrixOutcome::UnknownFact {
-            component_id,
-            field,
-        } => {
-            let seed = [0u8; 32];
-            return Ok(Executed {
-                matrix: None,
-                ladder: abstained(AbstainReason::UnknownFact {
-                    component_id,
-                    field,
-                }),
-                reading: None,
-                seed,
-            });
-        }
-    };
-    let digest = state_digest(request, Some(&matrix), policy, ctx.now_ms);
+    let exploration = permit(&policy.policy, inputs.question).map_err(|r| r.render())?;
+    let digest = state_digest(
+        inputs.question,
+        inputs.params,
+        &matrix,
+        policy,
+        inputs.now_ms,
+    );
     let seed = decision_seed(
-        &exploration_key(ctx.server_secret),
+        &exploration_key(inputs.server_secret),
         &digest,
-        &request.question.question_id,
+        &inputs.question.question_id,
     );
     let reading = match head_reading(pinned, &matrix)? {
         Some(Err(reason)) => {
@@ -202,6 +195,45 @@ pub(super) fn execute(
         reading,
         seed,
     })
+}
+
+/// Run the ladder over the candidates.
+pub(super) fn execute(
+    ctx: &ExecutionContext,
+    request: &DecideRequest,
+    pinned: &Pinned,
+    policy: &ResolvedPolicy,
+    views: &[CandidateView],
+) -> Result<Executed, String> {
+    permit(&policy.policy, &request.question).map_err(|r| r.render())?;
+    let features = FeatureInputs {
+        params: request.params.as_slice(),
+        now_ms: ctx.now_ms,
+    };
+    let matrix = match feature_matrix(&pinned.schema, views, &features).map_err(|r| r.render())? {
+        MatrixOutcome::Complete(matrix) => matrix,
+        MatrixOutcome::UnknownFact {
+            component_id,
+            field,
+        } => {
+            return Ok(Executed {
+                matrix: None,
+                ladder: abstained(AbstainReason::UnknownFact {
+                    component_id,
+                    field,
+                }),
+                reading: None,
+                seed: [0u8; 32],
+            });
+        }
+    };
+    let inputs = MatrixInputs {
+        question: &request.question,
+        params: request.params.as_slice(),
+        now_ms: ctx.now_ms,
+        server_secret: ctx.server_secret,
+    };
+    run_on_matrix(&inputs, pinned, policy, matrix)
 }
 
 /// The recorded explanation of the explained option, for a linear head.

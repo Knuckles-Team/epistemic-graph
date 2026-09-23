@@ -319,9 +319,20 @@ pub(super) const REASON_DECIDE_LIBRARY_SNAPSHOT: &str =
 pub(super) const REASON_NATIVE_WORK_ITEM_TENANT_READ: &str =
     "native_routes::route_work_item_reads routes GetWorkItem/ListWorkItems/GetWorkItemOutcome/GetControlLease (placement leader + read barrier under raft) to handlers::work_item_read, which refuses any request tenant other than the verified carrier tenant, then reads redb node rows via redb_store::work_item::{read_work_item, list_work_items, read_work_item_outcome, read_control_lease} and projects only rows whose `tenant` equals it -- never a GraphView/core.analysis_snapshot() row read; lease owner/epoch/fencing token are never projected";
 
+// RF-ADR-010 DL-5: `DecisionLog.get`/`aggregate` read committed decision
+// records and their evaluations from the agent_library.redb control owner,
+// never graph rows. Each record carries its own visibility: tenant-wide for a
+// library-sourced record (its inputs are tenant-wide), the committing
+// principal only for a graph-sourced one; every read filters by it before a
+// record, a count or a pooled rate is formed.
+pub(super) const REASON_DECISION_LOG_VISIBILITY: &str =
+    "DecisionLog reads committed decision records and evaluations from the tenant-bound agent_library.redb control owner, filtered by each record's own visibility (tenant for library-sourced, committing principal for graph-sourced) before any record or aggregate is formed -- never a GraphView/core.analysis_snapshot() row read";
+
 pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     // REASON_DECIDE_LIBRARY_SNAPSHOT
     ("Decide", REASON_DECIDE_LIBRARY_SNAPSHOT),
+    // REASON_DECISION_LOG_VISIBILITY
+    ("DecisionLog", REASON_DECISION_LOG_VISIBILITY),
     // REASON_AGENT_LIBRARY_TENANT_SNAPSHOT
     ("AgentAssemble", REASON_AGENT_LIBRARY_TENANT_SNAPSHOT),
     // REASON_SOLVE_PURE_COMPUTE

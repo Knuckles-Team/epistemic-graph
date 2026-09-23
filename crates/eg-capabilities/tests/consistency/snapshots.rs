@@ -112,6 +112,7 @@ pub(crate) const ACCESS_RS_MUTATES_CONDITIONAL: &[&str] = &[
     "DecisionFit",
     // EH-345: record_discovery/set_override/clear_override write; list/lookup read.
     "FleetCatalog",
+    "DecisionLog",
     "MutationOutbox",
     "WriteBack",
     // EH-280: only a scoped (branch-aware) batch commits its projection.

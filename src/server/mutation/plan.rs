@@ -639,6 +639,7 @@ pub const LOCAL_ONLY_METHODS: &[&str] = &[
     "DecisionCommit",
     "DecisionEval",
     "DecisionFit",
+    "DecisionLog",
     "GraphSchema",
     "MutationOutbox",
     "SqlSourceBatch",
@@ -659,6 +660,7 @@ fn native_local_only_method_name(m: &Method) -> Option<&'static str> {
         Method::DecisionCommit { .. } => Some("DecisionCommit"),
         Method::DecisionEval { .. } => Some("DecisionEval"),
         Method::DecisionFit { .. } => Some("DecisionFit"),
+        Method::DecisionLog { .. } => Some("DecisionLog"),
         Method::MutationOutbox { .. } => Some("MutationOutbox"),
         _ => None,
     }

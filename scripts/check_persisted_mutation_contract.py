@@ -123,9 +123,10 @@ def _native_method_catalog(source: str) -> dict[str, str]:
     # cardinality, so it moves only with a reviewed catalog change.
     # 100 -> 102: graph-os EG-2/EG-3 native records -- the tenant-bound
     # `IssueControlLease` / `TransitionControlLease` control-lease rows.
+    # 102 -> 103: the statistical `DecisionLog` (agent_library.redb control owner).
     require(
-        len(entries) == 102,
-        f"native method catalog must contain 102 entries, observed {len(entries)}",
+        len(entries) == 103,
+        f"native method catalog must contain 103 entries, observed {len(entries)}",
     )
     require("RegisterServer" not in names, "RegisterServer must remain gateway-routed")
     require(
@@ -149,7 +150,7 @@ def _native_method_catalog(source: str) -> dict[str, str]:
     require(
         domain_counts
         == {
-            "GraphState": 23,
+            "GraphState": 24,
             "Transaction": 15,
             "WorkItem": 20,  # +2 IssueControlLease, TransitionControlLease
             "Blob": 6,

@@ -94,6 +94,7 @@ fn requires_write_decision_surface(method: &Method) -> Option<bool> {
     match method {
         Method::ConnectorPack { op } => Some(op.is_mutation()),
         Method::DecisionFit { op } => Some(op.is_mutation()),
+        Method::DecisionLog { op } => Some(op.is_mutation()),
         Method::DecisionEval { op } => Some(op.is_mutation()),
         Method::MutationOutbox { op } => Some(op.is_mutation()),
         _ => None,

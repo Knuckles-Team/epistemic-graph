@@ -62,12 +62,22 @@ pub struct DecisionFitRequest {
     pub label_regime: LabelRegime,
     pub window: RecordWindow,
     pub optimiser: OptimiserSpec,
-    /// The labelled items, pinned: a full-label regime's `gold_set_digest`
-    /// must equal this dataset's digest.
-    pub dataset: LabelledDataset,
-    /// Commit principals whose bandit records may train. Empty admits none.
-    #[serde(default)]
-    pub approved_commit_principals: BoundedVec<String, 64>,
+    /// Where the labelled items come from. A full-label regime's
+    /// `gold_set_digest` must equal the inline dataset's digest.
+    pub source: DatasetSource,
+}
+
+/// Where a job's labelled items come from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "source", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum DatasetSource {
+    /// A submitted dataset, pinned by digest (gold sets, exported suites).
+    Inline { dataset: Box<LabelledDataset> },
+    /// The engine's own decision log: every committed, executed record of
+    /// `question_id` the caller may read, with its independent evaluations.
+    /// Bandit labels only.
+    Logged { question_id: String },
 }
 
 /// Which off-policy estimator an evaluation runs.
@@ -106,11 +116,8 @@ pub struct DecisionEvalRequest {
     #[serde(default)]
     pub gold_set_digest: Option<String>,
     pub window: RecordWindow,
-    /// The labelled items the candidate is evaluated on.
-    pub dataset: LabelledDataset,
-    /// Commit principals whose bandit records may be evaluated on.
-    #[serde(default)]
-    pub approved_commit_principals: BoundedVec<String, 64>,
+    /// Where the labelled items the candidate is evaluated on come from.
+    pub source: DatasetSource,
 }
 
 /// Ask after one submitted job.

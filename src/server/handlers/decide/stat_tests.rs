@@ -15,20 +15,27 @@ use eg_types::agent_component::{
 };
 use eg_types::contract::BoundedVec;
 use eg_types::decision::jobs::{
-    DecisionJobOutput, DecisionJobState, EvalCandidate, LabelRegime, OpeEstimatorKind,
-    OptimiserSpec, RecordWindow,
+    DatasetSource, DecisionJobOutput, DecisionJobState, EvalCandidate, LabelRegime,
+    OpeEstimatorKind, OptimiserSpec, RecordWindow,
 };
 use eg_types::decision::statistical::body::encode_body;
+use eg_types::decision::statistical::dataset::OutcomeFidelity;
 use eg_types::decision::statistical::dataset::{
     ItemLabel, LabelSource, LabelledDataset, LabelledItem, LABELLED_DATASET_SCHEMA_VERSION,
 };
 use eg_types::decision::statistical::features::{
     FeatureKind, FeatureSchemaBody, FeatureSpec, MissingValue, FEATURE_SCHEMA_VERSION,
 };
+use eg_types::decision::statistical::log::{
+    DecisionLogCommitted, DecisionLogEntry, DecisionLogOp, DecisionOutcomeEvaluation,
+    OutcomeAggregate, OutcomeAggregateRequest, StoredEvaluation,
+};
+use eg_types::decision::statistical::StatisticalDecisionRecord;
 use eg_types::decision::statistical::{
     CandidateSource, DecideRequest, DecisionBatch, QuestionKind, QuestionSafety,
     StatisticalOutcome, StatisticalQuestion, TypedParam, TypedValue,
 };
+use eg_types::decision::EvidenceClass;
 use eg_types::decision::{
     ColdStart, DecisionEvalOp, DecisionEvalRequest, DecisionFitOp, DecisionFitRequest,
     DecisionJobRecord, DecisionPolicyRef, ExplorationBudget, HeadKind, LibraryCandidateScope,
@@ -358,8 +365,9 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
             },
             seed: 0,
         },
-        dataset: data.clone(),
-        approved_commit_principals: BoundedVec::default(),
+        source: DatasetSource::Inline {
+            dataset: Box::new(data.clone()),
+        },
     };
     let fit_op = || DecisionFitOp::Submit {
         request: Box::new(fit_request.clone()),
@@ -416,8 +424,9 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
         estimators: BoundedVec::new(vec![OpeEstimatorKind::Ips]).unwrap(),
         gold_set_digest: Some(gold),
         window: window(),
-        dataset: data,
-        approved_commit_principals: BoundedVec::default(),
+        source: DatasetSource::Inline {
+            dataset: Box::new(data),
+        },
     };
     let job: DecisionJobRecord = decode(
         super::jobs::handle_decision_eval(
@@ -478,6 +487,80 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
     assert!(
         record.synthetic_evidence,
         "a head fitted on synthetic data says so"
+    );
+    assert_eq!(
+        record.logging_propensities.len(),
+        3,
+        "the executed policy is logged in full"
+    );
+
+    decision_log_round_trip(&h, record.clone()).await;
+}
+
+async fn log_op(h: &Harness, who: &str, op: DecisionLogOp) -> crate::protocol::Response {
+    let verified = VerifiedRequestContext::verified_for_test_in_tenant(who, TENANT);
+    super::log::handle_decision_log(&h.state, 9, &verified, op).await
+}
+
+/// DL-5/DL-5b: an acted-on record is logged only after verify-replay, only by
+/// the principal that decided, and joins independent evaluations; the
+/// aggregate reports nothing below `min_support`.
+async fn decision_log_round_trip(h: &Harness, record: StatisticalDecisionRecord) {
+    let mut tampered = record.clone();
+    tampered.logging_propensities = BoundedVec::default();
+    tampered.record_digest = eg_types::decision::digest::statistical_record_digest(&tampered);
+    let commit = |r: StatisticalDecisionRecord| DecisionLogOp::Commit {
+        record: Box::new(r),
+    };
+    let refused = decode::<DecisionLogCommitted>(log_op(h, "decider", commit(tampered)).await);
+    assert!(refused.unwrap_err().starts_with("DECISION_REPLAY_MISMATCH"));
+    let stranger =
+        decode::<DecisionLogCommitted>(log_op(h, "stranger", commit(record.clone())).await);
+    assert!(stranger.unwrap_err().starts_with("ACCESS_DENIED"));
+
+    let committed: DecisionLogCommitted =
+        decode(log_op(h, "decider", commit(record.clone())).await).unwrap();
+    assert!(!committed.replayed);
+    let again: DecisionLogCommitted =
+        decode(log_op(h, "decider", commit(record.clone())).await).unwrap();
+    assert!(again.replayed, "a repeat commit is an idempotent replay");
+
+    let evaluation = DecisionOutcomeEvaluation {
+        record_id: record.record_id.clone(),
+        evaluation_id: "evaluation-1".to_string(),
+        class: EvidenceClass::Observation,
+        selected_agent: "agent-a".to_string(),
+        lease_holder: "worker-a".to_string(),
+        fidelity: OutcomeFidelity::ToolCalls,
+        success: Some(true),
+    };
+    let op = DecisionLogOp::Evaluate {
+        tenant_id: TENANT.to_string(),
+        evaluation,
+    };
+    let stored: StoredEvaluation = decode(log_op(h, "evaluator", op).await).unwrap();
+    assert_ne!(stored.producer, record.caller_principal);
+
+    let get = DecisionLogOp::Get {
+        tenant_id: TENANT.to_string(),
+        record_id: record.record_id.clone(),
+    };
+    let entry: Option<DecisionLogEntry> = decode(log_op(h, "evaluator", get).await).unwrap();
+    assert!(
+        entry.is_some(),
+        "a library-sourced record is tenant-visible"
+    );
+
+    let request = OutcomeAggregateRequest {
+        tenant_id: TENANT.to_string(),
+        question_id: None,
+        window: window(),
+    };
+    let aggregate: OutcomeAggregate =
+        decode(log_op(h, "evaluator", DecisionLogOp::Aggregate { request }).await).unwrap();
+    assert!(
+        aggregate.rows.is_empty(),
+        "one evaluation is below min_support and is not reported"
     );
 }
 

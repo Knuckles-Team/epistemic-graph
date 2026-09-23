@@ -15,6 +15,9 @@ pub use statechart::*;
 pub use work_items::*;
 
 use crate::control_lease::{ControlLeaseIssued, ControlLeaseTransition, ControlLeaseView};
+use crate::decision::statistical::log::{
+    DecisionLogCommitted, DecisionLogEntry, OutcomeAggregate, StoredEvaluation,
+};
 use crate::decision::DecisionJobRecord;
 use crate::delegation::KgDelegateResult;
 use crate::epistemic_operations::{
@@ -115,4 +118,8 @@ method_results! {
     DecisionFitStatus(DecisionFit / "status") => Raw<Option<DecisionJobRecord>>;
     DecisionEvalSubmit(DecisionEval / "submit") => Raw<DecisionJobRecord>;
     DecisionEvalStatus(DecisionEval / "status") => Raw<Option<DecisionJobRecord>>;
+    DecisionLogCommit(DecisionLog / "commit") => Raw<DecisionLogCommitted>;
+    DecisionLogEvaluate(DecisionLog / "evaluate") => Raw<StoredEvaluation>;
+    DecisionLogGet(DecisionLog / "get") => Raw<Option<DecisionLogEntry>>;
+    DecisionLogAggregate(DecisionLog / "aggregate") => Raw<OutcomeAggregate>;
 }

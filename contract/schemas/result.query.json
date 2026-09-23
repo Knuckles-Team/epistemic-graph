@@ -2679,6 +2679,23 @@
       },
       "type": "object"
     },
+    "AuditDraw": {
+      "additionalProperties": false,
+      "description": "One audit-sampling draw. An acted decision is sampled into human review\nwith a KNOWN inclusion probability, so review results re-enter calibration\nweighted by its inverse and the review queue carries no selection bias.",
+      "properties": {
+        "inclusion_probability": {
+          "$ref": "#/$defs/UnitRationalWire"
+        },
+        "sampled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "inclusion_probability",
+        "sampled"
+      ],
+      "type": "object"
+    },
     "AuthorityContext": {
       "additionalProperties": false,
       "description": "Complete attempt-specific authority context. Its digest intentionally binds\nrequest/trace identity, timestamps, and nonce and therefore MUST NOT be used\nas the stable operation replay identity.",
@@ -3002,25 +3019,11 @@
       "maxItems": 64,
       "type": "array"
     },
-    "BoundedVec_IndexFileVersion_262144": {
+    "BoundedVec_LabelledItem_4096": {
       "items": {
-        "$ref": "#/$defs/IndexFileVersion"
-      },
-      "maxItems": 262144,
-      "type": "array"
-    },
-    "BoundedVec_IndexRef_4096": {
-      "items": {
-        "$ref": "#/$defs/IndexRef"
+        "$ref": "#/$defs/LabelledItem"
       },
       "maxItems": 4096,
-      "type": "array"
-    },
-    "BoundedVec_IndexTombstone_262144": {
-      "items": {
-        "$ref": "#/$defs/IndexTombstone"
-      },
-      "maxItems": 262144,
       "type": "array"
     },
     "BoundedVec_ObjectiveLevelKind_8": {
@@ -3061,6 +3064,13 @@
     "BoundedVec_PremiseRef_32": {
       "items": {
         "$ref": "#/$defs/PremiseRef"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "BoundedVec_QuantisedValue_32": {
+      "items": {
+        "$ref": "#/$defs/QuantisedValue"
       },
       "maxItems": 32,
       "type": "array"
@@ -3121,9 +3131,23 @@
       "maxItems": 256,
       "type": "array"
     },
+    "BoundedVec_TypedParam_16": {
+      "items": {
+        "$ref": "#/$defs/TypedParam"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
     "BoundedVec_TypedParam_64": {
       "items": {
         "$ref": "#/$defs/TypedParam"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_UnitRationalWire_64": {
+      "items": {
+        "$ref": "#/$defs/UnitRationalWire"
       },
       "maxItems": 64,
       "type": "array"
@@ -3382,8 +3406,11 @@
         },
         {
           "additionalProperties": false,
-          "description": "An RLS-filtered cross-modal plan -- the same public plan type\n`Method::UnifiedQuery` accepts, so there is one plan vocabulary.",
+          "description": "An RLS-filtered cross-modal plan over one named graph -- the same\npublic plan type `Method::UnifiedQuery` accepts, so there is one plan\nvocabulary. The plan only names the candidate id set; it may not rank\nor truncate before visibility, because a top-k taken over invisible\nrows would move visible ones.",
           "properties": {
+            "graph": {
+              "type": "string"
+            },
             "plan": {
               "$ref": "#/$defs/Plan"
             },
@@ -3394,6 +3421,7 @@
           },
           "required": [
             "source",
+            "graph",
             "plan"
           ],
           "type": "object"
@@ -4460,10 +4488,6 @@
             "$ref": "#/$defs/LineageRecord"
           },
           "type": "array"
-        },
-        "material_class": {
-          "$ref": "#/$defs/MaterialClass",
-          "description": "How inline material values are screened for host identity (EH-280).\nAbsent on the wire means `Attested`, so every existing envelope keeps\nits exact serialized form and digest."
         },
         "mutation": {
           "$ref": "#/$defs/MutationBatch"
@@ -5982,6 +6006,47 @@
       ],
       "type": "string"
     },
+    "DatasetSource": {
+      "description": "Where a job's labelled items come from.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A submitted dataset, pinned by digest (gold sets, exported suites).",
+          "properties": {
+            "dataset": {
+              "$ref": "#/$defs/LabelledDataset"
+            },
+            "source": {
+              "const": "inline",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "dataset"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The engine's own decision log: every committed, executed record of\n`question_id` the caller may read, with its independent evaluations.\nBandit labels only.",
+          "properties": {
+            "question_id": {
+              "type": "string"
+            },
+            "source": {
+              "const": "logged",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "question_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "DecideRequest": {
       "additionalProperties": false,
       "description": "One statistical decision request.\nNot `Eq`, for the same reason [`CandidateSource`] is not.",
@@ -6091,7 +6156,7 @@
       "oneOf": [
         {
           "additionalProperties": false,
-          "description": "Enqueue the job. The only mutating op.",
+          "description": "Enqueue the job. The only mutating op. Boxed: a submission\ncarries its whole labelled dataset.",
           "properties": {
             "op": {
               "const": "submit",
@@ -6150,6 +6215,10 @@
         "policy": {
           "$ref": "#/$defs/DecisionPolicyRef"
         },
+        "source": {
+          "$ref": "#/$defs/DatasetSource",
+          "description": "Where the labelled items the candidate is evaluated on come from."
+        },
         "tenant_id": {
           "type": "string"
         },
@@ -6163,7 +6232,8 @@
         "candidate",
         "policy",
         "estimators",
-        "window"
+        "window",
+        "source"
       ],
       "type": "object"
     },
@@ -6172,7 +6242,7 @@
       "oneOf": [
         {
           "additionalProperties": false,
-          "description": "Enqueue the job. The only mutating op.",
+          "description": "Enqueue the job. The only mutating op. Boxed: a submission\ncarries its whole labelled dataset.",
           "properties": {
             "op": {
               "const": "submit",
@@ -6230,6 +6300,10 @@
         "policy": {
           "$ref": "#/$defs/DecisionPolicyRef"
         },
+        "source": {
+          "$ref": "#/$defs/DatasetSource",
+          "description": "Where the labelled items come from. A full-label regime's\n`gold_set_digest` must equal the inline dataset's digest."
+        },
         "tenant_id": {
           "type": "string"
         },
@@ -6245,7 +6319,8 @@
         "policy",
         "label_regime",
         "window",
-        "optimiser"
+        "optimiser",
+        "source"
       ],
       "type": "object"
     },
@@ -6304,6 +6379,91 @@
       ],
       "type": "object"
     },
+    "DecisionLogOp": {
+      "description": "One decision-log operation.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Make one statistical record durable, after verify-replay.",
+          "properties": {
+            "op": {
+              "const": "commit",
+              "type": "string"
+            },
+            "record": {
+              "$ref": "#/$defs/StatisticalDecisionRecord"
+            }
+          },
+          "required": [
+            "op",
+            "record"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Join one independent evaluation to a committed record.",
+          "properties": {
+            "evaluation": {
+              "$ref": "#/$defs/DecisionOutcomeEvaluation"
+            },
+            "op": {
+              "const": "evaluate",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "evaluation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Read one committed record.",
+          "properties": {
+            "op": {
+              "const": "get",
+              "type": "string"
+            },
+            "record_id": {
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "record_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Read the outcome aggregate.",
+          "properties": {
+            "op": {
+              "const": "aggregate",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/OutcomeAggregateRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "DecisionOutcome": {
       "description": "The conclusion of one assembly decision.",
       "oneOf": [
@@ -6352,6 +6512,48 @@
           "type": "object"
         }
       ]
+    },
+    "DecisionOutcomeEvaluation": {
+      "additionalProperties": false,
+      "description": "One independent evaluation of a committed record's executed option.",
+      "properties": {
+        "class": {
+          "$ref": "#/$defs/EvidenceClass"
+        },
+        "evaluation_id": {
+          "type": "string"
+        },
+        "fidelity": {
+          "$ref": "#/$defs/OutcomeFidelity"
+        },
+        "lease_holder": {
+          "type": "string"
+        },
+        "record_id": {
+          "type": "string"
+        },
+        "selected_agent": {
+          "description": "The agent the executed option ran as; the evaluator must not be it.",
+          "type": "string"
+        },
+        "success": {
+          "default": null,
+          "description": "`None`: censored, neither success nor failure.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "record_id",
+        "evaluation_id",
+        "class",
+        "selected_agent",
+        "lease_holder",
+        "fidelity"
+      ],
+      "type": "object"
     },
     "DecisionPolicy": {
       "additionalProperties": false,
@@ -10145,7 +10347,7 @@
       "oneOf": [
         {
           "const": "weighted_features",
-          "description": "One weight per feature.",
+          "description": "One weight per feature; an advisory score that never acts.",
           "type": "string"
         },
         {
@@ -10200,112 +10402,71 @@
       ],
       "type": "object"
     },
-    "IndexFileVersion": {
-      "description": "`ref_name` contains `path` bound to the blob whose content digest is\n`blob_digest` (`sha256:<hex>`). The blob may have been submitted in this\nbatch or in an earlier one: a `:FileVersion` needs only the digest.",
-      "properties": {
-        "blob_digest": {
-          "type": "string"
-        },
-        "path": {
-          "type": "string"
-        },
-        "ref_name": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "ref_name",
-        "path",
-        "blob_digest"
-      ],
-      "type": "object"
-    },
-    "IndexRef": {
-      "description": "One branch/tag ref pinned to an immutable commit.",
-      "properties": {
-        "ref_name": {
-          "type": "string"
-        },
-        "revision_id": {
-          "description": "Lowercase 40- or 64-hex Git commit id, never a mutable ref name.",
-          "type": "string"
-        },
-        "status": {
-          "$ref": "#/$defs/IndexRefStatus"
-        }
-      },
-      "required": [
-        "ref_name",
-        "revision_id",
-        "status"
-      ],
-      "type": "object"
-    },
-    "IndexRefStatus": {
-      "description": "Whether a declared ref still exists at the indexed revision (EH-280).",
+    "ItemLabel": {
+      "description": "The label of one item.",
       "oneOf": [
         {
-          "const": "live",
-          "description": "The ref resolves to `revision_id`; its memberships ride in `file_versions`.",
-          "type": "string"
+          "additionalProperties": false,
+          "properties": {
+            "acceptable": {
+              "$ref": "#/$defs/BoundedVec_string_64"
+            },
+            "label": {
+              "const": "gold",
+              "type": "string"
+            },
+            "source": {
+              "$ref": "#/$defs/LabelSource"
+            }
+          },
+          "required": [
+            "label",
+            "acceptable",
+            "source"
+          ],
+          "type": "object"
         },
         {
-          "const": "deleted",
-          "description": "The ref no longer exists; `revision_id` is the last admitted revision and\nevery prior membership arrives as a tombstone.",
-          "type": "string"
+          "additionalProperties": false,
+          "description": "One logged, executed decision.",
+          "properties": {
+            "commit_principal": {
+              "type": "string"
+            },
+            "evaluation": {
+              "$ref": "#/$defs/OutcomeEvaluation"
+            },
+            "executed": {
+              "type": "string"
+            },
+            "label": {
+              "const": "logged",
+              "type": "string"
+            },
+            "logging_propensities": {
+              "$ref": "#/$defs/BoundedVec_UnitRationalWire_64",
+              "description": "Aligned with the item's candidates; must sum to exactly one."
+            },
+            "pinned": {
+              "description": "A pinned decision had propensity one by fiat and is excluded from\noff-policy estimates.",
+              "type": "boolean"
+            },
+            "propensity_source": {
+              "$ref": "#/$defs/PropensitySource"
+            }
+          },
+          "required": [
+            "label",
+            "executed",
+            "logging_propensities",
+            "propensity_source",
+            "pinned",
+            "commit_principal",
+            "evaluation"
+          ],
+          "type": "object"
         }
       ]
-    },
-    "IndexRepositoryScope": {
-      "description": "Branch-aware, blob-deduplicated scope of one `IndexRepository` batch\n(EH-280). With a scope, each submitted file is ONE unique blob (named by\none of the paths it occurs at): the engine parses it exactly once, attaches\nits symbols to `:Blob`, and projects `:FileVersion` (path + blob) and\n`:Branch -> :FileVersion` membership for every ref in the batch.",
-      "properties": {
-        "file_versions": {
-          "$ref": "#/$defs/BoundedVec_IndexFileVersion_262144",
-          "default": []
-        },
-        "refs": {
-          "$ref": "#/$defs/BoundedVec_IndexRef_4096"
-        },
-        "repository_id": {
-          "type": "string"
-        },
-        "tombstones": {
-          "$ref": "#/$defs/BoundedVec_IndexTombstone_262144",
-          "default": []
-        }
-      },
-      "required": [
-        "repository_id",
-        "refs"
-      ],
-      "type": "object"
-    },
-    "IndexTombstone": {
-      "description": "`path` (bound to `prior_blob_digest`) left `ref_name` since the preceding\nadmitted revision; `successor_path` names the rename target when known.",
-      "properties": {
-        "path": {
-          "type": "string"
-        },
-        "prior_blob_digest": {
-          "type": "string"
-        },
-        "ref_name": {
-          "type": "string"
-        },
-        "successor_path": {
-          "default": null,
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "ref_name",
-        "path",
-        "prior_blob_digest"
-      ],
-      "type": "object"
     },
     "JobKind": {
       "description": "Which analytics computation a job runs (CONCEPT:INT-P2-1).",
@@ -11436,6 +11597,114 @@
         }
       ]
     },
+    "LabelSource": {
+      "description": "Who produced a full-label acceptability set.",
+      "oneOf": [
+        {
+          "enum": [
+            "human"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "synthetic_construction",
+          "description": "Ground truth by construction (the synthetic suite).",
+          "type": "string"
+        },
+        {
+          "const": "llm_resolved",
+          "description": "An LLM resolved an abstention. Never a label: a candidate for human\nlabelling only.",
+          "type": "string"
+        }
+      ]
+    },
+    "LabelledDataset": {
+      "additionalProperties": false,
+      "description": "A labelled dataset, pinned by digest in every job that reads it.",
+      "properties": {
+        "feature_names": {
+          "$ref": "#/$defs/BoundedVec_string_32"
+        },
+        "feature_schema_digest": {
+          "description": "`sha256:<hex>` of the feature schema body the rows were computed under.",
+          "type": "string"
+        },
+        "items": {
+          "$ref": "#/$defs/BoundedVec_LabelledItem_4096"
+        },
+        "scale": {
+          "$ref": "#/$defs/QuantScaleTag"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "synthetic": {
+          "description": "Synthetic evidence is labelled as such, always.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "schema_version",
+        "feature_schema_digest",
+        "feature_names",
+        "scale",
+        "items",
+        "synthetic"
+      ],
+      "type": "object"
+    },
+    "LabelledItem": {
+      "additionalProperties": false,
+      "description": "One labelled decision: its candidates, their feature rows and the label.",
+      "properties": {
+        "audit_inclusion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnitRationalWire"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Known inclusion probability of an audit-sampled item; its weight is the\ninverse (EH-026)."
+        },
+        "candidate_ids": {
+          "$ref": "#/$defs/BoundedVec_string_64"
+        },
+        "class_key": {
+          "description": "Calibration class (task class); Mondrian guarantees are per class.",
+          "type": "string"
+        },
+        "features": {
+          "$ref": "#/$defs/BoundedVec_int64_2048",
+          "description": "Row-major, `candidate_ids.len() x feature_names.len()`, on the\ndataset's scale."
+        },
+        "item_id": {
+          "type": "string"
+        },
+        "label": {
+          "$ref": "#/$defs/ItemLabel"
+        },
+        "recorded_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "item_id",
+        "recorded_at_ms",
+        "class_key",
+        "candidate_ids",
+        "features",
+        "label"
+      ],
+      "type": "object"
+    },
     "LagrangeDual": {
       "additionalProperties": false,
       "description": "Row multipliers `numerator / denominator`, entries strictly ordered by row.",
@@ -11642,6 +11911,23 @@
       ],
       "type": "object"
     },
+    "LinearExplanation": {
+      "additionalProperties": false,
+      "description": "The exact per-feature logit contributions of one option under a linear\nhead: `weight x standardised value`, in schema order. Not an explanation of\nthe calibrated probability or of the softmax.",
+      "properties": {
+        "contributions": {
+          "$ref": "#/$defs/BoundedVec_QuantisedValue_32"
+        },
+        "option_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "option_id",
+        "contributions"
+      ],
+      "type": "object"
+    },
     "Linkage": {
       "description": "Hierarchical agglomerative linkage criterion (CONCEPT:EG-KG.mining.hierarchical-linkage).",
       "enum": [
@@ -11682,21 +11968,6 @@
         "maintenance_key"
       ],
       "type": "object"
-    },
-    "MaterialClass": {
-      "description": "How an envelope's inline material values are screened for host identity.",
-      "oneOf": [
-        {
-          "const": "attested",
-          "description": "Caller-attested material: every text value is screened strictly.",
-          "type": "string"
-        },
-        {
-          "const": "repository_snapshot",
-          "description": "Content of a repository snapshot, lowered by the engine's own\nrepository indexer. A caller cannot claim this class: the request\nboundary refuses it on the public envelope methods.",
-          "type": "string"
-        }
-      ]
     },
     "MaterialOperation": {
       "enum": [
@@ -18037,7 +18308,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Parse a batch AND resolve cross-file call/import edges in one round-trip\n(CONCEPT:EG-KG.compute.turn-each-project). The blob is the same MessagePack `Vec<(file_path,\nsource_bytes)>` as `ParseFiles`, but the batch is treated as one\nresolution scope (a repository, or a delta set): the response is a SINGLE\nresolved `IndexResult` whose `calls`/`depends_on` edges point at real node\nids, not bare names. Its ordered `file_outcomes` preserve success,\nunsupported, and error dispositions plus content/parser-capability\ndigests for every submitted file. Use this (not `ParseFiles`) to ingest a\nrepo's symbol graph; use `ParseFiles` only when per-file raw results are\nwanted. With `scope` (EH-280) the batch is branch-aware and\nblob-deduplicated: every submitted file is one unique blob, parsed once,\nand the result also projects `:Blob`, `:FileVersion` and `:Branch`\nmembership (plus tombstones) for the declared refs.",
+          "description": "Parse a batch AND resolve cross-file call/import edges in one round-trip\n(CONCEPT:EG-KG.compute.turn-each-project). The blob is the same MessagePack `Vec<(file_path,\nsource_bytes)>` as `ParseFiles`, but the batch is treated as one\nresolution scope (a repository, or a delta set): the response is a SINGLE\nresolved `IndexResult` whose `calls`/`depends_on` edges point at real node\nids, not bare names. Its ordered `file_outcomes` preserve success,\nunsupported, and error dispositions plus content/parser-capability\ndigests for every submitted file. Use this (not `ParseFiles`) to ingest a\nrepo's symbol graph; use `ParseFiles` only when per-file raw results are\nwanted.",
           "properties": {
             "method": {
               "const": "IndexRepository",
@@ -18054,17 +18325,6 @@
                     "type": "integer"
                   },
                   "type": "array"
-                },
-                "scope": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/$defs/IndexRepositoryScope"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "default": null
                 }
               },
               "required": [
@@ -24826,11 +25086,6 @@
                   "description": "Projection base namespace IRI. Empty ⇒ identity projection.",
                   "type": "string"
                 },
-                "explain": {
-                  "default": false,
-                  "description": "When true, the result carries one witness proof per row\n(`SparqlResult::proofs`, EH-197): the ground triples that instantiate the\nquery's patterns under that row. Opt-in, because the witness search scans\nthe graph once per triple pattern.",
-                  "type": "boolean"
-                },
                 "query": {
                   "type": "string"
                 },
@@ -25048,11 +25303,6 @@
                 "derived_only": {
                   "default": false,
                   "description": "When true, return only the DERIVED facts (omit the asserted base).",
-                  "type": "boolean"
-                },
-                "explain": {
-                  "default": false,
-                  "description": "When true, every returned fact carries its proof tree (`RuleFact::proof`,\nEH-197): the rule and premises that set its confidence, down to asserted\nleaves. Opt-in, like `OwlExplain` beside `OwlReason`, because a proof per\nfact multiplies the response size.",
                   "type": "boolean"
                 },
                 "min_confidence": {
@@ -27634,6 +27884,33 @@
         },
         {
           "additionalProperties": false,
+          "description": "The statistical decision log: commit an acted-on record after\nverify-replay, join independent outcome evaluations, and read the\noutcome aggregate the log answers.",
+          "properties": {
+            "method": {
+              "const": "DecisionLog",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "op": {
+                  "$ref": "#/$defs/DecisionLogOp"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "General bounded 0-1 integer programme with an independently verifiable\ncertificate. Pure compute: no store, no clock, no float.",
           "properties": {
             "method": {
@@ -28482,6 +28759,132 @@
       ],
       "type": "string"
     },
+    "NlBinding": {
+      "additionalProperties": false,
+      "description": "A routed utterance: the template chosen and the typed slot values.",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/BoundedVec_TypedParam_16"
+        },
+        "source": {
+          "$ref": "#/$defs/NlChoiceSource"
+        },
+        "target": {
+          "$ref": "#/$defs/NlTarget"
+        },
+        "template": {
+          "$ref": "#/$defs/ComponentDependency"
+        },
+        "unfilled": {
+          "$ref": "#/$defs/BoundedVec_string_16",
+          "default": [],
+          "description": "Required slots the utterance did not fill."
+        }
+      },
+      "required": [
+        "template",
+        "target",
+        "params",
+        "source"
+      ],
+      "type": "object"
+    },
+    "NlChoiceSource": {
+      "description": "Who produced a template choice.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The engine's own routing decision.",
+          "properties": {
+            "by": {
+              "const": "engine",
+              "type": "string"
+            }
+          },
+          "required": [
+            "by"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An LLM planner's proposal after the engine abstained: a claim.",
+          "properties": {
+            "by": {
+              "const": "llm_proposal",
+              "type": "string"
+            },
+            "producer": {
+              "type": "string"
+            },
+            "prompt_digest": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "by",
+            "producer",
+            "prompt_digest"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "NlTarget": {
+      "description": "Which request a template fills.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A statistical decision question.",
+          "properties": {
+            "question": {
+              "$ref": "#/$defs/StatisticalQuestion"
+            },
+            "target": {
+              "const": "decide",
+              "type": "string"
+            }
+          },
+          "required": [
+            "target",
+            "question"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An agent assembly.",
+          "properties": {
+            "target": {
+              "const": "agent_assemble",
+              "type": "string"
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A named, operator-published query.",
+          "properties": {
+            "query_id": {
+              "type": "string"
+            },
+            "target": {
+              "const": "named_query",
+              "type": "string"
+            }
+          },
+          "required": [
+            "target",
+            "query_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "Nonce": {
       "description": "32 bytes of attempt nonce as lowercase hexadecimal",
       "maxLength": 64,
@@ -28945,38 +29348,6 @@
           },
           "required": [
             "SparqlBgp"
-          ],
-          "type": "object"
-        },
-        {
-          "additionalProperties": false,
-          "description": "FILTER (semantic, SHACL — EH-196) — validate every row's node, as an explicit\nSHACL focus node, against the ONE named `shape` of the `shapes` graph over the\nrequest graph's RDF projection, and keep the rows `keep` names. The UQL\n`VALIDATE SHAPE <shape> USING \"<turtle>\" [KEEP CONFORMING|VIOLATING]` stage lowers\nhere. A shape that is not declared in the shapes graph, or a row whose id is not\nan RDF term, is an error — never a vacuous pass. Gated by `owl-plan`, like the other\nsemantic plan ops.",
-          "properties": {
-            "ValidateShape": {
-              "properties": {
-                "keep": {
-                  "$ref": "#/$defs/ShapeKeep",
-                  "description": "Which rows survive."
-                },
-                "shape": {
-                  "description": "The shape IRI (canonical `<iri>` or bare).",
-                  "type": "string"
-                },
-                "shapes": {
-                  "description": "The shapes graph as a Turtle document; empty ⇒ the queried graph's\ncomposed GraphSchema shapes (bound by the served query path).",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "shape",
-                "shapes",
-                "keep"
-              ],
-              "type": "object"
-            }
-          },
-          "required": [
-            "ValidateShape"
           ],
           "type": "object"
         },
@@ -29743,6 +30114,31 @@
         }
       ]
     },
+    "OutcomeAggregateRequest": {
+      "additionalProperties": false,
+      "description": "Ask for the outcome aggregate.",
+      "properties": {
+        "question_id": {
+          "default": null,
+          "description": "`None` aggregates every question; rows then also carry the\ncross-question total per option.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "window": {
+          "$ref": "#/$defs/RecordWindow"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "window"
+      ],
+      "type": "object"
+    },
     "OutcomeArtifactRef": {
       "additionalProperties": false,
       "description": "One immutable, content-addressed artifact reference a\n[`CommitOutcomeBundle`] carries. The bundle never embeds artifact bytes —\nonly a bounded reference/digest pair, mirroring\n[`crate::commit_descriptor::CommitDescriptor`]'s \"digests cover canonical\nencoded participant bytes, never mutable pointers or raw content\" rule.",
@@ -29797,6 +30193,61 @@
           "type": "string"
         }
       ]
+    },
+    "OutcomeEvaluation": {
+      "additionalProperties": false,
+      "description": "The independent evaluation behind a bandit label.",
+      "properties": {
+        "class": {
+          "$ref": "#/$defs/EvidenceClass"
+        },
+        "evaluation_id": {
+          "type": "string"
+        },
+        "fidelity": {
+          "$ref": "#/$defs/OutcomeFidelity"
+        },
+        "lease_holder": {
+          "description": "The lease holder that ran it; likewise excluded as a producer.",
+          "type": "string"
+        },
+        "producer": {
+          "type": "string"
+        },
+        "selected_agent": {
+          "description": "The agent the decision selected; a label it produced itself is a\nself-report.",
+          "type": "string"
+        },
+        "success": {
+          "default": null,
+          "description": "`None` is a censored run: neither a success nor a failure.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "evaluation_id",
+        "class",
+        "producer",
+        "selected_agent",
+        "lease_holder",
+        "fidelity"
+      ],
+      "type": "object"
+    },
+    "OutcomeFidelity": {
+      "description": "How completely the evaluated run was traced, plus the censored states.",
+      "enum": [
+        "full_step",
+        "tool_calls",
+        "final_output",
+        "trace_incomplete",
+        "outcome_uncertain",
+        "cancelled"
+      ],
+      "type": "string"
     },
     "PackAnnotations": {
       "additionalProperties": false,
@@ -31163,6 +31614,21 @@
             "leaf"
           ],
           "type": "object"
+        }
+      ]
+    },
+    "PropensitySource": {
+      "description": "Where a logged propensity came from.",
+      "oneOf": [
+        {
+          "const": "executed_policy",
+          "description": "The executed policy's exact probability.",
+          "type": "string"
+        },
+        {
+          "const": "head_mass",
+          "description": "A head's score copied in as if it were a propensity. Never admissible.",
+          "type": "string"
         }
       ]
     },
@@ -35999,21 +36465,6 @@
       "description": "A SHA-256 digest, serialised as 64 lower-case hex characters.",
       "type": "string"
     },
-    "ShapeKeep": {
-      "description": "Which rows a `VALIDATE SHAPE` stage keeps (EH-196).",
-      "oneOf": [
-        {
-          "const": "conforming",
-          "description": "Rows whose node has no validation result against the shape.",
-          "type": "string"
-        },
-        {
-          "const": "violating",
-          "description": "Rows whose node has at least one validation result against the shape.",
-          "type": "string"
-        }
-      ]
-    },
     "ShortlistProvenance": {
       "additionalProperties": false,
       "description": "How the shortlist the decision scored was produced.",
@@ -37278,6 +37729,18 @@
       "additionalProperties": false,
       "description": "One statistical decision, recorded. Record version 2.",
       "properties": {
+        "audit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuditDraw"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The audit-sampling draw of an acted decision (EH-026)."
+        },
         "calibration": {
           "anyOf": [
             {
@@ -37303,11 +37766,40 @@
         "evidence_class": {
           "$ref": "#/$defs/EvidenceClass"
         },
+        "explanation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LinearExplanation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Per-feature logit contributions of the chosen or top option; exact for\na linear head's logit only."
+        },
         "inputs": {
           "$ref": "#/$defs/StatisticalInputs"
         },
         "inputs_digest": {
           "type": "string"
+        },
+        "logging_propensities": {
+          "$ref": "#/$defs/BoundedVec_UnitRationalWire_64",
+          "default": [],
+          "description": "The executed policy's full distribution over the options, aligned with\nthe feature matrix's candidate order and conditional on an option being\nexecuted; empty when nothing was (advisory or abstained). Off-policy\nevaluation over the decision log reads it."
+        },
+        "nl_binding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NlBinding"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The routed template and slot values of a `TemplateChoice` question."
         },
         "outcome": {
           "$ref": "#/$defs/StatisticalOutcome"
@@ -37396,6 +37888,15 @@
           ],
           "default": null
         },
+        "params": {
+          "$ref": "#/$defs/BoundedVec_TypedParam_64",
+          "default": [],
+          "description": "The typed parameters the features and the keyed seed read."
+        },
+        "policy": {
+          "$ref": "#/$defs/DecisionPolicyRef",
+          "description": "The policy the decision resolved, so a replay reads the same body."
+        },
         "policy_digest": {
           "type": "string"
         },
@@ -37405,6 +37906,7 @@
       },
       "required": [
         "feature_schema",
+        "policy",
         "policy_digest",
         "feature_matrix",
         "shortlist"
@@ -37441,6 +37943,28 @@
             "propensity",
             "prediction_set",
             "risk"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An option chosen by the declared exploration budget, not by a score:\nthe propensity is the executed policy's exact probability, and no risk\nclaim is made.",
+          "properties": {
+            "option_id": {
+              "type": "string"
+            },
+            "outcome": {
+              "const": "explored",
+              "type": "string"
+            },
+            "propensity": {
+              "$ref": "#/$defs/UnitRationalWire"
+            }
+          },
+          "required": [
+            "outcome",
+            "option_id",
+            "propensity"
           ],
           "type": "object"
         },
@@ -37493,6 +38017,11 @@
         "alpha": {
           "$ref": "#/$defs/UnitRationalWire",
           "description": "Miscoverage level of the prediction set."
+        },
+        "approved_commit_principals": {
+          "$ref": "#/$defs/BoundedVec_string_64",
+          "default": [],
+          "description": "Commit principals whose logged outcomes may train or evaluate a head\n(§4.3 log poisoning). Empty admits no bandit record at all."
         },
         "audit_sample": {
           "$ref": "#/$defs/UnitRationalWire",

@@ -181,9 +181,10 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 430 -> 436: graph-os EG-2..EG-5 -- `GetWorkItem`, `ListWorkItems`,
     // `GetWorkItemOutcome`, `IssueControlLease`, `TransitionControlLease`,
     // `GetControlLease`.
+    // 436 -> 437: the statistical `DecisionLog` (RF-ADR-010 DL-5/DL-5b).
     assert_eq!(
         variants.len(),
-        436,
+        437,
         "the wire method census changed; update this exact count deliberately"
     );
 }

@@ -17,6 +17,7 @@
 //! quantised first.
 
 pub mod admission;
+pub mod aggregate;
 pub mod bm25;
 pub mod candidate;
 pub mod evaluate;
