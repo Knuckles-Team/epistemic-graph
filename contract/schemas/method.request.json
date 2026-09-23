@@ -3107,6 +3107,13 @@
       "maxItems": 8,
       "type": "array"
     },
+    "BoundedVec_TypedParam_16": {
+      "items": {
+        "$ref": "#/$defs/TypedParam"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
     "BoundedVec_TypedParam_64": {
       "items": {
         "$ref": "#/$defs/TypedParam"
@@ -19400,6 +19407,37 @@
     "Sha256Digest": {
       "description": "A SHA-256 digest, serialised as 64 lower-case hex characters.",
       "type": "string"
+    },
+    "ShortlistProvenance": {
+      "additionalProperties": false,
+      "description": "How the shortlist the decision scored was produced.",
+      "properties": {
+        "ann_recall_mode": {
+          "default": null,
+          "description": "The approximate-nearest-neighbour recall mode, when one was used.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "embedder_model_digest": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "now_ms": {
+          "description": "The clock the shortlist's recency filters read, recorded so the\nshortlist can be reproduced.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "now_ms"
+      ],
+      "type": "object"
     },
     "SkillType": {
       "description": "How a skill is run. The four values the agent ecosystem declares.",

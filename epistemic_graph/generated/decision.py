@@ -955,8 +955,11 @@ class StatisticalPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     alpha: UnitRationalWire
+    approved_commit_principals: BoundedVec_string_64 | None = None
     audit_sample: UnitRationalWire
+    compact_after_ms: Annotated[int, Field(ge=0)] | None = None
     delta: UnitRationalWire
+    drop_blob_after_ms: Annotated[int, Field(ge=0)] | None = None
     epsilon: UnitRationalWire
     min_ess: QuantisedValue
     min_outcome_fidelity: TraceFidelityLevel

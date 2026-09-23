@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 436,
+  "method_count": 437,
   "methods": [
     {
       "consumer_profiles": [

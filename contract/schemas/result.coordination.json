@@ -1375,6 +1375,27 @@
       ],
       "type": "object"
     },
+    "ComponentDependency": {
+      "additionalProperties": false,
+      "description": "One pinned requirement of a component.\n\nThe `kind` is carried alongside the id so a dependency can be type-checked\nwithout resolving it: a [`AgentComponentKind::Tool`] whose input schema\npoints at a [`AgentComponentKind::ModelProfile`] is rejected structurally,\nnot at run time. The `definition_digest` pins the exact revision, so a\ndependency cannot silently change under a component that was reviewed\nagainst it.",
+      "properties": {
+        "component_id": {
+          "type": "string"
+        },
+        "definition_digest": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/AgentComponentKind"
+        }
+      },
+      "required": [
+        "component_id",
+        "kind",
+        "definition_digest"
+      ],
+      "type": "object"
+    },
     "ControlLeaseIssueOutcome": {
       "description": "How an issue resolved.",
       "oneOf": [
@@ -5136,6 +5157,24 @@
           "required": [
             "provenance",
             "evaluation_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The request itself: a requirement the caller stated in `field`.",
+          "properties": {
+            "field": {
+              "type": "string"
+            },
+            "provenance": {
+              "const": "request",
+              "type": "string"
+            }
+          },
+          "required": [
+            "provenance",
+            "field"
           ],
           "type": "object"
         }
