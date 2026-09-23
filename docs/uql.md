@@ -43,29 +43,10 @@ Names with spaces, punctuation, non-ASCII letters or keyword spellings are back-
 Generated from the grammar table (`crates/eg-plan/src/uql/grammar.rs`) — the one source of
 truth the parser's dispatch table, the parse-error "expected" lists and the NL planner's
 system prompt are all generated from or checked against. A test fails when this block drifts;
-regenerate it with `cargo run -p eg-plan --example uql_grammar`.
+regenerate it in place with `cargo run -q -p eg-plan --example uql_grammar -- write-docs`.
 
 <!-- BEGIN GENERATED: uql-grammar -->
 ```text
-warning: function `strings` is never used
-   --> crates/eg-types/src/wire_query_uql.rs:255:4
-    |
-255 | fn strings(items: &[String]) -> String {
-    |    ^^^^^^^
-    |
-    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
-
-warning: associated function `place_narrower` is never used
-   --> crates/eg-plan/src/cost.rs:150:19
-    |
- 99 | impl CostModel {
-    | -------------- associated function in this implementation
-...
-150 |     pub(crate) fn place_narrower(
-    |                   ^^^^^^^^^^^^^^
-    |
-    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
-
 statement          = [ "UQL" int ";" ] [ "EXPLAIN" | "PROFILE" ] { binding } pipeline ;
 binding            = "LET" name "=" pipeline ";" ;
 pipeline           = head { "|>" stage } ;

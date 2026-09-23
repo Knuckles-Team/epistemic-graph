@@ -102,7 +102,7 @@ fn docs_embed_the_generated_grammar() {
     assert_eq!(
         &body[..end],
         grammar::ebnf(),
-        "docs/uql.md grammar drifted; replace the block with grammar::ebnf()"
+        "docs/uql.md grammar drifted; run `cargo run -q -p eg-plan --example uql_grammar -- write-docs`"
     );
 }
 

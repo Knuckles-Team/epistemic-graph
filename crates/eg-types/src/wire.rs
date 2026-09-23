@@ -37,6 +37,20 @@ mod wire_query_samples;
 #[cfg(feature = "query")]
 #[path = "wire_query_uql.rs"]
 mod wire_query_uql;
+#[cfg(all(
+    feature = "query",
+    any(
+        feature = "owl-plan",
+        feature = "federation",
+        feature = "geo",
+        feature = "tensor",
+        feature = "stream",
+        feature = "timeseries",
+        feature = "probabilistic"
+    )
+))]
+#[path = "wire_query_uql_modal.rs"]
+mod wire_query_uql_modal;
 #[cfg(feature = "query")]
 #[path = "wire_query_uql_pred.rs"]
 mod wire_query_uql_pred;

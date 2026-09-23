@@ -243,19 +243,13 @@ pub fn uql_num32(n: f32) -> Printed {
 }
 
 /// `KEYWORD 'quoted'` — the shape of every single-string clause.
-fn keyword_quoted(keyword: &str, value: &str) -> Printed {
+pub(super) fn keyword_quoted(keyword: &str, value: &str) -> Printed {
     Ok(format!("{keyword} {}", uql_quote(value)))
 }
 
-fn list<T>(items: &[T], each: impl Fn(&T) -> Printed) -> Printed {
+pub(super) fn list<T>(items: &[T], each: impl Fn(&T) -> Printed) -> Printed {
     let parts = items.iter().map(each).collect::<Result<Vec<_>, _>>()?;
     Ok(format!("[{}]", parts.join(", ")))
-}
-
-#[cfg(feature = "timeseries")]
-fn strings(items: &[String]) -> String {
-    let parts: Vec<String> = items.iter().map(|s| uql_quote(s)).collect();
-    format!("[{}]", parts.join(", "))
 }
 
 /// A JSON literal: scalars in UQL scalar syntax, containers as `JSON '<text>'`.
@@ -293,12 +287,10 @@ impl Plan {
 /// One op's canonical UQL clause.
 pub fn uql_op(op: &Op) -> Printed {
     match op {
-        Op::Scan { label } => Ok(format!("MATCH (:{})", uql_ident(label))),
-        Op::ScanAll {} => Ok("MATCH ()".into()),
+        Op::Scan { label } => scan(label),
+        Op::ScanAll {} => fixed("MATCH ()"),
         Op::Filter { preds } => filter(preds),
-        Op::Traverse { rel, min, max } => {
-            Ok(format!("TRAVERSE -[:{}]->{{{min},{max}}}", uql_ident(rel)))
-        }
+        Op::Traverse { rel, min, max } => traverse(rel, *min, *max),
         Op::Expand {
             rel,
             dir,
@@ -306,11 +298,11 @@ pub fn uql_op(op: &Op) -> Printed {
             max,
             edge_preds,
         } => expand(rel.as_deref(), *dir, (*min, *max), edge_preds),
-        Op::Rank { query } => Ok(format!("RANK BY ~{}", list(query, |v| uql_num32(*v))?)),
-        Op::RankEmbed { text } => Ok(format!("RANK BY ~{}", uql_quote(text))),
+        Op::Rank { query } => rank(query),
+        Op::RankEmbed { text } => keyword_quoted("RANK BY ~", text),
         Op::RankNodeDistance { center } => keyword_quoted("RERANK NODE_DISTANCE FROM", center),
-        Op::RankMentions {} => Ok("RERANK MENTIONS".into()),
-        Op::RankMmr { lambda, k } => Ok(format!("RERANK MMR {} {k}", uql_num32(*lambda)?)),
+        Op::RankMentions {} => fixed("RERANK MENTIONS"),
+        Op::RankMmr { lambda, k } => rank_mmr(*lambda, *k),
         #[cfg(feature = "text")]
         Op::RankText { query } => keyword_quoted("TEXT", query),
         #[cfg(feature = "text")]
@@ -319,50 +311,54 @@ pub fn uql_op(op: &Op) -> Printed {
         Op::Reason {
             target_class,
             ontology,
-        } => reason(target_class, ontology),
+        } => super::wire_query_uql_modal::reason(target_class, ontology),
         #[cfg(feature = "owl-plan")]
-        Op::SparqlBgp { query, var } => Ok(sparql(query, var)),
+        Op::SparqlBgp { query, var } => super::wire_query_uql_modal::sparql(query, var),
         #[cfg(feature = "owl-plan")]
         Op::ValidateShape {
             shape,
             shapes,
             keep,
-        } => Ok(validate_shape(shape, shapes, *keep)),
+        } => super::wire_query_uql_modal::validate_shape(shape, shapes, *keep),
         #[cfg(feature = "wasm-udf")]
         Op::Udf { id } => keyword_quoted("UDF", id),
         #[cfg(feature = "federation")]
-        Op::ForeignScan { source, join } => foreign_scan(source, *join),
+        Op::ForeignScan { source, join } => {
+            super::wire_query_uql_modal::foreign_scan(source, *join)
+        }
         Op::AsOf { ts, axis } => as_of(*ts, *axis),
-        Op::Window { secs } => Ok(format!("WINDOW {} s", uql_num(*secs)?)),
+        Op::Window { secs } => window(*secs),
         Op::WindowAgg { secs, agg } => window_agg(*secs, agg),
         Op::Foreign { name } => keyword_quoted("FOREIGN", name),
         #[cfg(feature = "geo")]
-        Op::SpatialScan { layer, bbox } => spatial_scan(layer, bbox),
+        Op::SpatialScan { layer, bbox } => super::wire_query_uql_modal::spatial_scan(layer, bbox),
         #[cfg(feature = "geo")]
-        Op::Reproject { to_epsg, from_epsg } => Ok(reproject(*to_epsg, *from_epsg)),
+        Op::Reproject { to_epsg, from_epsg } => {
+            super::wire_query_uql_modal::reproject(*to_epsg, *from_epsg)
+        }
         #[cfg(feature = "geo")]
-        Op::SpatialOp { kind } => spatial_op(kind),
+        Op::SpatialOp { kind } => super::wire_query_uql_modal::spatial_op(kind),
         #[cfg(feature = "tensor")]
         Op::TensorScan { layer } => keyword_quoted("TENSOR SCAN", layer),
         #[cfg(feature = "tensor")]
-        Op::TensorOp { kind } => tensor_op(kind),
+        Op::TensorOp { kind } => super::wire_query_uql_modal::tensor_op(kind),
         #[cfg(feature = "stream")]
-        Op::Cep { pattern } => cep(pattern),
+        Op::Cep { pattern } => super::wire_query_uql_modal::cep(pattern),
         #[cfg(feature = "timeseries")]
         Op::SensorFuse {
             streams,
             tolerance_ns,
-        } => Ok(sensor_fuse(streams, *tolerance_ns)),
+        } => super::wire_query_uql_modal::sensor_fuse(streams, *tolerance_ns),
         #[cfg(feature = "timeseries")]
         Op::SensorAlign {
             streams,
             clock,
             tolerance_ns,
-        } => Ok(sensor_align(streams, clock, *tolerance_ns)),
+        } => super::wire_query_uql_modal::sensor_align(streams, clock, *tolerance_ns),
         #[cfg(feature = "timeseries")]
-        Op::TsScan { series, from, to } => ts_scan(series, *from, *to),
+        Op::TsScan { series, from, to } => super::wire_query_uql_modal::ts_scan(series, *from, *to),
         #[cfg(feature = "probabilistic")]
-        Op::Probabilistic { query } => probabilistic(query),
+        Op::Probabilistic { query } => super::wire_query_uql_modal::probabilistic(query),
         #[cfg(feature = "epistemic")]
         Op::EvidenceFor { claim_id } => keyword_quoted("EVIDENCE FOR", claim_id),
         #[cfg(feature = "epistemic")]
@@ -370,11 +366,11 @@ pub fn uql_op(op: &Op) -> Printed {
         #[cfg(feature = "epistemic")]
         Op::SupportedBy { node_id } => keyword_quoted("SUPPORTED BY", node_id),
         #[cfg(feature = "epistemic")]
-        Op::BeliefAsOf { ts } => Ok(format!("BELIEF AS OF @{}", uql_num(*ts)?)),
+        Op::BeliefAsOf { ts } => prefixed_num("BELIEF AS OF @", *ts),
         #[cfg(feature = "epistemic")]
         Op::SourceReliability { source_id } => keyword_quoted("SOURCE RELIABILITY", source_id),
         #[cfg(feature = "epistemic")]
-        Op::ConfidenceOp {} => Ok("CONFIDENCE".into()),
+        Op::ConfidenceOp {} => fixed("CONFIDENCE"),
         #[cfg(feature = "epistemic")]
         Op::ExplainBelief { node_id } => keyword_quoted("EXPLAIN BELIEF", node_id),
         Op::Limit { k } => Ok(format!("LIMIT {k}")),
@@ -382,41 +378,34 @@ pub fn uql_op(op: &Op) -> Printed {
     }
 }
 
-#[cfg(feature = "owl-plan")]
-fn sparql(query: &str, var: &str) -> String {
-    format!("SPARQL {} VAR {}", uql_quote(query), uql_quote(var))
+/// A clause with no arguments.
+fn fixed(text: &str) -> Printed {
+    Ok(text.to_string())
 }
 
-#[cfg(feature = "geo")]
-fn spatial_scan(layer: &str, bbox: &[f64; 4]) -> Printed {
-    Ok(format!(
-        "SPATIAL SCAN {} BBOX {}",
-        uql_quote(layer),
-        list(bbox, |v| uql_num(*v))?
-    ))
+/// `PREFIX<number>`.
+fn prefixed_num(prefix: &str, n: f64) -> Printed {
+    Ok(format!("{prefix}{}", uql_num(n)?))
 }
 
-#[cfg(feature = "geo")]
-fn reproject(to_epsg: u32, from_epsg: Option<u32>) -> String {
-    match from_epsg {
-        Some(from) => format!("REPROJECT TO {to_epsg} FROM {from}"),
-        None => format!("REPROJECT TO {to_epsg}"),
-    }
+fn scan(label: &str) -> Printed {
+    Ok(format!("MATCH (:{})", uql_ident(label)))
 }
 
-#[cfg(feature = "timeseries")]
-fn sensor_fuse(streams: &[String], tolerance_ns: u64) -> String {
-    format!("SENSOR FUSE {} TOLERANCE {tolerance_ns}", strings(streams))
+fn traverse(rel: &str, min: usize, max: usize) -> Printed {
+    Ok(format!("TRAVERSE -[:{}]->{{{min},{max}}}", uql_ident(rel)))
 }
 
-#[cfg(feature = "timeseries")]
-fn ts_scan(series: &[String], from: f64, to: f64) -> Printed {
-    Ok(format!(
-        "TSSCAN {} FROM {} TO {}",
-        strings(series),
-        uql_num(from)?,
-        uql_num(to)?
-    ))
+fn rank(query: &[f32]) -> Printed {
+    Ok(format!("RANK BY ~{}", list(query, |v| uql_num32(*v))?))
+}
+
+fn rank_mmr(lambda: f32, k: usize) -> Printed {
+    Ok(format!("RERANK MMR {} {k}", uql_num32(lambda)?))
+}
+
+fn window(secs: f64) -> Printed {
+    Ok(format!("WINDOW {} s", uql_num(secs)?))
 }
 
 fn filter(preds: &[Pred]) -> Printed {
@@ -491,250 +480,4 @@ fn fuse(branches: &[Vec<Op>], k: f32) -> Printed {
         out.push_str(&format!(" [{}]", stages.join(" |> ")));
     }
     Ok(out)
-}
-
-#[cfg(feature = "owl-plan")]
-fn reason(target_class: &str, ontology: &str) -> Printed {
-    let class = iri_or_string(target_class);
-    Ok(if ontology.is_empty() {
-        format!("REASON {class}")
-    } else {
-        format!("REASON {class} ONTOLOGY {}", uql_quote(ontology))
-    })
-}
-
-#[cfg(feature = "owl-plan")]
-fn validate_shape(shape: &str, shapes: &str, keep: ShapeKeep) -> String {
-    let mut out = format!("VALIDATE SHAPE {}", iri_or_string(shape));
-    if !shapes.is_empty() {
-        out.push_str(&format!(" USING {}", uql_quote(shapes)));
-    }
-    if keep == ShapeKeep::Violating {
-        out.push_str(" KEEP VIOLATING");
-    }
-    out
-}
-
-/// An IRI token when `s` lexes as one, else a quoted string (both parse back to `s`).
-#[cfg(feature = "owl-plan")]
-fn iri_or_string(s: &str) -> String {
-    if is_iri_token(s) {
-        s.to_string()
-    } else {
-        uql_quote(s)
-    }
-}
-
-/// Would the UQL lexer read `s` back as ONE angle-bracketed IRI token?
-#[cfg(feature = "owl-plan")]
-fn is_iri_token(s: &str) -> bool {
-    let Some(body) = s.strip_prefix('<').and_then(|r| r.strip_suffix('>')) else {
-        return false;
-    };
-    !body.is_empty()
-        && body.contains(':')
-        && !body
-            .chars()
-            .any(|c| c.is_whitespace() || c == '>' || c == '<')
-}
-
-#[cfg(feature = "federation")]
-fn foreign_scan(source: &ForeignSourceSpec, join: bool) -> Printed {
-    let join = if join { " JOIN" } else { "" };
-    match source {
-        ForeignSourceSpec::Named { name } => Ok(format!("FOREIGN SCAN {}{join}", uql_quote(name))),
-        ForeignSourceSpec::HttpJson {
-            url,
-            json_path,
-            field_map,
-        } => {
-            let path = if json_path.is_empty() {
-                String::new()
-            } else {
-                format!(" PATH {}", uql_quote(json_path))
-            };
-            let score = field_map
-                .score
-                .as_deref()
-                .map_or_else(String::new, |s| format!(" SCORE {}", uql_quote(s)));
-            Ok(format!(
-                "FOREIGN HTTP {}{path} ID {}{score}{join}",
-                uql_quote(url),
-                uql_quote(&field_map.id)
-            ))
-        }
-        ForeignSourceSpec::RemoteEngine { .. } | ForeignSourceSpec::Sql { .. } => Err(refuse(
-            UqlPrintCode::CredentialBearingSpec,
-            "a remote-engine or SQL foreign spec carries credentials; register it and use \
-             FOREIGN SCAN '<name>'",
-        )),
-    }
-}
-
-#[cfg(feature = "geo")]
-fn spatial_op(kind: &SpatialOpKind) -> Printed {
-    Ok(match kind {
-        SpatialOpKind::Buffer { distance } => format!("SPATIAL BUFFER {}", uql_num(*distance)?),
-        SpatialOpKind::ConvexHull => "SPATIAL CONVEX_HULL".into(),
-        SpatialOpKind::Simplify { tolerance } => {
-            format!("SPATIAL SIMPLIFY {}", uql_num(*tolerance)?)
-        }
-        SpatialOpKind::Centroid => "SPATIAL CENTROID".into(),
-        SpatialOpKind::Union { wkt } => format!("SPATIAL UNION {}", uql_quote(wkt)),
-        SpatialOpKind::Intersection { wkt } => format!("SPATIAL INTERSECTION {}", uql_quote(wkt)),
-        SpatialOpKind::Difference { wkt } => format!("SPATIAL DIFFERENCE {}", uql_quote(wkt)),
-    })
-}
-
-#[cfg(feature = "tensor")]
-fn tensor_op(kind: &TensorOpKind) -> Printed {
-    Ok(match kind {
-        TensorOpKind::Slice { ranges } => {
-            let parts: Vec<String> = ranges.iter().map(|(a, b)| format!("{a}:{b}")).collect();
-            format!("TENSOR SLICE [{}]", parts.join(", "))
-        }
-        TensorOpKind::Reduce { axis, kind } => {
-            let name = match kind {
-                TensorReduceKind::Sum => "SUM",
-                TensorReduceKind::Mean => "MEAN",
-                TensorReduceKind::Max => "MAX",
-                TensorReduceKind::Min => "MIN",
-            };
-            format!("TENSOR REDUCE {name} AXIS {axis}")
-        }
-        TensorOpKind::Elementwise { op, scalar } => {
-            let name = match op {
-                TensorElementwiseOp::Add => "ADD",
-                TensorElementwiseOp::Sub => "SUB",
-                TensorElementwiseOp::Mul => "MUL",
-                TensorElementwiseOp::Div => "DIV",
-            };
-            format!("TENSOR {name} {}", uql_num(*scalar)?)
-        }
-    })
-}
-
-#[cfg(feature = "stream")]
-fn cep(spec: &CepPatternSpec) -> Printed {
-    let window = match spec.window {
-        CepWindowSpec::Sliding { size } => format!("SLIDING {size}"),
-        CepWindowSpec::Tumbling { size } => format!("TUMBLING {size}"),
-    };
-    Ok(format!("CEP {} WINDOW {window}", cep_node(&spec.pattern)?))
-}
-
-#[cfg(feature = "stream")]
-fn cep_node(node: &CepNodeSpec) -> Printed {
-    match node {
-        CepNodeSpec::Sequence(matchers) => {
-            let parts = matchers
-                .iter()
-                .map(cep_matcher)
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(format!("SEQ ({})", parts.join(", ")))
-        }
-        CepNodeSpec::Within { within, pattern } => {
-            Ok(format!("WITHIN {within} ({})", cep_node(pattern)?))
-        }
-        CepNodeSpec::Absence { a, b, within } => Ok(format!(
-            "ABSENCE {} THEN NOT {} WITHIN {within}",
-            cep_matcher(a)?,
-            cep_matcher(b)?
-        )),
-    }
-}
-
-#[cfg(feature = "stream")]
-fn cep_matcher(m: &CepMatcherSpec) -> Printed {
-    let mut parts = Vec::new();
-    if let Some(key) = &m.key {
-        parts.push(format!("KEY {}", uql_quote(key)));
-    }
-    if !m.preds.is_empty() {
-        let preds = m
-            .preds
-            .iter()
-            .map(cep_pred)
-            .collect::<Result<Vec<_>, _>>()?;
-        parts.push(format!("WHERE {}", preds.join(" AND ")));
-    }
-    Ok(format!("{{{}}}", parts.join(" ")))
-}
-
-#[cfg(feature = "stream")]
-fn cep_pred(p: &CepAttrPredSpec) -> Printed {
-    Ok(match p {
-        CepAttrPredSpec::Eq { field, value } => {
-            format!("{} = {}", uql_ident(field), uql_json(value)?)
-        }
-        CepAttrPredSpec::Gt { field, value } => {
-            format!("{} > {}", uql_ident(field), uql_num(*value)?)
-        }
-        CepAttrPredSpec::Lt { field, value } => {
-            format!("{} < {}", uql_ident(field), uql_num(*value)?)
-        }
-        CepAttrPredSpec::Exists { field } => format!("{} EXISTS", uql_ident(field)),
-    })
-}
-
-#[cfg(feature = "timeseries")]
-fn sensor_align(streams: &[FuseStream], clock: &FuseClock, tolerance_ns: Option<u64>) -> String {
-    let parts: Vec<String> = streams
-        .iter()
-        .map(|s| {
-            let interp = match s.interp {
-                FuseInterp::Nearest => "NEAREST",
-                FuseInterp::Linear => "LINEAR",
-                FuseInterp::AsofHold => "ASOF_HOLD",
-            };
-            format!("{} {interp}", uql_quote(&s.layer))
-        })
-        .collect();
-    let clock = match clock {
-        FuseClock::Uniform {
-            from_ns,
-            to_ns,
-            step_ns,
-        } => format!("UNIFORM FROM {from_ns} TO {to_ns} STEP {step_ns}"),
-        FuseClock::Tumbling { width_ns, step_ns } => {
-            format!("TUMBLING WIDTH {width_ns} STEP {step_ns}")
-        }
-    };
-    let tolerance = tolerance_ns.map_or_else(String::new, |t| format!(" TOLERANCE {t}"));
-    format!(
-        "SENSOR ALIGN [{}] CLOCK {clock}{tolerance}",
-        parts.join(", ")
-    )
-}
-
-#[cfg(feature = "probabilistic")]
-fn probabilistic(query: &ProbQuery) -> Printed {
-    Ok(match query {
-        ProbQuery::Expectation => "PROB EXPECTATION".into(),
-        ProbQuery::Marginal { at, label } => {
-            let label = label
-                .as_deref()
-                .map_or_else(String::new, |l| format!(" LABEL {}", uql_quote(l)));
-            format!("PROB MARGINAL AT {}{label}", uql_num(*at)?)
-        }
-        ProbQuery::Conditional { evidence } => match evidence {
-            ProbEvidenceSpec::Bernoulli {
-                successes,
-                failures,
-            } => format!(
-                "PROB CONDITIONAL BERNOULLI {} {}",
-                uql_num(*successes)?,
-                uql_num(*failures)?
-            ),
-            ProbEvidenceSpec::Gaussian {
-                observations,
-                known_variance,
-            } => format!(
-                "PROB CONDITIONAL GAUSSIAN {} VARIANCE {}",
-                list(observations, |v| uql_num(*v))?,
-                uql_num(*known_variance)?
-            ),
-        },
-        ProbQuery::Sample { seed } => format!("PROB SAMPLE SEED {seed}"),
-    })
 }
