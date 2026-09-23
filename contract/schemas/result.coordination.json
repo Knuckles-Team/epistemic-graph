@@ -507,6 +507,13 @@
       "maxItems": 16,
       "type": "array"
     },
+    "BoundedVec_ClassCoverage_64": {
+      "items": {
+        "$ref": "#/$defs/ClassCoverage"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
     "BoundedVec_FeatureStandardisation_32": {
       "items": {
         "$ref": "#/$defs/FeatureStandardisation"
@@ -577,12 +584,36 @@
       "maxItems": 64,
       "type": "array"
     },
+    "BoundedVec_int64_16": {
+      "items": {
+        "format": "int64",
+        "type": "integer"
+      },
+      "maxItems": 16,
+      "type": "array"
+    },
     "BoundedVec_int64_2048": {
       "items": {
         "format": "int64",
         "type": "integer"
       },
       "maxItems": 2048,
+      "type": "array"
+    },
+    "BoundedVec_int64_256": {
+      "items": {
+        "format": "int64",
+        "type": "integer"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
+    "BoundedVec_int64_512": {
+      "items": {
+        "format": "int64",
+        "type": "integer"
+      },
+      "maxItems": 512,
       "type": "array"
     },
     "BoundedVec_string_16": {
@@ -608,14 +639,27 @@
     },
     "CalibrationMethod": {
       "description": "How the scores were calibrated, if at all.",
-      "enum": [
-        "temperature",
-        "vector",
-        "dirichlet",
-        "isotonic",
-        "none"
-      ],
-      "type": "string"
+      "oneOf": [
+        {
+          "enum": [
+            "vector",
+            "dirichlet",
+            "isotonic",
+            "none"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "conformal",
+          "description": "Split-conformal acceptability sets (and a Learn-then-Test act\nthreshold) over temperature-scaled probabilities: the calibration rung\nwhenever its coverage claim is non-trivial (EH-293).",
+          "type": "string"
+        },
+        {
+          "const": "temperature",
+          "description": "Temperature scaling alone: the fallback when no conformal claim holds.",
+          "type": "string"
+        }
+      ]
     },
     "CalibrationStatement": {
       "additionalProperties": false,
@@ -1375,6 +1419,31 @@
       ],
       "type": "object"
     },
+    "ClassCoverage": {
+      "additionalProperties": false,
+      "description": "One calibration class's share of a full-label evaluation (per domain).",
+      "properties": {
+        "class_key": {
+          "type": "string"
+        },
+        "covered": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "n_items": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "class_key",
+        "n_items",
+        "covered"
+      ],
+      "type": "object"
+    },
     "ComponentDependency": {
       "additionalProperties": false,
       "description": "One pinned requirement of a component.\n\nThe `kind` is carried alongside the id so a dependency can be type-checked\nwithout resolving it: a [`AgentComponentKind::Tool`] whose input schema\npoints at a [`AgentComponentKind::ModelProfile`] is rejected structurally,\nnot at run time. The `definition_digest` pins the exact revision, so a\ndependency cannot silently change under a component that was reviewed\nagainst it.",
@@ -1452,6 +1521,17 @@
           "default": [],
           "description": "Bandit regime only: pooled per-option success rates at min support."
         },
+        "promotion": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PromotionMetrics"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The promotion protocol's further measurements (full-label only).\nOmitted when absent, so bandit receipts keep their bytes."
+        },
         "receipt_digest": {
           "type": "string"
         },
@@ -1506,6 +1586,17 @@
           "maximum": 65535,
           "minimum": 0,
           "type": "integer"
+        },
+        "scorer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OptionAttentionParams"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The option-attention parameters; present exactly for an\n`OptionAttention` head. Omitted when absent, so the bytes (and the\ncontent digest) of every linear head are unchanged."
         },
         "standardisation": {
           "$ref": "#/$defs/BoundedVec_FeatureStandardisation_32"
@@ -3727,6 +3818,11 @@
           "const": "listwise_logistic",
           "description": "A listwise logistic model over the candidate set.",
           "type": "string"
+        },
+        {
+          "const": "option_attention",
+          "description": "The resident option-attention scorer: the listwise logistic logit plus\nan attention term over the embedded option set, in fixed point.",
+          "type": "string"
         }
       ]
     },
@@ -4771,6 +4867,64 @@
       ],
       "type": "object"
     },
+    "OptionAttentionParams": {
+      "additionalProperties": false,
+      "description": "The fitted parameters of an `OptionAttention` head, all raw `Q32`.",
+      "properties": {
+        "context_weight": {
+          "$ref": "#/$defs/BoundedVec_int64_16",
+          "description": "`width`: weight of the attended context in its logit."
+        },
+        "embed": {
+          "$ref": "#/$defs/BoundedVec_int64_512",
+          "description": "`features x width`."
+        },
+        "embed_bias": {
+          "$ref": "#/$defs/BoundedVec_int64_16",
+          "description": "`width`."
+        },
+        "key": {
+          "$ref": "#/$defs/BoundedVec_int64_256"
+        },
+        "query": {
+          "$ref": "#/$defs/BoundedVec_int64_256",
+          "description": "`width x width` each."
+        },
+        "self_weight": {
+          "$ref": "#/$defs/BoundedVec_int64_16",
+          "description": "`width`: weight of an option's own embedding in its logit."
+        },
+        "shortlist": {
+          "description": "How many legal options are scored, `1..=64`: the rest of the legal\nset is ranked out by the linear pre-score first (EH-296).",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "value": {
+          "$ref": "#/$defs/BoundedVec_int64_256"
+        },
+        "width": {
+          "description": "Embedding width `d`, `1..=16`.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "width",
+        "shortlist",
+        "embed",
+        "embed_bias",
+        "query",
+        "key",
+        "value",
+        "self_weight",
+        "context_weight"
+      ],
+      "type": "object"
+    },
     "OutcomeAggregate": {
       "additionalProperties": false,
       "description": "The joined outcome aggregate. Rows below `min_support` report no rate;\ncounts are k-anonymised by the same floor (reported as zero below it).",
@@ -5018,6 +5172,85 @@
         "fact",
         "class",
         "provenance"
+      ],
+      "type": "object"
+    },
+    "PromotionMetrics": {
+      "additionalProperties": false,
+      "description": "The promotion protocol's measurements beyond [`FullLabelMetrics`]\n(EH-295): soft accuracy and score error, abstention and accuracy on what\nwas answered, cost, stability, drift over recorded time, and per-class\ncoverage. Every rate is an exact count; `soft_accuracy` and `score_mae`\nare means on `Q32`.",
+      "properties": {
+        "abstained": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "answered": {
+          "description": "Items the act rule answered, how many of those were right, and how\nmany it abstained on (out of distribution or below its threshold).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "answered_hits": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "early_coverage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnitRationalWire"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Coverage of the earlier and the later half by `recorded_at_ms`;\n`None` when every item carries one time and drift is not measurable."
+        },
+        "late_coverage": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnitRationalWire"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "macs_total": {
+          "description": "Multiply-accumulates the head spent over every item (the scorer\ncounts them; a linear head costs `options x features`).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "per_class": {
+          "$ref": "#/$defs/BoundedVec_ClassCoverage_64"
+        },
+        "score_mae": {
+          "$ref": "#/$defs/QuantisedValue",
+          "description": "Mean `|p_top - [top is acceptable]|`."
+        },
+        "soft_accuracy": {
+          "$ref": "#/$defs/QuantisedValue",
+          "description": "Mean probability mass on the acceptability set."
+        },
+        "stable_items": {
+          "description": "Items whose two independent reads were byte-identical.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "soft_accuracy",
+        "score_mae",
+        "answered",
+        "answered_hits",
+        "abstained",
+        "macs_total",
+        "stable_items",
+        "per_class"
       ],
       "type": "object"
     },

@@ -3226,14 +3226,27 @@
     },
     "CalibrationMethod": {
       "description": "How the scores were calibrated, if at all.",
-      "enum": [
-        "temperature",
-        "vector",
-        "dirichlet",
-        "isotonic",
-        "none"
-      ],
-      "type": "string"
+      "oneOf": [
+        {
+          "enum": [
+            "vector",
+            "dirichlet",
+            "isotonic",
+            "none"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "conformal",
+          "description": "Split-conformal acceptability sets (and a Learn-then-Test act\nthreshold) over temperature-scaled probabilities: the calibration rung\nwhenever its coverage claim is non-trivial (EH-293).",
+          "type": "string"
+        },
+        {
+          "const": "temperature",
+          "description": "Temperature scaling alone: the fallback when no conformal claim holds.",
+          "type": "string"
+        }
+      ]
     },
     "CalibrationStatement": {
       "additionalProperties": false,
@@ -10403,6 +10416,11 @@
         {
           "const": "listwise_logistic",
           "description": "A listwise logistic model over the candidate set.",
+          "type": "string"
+        },
+        {
+          "const": "option_attention",
+          "description": "The resident option-attention scorer: the listwise logistic logit plus\nan attention term over the embedded option set, in fixed point.",
           "type": "string"
         }
       ]
