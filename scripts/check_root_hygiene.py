@@ -31,9 +31,10 @@ only thing that differs between repos is ``ALLOWED_DOTFILES`` immediately
 below (only the dot-files a tool discovers exclusively at the root; both
 audit ledgers, ``.config/cargo-audit-allow.txt`` for Rust and
 ``.config/security-audit-allow.txt`` for the Python client and wheel, live
-under ``.config/``) and the contents of this repo's own ``.config/repo-layout.toml``. Two holes this
-engine closed relative to the pre-CX-HYG-01 original, both of which let a
-real tracked artifact sit unchallenged at a repo root:
+under ``.config/``) and the contents of this repo's own
+``.config/repo-layout.toml``. Two holes this engine closed relative to the
+pre-CX-HYG-01 original, both of which let a real tracked artifact sit
+unchallenged at a repo root:
 
 1. Dotfiles used to be allowed as an unenumerated CLASS ("anything starting
    with '.' is conventional config"). That is what let a tracked
@@ -313,8 +314,8 @@ def report_violations(hygiene: RootHygiene) -> None:
         )
     if hygiene.stale_dirs or hygiene.stale_files:
         print(
-            "\nA declared .config/repo-layout.toml entry no longer exists in the tracked "
-            "tree.\n"
+            "\nA declared .config/repo-layout.toml entry no longer exists in the "
+            "tracked tree.\n"
             "Remove it from the manifest -- a stale entry is exactly the fiction this\n"
             "manifest exists to prevent (see its own header).\n"
         )
