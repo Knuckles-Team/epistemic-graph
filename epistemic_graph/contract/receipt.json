@@ -48,7 +48,7 @@
     "epistemic_graph/generated/write_back.py": "211f28015a9c510a06c939f6ad5da01dba2567d7a01bd56e3bd3d286728fba3d"
   },
   "cargo_lock_sha256": "a1b994c624888a0f24fce8e7dab119de26be496c6c025743903f02a7f7084107",
-  "contract_digest": "a408d0831dd5fd1eae40a4a504d334ec084a3d8a9c76b913f29573ea11d160af",
+  "contract_digest": "0f09ce9d2cbb7154856d8e7bdc286039097c24c598b4ef6b5c50b1a41061efcc",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -585,5 +585,5 @@
     "schematized": 423,
     "unclassified": 0
   },
-  "source_tree_oid": "bc73bd514dc1307c630fef70fc3d56828f565152eb8be1631261568c8e6a871f"
+  "source_tree_oid": "e082cb62c57bb2c8378a624f1053bb1b0b0a017013f5cca12204dc8f2a61dced"
 }
