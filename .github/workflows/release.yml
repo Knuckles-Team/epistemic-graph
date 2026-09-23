@@ -362,6 +362,47 @@ jobs:
           echo "ORT_DYLIB_PATH=$ORT_DYLIB_PATH"
           cargo test --locked -p eg-tts-piper --all-features --no-fail-fast
 
+  # ── Go and JavaScript clients (EH-372). Both sign the engine's own canonical
+  # method body through the embedded WebAssembly build of crates/eg-method-codec.
+  # The job rebuilds that module and requires both committed copies to match it
+  # byte-for-byte, then replays every contract method-body vector (body digest and
+  # envelope MAC) through each client's signer, plus the clients' own unit tests.
+  language-clients:
+    name: Go and JavaScript clients
+    runs-on: ubuntu-latest
+    # `shell: bash` runs every step as `bash -eo pipefail`, so no step can hide a
+    # failing command behind a later one in a pipe.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - name: Install the pinned toolchain's wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Rebuild the embedded method-body codec and require the committed copies
+        run: python3 scripts/build_method_codec_wasm.py --check
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: clients/go/go.mod
+          cache-dependency-path: clients/go/go.sum
+      - name: Go client tests (method-body vectors + unit tests)
+        working-directory: clients/go
+        run: go test -count=1 ./...
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Install locked JavaScript client dependencies
+        working-directory: clients/js
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: JavaScript client tests (method-body vectors + unit tests)
+        working-directory: clients/js
+        run: npm test
+
   # ── Runtime contracts. These checks guard authorization, lifecycle,
   # modality, reasoning, release-campaign, and persisted-schema behavior.
   # They remain blocking alongside the executable test suites.
@@ -626,7 +667,7 @@ jobs:
   # product tests and installed-wheel smoke in `gates`.
   build:
     name: wheel ${{ matrix.name }}
-    needs: [gates, security, lint-and-architecture, tts-piper-inference]
+    needs: [gates, security, lint-and-architecture, tts-piper-inference, language-clients]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.optional || false }}
