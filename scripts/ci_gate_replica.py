@@ -949,17 +949,22 @@ def main() -> int:
 def select_plan(
     plan: list[dict], jobs: str | None, *, all_blocking: bool = False
 ) -> list[dict]:
-    """Restrict the plan to the named jobs (every matrix leg of each) and,
-    for a landing gate, make every row blocking."""
+    """Restrict the plan to the named jobs -- `job` selects every matrix leg,
+    `job#leg` one leg -- and, for a landing gate, make every row blocking."""
     if jobs:
         wanted = {job.strip() for job in jobs.split(",") if job.strip()}
-        present = {row["job"].split("#", 1)[0] for row in plan}
+        legs = {row["job"] for row in plan}
+        present = legs | {job.split("#", 1)[0] for job in legs}
         unknown = sorted(wanted - present)
         if unknown:
             raise ValueError(
                 f"--jobs names job(s) no registered workflow defines: {unknown}"
             )
-        plan = [row for row in plan if row["job"].split("#", 1)[0] in wanted]
+        plan = [
+            row
+            for row in plan
+            if row["job"] in wanted or row["job"].split("#", 1)[0] in wanted
+        ]
     if all_blocking:
         plan = [{**row, "blocking": True} for row in plan]
     return plan

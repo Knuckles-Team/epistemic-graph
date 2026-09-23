@@ -518,7 +518,8 @@ jobs:
           key: clippy-${{ matrix.profile.name }}
 
       - name: Clippy (${{ matrix.profile.name }})
-        run: cargo clippy --locked ${{ matrix.profile.flags }} --all-targets -- -D warnings
+        # --keep-going: one crate's lint errors must not stop the others being linted.
+        run: cargo clippy --locked --keep-going ${{ matrix.profile.flags }} --all-targets -- -D warnings
 
   # ── Repository-wide scanner and complexity analysis is advisory. Keep its
   # reports visible, while product tests and cargo-deny remain release gates.

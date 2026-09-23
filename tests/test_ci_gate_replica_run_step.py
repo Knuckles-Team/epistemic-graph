@@ -144,6 +144,10 @@ def test_select_plan_filters_jobs_fails_closed_and_can_make_everything_blocking(
     assert all(row["blocking"] for row in landing) and len(landing) == 3
     with pytest.raises(ValueError, match="nope"):
         module.select_plan(plan, "gates,nope")
+    one_leg = module.select_plan(plan, "feature-matrix#full")
+    assert [row["job"] for row in one_leg] == ["feature-matrix#full"]
+    with pytest.raises(ValueError, match="feature-matrix#absent"):
+        module.select_plan(plan, "feature-matrix#absent")
 
 
 def test_resolve_commit_rejects_options_and_unknown_refs(module):
