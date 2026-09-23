@@ -76,6 +76,17 @@ $($variants)*
         #[serde(default)]
         policy_after: Option<u64>,
     },
+
+    // ── Policy evolution (EH-346 / EH-347) ────────────────────────────────
+    /// Capture-first open-weight policy evolution: the attested capability,
+    /// trajectory captures, immutable model-policy versions, external
+    /// training-run receipts and held-out evaluation receipts. Every record is
+    /// immutable and content-addressed in the request graph; each write
+    /// self-translates into exactly one `CreateNodeIfAbsent`. EG records and
+    /// relates -- it never trains. See [`crate::policy_evolution`].
+    PolicyEvolution {
+        op: Box<crate::policy_evolution::PolicyEvolutionOp>,
+    },
         ]);
     };
 }

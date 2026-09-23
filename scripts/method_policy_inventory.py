@@ -77,7 +77,8 @@ class MethodPolicyRow:
 # 438 -> 437: EH-434 retired `UnifiedQueryText` (one query-text surface: `Uql`).
 # 437 -> 438: EH-400's `FreshnessFeed` (messaging) -- per-class invalidation
 # events, the class volatility policy and foreign-source watermark freshness.
-EXPECTED_METHOD_POLICY_ROWS = 438
+# 438 -> 439: EH-346/EH-347 `PolicyEvolution`.
+EXPECTED_METHOD_POLICY_ROWS = 439
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",
