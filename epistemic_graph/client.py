@@ -34,6 +34,7 @@ import msgpack
 from . import generated as _gen
 from .connector_pack import ConnectorPackClient
 from .fleet_catalog import FleetCatalogClient
+from .policy_evolution import PolicyEvolutionClient
 from .generated.server_registry import (
     RegisteredServerCursor,
     RegisteredServerListPage,
@@ -14776,6 +14777,8 @@ class EpistemicGraphClient:
         # EH-345: registry discovery/override records and the typed projection
         # joining them with connector-pack components.
         self.fleet_catalog = FleetCatalogClient(self)
+        # EH-346/EH-347: immutable policy-evolution records in the default graph.
+        self.policy_evolution = PolicyEvolutionClient(self)
         # CONCEPT:EG-KG.ingest.broker-streams-namespaces — B1.7 multi-lang client
         # drivers: broker/streams (EG-275..284/314),
         # RBAC admin (EG-092), backup/restore (EG-090). NlQuery (EG-080) lives on
@@ -15861,6 +15864,9 @@ class SyncEpistemicGraphClient:
             self._client.server_registry, self._loop
         )
         self.fleet_catalog = self._SyncWrapper(self._client.fleet_catalog, self._loop)
+        self.policy_evolution = self._SyncWrapper(
+            self._client.policy_evolution, self._loop
+        )
         self.raft_admin = self._SyncWrapper(self._client.raft_admin, self._loop)
         self.consensus = self._SyncWrapper(self._client.consensus, self._loop)
         self.finance = self._SyncWrapper(self._client.finance, self._loop)
