@@ -253,6 +253,7 @@ fn restrict(ont: &DlOntology, members: BTreeSet<String>) -> Component {
         individuals: members.clone(),
         domains: ont.domains.clone(),
         ranges: ont.ranges.clone(),
+        disjoint_groups: ont.disjoint_groups.clone(),
     };
     Component {
         individuals: members,
@@ -461,6 +462,10 @@ mod tests {
         assert!(!super::super::is_consistent(&clash));
         let fine = parse("ex:x a ex:A . ex:y a ex:C .");
         assert!(super::super::is_consistent(&fine));
+        assert!(
+            fine.gcis.is_empty() && fine.disjoint_groups.len() == 1,
+            "named members form one at-most-one group, not k(k-1)/2 negation GCIs"
+        );
         assert_eq!(fine.individuals, BTreeSet::from([ind("x"), ind("y")]));
     }
 

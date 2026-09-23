@@ -274,6 +274,10 @@ pub struct DlOntology {
     pub domains: Vec<(String, Dl)>,
     /// `rdfs:range` — `⊤ ⊑ ∀p.R` as `(p, R)`, decided by role absorption, not a GCI.
     pub ranges: Vec<(String, Dl)>,
+    /// `owl:AllDisjointClasses` over named classes: at most one member per node label,
+    /// checked as a clash rather than expanded into `k(k-1)/2` negation GCIs (which made
+    /// every member tableau-relevant and multiplied classification tests).
+    pub disjoint_groups: Vec<BTreeSet<Dl>>,
 }
 
 impl DlOntology {
@@ -335,6 +339,29 @@ fn apply_disjoint_with_triple(idx: &TripleIndex, ont: &mut DlOntology, s: &str, 
     }
 }
 
+/// `_:x a owl:AllDisjointClasses ; owl:members (C₁ … Cₙ)` (EH-363). Named members form
+/// one "at most one of" group checked per node label; a list with a complex member is
+/// expanded pairwise into `Cᵢ ⊑ ¬Cⱼ`, like `owl:disjointWith`. The axiom node is not an
+/// individual.
+fn apply_all_disjoint_classes(idx: &TripleIndex, ont: &mut DlOntology, s: &str) {
+    for members in disjoint::member_lists(idx, s) {
+        let classes: Vec<Dl> = members
+            .iter()
+            .filter_map(|m| parse_dl(idx, &term_key(m)))
+            .collect();
+        if classes.iter().all(|c| matches!(c, Dl::Atom(_))) {
+            for class in &classes {
+                collect_classes(class, &mut ont.classes);
+            }
+            ont.disjoint_groups.push(classes.into_iter().collect());
+            continue;
+        }
+        for (a, b) in disjoint::unordered_pairs(&classes) {
+            ont.gcis.push((a.nnf(), b.negate()));
+        }
+    }
+}
+
 /// `p rdfs:domain D` / `p rdfs:range R` — recorded for role absorption (EH-363):
 /// the sound `∃p.⊤ ⊑ D` / `⊤ ⊑ ∀p.R`, never `D`/`R` as a class inclusion.
 fn push_role_class(idx: &TripleIndex, into: &mut Vec<(String, Dl)>, p: &str, class: &str) {
@@ -360,17 +387,7 @@ fn apply_rdf_type_triple(idx: &TripleIndex, ont: &mut DlOntology, s: &str, ok: &
             }
             // Pairwise `Cᵢ ⊑ ¬Cⱼ`, like owl:disjointWith (EH-363); the axiom node is not
             // an individual.
-            OWL_ALL_DISJOINT_CLASSES => {
-                for members in disjoint::member_lists(idx, s) {
-                    let classes: Vec<Dl> = members
-                        .iter()
-                        .filter_map(|m| parse_dl(idx, &term_key(m)))
-                        .collect();
-                    for (a, b) in disjoint::unordered_pairs(&classes) {
-                        ont.gcis.push((a.nnf(), b.negate()));
-                    }
-                }
-            }
+            OWL_ALL_DISJOINT_CLASSES => apply_all_disjoint_classes(idx, ont, s),
             // Vocabulary declarations carry no ABox content.
             "http://www.w3.org/2002/07/owl#Class"
             | "http://www.w3.org/2002/07/owl#ObjectProperty"
@@ -870,7 +887,7 @@ impl Completion {
     /// atom/nominal, or a violated `≤n r.f` cardinality).
     fn node_has_clash(&self, i: usize) -> bool {
         let label = &self.nodes[i].label;
-        if label.contains(&Dl::Bottom) {
+        if label.contains(&Dl::Bottom) || self.tbox.violates_a_disjoint_group(label) {
             return true;
         }
         for c in label {
