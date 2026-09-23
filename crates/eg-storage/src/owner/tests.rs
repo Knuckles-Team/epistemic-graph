@@ -43,9 +43,7 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // catalog tables `eg-query` wrote without declaring, MINUS the five
     // `__sql_mutation_*__` tables of the private ledger RF-RULING-006 retired
     // onto `MutationKernel`'s.
-    // One SQL-owned provider-checkpoint table joins the existing owner rows,
-    // then the maintained ANN authority's durable generations and changed-row
-    // log (RF-019 / EH-352).
+    // One SQL provider-checkpoint table, then the two ANN tables (RF-019).
     assert_eq!(owner_table_names(OwnerLayout::Sql).len(), 21);
     assert_eq!(owner_table_names(OwnerLayout::PathIndex).len(), 1);
     // Six root-binary sidecar layouts. Each is one physical file with one
@@ -144,7 +142,8 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
     // tables (change sets, idempotency, receipts, receipt heads). All nine are
     // `DomainService` rows of the Agent Library's admitted owner write, so
     // service 137 = 128 + 9 and `shared` is still the two CAS tables.
-    assert_eq!((names.len(), service, shared), (139, 137, 2));
+    // 139 -> 141: the two DomainService SQL ANN tables (RF-019): service 139.
+    assert_eq!((names.len(), service, shared), (141, 139, 2));
 }
 
 #[test]
@@ -803,7 +802,8 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     // registered mutation table must refuse plain recovery, including it.
     // 148 -> 157: the Agent Library's five connector-pack and four governed
     // write-back tables; each is a durable mutation table like its siblings.
-    assert_eq!(names.len(), 157);
+    // 157 -> 159: the SQL ANN generation and changed-row tables.
+    assert_eq!(names.len(), 159);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();
