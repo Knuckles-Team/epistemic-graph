@@ -382,9 +382,9 @@ pub(crate) mod handlers;
 pub mod foreign_catalog;
 // Tenant-scoped WASM UDF catalog (CONCEPT:EG-KG.query.rowset-execution, EH-374):
 // `RegisterUdf`/`RunUdf` resolve ids only within the caller's verified tenant.
+pub mod registry_reaper;
 #[cfg(feature = "wasm-udf")]
 pub mod udf_catalog;
-pub mod registry_reaper;
 // MutationPlan + the single commit gateway (CONCEPT:EG-P0-2): consumes
 // `eg-capabilities`' MethodPolicy to drive authz + durable-commit + audit + CDC for
 // the GATEWAY_ROUTED mutation set from ONE call site. See its module docs for scope.
@@ -1198,7 +1198,11 @@ mod tests {
         tenant: &str,
         method: Method,
     ) -> Response {
-        dispatch_on_heap(state, request_in_tenant(id, "__commons__", None, tenant, method)).await
+        dispatch_on_heap(
+            state,
+            request_in_tenant(id, "__commons__", None, tenant, method),
+        )
+        .await
     }
 
     /// [`request`] signed for an explicit verified `tenant` (EH-373 tenancy tests).
@@ -2249,7 +2253,9 @@ mod tests {
         )
         .expect("verified test carrier");
         assert!(
-            s.foreign_sources.spec_for(owner.tenant_scope(), "papers_api").is_some(),
+            s.foreign_sources
+                .spec_for(owner.tenant_scope(), "papers_api")
+                .is_some(),
             "the source must be recorded on ServerState under the caller's verified tenant"
         );
     }
