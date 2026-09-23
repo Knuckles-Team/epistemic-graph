@@ -156,6 +156,24 @@ pub(super) fn idempotency_store() -> &'static IdempotencyStore {
     STORE.get_or_init(IdempotencyStore::new)
 }
 
+/// The process-global response-dedup key for one idempotent mutation: the
+/// content-addressed [`idempotency_key`] SCOPED to the verified tenant and actor
+/// (EH-373 audit). The dedup cache replays a whole cached `Response`, and before
+/// this scoping the key was only `(graph, method)`, so a caller in another tenant
+/// (or another actor) sending the byte-identical method on the same graph was
+/// served the first caller's cached response without the handler running for it.
+/// Length-prefixed hashing via `opaque_idempotency_key_for_context`, the same
+/// derivation the durable `MutationBatch` ids use.
+pub(super) fn response_dedup_key(ctx: &MutationCtx<'_>, method: &Method) -> String {
+    crate::server::mutation_batch::opaque_idempotency_key_for_context(
+        "response-dedup",
+        ctx.tenant_scope,
+        ctx.graph_name,
+        ctx.caller,
+        &idempotency_key(ctx.graph_name, method, ctx.req_id),
+    )
+}
+
 /// Derive a deterministic replay-dedup key for an idempotent method, scoped to
 /// `graph_name` (so the SAME node id in two different graphs never collides). Only
 /// meaningful when `MutationPlan::idempotent` is true; the fallback `Debug`-based
@@ -492,4 +510,49 @@ fn append_tombstone_receipt_fields(
     append_modality_receipt_kind(digest, modality);
     modality_receipt_field(digest, &through_event_sequence.to_be_bytes());
     true
+}
+
+#[cfg(test)]
+mod response_dedup_scope_tests {
+    //! EH-373 idempotency audit: the process-global response-dedup cache must never
+    //! hand one tenant (or actor) another's cached response for a byte-identical method.
+    use super::*;
+
+    fn dedup_key_for(tenant_scope: &str, caller: &str, req_id: u64) -> String {
+        let core = Arc::new(GraphCore::new());
+        let isolation = IsolationLayer::new();
+        let ctx = MutationCtx {
+            req_id,
+            caller: Some(caller),
+            attempt_nonce: None,
+            idempotency_key: "same-client-key",
+            tenant_scope,
+            graph_name: "shared-graph",
+            graph_type: GraphType::Commons,
+            owner: None,
+            isolation: &isolation,
+            core: &core,
+            persistence: None,
+            #[cfg(feature = "streaming")]
+            cdc: None,
+            materialization_manifest: None,
+            write_coalescer: None,
+        };
+        let method = Method::RemoveNode {
+            node_id: "n1".into(),
+        };
+        response_dedup_key(&ctx, &method)
+    }
+
+    #[test]
+    fn dedup_key_separates_tenants_and_actors_but_keeps_retries() {
+        let original = dedup_key_for("tenant-a", "agent", 1);
+        assert_eq!(
+            original,
+            dedup_key_for("tenant-a", "agent", 2),
+            "a retry by the same tenant+actor still dedups"
+        );
+        assert_ne!(original, dedup_key_for("tenant-b", "agent", 1));
+        assert_ne!(original, dedup_key_for("tenant-a", "other-agent", 1));
+    }
 }
