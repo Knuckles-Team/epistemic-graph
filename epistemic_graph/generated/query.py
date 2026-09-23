@@ -1480,3 +1480,54 @@ async def send_txn_unified_query_text(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("TxnUnifiedQueryText", payload)
+
+
+class DecideRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        Decide
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/Decide
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: Any
+
+
+async def send_decide(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        Decide
+    Authorization:
+        query:decide
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.query.json
+        #/methods/Decide
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    DecideRequest.model_validate(params or {})
+    payload = await client._send(
+        "Decide",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("Decide", payload)

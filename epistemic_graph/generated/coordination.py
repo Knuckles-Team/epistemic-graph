@@ -1940,6 +1940,116 @@ async def send_analytics_job(
     return OpaqueResult("AnalyticsJob", payload)
 
 
+class DecisionFitRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        DecisionFit
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/DecisionFit
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: Any
+
+
+async def send_decision_fit(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        DecisionFit
+    Authorization:
+        admin:decision-fit
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/DecisionFit
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    DecisionFitRequest.model_validate(params or {})
+    payload = await client._send(
+        "DecisionFit",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("DecisionFit", payload)
+
+
+class DecisionEvalRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        DecisionEval
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/DecisionEval
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: Any
+
+
+async def send_decision_eval(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        DecisionEval
+    Authorization:
+        admin:decision-eval
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/DecisionEval
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    DecisionEvalRequest.model_validate(params or {})
+    payload = await client._send(
+        "DecisionEval",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("DecisionEval", payload)
+
+
 class StatechartRequest(BaseModel):
     """Validate one engine-contract request body.
 

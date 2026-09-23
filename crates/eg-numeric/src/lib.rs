@@ -34,6 +34,8 @@ pub mod reductions;
 // evaluation. Always built: they add only the pinned pure-Rust `libm`.
 pub mod calibration;
 pub mod conformal;
+#[cfg(feature = "decision")]
+pub mod decision;
 pub mod detkernel;
 pub mod ope;
 pub mod risk;

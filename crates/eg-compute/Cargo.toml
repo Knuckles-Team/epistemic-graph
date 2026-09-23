@@ -41,7 +41,7 @@ solve = []
 decide = ["solve"]
 # The statistical half of the Decide layer: heads, calibration and the
 # off-policy estimators, which are eg-numeric kernels.
-decide-stats = ["decide", "dep:eg-numeric"]
+decide-stats = ["decide", "dep:eg-numeric", "eg-numeric/decision"]
 # GPU transitive-closure DISPATCH SEAM (CONCEPT:EG-KG.compute.reasoning-closure-gpu):
 # compiles the `ClosureBackend` trait + backend selection in `reasoning_closure`. The
 # pure-Rust CPU hash-join is ALWAYS the compiled-in fallback; this marker just opts a

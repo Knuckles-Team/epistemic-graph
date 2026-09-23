@@ -54,6 +54,12 @@ contract = ["dep:eg-modality", "ndarray/serde"]
 # quantum numeric path bridges to eg-numeric instead of importing QuantRS2's SciRS2
 # stack as a second/third numeric foundation.
 complex = ["dep:num-complex"]
+# The statistical decision layer's engine-side computation (`src/decision/`):
+# feature matrices, head reading, the act/abstain ladder, keyed exploration,
+# label admission, deterministic fitting and evaluation. It lives in this crate
+# so the crate `clippy.toml`'s float-transcendental ban covers it. Pulls only
+# `eg-types`, which the lockfile already lists as an (optional) dependency.
+decision = ["dep:eg-types"]
 
 [dependencies]
 # arrays / reductions / element-wise / broadcasting — mature ndarray primitives.

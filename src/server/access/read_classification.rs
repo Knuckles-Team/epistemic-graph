@@ -301,7 +301,18 @@ pub(super) const REASON_GRAPH_SCHEMA_CONTROL_STATE: &str =
 pub(super) const REASON_SOURCE_INGESTION_MARKER: &str =
     "SourceIngestStatus reads one durable source-partition marker keyed by verified tenant, request graph, connector and stream behind source:ingest -- ingestion control state, never a GraphView/core.analysis_snapshot() row read";
 
+// RF-ADR-010 DL-4: `Decide` reads its candidates from ONE tenant-bound
+// agent_library.redb snapshot through `AgentComponent.Search`'s accessor, and
+// its pinned feature schema, head and policy bodies from the same owner. The
+// graph arm of `CandidateSource` is REFUSED before any graph is opened
+// (`CANDIDATE_PLAN_REFUSED`) until graph-sourced records land; that package
+// moves this entry to `RLS_ROUTED` with a structural pin.
+pub(super) const REASON_DECIDE_LIBRARY_SNAPSHOT: &str =
+    "Decide reads its candidates and pinned catalog bodies from one tenant-bound agent_library.redb snapshot through AgentComponent.Search's accessor and refuses graph-sourced candidates before opening any graph -- never a GraphView/core.analysis_snapshot() row read";
+
 pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
+    // REASON_DECIDE_LIBRARY_SNAPSHOT
+    ("Decide", REASON_DECIDE_LIBRARY_SNAPSHOT),
     // REASON_AGENT_LIBRARY_TENANT_SNAPSHOT
     ("AgentAssemble", REASON_AGENT_LIBRARY_TENANT_SNAPSHOT),
     // REASON_SOLVE_PURE_COMPUTE
@@ -473,13 +484,6 @@ pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
 // `REASON_NATIVE_DEVELOPMENT_LANE_READ` in `NON_ROW_SCOPED` above), so this list returns to its
 // intended empty end state.
 pub(super) const NOT_YET_AUDITED: &[(&str, &str)] = &[
-    // RF-ADR-010 DL-2, contract wave S1. `Decide` is declared here but not yet
-    // served: its executor, and therefore the RLS-filtered graph candidate path
-    // it will read through, land with the statistical package. Parking it is
-    // deliberate -- the graph arm of `CandidateSource` is exactly the disclosure
-    // question that has to be traced before it can be asserted safe, and that
-    // package moves this entry to `RLS_ROUTED` with a structural pin.
-    ("Decide", "contract wave S1: declared, refused by the contract-wave stub, and its RLS-filtered graph candidate read lands with the statistical package, which moves it to RLS_ROUTED"),
     // VIZ-1 hierarchical clustering (merged in 6fc8c552). These read the
     // non-authoritative `cluster_hierarchy_store`, not graph rows, so they do not
     // construct a GraphView -- which argues for NON_ROW_SCOPED. But cluster

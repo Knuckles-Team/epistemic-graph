@@ -177,11 +177,39 @@
       ],
       "type": "object"
     },
+    "BoundedVec_FeatureStandardisation_32": {
+      "items": {
+        "$ref": "#/$defs/FeatureStandardisation"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
     "BoundedVec_OpeEstimateView_8": {
       "items": {
         "$ref": "#/$defs/OpeEstimateView"
       },
       "maxItems": 8,
+      "type": "array"
+    },
+    "BoundedVec_PooledRate_64": {
+      "items": {
+        "$ref": "#/$defs/PooledRate"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_QuantisedValue_32": {
+      "items": {
+        "$ref": "#/$defs/QuantisedValue"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "BoundedVec_string_16": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 16,
       "type": "array"
     },
     "CalibrationMethod": {
@@ -923,8 +951,27 @@
         "estimates": {
           "$ref": "#/$defs/BoundedVec_OpeEstimateView_8"
         },
+        "exclusions": {
+          "$ref": "#/$defs/LabelExclusions"
+        },
+        "failed_gates": {
+          "$ref": "#/$defs/BoundedVec_string_16",
+          "default": [],
+          "description": "Every promotion gate that failed, by name. Empty exactly when `passed`."
+        },
         "head_digest": {
           "type": "string"
+        },
+        "metrics": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FullLabelMetrics"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "n_records": {
           "format": "uint64",
@@ -936,6 +983,11 @@
         },
         "policy_digest": {
           "type": "string"
+        },
+        "pooled": {
+          "$ref": "#/$defs/BoundedVec_PooledRate_64",
+          "default": [],
+          "description": "Bandit regime only: pooled per-option success rates at min support."
         },
         "receipt_digest": {
           "type": "string"
@@ -950,7 +1002,71 @@
         "policy_digest",
         "n_records",
         "estimates",
+        "exclusions",
         "passed",
+        "synthetic"
+      ],
+      "type": "object"
+    },
+    "DecisionHeadBody": {
+      "additionalProperties": false,
+      "description": "The body of a `DecisionHead` component, and of a fit job's draft.",
+      "properties": {
+        "calibration": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HeadCalibration"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "feature_schema_digest": {
+          "description": "`sha256:<hex>` content digest of the feature schema body it reads.",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/HeadKind"
+        },
+        "n_training": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "regime": {
+          "$ref": "#/$defs/FittedRegime"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "standardisation": {
+          "$ref": "#/$defs/BoundedVec_FeatureStandardisation_32"
+        },
+        "synthetic": {
+          "type": "boolean"
+        },
+        "training_records_digest": {
+          "description": "Digest of the admitted training items, in order.",
+          "type": "string"
+        },
+        "weights": {
+          "$ref": "#/$defs/BoundedVec_QuantisedValue_32"
+        }
+      },
+      "required": [
+        "schema_version",
+        "kind",
+        "regime",
+        "feature_schema_digest",
+        "standardisation",
+        "weights",
+        "training_records_digest",
+        "n_training",
         "synthetic"
       ],
       "type": "object"
@@ -969,6 +1085,10 @@
         {
           "additionalProperties": false,
           "properties": {
+            "draft": {
+              "$ref": "#/$defs/DecisionHeadBody",
+              "description": "The draft body itself; publishing it as a `DecisionHead` needs a\npassed evaluation receipt naming `draft_sha256`."
+            },
             "draft_length": {
               "format": "uint64",
               "minimum": 0,
@@ -976,6 +1096,9 @@
             },
             "draft_sha256": {
               "type": "string"
+            },
+            "exclusions": {
+              "$ref": "#/$defs/LabelExclusions"
             },
             "head_digest": {
               "type": "string"
@@ -997,12 +1120,15 @@
             "draft_length",
             "head_digest",
             "training_records_digest",
-            "synthetic"
+            "synthetic",
+            "draft",
+            "exclusions"
           ],
           "type": "object"
         },
         {
           "additionalProperties": false,
+          "description": "Boxed: a receipt is several times the size of every other arm.",
           "properties": {
             "output": {
               "const": "eval",
@@ -1093,6 +1219,7 @@
         },
         {
           "additionalProperties": false,
+          "description": "Boxed: the output carries a whole head or receipt.",
           "properties": {
             "output": {
               "$ref": "#/$defs/DecisionJobOutput"
@@ -2476,6 +2603,120 @@
       ],
       "type": "string"
     },
+    "FeatureStandardisation": {
+      "additionalProperties": false,
+      "description": "How one raw feature is standardised before the head reads it, and the\nrange it was seen in at fit time. A value outside that range is\nout-of-distribution and the decision abstains (drift, §6.3).",
+      "properties": {
+        "center": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "lower": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "scale": {
+          "$ref": "#/$defs/QuantisedValue",
+          "description": "Strictly positive."
+        },
+        "upper": {
+          "$ref": "#/$defs/QuantisedValue"
+        }
+      },
+      "required": [
+        "center",
+        "scale",
+        "lower",
+        "upper"
+      ],
+      "type": "object"
+    },
+    "FittedRegime": {
+      "description": "Which labels the head was fitted on.",
+      "oneOf": [
+        {
+          "const": "full_label",
+          "description": "Human or constructed acceptability sets: coverage and risk claims hold\non that distribution.",
+          "type": "string"
+        },
+        {
+          "const": "bandit_label",
+          "description": "Executed-option outcomes only: no coverage or \"best option\" claim.",
+          "type": "string"
+        }
+      ]
+    },
+    "FullLabelMetrics": {
+      "additionalProperties": false,
+      "description": "Full-label metrics of a candidate head, each rate an exact fraction of the\nadmitted items and each interval a Clopper-Pearson interval at `delta`.",
+      "properties": {
+        "act_risk_upper": {
+          "$ref": "#/$defs/UnitRationalWire"
+        },
+        "acted": {
+          "description": "Items the act rule acted on, and how many of those were wrong.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "acted_wrong": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "brier": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "coverage_lower": {
+          "$ref": "#/$defs/UnitRationalWire"
+        },
+        "coverage_upper": {
+          "$ref": "#/$defs/UnitRationalWire"
+        },
+        "covered": {
+          "description": "Prediction set meets the acceptability set.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "expected_calibration_error": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "log_loss": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "n_items": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "set_size_total": {
+          "description": "Sum of prediction-set sizes; mean = this / n_items.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "top1_hits": {
+          "description": "Top-1 lands in the acceptability set.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "n_items",
+        "top1_hits",
+        "log_loss",
+        "brier",
+        "expected_calibration_error",
+        "covered",
+        "coverage_lower",
+        "coverage_upper",
+        "acted",
+        "acted_wrong",
+        "act_risk_upper",
+        "set_size_total"
+      ],
+      "type": "object"
+    },
     "GraphResourceStats": {
       "description": "Per-graph resource snapshot (CONCEPT:EG-KG.compute.lane-v).",
       "properties": {
@@ -2515,6 +2756,87 @@
         "hibernated"
       ],
       "type": "object"
+    },
+    "HeadCalibration": {
+      "additionalProperties": false,
+      "description": "The calibration a full-label head carries.",
+      "properties": {
+        "act_threshold": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QuantisedValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The certified act threshold on the top probability, when the selective\nrisk procedure certified one. `None` means the head never acts."
+        },
+        "alpha": {
+          "$ref": "#/$defs/UnitRationalWire",
+          "description": "Miscoverage level the prediction set is calibrated at."
+        },
+        "coverage_lower": {
+          "$ref": "#/$defs/UnitRationalWire",
+          "description": "Realised coverage interval on the calibration items."
+        },
+        "coverage_upper": {
+          "$ref": "#/$defs/UnitRationalWire"
+        },
+        "inverse_temperature": {
+          "$ref": "#/$defs/QuantisedValue",
+          "description": "Multiplies the logits before the softmax (temperature scaling)."
+        },
+        "n_calibration": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "risk": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RiskStatement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "set_threshold": {
+          "$ref": "#/$defs/QuantisedValue",
+          "description": "Largest nonconformity `1 - p` admitted into the prediction set."
+        },
+        "synthetic": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "inverse_temperature",
+        "alpha",
+        "set_threshold",
+        "coverage_lower",
+        "coverage_upper",
+        "n_calibration",
+        "synthetic"
+      ],
+      "type": "object"
+    },
+    "HeadKind": {
+      "description": "Which head shape a fit produces.",
+      "oneOf": [
+        {
+          "const": "weighted_features",
+          "description": "One weight per feature; an advisory score that never acts.",
+          "type": "string"
+        },
+        {
+          "const": "listwise_logistic",
+          "description": "A listwise logistic model over the candidate set.",
+          "type": "string"
+        }
+      ]
     },
     "JobAlgoVersion": {
       "additionalProperties": false,
@@ -3149,6 +3471,81 @@
         }
       ]
     },
+    "LabelExclusions": {
+      "additionalProperties": false,
+      "description": "Why items were refused as labels, by reason.",
+      "properties": {
+        "below_fidelity_floor": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "censored": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "llm_resolved": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "not_observation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "outside_window": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pinned": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "propensity_not_executed_policy": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "self_reported": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unapproved_principal": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "wrong_regime": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "zero_executed_propensity": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "outside_window",
+        "wrong_regime",
+        "llm_resolved",
+        "self_reported",
+        "not_observation",
+        "censored",
+        "below_fidelity_floor",
+        "propensity_not_executed_policy",
+        "pinned",
+        "unapproved_principal",
+        "zero_executed_propensity"
+      ],
+      "type": "object"
+    },
     "LeasePriority": {
       "description": "The same four priority tiers `resource_priority.py::PriorityClass` defines,\nvendored here (not imported — this crate has no Python interop and must not\ndepend on AU) so a `CapacityLease` carries the identical vocabulary the AU\nscheduler already enforces at the LLM gate. `#[derive(Ord)]` on a fieldless\nenum compares by DECLARATION ORDER, so listing `Interactive` first and\n`BackgroundIngestion` last gives `Interactive < Orchestration < Hydration <\nBackgroundIngestion`, matching `core/cognitive_scheduler.py::SchedulerPriority`'s\n\"lower value = higher priority\" convention. `Orchestration`/`Hydration` are\nNOT equal-priority under this `Ord` (AU's equal LLM-gate WEIGHT for the two\nis a separate lookup table, `_PRIORITY_WEIGHTS`, not an enum-ordinal fact —\nsee `resource_priority.py`); only `may_spend_reserved_floor` below is a\nhard cell-admission rule.",
       "enum": [
@@ -3247,6 +3644,33 @@
         "doubly_robust"
       ],
       "type": "string"
+    },
+    "PooledRate": {
+      "additionalProperties": false,
+      "description": "One option's pooled success rate (Beta-Binomial, class -> option), reported\nonly when its own trials reach the policy's `min_support`.",
+      "properties": {
+        "class_key": {
+          "type": "string"
+        },
+        "option_id": {
+          "type": "string"
+        },
+        "posterior_mean": {
+          "$ref": "#/$defs/QuantisedValue"
+        },
+        "trials": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "class_key",
+        "option_id",
+        "trials",
+        "posterior_mean"
+      ],
+      "type": "object"
     },
     "QuantScaleTag": {
       "description": "The fixed-point scale a [`QuantisedValue`] is read on. Mirrors\n`eg_numeric`'s `QuantScale`.",
@@ -4577,6 +5001,43 @@
         "inventory_alias"
       ],
       "type": "string"
+    },
+    "RiskMethod": {
+      "description": "Which controlled procedure produced the risk statement.",
+      "enum": [
+        "learn_then_test",
+        "conformal_risk_control"
+      ],
+      "type": "string"
+    },
+    "RiskStatement": {
+      "additionalProperties": false,
+      "description": "The risk guarantee an acted-on decision carries.",
+      "properties": {
+        "delta": {
+          "$ref": "#/$defs/UnitRationalWire",
+          "description": "Failure probability of that control."
+        },
+        "epsilon": {
+          "$ref": "#/$defs/UnitRationalWire",
+          "description": "Risk level the procedure controls."
+        },
+        "method": {
+          "$ref": "#/$defs/RiskMethod"
+        },
+        "n_calibration": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "method",
+        "epsilon",
+        "delta",
+        "n_calibration"
+      ],
+      "type": "object"
     },
     "StatechartAction": {
       "description": "One action a step performed or asks the interpreter to perform.",

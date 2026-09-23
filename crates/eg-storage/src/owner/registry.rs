@@ -248,6 +248,11 @@ pub const CONNECTOR_PACK_BODY_HOLDERS: TableDefinition<'static, (&str, &str, &st
 /// Administrative importer binding per tenant and connector.
 pub const CONNECTOR_PACK_BINDINGS: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("connector_pack_bindings");
+/// Decide-layer job rows, evaluation receipts and fit drafts, keyed
+/// `(tenant, "job:<id>" | "receipt:<digest>" | "draft:<sha256>")`. Written once,
+/// never updated: a job runs to a terminal state inside its submit.
+pub const DECISION_ARTIFACTS: TableDefinition<'static, (&str, &str), &[u8]> =
+    TableDefinition::new("decision_artifacts");
 /// D18 source change sets are immutable after creation.
 pub const WRITE_BACK_CHANGE_SETS: TableDefinition<'static, (&str, &str), &[u8]> =
     TableDefinition::new("write_back_change_sets");
@@ -369,6 +374,7 @@ macro_rules! visit_owner_tables {
                 $visit!(CONNECTOR_PACK_IMPORTS);
                 $visit!(CONNECTOR_PACK_BODY_HOLDERS);
                 $visit!(CONNECTOR_PACK_BINDINGS);
+                $visit!(DECISION_ARTIFACTS);
                 $visit!(WRITE_BACK_CHANGE_SETS);
                 $visit!(WRITE_BACK_IDEMPOTENCY);
                 $visit!(WRITE_BACK_RECEIPTS);
@@ -599,6 +605,7 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
             "connector_pack_imports",
             "connector_pack_body_holders",
             "connector_pack_bindings",
+            "decision_artifacts",
             "write_back_change_sets",
             "write_back_idempotency",
             "write_back_receipts",
