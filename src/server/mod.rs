@@ -376,6 +376,10 @@ pub(crate) mod graph_tile_source;
 // lease has lapsed. Always declared (mirrors `semantic_activation` above) — the
 // sweep is a no-op when nothing has registered.
 pub(crate) mod handlers;
+// Tenant-scoped foreign-source catalog (CONCEPT:EG-KG.query.query-federation, EH-373): the one
+// place a caller's verified tenant scope selects which registered sources a plan may resolve.
+#[cfg(feature = "federation")]
+pub(crate) mod foreign_catalog;
 pub mod registry_reaper;
 // MutationPlan + the single commit gateway (CONCEPT:EG-P0-2): consumes
 // `eg-capabilities`' MethodPolicy to drive authz + durable-commit + audit + CDC for
@@ -1178,11 +1182,22 @@ mod tests {
     }
 
     fn request(id: u64, graph: &str, agent_id: Option<&str>, method: Method) -> Request {
+        request_in_tenant(id, graph, agent_id, "tenant-shared", method)
+    }
+
+    /// [`request`] signed for an explicit verified `tenant` (EH-373 tenancy tests).
+    fn request_in_tenant(
+        id: u64,
+        graph: &str,
+        agent_id: Option<&str>,
+        tenant: &str,
+        method: Method,
+    ) -> Request {
         static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let effective_agent = agent_id.unwrap_or("system");
         let claims = RequestContextClaims {
             principal: effective_agent.to_string(),
-            tenant: "tenant-shared".to_string(),
+            tenant: tenant.to_string(),
             audience: "epistemic-graph-test".to_string(),
             agent_id: effective_agent.to_string(),
             roles: vec!["test".to_string()],
@@ -1208,6 +1223,8 @@ mod tests {
             use sha2::{Digest, Sha256};
             let mut hasher = Sha256::new();
             hasher.update(graph.as_bytes());
+            hasher.update([0]);
+            hasher.update(tenant.as_bytes());
             hasher.update([0]);
             hasher.update(rmp_serde::to_vec_named(&method).unwrap_or_default());
             hex::encode(hasher.finalize())
@@ -2211,9 +2228,13 @@ mod tests {
             other => panic!("expected the registered name, got {other:?}"),
         }
         let s = state.read().await;
+        let owner = crate::server::access::CarrierAuthority::from_verified(
+            &crate::server::auth::VerifiedRequestContext::verified_for_test("system"),
+        )
+        .expect("verified test carrier");
         assert!(
-            s.foreign_sources.contains_key("papers_api"),
-            "the source must be recorded on ServerState"
+            s.foreign_sources.spec_for(owner.tenant_scope(), "papers_api").is_some(),
+            "the source must be recorded on ServerState under the caller's verified tenant"
         );
     }
 
@@ -2432,6 +2453,10 @@ mod tests {
             "the marker's error must name the missing source, got: {err}"
         );
     }
+
+    // EH-373 foreign-source tenancy proofs through the full served dispatch chain.
+    #[cfg(all(feature = "federation", feature = "nl-query"))]
+    mod foreign_tenancy;
 
     // ── Cypher query surface (CONCEPT:EG-KG.query.dep-free-behind) ─────────────────────────
 

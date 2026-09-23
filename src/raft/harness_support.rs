@@ -67,7 +67,7 @@ pub(crate) async fn make_state(
         crate::raft::pregel::MatViewStore::new(),
     ));
     #[cfg(feature = "federation")]
-    let foreign_sources = Arc::new(dashmap::DashMap::new());
+    let foreign_sources = Arc::<crate::server::foreign_catalog::ForeignSourceCatalog>::default();
     #[cfg(feature = "kv")]
     let kv: Option<Arc<crate::server::kv::KvStore>> = None;
     #[cfg(feature = "lake")]

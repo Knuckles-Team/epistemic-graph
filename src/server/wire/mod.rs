@@ -4572,12 +4572,16 @@ impl WireSession {
             Some((tenant, graph)) => (Some(tenant), Some(graph)),
             None => (None, None),
         };
-        // CONCEPT:EG-KG.query.closure-backed-source — the server's REGISTERED foreign
-        // sources, cloned (a cheap `Arc` handle) into the blocking closure exactly like
-        // the tsdb store above, so a wire-path `FOREIGN "<name>"` / `Named` `ForeignScan`
-        // leg resolves through `ServerState::foreign_sources`.
+        // CONCEPT:EG-KG.query.closure-backed-source — the session's tenant-scoped foreign
+        // registry (EH-373): a wire-path `FOREIGN "<name>"` / `Named` `ForeignScan` leg
+        // resolves only sources the session's verified tenant registered.
         #[cfg(feature = "federation")]
-        let foreign_sources = self.state.read().await.foreign_sources.clone();
+        let foreign = {
+            let catalog = self.state.read().await.foreign_sources.clone();
+            catalog
+                .resolve_for_plan(&plan.ops, self.carrier_authority().ok().as_ref())
+                .map_err(user_err)?
+        };
         // CONCEPT:EG-KG.query.served-vector-index-binding / served-text-index-binding — push the
         // vector + lexical legs into the LIVE persistent indexes via a guard/adapter built
         // INSIDE the off-lock closure, instead of pre-cloning the whole `SemanticStore` here
@@ -4603,7 +4607,7 @@ impl WireSession {
                         #[cfg(feature = "geo")]
                         spatial: Some(&served_spatial),
                         #[cfg(feature = "federation")]
-                        foreign: Some(&*foreign_sources),
+                        foreign: crate::server::foreign_catalog::bound_registry(&foreign),
                         #[cfg(not(any(feature = "text", feature = "geo")))]
                         _marker: std::marker::PhantomData,
                     },
@@ -4628,7 +4632,7 @@ impl WireSession {
                         #[cfg(feature = "geo")]
                         spatial: Some(&served_spatial),
                         #[cfg(feature = "federation")]
-                        foreign: Some(&*foreign_sources),
+                        foreign: crate::server::foreign_catalog::bound_registry(&foreign),
                         #[cfg(not(any(feature = "text", feature = "geo")))]
                         _marker: std::marker::PhantomData,
                     },

@@ -518,10 +518,6 @@ async fn handle_unified_query_text_with_lease(
 ) -> Result<Response, String> {
     let state = ctx.state;
     let req_id = ctx.req_id;
-    #[cfg(feature = "tsdb")]
-    let graph_name = ctx.graph_name;
-    #[cfg(feature = "tsdb")]
-    let read_authority = ctx.read_authority;
     let core = ctx.core;
     let policy_lease = ctx.policy_lease;
     let store = ctx.store;
@@ -529,20 +525,10 @@ async fn handle_unified_query_text_with_lease(
         Ok(plan) => plan,
         Err(e) => return Ok(Response::err(req_id, e.render(&text))),
     };
-    #[cfg(feature = "tsdb")]
-    let tsdb_scope = served_tsdb_scope(&plan, graph_name, read_authority)?;
+    // Verified-carrier legs (tsdb scope + the caller's tenant foreign registry, EH-373).
+    let legs = ServedPlanLegs::resolve(state, ctx.graph_name, ctx.read_authority, &plan).await?;
     let (snap, _version) = lease_filtered_snapshot(core, policy_lease, store)?;
-    let resp = match run_unified_off_lock(
-        state,
-        req_id,
-        core,
-        snap,
-        plan,
-        #[cfg(feature = "tsdb")]
-        tsdb_scope,
-    )
-    .await
-    {
+    let resp = match run_unified_off_lock(state, req_id, core, snap, plan, legs).await {
         Ok(Ok(rows)) => result_response::<query_results::UnifiedQueryText>(req_id, &rows),
         Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
         Err(resp) => resp,

@@ -141,13 +141,14 @@ pub(crate) async fn handle_nl_query(
     // See the `UnifiedQuery` arm: push vector + lexical legs into the live
     // persistent indexes via a guard taken INSIDE the off-lock closure.
     let core_for_ctx = core.clone();
-    // CONCEPT:EG-KG.query.closure-backed-source — the server's REGISTERED foreign sources,
-    // cloned (a cheap `Arc` handle) for the off-lock closure exactly like the tsdb store
-    // above, so `run_unified` can resolve a `FOREIGN "<name>"` / `Named` `ForeignScan`
-    // leg through `ServerState::foreign_sources` instead of erroring on every named
-    // source `Method::RegisterForeignSource` accepted.
+    // CONCEPT:EG-KG.query.closure-backed-source — the CALLER'S tenant-scoped foreign
+    // registry (EH-373): an NL-planned `FOREIGN "<name>"` / `Named` `ForeignScan` leg
+    // resolves only sources the caller's verified tenant registered.
     #[cfg(feature = "federation")]
-    let foreign_sources = state.read().await.foreign_sources.clone();
+    let foreign = match served_foreign_leg(state, &plan, read_authority).await {
+        Ok(foreign) => foreign,
+        Err(denied) => return Ok(Response::err(req_id, denied)),
+    };
     let resp = match compute_off_lock(req_id, move || {
         #[cfg(feature = "text")]
         let served_text =
@@ -166,7 +167,7 @@ pub(crate) async fn handle_nl_query(
                 #[cfg(feature = "geo")]
                 spatial: Some(&served_spatial),
                 #[cfg(feature = "federation")]
-                foreign: Some(&*foreign_sources),
+                foreign: bound_registry(&foreign),
                 #[cfg(not(any(feature = "text", feature = "geo")))]
                 _marker: std::marker::PhantomData,
             },

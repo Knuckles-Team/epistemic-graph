@@ -325,17 +325,19 @@ pub struct ServerState {
     #[cfg(feature = "compute-dist")]
     pub matviews: Arc<Mutex<crate::raft::pregel::MatViewStore>>,
     /// Registered FOREIGN sources for query federation (CONCEPT:EG-KG.query.query-federation, feature
-    /// `federation`), keyed by name. `RegisterForeignSource` inserts a
-    /// [`eg_types::wire::ForeignSourceSpec`] here so it can be reused by name, and
-    /// `handlers::query::run_unified` READS it back into the executor's
-    /// `eg_plan::federation::ForeignSourceRegistry` so a `Named` `Op::ForeignScan` / an
-    /// `Op::Foreign` marker actually resolves (CONCEPT:EG-KG.query.closure-backed-source);
-    /// the inline-spec `Op::ForeignScan` path carries its own spec and does not need it.
-    /// Process-global (a foreign
-    /// endpoint is not per-graph), lock-free on read. Always present (empty) with the
-    /// feature on.
+    /// `federation`), keyed by `(verified tenant scope, name)` (EH-373).
+    /// `RegisterForeignSource` records the caller's
+    /// [`eg_types::wire::ForeignSourceSpec`] under the caller's tenant, and every served
+    /// plan path builds its executor `eg_plan::federation::ForeignSourceRegistry` through
+    /// [`crate::server::foreign_catalog::ForeignSourceCatalog::registry_for`], which copies
+    /// only the caller's tenant's entries — so a `Named` `Op::ForeignScan` / an
+    /// `Op::Foreign` marker resolves only the caller's own sources
+    /// (CONCEPT:EG-KG.query.closure-backed-source). The inline-spec `Op::ForeignScan` path
+    /// carries its own spec and does not read it. Rows from a foreign source are NOT
+    /// RLS-filtered (they are not in the local snapshot). Not per-graph; in memory only.
+    /// Always present (empty) with the feature on.
     #[cfg(feature = "federation")]
-    pub foreign_sources: Arc<DashMap<String, eg_types::wire::ForeignSourceSpec>>,
+    pub foreign_sources: Arc<crate::server::foreign_catalog::ForeignSourceCatalog>,
     /// Generic namespaced Key→Value store (CONCEPT:EG-KG.storage.namespaced-kv-surface, feature `kv`). `Some` on a
     /// `kv` build: a durable `{persist_dir}/kv.redb` when a persist dir is set, else an
     /// in-memory scratch map. The `Kv*` handlers get/put/delete/scan/cas through it; it

@@ -163,13 +163,14 @@ where
         Some((tenant, graph)) => (Some(tenant), Some(graph)),
         None => (None, None),
     };
-    // CONCEPT:EG-KG.query.closure-backed-source — the server's REGISTERED foreign sources,
-    // cloned (a cheap `Arc` handle) for the off-lock closure exactly like the tsdb store
-    // above, so `run_unified` can resolve a `FOREIGN "<name>"` / `Named` `ForeignScan`
-    // leg through `ServerState::foreign_sources` instead of erroring on every named
-    // source `Method::RegisterForeignSource` accepted.
+    // CONCEPT:EG-KG.query.closure-backed-source — the CALLER'S tenant-scoped foreign
+    // registry (EH-373): an in-txn `FOREIGN "<name>"` / `Named` `ForeignScan` leg
+    // resolves only sources the caller's verified tenant registered.
     #[cfg(feature = "federation")]
-    let foreign_sources = state.read().await.foreign_sources.clone();
+    let foreign = match served_foreign_leg(state, &plan, read_authority).await {
+        Ok(foreign) => foreign,
+        Err(denied) => return Response::err(req_id, denied),
+    };
     // CONCEPT:EG-KG.query.txn-tsdb-read-your — the in-txn tsdb read-your-own-writes overlay: seed a `StagedSeries`
     // from the txn's OWN staged, uncommitted `GraphTxnState.measurements` so an in-txn
     // `Op::TsScan` sees its own points (merged BEFORE the committed store), while an
@@ -213,7 +214,7 @@ where
                     #[cfg(feature = "geo")]
                     spatial: Some(&served_spatial),
                     #[cfg(feature = "federation")]
-                    foreign: Some(&*foreign_sources),
+                    foreign: bound_registry(&foreign),
                     #[cfg(not(any(feature = "text", feature = "geo")))]
                     _marker: std::marker::PhantomData,
                 },
@@ -238,7 +239,7 @@ where
                     #[cfg(feature = "geo")]
                     spatial: Some(&served_spatial),
                     #[cfg(feature = "federation")]
-                    foreign: Some(&*foreign_sources),
+                    foreign: bound_registry(&foreign),
                     #[cfg(not(any(feature = "text", feature = "geo")))]
                     _marker: std::marker::PhantomData,
                 },

@@ -108,9 +108,10 @@ pub(crate) mod wasm_udf;
 #[cfg(any(feature = "compute-dist", feature = "matview"))]
 pub(crate) mod dist_compute;
 // Query federation / foreign sources (CONCEPT:EG-KG.query.query-federation, feature `federation`).
-// RegisterForeignSource records a named foreign source on ServerState; the unified-query
-// handler READS that map back (it builds the eg-plan `ForeignSourceRegistry` a `Named`
-// `Op::ForeignScan` / an `Op::Foreign` resolves through), so both the by-name and the
+// RegisterForeignSource records a named foreign source under the caller's verified tenant
+// (EH-373); the unified-query handlers build the eg-plan `ForeignSourceRegistry` a `Named`
+// `Op::ForeignScan` / an `Op::Foreign` resolves through from the CALLER'S tenant's
+// entries only (`server::foreign_catalog`), so both the by-name and the
 // inline-spec paths execute through the same federation machinery. A build without
 // `federation` omits the module and the variant falls to the graph_ops not-available
 // catch-all.
