@@ -36,10 +36,10 @@ pub(crate) async fn serve(
     #[cfg(not(all(feature = "redb", feature = "blob")))]
     {
         let _ = (state, verified, request);
-        return Response::err(
+        Response::err(
             req_id,
             "ConnectorPack.reconcile_bodies requires redb and blob",
-        );
+        )
     }
     #[cfg(all(feature = "redb", feature = "blob"))]
     {

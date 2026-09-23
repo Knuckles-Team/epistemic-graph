@@ -12,7 +12,10 @@ use std::{hash::Hash, sync::OnceLock};
 
 use tokio::sync::RwLock;
 
-use crate::protocol::{Response, ResultPayload};
+use crate::protocol::Response;
+#[cfg(feature = "redb")]
+use crate::protocol::ResultPayload;
+#[cfg(all(feature = "redb", feature = "blob"))]
 use crate::server::access::CarrierAuthority;
 use crate::server::auth::VerifiedRequestContext;
 use crate::server::state::ServerState;
@@ -72,7 +75,7 @@ async fn serve_status(
     #[cfg(not(feature = "redb"))]
     {
         let _ = (state, verified, request);
-        return Response::err(req_id, "ConnectorPack requires the redb feature");
+        Response::err(req_id, "ConnectorPack requires the redb feature")
     }
     #[cfg(feature = "redb")]
     {
@@ -115,7 +118,7 @@ async fn serve_import(
     #[cfg(not(all(feature = "redb", feature = "blob")))]
     {
         let _ = (state, verified, request);
-        return Response::err(req_id, "ConnectorPack.import requires redb and blob");
+        Response::err(req_id, "ConnectorPack.import requires redb and blob")
     }
     #[cfg(all(feature = "redb", feature = "blob"))]
     {

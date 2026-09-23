@@ -22,6 +22,8 @@ mod algorithms;
 mod broker;
 mod edges;
 mod gateway;
+// Consumed outside this module only by the governed GraphSchema writes.
+#[cfg(feature = "shacl")]
 pub(crate) use gateway::commit_gateway;
 #[cfg(feature = "broker")]
 mod gateway_broker;

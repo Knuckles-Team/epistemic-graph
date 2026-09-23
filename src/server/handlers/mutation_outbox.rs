@@ -36,7 +36,7 @@ pub(crate) async fn handle_mutation_outbox(
     #[cfg(not(feature = "redb"))]
     {
         let _ = (state, verified, op);
-        return Response::err(req_id, "MutationOutbox requires the redb feature");
+        Response::err(req_id, "MutationOutbox requires the redb feature")
     }
     #[cfg(feature = "redb")]
     {

@@ -30,10 +30,10 @@ pub(crate) async fn serve(
     #[cfg(not(all(feature = "redb", feature = "blob", feature = "shacl")))]
     {
         let _ = (state, verified, request);
-        return Response::err(
+        Response::err(
             req_id,
             "ConnectorPack.reproject requires redb, blob and shacl",
-        );
+        )
     }
     #[cfg(all(feature = "redb", feature = "blob", feature = "shacl"))]
     {

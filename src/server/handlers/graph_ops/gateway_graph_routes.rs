@@ -201,6 +201,9 @@ async fn try_handle_admin(
     method: &Method,
     route: Route,
 ) -> Option<Response> {
+    // Only the policy route (shacl/reasoning builds) reads the state and tenant.
+    #[cfg(not(any(feature = "shacl", feature = "reasoning")))]
+    let _ = (state, tenant_id);
     match route {
         Route::Edges => try_handle_edges(ctx, plan, method).await,
         Route::Lifecycle => try_handle_lifecycle(ctx, plan, method).await,

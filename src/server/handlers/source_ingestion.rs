@@ -4,19 +4,27 @@
 //! existing ChangeEnvelope commit authority owns the final IngestBatch step, so
 //! there is one graph mutation path and one cursor compare-and-swap authority.
 
+#[cfg(all(feature = "redb", feature = "blob"))]
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use eg_types::contract::Digest256;
 use eg_types::source_ingestion::{
-    RawAdmissionReceipt, RawRelationshipAdmissionReceipt, SourceEntityRef,
-    SourceIngestionDisposition, SourceIngestionMode, SourceIngestionReceipt,
-    SourceIngestionRequest, SourceMappingKind, SourceMappingReceipt,
-    SourceRelationshipTombstoneReceipt, SourceTombstoneReceipt, SourceWithdrawal,
+    RawAdmissionReceipt, RawRelationshipAdmissionReceipt, SourceIngestionMode,
+    SourceIngestionRequest, SourceMappingReceipt, SourceRelationshipTombstoneReceipt,
+    SourceTombstoneReceipt,
+};
+#[cfg(all(feature = "redb", feature = "blob"))]
+use eg_types::source_ingestion::{
+    SourceEntityRef, SourceIngestionDisposition, SourceIngestionReceipt, SourceMappingKind,
+    SourceWithdrawal,
 };
 use tokio::sync::RwLock;
 
-use crate::protocol::{Method, Response, ResultPayload};
+use crate::protocol::Response;
+#[cfg(all(feature = "redb", feature = "blob"))]
+use crate::protocol::{Method, ResultPayload};
+#[cfg(all(feature = "redb", feature = "blob"))]
 use crate::server::access::CarrierAuthority;
 use crate::server::auth::VerifiedRequestContext;
 use crate::server::ServerState;
