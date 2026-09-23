@@ -660,9 +660,10 @@ ex:parent a owl:AsymmetricProperty .
         // 880 migrated triples less the two list-cell triples of `:Incident`, which
         // was removed from the Person/Organization/Server/Event disjointness because
         // it is a subclass of `:Event` (EH-356), plus the 8 triples declaring BFO
-        // realizable entity and disposition, the category of `:Skill`, plus BFO's
-        // `Continuant owl:disjointWith Occurrent` (operator ruling, EH-363).
-        assert_eq!(triples.len(), 887);
+        // realizable entity and disposition, the category of `:Skill`; plus 75 for the
+        // world model: BFO material entity and object, and the RO/BFO-aligned shared
+        // relations with their mappings.
+        assert_eq!(triples.len(), 961);
         for required in [
             "http://knuckles.team/kg#Concept",
             "http://knuckles.team/kg#Evidence",
@@ -689,9 +690,10 @@ ex:parent a owl:AsymmetricProperty .
         // AllDisjointClasses list of its own superclass `:Event` — 2. Then +99: the
         // module-local domain/range of 12 other shared properties (and the double domain
         // of infrastructure's :runsOn) moved onto 24 module-local sub-properties. Then
-        // +8: BFO realizable entity and disposition, declared for `:Skill`.
-        // +1: BFO `Continuant owl:disjointWith Occurrent`.
-        assert_eq!(composed.ontology.len(), 12_698);
+        // +8: BFO realizable entity and disposition, declared for `:Skill`. Then +444 for
+        // the world model: the world_model module (368), its catalog import (1) and the
+        // foundation's BFO material entity/object and RO-aligned relations (75).
+        assert_eq!(composed.ontology.len(), 13_141);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -721,9 +723,9 @@ ex:parent a owl:AsymmetricProperty .
         // `/core` foundation and generated aggregate catalog. Every domain
         // axiom remains in the immutable catalog; only those 71 document-level
         // authority triples change.
-        assert_eq!(ontology_subjects.len(), 30);
-        assert_eq!(imports, 59);
-        assert_eq!(semantic_axioms, 12_543);
+        assert_eq!(ontology_subjects.len(), 31);
+        assert_eq!(imports, 61);
+        assert_eq!(semantic_axioms, 12_981);
 
         let count_type = |object: &str| {
             composed
@@ -752,11 +754,11 @@ ex:parent a owl:AsymmetricProperty .
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#inverseOf"),
-            30
+            34
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#propertyChainAxiom"),
-            4
+            5
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#minCardinality"),
@@ -772,7 +774,7 @@ ex:parent a owl:AsymmetricProperty .
                         && matches!(&triple.object, Term::NamedNode(_))
                 })
                 .count(),
-            379
+            412
         );
     }
 
@@ -843,11 +845,12 @@ ex:parent a owl:AsymmetricProperty .
     }
 
     #[test]
-    fn governance_core_slice_is_exactly_four_shapes_and_57_triples() {
+    fn governance_core_slice_is_exactly_its_nine_shapes() {
         let document =
             include_str!("../../../crates/eg-core/ontology/governance-core-v1.shapes.ttl");
         let triples = eg_rdf::mapping::parse_turtle(document).unwrap();
-        assert_eq!(triples.len(), 57);
+        // 57 for the four governance shapes, 123 for the five world-model ABox shapes.
+        assert_eq!(triples.len(), 180);
         let roots: BTreeSet<String> = triples
             .iter()
             .filter(|triple| {
@@ -859,10 +862,20 @@ ex:parent a owl:AsymmetricProperty .
                 NamedOrBlankNode::BlankNode(_) => None,
             })
             .collect();
-        assert_eq!(roots.len(), 4);
+        assert_eq!(roots.len(), 9);
         assert!(roots.iter().all(|root| matches!(
             root.rsplit('#').next(),
-            Some("ADRShape" | "CapabilityShape" | "PolicyShape" | "ToolShape")
+            Some(
+                "ADRShape"
+                    | "CapabilityShape"
+                    | "PolicyShape"
+                    | "ToolShape"
+                    | "TaxonShape"
+                    | "OrganismObservationShape"
+                    | "WeatherObservationShape"
+                    | "FoodCompositionRecordShape"
+                    | "NutrientAmountShape"
+            )
         )));
         let blank_nodes: BTreeSet<String> = triples
             .iter()
@@ -878,6 +891,6 @@ ex:parent a owl:AsymmetricProperty .
                 subject.into_iter().chain(object)
             })
             .collect();
-        assert_eq!(blank_nodes.len(), 8);
+        assert_eq!(blank_nodes.len(), 26);
     }
 }

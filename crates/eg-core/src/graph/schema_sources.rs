@@ -722,6 +722,12 @@ fn core_specs() -> &'static [CoreSpec] {
             ontology: Some(include_str!("../../ontology/trm-v1.ttl")),
         },
         CoreSpec {
+            module: "world_model",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/world_model-v1.ttl")),
+        },
+        CoreSpec {
             module: "worldview",
             version: 1,
             shapes: None,
@@ -797,7 +803,7 @@ mod tests {
     fn core_catalog_has_one_version_per_module_and_is_outside_dynamic_quota() {
         let sources = GraphSchemaSources::default();
         sources.validate().unwrap();
-        assert_eq!(sources.core.len(), 31);
+        assert_eq!(sources.core.len(), 32);
         assert!(sources.dynamic.is_empty());
         assert!(sources.core.keys().all(|id| id.starts_with("core:")));
     }
@@ -1084,7 +1090,7 @@ mod tests {
             ),
             (
                 "catalog",
-                "6345043f80eb300e674c665c24633892625060b83edd1db86feff5d9b7bf8086",
+                "f02c09a4db260ad77c603c2f830039a292cf2400cfea77eeaa3e28752c5b2fd4",
             ),
             (
                 "company",
@@ -1100,7 +1106,7 @@ mod tests {
             ),
             (
                 "foundation",
-                "d0eddb4f5d35d6329313da76fb506bf35ec7f25106ee544affa9bccde1e94574",
+                "bd95b075396df1d66da652b82208c81b65a5687f83ae22022de594dfefff33a6",
             ),
             (
                 "documentation",
@@ -1116,7 +1122,7 @@ mod tests {
             ),
             (
                 "governance-shapes",
-                "8195ee0454e851d182b14c9d30e1bcfa2638b44719964cd51e08d75cdc13b12d",
+                "780810e89b786f2864ebc423f8a3c1ae9ae4662df86c9a4ba28d31601a461164",
             ),
             (
                 "government",
@@ -1177,6 +1183,10 @@ mod tests {
             (
                 "trm",
                 "2e5d9cffcfc8e8915470641e85766f3ce775919539f22c57746d5a5e29d6c55d",
+            ),
+            (
+                "world_model",
+                "6992ec5d53d83e62d87d61a6deafa8368df92bb592a95aca7842a6270b1f3d01",
             ),
             (
                 "worldview",
