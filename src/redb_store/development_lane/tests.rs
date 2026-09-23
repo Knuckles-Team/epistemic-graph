@@ -82,6 +82,8 @@ mod test_finish_c;
 mod test_lifecycle_a;
 #[path = "test_lifecycle_b.rs"]
 mod test_lifecycle_b;
+#[path = "test_links_current.rs"]
+mod test_links_current;
 #[path = "test_observe.rs"]
 mod test_observe;
 #[path = "test_reserve_a.rs"]

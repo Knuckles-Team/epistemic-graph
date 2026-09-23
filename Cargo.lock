@@ -3302,6 +3302,7 @@ dependencies = [
  "serde_bytes",
  "sha2 0.10.9",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]

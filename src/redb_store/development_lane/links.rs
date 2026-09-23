@@ -16,6 +16,7 @@ use crate::epistemic_operations::{
 };
 use crate::protocol::DevelopmentLaneWorkItemKind;
 use crate::redb_store::shard::ShardWrite;
+use std::collections::BTreeMap;
 
 /// A lifecycle WorkItem's owner is authoritative while it is live and is
 /// retained in `last_lease_owner` after terminalization.  Keep the terminal
@@ -207,7 +208,7 @@ pub(crate) fn validate_checkpoint_lane_links<T>(
 where
     T: LaneRows<(&'static str, &'static str), &'static [u8]>,
 {
-    text(graph, "lane graph").map_err(|_| "development lane graph key is invalid".to_string())?;
+    lane_graph_key(graph)?;
     // `incoming_nodes` is the checkpoint's FULL node set for `graph` — every node
     // the graph carries, not just development-lane WorkItems (e.g. `__commons__`
     // also carries broker exchange/binding/message nodes whose ids intentionally
@@ -222,18 +223,42 @@ where
     // `work_item_capability::validate_snapshot_nodes`'s same content-shape-scoped
     // (not id-format-universal) convention for this same checkpoint path.
     let incoming = checkpoint_incoming_nodes(incoming_nodes)?;
+    validate_hold_links(&linked_holds(holds, crypto)?, &incoming)
+}
+
+fn lane_graph_key(graph: &str) -> Result<(), String> {
+    text(graph, "lane graph").map_err(|_| "development lane graph key is invalid".to_string())
+}
+
+/// Every stored hold whose WorkItem link is still authoritative, bound-checked
+/// before any of its identifiers is used as a lookup key. `Absent` and
+/// `Aborted` holds carry no link and are skipped.
+fn linked_holds<T>(holds: &T, crypto: DurableCrypto<'_>) -> Result<Vec<DurableLaneHold>, String>
+where
+    T: LaneRows<(&'static str, &'static str), &'static [u8]>,
+{
+    let mut linked = Vec::new();
     holds.visit_scope_rows(&mut |_: (&str, &str), value: &[u8]| {
         let row: DurableLaneHold = resource_decode(value, crypto)?;
         durable_hold_bounds(&row)?;
-        if matches!(
+        if !matches!(
             row.hold.state,
             DevelopmentLaneHoldState::Absent | DevelopmentLaneHoldState::Aborted
         ) {
-            return Ok(true);
+            linked.push(row);
         }
-        validate_checkpoint_hold_link(&row, &incoming)?;
         Ok(true)
-    })
+    })?;
+    Ok(linked)
+}
+
+/// Each linked hold against the node image, in stored-hold order.
+fn validate_hold_links(
+    rows: &[DurableLaneHold],
+    incoming: &IncomingNodes<'_>,
+) -> Result<(), String> {
+    rows.iter()
+        .try_for_each(|row| validate_checkpoint_hold_link(row, incoming))
 }
 
 /// Validate a replacement image against the lane rows already staged in the
@@ -250,28 +275,72 @@ pub(crate) fn validate_lane_links_in_wtx(
     validate_checkpoint_lane_links(graph, incoming_nodes, &holds, crypto)
 }
 
-/// Validate the current post-delta WorkItem image from the same admitted write.
-/// Node values are unsealed before they are passed to the checkpoint validator,
-/// preserving the exact WorkItem extension checks while keeping the lane and
-/// graph replacement atomic.
+/// Validate the current post-delta WorkItem image from the same admitted write,
+/// keeping the lane and graph replacement atomic.
+///
+/// Every graph write commit runs this (EH-290), so it reads only what the
+/// check consults: the graph's linked holds and, by point lookup, the
+/// unsealed WorkItem rows those holds name. The link check reads nothing else
+/// from the image, so its verdict is the same as a full-image walk. A graph
+/// with no linked hold (almost every graph) costs one empty range read. The
+/// full walk this replaces unsealed every node on every commit and made each
+/// write O(graph size): 73 ms of a 107 ms p50 write at 100k nodes on R710.
 pub(crate) fn validate_current_lane_links_in_wtx(
     write: &ShardWrite<'_>,
     graph: &str,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
     let timer = crate::redb_store::CommitPhaseTimer::start("lane_link_validation");
-    let incoming_nodes = {
-        let nodes = write.graph(graph)?.open_scoped_table(NODES)?;
-        let mut incoming_nodes = Vec::new();
-        nodes.visit_scope_rows(&mut |key: (&str, &str), value: &[u8]| {
-            incoming_nodes.push((key.1.to_string(), crypto.unseal(value)?));
-            Ok(true)
-        })?;
-        incoming_nodes
-    };
-    let validated = validate_lane_links_in_wtx(write, graph, &incoming_nodes, crypto);
+    let validated = validate_current_lane_links(write, graph, crypto);
     timer.finish();
     validated
+}
+
+fn validate_current_lane_links(
+    write: &ShardWrite<'_>,
+    graph: &str,
+    crypto: DurableCrypto<'_>,
+) -> Result<(), String> {
+    lane_graph_key(graph)?;
+    let member = write.graph(graph)?;
+    let rows = linked_holds(&member.open_scoped_table(HOLDS)?, crypto)?;
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let named = linked_work_items(&member.open_scoped_table(NODES)?, graph, &rows, crypto)?;
+    let incoming: IncomingNodes<'_> = named
+        .iter()
+        .map(|(id, bytes)| (id.as_str(), bytes.as_slice()))
+        .collect();
+    validate_hold_links(&rows, &incoming)
+}
+
+/// The unsealed current rows of exactly the WorkItems `rows` name: each
+/// lifecycle WorkItem and any recorded cleanup WorkItem. A named node that is
+/// absent is left out, which the link check reports as an orphan, as before.
+fn linked_work_items<T>(
+    nodes: &T,
+    graph: &str,
+    rows: &[DurableLaneHold],
+    crypto: DurableCrypto<'_>,
+) -> Result<BTreeMap<String, Vec<u8>>, String>
+where
+    T: LaneRows<(&'static str, &'static str), &'static [u8]>,
+{
+    let mut named = BTreeMap::new();
+    let ids = rows.iter().flat_map(|row| {
+        std::iter::once(row.hold.work_item_id.as_str())
+            .chain(row.hold.cleanup_work_item_id.as_deref())
+    });
+    for id in ids {
+        if named.contains_key(id) {
+            continue;
+        }
+        if let Some(value) = nodes.row((graph, id))? {
+            named.insert(id.to_string(), crypto.unseal(value.value())?);
+        }
+    }
+    Ok(named)
 }
 
 /// The WorkItem statuses that mean the lifecycle attempt has finished.

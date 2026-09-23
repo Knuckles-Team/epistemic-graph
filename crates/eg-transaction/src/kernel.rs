@@ -189,7 +189,9 @@ impl MutationKernel {
         let mut batches: Vec<MutationBatch> = Vec::with_capacity(intents.len());
         for (index, intent) in intents.into_iter().enumerate() {
             let write = &admitted[index];
-            let batch = match current_batch(write, intent.owner, intent.build) {
+            let batch = match tracing::debug_span!("commit_phase", phase = "current_batch")
+                .in_scope(|| current_batch(write, intent.owner, intent.build))
+            {
                 Ok(batch) => batch,
                 Err(error) => {
                     let _ = AdmittedGroup::new(admitted, begins).end(false);
@@ -895,7 +897,8 @@ fn admit_group_member<D: OwnerDomain>(
     write: &AdmittedMutation<'_, D>,
     batch: &MutationBatch,
 ) -> Result<Begin, String> {
-    let begun = commit::begin(write, batch)?;
+    let begun = tracing::debug_span!("commit_phase", phase = "member_begin")
+        .in_scope(|| commit::begin(write, batch))?;
     if matches!(begun, Begin::Replay(_)) {
         write.admit_replayed_batch(batch)?;
     }

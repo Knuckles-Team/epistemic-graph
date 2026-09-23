@@ -724,12 +724,16 @@ pub(crate) fn commit_group<D: OwnerDomain>(
         let _ = group.end(false);
         return Err("scope group commit does not name every admitted member".to_string());
     }
+    let sealing = tracing::debug_span!("commit_phase", phase = "seal_members");
     for (index, batch) in batches.iter().enumerate() {
-        if let Err(error) = seal(group.member(index)?, batch) {
+        let member = group.member(index)?;
+        if let Err(error) = sealing.in_scope(|| seal(member, batch)) {
             group.end(false)?;
             return Err(error);
         }
     }
+    // Close the span before the redb commit, which `redb_commit` times.
+    drop(sealing);
     group.end(true)?;
     for batch in batches {
         certification_fault(batch, MutationCommitPhase::AfterCommitBeforeAck)?;
