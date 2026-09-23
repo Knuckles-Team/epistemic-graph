@@ -40,7 +40,9 @@ class DeclaredOption:
         return {
             "option_id": self.option_id,
             "classification": list(self.classification),
-            "numbers": [{"key": k, "q32": int(self.numbers[k])} for k in sorted(self.numbers)],
+            "numbers": [
+                {"key": k, "q32": int(self.numbers[k])} for k in sorted(self.numbers)
+            ],
             "texts": [{"key": k, "text": self.texts[k]} for k in sorted(self.texts)],
         }
 
@@ -54,7 +56,9 @@ def declared(options: Iterable[DeclaredOption]) -> dict[str, Any]:
     return {"source": "declared", "options": [o.wire() for o in ordered]}
 
 
-def library(kinds: Sequence[str], classification_under: str | None = None) -> dict[str, Any]:
+def library(
+    kinds: Sequence[str], classification_under: str | None = None
+) -> dict[str, Any]:
     """``CandidateSource::AgentLibrary`` over component kinds (wire names)."""
     return {
         "source": "agent_library",
@@ -159,9 +163,13 @@ class DecisionClient:
     async def decide(self, request: Mapping[str, Any]) -> Any:
         from epistemic_graph.generated.query import send_decide
 
-        return _payload(await send_decide(self.client, {"request": dict(request)}, self.graph))
+        return _payload(
+            await send_decide(self.client, {"request": dict(request)}, self.graph)
+        )
 
-    async def log(self, op: Mapping[str, Any], *, idempotency_key: str | None = None) -> Any:
+    async def log(
+        self, op: Mapping[str, Any], *, idempotency_key: str | None = None
+    ) -> Any:
         from epistemic_graph.generated.coordination import send_decision_log
 
         result = await send_decision_log(
