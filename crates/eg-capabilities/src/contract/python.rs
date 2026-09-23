@@ -946,6 +946,16 @@ fn init_module(modules: &[String], sends: &BTreeMap<String, String>) -> String {
     out
 }
 
+/// The first doc-comment line schemars copied into a definition, which names
+/// the Rust type that emitted it well enough to find in a collision report.
+fn definition_origin(definition: &serde_json::Value) -> String {
+    definition
+        .get("description")
+        .and_then(|value| value.as_str())
+        .and_then(|text| text.lines().next())
+        .map_or_else(|| "<undocumented type>".to_string(), str::to_string)
+}
+
 fn merged_definitions(
     document: &serde_json::Value,
     catalog: &Catalog,
@@ -960,8 +970,13 @@ fn merged_definitions(
         for (name, definition) in domain_definitions {
             if let Some(previous) = definitions.insert(name.clone(), definition.clone()) {
                 assert_eq!(
-                    &previous, definition,
-                    "request and result schemas disagree on definition {name}"
+                    &previous,
+                    definition,
+                    "two distinct Rust types share the schema definition name {name} \
+                     (request side: {}; result domain {result_domain}: {}); give one a \
+                     domain-specific name",
+                    definition_origin(&previous),
+                    definition_origin(definition),
                 );
             }
         }

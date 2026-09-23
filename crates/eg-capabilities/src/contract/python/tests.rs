@@ -701,3 +701,73 @@ fn a_request_envelope_never_shadows_its_dto_root() {
         assert!(!source.contains(&format!("    {root},\n")), "{path}");
     }
 }
+
+/// Two distinct Rust types must never share a schema definition name. Across
+/// documents the request and result sides would disagree (or, worse, silently
+/// agree on the wrong shape); inside one document schemars disambiguates the
+/// second type by appending a counter (`Name2`), which Python would then emit
+/// under a name no Rust author chose.
+#[test]
+fn no_schema_definition_name_is_shared_by_distinct_types() {
+    let catalog = Catalog::collect();
+    let document = schema::method_request_document();
+    let mut seen: BTreeMap<String, (String, serde_json::Value)> = BTreeMap::new();
+    let request = document.get("$defs").and_then(|value| value.as_object());
+    let request = request.into_iter().flatten().map(|(name, definition)| {
+        let definition = root_ref_as_method(definition.clone());
+        ("request".to_string(), name, definition)
+    });
+    let results = catalog
+        .definitions
+        .iter()
+        .flat_map(|(domain, definitions)| {
+            definitions.iter().map(move |(name, definition)| {
+                (format!("result.{domain}"), name, definition.clone())
+            })
+        });
+    for (origin, name, definition) in request.chain(results) {
+        if let Some((first, previous)) = seen.get(name) {
+            assert_eq!(
+                previous,
+                &definition,
+                "{name} is emitted by two distinct Rust types ({first}: {}; {origin}: {})",
+                definition_origin(previous),
+                definition_origin(&definition),
+            );
+            continue;
+        }
+        seen.insert(name.clone(), (origin, definition));
+    }
+    for name in seen.keys() {
+        let base = name.trim_end_matches(|c: char| c.is_ascii_digit());
+        assert!(
+            base == name || !seen.contains_key(base),
+            "{name} looks like schemars disambiguating a second Rust type named {base}"
+        );
+    }
+}
+
+/// The request document's root IS `Method` (`schema_for!(Method)`), so a
+/// recursive reference to it renders as `"$ref": "#"` there and as
+/// `"#/$defs/Method"` in a result document -- the same Rust type, e.g.
+/// `MutationOperation.method`. Rewrite the root form so the comparison above is
+/// exact rather than tolerant.
+fn root_ref_as_method(mut value: serde_json::Value) -> serde_json::Value {
+    match &mut value {
+        serde_json::Value::Object(map) => {
+            if map.get("$ref").and_then(|r| r.as_str()) == Some("#") {
+                map.insert("$ref".into(), serde_json::json!("#/$defs/Method"));
+            }
+            for child in map.values_mut() {
+                *child = root_ref_as_method(child.take());
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for child in items.iter_mut() {
+                *child = root_ref_as_method(child.take());
+            }
+        }
+        _ => {}
+    }
+    value
+}
