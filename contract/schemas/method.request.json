@@ -4744,6 +4744,14 @@
       ],
       "type": "string"
     },
+    "CommunityQualityFunction": {
+      "description": "Quality (objective) function `CommunityDetectEphemeral` optimizes (EH-314) —\nthe wire mirror of `eg_compute::graph_algos::QualityFunction`, kept as its\nown type here rather than reused directly so `eg-types` never depends on\n`eg-compute`; the server handler maps one to the other\n(`src/server/handlers/graph_ops/algorithms.rs`), the same split\n`CommunityAlgorithm`/`to_community_algo` already use for `MineCommunity`.\n`Modularity` (the pre-EH-314 behaviour) has a well-known resolution limit\non large graphs; `Cpm` (Constant Potts Model) removes it — see EG's own\n`QualityFunction` doc for the exact math. Defaulting to `Modularity` is\nwhat keeps a caller that sends no `quality` byte-identical to the\npre-EH-314 kernel.\n\nNot gated behind `mining`/`ml-pipeline` (unlike this file's other wire\nenums) — `CommunityDetectEphemeral` is a base compute method, always\ncompiled.",
+      "enum": [
+        "modularity",
+        "cpm"
+      ],
+      "type": "string"
+    },
     "ComponentDependency": {
       "additionalProperties": false,
       "description": "One pinned requirement of a component.\n\nThe `kind` is carried alongside the id so a dependency can be type-checked\nwithout resolving it: a [`AgentComponentKind::Tool`] whose input schema\npoints at a [`AgentComponentKind::ModelProfile`] is rejected structurally,\nnot at run time. The `definition_digest` pins the exact revision, so a\ndependency cannot silently change under a component that was reviewed\nagainst it.",
@@ -23876,7 +23884,7 @@
     },
     "CommunityDetectEphemeral": {
       "additionalProperties": false,
-      "description": "Stateless community detection over a call graph passed inline — NO tenant\nload, NO persistence. The ingest path previously bulk-loaded ~160k edges\ninto a throwaway tenant just to run this, then deleted the tenant; passing\nthe edges directly removes that whole round-trip + the tenant sprawl.",
+      "description": "Stateless community detection over a call graph passed inline — NO tenant\nload, NO persistence. The ingest path previously bulk-loaded ~160k edges\ninto a throwaway tenant just to run this, then deleted the tenant; passing\nthe edges directly removes that whole round-trip + the tenant sprawl.\n\nEH-314: `edges` carries an explicit per-edge WEIGHT — the resolver\nconfidence a caller already computes (0.95 scoped down to 0.60 unique,\nEH-284) — and `quality` selects Modularity vs CPM (EH-283). This\nstateless path is the one actually taken in production, unlike its\npersisted-topology sibling `CommunityDetection` (which derives weight\nfrom `edge_properties` via `algorithms::community::resolver_confidence_weight`),\nso it needed its own weight/quality slot to make EH-283/EH-284 reachable\nat all. A caller sending `1.0` for every edge and omitting `quality`\ngets the byte-identical pre-EH-314 result: uniform-weight Modularity\nLeiden over the same topology.",
       "properties": {
         "method": {
           "const": "CommunityDetectEphemeral",
@@ -23887,14 +23895,18 @@
           "properties": {
             "edges": {
               "items": {
-                "maxItems": 2,
-                "minItems": 2,
+                "maxItems": 3,
+                "minItems": 3,
                 "prefixItems": [
                   {
                     "type": "string"
                   },
                   {
                     "type": "string"
+                  },
+                  {
+                    "format": "double",
+                    "type": "number"
                   }
                 ],
                 "type": "array"
@@ -23906,6 +23918,10 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            "quality": {
+              "$ref": "#/$defs/CommunityQualityFunction",
+              "default": "modularity"
             },
             "resolution": {
               "format": "double",

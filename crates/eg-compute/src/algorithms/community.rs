@@ -17,7 +17,7 @@ use std::time::Duration;
 use petgraph::visit::{EdgeRef, IntoEdgeReferences};
 
 use crate::graph::GraphView;
-use crate::graph_algos::{leiden, AdjacencyGraph, LeidenConfig};
+use crate::graph_algos::{leiden, AdjacencyGraph, LeidenConfig, QualityFunction};
 
 /// Detect communities through the sole Leiden implementation in
 /// [`crate::graph_algos`]. The adapter preserves isolated nodes and translates
@@ -39,6 +39,68 @@ pub fn community_detection(core: &GraphView, resolution: f64) -> Vec<Vec<String>
         &graph,
         &LeidenConfig {
             resolution,
+            budget: Duration::from_secs(15),
+            ..LeidenConfig::default()
+        },
+    )
+    .communities
+}
+
+/// EH-314: stateless community detection over an explicitly WEIGHTED,
+/// caller-supplied call graph — the `CommunityDetectEphemeral` wire method's
+/// own per-edge weight and quality-function selector, rather than
+/// [`community_detection`]'s persisted-topology `edge_properties` blob.
+/// Building the [`AdjacencyGraph`] directly from the supplied `(source,
+/// target, weight)` triples — instead of round-tripping through a scratch
+/// [`GraphView`] the way the ephemeral handler used to — is what makes a
+/// weight/quality slot possible on this wire method at all: a throwaway
+/// `GraphView` has no `edge_properties` to read a weight back out of unless
+/// the caller also fabricates a properties blob per edge, which is exactly
+/// the round-trip EH-314 exists to avoid.
+///
+/// A node id in `node_ids` that never appears in `edges` is preserved as an
+/// isolated (zero-degree) node, matching [`community_detection`]'s own
+/// contract. An edge endpoint absent from `node_ids` is silently dropped —
+/// the caller is expected to pass the exact node set the edges range over,
+/// as `enrichment/features.py::cluster_features` already does.
+pub fn community_detection_weighted(
+    mut node_ids: Vec<String>,
+    edges: Vec<(String, String, f64)>,
+    resolution: f64,
+    quality: QualityFunction,
+) -> Vec<Vec<String>> {
+    node_ids.sort_unstable();
+    node_ids.dedup();
+    let index: HashMap<&str, usize> = node_ids
+        .iter()
+        .enumerate()
+        .map(|(i, id)| (id.as_str(), i))
+        .collect();
+
+    let mut adjacency: Vec<Vec<(String, f64)>> = vec![Vec::new(); node_ids.len()];
+    for (source, target, weight) in &edges {
+        // Same `weight > 0.0` admission [`weighted_adjacency`] applies below —
+        // a zero/negative weight (never sent by a well-behaved caller, but not
+        // ruled out by the wire schema) contributes nothing to Leiden's
+        // objective either way, so dropping it up front keeps the two
+        // adjacency builders' admission rule identical.
+        if *weight <= 0.0 {
+            continue;
+        }
+        if let (Some(&si), Some(&ti)) = (index.get(source.as_str()), index.get(target.as_str())) {
+            adjacency[si].push((node_ids[ti].clone(), *weight));
+        }
+    }
+
+    let graph = AdjacencyGraph::from_adjacency(node_ids.into_iter().zip(adjacency));
+    // Same 15s interactive budget as `community_detection` — this facade
+    // serves the SAME caller-sized `Method::CommunityDetectEphemeral` request
+    // that function used to, just with an explicit weight/quality slot.
+    leiden(
+        &graph,
+        &LeidenConfig {
+            resolution,
+            quality,
             budget: Duration::from_secs(15),
             ..LeidenConfig::default()
         },

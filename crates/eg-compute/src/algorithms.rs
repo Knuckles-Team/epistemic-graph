@@ -27,7 +27,7 @@ pub use batch::{
     batch_update, batch_update_preview, decode_batch_operations, merge_batch_node_properties,
     BatchOperation,
 };
-pub use community::community_detection;
+pub use community::{community_detection, community_detection_weighted};
 pub use finance::{
     compute_exponential_decay, compute_rolling_mean, compute_rolling_std, compute_rolling_zscore,
     simulate_order_matching,

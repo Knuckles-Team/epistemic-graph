@@ -1,7 +1,22 @@
 use super::*;
 
 use super::terminal::GraphOpsContext;
+use eg_compute::graph_algos::QualityFunction;
+use eg_types::protocol::CommunityQualityFunction;
 use eg_types::result_contract::compute as results;
+
+/// EH-314: wire (`eg_types::protocol::CommunityQualityFunction`) → kernel
+/// (`eg_compute::graph_algos::QualityFunction`) — the same split
+/// `mining/insight.rs::to_community_algo` already uses for `MineCommunity`'s
+/// `CommunityAlgorithm`, kept as an exhaustive `match` (not a `From` impl)
+/// so a future third quality function fails to compile here rather than
+/// silently falling through.
+fn to_quality_function(quality: CommunityQualityFunction) -> QualityFunction {
+    match quality {
+        CommunityQualityFunction::Modularity => QualityFunction::Modularity,
+        CommunityQualityFunction::Cpm => QualityFunction::Cpm,
+    }
+}
 
 /// `InDegree`: pure extract-method from `try_handle`'s match arm, byte-identical
 /// behaviour, no signature change.
@@ -303,23 +318,21 @@ async fn handle_metrics(req_id: u64, core: &Arc<GraphCore>, raw_ledger_len: u64)
     )
 }
 
-/// `CommunityDetectEphemeral`: pure extract-method from `try_handle`'s match arm,
-/// byte-identical behaviour, no signature change.
+/// `CommunityDetectEphemeral` (EH-314): builds the weighted `AdjacencyGraph`
+/// directly from the caller-supplied `(source, target, weight)` edges and the
+/// selected quality function — no scratch `GraphCore` round-trip (see
+/// `community_detection_weighted`'s own doc for why that round-trip could
+/// never have carried a weight anyway).
 async fn handle_community_detect_ephemeral(
     req_id: u64,
     node_ids: Vec<String>,
-    edges: Vec<(String, String)>,
+    edges: Vec<(String, String, f64)>,
     resolution: f64,
+    quality: CommunityQualityFunction,
 ) -> Response {
+    let quality = to_quality_function(quality);
     match compute_off_lock(req_id, move || {
-        let g = crate::graph::GraphCore::new();
-        for id in &node_ids {
-            g.add_node(id.clone(), Vec::new());
-        }
-        for (s, t) in &edges {
-            let _ = g.add_edge(s.clone(), t.clone(), Vec::new());
-        }
-        crate::algorithms::community_detection(&g.analysis_snapshot(), resolution)
+        crate::algorithms::community_detection_weighted(node_ids, edges, resolution, quality)
     })
     .await
     {
@@ -468,7 +481,8 @@ pub(super) async fn try_handle_community_algorithms(
             node_ids,
             edges,
             resolution,
-        } => handle_community_detect_ephemeral(req_id, node_ids, edges, resolution).await,
+            quality,
+        } => handle_community_detect_ephemeral(req_id, node_ids, edges, resolution, quality).await,
         // GraphColoring: greedy coloring is a single O(V+E) sweep over a cheap
         // topology snapshot (Phase C-B: read algorithms take an unlocked view).
         Method::GraphColoring => {

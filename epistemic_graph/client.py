@@ -6895,19 +6895,31 @@ class GraphOperationsClient:
     async def community_detect_ephemeral(
         self,
         node_ids: list[str],
-        edges: list[tuple[str, str]],
+        edges: list[tuple[str, str, float]],
         resolution: float = 1.0,
+        quality: str = "modularity",
     ) -> list[list[str]]:
         """Stateless community detection over an inline call graph (Phase: holistic).
 
         Runs detection on the passed nodes/edges WITHOUT loading them into a tenant
         — no bulk-load round-trip, no throwaway tenant, no persistence. Replaces the
         load-tenant-then-detect pattern for the ingest community pass.
+
+        EH-314: ``edges`` is ``(source, target, weight)`` — pass ``1.0`` for an
+        edge with no known confidence to reproduce the pre-EH-314 uniform-weight
+        result exactly. ``quality`` selects the Leiden objective: ``"modularity"``
+        (default, the pre-EH-314 behaviour) or ``"cpm"`` (Constant Potts Model,
+        EH-283 — dodges modularity's resolution limit on large graphs).
         """
         return (
             await _gen.compute.send_community_detect_ephemeral(
                 self._client,
-                {"node_ids": node_ids, "edges": edges, "resolution": resolution},
+                {
+                    "node_ids": node_ids,
+                    "edges": edges,
+                    "resolution": resolution,
+                    "quality": quality,
+                },
             )
         ).payload
 

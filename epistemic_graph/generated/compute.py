@@ -702,6 +702,7 @@ class CommunityDetectEphemeralRequest(BaseModel):
 
     edges: list[list[Any]]
     node_ids: list[str]
+    quality: Any | None = None
     resolution: float
 
 
