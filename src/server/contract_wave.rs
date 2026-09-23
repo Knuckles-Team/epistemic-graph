@@ -162,6 +162,8 @@ mod dispatch_reachability_tests {
         "ConnectorPack.retire",
         "ConnectorPack.status",
         "ConnectorPack.unbind",
+        "EdgeIndex.status",
+        "EdgeSearch",
         "GraphSchema.attach",
         "GraphSchema.attach_pack",
         "GraphSchema.detach",

@@ -4,6 +4,7 @@ use super::Dynamic;
 use crate::change_envelope::{ChangeCursor, ChangeEnvelopeRecord, ContentVersion};
 use crate::decision::DecisionBatch;
 use crate::epistemic_operations::EvidenceBundle;
+use crate::managed_index::{EdgeIndexStatusView, EdgeSearchView};
 #[cfg(feature = "knowledge-batch")]
 use crate::knowledge_stream::KnowledgeStreamBatch;
 #[cfg(feature = "epistemic")]
@@ -70,4 +71,7 @@ method_results! {
     #[cfg(feature = "query")]
     TxnUql(TxnUql) => Raw<crate::wire::UqlResult>;
     Decide(Decide) => Raw<DecisionBatch>;
+    // Every op answers the request graph's edge indexes after it.
+    EdgeIndex(EdgeIndex) => Raw<EdgeIndexStatusView>;
+    EdgeSearch(EdgeSearch) => Raw<EdgeSearchView>;
 }
