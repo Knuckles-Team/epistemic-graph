@@ -24,11 +24,12 @@
 //!   policy-lease text path, in-txn UQL, `NlQuery`, and the wire-protocol UQL path)
 //!   builds its registry through [`ForeignSourceCatalog::resolve_for_plan`].
 //!
-//! Sharing a source with other principals is not supported: each principal registers
-//! its own (an explicit use grant through the engine's RBAC grants is a ledgered
-//! follow-up). A name another owner registered resolves exactly like a name nobody
-//! registered: the eg-plan registry's "no foreign source registered under name" error,
-//! listing only the caller's own names. It is deliberately NOT `ACCESS_DENIED`, which
+//! Sharing is explicit (EH-378, `server::foreign_share`): an administrator assigns the
+//! engine-provisioned `foreign-source-use:<owner agent>/<name>` role, and the grantee then
+//! addresses the source as `<owner agent>/<name>`; without that exact grant a name another
+//! owner registered resolves exactly like a name nobody registered: the eg-plan
+//! registry's "no foreign source registered under name" error, listing only the
+//! caller's own names. It is deliberately NOT `ACCESS_DENIED`, which
 //! would tell a caller that some other principal uses that name.
 //!
 //! **Foreign rows are not RLS-filtered.** A foreign source's rows come from outside
@@ -49,7 +50,9 @@ use eg_types::wire::ForeignSourceSpec;
 use tokio::sync::RwLock;
 
 use super::access::{CarrierAuthority, GraphReadAuthority};
+use super::foreign_share::{may_use_shared, share_resource, shared_name};
 use super::state::ServerState;
+use crate::isolation::IsolationLayer;
 
 /// `(verified owner scope, source name)` — the catalog key.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -58,17 +61,27 @@ struct CatalogKey {
     name: String,
 }
 
+/// A registered spec plus the registering principal's agent id, which names the
+/// source's share resource (EH-378).
+struct OwnedSpec {
+    owner_agent: String,
+    spec: ForeignSourceSpec,
+}
+
 /// Every owner's registered foreign sources, partitioned by verified owner
 /// (tenant+principal) scope.
 #[derive(Default)]
 pub struct ForeignSourceCatalog {
-    entries: DashMap<CatalogKey, ForeignSourceSpec>,
+    entries: DashMap<CatalogKey, OwnedSpec>,
 }
 
-/// A caller's owner-scoped registry, built by [`ForeignSourceCatalog::registry_for`].
-/// It remembers the owner scope so result caches can key on it.
+/// A caller's registry, built by [`ForeignSourceCatalog::registry_for`]: its own sources
+/// by plain name plus any explicitly shared ones by qualified name. It carries a digest
+/// of exactly what it resolved so result caches never serve rows across owners, grants,
+/// revocations or re-registrations.
 pub(crate) struct OwnedForeignRegistry {
     owner_scope: String,
+    cache_salt: String,
     registry: ForeignSourceRegistry,
 }
 
@@ -76,6 +89,11 @@ impl OwnedForeignRegistry {
     /// The verified owner (tenant+principal) scope this registry was built for.
     pub(crate) fn owner_scope(&self) -> &str {
         &self.owner_scope
+    }
+
+    /// Digest of `(owner scope, every resolved (name, spec))`, for result-cache keys.
+    pub(crate) fn cache_salt(&self) -> &str {
+        &self.cache_salt
     }
 
     /// The executor registry holding only this owner's sources.
@@ -92,21 +110,46 @@ impl ForeignSourceCatalog {
             owner_scope: owner.owner_scope().to_string(),
             name,
         };
-        self.entries.insert(key, spec);
+        let owner_agent = owner.agent_id().to_string();
+        self.entries.insert(key, OwnedSpec { owner_agent, spec });
     }
 
-    /// THE scoping chokepoint: the executor registry holding only `caller`'s own
-    /// (tenant+principal) sources.
-    pub(crate) fn registry_for(&self, caller: &CarrierAuthority) -> OwnedForeignRegistry {
+    /// THE scoping chokepoint: the executor registry holding `caller`'s own
+    /// (tenant+principal) sources by plain name, plus each other owner's source the
+    /// caller holds an exact share grant for (EH-378) by `<owner agent>/<name>`.
+    /// Shared entries are registered first so a caller's own name always wins.
+    pub(crate) fn registry_for(
+        &self,
+        caller: &CarrierAuthority,
+        isolation: &IsolationLayer,
+    ) -> OwnedForeignRegistry {
         let owner_scope = caller.owner_scope();
-        let mut registry = ForeignSourceRegistry::new();
+        let (mut shared, mut own) = (Vec::new(), Vec::new());
         for entry in self.entries.iter() {
-            if entry.key().owner_scope == owner_scope {
-                registry.register_spec(entry.key().name.clone(), entry.value().clone());
+            let (key, value) = (entry.key(), entry.value());
+            if key.owner_scope == owner_scope {
+                own.push((key.name.clone(), value.spec.clone()));
+            } else if may_use_shared(
+                isolation,
+                caller.agent_id(),
+                &share_resource(&value.owner_agent, &key.name),
+            ) {
+                shared.push((
+                    shared_name(&value.owner_agent, &key.name),
+                    value.spec.clone(),
+                ));
             }
+        }
+        shared.sort_by(|a, b| a.0.cmp(&b.0));
+        own.sort_by(|a, b| a.0.cmp(&b.0));
+        let cache_salt = resolved_digest(owner_scope, shared.iter().chain(&own));
+        let mut registry = ForeignSourceRegistry::new();
+        for (name, spec) in shared.into_iter().chain(own) {
+            registry.register_spec(name, spec);
         }
         OwnedForeignRegistry {
             owner_scope: owner_scope.to_string(),
+            cache_salt,
             registry,
         }
     }
@@ -118,6 +161,7 @@ impl ForeignSourceCatalog {
         &self,
         ops: &[eg_plan::Op],
         caller: Option<&CarrierAuthority>,
+        isolation: &IsolationLayer,
     ) -> Result<Option<OwnedForeignRegistry>, String> {
         if !crate::server::handlers::query::plan_needs_foreign(ops) {
             return Ok(None);
@@ -129,7 +173,7 @@ impl ForeignSourceCatalog {
                     .to_string(),
             );
         };
-        Ok(Some(self.registry_for(caller)))
+        Ok(Some(self.registry_for(caller, isolation)))
     }
 
     /// The spec `owner` registered under `name`, if any.
@@ -143,7 +187,9 @@ impl ForeignSourceCatalog {
             owner_scope: owner.owner_scope().to_string(),
             name: name.to_string(),
         };
-        self.entries.get(&key).map(|entry| entry.value().clone())
+        self.entries
+            .get(&key)
+            .map(|entry| entry.value().spec.clone())
     }
 
     /// Whether no owner has registered any source.
@@ -160,11 +206,31 @@ pub(crate) async fn served_foreign_leg(
     plan: &eg_plan::Plan,
     read_authority: Option<&GraphReadAuthority>,
 ) -> Result<Option<OwnedForeignRegistry>, String> {
-    let catalog = state.read().await.foreign_sources.clone();
-    catalog.resolve_for_plan(
+    let s = state.read().await;
+    s.foreign_sources.resolve_for_plan(
         &plan.ops,
         read_authority.and_then(GraphReadAuthority::carrier),
+        &s.isolation,
     )
+}
+
+/// Length-prefixed SHA-256 over the owner scope and every resolved `(name, spec)`.
+fn resolved_digest<'a>(
+    owner_scope: &str,
+    resolved: impl Iterator<Item = &'a (String, ForeignSourceSpec)>,
+) -> String {
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    let mut field = |bytes: &[u8]| {
+        digest.update((bytes.len() as u64).to_be_bytes());
+        digest.update(bytes);
+    };
+    field(owner_scope.as_bytes());
+    for (name, spec) in resolved {
+        field(name.as_bytes());
+        field(&rmp_serde::to_vec_named(spec).unwrap_or_default());
+    }
+    hex::encode(digest.finalize())
 }
 
 /// The executor registry a resolved leg binds, if any — the `ServedIndexes::foreign`
@@ -221,7 +287,7 @@ mod tests {
             "principal B's registration must not overwrite principal A's"
         );
         for caller in [&a, &b] {
-            let scoped = catalog.registry_for(caller);
+            let scoped = catalog.registry_for(caller, &IsolationLayer::new());
             assert_eq!(scoped.owner_scope(), caller.owner_scope());
             assert_eq!(scoped.registry().len(), 1, "only the caller's own entry");
         }
@@ -233,7 +299,11 @@ mod tests {
         let catalog = ForeignSourceCatalog::default();
         catalog.register(&a, "secret_src".into(), http_spec("http://a.invalid/"));
         let scoped = catalog
-            .resolve_for_plan(&foreign_plan("secret_src"), Some(&b))
+            .resolve_for_plan(
+                &foreign_plan("secret_src"),
+                Some(&b),
+                &IsolationLayer::new(),
+            )
             .expect("a verified caller is never refused outright")
             .expect("a FOREIGN plan binds a registry");
         assert!(scoped.registry().is_empty());
@@ -250,11 +320,14 @@ mod tests {
     #[test]
     fn plan_scoping_needs_a_verified_carrier_only_for_named_sources() {
         let catalog = ForeignSourceCatalog::default();
-        let refused = catalog.resolve_for_plan(&foreign_plan("src"), None);
+        let refused = catalog.resolve_for_plan(&foreign_plan("src"), None, &IsolationLayer::new());
         assert!(matches!(refused, Err(ref e) if e.starts_with("ACCESS_DENIED")));
         let local = vec![eg_plan::Op::Scan {
             label: "Doc".into(),
         }];
-        assert!(matches!(catalog.resolve_for_plan(&local, None), Ok(None)));
+        assert!(matches!(
+            catalog.resolve_for_plan(&local, None, &IsolationLayer::new()),
+            Ok(None)
+        ));
     }
 }

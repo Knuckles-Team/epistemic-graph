@@ -481,7 +481,8 @@ impl ServedPlanLegs {
 
     /// Append the tenant-specific parts of these legs to a result-cache key payload
     /// (the tsdb tenant + namespace first, byte-identical to the prior tsdb salt, then the
-    /// foreign registry's owner scope).
+    /// foreign registry's digest of its owner and every resolved source, so a grant,
+    /// revocation or re-registration never serves stale foreign rows).
     #[cfg(feature = "result-cache")]
     pub(crate) fn salt_cache_key(&self, payload: &mut Vec<u8>) {
         #[cfg(feature = "tsdb")]
@@ -491,7 +492,7 @@ impl ServedPlanLegs {
         }
         #[cfg(feature = "federation")]
         if let Some(foreign) = self.foreign.as_ref() {
-            payload.extend_from_slice(foreign.owner_scope().as_bytes());
+            payload.extend_from_slice(foreign.cache_salt().as_bytes());
         }
         #[cfg(not(any(feature = "tsdb", feature = "federation")))]
         let _ = payload;

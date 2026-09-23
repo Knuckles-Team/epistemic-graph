@@ -4574,12 +4574,14 @@ impl WireSession {
         };
         // CONCEPT:EG-KG.query.closure-backed-source — the session's owner-scoped foreign
         // registry (EH-373): a wire-path `FOREIGN "<name>"` / `Named` `ForeignScan` leg
-        // resolves only sources the session's verified principal registered.
+        // resolves only sources the session's verified principal registered or was
+        // explicitly granted (EH-378).
         #[cfg(feature = "federation")]
         let foreign = {
-            let catalog = self.state.read().await.foreign_sources.clone();
-            catalog
-                .resolve_for_plan(&plan.ops, self.carrier_authority().ok().as_ref())
+            let carrier = self.carrier_authority().ok();
+            let s = self.state.read().await;
+            s.foreign_sources
+                .resolve_for_plan(&plan.ops, carrier.as_ref(), &s.isolation)
                 .map_err(user_err)?
         };
         // CONCEPT:EG-KG.query.served-vector-index-binding / served-text-index-binding — push the

@@ -380,6 +380,9 @@ pub(crate) mod handlers;
 // place a caller's verified owner (tenant+principal) selects which sources a plan may resolve.
 #[cfg(feature = "federation")]
 pub mod foreign_catalog;
+// Explicit RBAC-grant sharing of an owner-scoped foreign source (EH-378).
+#[cfg(feature = "federation")]
+pub(crate) mod foreign_share;
 pub mod registry_reaper;
 // Owner-scoped WASM UDF catalog (CONCEPT:EG-KG.query.rowset-execution, EH-374):
 // `RegisterUdf`/`RunUdf` resolve ids only within the caller's verified owner (tenant+principal).
