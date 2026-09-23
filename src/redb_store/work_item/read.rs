@@ -5,9 +5,10 @@
 //! The projection, the tenant filter and the three-bound page rule live in
 //! [`eg_types::work_item_read`]; this module only walks the stored rows.
 
+use eg_types::keyset_page::{KeysetListing, KeysetPage, KeysetScan};
 use eg_types::work_item_read::{
     validate_work_item_get, CommittedOutcomeRefs, WorkItemListRequest, WorkItemOutcomeView,
-    WorkItemPage, WorkItemPageScan, WorkItemView,
+    WorkItemPage, WorkItemView,
 };
 
 use super::*;
@@ -124,24 +125,35 @@ pub(crate) fn list_work_items(
 ) -> Result<WorkItemPage, String> {
     request.validate()?;
     let resume_after = request.resume_after()?;
+    scan_keyset_page(shard, graph, request, resume_after.as_deref(), crypto).map(Into::into)
+}
+
+/// Walk `graph`'s node rows in key order from `resume_after` (exclusive),
+/// feeding them to `listing`'s three-bound page. Shared by every tenant-bound
+/// native listing.
+pub(super) fn scan_keyset_page<L: KeysetListing>(
+    shard: &Shard,
+    graph: &str,
+    listing: &L,
+    resume_after: Option<&str>,
+    crypto: DurableCrypto<'_>,
+) -> Result<KeysetPage<L::Item>, String> {
     let handle = shard.graph(graph)?;
     let read = shard.read(&handle)?;
     let nodes = read.scoped_owner_table(NODES)?;
-    let start = resume_after.as_deref().unwrap_or("");
-    let mut page = WorkItemPageScan::new(request);
-    for row in nodes.scope_rows_from((graph, start))? {
+    let mut page = KeysetScan::new(listing);
+    for row in nodes.scope_rows_from((graph, resume_after.unwrap_or("")))? {
         let (key, value) = row?;
         let (_, row_id) = key.value();
         // The seek start is inclusive; the cursor is exclusive.
-        if resume_after.as_deref() == Some(row_id) {
+        if resume_after == Some(row_id) {
             continue;
         }
         if !page.admits_another_row() {
             break;
         }
         let sealed = value.value();
-        let props: serde_json::Map<String, serde_json::Value> =
-            decode_durable(&crypto.unseal(sealed)?)?;
+        let props: NodeRow = decode_durable(&crypto.unseal(sealed)?)?;
         page.consume(row_id, sealed.len(), &props)?;
     }
     Ok(page.finish())

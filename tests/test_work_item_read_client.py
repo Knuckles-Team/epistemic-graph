@@ -284,3 +284,24 @@ def test_receipt_properties_encode_as_a_msgpack_map() -> None:
 
     encoded = WorkItemClient.receipt_properties({"outbox_id": "", "node_id": "oe-1"})
     assert msgpack.unpackb(encoded, raw=False) == {"outbox_id": "", "node_id": "oe-1"}
+
+
+def test_control_lease_list_sends_the_typed_filter_and_validates_views() -> None:
+    engine = _Engine({"leases": [LEASE], "next_cursor": None})
+    page = asyncio.run(
+        _leases(engine).list(
+            tenant="tenant-a",
+            kind="action.approval",
+            status="active",
+            grant_match={"request_digest": "d-1"},
+        )
+    )
+    assert page == {"leases": [LEASE], "next_cursor": None}
+    method, params = engine.sent[0]
+    assert method == "ListControlLeases"
+    assert isinstance(params, dict)
+    assert params["request"]["grant_match"] == {"request_digest": "d-1"}
+    with pytest.raises(RuntimeError):
+        asyncio.run(
+            _leases(_Engine({"leases": [{**LEASE, "x": 1}]})).list(tenant="tenant-a")
+        )

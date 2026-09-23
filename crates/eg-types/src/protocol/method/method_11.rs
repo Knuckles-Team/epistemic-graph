@@ -94,6 +94,13 @@ $($variants)*
     PolicyEvolutionStore {
         request: Box<crate::policy_evolution::StoredPolicyRecord>,
     },
+    /// One bounded page of `request.tenant`'s control leases, filtered by
+    /// kind, status and exact grant pairs (graph-os EG-5: the pending
+    /// `action.approval` queue). `null`-free: an empty page may still carry a
+    /// cursor.
+    ListControlLeases {
+        request: crate::control_lease::ListControlLeasesRequest,
+    },
         ]);
     };
 }

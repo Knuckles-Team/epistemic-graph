@@ -29,6 +29,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::keyset_page::{matches_pairs, validate_pair_filter, KeysetListing};
+use crate::tenant_cursor::CursorFamily;
 use crate::work_item_read::WORK_ITEM_ROW_REVISION;
 
 /// `node_type` of a control-lease row.
@@ -41,6 +43,14 @@ pub const MAX_CONTROL_LEASE_SPAN_MS: u64 = 24 * 60 * 60 * 1000;
 /// issued only by `DecisionLog.commit`, stored beside the record it grants,
 /// and never through `IssueControlLease`.
 pub const DECISION_EVALUATION_LEASE_KIND: &str = "decision.evaluation";
+/// Most leases one `ListControlLeases` page may return.
+pub const MAX_CONTROL_LEASE_LIST_LIMIT: u32 = 100;
+/// The `ListControlLeases` cursor family.
+pub const CONTROL_LEASE_LIST_CURSOR: CursorFamily = CursorFamily {
+    domain: b"eg/control-lease-list-cursor/v1",
+    max_bytes: 16 * 1024,
+    noun: "control lease list",
+};
 /// Bound on the tenant, lease id, kind and idempotency key.
 const MAX_CONTROL_LEASE_REF_BYTES: usize = 512;
 
@@ -320,6 +330,96 @@ impl ControlLeaseView {
             hard_expires_at_ms: number("hard_expires_at_ms"),
             revision: number(WORK_ITEM_ROW_REVISION).max(1),
         })
+    }
+}
+
+/// `ListControlLeases`: one bounded page of `tenant`'s control leases, e.g. the
+/// pending `action.approval` leases (graph-os EG-5). Pages by the same
+/// three-bound keyset rule as `ListWorkItems`; the cursor is tenant-bound.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ListControlLeasesRequest {
+    /// Must equal the verified request tenant.
+    pub tenant: String,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub status: Option<ControlLeaseStatus>,
+    /// Keep only leases whose grant holds every one of these top-level pairs
+    /// exactly (at most 8 keys).
+    #[serde(default)]
+    pub grant_match: Option<Map<String, Value>>,
+    #[serde(default)]
+    pub cursor: Option<String>,
+    pub limit: u32,
+}
+
+/// One page of `ListControlLeases`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ControlLeasePage {
+    pub leases: Vec<ControlLeaseView>,
+    /// `Some` when more remains to be scanned; a page may be empty and still
+    /// carry one.
+    pub next_cursor: Option<String>,
+}
+
+impl ListControlLeasesRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        bounded("tenant", &self.tenant)?;
+        if let Some(kind) = &self.kind {
+            bounded("kind", kind)?;
+        }
+        validate_pair_filter("ListControlLeases grant_match", self.grant_match.as_ref())?;
+        if self.limit == 0 || self.limit > MAX_CONTROL_LEASE_LIST_LIMIT {
+            return Err(format!(
+                "ListControlLeases limit must be 1..={MAX_CONTROL_LEASE_LIST_LIMIT}"
+            ));
+        }
+        Ok(())
+    }
+
+    /// The row key the cursor resumes strictly after.
+    pub fn resume_after(&self) -> Result<Option<String>, String> {
+        self.cursor
+            .as_deref()
+            .map(|cursor| {
+                CONTROL_LEASE_LIST_CURSOR.decode(&self.tenant, cursor, |key| !key.is_empty())
+            })
+            .transpose()
+    }
+
+    fn admits(&self, view: &ControlLeaseView) -> bool {
+        self.kind.as_deref().is_none_or(|kind| view.kind == kind)
+            && self.status.is_none_or(|status| view.status == status)
+            && matches_pairs(self.grant_match.as_ref(), &view.grant)
+    }
+}
+
+impl KeysetListing for ListControlLeasesRequest {
+    type Item = ControlLeaseView;
+    const CURSOR: CursorFamily = CONTROL_LEASE_LIST_CURSOR;
+
+    fn tenant(&self) -> &str {
+        &self.tenant
+    }
+
+    fn limit(&self) -> usize {
+        self.limit as usize
+    }
+
+    fn select(
+        &self,
+        row_id: &str,
+        row: &Map<String, Value>,
+    ) -> Result<Option<ControlLeaseView>, String> {
+        if !is_tenant_control_lease(row, &self.tenant) {
+            return Ok(None);
+        }
+        let view = ControlLeaseView::from_row(row_id, row)?;
+        Ok(Some(view).filter(|view| self.admits(view)))
     }
 }
 

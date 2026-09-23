@@ -324,6 +324,7 @@ SEND_BY_METHOD = {
     "KnowledgeStream": query.send_knowledge_stream,
     "LeaveChannel": messaging.send_leave_channel,
     "ListChannels": messaging.send_list_channels,
+    "ListControlLeases": coordination.send_list_control_leases,
     "ListGraphs": cluster.send_list_graphs,
     "ListRegisteredServers": cluster.send_list_registered_servers,
     "ListTriggers": messaging.send_list_triggers,

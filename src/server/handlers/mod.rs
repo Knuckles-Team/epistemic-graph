@@ -22,6 +22,9 @@ pub(crate) mod work_item;
 // carrier tenant rule plus the native redb snapshot read.
 #[cfg(feature = "redb")]
 pub(crate) mod work_item_read;
+// Body-tenant binding for every WorkItem-kernel write and the fleet event
+// stream authority (graph-os EG-5 security ruling).
+pub(crate) mod native_write_authority;
 // Native development-lane hold/quota authority. All six writes and both reads
 // are enumerated in the handler; dispatch does not classify this domain or use
 // a wildcard commit arm.
