@@ -61,7 +61,8 @@ def test_r820_gate_preserves_all_feature_selection_and_no_fail_fast():
 def test_constrained_gate_routes_every_test_phase_through_runner():
     source = CONSTRAINED_GATE.read_text(encoding="utf-8")
     assert "bounded_test() {" in source
-    assert source.count("bounded_test ") >= 4
+    # Test phases use bounded_test; compiles use bounded_build (same runner).
+    assert source.count("bounded_test ") + source.count("bounded_build ") >= 6
     assert "timeout -k" not in source
     assert "EG_CONSTRAINED_TEST_TIMEOUT" in source
     assert "EG_CONSTRAINED_TERM_GRACE" in source
@@ -75,3 +76,26 @@ def test_constrained_gate_kafka_proofs_are_exact_and_short_bounded():
     assert "KAFKA_TEST_TIMEOUT_SECS=10" in source
     assert "bounded_kafka_test() {" in source
     assert '--test-timeout "$KAFKA_TEST_TIMEOUT_SECS"' in source
+
+
+def test_constrained_gate_never_charges_compilation_to_the_test_contract():
+    """EH-305: a cold build under the 1200s suite bound killed every cold run
+    before a single constrained test executed. Every `--no-run` compile uses its
+    own bound; every test execution keeps the unchanged contract bounds."""
+    import re
+
+    source = CONSTRAINED_GATE.read_text(encoding="utf-8")
+    assert 'TIMEOUT_SECS="${EG_CONSTRAINED_TIMEOUT:-1200}"' in source
+    assert 'TEST_TIMEOUT_SECS="${EG_CONSTRAINED_TEST_TIMEOUT:-900}"' in source
+    assert 'BUILD_TIMEOUT_SECS="${EG_CONSTRAINED_BUILD_TIMEOUT:-' in source
+    assert '--suite-timeout "$BUILD_TIMEOUT_SECS"' in source
+    invocations = re.findall(
+        r"(bounded_\w+) \"[^\"]+\" (?:taskset -c \"\$CORES\" )?cargo test([^\n;]*)",
+        source,
+    )
+    assert len(invocations) >= 6, invocations
+    for runner, args in invocations:
+        if "--no-run" in args:
+            assert runner == "bounded_build", (runner, args)
+        else:
+            assert runner in ("bounded_test", "bounded_kafka_test"), (runner, args)
