@@ -252,3 +252,66 @@ async fn cost_routing_without_l5_accounting_abstains_naming_the_fact() {
         }]
     );
 }
+
+/// EH-012: an independent evaluation of a committed ASSEMBLY joins its v1
+/// record, and the aggregate credits the whole slate (`slate:<graph digest>`
+/// under the `assembly` question) -- never its components.
+#[tokio::test]
+async fn an_assembly_outcome_is_credited_to_its_slate() {
+    use crate::server::persistence::decision_record::tests as v1;
+
+    let h = Harness::new().await;
+    v1::seed_library(&h.store);
+    let record = v1::decided(&h.store).record;
+    let digest = record.inputs.catalog_digest.clone();
+    h.store
+        .commit_decision_record(
+            v1::commit_context(&h.store, "slate-commit", 1),
+            &record,
+            &digest,
+        )
+        .unwrap();
+    let eg_types::decision::DecisionOutcome::Solved { graph_digest, .. } = &record.outcome else {
+        panic!("solved")
+    };
+    let evaluator = VerifiedRequestContext::verified_for_test_in_tenant("evaluator", v1::TENANT);
+    for n in 0..10 {
+        let op = DecisionLogOp::Evaluate {
+            tenant_id: v1::TENANT.to_string(),
+            evaluation: DecisionOutcomeEvaluation {
+                record_id: record.record_id.clone(),
+                evaluation_id: format!("e-{n}"),
+                class: EvidenceClass::Observation,
+                selected_agent: "agent".to_string(),
+                lease_holder: "worker".to_string(),
+                fidelity: OutcomeFidelity::FullStep,
+                success: Some(n % 2 == 0),
+            },
+        };
+        let stored: StoredEvaluation =
+            decode(super::super::log::handle_decision_log(&h.state, 30, &evaluator, op).await)
+                .expect("a committed assembly is evaluable");
+        assert_eq!(stored.producer, evaluator.principal_persistence_id());
+    }
+    let aggregate = DecisionLogOp::Aggregate {
+        request: OutcomeAggregateRequest {
+            tenant_id: v1::TENANT.to_string(),
+            question_id: Some("assembly".to_string()),
+            window: window(),
+        },
+    };
+    let rows: OutcomeAggregate =
+        decode(super::super::log::handle_decision_log(&h.state, 31, &evaluator, aggregate).await)
+            .unwrap();
+    let slate = format!("slate:{graph_digest}");
+    let row = rows
+        .rows
+        .iter()
+        .find(|r| r.option_id == slate)
+        .expect("the slate is credited");
+    assert_eq!((row.trials, row.successes), (10, 5));
+    assert!(
+        rows.rows.iter().all(|r| r.option_id.starts_with("slate:")),
+        "components are never credited individually"
+    );
+}
