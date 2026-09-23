@@ -296,7 +296,7 @@ fn contract_wave_rows_declare_their_static_policy() {
             "DecisionFit",
             flags(
                 true,
-                DurabilityDomain::JobsRedb,
+                DurabilityDomain::ControlRedb,
                 "admin:decision-fit",
                 TxnParticipation::Atomic,
             ),
@@ -306,7 +306,7 @@ fn contract_wave_rows_declare_their_static_policy() {
             "DecisionEval",
             flags(
                 true,
-                DurabilityDomain::JobsRedb,
+                DurabilityDomain::ControlRedb,
                 "admin:decision-eval",
                 TxnParticipation::Atomic,
             ),
@@ -380,20 +380,12 @@ fn contract_wave_rows_declare_their_static_policy() {
 }
 
 /// Every still-unserved contract-wave method and op is `Internal` with no
-/// consumer until its handler lands. `ConnectorPack`, `GraphSchema`, and
-/// `GraphSchemaList` graduated once their durable handlers and generated clients
-/// landed.
+/// consumer until its handler lands. `ConnectorPack`, `GraphSchema`,
+/// `GraphSchemaList`, `Decide`, `DecisionFit` and `DecisionEval` graduated once
+/// their handlers and generated clients landed.
 #[test]
 fn contract_wave_rows_are_internal_with_no_consumer() {
-    let wave = [
-        "AgentAssemble",
-        "DecisionCommit",
-        "Decide",
-        "DecisionFit",
-        "DecisionEval",
-        "Solve",
-        "MutationOutbox",
-    ];
+    let wave = ["AgentAssemble", "DecisionCommit", "Solve", "MutationOutbox"];
     let mut seen = 0;
     for descriptor in eg_capabilities::method_descriptors() {
         let id = descriptor.id.as_str();

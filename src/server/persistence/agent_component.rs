@@ -387,7 +387,7 @@ pub type AgentComponentStoreRef = Arc<AgentLibraryStore>;
 /// growth that pushed these builders' shared boilerplate over the clone
 /// gate's detection floor once already.
 #[cfg(test)]
-fn test_component_draft(
+pub(crate) fn test_component_draft(
     tenant_id: &str,
     component_id: &str,
 ) -> eg_types::agent_component::AgentComponentDraft {

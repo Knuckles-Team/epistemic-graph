@@ -25,7 +25,14 @@ struct IdempotencyBinding {
 }
 
 impl AgentLibraryStore {
-    fn maintain_write_back<F>(&self, tenant_id: &str, event: &str, apply: F) -> Result<(), String>
+    /// Apply one bounded Agent Library control-plane write for `tenant_id`.
+    /// Shared by the write-back and decision-artifact rows.
+    pub(super) fn maintain_control_rows<F>(
+        &self,
+        tenant_id: &str,
+        event: &str,
+        apply: F,
+    ) -> Result<(), String>
     where
         F: FnOnce(&AdmittedOwnerWrite<'_, AgentLibraryOwner>) -> Result<(), String>,
     {
@@ -62,7 +69,7 @@ impl AgentLibraryStore {
         change_set.validate()?;
         let encoded = rmp_serde::to_vec_named(&change_set).map_err(|error| error.to_string())?;
         let binding_bytes = encode_idempotency_binding(&change_set)?;
-        self.maintain_write_back(&change_set.tenant_id, "write_back_create", |owner| {
+        self.maintain_control_rows(&change_set.tenant_id, "write_back_create", |owner| {
             persist_change_set(owner, &change_set, &encoded, &binding_bytes)
         })?;
         Ok(change_set)
@@ -112,7 +119,7 @@ impl AgentLibraryStore {
             return Err("write-back dry-run must not advance the source version".to_string());
         }
         let mut committed = None;
-        self.maintain_write_back(&attempt.tenant_id, "write_back_attempt", |owner| {
+        self.maintain_control_rows(&attempt.tenant_id, "write_back_attempt", |owner| {
             let stream = (attempt.tenant_id.as_str(), attempt.change_set_id.as_str());
             if let Some(receipt) = find_attempt_receipt(owner, stream, &attempt)? {
                 committed = Some(receipt);
@@ -170,7 +177,7 @@ impl AgentLibraryStore {
         )?;
         validate_reconciliation(&observation)?;
         let mut committed = None;
-        self.maintain_write_back(
+        self.maintain_control_rows(
             &observation.tenant_id,
             "write_back_reconciliation",
             |owner| {
