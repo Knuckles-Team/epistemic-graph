@@ -4663,6 +4663,20 @@ class WorkItemClient:
             return None
         return _work_item_view(value)
 
+    @staticmethod
+    def receipt_properties(properties: dict[str, Any]) -> bytes:
+        """Encode a receipt node's properties as the ``properties_msgpack``
+        bytes a ``TerminalOutcomeExtension`` receipt carries.
+
+        Leave ``outbox_id`` (in the bundle, the run event, every receipt and
+        these properties) and every receipt ``payload_digest`` EMPTY: the engine
+        fills them with the terminal mutation-batch id and the digest of the
+        final bytes (graph-os EG-4). Callers never compute EG digests.
+        """
+        if not isinstance(properties, dict):
+            raise TypeError("receipt properties must be a mapping")
+        return bytes(msgpack.packb(properties, use_bin_type=True))
+
     async def get_outcome(
         self, *, tenant: str, work_item_id: str
     ) -> dict[str, Any] | None:
@@ -4697,9 +4711,12 @@ class WorkItemClient:
         cursor: str | None = None,
         limit: int = 100,
         kind: str | None = None,
+        metadata_match: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Return one bounded page ``{"items": [...], "next_cursor": ...}`` of
-        ``tenant``'s WorkItems, optionally of one ``kind``.
+        ``tenant``'s WorkItems, optionally of one ``kind`` and/or whose
+        top-level ``metadata`` holds every ``metadata_match`` pair exactly
+        (1..=8 keys; e.g. ``{"correlation_id": cid}``).
 
         A page stops at ``limit`` items or at the engine's scan/byte bound, so
         a page may be EMPTY and still carry ``next_cursor``: loop until it is
@@ -4711,6 +4728,8 @@ class WorkItemClient:
             "limit": _integer("ListWorkItems.limit", limit, minimum=1, maximum=100),
             "kind": kind,
         }
+        if metadata_match is not None:
+            params["metadata_match"] = dict(metadata_match)
         value = (
             await _gen.coordination.send_list_work_items(self._client, params)
         ).payload

@@ -23,6 +23,12 @@ $($variants)*
         limit: u32,
         #[serde(default)]
         kind: Option<String>,
+        /// Keep only items whose top-level `metadata` holds every one of these
+        /// key/value pairs exactly (at most 8 keys) -- e.g. a correlation id or
+        /// an event subject (graph-os EG-5). Filters within the same bounded
+        /// scan, so it never widens a page's cost.
+        #[serde(default)]
+        metadata_match: Option<serde_json::Map<String, serde_json::Value>>,
     },
 
     /// A terminal WorkItem of `tenant` and the provenance (RunTrace /

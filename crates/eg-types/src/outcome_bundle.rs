@@ -33,6 +33,7 @@ use sha2::{Digest, Sha256};
 
 use crate::commit_descriptor::CommitParticipantDomain;
 
+mod engine_fields;
 mod validation;
 
 /// Current wire/on-disk schema version for [`CommitOutcomeBundle`] and

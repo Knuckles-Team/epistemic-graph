@@ -1145,6 +1145,7 @@ class ListWorkItemsRequest(BaseModel):
     cursor: str | None = None
     kind: str | None = None
     limit: int
+    metadata_match: dict[str, Any] | None = None
     tenant: str
 
 

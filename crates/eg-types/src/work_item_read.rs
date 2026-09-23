@@ -56,6 +56,9 @@ pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 5] = [
     WORK_ITEM_TOOL_CALL_REFS,
 ];
 
+/// Most metadata keys one `ListWorkItems` `metadata_match` may name.
+pub const MAX_WORK_ITEM_METADATA_MATCH_KEYS: usize = 8;
+
 /// `SubmitWorkItem`'s own bound on a WorkItem id, reused for the tenant.
 const MAX_WORK_ITEM_ID_BYTES: usize = 512;
 
@@ -244,12 +247,13 @@ pub fn validate_work_item_get(tenant: &str, work_item_id: &str) -> Result<(), St
 }
 
 /// A `ListWorkItems` request, assembled from the method's wire fields.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WorkItemListRequest {
     pub tenant: String,
     pub cursor: Option<String>,
     pub limit: u32,
     pub kind: Option<String>,
+    pub metadata_match: Option<Map<String, Value>>,
 }
 
 impl WorkItemListRequest {
@@ -258,12 +262,38 @@ impl WorkItemListRequest {
         if let Some(kind) = &self.kind {
             bounded("kind", kind, MAX_SUBMIT_REF_BYTES)?;
         }
+        self.validate_metadata_match()?;
         if self.limit == 0 || self.limit > MAX_WORK_ITEM_LIST_LIMIT {
             return Err(format!(
                 "ListWorkItems limit must be 1..={MAX_WORK_ITEM_LIST_LIMIT}"
             ));
         }
         Ok(())
+    }
+
+    fn validate_metadata_match(&self) -> Result<(), String> {
+        let Some(wanted) = &self.metadata_match else {
+            return Ok(());
+        };
+        if wanted.is_empty() || wanted.len() > MAX_WORK_ITEM_METADATA_MATCH_KEYS {
+            return Err(format!(
+                "ListWorkItems metadata_match must name 1..={MAX_WORK_ITEM_METADATA_MATCH_KEYS} keys"
+            ));
+        }
+        wanted
+            .keys()
+            .try_for_each(|key| bounded("metadata_match key", key, MAX_WORK_ITEM_ID_BYTES))
+    }
+
+    /// Whether one visible item passes the kind and metadata filters.
+    pub fn admits(&self, view: &WorkItemView) -> bool {
+        let kind_ok = self.kind.as_deref().is_none_or(|kind| view.kind == kind);
+        let metadata_ok = self.metadata_match.as_ref().is_none_or(|wanted| {
+            wanted
+                .iter()
+                .all(|(key, value)| view.metadata.get(key) == Some(value))
+        });
+        kind_ok && metadata_ok
     }
 
     /// The row key a cursor resumes strictly after, refused by name when it
@@ -333,8 +363,7 @@ impl<'r> WorkItemPageScan<'r> {
         self.scanned += 1;
         self.bytes = self.bytes.saturating_add(row_bytes);
         let view = WorkItemView::from_tenant_row(row_id, row, &self.request.tenant)?;
-        let wanted = self.request.kind.as_deref();
-        if let Some(view) = view.filter(|view| wanted.is_none_or(|kind| view.kind == kind)) {
+        if let Some(view) = view.filter(|view| self.request.admits(view)) {
             self.items.push(view);
         }
         self.last_consumed = Some(row_id.to_string());

@@ -224,3 +224,22 @@ def test_commit_result_carries_the_outcome_extension_only_when_given() -> None:
     first, second = (params for _, params in engine.sent)
     assert isinstance(first, dict) and "outcome_extension" not in first
     assert isinstance(second, dict) and second["outcome_extension"] == {"bundle": 1}
+
+
+def test_list_forwards_a_metadata_match_only_when_given() -> None:
+    engine = _Engine({"items": [], "next_cursor": None})
+    items = _work_items(engine)
+    asyncio.run(items.list(tenant="t", metadata_match={"correlation_id": "c-1"}))
+    asyncio.run(items.list(tenant="t"))
+    first, second = (params for _, params in engine.sent)
+    assert isinstance(first, dict) and first["metadata_match"] == {
+        "correlation_id": "c-1"
+    }
+    assert isinstance(second, dict) and "metadata_match" not in second
+
+
+def test_receipt_properties_encode_as_a_msgpack_map() -> None:
+    import msgpack
+
+    encoded = WorkItemClient.receipt_properties({"outbox_id": "", "node_id": "oe-1"})
+    assert msgpack.unpackb(encoded, raw=False) == {"outbox_id": "", "node_id": "oe-1"}
