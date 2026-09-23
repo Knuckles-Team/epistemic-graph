@@ -9,8 +9,9 @@
 
 use eg_types::control_lease::{
     is_tenant_control_lease, validate_control_lease_get, ControlLeaseIssueOutcome,
-    ControlLeaseIssued, ControlLeaseTransition, ControlLeaseTransitionOutcome, ControlLeaseView,
-    IssueControlLeaseRequest, TransitionControlLeaseRequest,
+    ControlLeaseIssued, ControlLeasePage, ControlLeaseTransition, ControlLeaseTransitionOutcome,
+    ControlLeaseView, IssueControlLeaseRequest, ListControlLeasesRequest,
+    TransitionControlLeaseRequest,
 };
 use eg_types::result_contract::coordination::{IssueControlLease, TransitionControlLease};
 
@@ -138,6 +139,23 @@ pub(crate) fn read_control_lease(
     row.filter(|row| is_tenant_control_lease(row, tenant))
         .map(|row| ControlLeaseView::from_row(lease_id, &row))
         .transpose()
+}
+
+/// `ListControlLeases`: one bounded page of `request.tenant`'s control leases.
+pub(crate) fn list_control_leases(
+    shard: &Shard,
+    graph: &str,
+    request: &ListControlLeasesRequest,
+    crypto: DurableCrypto<'_>,
+) -> Result<ControlLeasePage, String> {
+    request.validate()?;
+    let resume_after = request.resume_after()?;
+    let page =
+        super::read::scan_keyset_page(shard, graph, request, resume_after.as_deref(), crypto)?;
+    Ok(ControlLeasePage {
+        leases: page.items,
+        next_cursor: page.next_cursor,
+    })
 }
 
 #[cfg(test)]
