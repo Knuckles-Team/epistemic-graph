@@ -7,6 +7,7 @@ use eg_numeric::decision::exploration::ExplorationPermit;
 use eg_numeric::decision::features::FeatureMatrix;
 use eg_numeric::decision::head_eval::{calibration_statement, read_head, HeadReading};
 use eg_numeric::decision::ladder::{decide, LadderInputs};
+use eg_numeric::decision::scorer::fixed::ONE;
 use eg_types::contract::BoundedVec;
 use eg_types::decision::jobs::DecisionEvalReceipt;
 use eg_types::decision::statistical::dataset::{ItemLabel, LabelSource, LabelledDataset};
@@ -42,6 +43,24 @@ fn matrix(item: usize) -> FeatureMatrix {
         feature_names: FEATURES.iter().map(|s| s.to_string()).collect(),
         values: rows(item, item % OPTIONS),
     }
+}
+
+fn q32(value: i64) -> QuantisedValue {
+    QuantisedValue {
+        scale: QuantScaleTag::Q32,
+        value,
+    }
+}
+
+/// The head's top probability on `item`, as the exact Q32 integer it is.
+fn top_probability(head: &DecisionHeadBody, item: usize) -> i64 {
+    let HeadReading::InDistribution(reading) = read_head(head, &matrix(item)).expect("reads")
+    else {
+        panic!("item {item} is in distribution")
+    };
+    let p = reading.probabilities.expect("a listwise head");
+    let top = p.iter().copied().fold(0.0_f64, f64::max);
+    (top * ONE as f64) as i64
 }
 
 fn outcome(head: &DecisionHeadBody, item: usize) -> StatisticalOutcome {
@@ -106,10 +125,7 @@ fn an_abstention_is_returned_when_the_calibrated_coverage_bound_fails() {
     // The conformal quantile came out empty: no coverage claim at alpha.
     let mut empty = head.clone();
     let calibration = empty.calibration.as_mut().expect("calibrated");
-    calibration.set_threshold = QuantisedValue {
-        scale: QuantScaleTag::Q32,
-        value: -(1 << 32),
-    };
+    calibration.set_threshold = q32(-ONE);
     assert_eq!(
         calibration_statement(calibration).method,
         CalibrationMethod::Temperature,
@@ -121,15 +137,32 @@ fn an_abstention_is_returned_when_the_calibrated_coverage_bound_fails() {
     ));
 
     // A finite set that misses the top option: the bound fails for this state.
-    let mut missing = head.clone();
-    let calibration = missing.calibration.as_mut().expect("calibrated");
-    calibration.set_threshold = QuantisedValue {
-        scale: QuantScaleTag::Q32,
-        value: 0,
+    // A state whose top probability is exactly one is covered by every
+    // non-negative threshold, so take one below one (the act threshold is
+    // lowered to 1/2 only to widen the search) and set the conformal
+    // threshold one unit under `1 - p_top`: the top option falls out of the
+    // prediction set and the decision must abstain; at exactly `1 - p_top`
+    // it is back in the set and the same state acts.
+    let mut wide = head.clone();
+    wide.calibration.as_mut().expect("calibrated").act_threshold = Some(q32(ONE / 2));
+    let (item, top) = (0..200)
+        .map(|item| (item, top_probability(&wide, item)))
+        .find(|&(item, p)| {
+            p < ONE && matches!(outcome(&wide, item), StatisticalOutcome::Acted { .. })
+        })
+        .expect("some acting state has a top probability below one");
+    let with_threshold = |raw: i64| {
+        let mut body = wide.clone();
+        body.calibration.as_mut().expect("calibrated").set_threshold = q32(raw);
+        outcome(&body, item)
     };
     assert!(matches!(
-        outcome(&missing, acting),
+        with_threshold(ONE - top - 1),
         StatisticalOutcome::Abstained { .. }
+    ));
+    assert!(matches!(
+        with_threshold(ONE - top),
+        StatisticalOutcome::Acted { .. }
     ));
 }
 

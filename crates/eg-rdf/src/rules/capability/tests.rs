@@ -48,8 +48,8 @@ fn classify(components: &[(&str, &AgentComponentFacts)]) -> CapabilityClassifica
     let profiled: Vec<ProfiledComponent<'_>> = components
         .iter()
         .map(|(component_id, facts)| ProfiledComponent {
-            component_id: *component_id,
-            facts: *facts,
+            component_id,
+            facts,
         })
         .collect();
     classify_components(
