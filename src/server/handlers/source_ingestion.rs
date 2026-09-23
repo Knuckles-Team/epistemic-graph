@@ -2382,6 +2382,18 @@ mod tests {
             &"a".repeat(64),
             true,
         )
+        .is_ok());
+        let mut extra = record();
+        extra.payload =
+            SourceJson::new(serde_json::json!({"id": 7, "name": "seven", "extra": 1})).unwrap();
+        assert!(mapped_properties(
+            &extra,
+            "Document",
+            &strict,
+            "manifest:demo#schema_mappings/item",
+            &"a".repeat(64),
+            true,
+        )
         .unwrap_err()
         .contains("SOURCE_SCHEMA_FIELD_UNKNOWN"));
     }
