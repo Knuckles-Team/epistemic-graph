@@ -21,6 +21,7 @@
 //!            | "REASON" class | "FOREIGN" string ;
 //! stage      = filter | traverse | rank | text | fuse | rerank
 //!            | asof | window | foreign | reason | limit
+//!            | validate_shape                              (* SHACL, parser/shape.rs *)
 //!            | evidence_for | contradicts | supported_by
 //!            | belief_asof | valid_asof | source_reliability
 //!            | confidence | explain_belief ;                 (* epistemic, E2 *)
@@ -76,6 +77,7 @@
 //! | `WINDOW 60 s SUM`                    | `WindowAgg { secs: 60, agg: "sum" }`   |
 //! | `FOREIGN "peer"`                     | `Foreign { name: "peer" }`             |
 //! | `REASON Mammal`                      | `Reason { target_class: "Mammal" }`    |
+//! | `VALIDATE SHAPE <s> USING "ttl"`     | `ValidateShape { keep: Conforming, .. }` |
 //! | `EVIDENCE FOR "c1"`                  | `EvidenceFor { claim_id: "c1" }`       |
 //! | `CONTRADICTS "c1"`                   | `Contradicts { node_id: "c1" }`        |
 //! | `SUPPORTED BY "c1"`                  | `SupportedBy { node_id: "c1" }`        |
@@ -115,6 +117,9 @@
 use eg_types::wire::{Op, Plan, Pred, TimeAxis};
 
 use super::lexer::{lex, Tok, Token};
+
+// EH-196 — the `VALIDATE SHAPE` stage (grammar in the module's own docs).
+mod shape;
 
 /// A UQL parse error: a human-readable message plus the byte offset in the source it
 /// occurred at. [`UqlError::render`] turns it into a multi-line caret diagnostic.
@@ -242,6 +247,10 @@ impl<'a> Parser<'a> {
             ops.push(op);
             return Ok(());
         }
+        if let Some(op) = self.parse_shape_stage()? {
+            ops.push(op);
+            return Ok(());
+        }
         if let Some(op) = self.parse_epistemic_stage()? {
             ops.push(op);
             return Ok(());
@@ -254,7 +263,7 @@ impl<'a> Parser<'a> {
         }
         Err(self.err_here(
             "expected a pipeline stage (`TRAVERSE`, `RANK`, `TEXT`, `FUSE`, `LIMIT`, \
-             `WHERE`, `AS OF`, `WINDOW`, `FOREIGN`, `REASON`, `EVIDENCE FOR`, \
+             `WHERE`, `AS OF`, `WINDOW`, `FOREIGN`, `REASON`, `VALIDATE SHAPE`, `EVIDENCE FOR`, \
              `CONTRADICTS`, `SUPPORTED BY`, `BELIEF AS OF`, `VALID AS OF`, \
              `SOURCE RELIABILITY`, `CONFIDENCE`, or `EXPLAIN BELIEF`)",
         ))
