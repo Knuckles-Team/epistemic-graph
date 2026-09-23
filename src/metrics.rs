@@ -323,6 +323,21 @@ mod imp {
             &["phase"],
             DURATION_BUCKETS.to_vec(),
         );
+        // EH-384 background node-payload scrub: rows opened, unreadable rows
+        // found (by closed `UnsealFailure` code), completed full-file cycles.
+        static ref STORAGE_SCRUB_ROWS: IntCounter = counter(
+            "epistemic_graph_storage_scrub_rows_total",
+            "Node payloads opened by the background storage scrub",
+        );
+        static ref STORAGE_SCRUB_UNREADABLE: IntCounterVec = counter_vec(
+            "epistemic_graph_storage_scrub_unreadable_total",
+            "Unreadable node rows found by the background storage scrub, by cause",
+            &["cause"],
+        );
+        static ref STORAGE_SCRUB_CYCLES: IntCounter = counter(
+            "epistemic_graph_storage_scrub_cycles_total",
+            "Completed full walks of a shard file by the background storage scrub",
+        );
         static ref COMMIT_OPS_BYTES: HistogramVec = histogram_vec(
             "epistemic_graph_commit_ops_bytes",
             "Bytes accounted per commit_ops drain, by kind (logical|physical_delta)",
@@ -723,6 +738,19 @@ mod imp {
             .observe(seconds);
     }
 
+    /// Record one storage-scrub pass (EH-384): rows opened, one unreadable
+    /// row per `causes` entry (an `UnsealFailure::code`), and whether the pass
+    /// completed a cycle.
+    pub fn storage_scrub_pass(rows: u64, causes: &[&str], completed_cycle: bool) {
+        STORAGE_SCRUB_ROWS.inc_by(rows);
+        for cause in causes {
+            STORAGE_SCRUB_UNREADABLE.with_label_values(&[cause]).inc();
+        }
+        if completed_cycle {
+            STORAGE_SCRUB_CYCLES.inc();
+        }
+    }
+
     /// Record one `commit_ops` drain's bytes (EH-290): `kind` is `logical`/`physical_delta`.
     pub fn observe_commit_ops_bytes(kind: &str, bytes: u64) {
         COMMIT_OPS_BYTES
@@ -851,6 +879,7 @@ mod imp {
     pub fn observe_dispatch_lock_wait(_mode: &str, _seconds: f64) {}
     pub fn observe_commit_ops_phase(_phase: &str, _seconds: f64) {}
     pub fn observe_commit_ops_bytes(_kind: &str, _bytes: u64) {}
+    pub fn storage_scrub_pass(_rows: u64, _causes: &[&str], _completed_cycle: bool) {}
     pub fn projection_cache_hit() {}
     pub fn projection_cache_miss(_seconds: f64) {}
     pub fn loop_tick(_name: &str, _seconds: f64) {}

@@ -171,6 +171,12 @@ pub(crate) const DEVELOPMENT_LANE_INVOCATIONS: TableDefinition<'static, (&str, &
 pub(crate) const ENCRYPTION_CANARY: TableDefinition<'static, &str, &[u8]> =
     TableDefinition::new("encryption_canary");
 
+// -- background node-payload scrub (EH-384) --------------------------------
+/// The scrub's resumable key cursor, one row per scrub kind. File-wide: the
+/// cursor walks every graph the file hosts, so it belongs to no one graph.
+pub(crate) const STORAGE_SCRUB_CURSOR: TableDefinition<'static, &str, &[u8]> =
+    TableDefinition::new("storage_scrub_cursor");
+
 // -- cross-modal series rows (also declared by `OwnerLayout::TimeSeries`) --
 pub(crate) const SERIES_CHUNKS: TableDefinition<'static, (&str, u64), &[u8]> =
     TableDefinition::new("series_chunks");
@@ -233,6 +239,7 @@ macro_rules! visit_graph_shard_tables {
         $visit!(shard::DEVELOPMENT_LANE_POLICIES);
         $visit!(shard::DEVELOPMENT_LANE_INVOCATIONS);
         $visit!(shard::ENCRYPTION_CANARY);
+        $visit!(shard::STORAGE_SCRUB_CURSOR);
         $visit!(shard::SERIES_CHUNKS);
         $visit!(shard::SERIES_META);
         $visit!(shard::SERIES_PROJECTION_STATE);
@@ -292,6 +299,7 @@ pub(crate) const GRAPH_SHARD_TABLES: &[&str] = &[
     "development_lane_policies",
     "development_lane_invocations",
     "encryption_canary",
+    "storage_scrub_cursor",
     "series_chunks",
     "series_meta",
     "series_projection_state",
@@ -337,7 +345,8 @@ fn key_type_scalar_or_narrow_tuple(name: &str) -> Option<&'static str> {
         | "matviews"
         | "plan_matviews"
         | "matview_operator_state"
-        | "encryption_canary" => Some("&str"),
+        | "encryption_canary"
+        | "storage_scrub_cursor" => Some("&str"),
         "edges" => Some("(&str,&str,&str,u32)"),
         "ledger" | "audit_chain" | "provenance_anchor_members" | "xshard_prepare" => {
             Some("(&str,u64)")
@@ -471,6 +480,7 @@ pub(crate) fn scope(name: &str) -> Option<TableScope> {
         | "plan_matviews"
         | "matview_operator_state"
         | "encryption_canary"
+        | "storage_scrub_cursor"
         | "series_chunks"
         | "series_meta"
         | "series_projection_state" => Some(TableScope::StorePrivate),

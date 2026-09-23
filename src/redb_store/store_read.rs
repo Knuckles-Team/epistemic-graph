@@ -345,7 +345,7 @@ pub(crate) fn read_one_node(
     let v = nodes
         .get((graph, node_id))
         .map_err(|e| e.to_string())?
-        .map(|g| crypto.unseal(g.value()))
+        .map(|g| crypto.unseal_node(graph, node_id, g.value()))
         .transpose()?;
     Ok(v)
 }

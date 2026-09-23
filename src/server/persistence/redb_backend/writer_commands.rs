@@ -640,6 +640,14 @@ macro_rules! writer_command_arms {
             let _ = reply.send(crate::redb_store::scan_matview_operator_state(shard));
             false
         }
+        Cmd::ScrubCursorPut { cursor, done } => {
+            // Scrub progress rides no mutation, so pending ops need no flush
+            // first; the cursor is its own durable control write.
+            let _ = done.send(in_control_write(shard, "storage_scrub_cursor", |write| {
+                crate::redb_store::scrub::put_scrub_cursor_in(write, &cursor)
+            }));
+            false
+        }
         }
     }};
 }

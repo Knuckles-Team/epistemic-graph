@@ -298,7 +298,7 @@ impl<D: OwnerDomain> AdmittedOwnerWrite<'_, D> {
     /// write's own serving scope.
     ///
     /// A layout whose owner tables lead their key with the scope's name — a
-    /// graph shard, where 42 of 53 tables do — makes those tables unreachable
+    /// graph shard, where 41 of 54 tables do — makes those tables unreachable
     /// through [`Self::open_table`], because a raw `redb::Table` cannot carry a
     /// row bound. This is the accessor for them, and its scope name comes from
     /// the capability rather than from an argument, so one graph cannot write
