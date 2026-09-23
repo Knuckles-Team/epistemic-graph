@@ -125,9 +125,11 @@ def _native_method_catalog(source: str) -> dict[str, str]:
     # `IssueControlLease` / `TransitionControlLease` control-lease rows.
     # 102 -> 103: EH-346 `PolicyEvolutionStore`, the internal kernel write of
     # an admitted policy-evolution record.
+    # 103 -> 107: the EH-348 work-market writes `GapUpsert`, `GapTransition`,
+    # `GapSettle`, `WorkOfferPut` (WorkItem kernel).
     require(
-        len(entries) == 103,
-        f"native method catalog must contain 103 entries, observed {len(entries)}",
+        len(entries) == 107,
+        f"native method catalog must contain 107 entries, observed {len(entries)}",
     )
     require("RegisterServer" not in names, "RegisterServer must remain gateway-routed")
     require(
@@ -153,7 +155,9 @@ def _native_method_catalog(source: str) -> dict[str, str]:
         == {
             "GraphState": 23,
             "Transaction": 15,
-            "WorkItem": 21,  # +2 control leases, +1 PolicyEvolutionStore
+            # +2 control leases, +1 PolicyEvolutionStore; +4 EH-348 GapUpsert,
+            # GapTransition, GapSettle, WorkOfferPut
+            "WorkItem": 25,
             "Blob": 6,
             "KeyValue": 3,
             "TimeSeries": 3,
