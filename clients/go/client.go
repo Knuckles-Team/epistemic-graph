@@ -13,8 +13,12 @@
 // Method variant in crates/eg-types/src/protocol.rs, using the exact serde field names
 // that enum destructures.
 //
-// Pi-contract: thin. One pure-Go dep (github.com/vmihailenco/msgpack/v5) for framing;
-// stdlib net + crypto/hmac. No cgo, no heavy SDK. This is a client, never part of `pi`.
+// The signed body is the engine's own canonical re-encoding of the request, computed
+// by the embedded WebAssembly build of crates/eg-method-codec (see codec.go).
+//
+// Pi-contract: thin. Two pure-Go deps: github.com/vmihailenco/msgpack/v5 for framing
+// and github.com/tetratelabs/wazero to run the embedded codec; stdlib net +
+// crypto/hmac. No cgo, no heavy SDK. This is a client, never part of `pi`.
 package epgthin
 
 import (
@@ -142,18 +146,15 @@ func validateRequestContext(context *RequestContextClaims) (RequestContextClaims
 	return value, nil
 }
 
-type methodBody struct {
-	Method string `msgpack:"method"`
-	Params any    `msgpack:"params"`
-}
-
 type wireRequest struct {
 	ID        int64  `msgpack:"id"`
 	Graph     string `msgpack:"graph"`
 	AuthToken string `msgpack:"auth_token"`
 	AgentID   string `msgpack:"agent_id"`
 	Method    string `msgpack:"method"`
-	Params    any    `msgpack:"params"`
+	// A unit method (no params) sends no params key, exactly as the engine's
+	// canonical encoding of it has none.
+	Params any `msgpack:"params,omitempty"`
 }
 
 type signedEnvelope struct {
@@ -181,11 +182,35 @@ func appendList(buf []byte, values []string) []byte {
 	return buf
 }
 
-func (c *Client) sign(id int64, graph, method string, params any, idempotencyKey string) (string, error) {
-	body, err := msgpack.Marshal(methodBody{Method: method, Params: params})
-	if err != nil {
-		return "", fmt.Errorf("encode canonical method body: %w", err)
+// envelopeSeal is the per-request freshness a signed envelope carries.
+type envelopeSeal struct {
+	Timestamp uint64
+	Nonce     string
+}
+
+func newEnvelopeSeal() (envelopeSeal, error) {
+	nonceBytes := make([]byte, 24)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		return envelopeSeal{}, fmt.Errorf("create request nonce: %w", err)
 	}
+	return envelopeSeal{Timestamp: uint64(time.Now().Unix()), Nonce: hex.EncodeToString(nonceBytes)}, nil
+}
+
+// sign binds the engine's canonical body of this call into a fresh eg2. envelope.
+func (c *Client) sign(id int64, graph, method string, params any, idempotencyKey string) (string, error) {
+	body, err := canonicalMethodBody(method, params)
+	if err != nil {
+		return "", err
+	}
+	seal, err := newEnvelopeSeal()
+	if err != nil {
+		return "", err
+	}
+	return c.seal(id, graph, method, body, idempotencyKey, seal)
+}
+
+// seal MACs one canonical body under the request binding and the given freshness.
+func (c *Client) seal(id int64, graph, method string, body []byte, idempotencyKey string, seal envelopeSeal) (string, error) {
 	bodyDigest := sha256.Sum256(body)
 	bodyHash := hex.EncodeToString(bodyDigest[:])
 	if idempotencyKey == "" {
@@ -193,12 +218,7 @@ func (c *Client) sign(id int64, graph, method string, params any, idempotencyKey
 		idempotencyDigest := sha256.Sum256([]byte(idempotencyMaterial))
 		idempotencyKey = "rpc:sha256:" + hex.EncodeToString(idempotencyDigest[:])
 	}
-	nonceBytes := make([]byte, 24)
-	if _, err := rand.Read(nonceBytes); err != nil {
-		return "", fmt.Errorf("create request nonce: %w", err)
-	}
-	nonce := hex.EncodeToString(nonceBytes)
-	timestamp := uint64(time.Now().Unix())
+	timestamp, nonce := seal.Timestamp, seal.Nonce
 
 	canonical := make([]byte, 0, 512)
 	canonical = appendText(canonical, "eg-envelope-v2")
@@ -340,9 +360,9 @@ func (c *Client) signContextOperation(domain, method string, params any, graph, 
 	if requireContextPrincipal && signerID != c.context.Principal {
 		return "", fmt.Errorf("identity signer must match the verified principal")
 	}
-	body, err := msgpack.Marshal(methodBody{Method: method, Params: params})
+	body, err := canonicalMethodBody(method, params)
 	if err != nil {
-		return "", fmt.Errorf("encode canonical operation body: %w", err)
+		return "", err
 	}
 	canonical := make([]byte, 0, 512)
 	for _, value := range []string{

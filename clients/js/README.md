@@ -34,13 +34,21 @@ PyO3/FFI, so the wire is the API):
   claims, timestamp, nonce, and idempotency key. Construction rejects an empty
   secret, missing claims, unknown fields, empty or duplicate list entries, and a
   malformed delegation chain.
+- **Canonical body:** the MAC covers the body the engine re-derives from the request it
+  DECODED (declaration order, serde defaults, sorted maps, float/byte widths), not the
+  bytes sent. The client computes it with the engine's own decoder and encoder: the
+  embedded `eg_method_codec.wasm` (crates/eg-method-codec, built by
+  `scripts/build_method_codec_wasm.py`, run by Node's WebAssembly). `vectors.test.mjs`
+  replays every contract method-body vector (body digest + engine envelope MAC) through
+  the signer. A request the engine could not decode is refused before it is sent.
 - **Compact results:** a top-level msgpack `bin` result is a second `Raw` layer and is
   decoded once more (matching the Python client).
 
 ## Pi-contract
 
 Thin by design: one pure-JS dependency (`@msgpack/msgpack`) for framing; Node built-ins
-`net` (UDS/TCP) + `crypto` (HMAC). No native addon, no heavy SDK. Nothing here belongs
+`net` (UDS/TCP), `crypto` (HMAC) and WebAssembly (the embedded codec). No native addon,
+no heavy SDK. Nothing here belongs
 in the `pi` engine build — it is a client.
 
 ## Usage
@@ -109,6 +117,7 @@ A build without one returns a clear "not available in this build" error.
 
 ## Status
 
-Static context, signing, and secret-leakage tests use Node's built-in test runner.
+Static context, signing, secret-leakage and method-body vector tests use Node's
+built-in test runner (`npm test`, run in CI by release.yml job `language-clients`).
 The repository does not yet provide a live Node engine harness for transport-level
 integration tests.

@@ -32,6 +32,13 @@ Same framed-MessagePack transport as the Python client:
   claims, timestamp, nonce, and idempotency key. `Dial` rejects an empty secret,
   missing claims, empty or duplicate list entries, malformed delegation, and
   implicitly omitted `Roles`, `Scopes`, or `Delegation` slices before connecting.
+- **Canonical body:** the MAC covers the body the engine re-derives from the request it
+  DECODED (declaration order, serde defaults, sorted maps, float/byte widths), not the
+  bytes sent. The client computes it with the engine's own decoder and encoder: the
+  embedded `eg_method_codec.wasm` (crates/eg-method-codec, built by
+  `scripts/build_method_codec_wasm.py`, run through wazero). `vectors_test.go` replays
+  every contract method-body vector (body digest + engine envelope MAC) through the
+  signer. A request the engine could not decode is refused before it is sent.
 - **Correlation:** this client holds ONE connection and serializes each round-trip under
   a mutex, so responses are read in order (no out-of-order demux needed — unlike the
   pipelined Python client). Wrap concurrent callers accordingly.
@@ -40,8 +47,9 @@ Same framed-MessagePack transport as the Python client:
 
 ## Pi-contract
 
-Thin by design: one pure-Go dependency (`github.com/vmihailenco/msgpack/v5`) for framing;
-stdlib `net` (UDS/TCP) + `crypto/hmac`. No cgo, no heavy SDK. This is a client — nothing
+Thin by design: two pure-Go dependencies, `github.com/vmihailenco/msgpack/v5` for framing
+and `github.com/tetratelabs/wazero` to run the embedded codec; stdlib `net` (UDS/TCP) +
+`crypto/hmac`. No cgo, no heavy SDK. This is a client — nothing
 here belongs in the `pi` engine build.
 
 ## Usage
@@ -120,7 +128,7 @@ Requires a server built with the matching features: `broker`, `security` (RBAC),
 
 ## Status
 
-Runtime-untested in CI (no Go engine harness in this repo yet) and `go.sum` is not
-vendored — run `go mod tidy` in this directory to fetch the one msgpack dep before
-building. Its envelope, method-body, and detached-operation encodings mirror the
-current Rust and Python contracts.
+`go test ./...` runs in CI (release.yml job `language-clients`): the method-body vectors
+prove the signed body and envelope MAC equal the engine's for every catalog method, and
+the same job rebuilds the embedded codec and byte-compares it. There is no live Go engine
+harness yet, so transport round-trips are not exercised.
