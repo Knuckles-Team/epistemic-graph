@@ -57,34 +57,51 @@ pub const BLOB_BEFORE_HOLDERS: LayoutPredecessor = LayoutPredecessor {
     file_name: "blob.redb",
 };
 
+/// The SQL owner tables of the layout before durable ANN generations, oldest
+/// first. The layout before source checkpoints is exactly its first 18.
+const SQL_TABLES_BEFORE_DURABLE_ANN: &[&str] = &[
+    "__sql_catalog__",
+    "__sql_functions__",
+    "__sql_ann_indexes__",
+    "__sql_secondary_indexes__",
+    "__sql_secondary_index_entries__",
+    "__sql_hypertables__",
+    "__sql_source_authority__",
+    "__sql_views__",
+    "__sql_extensions__",
+    "__sql_rows__",
+    "__sql_seq__",
+    "__sql_schema_catalog_versions__",
+    "__sql_schema_versions__",
+    "__sql_schema_migrations__",
+    "__sql_schema_migration_order__",
+    "__sql_schema_catalog_order__",
+    "__sql_property_graphs__",
+    "__sql_property_graph_seq__",
+    "__sql_source_checkpoints__",
+];
+
 /// `sql.redb` before durable SQL source checkpoints (ruling D2: refused, the
 /// bespoke offline upgrader deleted).
 pub const SQL_BEFORE_SOURCE_CHECKPOINTS: LayoutPredecessor = LayoutPredecessor {
     layout: OwnerLayout::Sql,
     label: "SQL catalog store before durable source checkpoints",
-    owner_tables: &[
-        "__sql_catalog__",
-        "__sql_functions__",
-        "__sql_ann_indexes__",
-        "__sql_secondary_indexes__",
-        "__sql_secondary_index_entries__",
-        "__sql_hypertables__",
-        "__sql_source_authority__",
-        "__sql_views__",
-        "__sql_extensions__",
-        "__sql_rows__",
-        "__sql_seq__",
-        "__sql_schema_catalog_versions__",
-        "__sql_schema_versions__",
-        "__sql_schema_migrations__",
-        "__sql_schema_migration_order__",
-        "__sql_schema_catalog_order__",
-        "__sql_property_graphs__",
-        "__sql_property_graph_seq__",
-    ],
-    data_lost: "its SQL catalog and rows are not migrated; re-ingest the sources",
+    owner_tables: SQL_TABLES_BEFORE_DURABLE_ANN.split_at(18).0,
+    data_lost: SQL_DATA_LOST,
     file_name: "sql.redb",
 };
+
+/// `sql.redb` before the maintained ANN authority's durable generations and
+/// changed-row log (RF-019 / EH-352).
+pub const SQL_BEFORE_DURABLE_ANN: LayoutPredecessor = LayoutPredecessor {
+    layout: OwnerLayout::Sql,
+    label: "SQL catalog store before durable ANN index generations",
+    owner_tables: SQL_TABLES_BEFORE_DURABLE_ANN,
+    data_lost: SQL_DATA_LOST,
+    file_name: "sql.redb",
+};
+
+const SQL_DATA_LOST: &str = "its SQL catalog and rows are not migrated; re-ingest the sources";
 
 /// Every predecessor of `layout` this build refuses by name, oldest first.
 ///
@@ -93,7 +110,7 @@ pub fn layout_predecessors(layout: OwnerLayout) -> &'static [LayoutPredecessor] 
     match layout {
         OwnerLayout::AgentLibrary => &[AGENT_LIBRARY_BEFORE_CONNECTOR_PACKS],
         OwnerLayout::Blob => &[BLOB_BEFORE_HOLDERS],
-        OwnerLayout::Sql => &[SQL_BEFORE_SOURCE_CHECKPOINTS],
+        OwnerLayout::Sql => &[SQL_BEFORE_SOURCE_CHECKPOINTS, SQL_BEFORE_DURABLE_ANN],
         OwnerLayout::LedgerOnly
         | OwnerLayout::Rbac
         | OwnerLayout::Jobs
@@ -247,11 +264,11 @@ pub fn render_owner_store_formats() -> String {
         let refused = if predecessors.is_empty() {
             "none".to_string()
         } else {
-            predecessors
+            let codes: std::collections::BTreeSet<String> = predecessors
                 .iter()
                 .map(|predecessor| format!("`{}`", predecessor.error_code()))
-                .collect::<Vec<_>>()
-                .join(", ")
+                .collect();
+            codes.into_iter().collect::<Vec<_>>().join(", ")
         };
         out.push_str(&format!(
             "| `{}` | `{}` | {} |\n",
@@ -263,7 +280,7 @@ pub fn render_owner_store_formats() -> String {
     for layout in ALL_LAYOUTS {
         for predecessor in layout_predecessors(layout) {
             out.push_str(&format!(
-                "\n## `{code}`\n\n* Store file: `{file}`\n* Refused generation: {label}\n\
+                "\n## `{code}`: {label}\n\n* Store file: `{file}`\n* Refused generation: {label}\n\
                  * Data lost: {lost}\n* Owner tables of the refused generation: {tables}\n\
                  * Removal step: stop the engine, move `{file}` aside (keep it until the \
                  restarted engine is confirmed healthy), and restart; a fresh store is \

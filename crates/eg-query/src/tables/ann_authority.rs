@@ -17,20 +17,24 @@
 //!   snapshot, checked against the caller's visibility predicate INSIDE the
 //!   graph walk, dropped when deleted (a tombstone), and re-scored on its current
 //!   vector. Rows inserted after the build (row ids above the generation's high
-//!   water) are scored exactly. Updates are eventually consistent: an updated row
-//!   is re-scored whenever it is a candidate, and the lag is visible in the status.
+//!   water) and rows the changed-row log names as changed after the build are
+//!   scored exactly, so an UPDATE is exact before any refresh.
 //! * **Bounded fallback.** With no servable generation (building, failed,
 //!   dimension mismatch, too many rows since the build, or a filter so selective
 //!   the walk exceeds its budget) the query takes an exact scan bounded by
 //!   [`AnnLimits::exact_rows`]; past that bound it fails with the typed reason
 //!   instead of scanning unboundedly or answering wrong.
 //!
-//! Generations live in memory. After a restart every index reports
-//! [`AnnGenerationState::Building`] until the worker rebuilds it from the
-//! durable rows.
+//! * **Per-table staleness, incremental refresh.** An index is stale when ITS
+//!   table changed after its generation's build epoch; the worker then folds the
+//!   changed rows into the next generation instead of rebuilding it.
+//! * **Durable generations.** Every activation is persisted in the SQL owner
+//!   file; a reopened store serves the last activated generation at once
+//!   (`durable`), and the worker only catches it up.
 //!
 //! [`TableStore::refresh_ann_generations`]: crate::tables::TableStore::refresh_ann_generations
 
+mod durable;
 mod generation;
 mod maintain;
 mod serve;
@@ -80,9 +84,10 @@ pub struct AnnIndexStatus {
     pub generation: Option<u64>,
     /// The source epoch the live generation was built from.
     pub built_epoch: Option<u64>,
-    /// The tenant SQL source epoch now.
-    pub source_epoch: u64,
-    /// `source_epoch - built_epoch`; the whole epoch when nothing serves.
+    /// The source epoch of the indexed table's last row change.
+    pub change_epoch: u64,
+    /// `change_epoch - built_epoch` (never negative); the whole change epoch
+    /// when nothing serves.
     pub lag_epochs: u64,
     /// Rows the live generation indexes.
     pub indexed_rows: usize,
@@ -169,6 +174,16 @@ struct SlotMaintenance {
     generations_built: u64,
     last_failure: Option<String>,
     last_build: Option<Instant>,
+    /// What the SQL owner file holds for this registration.
+    durable: Option<DurableMark>,
+}
+
+/// The persisted state of one registration: the full generation the file
+/// holds, and the build epoch of the live generation it restores.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DurableMark {
+    full: u64,
+    built_epoch: u64,
 }
 
 impl AnnSlot {
@@ -182,6 +197,32 @@ impl AnnSlot {
 
     fn last_failure(&self) -> Option<String> {
         lock(&self.maintenance).last_failure.clone()
+    }
+
+    fn fail(&self, reason: String) {
+        lock(&self.maintenance).last_failure = Some(reason);
+    }
+
+    fn durable(&self) -> Option<DurableMark> {
+        lock(&self.maintenance).durable
+    }
+
+    fn mark_durable(&self, mark: DurableMark) {
+        lock(&self.maintenance).durable = Some(mark);
+    }
+
+    /// Serve `generation`, restored from the owner file, unless a generation is
+    /// already live; the next build is numbered above it.
+    fn restore(&self, generation: AnnGeneration) {
+        let mark = DurableMark {
+            full: generation.base.unwrap_or(generation.generation),
+            built_epoch: generation.built_epoch,
+        };
+        let number = generation.generation;
+        write(&self.live).get_or_insert_with(|| Arc::new(generation));
+        let mut state = lock(&self.maintenance);
+        state.generations_built = state.generations_built.max(number);
+        state.durable = Some(mark);
     }
 }
 
@@ -267,7 +308,7 @@ impl UserAnnAuthority {
         })
     }
 
-    fn status(&self, plan: &AnnIndexPlan, index: String, source_epoch: u64) -> AnnIndexStatus {
+    fn status(&self, plan: &AnnIndexPlan, index: String, change_epoch: u64) -> AnnIndexStatus {
         let slot = self.existing_slot(&index);
         let live = slot.as_ref().and_then(|slot| slot.live_for(plan.method));
         let last_failure = slot.as_ref().and_then(|slot| slot.last_failure());
@@ -277,12 +318,12 @@ impl UserAnnAuthority {
             column: plan.column.clone(),
             method: plan.method,
             metric: plan.metric,
-            state: generation_state(live.as_deref(), last_failure.as_ref(), source_epoch),
+            state: generation_state(live.as_deref(), last_failure.as_ref(), change_epoch),
             generation: live.as_ref().map(|generation| generation.generation),
             built_epoch: live.as_ref().map(|generation| generation.built_epoch),
-            source_epoch,
-            lag_epochs: live.as_ref().map_or(source_epoch, |generation| {
-                source_epoch.saturating_sub(generation.built_epoch)
+            change_epoch,
+            lag_epochs: live.as_ref().map_or(change_epoch, |generation| {
+                change_epoch.saturating_sub(generation.built_epoch)
             }),
             indexed_rows: live.as_ref().map_or(0, |generation| generation.rows),
             last_failure,
@@ -293,10 +334,10 @@ impl UserAnnAuthority {
 fn generation_state(
     live: Option<&AnnGeneration>,
     last_failure: Option<&String>,
-    source_epoch: u64,
+    change_epoch: u64,
 ) -> AnnGenerationState {
     match (live, last_failure) {
-        (Some(generation), _) if generation.built_epoch >= source_epoch => AnnGenerationState::Live,
+        (Some(generation), _) if generation.built_epoch >= change_epoch => AnnGenerationState::Live,
         (Some(_), _) => AnnGenerationState::Stale,
         (None, Some(reason)) => AnnGenerationState::Failed {
             reason: reason.clone(),

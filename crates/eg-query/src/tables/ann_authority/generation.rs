@@ -7,11 +7,20 @@
 //! max-norm augmentation for inner product), so the IVF candidate order is
 //! faithful to the metric the query asked for. Every candidate is re-scored
 //! exactly on its current vector by the probe either way.
+//!
+//! A generation is either FULL (built from one snapshot of every row) or an
+//! EXTENSION of a full base: the base graph plus the current vectors of every
+//! row changed since, folded in by the maintenance worker instead of a rebuild.
+//! An extension indexes a changed row under its new vector and keeps the stale
+//! entry, which is harmless: every candidate is re-read and re-scored.
+
+use std::collections::BTreeSet;
 
 use eg_ann::{HnswIndex, IvfPq, IvfPqParams, Metric, SearchParams};
+use serde::{Deserialize, Serialize};
 
 use crate::sql::{isqrt, metric_to_ann, AnnMethod, VectorMetric};
-use crate::tables::store::AnnSourceRows;
+use crate::tables::store::{AnnChangedRows, AnnSourceRows};
 
 /// Deterministic seed for every maintained build, so two builds over the same
 /// snapshot are identical.
@@ -40,10 +49,14 @@ pub(crate) struct AnnGeneration {
     pub(super) max_rowid: Option<u64>,
     /// Rows this generation indexes.
     pub(super) rows: usize,
-    graph: AnnGraph,
+    /// The full generation this one extends; `None` for a full generation.
+    pub(super) base: Option<u64>,
+    /// Row ids folded in on top of `base`, ascending.
+    pub(super) delta: Vec<u64>,
+    pub(super) graph: AnnGraph,
 }
 
-enum AnnGraph {
+pub(super) enum AnnGraph {
     Empty,
     Hnsw(HnswIndex),
     Ivf {
@@ -54,8 +67,8 @@ enum AnnGraph {
 }
 
 /// The Euclidean space an IVF generation is trained in.
-#[derive(Clone, Copy)]
-enum IvfSpace {
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub(super) enum IvfSpace {
     /// L2 as-is.
     Euclidean,
     /// Cosine: unit-normalised rows and queries.
@@ -86,8 +99,47 @@ impl AnnGeneration {
             built_epoch: source.epoch,
             max_rowid: source.max_rowid,
             rows: source.rows.len(),
+            base: None,
+            delta: Vec::new(),
             graph,
         }
+    }
+
+    /// Generation `generation`: this one with `changed` folded in, as of the
+    /// changed rows' snapshot. `None` when this generation cannot be extended
+    /// (it indexes nothing yet, so it has no width or trained space).
+    pub(super) fn extend(&self, generation: u64, changed: &AnnChangedRows) -> Option<Self> {
+        let dim = self.dim?;
+        let admitted: Vec<(u64, Vec<f32>)> = changed
+            .rows
+            .iter()
+            .filter_map(|(rowid, vector)| {
+                vector
+                    .as_ref()
+                    .filter(|vector| vector.len() == dim)
+                    .map(|vector| (*rowid, vector.clone()))
+            })
+            .collect();
+        let changed_ids: BTreeSet<u64> = changed.rows.iter().map(|(rowid, _)| *rowid).collect();
+        let graph = self.graph.extended(&changed_ids, &admitted)?;
+        let mut delta: BTreeSet<u64> = self.delta.iter().copied().collect();
+        delta.extend(changed_ids.iter().copied());
+        Some(Self {
+            generation,
+            method: self.method,
+            dim: self.dim,
+            built_epoch: changed.epoch,
+            max_rowid: self.max_rowid.max(changed_ids.last().copied()),
+            rows: self.rows + admitted.len(),
+            base: Some(self.base.unwrap_or(self.generation)),
+            delta: delta.into_iter().collect(),
+            graph,
+        })
+    }
+
+    /// Row ids folded in since the base, counting repeats as one.
+    pub(super) fn delta_len(&self) -> usize {
+        self.delta.len()
     }
 
     /// Up to `pool` candidate row ids nearest `query` whose rows `allow` admits.
@@ -117,6 +169,55 @@ impl AnnGeneration {
             ),
         };
         found.into_iter().map(|hit| hit.id).collect()
+    }
+}
+
+impl AnnGraph {
+    /// A copy of this graph with every row of `changed` re-indexed: an IVF row
+    /// is tombstoned and re-added, an HNSW row gains a node for its new vector.
+    fn extended(&self, changed: &BTreeSet<u64>, rows: &[(u64, Vec<f32>)]) -> Option<Self> {
+        match self {
+            Self::Empty => None,
+            Self::Hnsw(index) => {
+                let mut index = index.clone();
+                index.insert_batch(rows);
+                Some(Self::Hnsw(index))
+            }
+            Self::Ivf {
+                index,
+                space,
+                nprobe,
+            } => {
+                let mut copy = copy_ivf(index)?;
+                tombstone(&mut copy, changed);
+                let mapped: Vec<(u64, Vec<f32>)> = rows
+                    .iter()
+                    .map(|(rowid, vector)| (*rowid, space.row(vector)))
+                    .collect();
+                copy.add(&mapped);
+                Some(Self::Ivf {
+                    index: Box::new(copy),
+                    space: *space,
+                    nprobe: *nprobe,
+                })
+            }
+        }
+    }
+}
+
+/// An independent copy of a trained IVF index, through its validated durable
+/// codes (no retraining).
+pub(super) fn copy_ivf(index: &IvfPq) -> Option<IvfPq> {
+    let artifact = eg_ann::durable_codes::encode(index).ok()?;
+    eg_ann::durable_codes::decode(&artifact).ok()
+}
+
+/// Tombstone every live row of `index` whose id is in `ids`, in one pass.
+fn tombstone(index: &mut IvfPq, ids: &BTreeSet<u64>) {
+    for (row, id) in index.ids.iter().enumerate() {
+        if ids.contains(id) {
+            index.deleted[row] = 1;
+        }
     }
 }
 

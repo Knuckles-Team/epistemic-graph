@@ -639,11 +639,15 @@ impl SqlMutation<'_> {
     }
 }
 
-fn advance_source_epoch(write: &SqlWrite<'_>, authority_digest: [u8; 32]) -> Result<u64, String> {
-    let mut table = write
+/// The source epoch the open owner write will commit at: the committed epoch
+/// plus one. Every owner write advances the epoch exactly once, after its rows
+/// are applied, so a row change stamped with this value is visible to exactly
+/// the snapshots whose epoch is at least this value.
+pub(crate) fn staged_source_epoch(write: &SqlWrite<'_>) -> Result<u64, String> {
+    let table = write
         .open_table(SQL_SOURCE_AUTHORITY)
         .map_err(|error| error.to_string())?;
-    let current_epoch = table
+    let committed = table
         .get(SQL_SOURCE_AUTHORITY_KEY)
         .map_err(|error| error.to_string())?
         .map(|value| {
@@ -657,13 +661,19 @@ fn advance_source_epoch(write: &SqlWrite<'_>, authority_digest: [u8; 32]) -> Res
         })
         .transpose()?
         .unwrap_or(0);
-    let epoch = current_epoch
+    committed
         .checked_add(1)
-        .ok_or_else(|| "SQL source authority epoch exhausted".to_string())?;
+        .ok_or_else(|| "SQL source authority epoch exhausted".to_string())
+}
+
+fn advance_source_epoch(write: &SqlWrite<'_>, authority_digest: [u8; 32]) -> Result<u64, String> {
+    let epoch = staged_source_epoch(write)?;
     let mut bytes = [0_u8; SQL_SOURCE_AUTHORITY_RECORD_BYTES];
     bytes[..32].copy_from_slice(&authority_digest);
     bytes[32..].copy_from_slice(&epoch.to_be_bytes());
-    table
+    write
+        .open_table(SQL_SOURCE_AUTHORITY)
+        .map_err(|error| error.to_string())?
         .insert(SQL_SOURCE_AUTHORITY_KEY, bytes.as_slice())
         .map_err(|error| error.to_string())?;
     Ok(epoch)
