@@ -14,7 +14,7 @@ of an ``AgentAssemble`` result (or a committed record read back through
 
 :func:`verify_certificate` is the same certificate check for a ``Solve``
 result against the model the caller sent. Golden vectors shared with the
-engine (``tests/fixtures/decision/assembly_golden_v1.json``) pin all of it.
+engine (``tests/fixtures/decision/assembly_golden.json``) pin all of it.
 """
 
 from __future__ import annotations

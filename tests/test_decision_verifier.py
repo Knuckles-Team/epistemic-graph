@@ -18,7 +18,7 @@ from epistemic_graph import decision
 
 pytestmark = pytest.mark.no_engine
 
-GOLDEN = Path(__file__).resolve().parent / "fixtures/decision/assembly_golden_v1.json"
+GOLDEN = Path(__file__).resolve().parent / "fixtures/decision/assembly_golden.json"
 
 
 def _golden() -> list[dict[str, Any]]:

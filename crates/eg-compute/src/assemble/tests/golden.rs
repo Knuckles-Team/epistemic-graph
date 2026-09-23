@@ -21,7 +21,7 @@ struct Golden {
 
 fn golden_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/fixtures/decision/assembly_golden_v1.json")
+        .join("../../tests/fixtures/decision/assembly_golden.json")
 }
 
 fn cases() -> Vec<Golden> {
