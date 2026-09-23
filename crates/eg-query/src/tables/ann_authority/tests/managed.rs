@@ -48,8 +48,7 @@ fn the_typed_lifecycle_runs_requested_backfilling_active_then_drops() {
 
     let slot = store
         .ann_authority()
-        .existing_slot(&TableStore::ann_index_key(&index))
-        .unwrap();
+        .slot(&TableStore::ann_index_key(&index));
     let ticket = slot
         .begin_build(AnnRefreshPolicy::Immediate, Duration::ZERO)
         .ok()
