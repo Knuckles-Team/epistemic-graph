@@ -1,4 +1,4 @@
-//! `MATCH ()` and the general traversal (EH-367/EH-369).
+//! `MATCH ()` and the general traversal (UQL-03/UQL-05).
 //!
 //! [`scan_all`] seeds every node of the (already RLS/lease-filtered) snapshot in id
 //! order. [`expand_op`] is `Op::Expand`: a breadth-first walk from the current rows along

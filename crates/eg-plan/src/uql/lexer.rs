@@ -1,4 +1,4 @@
-//! UQL lexer (CONCEPT:AU-KG.query.top-nodes-by-degree, EH-366) — a hand-written,
+//! UQL lexer (CONCEPT:AU-KG.query.top-nodes-by-degree, UQL-02) — a hand-written,
 //! dependency-free tokenizer over `char`s.
 //!
 //! Turns a UQL source string into a flat `Vec<Token>` with byte spans, so the

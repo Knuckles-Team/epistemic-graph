@@ -1,4 +1,4 @@
-//! One representative value per [`OpKind`]/[`PredKind`] (EH-370, test support).
+//! One representative value per [`OpKind`]/[`PredKind`] (UQL-06, test support).
 //!
 //! Exhaustive over the kinds, so a new wire variant cannot compile without a sample —
 //! and eg-plan's every-variant walk then proves the sample prints and re-parses. Values

@@ -1,4 +1,4 @@
-//! The executable contracts (EH-370 / EH-374):
+//! The executable contracts (UQL-06 / UQL-10):
 //!  * the parser's dispatch table and the grammar table name the same keywords;
 //!  * every grammar example parses — or, in a build without its feature, fails with
 //!    `UQL_FEATURE_NOT_IN_BUILD` naming exactly that feature;

@@ -1,4 +1,4 @@
-//! Structured UQL diagnostics (EH-366): a stable CODE an agent can branch on, the
+//! Structured UQL diagnostics (UQL-02): a stable CODE an agent can branch on, the
 //! byte SPAN of the offending text, what the parser EXPECTED there, and a fix HINT —
 //! plus a human rendering with `line:column` and a caret under the exact span.
 

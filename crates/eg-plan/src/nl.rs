@@ -153,7 +153,7 @@ impl UreqNlPlanner {
     /// The default system prompt: pin the model to emit exactly one bare UQL query
     /// (no prose, no fences). GENERATED from the UQL grammar
     /// (`crate::uql::grammar::nl_system_prompt`) so it can only advertise syntax the
-    /// parser accepts (EH-374 — it used to promise `!=`/`>=`/`<=` the parser rejected).
+    /// parser accepts (UQL-10 — it used to promise `!=`/`>=`/`<=` the parser rejected).
     pub fn default_system_prompt() -> String {
         crate::uql::grammar::nl_system_prompt()
     }

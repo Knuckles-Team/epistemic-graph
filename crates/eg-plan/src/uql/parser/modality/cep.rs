@@ -1,4 +1,4 @@
-//! `CEP` pattern syntax (EH-368, `stream`):
+//! `CEP` pattern syntax (UQL-04, `stream`):
 //! ```text
 //! cep      = "CEP" cep_node "WINDOW" ( "SLIDING" | "TUMBLING" ) int ;
 //! cep_node = "SEQ" "(" [ matcher { "," matcher } ] ")"

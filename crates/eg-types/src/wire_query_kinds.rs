@@ -1,4 +1,4 @@
-//! Variant KINDS of the plan algebra (EH-370): a fieldless mirror of every [`Op`] and
+//! Variant KINDS of the plan algebra (UQL-06): a fieldless mirror of every [`Op`] and
 //! [`Pred`] variant compiled into this build, plus the complete list of them.
 //!
 //! The list and the enum come from ONE macro invocation, so they cannot disagree; the

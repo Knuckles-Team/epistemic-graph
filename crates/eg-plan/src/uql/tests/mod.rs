@@ -1,5 +1,5 @@
 //! UQL front-end tests. `contract` holds the executable exhaustiveness/single-source
-//! obligations (EH-370/EH-374); `roundtrip` the printer ⇄ parser property.
+//! obligations (UQL-06/UQL-10); `roundtrip` the printer ⇄ parser property.
 
 mod contract;
 mod diagnostics;

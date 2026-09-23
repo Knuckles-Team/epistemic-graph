@@ -1,4 +1,4 @@
-//! Statements (EH-375): the `UQL <n>;` version pragma, `EXPLAIN`/`PROFILE`, named
+//! Statements (UQL-11): the `UQL <n>;` version pragma, `EXPLAIN`/`PROFILE`, named
 //! sub-plans (`LET name = pipeline;`) and the `FROM name` / `JOIN a, b` heads that turn
 //! a program into a DAG of the same ops a [`crate::dag::PlanDag`] carries.
 //!

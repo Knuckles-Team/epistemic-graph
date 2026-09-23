@@ -1,4 +1,4 @@
-//! Per-row evaluation of the RELATIONAL predicate algebra (EH-365) over a decoded JSON
+//! Per-row evaluation of the RELATIONAL predicate algebra (UQL-01) over a decoded JSON
 //! property object — the Rust twin of `exec::pred_sql`'s SQL, for the paths that cannot
 //! run DataFusion: incremental maintenance (`incremental::circuit`) and `Op::Expand`
 //! edge predicates.

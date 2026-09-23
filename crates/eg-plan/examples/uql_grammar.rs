@@ -1,4 +1,4 @@
-//! Print the generated UQL artifacts (EH-374) — the reference EBNF that `docs/uql.md`
+//! Print the generated UQL artifacts (UQL-10) — the reference EBNF that `docs/uql.md`
 //! embeds, or the NL planner's system prompt — straight from `eg_plan::uql::grammar`.
 //!
 //! ```text

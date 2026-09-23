@@ -1,4 +1,4 @@
-//! The pre-EH-365 UQL surface tests, kept as the compatibility contract.
+//! The pre-UQL-01 UQL surface tests, kept as the compatibility contract.
 
 use crate::uql::{parse, UqlCode};
 use eg_types::wire::{Op, Plan, Pred, TimeAxis};
@@ -100,7 +100,7 @@ fn inline_where_equals_piped_where() {
 
 /// Keywords are case-insensitive; `:` on the label and the bare-rel traverse
 /// shorthand are accepted; `{n}` is exactly-n hops; `=`/`==` are equality — and a
-/// NUMERIC literal is compared as a number (EH-365; it used to be stringified).
+/// NUMERIC literal is compared as a number (UQL-01; it used to be stringified).
 #[test]
 fn surface_variations() {
     let p = parse(
@@ -608,7 +608,7 @@ fn belief_as_of_clause_parses() {
 /// ALIAS for `Op::AsOf { axis: Valid }` — the SAME Op the bare `AS OF @ts` form
 /// produces — and the bare form itself must stay BYTE-IDENTICAL (a strict superset,
 /// never a behavior change to existing `AS OF` queries). It lowers to an always-available
-/// op, so it is available in every build (EH-374).
+/// op, so it is available in every build (UQL-10).
 #[test]
 fn valid_as_of_alias_is_byte_identical_to_bare_as_of() {
     let bare = parse("MATCH (:Event) |> AS OF @100 |> LIMIT 5").unwrap();

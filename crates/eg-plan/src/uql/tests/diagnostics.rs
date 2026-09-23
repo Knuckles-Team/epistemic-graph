@@ -1,4 +1,4 @@
-//! Structured diagnostics (EH-366): codes, spans, expected sets, multi-line carets.
+//! Structured diagnostics (UQL-02): codes, spans, expected sets, multi-line carets.
 
 use crate::uql::{parse, UqlCode, ALL_CODES};
 

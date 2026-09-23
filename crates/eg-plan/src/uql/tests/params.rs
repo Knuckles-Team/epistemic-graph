@@ -1,4 +1,4 @@
-//! Typed parameters (EH-371): values are bound, never spliced.
+//! Typed parameters (UQL-07): values are bound, never spliced.
 
 use crate::uql::{parse_with, Params, UqlCode};
 use eg_types::wire::{CmpOp, Op, Pred, Scalar, UqlParam};

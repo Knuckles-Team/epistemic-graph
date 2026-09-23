@@ -1,4 +1,4 @@
-//! UQL PRINTER (EH-370) — `Plan` → canonical UQL text.
+//! UQL PRINTER (UQL-06) — `Plan` → canonical UQL text.
 //!
 //! The inverse of `eg_plan::uql::parse`: for every plan the printer accepts,
 //! `parse(print(plan)) == canonicalize(plan)` (proved by eg-plan's round-trip property

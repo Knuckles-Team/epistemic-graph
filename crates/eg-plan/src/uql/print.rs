@@ -1,4 +1,4 @@
-//! Plan / program → canonical UQL (EH-370), and the canonicalization that makes the
+//! Plan / program → canonical UQL (UQL-06), and the canonicalization that makes the
 //! round trip exact.
 //!
 //! Single ops and linear plans are printed by eg-types ([`eg_types::wire::uql_op`],

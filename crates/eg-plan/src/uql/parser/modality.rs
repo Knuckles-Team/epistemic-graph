@@ -1,4 +1,4 @@
-//! Modality clauses (EH-368): spatial (`geo`), tensor (`tensor`), time-series / sensor
+//! Modality clauses (UQL-04): spatial (`geo`), tensor (`tensor`), time-series / sensor
 //! fusion (`timeseries`), complex-event patterns (`stream`) and probabilistic scoring
 //! (`probabilistic`). Every spelling here is the exact inverse of the eg-types printer.
 

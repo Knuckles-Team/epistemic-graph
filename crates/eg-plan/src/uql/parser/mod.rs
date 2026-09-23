@@ -15,7 +15,7 @@
 //!  * `modality` — spatial, tensor, time-series/sensor, CEP and probabilistic stages;
 //!  * `program` — statements: `UQL n;`, `EXPLAIN`/`PROFILE`, `LET` bindings, `FROM`/`JOIN`.
 //!
-//! Feature policy (EH-374, one rule everywhere): every clause is RECOGNIZED by its
+//! Feature policy (UQL-10, one rule everywhere): every clause is RECOGNIZED by its
 //! leading keyword in every build; a clause whose executor needs a cargo feature this
 //! build lacks is refused at parse time with `UQL_FEATURE_NOT_IN_BUILD` naming the
 //! feature. Dependency-free (no DataFusion, no regex).

@@ -1,4 +1,4 @@
-//! The predicate algebra (EH-365): operators, precedence, typed literals.
+//! The predicate algebra (UQL-01): operators, precedence, typed literals.
 
 use crate::uql::{parse, UqlCode};
 use eg_types::wire::{CmpOp, JsonPathOp, Op, Pred, Scalar};

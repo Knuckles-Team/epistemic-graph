@@ -8,7 +8,7 @@
 //! coverage-guided fuzzer reaches, hardening the hand-written lexer/parser against
 //! malformed input.
 //!
-//! It also checks the PRINTER contract on every input that parses (EH-370): a parsed
+//! It also checks the PRINTER contract on every input that parses (UQL-06): a parsed
 //! plan prints, and the printed text re-parses to the identical plan — so the fuzzer
 //! searches for inputs whose canonical spelling does not round-trip. Deeply nested
 //! input must fail with `UQL_NESTING_TOO_DEEP`, never overflow the stack.

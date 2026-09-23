@@ -1,4 +1,4 @@
-//! The predicate algebra (EH-365): `OR` < `AND` < `NOT` precedence, parentheses, and
+//! The predicate algebra (UQL-01): `OR` < `AND` < `NOT` precedence, parentheses, and
 //! every atom — typed comparisons, `IN`, `BETWEEN`, `IS [NOT] NULL`, JSONPath and
 //! spatial predicates.
 //!

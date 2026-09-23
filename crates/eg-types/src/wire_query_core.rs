@@ -28,7 +28,7 @@ pub enum Pred {
     GtNum { prop: String, n: f64 },
     /// `prop < n` (numeric).
     LtNum { prop: String, n: f64 },
-    /// `prop <op> value` over a TYPED scalar (UQL predicate algebra, EH-365). The three
+    /// `prop <op> value` over a TYPED scalar (UQL predicate algebra, UQL-01). The three
     /// legacy forms above stay the canonical spelling of what they express —
     /// `Cmp{Eq,Str}` ≡ `Eq`, `Cmp{Gt,Num}` ≡ `GtNum`, `Cmp{Lt,Num}` ≡ `LtNum` (the UQL
     /// parser never emits those three `Cmp` shapes; `eg_plan::uql::canonicalize` rewrites
@@ -113,7 +113,7 @@ pub enum Pred {
     SpatialDisjoint { column: String, wkt: String },
 }
 
-/// A comparison operator of [`Pred::Cmp`] (EH-365).
+/// A comparison operator of [`Pred::Cmp`] (UQL-01).
 #[cfg(feature = "query")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -126,7 +126,7 @@ pub enum CmpOp {
     Le,
 }
 
-/// A typed predicate literal (EH-365): the value a [`Pred::Cmp`]/[`Pred::In`]/
+/// A typed predicate literal (UQL-01): the value a [`Pred::Cmp`]/[`Pred::In`]/
 /// [`Pred::Between`] compares against. Typed so a number is compared as a number and a
 /// string as a string — the literal's type, not its spelling, decides the comparison.
 #[cfg(feature = "query")]
@@ -138,7 +138,7 @@ pub enum Scalar {
     Bool(bool),
 }
 
-/// Which way an [`Op::Expand`] follows edges (EH-369).
+/// Which way an [`Op::Expand`] follows edges (UQL-05).
 #[cfg(feature = "query")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
@@ -151,7 +151,7 @@ pub enum EdgeDir {
     Both,
 }
 
-/// A typed UQL parameter value (EH-371): what a `$name` in UQL text is bound to. Bound
+/// A typed UQL parameter value (UQL-07): what a `$name` in UQL text is bound to. Bound
 /// values are substituted into the parsed plan as typed literals — never spliced into
 /// the text — so a parameter can never change the query's structure.
 #[cfg(feature = "query")]
@@ -220,13 +220,13 @@ pub enum Op {
     /// SOURCE — seed from all nodes carrying `label` (`type == label`).
     Scan { label: String },
     /// SOURCE — seed from EVERY node of the (RLS/lease-filtered) snapshot, in id order:
-    /// UQL `MATCH ()` (EH-367).
+    /// UQL `MATCH ()` (UQL-03).
     ScanAll {},
     /// FILTER (relational) — keep rows matching ALL `preds`, via real DataFusion.
     Filter { preds: Vec<Pred> },
     /// TRAVERSE (graph) — follow `rel` edges `min..=max` hops (petgraph BFS).
     Traverse { rel: String, min: usize, max: usize },
-    /// TRAVERSE, general form (EH-369): follow edges in `dir`, restricted to relationship
+    /// TRAVERSE, general form (UQL-05): follow edges in `dir`, restricted to relationship
     /// `rel` (`None` ⇒ any relationship, UQL `*`) and to edges whose property blob
     /// satisfies every `edge_preds` entry, `min..=max` hops. `Expand{Some(r), Out, [], ..}`
     /// is spelled [`Op::Traverse`] (one encoding; the UQL parser emits `Traverse` for it).
@@ -607,7 +607,7 @@ pub enum Op {
     ExplainBelief { node_id: String },
     /// LIMIT — top-k, respecting the current order.
     Limit { k: usize },
-    /// PROJECT (UQL `RETURN`, EH-372) — name the score CHANNELS the result carries per
+    /// PROJECT (UQL `RETURN`, UQL-08) — name the score CHANNELS the result carries per
     /// row, alongside `id` and the current `score`. Every scoring op records its score
     /// under a fixed channel name (`similarity`, `text`, `belief`, `window`, …; see
     /// `eg_plan::channels`) so results of several scoring stages coexist instead of the

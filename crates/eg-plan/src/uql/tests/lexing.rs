@@ -1,4 +1,4 @@
-//! Lexer (EH-366): comments, numbers, unicode, quoted identifiers, JSONPath/params.
+//! Lexer (UQL-02): comments, numbers, unicode, quoted identifiers, JSONPath/params.
 
 use crate::uql::lexer::{lex, Tok};
 use crate::uql::parse;

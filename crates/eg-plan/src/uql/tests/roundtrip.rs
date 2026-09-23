@@ -1,4 +1,4 @@
-//! The printer ⇄ parser property (EH-370): for every generated plan the printer
+//! The printer ⇄ parser property (UQL-06): for every generated plan the printer
 //! accepts, `parse(print(p)) == canonicalize(p)`. Generated values deliberately include
 //! quotes, back-quotes, unicode, reserved words, negative zero and extreme magnitudes.
 

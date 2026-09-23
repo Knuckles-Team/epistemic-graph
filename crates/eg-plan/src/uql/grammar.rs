@@ -1,4 +1,4 @@
-//! THE UQL grammar — the single source of truth (EH-374).
+//! THE UQL grammar — the single source of truth (UQL-10).
 //!
 //! Every production is one row of [`PRODUCTIONS`]: its EBNF, what it lowers to, the
 //! build feature it needs, its role (source / stage / auxiliary) and an example. From

@@ -2,7 +2,7 @@
 //!
 //! Numeric literals are emitted bare, strings single-quote-escaped, identifiers
 //! double-quote-escaped; every identifier/literal is bounded. The predicate algebra
-//! (EH-365: typed `Cmp`, `In`, `Between`, `IsNull`, `And`/`Or`/`Not`) compiles to the
+//! (UQL-01: typed `Cmp`, `In`, `Between`, `IsNull`, `And`/`Or`/`Not`) compiles to the
 //! matching SQL connectives, so SQL's three-valued logic is the semantics: a comparison
 //! with a missing property is UNKNOWN, and `NOT UNKNOWN` does not keep the row.
 //! `eg_plan::pred_eval` implements the SAME logic per row for the paths that cannot use

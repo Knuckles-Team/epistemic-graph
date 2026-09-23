@@ -1,4 +1,4 @@
-//! Execution budgets (EH-373): the resource bounds every plan runs under.
+//! Execution budgets (UQL-09): the resource bounds every plan runs under.
 //!
 //! A plan that would exceed a budget fails with a typed `UQL_BUDGET_EXCEEDED` error that
 //! names the budget and the remedy — never a silent truncation, never an unbounded walk.

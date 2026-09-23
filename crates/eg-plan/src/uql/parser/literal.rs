@@ -1,5 +1,5 @@
 //! Literals: names, strings, numbers read from their exact source text, typed `$name`
-//! parameters, lists, vectors and JSON values (EH-366/EH-371).
+//! parameters, lists, vectors and JSON values (UQL-02/UQL-07).
 //!
 //! Parameters are resolved HERE, at the literal position that consumes them, and only
 //! when the bound value's type fits that position — a `$name` is a value, never text,

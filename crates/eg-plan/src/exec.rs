@@ -40,7 +40,7 @@ pub(crate) use pred_sql::{sql_literal, where_clause};
 pub struct PlanCtx<'a> {
     pub view: &'a GraphView,
     pub semantic: &'a SemanticStore,
-    /// Resource bounds (EH-373): result rows and per-traversal visits. Defaults to
+    /// Resource bounds (UQL-09): result rows and per-traversal visits. Defaults to
     /// [`crate::budget::Budget::default`]; a server binds its own via [`Self::with_budget`].
     pub budget: crate::budget::Budget,
     /// The lexical BM25 search surface for the `RankText` / `FuseRrf` ops
@@ -365,7 +365,7 @@ impl<'a> PlanCtx<'a> {
         }
     }
 
-    /// Bind the execution budget (EH-373) — result-row and traversal bounds.
+    /// Bind the execution budget (UQL-09) — result-row and traversal bounds.
     pub fn with_budget(mut self, budget: crate::budget::Budget) -> Self {
         self.budget = budget;
         self
