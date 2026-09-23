@@ -351,13 +351,6 @@
         "provenance": {
           "$ref": "#/$defs/ComponentProvenance"
         },
-        "provides": {
-          "default": [],
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
         "purpose_id": {
           "type": "string"
         },
@@ -2091,6 +2084,11 @@
       "additionalProperties": false,
       "description": "The answer: always a record, and a graph draft only when one was proved.",
       "properties": {
+        "agents": {
+          "$ref": "#/$defs/BoundedVec_AgentLibraryEntryDraft_8",
+          "default": [],
+          "description": "The assembled agents the graph runs, one per slot (one for the\none-agent graph); empty exactly when `graph` is `None`. Each must be\npublished before the graph that pins it."
+        },
         "graph": {
           "anyOf": [
             {
@@ -2101,7 +2099,19 @@
             }
           ],
           "default": null,
-          "description": "`Some` exactly when the record's outcome is `Solved`."
+          "description": "`Some` exactly when the record's outcome is `Solved`: a one-agent\ngraph whose agent node pins [`Self::agent`]. Its `synthesis_evidence`\nis empty until the record is committed; the caller then sets it to the\ncommitted `DecisionRecord` component and publishes it (§4.6)."
+        },
+        "model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SolveModelSpec"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The exact integer programme the record's certificate was issued over,\nso a client can verify the certificate without trusting the engine."
         },
         "record": {
           "$ref": "#/$defs/DecisionRecord"
@@ -2267,6 +2277,13 @@
       "maxItems": 8,
       "type": "array"
     },
+    "BoundedVec_AgentLibraryEntryDraft_8": {
+      "items": {
+        "$ref": "#/$defs/AgentLibraryEntryDraft"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
     "BoundedVec_CandidateFacts_64": {
       "items": {
         "$ref": "#/$defs/CandidateFacts"
@@ -2363,6 +2380,13 @@
         "$ref": "#/$defs/SlotAssignment"
       },
       "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_TemplateFacts_8": {
+      "items": {
+        "$ref": "#/$defs/TemplateFacts"
+      },
+      "maxItems": 8,
       "type": "array"
     },
     "BoundedVec_WeightedLevel_8": {
@@ -2620,6 +2644,30 @@
       ],
       "type": "object"
     },
+    "Coefficient": {
+      "description": "An objective coefficient. `Unknown` is never read as zero: a level that\nholds unknown coefficients ranks every selection of an unknown-cost\nvariable below every all-known selection (the \"unknown tier\").",
+      "oneOf": [
+        {
+          "enum": [
+            "unknown"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "known": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "known"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "ColdStart": {
       "description": "What the engine does before a head is calibrated.",
       "oneOf": [
@@ -2870,6 +2918,230 @@
       ],
       "type": "object"
     },
+    "ConstraintBody": {
+      "description": "The typed body of a constraint.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A general linear row with integer coefficients.",
+          "properties": {
+            "linear": {
+              "additionalProperties": false,
+              "properties": {
+                "relation": {
+                  "$ref": "#/$defs/Relation"
+                },
+                "rhs": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "terms": {
+                  "items": {
+                    "$ref": "#/$defs/Term"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "terms",
+                "relation",
+                "rhs"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "linear"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`antecedent ⇒ consequent` (`consequent − antecedent ≥ 0`).",
+          "properties": {
+            "implication": {
+              "additionalProperties": false,
+              "properties": {
+                "antecedent": {
+                  "$ref": "#/$defs/VarId"
+                },
+                "consequent": {
+                  "$ref": "#/$defs/VarId"
+                }
+              },
+              "required": [
+                "antecedent",
+                "consequent"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "implication"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`antecedent ⇒ at least one consequent` (a conditional covering row).",
+          "properties": {
+            "implies_any": {
+              "additionalProperties": false,
+              "properties": {
+                "antecedent": {
+                  "$ref": "#/$defs/VarId"
+                },
+                "consequents": {
+                  "items": {
+                    "$ref": "#/$defs/VarId"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "antecedent",
+                "consequents"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "implies_any"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Exactly one of `vars` is selected.",
+          "properties": {
+            "exactly_one": {
+              "additionalProperties": false,
+              "properties": {
+                "vars": {
+                  "items": {
+                    "$ref": "#/$defs/VarId"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "vars"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "exactly_one"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "At most `k` of `vars` are selected.",
+          "properties": {
+            "at_most": {
+              "additionalProperties": false,
+              "properties": {
+                "k": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "vars": {
+                  "items": {
+                    "$ref": "#/$defs/VarId"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "vars",
+                "k"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "at_most"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "At least `k` of `vars` are selected (`k = 1` is a covering row).",
+          "properties": {
+            "at_least": {
+              "additionalProperties": false,
+              "properties": {
+                "k": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "vars": {
+                  "items": {
+                    "$ref": "#/$defs/VarId"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "vars",
+                "k"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "at_least"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`var` is pinned to `value`.",
+          "properties": {
+            "fix": {
+              "additionalProperties": false,
+              "properties": {
+                "value": {
+                  "type": "boolean"
+                },
+                "var": {
+                  "$ref": "#/$defs/VarId"
+                }
+              },
+              "required": [
+                "var",
+                "value"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "fix"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ConstraintSpec": {
+      "additionalProperties": false,
+      "description": "A labelled constraint. The label names the constraint in explanations\n(for example an infeasibility core).",
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/ConstraintBody"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "body"
+      ],
+      "type": "object"
+    },
     "CostBudget": {
       "additionalProperties": false,
       "description": "A currency-denominated ceiling on the selection's declared cost.",
@@ -3093,6 +3365,11 @@
         },
         "solver": {
           "$ref": "#/$defs/SolverIdentity"
+        },
+        "templates": {
+          "$ref": "#/$defs/BoundedVec_TemplateFacts_8",
+          "default": [],
+          "description": "The graph templates the request named, read at their pinned revisions.\nEmpty asks for a one-agent graph."
         }
       },
       "required": [
@@ -3762,6 +4039,26 @@
         }
       ]
     },
+    "ObjectiveLevelSpec": {
+      "additionalProperties": false,
+      "description": "One level of the lexicographic objective (minimised).",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "terms": {
+          "items": {
+            "$ref": "#/$defs/ObjectiveTerm"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "label",
+        "terms"
+      ],
+      "type": "object"
+    },
     "ObjectiveOrder": {
       "description": "How the objective levels combine.",
       "oneOf": [
@@ -3802,6 +4099,23 @@
           "type": "object"
         }
       ]
+    },
+    "ObjectiveTerm": {
+      "additionalProperties": false,
+      "description": "One term of an objective level.",
+      "properties": {
+        "coefficient": {
+          "$ref": "#/$defs/Coefficient"
+        },
+        "var": {
+          "$ref": "#/$defs/VarId"
+        }
+      },
+      "required": [
+        "var",
+        "coefficient"
+      ],
+      "type": "object"
     },
     "ObjectiveValue": {
       "additionalProperties": false,
@@ -4514,6 +4828,24 @@
             "evaluation_id"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The request itself: a requirement the caller stated in `field`.",
+          "properties": {
+            "field": {
+              "type": "string"
+            },
+            "provenance": {
+              "const": "request",
+              "type": "string"
+            }
+          },
+          "required": [
+            "provenance",
+            "field"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -4905,6 +5237,26 @@
       ],
       "type": "object"
     },
+    "Relation": {
+      "description": "Relation of a linear row's left-hand side to its right-hand side.",
+      "oneOf": [
+        {
+          "const": "less_equal",
+          "description": "`Σ a·x ≤ rhs`.",
+          "type": "string"
+        },
+        {
+          "const": "greater_equal",
+          "description": "`Σ a·x ≥ rhs`.",
+          "type": "string"
+        },
+        {
+          "const": "equal",
+          "description": "`Σ a·x = rhs`.",
+          "type": "string"
+        }
+      ]
+    },
     "ResolutionKind": {
       "description": "How the conclusion was reached.",
       "enum": [
@@ -5042,6 +5394,36 @@
       "required": [
         "slot",
         "component"
+      ],
+      "type": "object"
+    },
+    "SolveModelSpec": {
+      "additionalProperties": false,
+      "description": "A complete 0-1 integer programme: binary variables, labelled constraints and\na lexicographic objective whose first level is the most significant.",
+      "properties": {
+        "constraints": {
+          "items": {
+            "$ref": "#/$defs/ConstraintSpec"
+          },
+          "type": "array"
+        },
+        "objective": {
+          "items": {
+            "$ref": "#/$defs/ObjectiveLevelSpec"
+          },
+          "type": "array"
+        },
+        "variables": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "variables",
+        "constraints",
+        "objective"
       ],
       "type": "object"
     },
@@ -5507,6 +5889,33 @@
       ],
       "type": "object"
     },
+    "TemplateFacts": {
+      "additionalProperties": false,
+      "description": "One operator-published graph template an assembly may fill, pinned to the\nexact revision it was read at. Its `Agent` nodes are the slots.",
+      "properties": {
+        "definition_digest": {
+          "type": "string"
+        },
+        "entry_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "graph_id": {
+          "type": "string"
+        },
+        "shape": {
+          "$ref": "#/$defs/AgentGraphShape"
+        }
+      },
+      "required": [
+        "graph_id",
+        "entry_revision",
+        "definition_digest",
+        "shape"
+      ],
+      "type": "object"
+    },
     "TemplateInstanceRef": {
       "additionalProperties": false,
       "description": "Where an instantiated agent came from.",
@@ -5569,6 +5978,24 @@
         "kind",
         "required",
         "summary"
+      ],
+      "type": "object"
+    },
+    "Term": {
+      "additionalProperties": false,
+      "description": "One `coefficient · variable` term of a linear row.",
+      "properties": {
+        "coefficient": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "var": {
+          "$ref": "#/$defs/VarId"
+        }
+      },
+      "required": [
+        "var",
+        "coefficient"
       ],
       "type": "object"
     },
@@ -5861,6 +6288,34 @@
           "required": [
             "violation",
             "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A latency ceiling is in force and the component declares no p95. An\nundeclared latency is never read as zero.",
+          "properties": {
+            "violation": {
+              "const": "unknown_latency_under_budget",
+              "type": "string"
+            }
+          },
+          "required": [
+            "violation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Forcing this component into the assembly leaves no feasible answer.",
+          "properties": {
+            "violation": {
+              "const": "infeasible_when_forced",
+              "type": "string"
+            }
+          },
+          "required": [
+            "violation"
           ],
           "type": "object"
         }

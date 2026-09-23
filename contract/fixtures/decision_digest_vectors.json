@@ -5,12 +5,12 @@
     {
       "name": "record_digest/solved",
       "domain": "eg/decision-record/v1",
-      "sha256": "sha256:bca04b21b3d7154e428bdfd182b047ade661f0d7a113e90af1a38ff0ca3e53aa"
+      "sha256": "sha256:beb25007d6ad315726db2bf98afa8df8a762efebaccc543bb2b31a1062a3cc02"
     },
     {
       "name": "inputs_digest/library_candidates",
       "domain": "eg/decision-inputs/v1",
-      "sha256": "sha256:92981614aa4819ae6b40064f7c8e6e0a897c5f42c4f40e6173ea48dcfe7c7565"
+      "sha256": "sha256:9d6e5829ccc3e95e2de5d87f0b5e77168ee4bd0c4b4b0408e5f754bf14fefe36"
     },
     {
       "name": "policy_digest/default_shape",

@@ -6624,7 +6624,9 @@
       "stability": "stable"
     },
     {
-      "consumer_profiles": [],
+      "consumer_profiles": [
+        "python"
+      ],
       "domain": "compute",
       "error_set": [
         "INVALID_ARGUMENT",
@@ -6658,7 +6660,7 @@
         "schema": "contract/schemas/result.compute.json#/methods/Solve",
         "selected_by": null
       },
-      "stability": "internal"
+      "stability": "stable"
     },
     {
       "consumer_profiles": [
@@ -16201,7 +16203,9 @@
       "stability": "stable"
     },
     {
-      "consumer_profiles": [],
+      "consumer_profiles": [
+        "python"
+      ],
       "domain": "storage",
       "error_set": [
         "INVALID_ARGUMENT",
@@ -16235,10 +16239,12 @@
         "schema": "contract/schemas/result.storage.json#/methods/AgentAssemble",
         "selected_by": null
       },
-      "stability": "internal"
+      "stability": "stable"
     },
     {
-      "consumer_profiles": [],
+      "consumer_profiles": [
+        "python"
+      ],
       "domain": "storage",
       "error_set": [
         "INVALID_ARGUMENT",
@@ -16279,7 +16285,7 @@
         "schema": "contract/schemas/result.storage.json#/methods/DecisionCommit",
         "selected_by": null
       },
-      "stability": "internal"
+      "stability": "stable"
     },
     {
       "consumer_profiles": [

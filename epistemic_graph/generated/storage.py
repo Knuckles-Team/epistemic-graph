@@ -32,6 +32,14 @@ from .connector_pack import (
     ConnectorPackStatusRequest,
     PackImportResult,
 )
+from .decision import (
+    AssemblyRequest,
+    AssemblyResult,
+)
+from .decision_commit import (
+    DecisionCommitRequest,
+    DecisionCommitResult,
+)
 from .write_back import (
     WriteBackOp,
 )
@@ -656,6 +664,112 @@ async def send_agent_template(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("AgentTemplate", payload)
+
+
+class AgentAssembleRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        AgentAssemble
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/AgentAssemble
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: AssemblyRequest
+
+
+async def send_agent_assemble(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> AssemblyResult:
+    """Send one engine-contract request.
+
+    Method:
+        AgentAssemble
+    Authorization:
+        agent:assemble-read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/AgentAssemble
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    AgentAssembleRequest.model_validate(params or {})
+    payload = await client._send(
+        "AgentAssemble",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return AssemblyResult.model_validate(payload)
+
+
+class DecisionCommitRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        DecisionCommit
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/DecisionCommit
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: DecisionCommitRequest
+
+
+async def send_decision_commit(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> DecisionCommitResult:
+    """Send one engine-contract request.
+
+    Method:
+        DecisionCommit
+    Authorization:
+        agent:decision-write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/DecisionCommit
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    DecisionCommitRequest.model_validate(params or {})
+    payload = await client._send(
+        "DecisionCommit",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return DecisionCommitResult.model_validate(payload)
 
 
 class ConnectorPackRequest(BaseModel):
