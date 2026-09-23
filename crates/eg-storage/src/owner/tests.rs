@@ -43,8 +43,8 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // catalog tables `eg-query` wrote without declaring, MINUS the five
     // `__sql_mutation_*__` tables of the private ledger RF-RULING-006 retired
     // onto `MutationKernel`'s.
-    // One SQL provider-checkpoint table, then the two ANN tables (RF-019).
-    assert_eq!(owner_table_names(OwnerLayout::Sql).len(), 21);
+    // One SQL provider-checkpoint table, the two ANN tables, the edge-index registry.
+    assert_eq!(owner_table_names(OwnerLayout::Sql).len(), 22);
     assert_eq!(owner_table_names(OwnerLayout::PathIndex).len(), 1);
     // Six root-binary sidecar layouts. Each is one physical file with one
     // fixed native ControlPlane scope, so each declares only its own table(s):
@@ -148,7 +148,8 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
     // also `DomainService`: service 138 = 128 + 9 + 1. 140 -> 141: the Decide
     // layer's `decision_records`, `DomainService`: service 139 = 138 + 1.
     // 141 -> 143: the two DomainService SQL ANN tables (RF-019): service 141.
-    assert_eq!((names.len(), service, shared), (143, 141, 2));
+    // 143 -> 144: the edge-index registry (DomainService): service 142.
+    assert_eq!((names.len(), service, shared), (144, 142, 2));
 }
 
 #[test]
@@ -810,7 +811,8 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     // 157 -> 158: the Decide layer's `decision_artifacts`. 158 -> 159: its
     // `decision_records`.
     // 159 -> 161: the SQL ANN generation and changed-row tables.
-    assert_eq!(names.len(), 161);
+    // 161 -> 162: the edge-index registry table.
+    assert_eq!(names.len(), 162);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();
