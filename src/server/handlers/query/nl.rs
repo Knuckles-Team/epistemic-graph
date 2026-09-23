@@ -91,9 +91,9 @@ pub(crate) async fn handle_nl_query(
         Err(resp) => return Ok(resp),
     };
     // Verified-carrier legs: the committed tsdb scope for `Op::TsScan` fusion
-    // (CONCEPT:EG-KG.query.native-time-series) and the CALLER'S tenant-scoped foreign
+    // (CONCEPT:EG-KG.query.native-time-series) and the CALLER'S owner-scoped foreign
     // registry (EH-373), so an NL-planned `FOREIGN "<name>"` / `Named` `ForeignScan`
-    // leg resolves only sources the caller's verified tenant registered.
+    // leg resolves only sources the caller (tenant+principal) registered.
     let legs = match ServedPlanLegs::resolve(state, graph_name, read_authority, &plan).await {
         Ok(legs) => legs,
         Err(denied) => return Ok(Response::err(req_id, denied)),
@@ -106,7 +106,7 @@ pub(crate) async fn handle_nl_query(
     #[cfg(feature = "security")]
     rls.filter_view(caller, &mut snap);
     // The same off-lock run as `UnifiedQueryText`: persistent vector/lexical/spatial/
-    // shape indexes and the caller's tenant foreign registry are bound inside it.
+    // shape indexes and the caller's owner-scoped foreign registry are bound inside it.
     let resp = match run_unified_off_lock(state, req_id, &core, Arc::new(snap), plan, legs).await {
         Ok(Ok(rows)) => result_response::<query_results::NlQuery>(req_id, &rows),
         Ok(Err(msg)) => Response::err(req_id, format!("NlQuery error: {msg}")),

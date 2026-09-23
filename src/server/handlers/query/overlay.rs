@@ -163,9 +163,9 @@ where
         Some((tenant, graph)) => (Some(tenant), Some(graph)),
         None => (None, None),
     };
-    // CONCEPT:EG-KG.query.closure-backed-source — the CALLER'S tenant-scoped foreign
+    // CONCEPT:EG-KG.query.closure-backed-source — the CALLER'S owner-scoped foreign
     // registry (EH-373): an in-txn `FOREIGN "<name>"` / `Named` `ForeignScan` leg
-    // resolves only sources the caller's verified tenant registered.
+    // resolves only sources the caller (tenant+principal) registered.
     #[cfg(feature = "federation")]
     let foreign = match served_foreign_leg(state, &plan, read_authority).await {
         Ok(foreign) => foreign,

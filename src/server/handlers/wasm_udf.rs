@@ -1,10 +1,10 @@
 //! WASM-sandboxed UDF handlers (CONCEPT:EG-KG.query.rowset-execution).
 //!
 //! `RegisterUdf` compiles + caches an agent-supplied WebAssembly module in the
-//! tenant-scoped [`crate::server::udf_catalog::UdfCatalog`] on `ServerState`, under the
-//! caller's VERIFIED tenant (EH-374); `RunUdf` runs the caller's own tenant's cached UDF
-//! SANDBOXED (fuel + memory limits, NO host capabilities) over an opaque byte payload.
-//! Another tenant's id resolves as unregistered and cannot be shadowed. The
+//! owner-scoped [`crate::server::udf_catalog::UdfCatalog`] on `ServerState`, under the
+//! caller's VERIFIED owner — tenant+principal (EH-374); `RunUdf` runs the caller's own
+//! cached UDF SANDBOXED (fuel + memory limits, NO host capabilities) over an opaque byte
+//! payload. Another principal's id resolves as unregistered and cannot be shadowed. The
 //! compile/run is CPU-bound, so it runs on the blocking pool off the reactor (a
 //! fuel-killed infinite loop therefore never stalls the runtime).
 

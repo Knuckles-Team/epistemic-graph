@@ -506,7 +506,7 @@ async fn handle_unified_query_text_with_lease(
         Ok(plan) => plan,
         Err(e) => return Ok(Response::err(req_id, e.render(&text))),
     };
-    // Verified-carrier legs (tsdb scope + the caller's tenant foreign registry, EH-373).
+    // Verified-carrier legs (tsdb scope + the caller's owner-scoped foreign registry, EH-373).
     let legs = ServedPlanLegs::resolve(state, ctx.graph_name, ctx.read_authority, &plan).await?;
     let (snap, _version) = lease_filtered_snapshot(core, policy_lease, store)?;
     let resp = match run_unified_off_lock(state, req_id, core, snap, plan, legs).await {

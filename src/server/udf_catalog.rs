@@ -1,20 +1,21 @@
-//! Tenant-scoped WASM UDF catalog (CONCEPT:EG-KG.query.rowset-execution, EH-374).
+//! Owner-scoped WASM UDF catalog (CONCEPT:EG-KG.query.rowset-execution, EH-374).
 //!
 //! `Method::RegisterUdf` compiles an agent-supplied module and `Method::RunUdf` runs it
 //! sandboxed. Before EH-374 the server kept ONE process-global `id → module` registry:
-//! any tenant could RUN a UDF another tenant registered (its code, and any data baked
-//! into it) and could SHADOW it — re-registering the same id replaced the module, so
-//! the owner's next `RunUdf` silently executed the other tenant's code.
+//! any principal could RUN a UDF another principal registered (its code, and any data
+//! baked into it) and could SHADOW it — re-registering the same id replaced the module,
+//! so the owner's next `RunUdf` silently executed the other principal's code.
 //!
 //! Same shape as the foreign-source fix (`server::foreign_catalog`, EH-373): entries are
-//! keyed by `(verified tenant scope, id)`, the tenant scope comes only from a
-//! [`CarrierAuthority`] minted from the verified envelope, and [`UdfCatalog::run`] /
-//! [`UdfCatalog::register`] are the only ways in. Another tenant's id resolves exactly
-//! like an unregistered id (eg-wasm's own "no UDF registered" message), so the refusal
-//! does not reveal that the id exists elsewhere. Modules are in memory only
-//! (`RegisterUdf`'s durable record is an opaque saga receipt), so there is no stored
-//! key shape to migrate. The served `Op::Udf` plan op binds no registry today, so
-//! `RunUdf` is the only reader.
+//! keyed by `(verified owner, id)`, where the owner is [`CarrierAuthority::owner_scope`]
+//! — tenant+principal, minted only from the verified envelope. One engine is bound to
+//! one tenant, so the principal is the working boundary; the tenant stays inside the
+//! owner key. [`UdfCatalog::run`] / [`UdfCatalog::register`] are the only ways in.
+//! Another owner's id resolves exactly like an unregistered id (eg-wasm's own "no UDF
+//! registered" message), so the refusal does not reveal that the id exists elsewhere.
+//! Modules are in memory only (`RegisterUdf`'s durable record is an opaque saga
+//! receipt), so there is no stored key shape to migrate. The served `Op::Udf` plan op
+//! binds no registry today, so `RunUdf` is the only reader.
 
 use std::sync::Arc;
 
@@ -22,17 +23,18 @@ use eg_wasm::{UdfError, UdfLimits, UdfModule, UdfRegistry};
 
 use super::access::CarrierAuthority;
 
-/// Every tenant's compiled UDFs, partitioned by verified tenant scope.
+/// Every owner's compiled UDFs, partitioned by verified owner (tenant+principal) scope.
 #[derive(Default)]
 pub struct UdfCatalog {
     modules: UdfRegistry,
 }
 
-/// The registry key for `(tenant scope, id)`. A tenant scope is an opaque
-/// `[a-z0-9:-]` token (see `CarrierAuthority::from_verified`), so it never contains
-/// the NUL separator and two distinct pairs never share a key.
-fn catalog_key(tenant_scope: &str, id: &str) -> String {
-    format!("{tenant_scope}\0{id}")
+/// The registry key for `(owner scope, id)`. An owner scope is an opaque
+/// `<namespace>:<hex>` token (`opaque_coordinator_key`, see
+/// `CarrierAuthority::from_verified`), so it never contains the NUL separator and two
+/// distinct pairs never share a key.
+fn catalog_key(owner_scope: &str, id: &str) -> String {
+    format!("{owner_scope}\0{id}")
 }
 
 impl UdfCatalog {
@@ -45,15 +47,15 @@ impl UdfCatalog {
         limits: UdfLimits,
     ) -> Result<(), UdfError> {
         self.modules
-            .register(&catalog_key(owner.tenant_scope(), id), wasm, limits)
+            .register(&catalog_key(owner.owner_scope(), id), wasm, limits)
     }
 
     /// `caller`'s own compiled module `id`, if registered.
     pub(crate) fn module_for(&self, caller: &CarrierAuthority, id: &str) -> Option<Arc<UdfModule>> {
-        self.modules.get(&catalog_key(caller.tenant_scope(), id))
+        self.modules.get(&catalog_key(caller.owner_scope(), id))
     }
 
-    /// Run `caller`'s own UDF `id` over `input`. Another tenant's id is "not
+    /// Run `caller`'s own UDF `id` over `input`. Another owner's id is "not
     /// registered", byte-identical to a typo.
     pub(crate) fn run(
         &self,
@@ -73,8 +75,9 @@ mod tests {
     use super::*;
     use crate::server::auth::VerifiedRequestContext;
 
-    fn carrier(tenant: &str) -> CarrierAuthority {
-        let context = VerifiedRequestContext::verified_for_test_in_tenant("agent-x", tenant);
+    /// A verified carrier for `agent` in the deployment's one tenant.
+    fn carrier(agent: &str) -> CarrierAuthority {
+        let context = VerifiedRequestContext::verified_for_test(agent);
         CarrierAuthority::from_verified(&context).expect("verified test carrier")
     }
 
@@ -93,8 +96,9 @@ mod tests {
     }
 
     #[test]
-    fn udf_ids_are_tenant_scoped_for_run_and_shadowing() {
-        let (a, b) = (carrier("tenant-a"), carrier("tenant-b"));
+    fn udf_ids_are_owner_scoped_for_run_and_shadowing() {
+        let (a, b) = (carrier("agent-a"), carrier("agent-b"));
+        assert_eq!(a.tenant_scope(), b.tenant_scope(), "one engine, one tenant");
         let catalog = UdfCatalog::default();
         catalog
             .register(&a, "f", &constant_udf(0xaa), UdfLimits::default())

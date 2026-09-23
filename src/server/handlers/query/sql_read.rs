@@ -233,7 +233,7 @@ pub(crate) async fn handle_unified_query(
     let core = ctx.core.clone();
     #[cfg(feature = "security")]
     let rls = ctx.rls;
-    // Verified-carrier legs (tsdb scope + the caller's tenant foreign registry, EH-373).
+    // Verified-carrier legs (tsdb scope + the caller's owner-scoped foreign registry, EH-373).
     let legs = match ServedPlanLegs::resolve(state, ctx.graph_name, ctx.read_authority, &plan).await
     {
         Ok(legs) => legs,
@@ -351,7 +351,7 @@ pub(crate) async fn handle_unified_query_text(
         Ok(plan) => plan,
         Err(e) => return Ok(Response::err(req_id, e.render(&text))),
     };
-    // Verified-carrier legs (tsdb scope + the caller's tenant foreign registry, EH-373).
+    // Verified-carrier legs (tsdb scope + the caller's owner-scoped foreign registry, EH-373).
     let legs = match ServedPlanLegs::resolve(state, ctx.graph_name, ctx.read_authority, &plan).await
     {
         Ok(legs) => legs,
