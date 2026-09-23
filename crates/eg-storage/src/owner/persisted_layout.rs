@@ -11,9 +11,9 @@
 //! The inspection never opens a write transaction, so a refused file's bytes
 //! are unchanged (redb repairs a file on a writable open).
 //!
-//! This is the per-store slice of the layout lineage the X11 design generalises;
-//! the error code and message follow that design so the registry can absorb the
-//! declarations unchanged.
+//! The declarations themselves live in the lineage registry
+//! ([`crate::owner::lineage`]), which runs this check before every open and at
+//! every manifest read.
 
 use crate::owner::identity::PhysicalStoreIdentity;
 use crate::owner::layout::{layout_digest_over, OwnerLayout};
@@ -49,22 +49,26 @@ impl LayoutPredecessor {
         )
     }
 
-    fn refusal(&self, path: &Path) -> String {
+    /// The named refusal, naming the file when the caller knows its path.
+    pub(crate) fn refusal(&self, path: Option<&Path>) -> String {
+        let subject = path.map_or_else(
+            || format!("this {}", self.file_name),
+            |path| path.display().to_string(),
+        );
         format!(
-            "{code}: {path} is a {label} file and this build does not open it; {lost}. \
+            "{code}: {subject} is a {label} file and this build does not open it; {lost}. \
              Stop the engine, move {file} aside (keep it until the restarted engine is \
              confirmed healthy), and restart: a fresh store is created.",
             code = self.error_code(),
-            path = path.display(),
             label = self.label,
             lost = self.data_lost,
             file = self.file_name,
         )
     }
 
-    fn matches(&self, manifest: &OwnerManifest) -> bool {
+    pub(crate) fn matches(&self, manifest: &OwnerManifest) -> bool {
         manifest.layout == self.layout
-            && manifest.validate().is_err()
+            && manifest.validate_current().is_err()
             && layout_digest_over(manifest.layout, &manifest.tables) == manifest.layout_digest
             && owner_table_ids(manifest).eq(self.owner_tables.iter().copied())
     }
@@ -86,7 +90,7 @@ pub fn refuse_known_predecessor(
     predecessor: &LayoutPredecessor,
 ) -> Result<(), String> {
     match read_persisted_manifest(path) {
-        Ok(manifest) if predecessor.matches(&manifest) => Err(predecessor.refusal(path)),
+        Ok(manifest) if predecessor.matches(&manifest) => Err(predecessor.refusal(Some(path))),
         // Not a predecessor, or not inspectable: the normal open is the
         // authority on what is wrong with it, so its error is the one reported.
         Ok(_) | Err(_) => Ok(()),
