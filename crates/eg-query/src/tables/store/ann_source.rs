@@ -5,6 +5,7 @@
 //! all observe the same snapshot. Nothing here writes: building and serving an
 //! ANN generation are reads of the source of record, never a second copy of it.
 
+use eg_core::index::{IndexBlock, IndexBlockReason};
 use eg_types::RowPredicate;
 
 use super::ann_durable::{changed_since, ChangedRows, DirtyReadTable};
@@ -34,7 +35,7 @@ impl AnnSourceRows {
         cells: &[Cell],
         vector_index: usize,
         limit: usize,
-    ) -> Result<(), String> {
+    ) -> Result<(), IndexBlock> {
         let Some(vector) = vector_cell(cells, vector_index) else {
             return Ok(());
         };
@@ -42,8 +43,9 @@ impl AnnSourceRows {
             return Ok(());
         }
         if self.rows.len() >= limit {
-            return Err(format!(
-                "ANN generation build exceeds its bound of {limit} indexed rows"
+            return Err(IndexBlock::new(
+                IndexBlockReason::BuildBound,
+                &format!("ANN generation build exceeds its bound of {limit} indexed rows"),
             ));
         }
         self.rows.push((rowid, vector.to_vec()));
@@ -182,32 +184,35 @@ impl TableStore {
     }
 
     /// Every indexable vector of `table.column`, read in ONE snapshot and
-    /// bounded by `limit` indexed rows. The maintenance worker's only source.
+    /// bounded by `limit` indexed rows. The maintenance worker's only source; a
+    /// failure is the typed diagnostic the index is blocked with.
     pub(crate) fn ann_source_rows(
         &self,
         table: &str,
         column: &str,
         limit: usize,
-    ) -> Result<AnnSourceRows, String> {
-        let rtx = self.authority.read()?;
-        let schema = get_schema_read(&rtx, table)?
-            .ok_or_else(|| format!("table `{table}` does not exist"))?;
-        let (vector_index, declared) = vector_column(&schema, column)?;
+    ) -> Result<AnnSourceRows, IndexBlock> {
+        let failed = |reason: String| IndexBlock::new(IndexBlockReason::BuildFailed, &reason);
+        let rtx = self.authority.read().map_err(failed)?;
+        let schema = get_schema_read(&rtx, table)
+            .map_err(failed)?
+            .ok_or_else(|| not_indexable(format!("table `{table}` does not exist")))?;
+        let (vector_index, declared) = vector_column(&schema, column).map_err(not_indexable)?;
         let mut source = AnnSourceRows {
-            epoch: self.authority.source_snapshot(&rtx)?.epoch,
+            epoch: self.authority.source_snapshot(&rtx).map_err(failed)?.epoch,
             dim: declared,
             max_rowid: None,
             rows: Vec::new(),
         };
-        let rows = rtx.open_owner_table(ROWS)?;
+        let rows = rtx.open_owner_table(ROWS).map_err(failed)?;
         for entry in rows
             .range((table, 0u64)..=(table, u64::MAX))
-            .map_err(map_err)?
+            .map_err(|error| failed(map_err(error)))?
         {
-            let (key, value) = entry.map_err(map_err)?;
+            let (key, value) = entry.map_err(|error| failed(map_err(error)))?;
             let rowid = key.value().1;
             source.max_rowid = Some(rowid);
-            let cells: Vec<Cell> = decode_stored(value.value(), "row")?;
+            let cells: Vec<Cell> = decode_stored(value.value(), "row").map_err(failed)?;
             source.admit(rowid, &cells, vector_index, limit)?;
         }
         Ok(source)
@@ -291,6 +296,10 @@ fn vector_column(schema: &TableSchema, column: &str) -> Result<(usize, Option<us
                 schema.name
             )
         })
+}
+
+fn not_indexable(reason: String) -> IndexBlock {
+    IndexBlock::new(IndexBlockReason::NotIndexable, &reason)
 }
 
 /// The vector held at `index` of a stored row.

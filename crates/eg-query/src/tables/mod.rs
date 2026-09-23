@@ -36,7 +36,7 @@ pub mod schema;
 pub mod store;
 
 pub use ann_authority::{
-    AnnFallbackReason, AnnGenerationState, AnnIndexStatus, AnnLimits, AnnRefreshOutcome,
+    AnnFallbackReason, AnnIndexStatus, AnnLimits, AnnRefreshOutcome,
     AnnRefreshPolicy, AnnServeReceipt, AnnServingPath, AnnTopK, AnnTopKRequest, UserAnnAuthority,
 };
 pub use embedding_binding::{

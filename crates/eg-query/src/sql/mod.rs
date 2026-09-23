@@ -102,6 +102,10 @@ pub(crate) mod providers;
 /// with zero heavy deps, already-linked `eg-compute` unconditionally carries them.
 mod sketch_udfs;
 mod spill;
+// The catalog objects of one table store a SQL read registers (EH-352 status rows).
+mod store_catalog;
+// `information_schema.eg_index_status` (EH-352), synthesized like the other catalogs.
+mod index_status;
 mod tablefuncs;
 mod udfs;
 // EH-387: the read-only gate of the graph-free SQL path.
