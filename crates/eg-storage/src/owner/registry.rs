@@ -80,6 +80,19 @@ pub const SQL_SOURCE_AUTHORITY: TableDefinition<'static, &str, &[u8]> =
 /// checkpoint records supplied by the SQL source adapter.
 pub const SQL_SOURCE_CHECKPOINTS: TableDefinition<'static, (&str, &str, &str), &[u8]> =
     TableDefinition::new("__sql_source_checkpoints__");
+/// Durable generations of the maintained SQL ANN authority (RF-019, EH-352).
+/// Keyed `(index key, generation, part)`: part 0 of a generation is its
+/// manifest and parts 1.. are its bounded payload chunks, so two generations of
+/// one index coexist while the next is written. Generation 0 is the live
+/// pointer row naming the generation reopen serves.
+pub const SQL_ANN_GENERATIONS: TableDefinition<'static, (&str, u64, u64), &[u8]> =
+    TableDefinition::new("__sql_ann_generations__");
+/// The changed-row log of every ANN-indexed SQL table: `(table, row id) ->
+/// source epoch` of the row's last change, written in the same owner write as
+/// the change. Row id `u64::MAX` (never allocated) holds the table's last
+/// change epoch, which is what per-table ANN staleness compares against.
+pub const SQL_ANN_DIRTY: TableDefinition<'static, (&str, u64), u64> =
+    TableDefinition::new("__sql_ann_dirty__");
 const SQL_STR_BYTES: [TableDefinition<'static, &str, &[u8]>; 7] = [
     TableDefinition::new("__sql_catalog__"),
     TableDefinition::new("__sql_functions__"),
@@ -312,6 +325,8 @@ macro_rules! visit_owner_tables {
                 $visit!(SQL_PROPERTY_GRAPHS);
                 $visit!(SQL_PROPERTY_GRAPH_SEQ);
                 $visit!(SQL_SOURCE_CHECKPOINTS);
+                $visit!(SQL_ANN_GENERATIONS);
+                $visit!(SQL_ANN_DIRTY);
             }
             OwnerLayout::Blob => {
                 $visit!(BLOB_CHUNKS);
@@ -547,6 +562,8 @@ pub fn owner_table_names(layout: OwnerLayout) -> &'static [&'static str] {
             "__sql_property_graphs__",
             "__sql_property_graph_seq__",
             "__sql_source_checkpoints__",
+            "__sql_ann_generations__",
+            "__sql_ann_dirty__",
         ],
         OwnerLayout::Blob => &[
             "cas_chunks",

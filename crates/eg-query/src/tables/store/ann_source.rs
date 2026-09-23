@@ -7,6 +7,7 @@
 
 use eg_types::RowPredicate;
 
+use super::ann_durable::{changed_since, ChangedRows, DirtyReadTable};
 use super::{decode_stored, get_schema_read, map_err, row_map, RowsReadTable, TableStore, ROWS};
 use crate::tables::ann_authority::UserAnnAuthority;
 use crate::tables::schema::{Cell, ColumnType, TableSchema};
@@ -50,6 +51,19 @@ impl AnnSourceRows {
     }
 }
 
+/// The rows of one table changed after a generation's build, read with their
+/// current vectors from ONE snapshot: what an incremental refresh folds into
+/// the next generation instead of rebuilding it.
+pub(crate) struct AnnChangedRows {
+    /// Tenant SQL source epoch the snapshot observed.
+    pub(crate) epoch: u64,
+    /// `(row id, current vector)`; `None` for a deleted row or one without a
+    /// vector.
+    pub(crate) rows: Vec<(u64, Option<Vec<f32>>)>,
+    /// `false` when more rows changed than the bound admitted.
+    pub(crate) complete: bool,
+}
+
 /// How far a bounded range read got.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ScanExtent {
@@ -62,6 +76,7 @@ pub(crate) enum ScanExtent {
 /// One snapshot of one table, opened for one probe.
 pub(crate) struct AnnRowReader<'a> {
     rows: RowsReadTable,
+    dirty: DirtyReadTable,
     table: &'a str,
     schema: TableSchema,
     vector_index: usize,
@@ -72,6 +87,30 @@ impl AnnRowReader<'_> {
     /// Tenant SQL source epoch of this snapshot.
     pub(crate) fn epoch(&self) -> u64 {
         self.epoch
+    }
+
+    /// Row ids changed after `epoch` in this snapshot, at most `bound` of them.
+    pub(crate) fn changed_since(&self, epoch: u64, bound: usize) -> Result<ChangedRows, String> {
+        changed_since(&self.dirty, self.table, epoch, bound)
+    }
+
+    /// The current vector of each of `rowids` (`None` for a deleted row or one
+    /// without a vector), unfiltered: the maintenance worker's view.
+    pub(crate) fn current_vectors(
+        &self,
+        rowids: &[u64],
+    ) -> Result<Vec<(u64, Option<Vec<f32>>)>, String> {
+        rowids
+            .iter()
+            .map(|rowid| {
+                let cells = self.visible_row(*rowid, None)?;
+                let vector = cells
+                    .as_deref()
+                    .and_then(|cells| self.vector(cells))
+                    .map(<[f32]>::to_vec);
+                Ok((*rowid, vector))
+            })
+            .collect()
     }
 
     /// The indexed vector of `cells`, when it holds one.
@@ -142,12 +181,6 @@ impl TableStore {
         &self.ann
     }
 
-    /// The tenant SQL source epoch right now.
-    pub(crate) fn ann_source_epoch(&self) -> Result<u64, String> {
-        let rtx = self.authority.read()?;
-        Ok(self.authority.source_snapshot(&rtx)?.epoch)
-    }
-
     /// Every indexable vector of `table.column`, read in ONE snapshot and
     /// bounded by `limit` indexed rows. The maintenance worker's only source.
     pub(crate) fn ann_source_rows(
@@ -180,6 +213,38 @@ impl TableStore {
         Ok(source)
     }
 
+    /// The rows of `table` changed after `since`, with their current `column`
+    /// vectors, from one snapshot and bounded by `limit` rows. The maintenance
+    /// worker's source for an incremental refresh.
+    pub(crate) fn ann_changed_rows(
+        &self,
+        table: &str,
+        column: &str,
+        since: u64,
+        limit: usize,
+    ) -> Result<AnnChangedRows, String> {
+        self.with_ann_reader(table, column, |reader| {
+            let changed = reader.changed_since(since, limit)?;
+            Ok(AnnChangedRows {
+                epoch: reader.epoch(),
+                rows: reader.current_vectors(&changed.rowids)?,
+                complete: changed.complete,
+            })
+        })
+    }
+
+    /// The current `column` vectors of `rowids` from one snapshot (`None` for a
+    /// deleted row or one without a vector) — the rows a restored incremental
+    /// generation re-applies on top of its base.
+    pub(crate) fn ann_row_vectors(
+        &self,
+        table: &str,
+        column: &str,
+        rowids: &[u64],
+    ) -> Result<Vec<(u64, Option<Vec<f32>>)>, String> {
+        self.with_ann_reader(table, column, |reader| reader.current_vectors(rowids))
+    }
+
     /// Run `read` over one snapshot of `table`, whose `column` must be a vector
     /// column.
     pub(crate) fn with_ann_reader<T>(
@@ -194,8 +259,10 @@ impl TableStore {
         let (vector_index, _) = vector_column(&schema, column)?;
         let epoch = self.authority.source_snapshot(&rtx)?.epoch;
         let rows = rtx.open_owner_table(ROWS)?;
+        let dirty = rtx.open_owner_table(eg_storage::SQL_ANN_DIRTY)?;
         read(&AnnRowReader {
             rows,
+            dirty,
             table,
             schema,
             vector_index,

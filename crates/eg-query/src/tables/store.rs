@@ -53,6 +53,7 @@ use eg_types::mutation_batch::{
 use redb::{ReadableTable, TableDefinition};
 use serde_json::Value;
 
+mod ann_durable;
 mod ann_source;
 mod authority;
 #[cfg(any(test, feature = "dev-scope-grant"))]
@@ -61,7 +62,8 @@ mod outbox;
 mod row_insert;
 mod source_batch;
 
-pub(crate) use ann_source::{AnnRowReader, AnnSourceRows, ScanExtent};
+pub(crate) use ann_durable::{GenerationWrite, StoredGeneration};
+pub(crate) use ann_source::{AnnChangedRows, AnnRowReader, AnnSourceRows, ScanExtent};
 use authority::{sql_scope_identity, SqlAuthority, SqlMutation};
 pub(crate) use authority::{SqlRead, SqlWrite};
 
@@ -666,6 +668,7 @@ impl TableStore {
             ann: Arc::default(),
         };
         store.verify_schema_migrations()?;
+        store.restore_ann_generations()?;
         Ok(store)
     }
 
@@ -3536,9 +3539,15 @@ fn put_ann_index_in(wtx: &SqlWrite<'_>, plan: &AnnIndexPlan) -> Result<(), Strin
     let key = TableStore::ann_index_key(plan);
     let bytes = rmp_serde::to_vec_named(plan).map_err(|e| format!("encode ann index: {e}"))?;
     let mut indexes = wtx.open_table(ANN_INDEXES)?;
-    indexes
+    let replaced = indexes
         .insert(key.as_str(), bytes.as_slice())
-        .map_err(map_err)?;
+        .map_err(map_err)?
+        .is_some_and(|previous| previous.value() != bytes.as_slice());
+    drop(indexes);
+    // A redefined index never serves a generation built for its old definition.
+    if replaced {
+        ann_durable::drop_generations_in(wtx, &key)?;
+    }
     Ok(())
 }
 
@@ -3585,17 +3594,7 @@ fn drop_ann_indexes_for_column_in(
         table.to_ascii_lowercase(),
         column.to_ascii_lowercase()
     );
-    let mut indexes = wtx.open_table(ANN_INDEXES)?;
-    let keys = indexes
-        .iter()
-        .map_err(map_err)?
-        .filter_map(|row| row.ok().map(|(key, _)| key.value().to_string()))
-        .filter(|key| key.starts_with(&prefix))
-        .collect::<Vec<_>>();
-    for key in &keys {
-        indexes.remove(key.as_str()).map_err(map_err)?;
-    }
-    Ok(keys.len())
+    ann_durable::drop_registrations_in(wtx, table, &prefix)
 }
 
 // ── ordinary scalar secondary-index catalog and directory ───────────────────
@@ -3861,6 +3860,7 @@ fn maintain_secondary_row_in(
     old: Option<&[Cell]>,
     new: Option<&[Cell]>,
 ) -> Result<(), String> {
+    ann_durable::record_ann_change_in(wtx, table, rowid)?;
     let specs = list_secondary_indexes_write(wtx, tenant_scope, table)?;
     if specs.is_empty() {
         return Ok(());
@@ -4923,6 +4923,7 @@ fn drop_in(
     }
     delete_all_rows_of_table_in(wtx, name)?;
     drop_secondary_indexes_for_table_in(wtx, tenant_scope, name)?;
+    ann_durable::drop_registrations_in(wtx, name, &format!("{}.", name.to_ascii_lowercase()))?;
     {
         let mut hypertables = wtx.open_table(HYPERTABLES)?;
         hypertables.remove(name).map_err(map_err)?;

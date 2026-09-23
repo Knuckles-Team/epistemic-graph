@@ -3,7 +3,9 @@
 //! maintained probe is exact over what it returns, within recall of the exact
 //! top-k, filters inside the probe (CX-022: an unresolved visibility identity is
 //! denied), honours tombstones and post-build inserts, stays inside its resource
-//! bounds, reports its lag, and recovers after a restart by rebuilding.
+//! bounds, reports its lag, and serves its persisted generation after a restart.
+//! The durability, incremental-refresh and per-table staleness proofs are in
+//! `durability`.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -610,7 +612,7 @@ fn a_failed_build_is_visible_and_a_dropped_registration_is_forgotten() {
 }
 
 #[test]
-fn a_restart_serves_exactly_while_building_then_rebuilds_the_generation() {
+fn a_restart_serves_the_persisted_generation_without_a_rebuild() {
     let index = hnsw_l2();
     let rows = vectors(90, 20);
     let (store, path) = open_docs(&rows, &index);
@@ -620,28 +622,18 @@ fn a_restart_serves_exactly_while_building_then_rebuilds_the_generation() {
     drop(store);
 
     let reopened = TableStore::open(&path, dev_verifier(), DEV_PRINCIPAL, DEV_PROOF).unwrap();
+    let status = &reopened.ann_index_status().unwrap()[0];
     assert_eq!(
-        reopened.ann_index_status().unwrap()[0].state,
-        AnnGenerationState::Building
+        (status.state.clone(), status.generation),
+        (AnnGenerationState::Live, Some(1))
     );
-    let during = top(&reopened, &index, &query, 5, None);
-    assert_eq!(
-        during.receipt.path,
-        exact(AnnFallbackReason::GenerationBuilding)
-    );
-    assert_eq!(ids(&during.rows), before);
-
+    let after = top(&reopened, &index, &query, 5, None);
+    assert_eq!(after.receipt.path, maintained(1), "no exact window");
+    assert_eq!(ids(&after.rows), before);
     assert!(matches!(
         refresh(&reopened).as_slice(),
-        [AnnRefreshOutcome::Activated {
-            generation: 1,
-            rows: 90,
-            ..
-        }]
+        [AnnRefreshOutcome::Current { generation: 1, .. }]
     ));
-    let after = top(&reopened, &index, &query, 5, None);
-    assert_eq!(after.receipt.path, maintained(1));
-    assert_eq!(ids(&after.rows), before);
 }
 
 fn literal(vector: &[f32]) -> String {
@@ -708,3 +700,5 @@ fn sql_the_probe_cannot_filter_exactly_keeps_the_full_scan() {
         "a declined statement never reaches the authority"
     );
 }
+
+mod durability;

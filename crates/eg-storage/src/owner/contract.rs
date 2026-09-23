@@ -234,7 +234,8 @@ fn connector_owner_key_type(name: &str) -> Option<&'static str> {
 /// The SQL catalog/row store owned by `eg-query`.
 fn sql_key_type(name: &str) -> Option<&'static str> {
     match name {
-        "__sql_rows__" | "__sql_schema_catalog_order__" => Some("(&str,u64)"),
+        "__sql_rows__" | "__sql_schema_catalog_order__" | "__sql_ann_dirty__" => Some("(&str,u64)"),
+        "__sql_ann_generations__" => Some("(&str,u64,u64)"),
         "__sql_schema_migrations__" | "__sql_source_checkpoints__" => Some("(&str,&str,&str)"),
         "__sql_schema_migration_order__" => Some("(&str,&str,u64)"),
         "__sql_schema_versions__" => Some("(&str,&str)"),
@@ -370,7 +371,8 @@ fn sql_value_type(name: &str) -> Option<&'static str> {
         "__sql_seq__"
         | "__sql_schema_catalog_versions__"
         | "__sql_schema_versions__"
-        | "__sql_property_graph_seq__" => Some("u64"),
+        | "__sql_property_graph_seq__"
+        | "__sql_ann_dirty__" => Some("u64"),
         "__sql_views__"
         | "__sql_extensions__"
         | "__sql_schema_migration_order__"
@@ -382,8 +384,10 @@ fn sql_value_type(name: &str) -> Option<&'static str> {
 
 fn logical_codec_id(name: &str) -> &'static str {
     if name.starts_with("__sql_") {
-        return match sql_value_type(name) {
-            Some("u64") | Some("&str") => "redb-scalar-v1",
+        return match (name, sql_value_type(name)) {
+            // Manifest + opaque payload chunks of one ANN generation.
+            ("__sql_ann_generations__", _) => "raw-bytes-v1",
+            (_, Some("u64") | Some("&str")) => "redb-scalar-v1",
             _ => "msgpack-v1",
         };
     }
