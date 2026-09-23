@@ -13,8 +13,8 @@
 #
 # A THIN native TBox: only the classes and relations EG reasons over, placed under
 # the core BFO layer, with skos mappings to the canonical external ontologies
-# (RO, BFO, NCBITaxon/Darwin Core/TAXRANK, GO, ENVO, ChEBI, FoodOn, PATO, UBERON,
-# OBI, SOSA, Wikidata). Mappings are annotations only: nothing is imported.
+# (RO, BFO, COB, NCBITaxon/Darwin Core/TAXRANK, GO, ENVO, ChEBI, FoodOn, PATO, UBERON,
+# OGMS, SOSA, Wikidata). Mappings are annotations only: nothing is imported.
 #
 # Large vocabularies are DATA. A taxon, a GO term, an ENVO or UBERON term, a ChEBI
 # entity or a FoodOn food is ingested as an INDIVIDUAL of a :ReferenceTerm class
@@ -68,7 +68,7 @@
     rdfs:label "Organism" ;
     rdfs:comment "A living individual — an animal, plant, fungus, microbe — or a formerly living one. BFO:Object." ;
     rdfs:subClassOf bfo:0000030 ;
-    skos:exactMatch obo:OBI_0100026,
+    skos:exactMatch obo:COB_0000022,
         wd:Q7239 .
 
 :Person rdfs:subClassOf :Organism .
