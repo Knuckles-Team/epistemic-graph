@@ -282,7 +282,11 @@ fn push_schema_document(
 fn projection_failure_detail(error: &str) -> String {
     let mut detail = String::new();
     for character in error.chars() {
-        let character = if character.is_control() { ' ' } else { character };
+        let character = if character.is_control() {
+            ' '
+        } else {
+            character
+        };
         if detail.len() + character.len_utf8()
             > eg_types::connector_pack::MAX_PROJECTION_FAILURE_DETAIL_BYTES
         {

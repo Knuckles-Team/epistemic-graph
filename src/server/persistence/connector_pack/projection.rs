@@ -237,7 +237,8 @@ fn validate_projection_identity(
             graph_version,
         } if reserved_projection_graph(graph) && *graph_version > 0 => Ok(()),
         PackProjectionState::Failed { code, detail }
-            if valid_projection_code(code) && detail.as_deref().is_none_or(valid_failure_detail) =>
+            if valid_projection_code(code)
+                && detail.as_deref().is_none_or(valid_failure_detail) =>
         {
             Ok(())
         }
