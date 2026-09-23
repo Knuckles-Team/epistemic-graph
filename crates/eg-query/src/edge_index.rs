@@ -33,12 +33,17 @@
 //! * **Tenant and purpose scope.** An index belongs to one graph (a tenant's)
 //!   and declares its purpose; a search must present the same scope.
 
+mod durable;
 mod generation;
 mod registered;
 mod serve;
 #[cfg(test)]
 mod tests;
 
+pub use durable::{
+    create_durable_edge_index, drop_durable_edge_index, install_edge_indexes,
+    refresh_durable_edge_index,
+};
 pub use serve::{EdgeFallbackReason, EdgeHit, EdgeQuery, EdgeSearchAnswer, EdgeSearchRequest};
 
 use std::collections::BTreeMap;

@@ -11,7 +11,9 @@ use std::collections::BTreeMap;
 use eg_ann::HnswIndex;
 use eg_core::graph::GraphView;
 use eg_core::index::{IndexBlock, IndexBlockReason, IndexManifest};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use sha2::{Digest, Sha256};
 
 use super::{EdgeIndexKind, EdgeIndexLimits, EdgeIndexSpec, EdgeKey};
 use crate::sql::metric_to_ann;
@@ -29,6 +31,7 @@ pub(super) enum EdgeValue {
 }
 
 /// What a generation searches.
+#[derive(Serialize, Deserialize)]
 pub(super) enum EdgeGraph {
     /// No edge carried a vector, so the generation has no width.
     Empty,
@@ -41,6 +44,7 @@ pub(super) enum EdgeGraph {
 
 /// BM25 postings: every token's candidate ids, and the corpus statistics a
 /// search scores current texts against.
+#[derive(Serialize, Deserialize)]
 pub(super) struct TextPostings {
     pub(super) postings: BTreeMap<String, Vec<u64>>,
     pub(super) corpus: eg_text::Corpus,
@@ -51,6 +55,9 @@ pub(super) struct EdgeGeneration {
     /// The graph version of the snapshot the generation was built from.
     pub(super) built_version: u64,
     pub(super) keys: Vec<EdgeKey>,
+    /// The content hash of each key's indexed value, parallel to `keys`: what a
+    /// restore reconciles the current graph against.
+    pub(super) hashes: Vec<u64>,
     pub(super) graph: EdgeGraph,
     /// The snapshot's exact source coverage.
     pub(super) manifest: IndexManifest,
@@ -66,6 +73,7 @@ impl EdgeGeneration {
         limits: EdgeIndexLimits,
     ) -> Result<Self, IndexBlock> {
         let mut keys = Vec::new();
+        let mut hashes = Vec::new();
         let mut values = Vec::new();
         let mut edge_count = 0u64;
         for (key, value) in view_edges(view, &spec.property, spec.kind) {
@@ -83,6 +91,7 @@ impl EdgeGeneration {
                 ));
             }
             keys.push(key);
+            hashes.push(value.content_hash());
             values.push(value);
         }
         let graph = match spec.kind {
@@ -93,9 +102,29 @@ impl EdgeGeneration {
             generation,
             built_version: version,
             keys,
+            hashes,
             graph,
             manifest: IndexManifest::valid(version, view.node_map.len() as u64, edge_count),
         })
+    }
+}
+
+impl EdgeValue {
+    /// A stable 64-bit digest of the value (the leading bytes of its SHA-256).
+    pub(super) fn content_hash(&self) -> u64 {
+        let mut hasher = Sha256::new();
+        match self {
+            Self::Vector(vector) => vector
+                .iter()
+                .for_each(|x| hasher.update(x.to_bits().to_le_bytes())),
+            Self::Text(text) => hasher.update(text.as_bytes()),
+        }
+        let digest = hasher.finalize();
+        u64::from_le_bytes(
+            digest[..8]
+                .try_into()
+                .expect("a SHA-256 digest has 32 bytes"),
+        )
     }
 }
 

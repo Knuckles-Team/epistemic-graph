@@ -460,3 +460,5 @@ fn recall_holds_on_parallel_edges() {
     let mean = total / 20.0;
     assert!(mean >= 0.9, "mean recall@10 {mean} < 0.9");
 }
+
+mod durability;
