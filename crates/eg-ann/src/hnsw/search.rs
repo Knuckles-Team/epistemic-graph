@@ -56,28 +56,65 @@ pub(super) fn greedy_closest(
     best
 }
 
-pub(super) fn select_neighbors(cands: &[Cand], m: usize) -> Vec<usize> {
-    let mut values: Vec<Cand> = cands.to_vec();
-    super::truncate_nearest(&mut values, m);
-    values.into_iter().map(|candidate| candidate.node).collect()
+/// Choose up to `m` neighbours of a base node from `cands` (each scored by its
+/// distance to the base) with the neighbour-diversification heuristic (Malkov &
+/// Yashunin Algorithm 4). Candidates are taken nearest-first and one is kept only
+/// when it is nearer to the base than to every neighbour already kept, so a node
+/// spends its edges on distinct directions — including the bridge out of its own
+/// cluster — rather than on `m` near-duplicates. Without it, well-separated
+/// clusters wire only to themselves, the graph falls apart into islands, and a
+/// search that descends into the wrong island never leaves it. Pruned candidates
+/// then backfill the free slots nearest-first (`keepPrunedConnections`), so the
+/// out-degree stays `m` on dense data. Deterministic: the order is the total
+/// `(distance, id, node)` order.
+pub(super) fn select_neighbors(index: &HnswIndex, cands: &[Cand], m: usize) -> Vec<usize> {
+    let mut ordered: Vec<Cand> = cands.to_vec();
+    ordered.sort_unstable();
+    let mut kept: Vec<Cand> = Vec::with_capacity(m);
+    let mut pruned: Vec<Cand> = Vec::new();
+    for candidate in ordered {
+        if kept.len() == m {
+            break;
+        }
+        if is_diverse(index, &candidate, &kept) {
+            kept.push(candidate);
+        } else {
+            pruned.push(candidate);
+        }
+    }
+    let free = m - kept.len();
+    kept.extend(pruned.into_iter().take(free));
+    kept.into_iter().map(|candidate| candidate.node).collect()
 }
 
+/// Whether `candidate` is nearer to the base than to every already-kept neighbour.
+fn is_diverse(index: &HnswIndex, candidate: &Cand, kept: &[Cand]) -> bool {
+    let vector = &index.nodes[candidate.node].vector;
+    kept.iter().all(|neighbour| {
+        candidate.dist
+            < index
+                .metric
+                .distance(vector, &index.nodes[neighbour.node].vector)
+    })
+}
+
+/// Re-select an over-full adjacency list with the same heuristic, scored from
+/// the node that owns it.
 pub(super) fn prune(index: &mut HnswIndex, node: usize, layer: usize, m: usize) {
     if index.nodes[node].neighbors[layer].len() <= m {
         return;
     }
-    let base = index.nodes[node].vector.clone();
-    let mut scored: Vec<Cand> = index.nodes[node].neighbors[layer]
+    let base = &index.nodes[node].vector;
+    let scored: Vec<Cand> = index.nodes[node].neighbors[layer]
         .iter()
         .map(|&nb| Cand {
-            dist: index.metric.distance(&base, &index.nodes[nb].vector),
+            dist: index.metric.distance(base, &index.nodes[nb].vector),
             node: nb,
             id: index.nodes[nb].id,
         })
         .collect();
-    super::truncate_nearest(&mut scored, m);
-    index.nodes[node].neighbors[layer] =
-        scored.into_iter().map(|candidate| candidate.node).collect();
+    let selected = select_neighbors(index, &scored, m);
+    index.nodes[node].neighbors[layer] = selected;
 }
 
 pub(super) fn search(index: &HnswIndex, query: &[f32], k: usize, ef: usize) -> Vec<SearchResult> {

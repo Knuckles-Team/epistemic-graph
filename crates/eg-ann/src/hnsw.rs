@@ -205,7 +205,7 @@ impl HnswIndex {
         for layer in (0..=start).rev() {
             let found = search::search_layer(self, &query, &[ep], self.ef_construction, layer);
             let m = if layer == 0 { self.m0 } else { self.m };
-            let selected = search::select_neighbors(&found, m);
+            let selected = search::select_neighbors(self, &found, m);
 
             // Link the new node → selected, and selected → new node (bidirectional).
             self.nodes[node_idx].neighbors[layer] = selected.clone();
@@ -433,6 +433,45 @@ mod tests {
         assert!(
             recall >= 0.9,
             "HNSW recall@10 = {recall:.4} must be >= 0.9 (dim={dim}, n={n}, ef=100)"
+        );
+    }
+
+    /// Well-separated clusters with queries OUTSIDE every cluster: the shape that
+    /// splits a nearest-only graph into per-cluster islands. The diversified
+    /// neighbour selection keeps inter-cluster bridges, so a search that enters
+    /// the wrong cluster can still leave it (RF-019).
+    #[test]
+    fn recall_holds_on_separated_clusters_with_outlying_queries() {
+        let dim = 8;
+        let mut rng = ChaCha8Rng::seed_from_u64(31);
+        let centres: Vec<Vec<f32>> = (0..8)
+            .map(|_| (0..dim).map(|_| rng.gen::<f32>() * 8.0 - 4.0).collect())
+            .collect();
+        let mut hnsw = HnswIndex::new(dim, Metric::L2, 16, 200, 5);
+        let mut flat = FlatIndex::new(dim);
+        for i in 0..600u64 {
+            let v: Vec<f32> = centres[i as usize % 8]
+                .iter()
+                .map(|c| c + rng.gen::<f32>() - 0.5)
+                .collect();
+            hnsw.insert(i, v.clone());
+            flat.add(&[(i, v)]);
+        }
+        let mut sum = 0.0f64;
+        for _ in 0..40 {
+            let q: Vec<f32> = (0..dim).map(|_| rng.gen::<f32>() * 8.0 - 4.0).collect();
+            let truth: Vec<u64> = flat
+                .search(&q, 10, Metric::L2)
+                .into_iter()
+                .map(|r| r.id)
+                .collect();
+            let got: Vec<u64> = hnsw.search(&q, 10, 80).into_iter().map(|r| r.id).collect();
+            sum += recall_at_k(&got, &truth, 10);
+        }
+        let recall = sum / 40.0;
+        assert!(
+            recall >= 0.9,
+            "separated-cluster recall@10 = {recall:.4} < 0.9"
         );
     }
 
