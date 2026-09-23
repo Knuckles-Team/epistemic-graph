@@ -225,6 +225,7 @@ METHOD_IDS = frozenset(
         "Maintain",
         "SummaryChildren",
         "SummariesAtLevel",
+        "PolicyEvolution",
         "StartTrajectory",
         "AppendStep",
         "DiscountedReturn",

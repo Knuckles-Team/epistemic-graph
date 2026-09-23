@@ -113,7 +113,7 @@ pending cancellation never steals an active lease
 
 | Body | Type | Encoding | Dynamic |
 |---|---|---|---|
-| `result` | `WorkItemTransition2` | Json |  |
+| `result` | `WorkItemTransition_WorkItemCancelStatus` | Json |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/CancelWorkItem`, `contract/schemas/result.coordination.json#/methods/CancelWorkItem`.
 
@@ -320,7 +320,7 @@ terminal result references and outbox commit atomically
 
 | Body | Type | Encoding | Dynamic |
 |---|---|---|---|
-| `result` | `WorkItemTransition` | Json |  |
+| `result` | `WorkItemTransition_WorkItemCommitStatus` | Json |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/CommitWorkItemResult`, `contract/schemas/result.coordination.json#/methods/CommitWorkItemResult`.
 

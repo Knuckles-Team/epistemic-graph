@@ -195,6 +195,31 @@
         }
       ]
     },
+    "AdapterSpec": {
+      "description": "What the run trains. Adapter-only: full-weight mutation is not expressible.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "adapter": {
+              "const": "lora",
+              "type": "string"
+            },
+            "rank": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "adapter",
+            "rank"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "AgentComponentContentRequest": {
       "additionalProperties": false,
       "description": "Read one component revision's bytes.",
@@ -2460,6 +2485,31 @@
       ],
       "type": "string"
     },
+    "ArrayEncoding": {
+      "description": "How the elements of a referenced array are encoded.",
+      "oneOf": [
+        {
+          "const": "u32_le",
+          "description": "Little-endian `u32` (token ids, sampler Top-K / auxiliary ids).",
+          "type": "string"
+        },
+        {
+          "const": "f32_le",
+          "description": "Little-endian IEEE-754 `f32` (log-probabilities).",
+          "type": "string"
+        },
+        {
+          "const": "u8_mask",
+          "description": "One byte per token, `1` = policy token (prompt, padding and tool\noutput tokens are `0` and masked from the loss).",
+          "type": "string"
+        },
+        {
+          "const": "bytes",
+          "description": "Opaque bytes (logs, reports). Carries no element width.",
+          "type": "string"
+        }
+      ]
+    },
     "AsrOp": {
       "description": "`Method::Asr { op }`'s request shape. `audio_wav` carries the actual PCM\nbytes over the wire (MessagePack handles binary natively — no base64\ninflation); `model_path`/`model_sha256` are a caller-resolved,\nalready-verified model reference (GOC-36 owns acquisition; this crate\nnever resolves a bare model name into a path or URL).",
       "oneOf": [
@@ -3866,6 +3916,23 @@
         "max_count"
       ],
       "type": "object"
+    },
+    "CaptureCompletion": {
+      "description": "How the episode ended.",
+      "enum": [
+        "terminal",
+        "truncated",
+        "aborted"
+      ],
+      "type": "string"
+    },
+    "CaptureTraceFidelity": {
+      "description": "How much of the trace the capture kept.",
+      "enum": [
+        "full",
+        "redacted"
+      ],
+      "type": "string"
     },
     "CasWorkItemMetadataLeaseFence": {
       "additionalProperties": false,
@@ -5852,6 +5919,25 @@
         "expired"
       ],
       "type": "string"
+    },
+    "ControlSetting": {
+      "additionalProperties": false,
+      "description": "One of the three independent controls. Disabled unless a record says so.",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "type": "boolean"
+        },
+        "scope": {
+          "default": null,
+          "description": "The authorization scope allowed to request this control. An enabled\ncontrol must name one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
     },
     "CostBudget": {
       "additionalProperties": false,
@@ -8257,6 +8343,71 @@
         }
       ]
     },
+    "EvaluationMetrics": {
+      "additionalProperties": false,
+      "description": "Held-out measurements. Ratios are parts-per-million, never floats, so the\nrecord digest is exact.",
+      "properties": {
+        "baseline_task_success_ppm": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cost_micros": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "gpu_seconds": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "latency_p50_ms": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "latency_p95_ms": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "task_success_ppm": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "trace_completeness_ppm": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unsupported_replay_mass_ppm": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "task_success_ppm",
+        "baseline_task_success_ppm",
+        "cost_micros",
+        "latency_p50_ms",
+        "latency_p95_ms",
+        "gpu_seconds",
+        "trace_completeness_ppm",
+        "unsupported_replay_mass_ppm"
+      ],
+      "type": "object"
+    },
+    "EvaluationVerdict": {
+      "description": "The evaluator's decision. Loss movement is diagnostic, never a verdict.",
+      "enum": [
+        "accepted",
+        "rejected"
+      ],
+      "type": "string"
+    },
     "EvidenceAddressWire": {
       "description": "DAG-safe wire mirror of `eg_modality::EvidenceAddress`.",
       "oneOf": [
@@ -10655,6 +10806,37 @@
         }
       ]
     },
+    "HeldBlobRef": {
+      "additionalProperties": false,
+      "description": "A Blob-CAS object this record depends on. The engine checks, at commit,\nthat the caller holds a blob with this digest and exact length.",
+      "properties": {
+        "digest": {
+          "$ref": "#/$defs/Digest256",
+          "description": "The Blob CAS digest `BlobCommit` returned."
+        },
+        "elements": {
+          "default": 0,
+          "description": "Element count; `0` for [`ArrayEncoding::Bytes`].",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "encoding": {
+          "$ref": "#/$defs/ArrayEncoding"
+        },
+        "length": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "digest",
+        "length",
+        "encoding"
+      ],
+      "type": "object"
+    },
     "HttpFieldMap": {
       "description": "Which JSON element fields become a RowSet row's id / score (for\n[`ForeignSourceSpec::HttpJson`]).",
       "properties": {
@@ -11560,6 +11742,90 @@
         }
       ]
     },
+    "KlEstimator": {
+      "description": "The KL estimator a KLPO job uses. Chosen by measured cost; there is no\nplatform default.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "estimator": {
+              "const": "sampled_token",
+              "type": "string"
+            }
+          },
+          "required": [
+            "estimator"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "estimator": {
+              "const": "top_k",
+              "type": "string"
+            },
+            "k": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "estimator",
+            "k"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "estimator": {
+              "const": "binary",
+              "type": "string"
+            }
+          },
+          "required": [
+            "estimator"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "estimator": {
+              "const": "full_vocabulary",
+              "type": "string"
+            }
+          },
+          "required": [
+            "estimator"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "draws": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "estimator": {
+              "const": "monte_carlo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "estimator",
+            "draws"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "KnowledgeResultFamily": {
       "description": "The seven result-producing families sharing the native batch currency.",
       "enum": [
@@ -12290,6 +12556,31 @@
     "LogicalName": {
       "description": "Validated graph or native-resource name with no filesystem semantics.",
       "type": "string"
+    },
+    "LogprobSupport": {
+      "additionalProperties": false,
+      "description": "What an endpoint's sampler reports about the tokens it chose.\n\nAttested by the capability probe, never inferred from a provider or host\nname. `top_k == 0` means no alternative-token records are available.",
+      "properties": {
+        "auxiliary_draws": {
+          "default": false,
+          "type": "boolean"
+        },
+        "chosen_token": {
+          "description": "The log-probability of each sampled token. Capture fails closed without it.",
+          "type": "boolean"
+        },
+        "top_k": {
+          "default": 0,
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "chosen_token"
+      ],
+      "type": "object"
     },
     "MaintenanceEnvelope": {
       "additionalProperties": false,
@@ -28684,6 +28975,33 @@
             "params"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Capture-first open-weight policy evolution: the attested capability,\ntrajectory captures, immutable model-policy versions, external\ntraining-run receipts and held-out evaluation receipts. Every record is\nimmutable and content-addressed in the request graph; each write\nself-translates into exactly one `CreateNodeIfAbsent`. EG records and\nrelates -- it never trains. See [`crate::policy_evolution`].",
+          "properties": {
+            "method": {
+              "const": "PolicyEvolution",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "op": {
+                  "$ref": "#/$defs/PolicyEvolutionOp"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -28750,6 +29068,49 @@
           "type": "array"
         }
       },
+      "type": "object"
+    },
+    "ModelPolicyVersion": {
+      "additionalProperties": false,
+      "description": "`ModelPolicyVersion/v1`: an immutable artifact identity. Bytes stay in the\nexternal artifact store; EG holds identity and lineage. The record id the\nengine returns IS the version id every capture and route refers to.",
+      "properties": {
+        "adapter_digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "artifact_ref": {
+          "type": "string"
+        },
+        "checkpoint_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "origin": {
+          "$ref": "#/$defs/VersionOrigin"
+        },
+        "parent_version_id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tokenizer_digest": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "checkpoint_digest",
+        "tokenizer_digest",
+        "artifact_ref",
+        "origin"
+      ],
       "type": "object"
     },
     "ModelSpec": {
@@ -30476,6 +30837,83 @@
       ],
       "type": "string"
     },
+    "OpenWeightPolicyCapability": {
+      "additionalProperties": false,
+      "description": "`OpenWeightPolicyCapability/v1`: the attested serving endpoint policy\nevolution may use. Endpoint credentials stay in graph-os's secret provider;\n`endpoint_ref` is only its opaque id.",
+      "properties": {
+        "adapter_digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Digest256"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "artifact_destination_ref": {
+          "description": "Where a trained artifact is written. Always a NEW artifact: the live\none is never overwritten.",
+          "type": "string"
+        },
+        "base_checkpoint_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "controls": {
+          "$ref": "#/$defs/PolicyControls",
+          "default": {
+            "capture": {
+              "enabled": false,
+              "scope": null
+            },
+            "promote": {
+              "enabled": false,
+              "scope": null
+            },
+            "train": {
+              "enabled": false,
+              "scope": null
+            }
+          }
+        },
+        "decode_params_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "endpoint_ref": {
+          "type": "string"
+        },
+        "logprobs": {
+          "$ref": "#/$defs/LogprobSupport"
+        },
+        "probe_digest": {
+          "$ref": "#/$defs/Digest256",
+          "description": "Digest of the probe evidence that attested this record."
+        },
+        "probed_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "tokenizer_digest": {
+          "$ref": "#/$defs/Digest256"
+        }
+      },
+      "required": [
+        "provider",
+        "endpoint_ref",
+        "base_checkpoint_digest",
+        "tokenizer_digest",
+        "decode_params_digest",
+        "artifact_destination_ref",
+        "logprobs",
+        "probe_digest",
+        "probed_at_ms"
+      ],
+      "type": "object"
+    },
     "OperationEnvelope": {
       "additionalProperties": false,
       "description": "The verified authority one caller operation was admitted under.",
@@ -31271,6 +31709,305 @@
       ],
       "type": "object"
     },
+    "PolicyCapture": {
+      "additionalProperties": false,
+      "description": "`PolicyCapture/v1`.",
+      "properties": {
+        "action_mask": {
+          "$ref": "#/$defs/HeldBlobRef"
+        },
+        "auxiliary_draws": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HeldBlobRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "capability_id": {
+          "description": "The attested capability the sampler ran under; its `capture` control\nmust be enabled.",
+          "type": "string"
+        },
+        "captured_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "completion": {
+          "$ref": "#/$defs/CaptureCompletion"
+        },
+        "log_q": {
+          "$ref": "#/$defs/HeldBlobRef",
+          "description": "Frozen chosen-token log-probabilities, one per policy token."
+        },
+        "policy_token_count": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "purpose": {
+          "type": "string"
+        },
+        "reward": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RewardRecord"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "sampler_top_k": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HeldBlobRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "sampler_version_id": {
+          "description": "The exact behaviour-policy version that sampled every policy token.",
+          "type": "string"
+        },
+        "token_count": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "token_ids": {
+          "$ref": "#/$defs/HeldBlobRef"
+        },
+        "trace_fidelity": {
+          "$ref": "#/$defs/CaptureTraceFidelity"
+        },
+        "trajectory_id": {
+          "description": "The durable `:Trajectory` in the request graph (`StartTrajectory`).",
+          "type": "string"
+        },
+        "trajectory_steps": {
+          "description": "The trajectory's step count at capture. Later appends never change\nwhat this capture describes.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "capability_id",
+        "sampler_version_id",
+        "trajectory_id",
+        "trajectory_steps",
+        "completion",
+        "token_count",
+        "policy_token_count",
+        "token_ids",
+        "log_q",
+        "action_mask",
+        "purpose",
+        "trace_fidelity",
+        "captured_at_ms"
+      ],
+      "type": "object"
+    },
+    "PolicyControls": {
+      "additionalProperties": false,
+      "description": "`capture`, `train` and `promote` are independent: enabling one never\nimplies another. All three default to off.",
+      "properties": {
+        "capture": {
+          "$ref": "#/$defs/ControlSetting",
+          "default": {
+            "enabled": false,
+            "scope": null
+          }
+        },
+        "promote": {
+          "$ref": "#/$defs/ControlSetting",
+          "default": {
+            "enabled": false,
+            "scope": null
+          }
+        },
+        "train": {
+          "$ref": "#/$defs/ControlSetting",
+          "default": {
+            "enabled": false,
+            "scope": null
+          }
+        }
+      },
+      "type": "object"
+    },
+    "PolicyEvaluation": {
+      "additionalProperties": false,
+      "description": "`PolicyEvaluation/v1`: an independent held-out evaluation of one version.",
+      "properties": {
+        "baseline_version_id": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evaluation_set_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "evaluator_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "metrics": {
+          "$ref": "#/$defs/EvaluationMetrics"
+        },
+        "report": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HeldBlobRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "safety": {
+          "$ref": "#/$defs/SafetyOutcome"
+        },
+        "verdict": {
+          "$ref": "#/$defs/EvaluationVerdict"
+        },
+        "version_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version_id",
+        "evaluation_set_digest",
+        "evaluator_digest",
+        "metrics",
+        "safety",
+        "verdict"
+      ],
+      "type": "object"
+    },
+    "PolicyEvolutionOp": {
+      "description": "Every policy-evolution operation. The read/write split and the\nauthorization action live on the op, so the capability ledger and the\nserver's write classifier cannot disagree about an operation.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "`PolicyCapabilityPut`: record one attested capability.",
+          "properties": {
+            "op": {
+              "const": "put_capability",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/OpenWeightPolicyCapability"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`PolicyCaptureCommit`: record one terminal trajectory capture.",
+          "properties": {
+            "op": {
+              "const": "commit_capture",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/PolicyCapture"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`ModelPolicyVersionRegister`: register one immutable version identity.",
+          "properties": {
+            "op": {
+              "const": "register_model_policy_version",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/ModelPolicyVersion"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`TrainingRunCommit`: record one external training run receipt.",
+          "properties": {
+            "op": {
+              "const": "commit_training_run",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/TrainingRun"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`PolicyEvaluationCommit`: record one held-out evaluation receipt.",
+          "properties": {
+            "op": {
+              "const": "commit_policy_evaluation",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/PolicyEvaluation"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`PolicyRecordGet`: read one record, re-verified against its id.",
+          "properties": {
+            "op": {
+              "const": "get",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/PolicyRecordGetRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "PolicyRecord": {
       "description": "Policy rows carry an opaque subject-set digest, never raw principals.",
       "properties": {
@@ -31312,6 +32049,19 @@
         "classification",
         "policy_version",
         "subject_set_digest"
+      ],
+      "type": "object"
+    },
+    "PolicyRecordGetRequest": {
+      "additionalProperties": false,
+      "description": "Read one record by id.",
+      "properties": {
+        "record_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "record_id"
       ],
       "type": "object"
     },
@@ -33271,6 +34021,33 @@
       ],
       "type": "string"
     },
+    "ResourceObservation": {
+      "additionalProperties": false,
+      "description": "Observed resource use of one run.",
+      "properties": {
+        "gpu_seconds": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "peak_memory_bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "wall_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "wall_ms",
+        "gpu_seconds",
+        "peak_memory_bytes"
+      ],
+      "type": "object"
+    },
     "ResourceRequirement": {
       "additionalProperties": false,
       "properties": {
@@ -33723,6 +34500,41 @@
       ],
       "type": "object"
     },
+    "RewardEvidenceSource": {
+      "description": "Where a reward's evidence came from. `self_reported` is the acting\nagent's own claim: kept as evidence, never trained on.",
+      "enum": [
+        "independent_verifier",
+        "rubric",
+        "self_reported"
+      ],
+      "type": "string"
+    },
+    "RewardRecord": {
+      "additionalProperties": false,
+      "description": "The terminal reward and the verifier that produced it. Micros, never a\nfloat, so the record digest is exact.",
+      "properties": {
+        "evidence": {
+          "$ref": "#/$defs/RewardEvidenceSource"
+        },
+        "value_micros": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "verifier_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "verifier_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "value_micros",
+        "verifier_id",
+        "verifier_digest",
+        "evidence"
+      ],
+      "type": "object"
+    },
     "RewindTarget": {
       "description": "Where a rewind puts the consumer's cursor.",
       "oneOf": [
@@ -33952,6 +34764,14 @@
         "carrier_digest"
       ],
       "type": "object"
+    },
+    "SafetyOutcome": {
+      "description": "Whether the safety policy passed on the frozen set.",
+      "enum": [
+        "passed",
+        "failed"
+      ],
+      "type": "string"
     },
     "Scalar": {
       "description": "An exact 128-bit signed integer (objective values, bounds, multipliers).",
@@ -39364,6 +40184,197 @@
       ],
       "type": "string"
     },
+    "TrainingMethod": {
+      "description": "The external optimisation method. KLPO is one option beside the existing\nGRPO/DPO/SFT choices.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "sft",
+              "type": "string"
+            }
+          },
+          "required": [
+            "method"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "dpo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "method"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "grpo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "method"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "estimator": {
+              "$ref": "#/$defs/KlEstimator"
+            },
+            "method": {
+              "const": "klpo",
+              "type": "string"
+            }
+          },
+          "required": [
+            "method",
+            "estimator"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "TrainingOutput": {
+      "additionalProperties": false,
+      "description": "The new artifact a succeeded run produced.",
+      "properties": {
+        "artifact_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "artifact_ref": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_digest",
+        "artifact_ref"
+      ],
+      "type": "object"
+    },
+    "TrainingRun": {
+      "additionalProperties": false,
+      "description": "`TrainingRun/v1`: the receipt of one external training job. EG records it;\nit never optimises weights.",
+      "properties": {
+        "adapter": {
+          "$ref": "#/$defs/AdapterSpec"
+        },
+        "base_version_id": {
+          "type": "string"
+        },
+        "capability_id": {
+          "type": "string"
+        },
+        "hyperparameters_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "input_capture_ids": {
+          "$ref": "#/$defs/BoundedVec_string_256"
+        },
+        "log": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HeldBlobRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "method": {
+          "$ref": "#/$defs/TrainingMethod"
+        },
+        "resources": {
+          "$ref": "#/$defs/ResourceObservation",
+          "default": {
+            "gpu_seconds": 0,
+            "peak_memory_bytes": 0,
+            "wall_ms": 0
+          }
+        },
+        "status": {
+          "$ref": "#/$defs/TrainingRunStatus"
+        },
+        "trainer_image_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "work_item_id": {
+          "description": "The native WorkItem that owned the attempt.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "capability_id",
+        "work_item_id",
+        "base_version_id",
+        "input_capture_ids",
+        "method",
+        "adapter",
+        "trainer_image_digest",
+        "hyperparameters_digest",
+        "status"
+      ],
+      "type": "object"
+    },
+    "TrainingRunStatus": {
+      "description": "Terminal status. Only a succeeded run carries an output, so a failed or\ncancelled run has nothing a version could name.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "output": {
+              "$ref": "#/$defs/TrainingOutput"
+            },
+            "status": {
+              "const": "succeeded",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "output"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "failed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "cancelled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "TransactionSource": {
       "description": "A graph-derived transaction source for `MineAssociate` (CONCEPT:EG-KG.mining.graph-derived-transactions).\n\nEach node carrying `node_label` becomes one \"basket owner\"; the basket is the set\nof `item_field` values gathered from its neighbors (following edges in\n`direction`), optionally filtered to a `relation`. This turns node neighborhoods\ninto transactions so mining runs directly over resident graph data — the\ncross-modal hook (e.g. \"for each :Capability, the set of concepts it touches\" =\none transaction ⇒ concept-co-occurrence rules).",
       "properties": {
@@ -39684,6 +40695,43 @@
           "const": "unversioned",
           "description": "Valid only for a capability-bearing reserved-system operation.",
           "type": "string"
+        }
+      ]
+    },
+    "VersionOrigin": {
+      "description": "How a model-policy version came to exist.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A served base checkpoint (optionally with an existing adapter).",
+          "properties": {
+            "origin": {
+              "const": "base",
+              "type": "string"
+            }
+          },
+          "required": [
+            "origin"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The output of one succeeded training run.",
+          "properties": {
+            "origin": {
+              "const": "trained",
+              "type": "string"
+            },
+            "training_run_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "origin",
+            "training_run_id"
+          ],
+          "type": "object"
         }
       ]
     },

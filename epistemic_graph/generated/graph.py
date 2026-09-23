@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from ._runtime import (
     OpaqueResult,
@@ -19,6 +19,17 @@ from ._runtime import (
     expect_ids,
     expect_nodelist,
     expect_string,
+)
+from .policy_evolution import (
+    ModelPolicyVersion,
+    OpenWeightPolicyCapability,
+    PolicyCapture,
+    PolicyEvaluation,
+    PolicyEvolutionOp,
+    PolicyRecordGetRequest,
+    PolicyRecordReceipt,
+    PolicyRecordView,
+    TrainingRun,
 )
 
 
@@ -953,6 +964,220 @@ async def send_summaries_at_level(
         idempotency_key=idempotency_key,
     )
     return expect_ids("SummariesAtLevel", payload)
+
+
+class PolicyEvolutionRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        PolicyEvolution
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/PolicyEvolution
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: PolicyEvolutionOp
+
+
+async def send_policy_evolution(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        PolicyEvolution
+    Authorization:
+        policy:capture-write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.graph.json
+        #/methods/PolicyEvolution
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    PolicyEvolutionRequest.model_validate(params or {})
+    payload = await client._send(
+        "PolicyEvolution",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("PolicyEvolution", payload)
+
+
+async def send_policy_evolution_put_capability(
+    client: Any,
+    request: OpenWeightPolicyCapability,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> PolicyRecordReceipt:
+    """Send typed PolicyEvolution.put_capability.
+
+    Routed through the existing PolicyEvolution method.
+    """
+    request = OpenWeightPolicyCapability.model_validate(request)
+    params = {
+        "op": {
+            "op": "put_capability",
+            "request": request.model_dump(mode="json", exclude_none=True),
+        },
+    }
+    payload = await client._send(
+        "PolicyEvolution",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return PolicyRecordReceipt.model_validate(payload)
+
+
+async def send_policy_evolution_commit_capture(
+    client: Any,
+    request: PolicyCapture,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> PolicyRecordReceipt:
+    """Send typed PolicyEvolution.commit_capture.
+
+    Routed through the existing PolicyEvolution method.
+    """
+    request = PolicyCapture.model_validate(request)
+    params = {
+        "op": {
+            "op": "commit_capture",
+            "request": request.model_dump(mode="json", exclude_none=True),
+        },
+    }
+    payload = await client._send(
+        "PolicyEvolution",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return PolicyRecordReceipt.model_validate(payload)
+
+
+async def send_policy_evolution_register_model_policy_version(
+    client: Any,
+    request: ModelPolicyVersion,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> PolicyRecordReceipt:
+    """Send typed PolicyEvolution.register_model_policy_version.
+
+    Routed through the existing PolicyEvolution method.
+    """
+    request = ModelPolicyVersion.model_validate(request)
+    params = {
+        "op": {
+            "op": "register_model_policy_version",
+            "request": request.model_dump(mode="json", exclude_none=True),
+        },
+    }
+    payload = await client._send(
+        "PolicyEvolution",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return PolicyRecordReceipt.model_validate(payload)
+
+
+async def send_policy_evolution_commit_training_run(
+    client: Any,
+    request: TrainingRun,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> PolicyRecordReceipt:
+    """Send typed PolicyEvolution.commit_training_run.
+
+    Routed through the existing PolicyEvolution method.
+    """
+    request = TrainingRun.model_validate(request)
+    params = {
+        "op": {
+            "op": "commit_training_run",
+            "request": request.model_dump(mode="json", exclude_none=True),
+        },
+    }
+    payload = await client._send(
+        "PolicyEvolution",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return PolicyRecordReceipt.model_validate(payload)
+
+
+async def send_policy_evolution_commit_policy_evaluation(
+    client: Any,
+    request: PolicyEvaluation,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> PolicyRecordReceipt:
+    """Send typed PolicyEvolution.commit_policy_evaluation.
+
+    Routed through the existing PolicyEvolution method.
+    """
+    request = PolicyEvaluation.model_validate(request)
+    params = {
+        "op": {
+            "op": "commit_policy_evaluation",
+            "request": request.model_dump(mode="json", exclude_none=True),
+        },
+    }
+    payload = await client._send(
+        "PolicyEvolution",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return PolicyRecordReceipt.model_validate(payload)
+
+
+async def send_policy_evolution_get(
+    client: Any,
+    request: PolicyRecordGetRequest,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> PolicyRecordView | None:
+    """Send typed PolicyEvolution.get through the existing PolicyEvolution method."""
+    request = PolicyRecordGetRequest.model_validate(request)
+    params = {
+        "op": {
+            "op": "get",
+            "request": request.model_dump(mode="json", exclude_none=True),
+        },
+    }
+    payload = await client._send(
+        "PolicyEvolution",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return TypeAdapter(PolicyRecordView | None).validate_python(payload)
 
 
 class StartTrajectoryRequest(BaseModel):

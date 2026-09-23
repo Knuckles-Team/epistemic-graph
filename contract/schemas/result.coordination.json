@@ -6096,49 +6096,8 @@
         }
       ]
     },
-    "WorkItemTransition": {
-      "description": "A terminal-direction WorkItem transition (`CommitWorkItemResult`,\n`CancelWorkItem`). The WorkItem id and fence are present once the item was found;\nthe fence is present only when the transition applied.",
-      "properties": {
-        "changed_work_item_ids": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "fencing_token": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "lease_epoch": {
-          "format": "uint64",
-          "minimum": 0,
-          "type": [
-            "integer",
-            "null"
-          ]
-        },
-        "status": {
-          "$ref": "#/$defs/WorkItemCommitStatus"
-        },
-        "work_item_id": {
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "required": [
-        "status",
-        "changed_work_item_ids"
-      ],
-      "type": "object"
-    },
-    "WorkItemTransition2": {
-      "description": "A terminal-direction WorkItem transition (`CommitWorkItemResult`,\n`CancelWorkItem`). The WorkItem id and fence are present once the item was found;\nthe fence is present only when the transition applied.",
+    "WorkItemTransition_WorkItemCancelStatus": {
+      "description": "A terminal-direction WorkItem transition (`CommitWorkItemResult`,\n`CancelWorkItem`). The WorkItem id and fence are present once the item was found;\nthe fence is present only when the transition applied.\n\nEach instantiation gets its own schema name: without the rename schemars\nnamed the second one `WorkItemTransition2`, a name no author chose (caught\nby `no_schema_definition_name_is_shared_by_distinct_types`).",
       "properties": {
         "changed_work_item_ids": {
           "items": {
@@ -6164,6 +6123,47 @@
         },
         "status": {
           "$ref": "#/$defs/WorkItemCancelStatus"
+        },
+        "work_item_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "changed_work_item_ids"
+      ],
+      "type": "object"
+    },
+    "WorkItemTransition_WorkItemCommitStatus": {
+      "description": "A terminal-direction WorkItem transition (`CommitWorkItemResult`,\n`CancelWorkItem`). The WorkItem id and fence are present once the item was found;\nthe fence is present only when the transition applied.\n\nEach instantiation gets its own schema name: without the rename schemars\nnamed the second one `WorkItemTransition2`, a name no author chose (caught\nby `no_schema_definition_name_is_shared_by_distinct_types`).",
+      "properties": {
+        "changed_work_item_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "fencing_token": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "lease_epoch": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/WorkItemCommitStatus"
         },
         "work_item_id": {
           "type": [
@@ -6349,7 +6349,7 @@
           "dynamic": null,
           "encoding": "Json",
           "schema": {
-            "$ref": "#/$defs/WorkItemTransition2"
+            "$ref": "#/$defs/WorkItemTransition_WorkItemCancelStatus"
           }
         }
       },
@@ -6432,7 +6432,7 @@
           "dynamic": null,
           "encoding": "Json",
           "schema": {
-            "$ref": "#/$defs/WorkItemTransition"
+            "$ref": "#/$defs/WorkItemTransition_WorkItemCommitStatus"
           }
         }
       },
