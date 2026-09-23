@@ -96,25 +96,30 @@ jobs:
     name: gates
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - &eg-gates-checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - &eg-gates-python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version-file: '.python-version'
 
       # The checked generated capability client is imported by Rust-backed
       # capability tests. Keep this runtime closure aligned with uv.lock so the
       # generated Python surface is exercised in hosted CI as well.
-      - name: Install locked capability-test Python dependencies
+      - &eg-gates-pydeps
+        name: Install locked capability-test Python dependencies
         run: python -m pip install --disable-pip-version-check msgpack==1.2.1 pydantic==2.13.5 pydantic-core==2.46.5 annotated-types==0.8.0 typing-extensions==4.16.0 typing-inspection==0.4.4
 
       # Product tests and protocol contracts run on every push and pull request.
-      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+      - &eg-gates-toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - &eg-gates-cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Test (lower crates, all features)
         run: cargo test -p eg-types -p eg-core -p eg-compute --all-features --no-fail-fast
@@ -127,7 +132,8 @@ jobs:
       # The facade's sqlite `.db` round-trip test diffs against a real sqlite3 CLI and
       # FAILS without one. Provision the pinned, sha256-verified CLI rather than
       # relying on whatever sqlite3 the runner image happens to ship.
-      - name: Provision pinned sqlite3 CLI (differential sqlite tests)
+      - &eg-gates-sqlite
+        name: Provision pinned sqlite3 CLI (differential sqlite tests)
         run: |
           set -euo pipefail
           sqlite3_bin="$(scripts/fetch_sqlite3.sh "$RUNNER_TEMP/eg-sqlite3")"
@@ -299,30 +305,17 @@ jobs:
     name: gates (facade full)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
+      - *eg-gates-checkout
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version-file: '.python-version'
+      - *eg-gates-python
 
-      - name: Install locked capability-test Python dependencies
-        run: python -m pip install --disable-pip-version-check msgpack==1.2.1 pydantic==2.13.5 pydantic-core==2.46.5 annotated-types==0.8.0 typing-extensions==4.16.0 typing-inspection==0.4.4
+      - *eg-gates-pydeps
 
-      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
-        with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - *eg-gates-toolchain
+      - *eg-gates-cache
 
-      # The facade's sqlite `.db` round-trip test diffs against a real sqlite3 CLI and
-      # FAILS without one. Provision the pinned, sha256-verified CLI rather than
-      # relying on whatever sqlite3 the runner image happens to ship.
-      - name: Provision pinned sqlite3 CLI (differential sqlite tests)
-        run: |
-          set -euo pipefail
-          sqlite3_bin="$(scripts/fetch_sqlite3.sh "$RUNNER_TEMP/eg-sqlite3")"
-          echo "EG_SQLITE3=$sqlite3_bin" >> "$GITHUB_ENV"
+      # sqlite3 CLI for the facade `.db` round-trip test (see `gates`).
+      - *eg-gates-sqlite
       - name: Test (facade full)
         run: cargo test -p epistemic-graph --features full --no-fail-fast
       # These real-model tests fail loudly when their fixture is absent. Fetch the
@@ -343,21 +336,14 @@ jobs:
     name: gates (slim server + raft cluster)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-        with:
-          persist-credentials: false
+      - *eg-gates-checkout
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version-file: '.python-version'
+      - *eg-gates-python
 
-      - name: Install locked capability-test Python dependencies
-        run: python -m pip install --disable-pip-version-check msgpack==1.2.1 pydantic==2.13.5 pydantic-core==2.46.5 annotated-types==0.8.0 typing-extensions==4.16.0 typing-inspection==0.4.4
+      - *eg-gates-pydeps
 
-      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
-        with:
-          toolchain: stable
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - *eg-gates-toolchain
+      - *eg-gates-cache
 
       - name: Test (slim server — gated-out methods return the not-built error)
         run: cargo test -p epistemic-graph --no-default-features --features server --no-fail-fast
