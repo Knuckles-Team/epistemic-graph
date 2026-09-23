@@ -578,7 +578,7 @@ pub(crate) fn bind_serving_scope_in<D: OwnerDomain>(
         grant.identity(),
         initial_version,
     )?;
-    transaction.commit().map_err(|error| error.to_string())?;
+    transaction.commit()?;
     let (identity, principal, authority_digest) = grant.into_parts();
     Ok(OwnedStoreHandle::new(identity, principal, authority_digest))
 }
