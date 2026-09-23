@@ -15,18 +15,80 @@
 //!   validates its semantics while decoding, encoded from its Rust value.
 //!
 //! Every catalog method must be covered by at least one decodable vector.
+//!
+//! Each vector also carries the `eg2.` envelope MAC the engine computes for
+//! that body under one fixed, published envelope (`envelope` in the file), so
+//! a client in any language can assert its whole signature -- body hash and
+//! envelope framing -- against the engine's own HMAC, not a restatement of it.
 
 mod synth;
 
-use eg_types::protocol::Method;
+use eg_types::acl::RequestContextClaims;
+use eg_types::protocol::{build_envelope_v2_bytes, Method};
 use eg_types::test_support::method_bodies::{
     json_request_bytes, json_request_frame, typed_request_frame, typed_samples,
 };
+use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};
 
 use super::{pretty, Artifact};
 
 const PATH: &str = "contract/fixtures/method_body_vectors.json";
+
+/// The fixed envelope every vector's MAC is minted under. Test-only values:
+/// the secret authenticates nothing outside this file.
+const SECRET: &str = "method-body-vector-secret";
+const REQUEST_ID: u64 = 7;
+const GRAPH: &str = "graph:vectors";
+const TIMESTAMP: u64 = 1_758_000_000;
+const NONCE: &str = "method-body-vector-nonce";
+const IDEMPOTENCY_KEY: &str = "method-body-vector:idempotency";
+
+fn claims() -> RequestContextClaims {
+    RequestContextClaims {
+        principal: "service:vectors".to_string(),
+        tenant: "tenant:vectors".to_string(),
+        audience: "engine:vectors".to_string(),
+        agent_id: "service:vectors".to_string(),
+        roles: vec!["client".to_string()],
+        scopes: vec!["graph:read".to_string()],
+        policy_version: "policy:vectors".to_string(),
+        delegation: Vec::new(),
+        ..RequestContextClaims::default()
+    }
+}
+
+/// The published envelope, as the file's `envelope` object.
+fn envelope_json() -> serde_json::Value {
+    serde_json::json!({
+        "secret": SECRET,
+        "request_id": REQUEST_ID,
+        "graph": GRAPH,
+        "context": claims(),
+        "timestamp": TIMESTAMP,
+        "nonce": NONCE,
+        "idempotency_key": IDEMPOTENCY_KEY,
+    })
+}
+
+/// The engine's `eg2.` MAC (`envelope_v2_mac`) of one canonical body under
+/// the published envelope.
+fn envelope_mac(method: &str, canonical: &[u8]) -> String {
+    let bytes = build_envelope_v2_bytes(
+        REQUEST_ID,
+        GRAPH,
+        method,
+        &hex::encode(Sha256::digest(canonical)),
+        &claims(),
+        TIMESTAMP,
+        NONCE,
+        IDEMPOTENCY_KEY,
+    );
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(SECRET.as_bytes()).expect("HMAC accepts any key length");
+    mac.update(&bytes);
+    hex::encode(mac.finalize().into_bytes())
+}
 
 /// One client request and the canonical body the server re-derives from it.
 struct Vector {
@@ -121,11 +183,13 @@ fn render(vectors: &[Vector]) -> Vec<u8> {
                 "request_msgpack": hex::encode(&vector.request),
                 "canonical_sha256": hex::encode(Sha256::digest(&vector.canonical)),
                 "canonical_len": vector.canonical.len(),
+                "mac": envelope_mac(&vector.method, &vector.canonical),
             })
         })
         .collect();
     pretty(&serde_json::json!({
         "schema": "eg-method-body-vectors/v1",
+        "envelope": envelope_json(),
         "vectors": rows,
     }))
 }

@@ -2720,6 +2720,7 @@ version = "0.1.0"
 dependencies = [
  "eg-types",
  "hex",
+ "hmac 0.12.1",
  "proc-macro2",
  "quote",
  "schemars 1.2.2",

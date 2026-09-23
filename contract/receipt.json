@@ -2,7 +2,7 @@
   "artifact_digests": {
     "contract/fixtures/connector_pack_digest_vectors.json": "b1fe4660272ca12419349fd1e1c57a6f54db762e24b4b47d2d1f8fd46016588a",
     "contract/fixtures/decision_digest_vectors.json": "b2cb368964340e05b58f65d8d226343d08cf48f0912fe7b560d619d19b2641c8",
-    "contract/fixtures/method_body_vectors.json": "214534451115e5a7256a8617389108596ae7f029b2737d714f4004066639d0df",
+    "contract/fixtures/method_body_vectors.json": "061758dbe92d6a27e6727656a18c432a708078e6f65b5ac38c074358fafbaa48",
     "contract/methods.json": "e8dc46182c599a4fa82b3dc210f85587273a14769e51c69aadb010bfbe9f7c15",
     "contract/schemas/method.request.json": "6c948377016322f17c121cdbc11442dddadd71fdd97ef70689123b0dd00c9f19",
     "contract/schemas/result.cluster.json": "7d91b463ac26c476e6641219aaa7cbc5b4ee7ae1b6127a5922d1ed263b138c08",
@@ -44,8 +44,8 @@
     "epistemic_graph/generated/transactions.py": "29172b0f7938e6c31f88a8def3676631fbfc08135607207919544aa7446cec68",
     "epistemic_graph/generated/write_back.py": "211f28015a9c510a06c939f6ad5da01dba2567d7a01bd56e3bd3d286728fba3d"
   },
-  "cargo_lock_sha256": "7a21df362ba52b5c1c8cb0d6267d9d2f4932856eebd9b8b2ee0b9b88f79ff25b",
-  "contract_digest": "dd0c9a73616ae32fbb2351e3c908b185af1d1c397424e81075b6db602209a767",
+  "cargo_lock_sha256": "746cb16bf5e7e2373914c1b27f8d75b25af56175a0841a5d3c9a780946745f36",
+  "contract_digest": "827dd66c07cc271c558627f1fd40534bcd7570c271d22f26e90f9126ffc37dba",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -533,5 +533,5 @@
     "schematized": 416,
     "unclassified": 0
   },
-  "source_tree_oid": "61a1033a8e3e3a4461be33830b5ea88f64f6a4ca40109c472d0414540817ed5b"
+  "source_tree_oid": "d41d7c40e1f20df19d384fd671cc1c346e4078d7270e78b281c6a5acfa902690"
 }
