@@ -195,6 +195,75 @@
         }
       ]
     },
+    "AbstentionResolution": {
+      "additionalProperties": false,
+      "description": "One resolution of a logged abstention: the option the escalation chose.\nThe option must be one the abstained record already held, so a\nresolution can never introduce an option the decision did not have.",
+      "properties": {
+        "option_id": {
+          "type": "string"
+        },
+        "record_id": {
+          "type": "string"
+        },
+        "resolution_id": {
+          "type": "string"
+        },
+        "resolver": {
+          "$ref": "#/$defs/AbstentionResolver"
+        }
+      },
+      "required": [
+        "record_id",
+        "resolution_id",
+        "option_id",
+        "resolver"
+      ],
+      "type": "object"
+    },
+    "AbstentionResolver": {
+      "description": "Who resolved an abstention (EH-037, §6.4 \"abstentions as labels\").",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The verified caller, a human, resolved it: a gold-label candidate\n(observation class).",
+          "properties": {
+            "resolver": {
+              "const": "human",
+              "type": "string"
+            }
+          },
+          "required": [
+            "resolver"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A model proposed the option: a CLAIM with unknown propensity, never a\ncalibration or off-policy label; at most a candidate for human review.",
+          "properties": {
+            "producer": {
+              "type": "string"
+            },
+            "prompt_digest": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "resolver": {
+              "const": "model",
+              "type": "string"
+            }
+          },
+          "required": [
+            "resolver",
+            "producer"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "AgentComponentKind": {
       "description": "What kind of part this is.\n\nClosed on purpose. Every kind is either referenced from an agent slot —\n[`crate::agent_library::AgentLibraryEntry`],\n[`crate::agent_library::AgentRuntimeContract`] or\n[`crate::agent_graph`] — or is catalog content an agent is VALIDATED or\nDECIDED against. Both belong to the same closed set for the same reason: a\npart nothing can name is a part nothing can reason about.",
       "oneOf": [
@@ -717,6 +786,24 @@
           "required": [
             "source",
             "plan_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Options the caller declared, pinned by the digest of the declaration.",
+          "properties": {
+            "options_digest": {
+              "type": "string"
+            },
+            "source": {
+              "const": "declared",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "options_digest"
           ],
           "type": "object"
         }
@@ -7381,6 +7468,35 @@
       ],
       "type": "object"
     },
+    "StoredResolution": {
+      "additionalProperties": false,
+      "description": "A stored resolution, its evidence class and who recorded it.",
+      "properties": {
+        "class": {
+          "$ref": "#/$defs/EvidenceClass",
+          "description": "`Observation` for a human resolver, `Claim` for a model."
+        },
+        "producer": {
+          "description": "The verified principal that recorded it.",
+          "type": "string"
+        },
+        "recorded_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "resolution": {
+          "$ref": "#/$defs/AbstentionResolution"
+        }
+      },
+      "required": [
+        "resolution",
+        "class",
+        "producer",
+        "recorded_at_ms"
+      ],
+      "type": "object"
+    },
     "SubmitWorkItemResult": {
       "additionalProperties": false,
       "properties": {
@@ -8531,6 +8647,13 @@
                 "type": "null"
               }
             ]
+          }
+        },
+        "resolve": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/StoredResolution"
           }
         },
         "verify": {

@@ -2532,6 +2532,24 @@
             "plan_digest"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Options the caller declared, pinned by the digest of the declaration.",
+          "properties": {
+            "options_digest": {
+              "type": "string"
+            },
+            "source": {
+              "const": "declared",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "options_digest"
+          ],
+          "type": "object"
         }
       ]
     },
