@@ -141,19 +141,7 @@ class Term(BaseModel):
     var: VarId
 
 
-BoundProof = dict[str, Any]
-
-
 Coefficient = str | dict[str, Any]
-
-
-ConstraintBody = dict[str, Any]
-
-
-LeafProof = dict[str, Any]
-
-
-ProofNode = dict[str, Any]
 
 
 RowId = Annotated[int, Field(ge=0)]
@@ -165,10 +153,22 @@ Scalar = str
 Sha256Digest = str
 
 
-SolveStatus = Literal["optimal"] | dict[str, Any] | Literal["budget_exhausted"]
-
-
 VarId = Annotated[int, Field(ge=0)]
+
+
+BoundProof = dict[str, Any]
+
+
+ConstraintBody = dict[str, Any]
+
+
+LeafProof = dict[str, Any]
+
+
+ProofNode = dict[str, Any]
+
+
+SolveStatus = Literal["optimal"] | dict[str, Any] | Literal["budget_exhausted"]
 
 Certificate.model_rebuild()
 

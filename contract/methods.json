@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 430,
+  "method_count": 436,
   "methods": [
     {
       "consumer_profiles": [
@@ -6687,7 +6687,9 @@
       "stability": "stable"
     },
     {
-      "consumer_profiles": [],
+      "consumer_profiles": [
+        "python"
+      ],
       "domain": "compute",
       "error_set": [
         "INVALID_ARGUMENT",
@@ -6721,7 +6723,7 @@
         "schema": "contract/schemas/result.compute.json#/methods/Solve",
         "selected_by": null
       },
-      "stability": "internal"
+      "stability": "stable"
     },
     {
       "consumer_profiles": [
@@ -7603,6 +7605,256 @@
       "domain": "coordination",
       "error_set": [
         "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
+      "id": "GetWorkItem",
+      "note": "tenant-bound native WorkItem row view; lease owner/epoch/fencing token never projected",
+      "policy": {
+        "audited": false,
+        "authz_action": "work:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/GetWorkItem"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/GetWorkItem",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
+      "id": "ListWorkItems",
+      "note": "bounded tenant-bound WorkItem page; limit/scan/byte bounds each resume through an opaque tenant-bound cursor",
+      "policy": {
+        "audited": false,
+        "authz_action": "work:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/ListWorkItems"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/ListWorkItems",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
+      "id": "GetWorkItemOutcome",
+      "note": "tenant-bound terminal WorkItem plus the provenance its native commit bound; the OutcomeEvaluation receipt is digest-verified",
+      "policy": {
+        "audited": false,
+        "authz_action": "work:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/GetWorkItemOutcome"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/GetWorkItemOutcome",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "IssueControlLease",
+      "note": "tenant-bound immutable grant record in the WorkItem MutationBatch; an existing id is a collision, never an overwrite",
+      "policy": {
+        "audited": true,
+        "authz_action": "lease:write",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/IssueControlLease"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/IssueControlLease",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "TransitionControlLease",
+      "note": "one-way active to revoked/expired, CAS on the read revision",
+      "policy": {
+        "audited": true,
+        "authz_action": "lease:write",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/TransitionControlLease"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/TransitionControlLease",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
+      "id": "GetControlLease",
+      "note": "tenant-bound native control-lease view",
+      "policy": {
+        "audited": false,
+        "authz_action": "lease:read",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/GetControlLease"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/GetControlLease",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "INVALID_ARGUMENT",
         "ACCESS_DENIED",
         "CONFLICT",
         "IDEMPOTENCY_CONFLICT",
@@ -8348,7 +8600,9 @@
       "stability": "stable"
     },
     {
-      "consumer_profiles": [],
+      "consumer_profiles": [
+        "python"
+      ],
       "domain": "coordination",
       "error_set": [
         "INVALID_ARGUMENT",
@@ -8359,15 +8613,15 @@
         "READ_ONLY"
       ],
       "format_identities": [
-        "STORAGE_KERNEL_SCHEMA_VERSION",
-        "ANALYTICS_JOB_SCOPE_INCARNATION"
+        "RBAC_SCOPE_INCARNATION",
+        "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
       ],
       "id": "DecisionFit",
-      "note": "runtime-conditional like AnalyticsJob: status is a read; submit commits a native MutationBatch in jobs.redb carrying the decision job row and its receipt, while the fitted draft is an engine-held Blob CAS body. Local-only authority, refused in clustered mode",
+      "note": "RF-ADR-010 DL-6, runtime-conditional: status is an authenticated tenant-bound read; submit runs one bounded deterministic fit to its terminal state and commits the job row and the draft head body in one agent_library.redb control-owner transaction. Local-only authority, refused in clustered mode",
       "policy": {
         "audited": false,
         "authz_action": "admin:decision-fit",
-        "durability_domain": "JobsRedb",
+        "durability_domain": "ControlRedb",
         "emits_cdc": false,
         "idempotent": true,
         "mutates": true,
@@ -8393,10 +8647,12 @@
         "schema": "contract/schemas/result.coordination.json#/methods/DecisionFit",
         "selected_by": "op"
       },
-      "stability": "internal"
+      "stability": "stable"
     },
     {
-      "consumer_profiles": [],
+      "consumer_profiles": [
+        "python"
+      ],
       "domain": "coordination",
       "error_set": [
         "INVALID_ARGUMENT",
@@ -8407,15 +8663,15 @@
         "READ_ONLY"
       ],
       "format_identities": [
-        "STORAGE_KERNEL_SCHEMA_VERSION",
-        "ANALYTICS_JOB_SCOPE_INCARNATION"
+        "RBAC_SCOPE_INCARNATION",
+        "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
       ],
       "id": "DecisionEval",
-      "note": "runtime-conditional like AnalyticsJob: status is a read; submit commits a native MutationBatch in jobs.redb carrying the evaluation job row and its receipt. Local-only authority, refused in clustered mode",
+      "note": "RF-ADR-010 DL-6, runtime-conditional: status is an authenticated tenant-bound read; submit evaluates a draft or published head on admitted labels and commits the job row and its receipt in one agent_library.redb control-owner transaction; a DecisionHead publish requires a passed receipt. Local-only authority, refused in clustered mode",
       "policy": {
         "audited": false,
         "authz_action": "admin:decision-eval",
-        "durability_domain": "JobsRedb",
+        "durability_domain": "ControlRedb",
         "emits_cdc": false,
         "idempotent": true,
         "mutates": true,
@@ -8441,7 +8697,7 @@
         "schema": "contract/schemas/result.coordination.json#/methods/DecisionEval",
         "selected_by": "op"
       },
-      "stability": "internal"
+      "stability": "stable"
     },
     {
       "consumer_profiles": [
@@ -14911,7 +15167,9 @@
       "stability": "stable"
     },
     {
-      "consumer_profiles": [],
+      "consumer_profiles": [
+        "python"
+      ],
       "domain": "query",
       "error_set": [
         "INVALID_ARGUMENT",
@@ -14919,7 +15177,7 @@
       ],
       "format_identities": [],
       "id": "Decide",
-      "note": "RF-ADR-010 DL-2. Evaluate-only: scores library or RLS-filtered graph candidates under a pinned feature schema and head and answers a batch of records; it commits none of them",
+      "note": "RF-ADR-010 DL-4. Evaluate-only: scores the tenant-visible library candidates under a pinned feature schema, head and policy and answers a batch of sealed statistical records; it commits none of them. Graph-sourced candidates are refused until graph-sourced records land",
       "policy": {
         "audited": false,
         "authz_action": "query:decide",
@@ -14945,7 +15203,7 @@
         "schema": "contract/schemas/result.query.json#/methods/Decide",
         "selected_by": null
       },
-      "stability": "internal"
+      "stability": "stable"
     },
     {
       "consumer_profiles": [
@@ -16264,7 +16522,9 @@
       "stability": "stable"
     },
     {
-      "consumer_profiles": [],
+      "consumer_profiles": [
+        "python"
+      ],
       "domain": "storage",
       "error_set": [
         "INVALID_ARGUMENT",
@@ -16298,10 +16558,12 @@
         "schema": "contract/schemas/result.storage.json#/methods/AgentAssemble",
         "selected_by": null
       },
-      "stability": "internal"
+      "stability": "stable"
     },
     {
-      "consumer_profiles": [],
+      "consumer_profiles": [
+        "python"
+      ],
       "domain": "storage",
       "error_set": [
         "INVALID_ARGUMENT",
@@ -16342,7 +16604,7 @@
         "schema": "contract/schemas/result.storage.json#/methods/DecisionCommit",
         "selected_by": null
       },
-      "stability": "internal"
+      "stability": "stable"
     },
     {
       "consumer_profiles": [

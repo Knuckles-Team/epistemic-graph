@@ -1,6 +1,6 @@
 {
   "schema": "eg-method-policy-registry/v1",
-  "method_count": 425,
+  "method_count": 436,
   "domain_order": [
     "cluster",
     "compute",
@@ -44,6 +44,6 @@
       "feature": "knowledge-batch"
     }
   ],
-  "order_sha256": "f7d4a363e1cf7feb0845b9d367b3aff440be16344974d2e00fd0b9ebea954aa0",
-  "policy_sha256": "2f8267abb1740fe58931148667959b8977451c7118b04823d8327696fd2f71f7"
+  "order_sha256": "0d5eab8687e1caf3dec58b07c55e0d6df2b35ba16470147e55b1d41367b591cf",
+  "policy_sha256": "4a1b8414772b94c54457c38956b6827c89d5646921a104e831e319ef6761d83a"
 }

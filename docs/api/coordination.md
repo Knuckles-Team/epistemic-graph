@@ -1,6 +1,6 @@
 # Coordination API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.coordination.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 38 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.coordination.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 44 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
 
 ## `AcquireCapacity`
 
@@ -326,22 +326,22 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Comm
 
 ## `DecisionEval`
 
-runtime-conditional like AnalyticsJob: status is a read; submit commits a native MutationBatch in jobs.redb carrying the evaluation job row and its receipt. Local-only authority, refused in clustered mode
+RF-ADR-010 DL-6, runtime-conditional: status is an authenticated tenant-bound read; submit evaluates a draft or published head on admitted labels and commits the job row and its receipt in one agent_library.redb control-owner transaction; a DecisionHead publish requires a passed receipt. Local-only authority, refused in clustered mode
 
 | Property | Value |
 |---|---|
-| Stability | `internal` |
+| Stability | `stable` |
 | Authz action | `admin:decision-eval` |
 | Mutates | `true` |
-| Durability domain | `JobsRedb` |
+| Durability domain | `ControlRedb` |
 | Idempotent | `true` |
 | Audited | `false` |
 | Emits CDC | `false` |
 | Txn participation | `Atomic` |
 | Replay class | `OperationIdentity` |
-| Consumer profiles |  |
+| Consumer profiles | `python` |
 | Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
-| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `ANALYTICS_JOB_SCOPE_INCARNATION` |
+| Format identities | `RBAC_SCOPE_INCARNATION`, `CONSENSUS_TRANSACTION_SCHEMA_VERSION` |
 
 **Request parameters**
 
@@ -362,22 +362,22 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Deci
 
 ## `DecisionFit`
 
-runtime-conditional like AnalyticsJob: status is a read; submit commits a native MutationBatch in jobs.redb carrying the decision job row and its receipt, while the fitted draft is an engine-held Blob CAS body. Local-only authority, refused in clustered mode
+RF-ADR-010 DL-6, runtime-conditional: status is an authenticated tenant-bound read; submit runs one bounded deterministic fit to its terminal state and commits the job row and the draft head body in one agent_library.redb control-owner transaction. Local-only authority, refused in clustered mode
 
 | Property | Value |
 |---|---|
-| Stability | `internal` |
+| Stability | `stable` |
 | Authz action | `admin:decision-fit` |
 | Mutates | `true` |
-| Durability domain | `JobsRedb` |
+| Durability domain | `ControlRedb` |
 | Idempotent | `true` |
 | Audited | `false` |
 | Emits CDC | `false` |
 | Txn participation | `Atomic` |
 | Replay class | `OperationIdentity` |
-| Consumer profiles |  |
+| Consumer profiles | `python` |
 | Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
-| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `ANALYTICS_JOB_SCOPE_INCARNATION` |
+| Format identities | `RBAC_SCOPE_INCARNATION`, `CONSENSUS_TRANSACTION_SCHEMA_VERSION` |
 
 **Request parameters**
 
@@ -502,6 +502,138 @@ terminal lifecycle releases active count but retains cleanup charges and identit
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/FinishDevelopmentLane`, `contract/schemas/result.coordination.json#/methods/FinishDevelopmentLane`.
 
+## `GetControlLease`
+
+tenant-bound native control-lease view
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `lease:read` |
+| Mutates | `false` |
+| Durability domain | `None` |
+| Idempotent | `true` |
+| Audited | `false` |
+| Emits CDC | `false` |
+| Txn participation | `Snapshot` |
+| Replay class | `NotReplayable` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `lease_id` | string | yes |  |
+| `tenant` | string | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | one of: `ControlLeaseView` \| null | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/GetControlLease`, `contract/schemas/result.coordination.json#/methods/GetControlLease`.
+
+## `GetWorkItem`
+
+tenant-bound native WorkItem row view; lease owner/epoch/fencing token never projected
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `work:read` |
+| Mutates | `false` |
+| Durability domain | `None` |
+| Idempotent | `true` |
+| Audited | `false` |
+| Emits CDC | `false` |
+| Txn participation | `Snapshot` |
+| Replay class | `NotReplayable` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `tenant` | string | yes |  |
+| `work_item_id` | string | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | one of: `WorkItemView` \| null | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/GetWorkItem`, `contract/schemas/result.coordination.json#/methods/GetWorkItem`.
+
+## `GetWorkItemOutcome`
+
+tenant-bound terminal WorkItem plus the provenance its native commit bound; the OutcomeEvaluation receipt is digest-verified
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `work:read` |
+| Mutates | `false` |
+| Durability domain | `None` |
+| Idempotent | `true` |
+| Audited | `false` |
+| Emits CDC | `false` |
+| Txn participation | `Snapshot` |
+| Replay class | `NotReplayable` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `tenant` | string | yes |  |
+| `work_item_id` | string | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | one of: `WorkItemOutcomeView` \| null | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/GetWorkItemOutcome`, `contract/schemas/result.coordination.json#/methods/GetWorkItemOutcome`.
+
+## `IssueControlLease`
+
+tenant-bound immutable grant record in the WorkItem MutationBatch; an existing id is a collision, never an overwrite
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `lease:write` |
+| Mutates | `true` |
+| Durability domain | `GraphRedb` |
+| Idempotent | `true` |
+| Audited | `true` |
+| Emits CDC | `false` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
+| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `GRAPH_SNAPSHOT_SCHEMA_VERSION`, `GRAPH_META_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `request` | `IssueControlLeaseRequest` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `ControlLeaseIssued` | Json |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/IssueControlLease`, `contract/schemas/result.coordination.json#/methods/IssueControlLease`.
+
 ## `KgDelegate`
 
 authenticated Agent Library pinned delegation lowered to native WorkItem admission
@@ -534,6 +666,42 @@ authenticated Agent Library pinned delegation lowered to native WorkItem admissi
 | `result` | `KgDelegateResult` | Raw |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/KgDelegate`, `contract/schemas/result.coordination.json#/methods/KgDelegate`.
+
+## `ListWorkItems`
+
+bounded tenant-bound WorkItem page; limit/scan/byte bounds each resume through an opaque tenant-bound cursor
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `work:read` |
+| Mutates | `false` |
+| Durability domain | `None` |
+| Idempotent | `true` |
+| Audited | `false` |
+| Emits CDC | `false` |
+| Txn participation | `Snapshot` |
+| Replay class | `NotReplayable` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `cursor` | string \| null | no |  |
+| `kind` | string \| null | no |  |
+| `limit` | integer (uint32) | yes |  |
+| `metadata_match` | object \| null | no | Keep only items whose top-level `metadata` holds every one of these key/value pairs exactly (at most 8 keys) -- e.g. a correlation id or an event subject (graph-os EG-5). Filters within the same bounded scan, so it never widens a page's cost. |
+| `tenant` | string | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `WorkItemPage` | Raw |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/ListWorkItems`, `contract/schemas/result.coordination.json#/methods/ListWorkItems`.
 
 ## `MintWorkItemClaimCapability`
 
@@ -1170,6 +1338,39 @@ bounded all-or-nothing WorkItem admission batch
 | `result` | `SubmitWorkItemsResult` | Raw |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/SubmitWorkItems`, `contract/schemas/result.coordination.json#/methods/SubmitWorkItems`.
+
+## `TransitionControlLease`
+
+one-way active to revoked/expired, CAS on the read revision
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `lease:write` |
+| Mutates | `true` |
+| Durability domain | `GraphRedb` |
+| Idempotent | `true` |
+| Audited | `true` |
+| Emits CDC | `false` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
+| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `GRAPH_SNAPSHOT_SCHEMA_VERSION`, `GRAPH_META_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `request` | `TransitionControlLeaseRequest` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `ControlLeaseTransition` | Json |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/TransitionControlLease`, `contract/schemas/result.coordination.json#/methods/TransitionControlLease`.
 
 ## `UpdateCapacityCell`
 

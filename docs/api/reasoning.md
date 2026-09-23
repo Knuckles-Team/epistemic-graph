@@ -181,7 +181,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/OwlE
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
 | `class_base` | string | no | The absolute namespace a bare string node `type` (e.g. `"Agent"`) is bridged into before classification (`eg_rdf::owl::bridge_type_to_class`) — independent of `target_class`, which ONLY controls filtering (BUG-281: the two used to be conflated, so an empty `target_class` — its own documented "all classes" case — could never supply a namespace, and a caller wanting "reason over everything" always hit `OwlReason requires an absolute target class`). Empty ⇒ fall back to `target_class`'s own namespace when `target_class` is absolute (the pre-existing convenience for a caller that only ever set one field); a class bridge for a bare string `type` is only possible once SOME absolute namespace is available from either field. |
-| `min_confidence` | number (double) | no | Confidence threshold τ in `[0,1]` (CONCEPT:EG-KG.ontology.concept-13). The result carries a per-entailment confidence (axioms/facts may be uncertain; the closure propagates it — `eg:confidence` annotations × the per-node confidence × Ebbinghaus decay). Only entailments with `confidence ≥ min_confidence` are returned. `0.0` keeps everything (and a HARD ontology yields all `1.0`). |
+| `min_confidence` | number (double) | yes | Confidence threshold τ in `[0,1]` (CONCEPT:EG-KG.ontology.concept-13). The result carries a per-entailment confidence (axioms/facts may be uncertain; the closure propagates it — `eg:confidence` annotations × the per-node confidence × Ebbinghaus decay). Only entailments with `confidence ≥ min_confidence` are returned. `0.0` keeps everything (and a HARD ontology yields all `1.0`). |
 | `ontology` | string | no | Extra OWL axioms as Turtle (empty ⇒ reason over the graph's own axioms). |
 | `target_class` | string | no | When set, restrict the returned instance memberships to this class (its inferred members) — the materialize-one-class shape. Empty ⇒ all classes. |
 
@@ -215,7 +215,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/OwlR
 |---|---|:---:|---|
 | `class_base` | string | no | See `OwlReason::class_base` (BUG-281) — independent of `target_class`. |
 | `graphs` | array of string | yes | The graphs (shards) whose axioms + facts to union and reason over. |
-| `min_confidence` | number (double) | no | Confidence threshold τ in `[0,1]` (see `OwlReason::min_confidence`). |
+| `min_confidence` | number (double) | yes | Confidence threshold τ in `[0,1]` (see `OwlReason::min_confidence`). |
 | `ontology` | string | no | Extra OWL axioms as Turtle (a shared TBox over the sharded ABox; empty ⇒ only the axioms already present across the graphs). |
 | `target_class` | string | no | Restrict instance memberships to this class (empty ⇒ all classes). |
 

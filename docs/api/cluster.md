@@ -1,6 +1,6 @@
 # Cluster API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.cluster.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 30 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.cluster.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 31 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
 
 ## `CancelRequest`
 
@@ -293,6 +293,45 @@ native lifecycle MutationBatch before registry eviction
 | `result` | `GraphDeleted` | Json |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/DeleteGraph`, `contract/schemas/result.cluster.json#/methods/DeleteGraph`.
+
+## `FleetCatalog`
+
+EH-345 fleet catalog, runtime-conditional: list/lookup are tenant- and principal-projected snapshot reads forced to __commons__ that join discovery records and operator overrides with connector-pack AgentComponents; record_discovery/set_override/clear_override self-translate into CreateNodeIfAbsent/CompareAndSetNodeFields against __commons__ (overrides need admin:fleet-catalog)
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `registry:write` |
+| Mutates | `true` |
+| Durability domain | `GraphRedb` |
+| Idempotent | `true` |
+| Audited | `true` |
+| Emits CDC | `true` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
+| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `GRAPH_SNAPSHOT_SCHEMA_VERSION`, `GRAPH_META_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `op` | `FleetCatalogOp` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `clear_override` | `FleetWriteReceipt` | Raw |  |
+| `list` | `FleetCatalogPage` | Raw |  |
+| `lookup` | `FleetCatalogLookup` | Raw |  |
+| `record_discovery` | `FleetWriteReceipt` | Raw |  |
+| `set_override` | `FleetWriteReceipt` | Raw |  |
+
+> Multi-body result: the `op` request field selects which body above is returned.
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/FleetCatalog`, `contract/schemas/result.cluster.json#/methods/FleetCatalog`.
 
 ## `GetMatView`
 
@@ -864,8 +903,10 @@ W2.5 fleet server push-registration/heartbeat: self-translates into Method::AddN
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
+| `desired` | `ServerDesiredState` (enum: `enabled`, `disabled`) | no |  |
 | `name` | string | yes |  |
 | `resources_json` | string | no |  |
+| `transport` | `ServerTransport` | no |  |
 | `ttl_secs` | integer (uint64) | yes |  |
 | `url` | string | yes |  |
 

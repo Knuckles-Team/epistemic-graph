@@ -8,7 +8,7 @@ RF-ADR-010 A1. Reads ONE tenant-bound agent_library.redb snapshot and proves an 
 
 | Property | Value |
 |---|---|
-| Stability | `internal` |
+| Stability | `stable` |
 | Authz action | `agent:assemble-read` |
 | Mutates | `false` |
 | Durability domain | `None` |
@@ -17,7 +17,7 @@ RF-ADR-010 A1. Reads ONE tenant-bound agent_library.redb snapshot and proves an 
 | Emits CDC | `false` |
 | Txn participation | `Snapshot` |
 | Replay class | `NotReplayable` |
-| Consumer profiles |  |
+| Consumer profiles | `python` |
 | Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
 
 **Request parameters**
@@ -625,7 +625,7 @@ native MutationBatch in agent_library.redb: one DecisionRecord component revisio
 
 | Property | Value |
 |---|---|
-| Stability | `internal` |
+| Stability | `stable` |
 | Authz action | `agent:decision-write` |
 | Mutates | `true` |
 | Durability domain | `ControlRedb` |
@@ -634,7 +634,7 @@ native MutationBatch in agent_library.redb: one DecisionRecord component revisio
 | Emits CDC | `false` |
 | Txn participation | `Atomic` |
 | Replay class | `OperationIdentity` |
-| Consumer profiles |  |
+| Consumer profiles | `python` |
 | Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
 | Format identities | `RBAC_SCOPE_INCARNATION`, `CONSENSUS_TRANSACTION_SCHEMA_VERSION` |
 

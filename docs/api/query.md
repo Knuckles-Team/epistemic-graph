@@ -106,11 +106,11 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Cyph
 
 ## `Decide`
 
-RF-ADR-010 DL-2. Evaluate-only: scores library or RLS-filtered graph candidates under a pinned feature schema and head and answers a batch of records; it commits none of them
+RF-ADR-010 DL-4. Evaluate-only: scores the tenant-visible library candidates under a pinned feature schema, head and policy and answers a batch of sealed statistical records; it commits none of them. Graph-sourced candidates are refused until graph-sourced records land
 
 | Property | Value |
 |---|---|
-| Stability | `internal` |
+| Stability | `stable` |
 | Authz action | `query:decide` |
 | Mutates | `false` |
 | Durability domain | `None` |
@@ -119,7 +119,7 @@ RF-ADR-010 DL-2. Evaluate-only: scores library or RLS-filtered graph candidates 
 | Emits CDC | `false` |
 | Txn participation | `Snapshot` |
 | Replay class | `NotReplayable` |
-| Consumer profiles |  |
+| Consumer profiles | `python` |
 | Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
 
 **Request parameters**

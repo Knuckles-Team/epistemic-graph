@@ -181,6 +181,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Clus
 |---|---|:---:|---|
 | `edges` | array of array of any | yes |  |
 | `node_ids` | array of string | yes |  |
+| `quality` | `CommunityQualityFunction` (enum: `modularity`, `cpm`) | no |  |
 | `resolution` | number (double) | yes |  |
 
 **Result**
@@ -4311,7 +4312,7 @@ pure compute: a bounded 0-1 integer programme with an independently verifiable c
 
 | Property | Value |
 |---|---|
-| Stability | `internal` |
+| Stability | `stable` |
 | Authz action | `compute:solve` |
 | Mutates | `false` |
 | Durability domain | `None` |
@@ -4320,7 +4321,7 @@ pure compute: a bounded 0-1 integer programme with an independently verifiable c
 | Emits CDC | `false` |
 | Txn participation | `None` |
 | Replay class | `NotReplayable` |
-| Consumer profiles |  |
+| Consumer profiles | `python` |
 | Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
 
 **Request parameters**

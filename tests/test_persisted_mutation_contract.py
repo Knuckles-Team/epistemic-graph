@@ -569,13 +569,13 @@ def test_native_command_catalog_rejects_drift_and_comment_spoofs() -> None:
     source = module.read_compiler_family("src/raft/mod.rs").production
     entry = "            record EvictLRU => GraphState,\n"
     assert entry in source
-    assert len(module._native_method_catalog(source)) == 100
+    assert len(module._native_method_catalog(source)) == 102
 
-    with pytest.raises(SystemExit, match="100 entries"):
+    with pytest.raises(SystemExit, match="102 entries"):
         module._native_method_catalog(source.replace(entry, "", 1))
     with pytest.raises(SystemExit, match="duplicate entry"):
         module._native_method_catalog(source.replace(entry, entry + entry, 1))
-    with pytest.raises(SystemExit, match="100 entries"):
+    with pytest.raises(SystemExit, match="102 entries"):
         module._native_method_catalog(
             source.replace(entry, f"            // {entry.strip()}\n", 1)
         )

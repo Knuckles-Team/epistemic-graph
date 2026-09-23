@@ -1107,6 +1107,33 @@ class WhyNot(BaseModel):
     violation: Violation | None = None
 
 
+BoundedVec_string_16 = Annotated[list[str], Field(max_length=16)]
+
+
+BoundedVec_string_32 = Annotated[list[str], Field(max_length=32)]
+
+
+BoundedVec_string_64 = Annotated[list[str], Field(max_length=64)]
+
+
+BoundedVec_string_8 = Annotated[list[str], Field(max_length=8)]
+
+
+Nonce = Annotated[str, Field(pattern="^[0-9a-f]{64}$", min_length=64, max_length=64)]
+
+
+RowId = Annotated[int, Field(ge=0)]
+
+
+Scalar = str
+
+
+Sha256Digest = str
+
+
+VarId = Annotated[int, Field(ge=0)]
+
+
 AgentGraphNodeKind = (
     dict[str, Any] | Literal["fanout"] | Literal["join"] | Literal["end"]
 )
@@ -1201,40 +1228,13 @@ BoundedVec_WeightedLevel_8 = Annotated[list[WeightedLevel], Field(max_length=8)]
 BoundedVec_WhyNot_64 = Annotated[list[WhyNot], Field(max_length=64)]
 
 
-BoundedVec_string_16 = Annotated[list[str], Field(max_length=16)]
-
-
-BoundedVec_string_32 = Annotated[list[str], Field(max_length=32)]
-
-
-BoundedVec_string_64 = Annotated[list[str], Field(max_length=64)]
-
-
-BoundedVec_string_8 = Annotated[list[str], Field(max_length=8)]
-
-
 LeafProof = dict[str, Any]
-
-
-Nonce = Annotated[str, Field(pattern="^[0-9a-f]{64}$", min_length=64, max_length=64)]
 
 
 ProofNode = dict[str, Any]
 
 
-RowId = Annotated[int, Field(ge=0)]
-
-
-Scalar = str
-
-
-Sha256Digest = str
-
-
 SolveStatus = Literal["optimal"] | dict[str, Any] | Literal["budget_exhausted"]
-
-
-VarId = Annotated[int, Field(ge=0)]
 
 AbstainReasonUncoveredCapability.model_rebuild()
 
