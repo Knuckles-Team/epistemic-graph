@@ -29,27 +29,20 @@ FIFO order explicit across concurrent producers. So M admitted writers cost
 result (an `add_edge` to a missing endpoint returns its own `Err`; CAS returns its
 own boolean).
 
-```mermaid
-flowchart LR
-    subgraph Producers["Concurrent writers (one Tokio task each)"]
-      P1[AddNode]:::w
-      P2[AddEdge]:::w
-      P3[CAS]:::w
-      Pn[…]:::w
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Write coalescing</p>
 
-    subgraph Reg["WriteCoalescerRegistry — DashMap&lt;graph_name, Arc&lt;GraphWriter&gt;&gt;<br/>(lazy, keyed by name — auto per new graph/connector)"]
-      direction TB
-      W["GraphWriter (per graph)<br/>bounded mpsc + 1 drain worker"]
-    end
+Concurrent writers (`AddNode`, `AddEdge`, `CAS`, …, one Tokio task each)
+each `try_enqueue(op+oneshot)` into a `GraphWriter` — looked up lazily, per
+graph name, in the `WriteCoalescerRegistry`
+(`DashMap<graph_name, Arc<GraphWriter>>`, auto-created per new
+graph/connector). Each `GraphWriter` has a bounded mpsc queue and one drain
+worker, which drains up to `max_batch` ops into `apply_batch`: **one**
+`core.txn()` — one `topo.write()` acquisition — for the whole batch. The
+batch returns a per-op `WriteOutcome` back to each waiting writer; a full
+queue instead returns BUSY (retry with backoff).
 
-    P1 & P2 & P3 & Pn -->|"try_enqueue(op+oneshot)"| W
-    W -->|"drain ≤ max_batch"| B["apply_batch: ONE core.txn()<br/>= ONE topo.write() acquisition"]
-    B -->|"per-op WriteOutcome"| P1 & P2 & P3 & Pn
-    B -.full queue.-> FB["BUSY (retry with backoff)"]
-
-    classDef w fill:#e6f0ff,stroke:#4477cc;
-```
+</div>
 
 ### Lazy, dynamic, NOT hardcoded
 

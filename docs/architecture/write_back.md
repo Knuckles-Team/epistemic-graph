@@ -5,28 +5,22 @@ versioned `SourceChangeSet` records and append-only `WriteBackReceipt` and
 `ReconciliationReceipt` streams. It does not contain a vendor client and never
 calls a source system. The agent-connector-sdk owns those source transports.
 
-```mermaid
-sequenceDiagram
-    participant G as graph-os
-    participant E as epistemic-graph
-    participant S as agent-connector-sdk
-    participant V as source system
-    G->>E: create authorized SourceChangeSet
-    E-->>G: durable change set
-    G->>S: current version + dry-run
-    S->>V: read only
-    S-->>G: bounded observation digests
-    G->>E: record dry-run receipt
-    G->>S: apply authorized change set
-    S->>V: compare-and-apply by idempotency key
-    S-->>G: applied / conflict / outcome uncertain
-    G->>E: append WriteBackReceipt
-    alt outcome uncertain
-        G->>S: reconcile before retry
-        S->>V: observe idempotency key and version
-        G->>E: append ReconciliationReceipt
-    end
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Write-back sequence</p>
+
+graph-os asks epistemic-graph to create an authorized `SourceChangeSet` and
+gets back a durable change set. graph-os hands the SDK the current version
+for a dry-run; the SDK reads the source system read-only and returns
+bounded observation digests, which graph-os records as a dry-run receipt in
+epistemic-graph. graph-os then tells the SDK to apply the authorized change
+set; the SDK compares and applies by idempotency key against the source,
+returning applied / conflict / outcome-uncertain, which graph-os appends as
+a `WriteBackReceipt`. When the outcome is uncertain, graph-os has the SDK
+reconcile before retrying — the SDK observes the idempotency key and
+version against the source — and graph-os appends a
+`ReconciliationReceipt`.
+
+</div>
 
 Every create or append is bound again at the EG server boundary to the verified
 tenant, opaque actor and idempotency key. A caller-provided authorization mode or

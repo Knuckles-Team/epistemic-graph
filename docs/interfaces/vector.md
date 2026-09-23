@@ -12,16 +12,16 @@ The `ann` feature gives a native, pure-Rust approximate-nearest-neighbour index 
 
 ## What the index is
 
-```mermaid
-flowchart LR
-    V["raw vector"] --> OPQ["OPQ rotation<br/>(learned, polar/SVD)"]
-    OPQ --> IVF["IVF coarse<br/>quantizer (k-means)"]
-    IVF --> PQ["PQ codes<br/>(8-bit, 256-entry codebooks)"]
-    OPQ --> SQ8["SQ8 refine copy<br/>(1 byte/dim)"]
-    PQ --> SRCH["ADC candidate scan"]
-    SQ8 --> RR["over-fetch + re-rank<br/>(near-exact)"]
-    SRCH --> RR --> TOPK["top-k"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Index pipeline</p>
+
+A raw vector is OPQ-rotated (a learned, polar/SVD rotation). The rotated
+vector feeds two paths: an IVF coarse quantizer (k-means) producing 8-bit
+PQ codes over 256-entry codebooks, and an SQ8 refine copy (1 byte/dim). The
+PQ codes drive an ADC candidate scan; the SQ8 copy drives an over-fetch +
+near-exact re-rank of those candidates, producing the final top-k.
+
+</div>
 
 - **IVF-PQ**: an inverted-file coarse quantizer plus product-quantized residual codes scored by
   asymmetric distance computation (ADC).

@@ -14,38 +14,26 @@ numeric runtime dependency).
 The Analytics Program generalizes that proven pattern into **one numeric kernel**
 (`crates/eg-numeric`) exposed on **two surfaces**.
 
-```mermaid
-flowchart TD
-    subgraph K["crates/eg-numeric — pure Rust kernel (rlib)"]
-        direction TB
-        ND["ndarray 0.16<br/>arrays · reductions · element-wise"]
-        FA["faer 0.20<br/>svd · eigh · solve · pinv · lstsq · qr · cholesky<br/>(NO system BLAS/LAPACK)"]
-        RN["rand / rand_distr<br/>seedable RNG"]
-        ERR["NumericError → LinAlgError<br/>(isolated reference parity)"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Numeric kernel surfaces</p>
 
-    K -->|"feature: python<br/>(pyo3 + bounded built-ins,<br/>owned conversion)"| SA
-    K -->|"rlib link<br/>(NO pyo3 — python feature OFF)"| SB
+The pure Rust kernel (`crates/eg-numeric`, an `rlib`: `ndarray` 0.16 for
+arrays/reductions/element-wise, `faer` 0.20 for svd/eigh/solve/pinv/lstsq/
+qr/cholesky with no system BLAS/LAPACK, `rand`/`rand_distr` for a seedable
+RNG, and `NumericError` → `LinAlgError` for isolated reference parity) links
+into two surfaces:
 
-    subgraph SA["Surface A — in-process Python"]
-        M1["epistemic_graph.numeric<br/>(extension module)"]
-        M2["agent_utilities.numeric.xp<br/>(kernel required; bounded built-in scalar/list contract) — AU-KG.compute.surface-analytics-program"]
-        M1 --> M2
-    end
+- **Surface A — in-process Python** (`feature: python`, pyo3 + bounded
+  built-ins, owned conversion): `epistemic_graph.numeric` (extension
+  module) feeds `agent_utilities.numeric.xp` (kernel required; bounded
+  built-in scalar/list contract, AU-KG.compute.surface-analytics-program).
+  Transient data (finance dataframes, ad-hoc KG math) flows here.
+- **Surface B — engine operators** (rlib link, no pyo3, python feature
+  off): DataFusion SQL UDFs/UDAFs (pca, covariance, zscore, svd), graph/
+  vector/timeseries analytics, and cross-modal join → PCA/cluster in-engine.
+  Engine-resident data (embeddings, graph, columnar, timeseries) flows here.
 
-    subgraph SB["Surface B — engine operators"]
-        D1["DataFusion SQL UDFs/UDAFs<br/>pca · covariance · zscore · svd"]
-        D2["graph / vector / timeseries analytics"]
-        D3["cross-modal join → PCA/cluster in-engine"]
-    end
-
-    TA["transient data<br/>(finance dataframes, ad-hoc KG math)"] --> SA
-    TB["engine-resident data<br/>(embeddings, graph, columnar, timeseries)"] --> SB
-
-    classDef done fill:#d5f5e3,stroke:#1e8449;
-    classDef todo fill:#fdebd0,stroke:#b9770e;
-    class K,SA,SB done;
-```
+</div>
 
 **Decision rule (which surface):** data **already in the engine** → Surface B
 (compute-near-data, no FFI). Data **transient in Python** (API dataframes, in-memory
@@ -229,29 +217,27 @@ Python 3.12 for the developer parity environment.
 The pure kernel rlib is wired into the engine's query surface so analytics run **where the
 data lives** — no fetch-to-Python, no FFI. Two reach paths:
 
-```mermaid
-flowchart TD
-    subgraph kernel["eg-numeric (rlib, feature numeric — faer + ndarray, NO pyo3)"]
-      K1["linalg: dot · norm · svd · batch_l2_normalize"]
-      K2["reductions: mean · std · var"]
-    end
-    subgraph sql["Surface B / SQL  (eg-query, feature numeric ⊃ sql)"]
-      U1["cosine_sim(a,b) → Float64  (scalar)"]
-      U2["l2_normalize(v) → List&lt;Float32&gt;  (scalar)"]
-      U3["zscore(col) → Float64  (scalar-over-batch)"]
-      U4["covariance(a,b) → Float64  (UDAF)"]
-      U5["svd(vec_col) → List&lt;Float64&gt;  (UDAF, col→matrix)"]
-      U6["pca(vec_col,k) → List&lt;List&lt;Float64&gt;&gt;  (UDAF, col→matrix)"]
-      U7["kmeans(vec_col,k) → List&lt;Int64&gt;  (UDAF, col→matrix)"]
-    end
-    subgraph rpc["Surface B / Method  (src/server/handlers)"]
-      M1["BatchL2Normalize { vectors }"]
-    end
-    SQL["SELECT zscore(price) …\nSELECT svd(emb) …\nSELECT pca(emb,3) …\nSELECT kmeans(emb,2) …"] --> U1 & U2 & U3 & U4 & U5 & U6 & U7
-    U1 & U2 & U3 & U4 & U5 & U6 & U7 --> kernel
-    client["client.batch_l2_normalize(vectors)"] --> M1 --> kernel
-    kernel --> boundary{{"server binary remains pyo3-free"}}
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">SQL/RPC operators over the kernel</p>
+
+SQL statements (`SELECT zscore(price) …`, `SELECT svd(emb) …`,
+`SELECT pca(emb,3) …`, `SELECT kmeans(emb,2) …`) call the seven SQL
+operators (Surface B/SQL, `eg-query`, `feature numeric ⊃ sql`):
+`cosine_sim(a,b) → Float64` (scalar), `l2_normalize(v) → List<Float32>`
+(scalar), `zscore(col) → Float64` (scalar-over-batch),
+`covariance(a,b) → Float64` (UDAF), `svd(vec_col) → List<Float64>` (UDAF,
+column→matrix), `pca(vec_col,k) → List<List<Float64>>` (UDAF,
+column→matrix), and `kmeans(vec_col,k) → List<Int64>` (UDAF,
+column→matrix) — all of which call into the `eg-numeric` kernel (rlib,
+`feature numeric`, faer + ndarray, no pyo3: `linalg::{dot, norm, svd,
+batch_l2_normalize}` and `reductions::{mean, std, var}`).
+
+Separately, `client.batch_l2_normalize(vectors)` calls the RPC method
+`BatchL2Normalize { vectors }` (Surface B/Method, `src/server/handlers`),
+which also calls into the same kernel. Either path keeps the server binary
+pyo3-free.
+
+</div>
 
 **SQL operators** (registered on the graph-exec AND obs-tables `SessionContext`, gated
 `#[cfg(feature = "numeric")]` in `crates/eg-query/src/sql/exec.rs::register_numeric`,
@@ -312,33 +298,29 @@ Python-only array workflow must first fetch each modality into a separate array 
 by hand. Here the join and the analytics are **one SQL statement over resident data**, computed
 where the data lives (compute-near-data, no FFI, no round-trip).
 
-```mermaid
-flowchart LR
-    subgraph engine["epistemic-graph engine — one SQL surface"]
-      direction TB
-      G["graph / relational<br/>nodes(id, x, emb)"]
-      V["vector<br/>emb = per-node embedding"]
-      T["timeseries<br/>readings(nid, ts, reading)"]
-      G -. "emb prop" .-> V
-      T --> AGG["ts: AVG(reading) per node<br/>(timeseries reduction)"]
-      G --> JOIN["JOIN nodes ⋈ ts  ON id = nid"]
-      AGG --> JOIN
-      JOIN --> AN["analytics over the joined rows<br/>kmeans(emb,k) · pca(emb,k) · covariance(x, avg_reading)"]
-    end
-    AN --> R["result (in-engine)<br/>clusters · components · cross-modal cov"]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Cross-modal analytics, one SQL surface</p>
+
+Graph/relational data (`nodes(id, x, emb)`) carries a vector modality via
+its `emb` property. Timeseries data (`readings(nid, ts, reading)`) reduces
+to `AVG(reading)` per node. That reduction joins with the graph table
+(`JOIN nodes ⋈ ts ON id = nid`), and analytics run over the joined rows —
+`kmeans(emb,k)`, `pca(emb,k)`, `covariance(x, avg_reading)` — producing an
+in-engine result: clusters, components, cross-modal covariance.
+
+</div>
 
 **One query, three modalities** (from `crates/eg-query/tests/cross_modal_analytics.rs`, the
 proof test — synthetic data with hand-computed answers):
 
 ```sql
-WITH readings(nid, ts, reading) AS (VALUES         -- ── timeseries modality ──
+WITH readings(nid, ts, reading) AS (VALUES         -- timeseries modality
     ('n1',1,1.0),('n1',2,3.0), ('n2',1,3.0),('n2',2,5.0), ('n3',1,5.0),('n3',2,7.0),
     ('n4',1,7.0),('n4',2,9.0), ('n5',1,9.0),('n5',2,11.0),('n6',1,11.0),('n6',2,13.0)),
      ts AS (SELECT nid, avg(reading) AS avg_reading FROM readings GROUP BY nid)
 SELECT kmeans(json_get(n.props, 'emb'), 2)                        AS clusters,   -- vector
        covariance(json_get_f64(n.props, 'x'), t.avg_reading)      AS xcov        -- graph×ts
-FROM nodes n JOIN ts t ON n.id = t.nid;                           -- ── graph ⋈ timeseries ──
+FROM nodes n JOIN ts t ON n.id = t.nid;                           -- graph join timeseries
 ```
 
 The six nodes form two communities (embeddings near `[10,10]` / `[-10,-10]`, all on the line

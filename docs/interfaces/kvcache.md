@@ -18,23 +18,22 @@ Each level up is smaller/faster/more volatile. (The vLLM- and LMCache-side wirin
 agent-utilities' `docs/guides/kvcache-vllm-lmcache.md` and `services/vllm/AGENTS.md`; this mirrors the
 concept engine-side.)
 
-```mermaid
-flowchart TD
-    req["inference request<br/>(shared prefix)"] --> L0
-    subgraph vllm["vLLM (GPU host)"]
-      L0["L0 · GPU HBM<br/>native prefix cache<br/>(--enable-prefix-caching)<br/>⟲ lost on vLLM restart"]
-    end
-    subgraph lm["LMCache (decoupled lmcache server)"]
-      L1["L1 · CPU RAM<br/>--l1-size-gb<br/>✓ survives vLLM restart"]
-    end
-    subgraph eg["epistemic-graph (kvcache-server, this engine)"]
-      L2["L2 · durable + dedup<br/>EG-185 hot/warm/cold tiers<br/>EG-186 content-addressed dedup<br/>✓ survives server restart · persists · shared cross-instance"]
-    end
-    L0 -->|"miss / evict · offload KV (+ Mamba state) via CUDA-IPC"| L1
-    L1 -->|"miss / evict · resp or EG-KG.backend.is-configured-so-co native adapter"| L2
-    L2 -.->|"retrieve on cold GPU"| L1
-    L1 -.->|"load back into HBM"| L0
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Three-tier KV cache</p>
+
+An inference request with a shared prefix first checks **L0** (vLLM's GPU
+HBM native prefix cache, `--enable-prefix-caching`) — fastest, but lost on
+a vLLM restart. On a miss or eviction, KV (plus Mamba state) offloads via
+CUDA-IPC to **L1** (LMCache's decoupled CPU-RAM server,
+`--l1-size-gb`) — survives a vLLM restart. On an L1 miss or eviction, it
+falls through (via the built-in `resp` wire or the engine-native HTTP
+adapter) to **L2** — this engine's own `kvcache-server`: a durable,
+content-addressed, deduplicating tier with hot/warm/cold storage
+(EG-185/EG-186) that survives a server restart, persists, and is shared
+across instances. Retrieval flows back up: L2 → L1 on a cold-GPU retrieve,
+L1 → L0 loading back into HBM.
+
+</div>
 
 - **L0** = vLLM's in-process GPU prefix cache — fastest, but lost on restart and per-worker.
 - **L1** = LMCache's CPU-RAM tier — survives a vLLM restart (the cross-restart win); still per-box.

@@ -40,20 +40,23 @@ which every manylinux/CI image already has.
 
 Selected explicitly at build time; **neither is published as its own wheel**.
 
-```mermaid
-flowchart TB
-    subgraph main["default == full — the one main single-node build"]
-        MF["compute · server · query/DataFusion · cypher · graphql · redb · ann · tsdb · blob · kv · text · sparql/owl · security · federation · wasm-udf · pgwire/mysql/mssql/sqlite/bolt/redis/amqp/mqtt/stomp · obs · …"]
-    end
-    subgraph cluster["+ cluster — HA / multi-node"]
-        CF["full + raft replication + compute-dist (distributed Pregel + cross-shard 2PC) + nonblocking commit"]
-    end
-    subgraph extras["+ full-extras — GPU / robotics"]
-        EF["full + gpu-cuda + ros2-bridge + ros2-dds"]
-    end
-    main --> cluster
-    main --> extras
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Build tiers</p>
+
+**`default == full`** — the one main single-node build: compute, server,
+query/DataFusion, cypher, graphql, redb, ann, tsdb, blob, kv, text,
+sparql/owl, security, federation, wasm-udf,
+pgwire/mysql/mssql/sqlite/bolt/redis/amqp/mqtt/stomp, obs, and more.
+
+Two tiers build on top of `full` independently:
+
+- **`+ cluster`** (HA / multi-node) — `full` plus raft replication,
+  `compute-dist` (distributed Pregel + cross-shard 2PC), and nonblocking
+  commit.
+- **`+ full-extras`** (GPU / robotics) — `full` plus `gpu-cuda`,
+  `ros2-bridge`, and `ros2-dds`.
+
+</div>
 
 | Layer | Adds | Why it is not in the default build |
 |-------|------|------------------------------------|

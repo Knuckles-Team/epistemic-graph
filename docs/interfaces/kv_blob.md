@@ -39,15 +39,15 @@ graph-scoped — so the engine is a drop-in RocksDB/redb-style KV store. The Red
 The blob tier is a streaming content-addressed store (CAS): each blob is a MessagePack manifest of
 sha256 chunk digests, keyed by its own sha256.
 
-```mermaid
-flowchart LR
-    BYTES["object bytes"] --> CH["content-defined chunks<br/>(Gear/FastCDC rolling hash)"]
-    CH --> H["sha256 per chunk"]
-    H --> M["manifest = ordered digests"]
-    M --> STORE{{"ChunkStore trait"}}
-    STORE --> REDB[("redb-native<br/>(default)")]
-    STORE --> S3[("S3 / MinIO<br/>(blob-s3)")]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Blob chunking pipeline</p>
+
+Object bytes are split into content-defined chunks (Gear/FastCDC rolling
+hash), each hashed with sha256, and the ordered digests form the manifest.
+The manifest is handed to the `ChunkStore` trait, backed by either the
+default redb-native store or the S3/MinIO store (`blob-s3` feature).
+
+</div>
 
 - **redb-native backend** (default, in `{persist_dir}/blob.redb`): group-commit with bounded RAM
   (resident memory tracks the commit group, not the blob size), streaming read/write cursors, and a

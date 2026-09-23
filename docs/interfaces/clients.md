@@ -116,46 +116,38 @@ agent-utilities' LLM); the client just carries the text.
 
 ## Client → Method → engine
 
-```mermaid
-flowchart LR
-  subgraph clients["Client drivers (CONCEPT:EG-KG.ingest.broker-streams-namespaces)"]
-    PY["Python (full)\nepistemic_graph/client.py\n.knowledge / .modalities / .broker / .rbac / .admin"]
-    JS["JS thin\nclients/js"]
-    GO["Go thin\nclients/go"]
-  end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Client-to-handler pipeline</p>
 
-  PY -- "framed msgpack\n(4B len + {id,graph,auth_token,method,params})\nHMAC-SHA256 auth" --> T
-  JS -- "framed msgpack" --> T
-  GO -- "framed msgpack" --> T
+Three client drivers (Python full — `epistemic_graph/client.py`,
+`.knowledge`/`.modalities`/`.broker`/`.rbac`/`.admin`; JS thin —
+`clients/js`; Go thin — `clients/go`) all speak the same framed msgpack wire
+(4-byte length + `{id, graph, auth_token, method, params}`, HMAC-SHA256
+auth) to the transport (`src/server/transport.rs`: UDS/TCP, pipelined,
+id-demuxed), which hands off to dispatch (`src/server/dispatch.rs`).
 
-  T["Transport\nsrc/server/transport.rs\n(UDS / TCP, pipelined, id-demux)"] --> D["dispatch\nsrc/server/dispatch.rs"]
+Dispatch routes each method (the `Method` enum, `crates/eg-types/src/
+protocol.rs`) to its handler:
 
-  subgraph methods["Method enum · crates/eg-types/src/protocol.rs"]
-    M_BROKER["Publish* / DeclareExchange /\nDeclareQueue / BindQueue /\nBrokerConsume / BrokerAck / BrokerReject /\nBrokerAckTag / BrokerNackTag / BrokerRenewTag / SweepExpired"]
-    M_STREAM["StreamDeclare / StreamPublish /\nStreamRead / StreamTrim /\nStreamCommitOffset / StreamCommittedOffset"]
-    M_RBAC["RbacAdmin{op}"]
-    M_BAK["Backup / Restore"]
-    M_NL["NlQuery{text,graph}"]
-    M_MODAL["ServedModality{op}"]
-    M_KNOW["KnowledgeStream{request}"]
-  end
+- Broker methods (`Publish*`, `DeclareExchange`, `DeclareQueue`,
+  `BindQueue`, `BrokerConsume`, `BrokerAck`, `BrokerReject`,
+  `BrokerAckTag`, `BrokerNackTag`, `BrokerRenewTag`, `SweepExpired`) and
+  stream methods (`StreamDeclare`, `StreamPublish`, `StreamRead`,
+  `StreamTrim`, `StreamCommitOffset`, `StreamCommittedOffset`) both route to
+  `handlers/graph_ops.rs` / `crate::broker` (eg-core, EG-275..284/314).
+- `RbacAdmin{op}` routes to `dispatch.rs` → `isolation.rbac` (eg-core acl,
+  EG-KG.compute.feature).
+- `Backup`/`Restore` routes to `handlers/admin.rs` (redb backup/restore,
+  EG-090).
+- `NlQuery{text,graph}` routes to `handlers/query.rs` → `NlPlanner` → UQL →
+  `run_unified` (EG-078/080).
+- `ServedModality{op}` routes to `handlers/modality.rs` (verified governed
+  serving).
+- `KnowledgeStream{request}` routes to
+  `handlers/knowledge_stream/{mod,families,stream}.rs`, the sole Arrow IPC
+  result stream.
 
-  D --> M_BROKER
-  D --> M_STREAM
-  D --> M_RBAC
-  D --> M_BAK
-  D --> M_NL
-  D --> M_MODAL
-  D --> M_KNOW
-
-  M_BROKER --> H1["handlers/graph_ops.rs\ncrate::broker (eg-core)\nEG-275..284/314"]
-  M_STREAM --> H1
-  M_RBAC --> H2["dispatch.rs → isolation.rbac\neg-core acl · EG-KG.compute.feature"]
-  M_BAK  --> H3["handlers/admin.rs\nredb backup/restore · EG-090"]
-  M_NL   --> H4["handlers/query.rs → NlPlanner\n→ UQL → run_unified · EG-078/080"]
-  M_MODAL --> H5["handlers/modality.rs\nverified governed serving"]
-  M_KNOW --> H6["handlers/knowledge_stream/{mod,families,stream}.rs\nsole Arrow IPC result stream"]
-```
+</div>
 
 ## Parity gate
 

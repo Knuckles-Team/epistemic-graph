@@ -23,36 +23,21 @@ each remain **opt-in at runtime**: nothing runs unless `GRAPH_SERVICE_PERSIST_DI
 
 ## What it does
 
-```mermaid
-flowchart LR
-    subgraph Engine["epistemic-graph (LTAP)"]
-        TBL["User tables + columnar segments<br/>(eg-query / TableStore)"]
-        SNAP["Versioned snapshots + Op::AsOf<br/>(LSN-style as-of)"]
-        LAKE["eg-lake: async columnar materializer"]
-    end
-    subgraph Object["Object store (blob CAS / S3 / MinIO)"]
-        PARQ["Parquet data files"]
-        DELTA["_delta_log (Delta transaction log)"]
-        ICE["Iceberg metadata + snapshots"]
-    end
-    subgraph Readers["External lakehouse readers (zero ETL)"]
-        DBX["Databricks / Spark"]
-        TRINO["Trino / Presto"]
-        DUCK["DuckDB / Polars"]
-    end
-    CAT["Iceberg-REST catalog endpoint"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">LTAP lakehouse flow</p>
 
-    TBL --> LAKE
-    SNAP --> LAKE
-    LAKE --> PARQ
-    LAKE --> DELTA
-    LAKE --> ICE
-    CAT --> ICE
-    DBX --> DELTA
-    DBX --> CAT
-    TRINO --> CAT
-    DUCK --> PARQ
-```
+**epistemic-graph (LTAP):** user tables + columnar segments (`eg-query`/
+`TableStore`) and versioned snapshots (`Op::AsOf`, LSN-style) both feed
+`eg-lake`, the async columnar materializer, which writes Parquet data
+files, the `_delta_log` Delta transaction log, and Iceberg metadata +
+snapshots into the object store (blob CAS / S3 / MinIO).
+
+**Object store → external readers (zero ETL):** the Iceberg-REST catalog
+endpoint serves Iceberg metadata to Databricks/Spark and to Trino/Presto;
+Databricks/Spark also reads the Delta log directly, and DuckDB/Polars read
+the Parquet files directly.
+
+</div>
 
 - **Parquet materialization.** An async tier transcodes an engine table's (or a columnar segment's) rows
   into Arrow record batches and writes **Parquet** data files onto the object store (the blob CAS, or an

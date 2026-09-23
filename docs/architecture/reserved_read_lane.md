@@ -98,25 +98,19 @@ mutating statement from a read) all classify as writes; everything else
 Both reads and writes try the **normal path first** (a global permit, then the
 graph's per-graph permit). The split only happens when that path is lost:
 
-```mermaid
-flowchart TD
-    REQ["request (method, graph)"]
-    CLASS{"requires_write(method)?"}
-    NORMAL{"try global permit<br/>AND per-graph permit?"}
-    WRITELOSE["shed BUSY<br/>(back-pressured, retry — NEVER dropped)"]
-    READLANE{"try reserved read lane<br/>(read_admission semaphore)?"}
-    READSHED["shed BUSY<br/>(only a genuine read FLOOD reaches here)"]
-    GRANT_NORMAL["Granted {global, per_graph}"]
-    GRANT_READ["Granted {read}<br/>(bypasses per-graph cap)<br/>+ read_reserved_admitted++"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Admission decision</p>
 
-    REQ --> NORMAL
-    NORMAL -->|yes| GRANT_NORMAL
-    NORMAL -->|no| CLASS
-    CLASS -->|write| WRITELOSE
-    CLASS -->|read| READLANE
-    READLANE -->|permit| GRANT_READ
-    READLANE -->|full| READSHED
-```
+A request (method, graph) first tries the global permit **and** per-graph
+permit together. If both are available, it is `Granted {global, per_graph}`.
+Otherwise, the request is classified by `requires_write(method)`: a write
+sheds BUSY (back-pressured, retry — never dropped). A read instead tries the
+reserved read lane (`read_admission` semaphore): if a permit is free, it is
+`Granted {read}` (bypasses the per-graph cap, increments
+`read_reserved_admitted`); if the lane is full, it sheds BUSY too — but only
+a genuine read flood reaches that point.
+
+</div>
 
 Key invariants, straight from the code:
 
