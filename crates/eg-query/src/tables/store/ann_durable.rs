@@ -18,7 +18,8 @@
 use eg_storage::{SQL_ANN_DIRTY, SQL_ANN_GENERATIONS};
 use redb::ReadableTable;
 
-use super::{map_err, SqlRead, SqlWrite, TableStore, ANN_INDEXES};
+use super::{decode_stored, map_err, SqlRead, SqlWrite, TableStore, ANN_INDEXES};
+use crate::sql::AnnIndexPlan;
 
 /// The changed-row log's per-table last-change row. Row ids are allocated
 /// from a monotonic sequence that never reaches it.
@@ -142,6 +143,37 @@ fn has_registration_in(wtx: &SqlWrite<'_>, table: &str) -> Result<bool, String> 
     Ok(first.is_some_and(|(key, _)| key.value().starts_with(&prefix)))
 }
 
+/// Register `plan` (`CREATE INDEX … USING hnsw|ivfflat`); a redefinition drops
+/// the generations built for the old definition.
+pub(super) fn put_ann_index_in(wtx: &SqlWrite<'_>, plan: &AnnIndexPlan) -> Result<(), String> {
+    let key = TableStore::ann_index_key(plan);
+    let bytes = rmp_serde::to_vec_named(plan).map_err(|e| format!("encode ann index: {e}"))?;
+    let mut indexes = wtx.open_table(ANN_INDEXES)?;
+    let replaced = indexes
+        .insert(key.as_str(), bytes.as_slice())
+        .map_err(map_err)?
+        .is_some_and(|previous| previous.value() != bytes.as_slice());
+    drop(indexes);
+    if replaced {
+        drop_generations_in(wtx, &key)?;
+    }
+    Ok(())
+}
+
+/// Drop every ANN registration on `table`.`column` (all metrics).
+pub(super) fn drop_ann_indexes_for_column_in(
+    wtx: &SqlWrite<'_>,
+    table: &str,
+    column: &str,
+) -> Result<usize, String> {
+    let prefix = format!(
+        "{}.{}.",
+        table.to_ascii_lowercase(),
+        column.to_ascii_lowercase()
+    );
+    drop_registrations_in(wtx, table, &prefix)
+}
+
 /// Remove every ANN registration of `table` whose key starts with `prefix`
 /// (`"<table>."` for the whole table, `"<table>.<column>."` for one column),
 /// with every generation it owns; a table left with no registration also loses
@@ -152,13 +184,14 @@ pub(super) fn drop_registrations_in(
     prefix: &str,
 ) -> Result<usize, String> {
     let mut indexes = wtx.open_table(ANN_INDEXES)?;
-    let keys: Vec<String> = indexes
-        .range(prefix..)
-        .map_err(map_err)?
-        .map(|entry| entry.map(|(key, _)| key.value().to_string()))
-        .take_while(|key| key.as_ref().map_or(true, |key| key.starts_with(prefix)))
-        .collect::<Result<_, _>>()
-        .map_err(map_err)?;
+    let mut keys = Vec::new();
+    for entry in indexes.range(prefix..).map_err(map_err)? {
+        let (key, _) = entry.map_err(map_err)?;
+        if !key.value().starts_with(prefix) {
+            break;
+        }
+        keys.push(key.value().to_string());
+    }
     for key in &keys {
         indexes.remove(key.as_str()).map_err(map_err)?;
     }
@@ -168,6 +201,28 @@ pub(super) fn drop_registrations_in(
     }
     forget_unindexed_table_in(wtx, table)?;
     Ok(keys.len())
+}
+
+/// Remove every ANN registration named `name` (its `CREATE INDEX` name, or its
+/// catalog key), with its generations and, for a table left unindexed, its
+/// changed-row log. `Ok(n)` is the number of registrations removed.
+fn drop_named_registrations_in(wtx: &SqlWrite<'_>, name: &str) -> Result<usize, String> {
+    let named: Vec<(String, String)> = {
+        let indexes = wtx.open_table(ANN_INDEXES)?;
+        let mut named = Vec::new();
+        for entry in indexes.iter().map_err(map_err)? {
+            let (key, value) = entry.map_err(map_err)?;
+            let plan: AnnIndexPlan = decode_stored(value.value(), "ANN index")?;
+            if plan.name.as_deref() == Some(name) || key.value() == name {
+                named.push((key.value().to_string(), plan.table));
+            }
+        }
+        named
+    };
+    for (key, table) in &named {
+        drop_registrations_in(wtx, table, key)?;
+    }
+    Ok(named.len())
 }
 
 /// Remove every generation of registration `index`.
@@ -235,6 +290,16 @@ fn prune_changes_in(
 }
 
 fn write_generation_in(wtx: &SqlWrite<'_>, write: &GenerationWrite<'_>) -> Result<(), String> {
+    // The drop fence: a build that finished after its registration was dropped
+    // never writes a generation for it.
+    if wtx
+        .open_table(ANN_INDEXES)?
+        .get(write.index)
+        .map_err(map_err)?
+        .is_none()
+    {
+        return Err(format!("ANN index `{}` was dropped", write.index));
+    }
     let stored = write.stored;
     let mut keep = vec![POINTER_GENERATION, stored.generation];
     keep.extend(write.keeps);
@@ -312,6 +377,23 @@ impl TableStore {
                     None => Ok(()),
                 }
             })
+    }
+
+    /// Drop every ANN index named `name` — the typed drop of the managed-index
+    /// lifecycle (EH-352). Fenced: its generations and, for a table left
+    /// unindexed, its changed-row log go in the same write, and a build still
+    /// running for it can no longer persist. `Ok(n)` is the number dropped.
+    pub fn drop_ann_index(&self, name: &str) -> Result<usize, String> {
+        let dropped = self.authority.maintain("drop-ann-index", name, |wtx| {
+            drop_named_registrations_in(wtx, name)
+        })?;
+        let registered = self
+            .list_ann_indexes()?
+            .iter()
+            .map(TableStore::ann_index_key)
+            .collect();
+        self.ann_authority().retain(&registered);
+        Ok(dropped)
     }
 
     /// The live persisted generation of `index`, when one was activated.

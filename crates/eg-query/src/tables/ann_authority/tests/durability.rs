@@ -87,7 +87,11 @@ fn an_update_is_served_exactly_before_any_refresh() {
 
     let answer = top(&store, &index, &target, 3, None);
 
-    assert_eq!(answer.receipt.path, maintained(1), "served without a refresh");
+    assert_eq!(
+        answer.receipt.path,
+        maintained(1),
+        "served without a refresh"
+    );
     assert_eq!(ids(&answer.rows)[0], 7, "ranked on its NEW vector");
     assert_eq!(
         ids(&answer.rows),
@@ -101,7 +105,7 @@ fn an_update_is_folded_into_the_next_generation_without_a_rebuild() {
     let (store, _path) = open_docs(&vectors(200, 31), &index);
     refresh(&store);
     set_vector(&store, "docs", 11, &far_vector());
-    assert_eq!(status_of(&store, "docs").state, AnnGenerationState::Stale);
+    assert!(status_of(&store, "docs").stale);
 
     assert!(matches!(
         refresh(&store).as_slice(),
@@ -125,7 +129,7 @@ fn an_update_is_folded_into_the_next_generation_without_a_rebuild() {
     let answer = top(&store, &index, &far_vector(), 1, None);
     assert_eq!(answer.receipt.path, maintained(2));
     assert_eq!(ids(&answer.rows), vec![11], "the generation indexes it now");
-    assert_eq!(status_of(&store, "docs").state, AnnGenerationState::Live);
+    assert!(!status_of(&store, "docs").stale);
 }
 
 #[test]
@@ -140,8 +144,8 @@ fn an_extension_is_restored_on_its_base_after_a_restart() {
         let reopened = reopen(&path);
         let status = status_of(&reopened, "docs");
         assert_eq!(
-            (status.state, status.generation),
-            (AnnGenerationState::Live, Some(2)),
+            (status.state, status.stale, status.generation),
+            (ManagedIndexState::Active, false, Some(2)),
             "{index:?}"
         );
         assert_eq!(live(&reopened, &index).base, Some(1), "{index:?}");
@@ -220,11 +224,11 @@ fn staleness_is_tracked_per_table() {
 
     let docs_status = status_of(&store, "docs");
     assert_eq!(
-        (docs_status.state, docs_status.lag_epochs),
-        (AnnGenerationState::Live, 0),
+        (docs_status.stale, docs_status.lag_epochs),
+        (false, 0),
         "a write to another table never stales this index"
     );
-    assert_eq!(status_of(&store, "notes").state, AnnGenerationState::Stale);
+    assert!(status_of(&store, "notes").stale);
     let outcomes = refresh(&store);
     assert!(outcomes.iter().any(|outcome| matches!(
         outcome,

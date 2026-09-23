@@ -230,7 +230,7 @@ fn a_query_never_builds_a_generation() {
         exact_ids(&store, &index, &query, 5, None)
     );
     let status = store.ann_index_status().unwrap();
-    assert_eq!(status[0].state, AnnGenerationState::Building);
+    assert_eq!(status[0].state, ManagedIndexState::Requested);
     assert_eq!(status[0].generation, None, "the query path built nothing");
 }
 
@@ -257,7 +257,7 @@ fn the_worker_activates_and_the_probe_serves_the_maintained_generation() {
         exact_ids(&store, &index, &query, 5, None)
     );
     let status = &store.ann_index_status().unwrap()[0];
-    assert_eq!(status.state, AnnGenerationState::Live);
+    assert_eq!((status.state, status.stale), (ManagedIndexState::Active, false));
     assert_eq!((status.generation, status.lag_epochs), (Some(1), 0));
 }
 
@@ -325,7 +325,7 @@ fn a_replayed_refresh_is_idempotent_and_a_write_makes_the_index_stale() {
     ));
     insert(&store, 60, &vectors(1, 5));
     let stale = &store.ann_index_status().unwrap()[0];
-    assert_eq!(stale.state, AnnGenerationState::Stale);
+    assert_eq!((stale.state, stale.stale), (ManagedIndexState::Active, true));
     assert!(stale.lag_epochs >= 1, "a write is visible as lag");
 
     assert!(matches!(
@@ -338,8 +338,8 @@ fn a_replayed_refresh_is_idempotent_and_a_write_makes_the_index_stale() {
     ));
     let live = &store.ann_index_status().unwrap()[0];
     assert_eq!(
-        (live.state.clone(), live.lag_epochs),
-        (AnnGenerationState::Live, 0)
+        (live.state, live.stale, live.lag_epochs),
+        (ManagedIndexState::Active, false, 0)
     );
 }
 
@@ -600,7 +600,12 @@ fn a_failed_build_is_visible_and_a_dropped_registration_is_forgotten() {
         .into_iter()
         .find(|status| status.column == "owner")
         .unwrap();
-    assert!(matches!(failed.state, AnnGenerationState::Failed { .. }));
+    assert_eq!(failed.state, ManagedIndexState::Blocked);
+    assert_eq!(
+        failed.block.map(|block| block.reason),
+        Some(eg_core::index::IndexBlockReason::NotIndexable),
+        "a typed diagnostic"
+    );
 
     store.drop_ann_indexes_for_column("docs", "emb").unwrap();
     store.drop_ann_indexes_for_column("docs", "owner").unwrap();
@@ -621,8 +626,8 @@ fn a_restart_serves_the_persisted_generation_without_a_rebuild() {
     let reopened = TableStore::open(&path, dev_verifier(), DEV_PRINCIPAL, DEV_PROOF).unwrap();
     let status = &reopened.ann_index_status().unwrap()[0];
     assert_eq!(
-        (status.state.clone(), status.generation),
-        (AnnGenerationState::Live, Some(1))
+        (status.state, status.generation),
+        (ManagedIndexState::Active, Some(1))
     );
     let after = top(&reopened, &index, &query, 5, None);
     assert_eq!(after.receipt.path, maintained(1), "no exact window");
@@ -699,3 +704,4 @@ fn sql_the_probe_cannot_filter_exactly_keeps_the_full_scan() {
 }
 
 mod durability;
+mod managed;

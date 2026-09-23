@@ -17,6 +17,8 @@ use serde::{Deserialize, Serialize};
 
 use super::durable::{encode, Encoding};
 use super::generation::AnnGeneration;
+use eg_core::index::{IndexBlock, IndexBlockReason};
+
 use super::{lock, read, write, AnnIndexStatus, AnnLimits, AnnSlot, DurableMark};
 use crate::sql::{AnnIndexPlan, AnnMethod};
 use crate::tables::store::GenerationWrite;
@@ -62,7 +64,7 @@ pub enum AnnRefreshOutcome {
 }
 
 /// Why a build could not start.
-enum BuildRefusal {
+pub(super) enum BuildRefusal {
     InFlight,
     Deferred,
 }
@@ -70,7 +72,7 @@ enum BuildRefusal {
 /// The right to build, activate and persist one slot's next generation.
 /// Dropping it releases the slot, whether the build succeeded, failed or
 /// panicked.
-struct BuildTicket<'s> {
+pub(super) struct BuildTicket<'s> {
     slot: &'s AnnSlot,
     generation: u64,
 }
@@ -121,9 +123,7 @@ impl TableStore {
             match self.restore_ann_generation(&plan, &index) {
                 Ok(Some(generation)) => slot.restore(generation),
                 Ok(None) => {}
-                Err(reason) => slot.fail(format!(
-                    "the persisted generation could not be restored: {reason}"
-                )),
+                Err(reason) => slot.fail(IndexBlock::new(IndexBlockReason::RestoreFailed, &reason)),
             }
         }
         Ok(())
@@ -167,8 +167,11 @@ impl TableStore {
         slot: &AnnSlot,
         number: u64,
         limits: AnnLimits,
-    ) -> Result<AnnGeneration, String> {
-        if let Some(extended) = self.extended_generation(plan, slot, number, limits)? {
+    ) -> Result<AnnGeneration, IndexBlock> {
+        let extended = self
+            .extended_generation(plan, slot, number, limits)
+            .map_err(|reason| IndexBlock::new(IndexBlockReason::BuildFailed, &reason))?;
+        if let Some(extended) = extended {
             return Ok(extended);
         }
         self.ann_source_rows(&plan.table, &plan.column, limits.build_rows)
@@ -206,9 +209,12 @@ impl TableStore {
         };
         match self.persist_generation(plan, plans, slot, &live) {
             Ok(mark) => slot.mark_durable(mark),
-            Err(reason) => slot.fail(format!(
-                "generation {} serves but was not persisted: {reason}",
-                live.generation
+            Err(reason) => slot.fail(IndexBlock::new(
+                IndexBlockReason::PersistFailed,
+                &format!(
+                    "generation {} serves unpersisted: {reason}",
+                    live.generation
+                ),
             )),
         }
     }
@@ -277,7 +283,7 @@ impl AnnSlot {
             .map(|generation| generation.generation)
     }
 
-    fn begin_build(
+    pub(super) fn begin_build(
         &self,
         policy: AnnRefreshPolicy,
         interval: Duration,
@@ -303,12 +309,13 @@ impl AnnSlot {
     fn finish_build(
         &self,
         index: String,
-        built: Result<AnnGeneration, String>,
+        built: Result<AnnGeneration, IndexBlock>,
     ) -> AnnRefreshOutcome {
         match built {
             Ok(generation) => self.activate(generation, index),
-            Err(reason) => {
-                self.fail(reason.clone());
+            Err(block) => {
+                let reason = format!("{}: {}", block.reason.as_str(), block.detail);
+                self.fail(block);
                 AnnRefreshOutcome::Failed { index, reason }
             }
         }
@@ -334,7 +341,7 @@ impl AnnSlot {
             }
             *live = Some(Arc::new(generation));
         }
-        lock(&self.maintenance).last_failure = None;
+        lock(&self.maintenance).block = None;
         outcome
     }
 }

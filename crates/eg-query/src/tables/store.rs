@@ -62,6 +62,7 @@ mod outbox;
 mod row_insert;
 mod source_batch;
 
+use ann_durable::{drop_ann_indexes_for_column_in, put_ann_index_in};
 pub(crate) use ann_durable::{GenerationWrite, StoredGeneration};
 pub(crate) use ann_source::{AnnChangedRows, AnnRowReader, AnnSourceRows, ScanExtent};
 use authority::{sql_scope_identity, SqlAuthority, SqlMutation};
@@ -3535,22 +3536,6 @@ fn drop_catalog_entry_in<V: redb::Value + 'static>(
     Ok(true)
 }
 
-fn put_ann_index_in(wtx: &SqlWrite<'_>, plan: &AnnIndexPlan) -> Result<(), String> {
-    let key = TableStore::ann_index_key(plan);
-    let bytes = rmp_serde::to_vec_named(plan).map_err(|e| format!("encode ann index: {e}"))?;
-    let mut indexes = wtx.open_table(ANN_INDEXES)?;
-    let replaced = indexes
-        .insert(key.as_str(), bytes.as_slice())
-        .map_err(map_err)?
-        .is_some_and(|previous| previous.value() != bytes.as_slice());
-    drop(indexes);
-    // A redefined index never serves a generation built for its old definition.
-    if replaced {
-        ann_durable::drop_generations_in(wtx, &key)?;
-    }
-    Ok(())
-}
-
 fn put_hypertable_in(wtx: &SqlWrite<'_>, plan: &HypertablePlan) -> Result<(), String> {
     let schema = get_schema_in(wtx, &plan.table)?
         .ok_or_else(|| format!("table `{}` does not exist", plan.table))?;
@@ -3582,19 +3567,6 @@ fn put_hypertable_in(wtx: &SqlWrite<'_>, plan: &HypertablePlan) -> Result<(), St
         .insert(plan.table.as_str(), bytes.as_slice())
         .map_err(map_err)?;
     Ok(())
-}
-
-fn drop_ann_indexes_for_column_in(
-    wtx: &SqlWrite<'_>,
-    table: &str,
-    column: &str,
-) -> Result<usize, String> {
-    let prefix = format!(
-        "{}.{}.",
-        table.to_ascii_lowercase(),
-        column.to_ascii_lowercase()
-    );
-    ann_durable::drop_registrations_in(wtx, table, &prefix)
 }
 
 // ── ordinary scalar secondary-index catalog and directory ───────────────────

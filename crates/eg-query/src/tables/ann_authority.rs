@@ -36,6 +36,7 @@
 
 mod durable;
 mod generation;
+mod lifecycle;
 mod maintain;
 mod serve;
 #[cfg(test)]
@@ -50,36 +51,32 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+use eg_core::index::{
+    IndexBlock, ManagedIndexFamily, ManagedIndexState, ManagedIndexStatus, ManagedIndexTarget,
+};
+
 use crate::sql::{AnnIndexPlan, AnnMethod, VectorMetric};
 use generation::AnnGeneration;
 
 /// Serve receipts kept for inspection; the oldest is dropped first.
 const RECEIPT_CAPACITY: usize = 64;
 
-/// Where one registered ANN index stands.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "state", rename_all = "snake_case")]
-pub enum AnnGenerationState {
-    /// No servable generation yet; queries take the bounded exact path.
-    Building,
-    /// The live generation observed the current source epoch.
-    Live,
-    /// A live generation serves, but the source has moved past it.
-    Stale,
-    /// The last build failed and no generation serves.
-    Failed { reason: String },
-}
-
-/// The typed, inspectable status of one registered ANN index.
+/// The typed, inspectable status of one registered ANN index, in the one
+/// managed-index lifecycle (EH-352).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnnIndexStatus {
     /// The catalog key, `"<table>.<column>.<metric>"`.
     pub index: String,
+    /// The `CREATE INDEX` name, when one was given.
+    pub name: Option<String>,
     pub table: String,
     pub column: String,
     pub method: AnnMethod,
     pub metric: VectorMetric,
-    pub state: AnnGenerationState,
+    /// `requested -> backfilling -> active | blocked`.
+    pub state: ManagedIndexState,
+    /// A live generation serves, but its table changed after the build.
+    pub stale: bool,
     /// The live generation number, when one serves.
     pub generation: Option<u64>,
     /// The source epoch the live generation was built from.
@@ -91,8 +88,30 @@ pub struct AnnIndexStatus {
     pub lag_epochs: u64,
     /// Rows the live generation indexes.
     pub indexed_rows: usize,
-    /// The most recent build failure, kept until a build succeeds.
-    pub last_failure: Option<String>,
+    /// The most recent failure, typed and bounded, kept until a generation
+    /// activates.
+    pub block: Option<IndexBlock>,
+}
+
+impl AnnIndexStatus {
+    /// This index's row in the managed-index status relation.
+    pub fn managed(&self) -> ManagedIndexStatus {
+        ManagedIndexStatus {
+            name: self.name.clone().unwrap_or_else(|| self.index.clone()),
+            family: ManagedIndexFamily::Vector,
+            target: ManagedIndexTarget::TableColumn {
+                table: self.table.clone(),
+                column: self.column.clone(),
+            },
+            state: self.state,
+            generation: self.generation,
+            built_version: self.built_epoch,
+            change_version: self.change_epoch,
+            lag: self.lag_epochs,
+            indexed: self.generation.map(|_| self.indexed_rows),
+            block: self.block.clone(),
+        }
+    }
 }
 
 /// Why a query took the bounded exact path instead of the maintained index.
@@ -172,7 +191,7 @@ struct AnnSlot {
 struct SlotMaintenance {
     building: bool,
     generations_built: u64,
-    last_failure: Option<String>,
+    block: Option<IndexBlock>,
     last_build: Option<Instant>,
     /// What the SQL owner file holds for this registration.
     durable: Option<DurableMark>,
@@ -195,12 +214,14 @@ impl AnnSlot {
             .cloned()
     }
 
-    fn last_failure(&self) -> Option<String> {
-        lock(&self.maintenance).last_failure.clone()
+    /// Whether a build runs, and the last failure.
+    fn attempt(&self) -> (bool, Option<IndexBlock>) {
+        let state = lock(&self.maintenance);
+        (state.building, state.block.clone())
     }
 
-    fn fail(&self, reason: String) {
-        lock(&self.maintenance).last_failure = Some(reason);
+    fn fail(&self, block: IndexBlock) {
+        lock(&self.maintenance).block = Some(block);
     }
 
     fn durable(&self) -> Option<DurableMark> {
@@ -232,6 +253,8 @@ pub struct UserAnnAuthority {
     slots: RwLock<BTreeMap<String, Arc<AnnSlot>>>,
     receipts: Mutex<VecDeque<AnnServeReceipt>>,
     limits: RwLock<AnnLimits>,
+    /// Status rows another store's authority vouched for (see `lifecycle`).
+    adopted: RwLock<Vec<ManagedIndexStatus>>,
 }
 
 impl std::fmt::Debug for UserAnnAuthority {
@@ -286,7 +309,7 @@ impl UserAnnAuthority {
     }
 
     /// Drop every slot whose registration no longer exists.
-    fn retain(&self, registered: &BTreeSet<String>) {
+    pub(crate) fn retain(&self, registered: &BTreeSet<String>) {
         write(&self.slots).retain(|index, _| registered.contains(index));
     }
 
@@ -302,7 +325,7 @@ impl UserAnnAuthority {
         if let Some(generation) = slot.live_for(method) {
             return Ok(generation);
         }
-        Err(match slot.last_failure() {
+        Err(match slot.attempt().1 {
             Some(_) => AnnFallbackReason::GenerationFailed,
             None => AnnFallbackReason::GenerationBuilding,
         })
@@ -311,38 +334,24 @@ impl UserAnnAuthority {
     fn status(&self, plan: &AnnIndexPlan, index: String, change_epoch: u64) -> AnnIndexStatus {
         let slot = self.existing_slot(&index);
         let live = slot.as_ref().and_then(|slot| slot.live_for(plan.method));
-        let last_failure = slot.as_ref().and_then(|slot| slot.last_failure());
+        let (building, block) = slot.as_ref().map_or((false, None), |slot| slot.attempt());
+        let built_epoch = live.as_ref().map(|generation| generation.built_epoch);
         AnnIndexStatus {
             index,
+            name: plan.name.clone(),
             table: plan.table.clone(),
             column: plan.column.clone(),
             method: plan.method,
             metric: plan.metric,
-            state: generation_state(live.as_deref(), last_failure.as_ref(), change_epoch),
+            state: ManagedIndexState::of(live.is_some(), building, block.as_ref()),
+            stale: built_epoch.is_some_and(|built| built < change_epoch),
             generation: live.as_ref().map(|generation| generation.generation),
-            built_epoch: live.as_ref().map(|generation| generation.built_epoch),
+            built_epoch,
             change_epoch,
-            lag_epochs: live.as_ref().map_or(change_epoch, |generation| {
-                change_epoch.saturating_sub(generation.built_epoch)
-            }),
+            lag_epochs: change_epoch.saturating_sub(built_epoch.unwrap_or(0)),
             indexed_rows: live.as_ref().map_or(0, |generation| generation.rows),
-            last_failure,
+            block,
         }
-    }
-}
-
-fn generation_state(
-    live: Option<&AnnGeneration>,
-    last_failure: Option<&String>,
-    change_epoch: u64,
-) -> AnnGenerationState {
-    match (live, last_failure) {
-        (Some(generation), _) if generation.built_epoch >= change_epoch => AnnGenerationState::Live,
-        (Some(_), _) => AnnGenerationState::Stale,
-        (None, Some(reason)) => AnnGenerationState::Failed {
-            reason: reason.clone(),
-        },
-        (None, None) => AnnGenerationState::Building,
     }
 }
 
