@@ -11,7 +11,7 @@ pub(super) async fn fit_from_the_engine_log(
     schema_pin: &ComponentDependency,
     record: &StatisticalDecisionRecord,
 ) {
-    let mut policy = super::super::stat_support::default_policy_for_tests();
+    let mut policy = eg_types::decision::DecisionPolicy::engine_default();
     let mut statistical = super::super::stat_support::default_statistical_policy();
     statistical.approved_commit_principals =
         BoundedVec::new(vec![record.caller_principal.clone()]).unwrap();
@@ -130,7 +130,7 @@ fn retention_policy(
     compact_after_ms: u64,
     drop_blob_after_ms: Option<u64>,
 ) -> eg_types::decision::DecisionPolicy {
-    let mut policy = super::super::stat_support::default_policy_for_tests();
+    let mut policy = eg_types::decision::DecisionPolicy::engine_default();
     let mut statistical = super::super::stat_support::default_statistical_policy();
     statistical.compact_after_ms = Some(compact_after_ms);
     statistical.drop_blob_after_ms = drop_blob_after_ms;
