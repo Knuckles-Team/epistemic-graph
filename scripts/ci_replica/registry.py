@@ -62,6 +62,7 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
                 "gates",
                 "gates-facade",
                 "gates-variants",
+                "gates-crates",
                 "lint-and-architecture",
                 "security",
                 "documentation-advisory",
@@ -161,6 +162,11 @@ LOCAL_SETUP_STEPS: dict[tuple[str, str, str], str] = {
     (
         "release.yml",
         "quality-advisory",
+        "Install librdkafka/Cyrus-SASL build headers",
+    ): APT_VERIFY,
+    (
+        "release.yml",
+        "gates-crates",
         "Install librdkafka/Cyrus-SASL build headers",
     ): APT_VERIFY,
     (
