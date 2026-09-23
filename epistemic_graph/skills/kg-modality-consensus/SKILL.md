@@ -28,7 +28,7 @@ scalable and crash-safe. It runs **openraft** replication with automatic failove
 hibernate/rehydrate groups), and **cross-shard 2PC** (presumed-abort, crash-recoverable) with
 parallel-commit / read-only-participant fast paths and a Paxos-Commit-lite (and opt-in Calvin
 deterministic) commit branch. A cross-region async read-replica tier with per-tenant quota +
-backpressure guardrails rounds it out. See `docs/capabilities.md` → *Durability & distribution*.
+backpressure guardrails rounds it out. See `contract/capabilities.md` → *Durability & distribution*.
 
 ## The MCP way (through graph-os)
 ```

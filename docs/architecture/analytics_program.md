@@ -70,4 +70,4 @@ pyo3 sits behind the kernel crate's `python` feature and remains off in the serv
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [Numeric Kernel](numeric_kernel.md) · [Vector / ANN](../interfaces/vector.md) · [SQL & pgwire](../interfaces/sql.md) · [Time-series](../interfaces/timeseries.md).
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [Numeric Kernel](numeric_kernel.md) · [Vector / ANN](../interfaces/vector.md) · [SQL & pgwire](../interfaces/sql.md) · [Time-series](../interfaces/timeseries.md).

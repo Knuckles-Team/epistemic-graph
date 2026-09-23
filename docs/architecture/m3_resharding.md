@@ -314,4 +314,4 @@ EG-KG.backend.sharded-k-way-durable sharding contract in [`engine.md`](engine.md
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [Engine Scaling Program](scaling_program.md) · [Multi-Raft Cluster Status](m2_raft_status.md) · [Cluster Deployment](cluster_deployment.md) · [Per-Graph Write Coalescer](write_coalescer.md).
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [Engine Scaling Program](scaling_program.md) · [Multi-Raft Cluster Status](m2_raft_status.md) · [Cluster Deployment](cluster_deployment.md) · [Per-Graph Write Coalescer](write_coalescer.md).

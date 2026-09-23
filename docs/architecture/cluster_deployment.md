@@ -266,4 +266,4 @@ confirm there before declaring the cluster production-live:
 
 ---
 
-**See also:** [Capabilities matrix](../capabilities.md) · [Engine Scaling Program](scaling_program.md) · [Multi-Raft Cluster Status](m2_raft_status.md) · [Deployment (database)](../deployment.md) · [Operations Runbook](../operations/runbook.md).
+**See also:** [Capabilities matrix](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md) · [Engine Scaling Program](scaling_program.md) · [Multi-Raft Cluster Status](m2_raft_status.md) · [Deployment (database)](../deployment.md) · [Operations Runbook](../operations/runbook.md).

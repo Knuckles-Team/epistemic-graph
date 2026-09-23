@@ -1,5 +1,6 @@
 {
   "artifact_digests": {
+    "contract/capabilities.generated.md": "5a4bcabd6a206253d21bcebc9cff3f77909dde222213e15549b86e940461d4cc",
     "contract/fixtures/connector_pack_digest_vectors.json": "b1fe4660272ca12419349fd1e1c57a6f54db762e24b4b47d2d1f8fd46016588a",
     "contract/fixtures/decision_digest_vectors.json": "cbf0d0712d78901015451aa9e7e2b0041063c53d8056a8046faf64330f4c5a41",
     "contract/methods.json": "955c7ac12fc2831ab77a4e480f9504af24bd53259b50735c2c3d7db05b9049f1",
@@ -17,7 +18,6 @@
     "contract/schemas/result.storage.json": "4a25d907a27708013f379cacc259eeb9f1a4e1f0f212240559f1ca0e964442b9",
     "contract/schemas/result.transactions.json": "0b7de622e70a7fe478270c3109bbf787caaba6d34f2633873e44b3789d6c6033",
     "crates/eg-capabilities/generated/method_catalog.rs": "35c52a2d64ade34ed64d0d98ea055ddcf34690fc5d12f76bcc84cc75a7cbad43",
-    "docs/capabilities.generated.md": "9342f65de69e8bdc6742a13158ea18c853a290a9686c48026dae7a6b63e06c59",
     "epistemic_graph/contract/__init__.py": "0484338d63b99278f479a60dca4830f54a5e81d8fe98b6720e808d4c008c7be7",
     "epistemic_graph/generated/__init__.py": "3b487654fde668a122d33986ee11323a0686248c0aae968c2f766c75a22a30fe",
     "epistemic_graph/generated/_ids.py": "95540f6a56cca42d5f1318f7cbb906b58b037e00065d2e2d7f8047f6880f3eb0",
@@ -48,7 +48,7 @@
     "epistemic_graph/generated/write_back.py": "211f28015a9c510a06c939f6ad5da01dba2567d7a01bd56e3bd3d286728fba3d"
   },
   "cargo_lock_sha256": "a1b994c624888a0f24fce8e7dab119de26be496c6c025743903f02a7f7084107",
-  "contract_digest": "0f09ce9d2cbb7154856d8e7bdc286039097c24c598b4ef6b5c50b1a41061efcc",
+  "contract_digest": "d59a2ce6b2bd4f3dbbe695b64b1a1ef0c8d4bceedc0dc719901adc01691e1d5a",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -585,5 +585,5 @@
     "schematized": 423,
     "unclassified": 0
   },
-  "source_tree_oid": "e082cb62c57bb2c8378a624f1053bb1b0b0a017013f5cca12204dc8f2a61dced"
+  "source_tree_oid": "ed22d19e6df72362f99a7afe6b4c0d22f5785bc1ac0bbc62e4180648ceeb3bec"
 }

@@ -19,7 +19,7 @@ and server. The Python package provides client and interoperability APIs. A
 single-node build is the normal deployment; `cluster` enables replicated
 operation, while `full-extras` enables optional GPU and robotics integrations.
 The architecture index in `docs/architecture/` maps the major engine
-subsystems; `docs/capabilities.md` is the operation-level support matrix.
+subsystems; `contract/capabilities.md` is the operation-level support matrix.
 
 - `src/`, `crates/`: Rust engine, server, and supporting crates.
 - `epistemic_graph/`: Python client and package integration.

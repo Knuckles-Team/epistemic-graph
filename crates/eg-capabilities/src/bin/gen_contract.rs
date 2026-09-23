@@ -4,10 +4,11 @@
 //!   `cargo run -p eg-capabilities --features contract --bin gen_contract`
 //!   `cargo run -p eg-capabilities --features contract --bin gen_contract -- --check`
 //!
-//! This binary replaces `gen_ledger`: `docs/capabilities.generated.md` is now one of the
-//! artifacts it renders, alongside `contract/methods.json`, `contract/schemas/*.json` and
-//! `contract/receipt.json`. `--check` byte-diffs the committed tree and exits non-zero on
-//! any drift, which is the whole of what the deleted Python parity gate used to assert.
+//! This binary replaces `gen_ledger`: `contract/capabilities.generated.md` (rehomed 2026-09-23
+//! from `docs/capabilities.generated.md`, D6) is one of the artifacts it renders, alongside
+//! `contract/methods.json`, `contract/schemas/*.json` and `contract/receipt.json`. `--check`
+//! byte-diffs the committed tree and exits non-zero on any drift, which is the whole of what
+//! the deleted Python parity gate used to assert.
 
 use std::path::PathBuf;
 

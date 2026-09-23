@@ -49,13 +49,13 @@ AUTHORITATIVE_PAGES = (
 
 # Authoritative pages that have been rehomed out of docs/ (D6): still required
 # in mkdocs nav (as an external link so the site keeps linking to them), but
-# their file now lives at this exact repo-root-relative path instead of under
-# docs/.
-AUTHORITATIVE_PAGES_OUTSIDE_DOCS = frozenset(
-    {
-        "architecture/canonical-property-schema.md",
-    }
-)
+# their file now lives at the mapped repo-root-relative path instead of at
+# docs/<AUTHORITATIVE_PAGES entry>.
+_CANONICAL_PROPERTY_SCHEMA = "architecture/canonical-property-schema.md"
+AUTHORITATIVE_PAGES_OUTSIDE_DOCS: dict[str, str] = {
+    _CANONICAL_PROPERTY_SCHEMA: _CANONICAL_PROPERTY_SCHEMA,
+    "capabilities.generated.md": "contract/capabilities.generated.md",
+}
 
 GENERATED_METHODS = (
     "ClaimWorkItem",
@@ -72,7 +72,7 @@ STALE_CLAIMS: dict[str, tuple[str, ...]] = {
         "jobs`, feature `jobs`, off by default",
         "Spatial/R-tree index pushdown is NOT wired",
     ),
-    "docs/capabilities.md": (
+    "contract/capabilities.md": (
         "epistemic-tms` (opt-in, HEAVY — not in `full`)",
         "epistemic-causal` (opt-in, HEAVY — not in `full`)",
         "`epistemic-tms`/`epistemic-causal` remain opt-in",
@@ -114,20 +114,21 @@ def check_mkdocs() -> None:
         if page not in config:
             fail(f"mkdocs navigation omits authoritative page: {page}")
         if page in AUTHORITATIVE_PAGES_OUTSIDE_DOCS:
-            if not (ROOT / page).is_file():
-                fail(f"mkdocs authoritative page does not exist: {page}")
+            resolved = AUTHORITATIVE_PAGES_OUTSIDE_DOCS[page]
+            if not (ROOT / resolved).is_file():
+                fail(f"mkdocs authoritative page does not exist: {resolved}")
         elif not (ROOT / "docs" / page).is_file():
             fail(f"mkdocs authoritative page does not exist: docs/{page}")
 
 
 def check_generated_ledger() -> None:
-    ledger = text("docs/capabilities.generated.md")
+    ledger = text("contract/capabilities.generated.md")
     for method in GENERATED_METHODS:
         if f"| `{method}` |" not in ledger:
             fail(
                 "generated capability ledger is stale; missing method "
                 f"{method!r}. Regenerate with `cargo run -p eg-capabilities --features "
-                f"canonical-ledger --bin gen_ledger`."
+                f"contract --bin gen_contract`."
             )
 
 

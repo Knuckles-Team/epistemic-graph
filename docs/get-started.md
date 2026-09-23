@@ -57,5 +57,5 @@ example stays short without weakening the network boundary.
 
 - [Choose an interface](interfaces/index.md).
 - [Understand the transaction and compute path](architecture/index.md).
-- [Inspect current capability coverage](capabilities.md).
+- [Inspect current capability coverage](https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md).
 - [Deploy a durable service](standalone_deployment.md).

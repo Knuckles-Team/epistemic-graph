@@ -92,8 +92,8 @@ Every concept and component this repo's own registries and documentation nav dec
 
 ## Reference
 
-- **Capabilities** — `capabilities.md`
-- **Generated method ledger** — `capabilities.generated.md`
+- **Capabilities** — `https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.md`
+- **Generated method ledger** — `https://github.com/Knuckles-Team/epistemic-graph/blob/main/contract/capabilities.generated.md`
 - **API reference** — `api/index.md`
 - **Cluster API** — `api/cluster.md`
 - **Compute API** — `api/compute.md`

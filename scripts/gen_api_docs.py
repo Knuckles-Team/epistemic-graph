@@ -464,7 +464,9 @@ def render_namespace_page(domain: str, contract: Contract) -> str:
         f"`contract/schemas/result.{domain}.json` -- do not hand-edit. "
         f"Regenerate with `python3 scripts/gen_api_docs.py --write`. "
         f"{len(methods)} methods in this namespace. See also the machine-checked "
-        "policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) "
+        "policy ledger at [`capabilities.generated.md`]"
+        "(https://github.com/Knuckles-Team/epistemic-graph/"
+        "blob/main/contract/capabilities.generated.md) "
         "and the [OpenAPI document](../openapi.json) / "
         "[Swagger UI](../swagger-ui.md).",
         "",

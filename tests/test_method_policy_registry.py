@@ -78,7 +78,7 @@ def test_registry_is_unique_complete_and_domain_ordered() -> None:
 
 def test_generated_ledger_uses_registry_order_and_policy_values() -> None:
     rows = _rows()
-    ledger = (ROOT / "docs/capabilities.generated.md").read_text(encoding="utf-8")
+    ledger = (ROOT / "contract/capabilities.generated.md").read_text(encoding="utf-8")
     table = [line for line in ledger.splitlines() if line.startswith("| `")]
 
     assert len(table) == len(rows)
