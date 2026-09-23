@@ -108,32 +108,38 @@ async fn claim(
     reply::<ingestion_results::SemanticIndexClaimStageLeases, _>(ctx.req_id, claimed)
 }
 
-/// The service a lease operation runs on, once the lease is the caller's own.
-fn lease_service(
+/// Run `work` on the blocking pool for a lease that is the caller's own; a
+/// foreign lease is refused before any work runs.
+async fn on_own_lease<T, F>(
     ctx: &SemanticIndexContext<'_>,
-    lease: &eg_types::mutation_batch::MutationOutboxLease,
-) -> Result<Arc<eg_core::compute::semantic_index_service::SemanticIndexService>, Response> {
-    own_lease(lease, ctx.authority).map_err(|error| Response::err(ctx.req_id, error))?;
-    Ok(Arc::clone(&ctx.service))
+    lease: eg_types::mutation_batch::MutationOutboxLease,
+    work: F,
+) -> Result<T, Response>
+where
+    T: Send + 'static,
+    F: FnOnce(
+            &eg_core::compute::semantic_index_service::SemanticIndexService,
+            &eg_types::mutation_batch::MutationOutboxLease,
+            u64,
+        ) -> Result<T, eg_core::compute::semantic_ann_codes::SemanticCodeError>
+        + Send
+        + 'static,
+{
+    own_lease(&lease, ctx.authority).map_err(|error| Response::err(ctx.req_id, error))?;
+    let service = Arc::clone(&ctx.service);
+    let now_ms = ctx.now_ms;
+    blocking(ctx.req_id, move || work(&service, &lease, now_ms)).await
 }
 
 async fn validate(
     ctx: &SemanticIndexContext<'_>,
     lease: eg_types::mutation_batch::MutationOutboxLease,
 ) -> Response {
-    let service = match lease_service(ctx, &lease) {
-        Ok(service) => service,
-        Err(response) => return response,
-    };
     let consumer = ctx.authority.agent_id().to_string();
-    let now_ms = ctx.now_ms;
-    reply::<ingestion_results::SemanticIndexValidateStageLease, _>(
-        ctx.req_id,
-        blocking(ctx.req_id, move || {
-            service.validate_stage_lease(&lease, &consumer, now_ms)
-        })
-        .await,
-    )
+    let validated = on_own_lease(ctx, lease, move |service, lease, now_ms| {
+        service.validate_stage_lease(lease, &consumer, now_ms)
+    });
+    reply::<ingestion_results::SemanticIndexValidateStageLease, _>(ctx.req_id, validated.await)
 }
 
 async fn status(
@@ -157,18 +163,12 @@ async fn complete_stage(
     artifact: eg_types::semantic_index::SemanticStageArtifact,
     successor: Option<eg_types::semantic_index::SemanticStageIntent>,
 ) -> Response {
-    let service = match lease_service(ctx, &lease) {
-        Ok(service) => service,
-        Err(response) => return response,
-    };
-    let now_ms = ctx.now_ms;
+    let completed = on_own_lease(ctx, lease, move |service, lease, now_ms| {
+        service.complete_stage(lease, &transition, &artifact, successor.as_ref(), now_ms)
+    });
     reply::<ingestion_results::SemanticIndexCompleteStage, _>(
         ctx.req_id,
-        blocking(ctx.req_id, move || {
-            service.complete_stage(&lease, &transition, &artifact, successor.as_ref(), now_ms)
-        })
-        .await
-        .map(contracts::receipt),
+        completed.await.map(contracts::receipt),
     )
 }
 
@@ -179,24 +179,12 @@ async fn complete_generation_stage(
     artifact: eg_types::semantic_index::SemanticGenerationArtifact,
     successor: Option<eg_types::semantic_index::SemanticStageIntent>,
 ) -> Response {
-    let service = match lease_service(ctx, &lease) {
-        Ok(service) => service,
-        Err(response) => return response,
-    };
-    let now_ms = ctx.now_ms;
+    let generation = on_own_lease(ctx, lease, move |service, lease, now_ms| {
+        service.complete_generation_stage(lease, &transition, &artifact, successor.as_ref(), now_ms)
+    });
     reply::<ingestion_results::SemanticIndexCompleteGenerationStage, _>(
         ctx.req_id,
-        blocking(ctx.req_id, move || {
-            service.complete_generation_stage(
-                &lease,
-                &transition,
-                &artifact,
-                successor.as_ref(),
-                now_ms,
-            )
-        })
-        .await
-        .map(contracts::receipt),
+        generation.await.map(contracts::receipt),
     )
 }
 
@@ -319,14 +307,11 @@ async fn release(
     ctx: &SemanticIndexContext<'_>,
     lease: eg_types::mutation_batch::MutationOutboxLease,
 ) -> Response {
-    let service = match lease_service(ctx, &lease) {
-        Ok(service) => service,
-        Err(response) => return response,
-    };
+    let released = on_own_lease(ctx, lease, |service, lease, _now_ms| {
+        service.release_stage_lease(lease)
+    });
     reply::<ingestion_results::SemanticIndexReleaseStageLease, _>(
         ctx.req_id,
-        blocking(ctx.req_id, move || service.release_stage_lease(&lease))
-            .await
-            .map(|()| true),
+        released.await.map(|()| true),
     )
 }

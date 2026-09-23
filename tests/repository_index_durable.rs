@@ -185,9 +185,17 @@ fn repository_code_with_decorators_and_home_paths_commits() {
     on_engine(code_with_decorators_and_home_paths);
 }
 
-async fn commit_replay_tombstone_restart() {
+/// A fresh durable engine directory with the test graph created in it.
+async fn durable_graph(
+    prefix: &str,
+) -> (
+    std::path::PathBuf,
+    String,
+    test_support::SharedPersistence,
+    test_support::SharedState,
+) {
     test_support::provision_encryption_key_once("repository-index-durable-encryption-key");
-    let dir = test_support::fresh_dir("eg-repoindex");
+    let dir = test_support::fresh_dir(prefix);
     let dir_s = dir.to_string_lossy().to_string();
     let (backend, state) = test_support::redb_state_at(SECRET, common::current_isolation(), &dir_s);
     call(
@@ -199,6 +207,11 @@ async fn commit_replay_tombstone_restart() {
         },
     )
     .await;
+    (dir, dir_s, backend, state)
+}
+
+async fn commit_replay_tombstone_restart() {
+    let (dir, dir_s, backend, state) = durable_graph("eg-repoindex").await;
 
     // ── Commit: three unique blobs for five memberships over two branches ──
     let blobs: [(&str, &[u8]); 3] = [
@@ -289,19 +302,7 @@ async fn commit_replay_tombstone_restart() {
 /// repository path with a `home` segment must commit durably (EH-280).
 async fn code_with_decorators_and_home_paths() {
     const VIEWS: &[u8] = b"from dataclasses import dataclass\n\n\n@dataclass\nclass Settings:\n    name: str = \"x\"\n\n\n@dataclass(frozen=True)\nclass Page:\n    title: str = \"t\"\n";
-    test_support::provision_encryption_key_once("repository-index-durable-encryption-key");
-    let dir = test_support::fresh_dir("eg-repoindex-code");
-    let dir_s = dir.to_string_lossy().to_string();
-    let (backend, state) = test_support::redb_state_at(SECRET, common::current_isolation(), &dir_s);
-    call(
-        &state,
-        1,
-        Method::CreateGraph {
-            graph_name: GRAPH.to_string(),
-            graph_type: GraphType::Global,
-        },
-    )
-    .await;
+    let (dir, _, backend, state) = durable_graph("eg-repoindex-code").await;
     let code = IndexRepositoryScope {
         repository_id: "local-git:team/web".to_string(),
         refs: BoundedVec::new(vec![live("main", 'c')]).unwrap(),

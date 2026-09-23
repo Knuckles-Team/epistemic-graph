@@ -4593,44 +4593,23 @@ impl WireSession {
         let core_for_ctx = core.clone();
         let rows = tokio::task::spawn_blocking(move || {
             let indexes = crate::server::handlers::query::CoreIndexes::open(&core_for_ctx);
-            if vectors.is_empty() {
-                let semantic_guard = core_for_ctx.semantic_store.read();
-                crate::server::handlers::query::run_unified(
-                    plan,
-                    &view,
-                    &semantic_guard,
-                    indexes.served(
-                        #[cfg(feature = "federation")]
-                        Some(&*foreign_sources),
-                    ),
-                    #[cfg(feature = "tsdb")]
-                    crate::server::handlers::query::TsdbLegBind {
-                        tsdb: tsdb.as_deref(),
-                        tsdb_tenant: tsdb_tenant.as_deref(),
-                        tsdb_graph: tsdb_graph.as_deref(),
-                        staged_series: Some(&staged_series),
-                    },
-                )
-            } else {
-                let committed = core_for_ctx.semantic_store.read().clone();
-                let semantic = eg_core::compute::semantic::semantic_overlay(committed, &vectors);
-                crate::server::handlers::query::run_unified(
-                    plan,
-                    &view,
-                    &semantic,
-                    indexes.served(
-                        #[cfg(feature = "federation")]
-                        Some(&*foreign_sources),
-                    ),
-                    #[cfg(feature = "tsdb")]
-                    crate::server::handlers::query::TsdbLegBind {
-                        tsdb: tsdb.as_deref(),
-                        tsdb_tenant: tsdb_tenant.as_deref(),
-                        tsdb_graph: tsdb_graph.as_deref(),
-                        staged_series: Some(&staged_series),
-                    },
-                )
-            }
+            crate::server::handlers::query::run_unified_with_staged(
+                plan,
+                &view,
+                &core_for_ctx,
+                &vectors,
+                indexes.served(
+                    #[cfg(feature = "federation")]
+                    Some(&*foreign_sources),
+                ),
+                #[cfg(feature = "tsdb")]
+                crate::server::handlers::query::TsdbLegBind {
+                    tsdb: tsdb.as_deref(),
+                    tsdb_tenant: tsdb_tenant.as_deref(),
+                    tsdb_graph: tsdb_graph.as_deref(),
+                    staged_series: Some(&staged_series),
+                },
+            )
         })
         .await
         .map_err(|e| user_err(format!("UQL task failed: {e}")))?

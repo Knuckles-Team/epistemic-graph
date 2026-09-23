@@ -191,50 +191,23 @@ where
     rls.filter_view(caller, &mut view);
     match compute_off_lock(req_id, move || {
         let indexes = crate::server::handlers::query::CoreIndexes::open(&core);
-        // Fast path (CONCEPT:EG-KG.query.served-vector-index-binding): no staged embeddings this txn ⇒
-        // search the COMMITTED store directly through a guard — no clone, no forced
-        // HNSW rebuild. Only when the txn actually staged embeddings do we need a
-        // MUTATED overlay copy for read-your-own-writes (`semantic_overlay` always
-        // clones its input, so it is worth paying only when there is something to
-        // overlay).
-        if vectors.is_empty() {
-            let semantic_guard = core.semantic_store.read();
-            run_unified(
-                plan,
-                &view,
-                &semantic_guard,
-                indexes.served(
-                    #[cfg(feature = "federation")]
-                    Some(&*foreign_sources),
-                ),
-                #[cfg(feature = "tsdb")]
-                TsdbLegBind {
-                    tsdb: tsdb.as_deref(),
-                    tsdb_tenant: tsdb_tenant.as_deref(),
-                    tsdb_graph: tsdb_graph_scope.as_deref(),
-                    staged_series: Some(&staged_series),
-                },
-            )
-        } else {
-            let committed = core.semantic_store.read().clone();
-            let semantic = eg_core::compute::semantic::semantic_overlay(committed, &vectors);
-            run_unified(
-                plan,
-                &view,
-                &semantic,
-                indexes.served(
-                    #[cfg(feature = "federation")]
-                    Some(&*foreign_sources),
-                ),
-                #[cfg(feature = "tsdb")]
-                TsdbLegBind {
-                    tsdb: tsdb.as_deref(),
-                    tsdb_tenant: tsdb_tenant.as_deref(),
-                    tsdb_graph: tsdb_graph_scope.as_deref(),
-                    staged_series: Some(&staged_series),
-                },
-            )
-        }
+        run_unified_with_staged(
+            plan,
+            &view,
+            &core,
+            &vectors,
+            indexes.served(
+                #[cfg(feature = "federation")]
+                Some(&*foreign_sources),
+            ),
+            #[cfg(feature = "tsdb")]
+            TsdbLegBind {
+                tsdb: tsdb.as_deref(),
+                tsdb_tenant: tsdb_tenant.as_deref(),
+                tsdb_graph: tsdb_graph_scope.as_deref(),
+                staged_series: Some(&staged_series),
+            },
+        )
     })
     .await
     {
@@ -290,4 +263,42 @@ pub(crate) fn overlay_write_set(view: &mut crate::graph::GraphView, write_set: &
             _ => {}
         }
     }
+}
+
+/// Run `plan` over `view` against `core`'s semantic store with `staged`
+/// embeddings overlaid (read-your-own-writes). No staged embedding ⇒ the
+/// COMMITTED store is searched through a guard -- no clone, no forced HNSW
+/// rebuild (CONCEPT:EG-KG.query.served-vector-index-binding); only a txn that
+/// actually staged embeddings pays for the `semantic_overlay` copy. Off-txn
+/// callers pass no staged embeddings.
+#[cfg(feature = "query")]
+pub(crate) fn run_unified_with_staged(
+    plan: eg_plan::Plan,
+    view: &crate::graph::GraphView,
+    core: &crate::graph::GraphCore,
+    staged: &[(String, Vec<f32>)],
+    served: ServedIndexes<'_>,
+    #[cfg(feature = "tsdb")] tsdb_ctx: TsdbLegBind<'_>,
+) -> Result<Vec<(String, Option<f32>)>, String> {
+    if staged.is_empty() {
+        let committed = core.semantic_store.read();
+        return run_unified(
+            plan,
+            view,
+            &committed,
+            served,
+            #[cfg(feature = "tsdb")]
+            tsdb_ctx,
+        );
+    }
+    let committed = core.semantic_store.read().clone();
+    let semantic = eg_core::compute::semantic::semantic_overlay(committed, staged);
+    run_unified(
+        plan,
+        view,
+        &semantic,
+        served,
+        #[cfg(feature = "tsdb")]
+        tsdb_ctx,
+    )
 }

@@ -583,11 +583,11 @@ pub(crate) async fn run_unified_off_lock(
     let _ = state;
     compute_off_lock(req_id, move || {
         let indexes = crate::server::handlers::query::CoreIndexes::open(&core_for_ctx);
-        let semantic_guard = core_for_ctx.semantic_store.read();
-        run_unified(
+        run_unified_with_staged(
             plan,
             &snap,
-            &semantic_guard,
+            &core_for_ctx,
+            &[],
             indexes.served(
                 #[cfg(feature = "federation")]
                 Some(&*foreign_sources),

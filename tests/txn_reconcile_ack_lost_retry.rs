@@ -414,6 +414,13 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A fault child's engine: the durable backend at `dir_s`, opened under the
+/// child's own encryption key (set process-wide; the child owns its process).
+fn fault_child_state(dir_s: &str, encryption_key: &str) -> test_support::SharedState {
+    std::env::set_var(epistemic_graph::crypto::ENCRYPTION_KEY_ENV, encryption_key);
+    test_support::redb_state_at(SECRET, common::current_isolation(), dir_s).1
+}
+
 /// Child process for [`signed_dispatch_commit_fault_windows_recover_parent_once`].
 /// The certification hook aborts the process in the actual signed Commit route,
 /// after the durable parent prepare and either before the child commit or after
@@ -430,15 +437,10 @@ async fn signed_dispatch_commit_fault_child() {
         .expect("fault dir from parent harness; run signed_dispatch_commit_fault_windows_recover_parent_once instead of setting the child env by hand");
     let phase = std::env::var(FAULT_PHASE_ENV).expect("fault phase from parent harness");
     std::env::set_var(
-        epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
-        "txn-signed-commit-fault-test-key",
-    );
-    std::env::set_var(
         "EPISTEMIC_GRAPH_CERTIFICATION_FAULT",
         certification_fault_spec(405, &phase),
     );
-
-    let (_, state) = test_support::redb_state_at(SECRET, common::current_isolation(), &dir_s);
+    let state = fault_child_state(&dir_s, "txn-signed-commit-fault-test-key");
     let created: Response = Box::pin(dispatch(
         &state,
         test_support::request(
@@ -803,11 +805,7 @@ async fn signed_dispatch_lifecycle_fault_child() {
     let dir_s = std::env::var(LIFECYCLE_DIR_ENV)
         .expect("lifecycle fault dir from parent harness; run signed_dispatch_lifecycle_fault_windows_refuse_ambiguous_replay instead of setting the child env by hand");
     let mode = std::env::var(LIFECYCLE_MODE_ENV).expect("lifecycle fault mode from parent harness");
-    std::env::set_var(
-        epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
-        "txn-signed-lifecycle-fault-test-key",
-    );
-    let (_, state) = test_support::redb_state_at(SECRET, common::current_isolation(), &dir_s);
+    let state = fault_child_state(&dir_s, "txn-signed-lifecycle-fault-test-key");
     let created: Response = Box::pin(dispatch(
         &state,
         test_support::request(
