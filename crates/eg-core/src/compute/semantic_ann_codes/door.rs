@@ -8,7 +8,7 @@
 //! wrappers. No method mints or binds a second scope, which is the parent
 //! module's per-generation-scope non-goal enforced by visibility.
 
-use super::{kernel_error, SemanticCodeError, SemanticMutationReceipt};
+use super::{corrupt, kernel_error, SemanticCodeError, SemanticMutationReceipt};
 use eg_storage::{
     OwnedStoreHandle, PhysicalStoreIdentity, RecordedOperation, ScopeGrantVerifier, ScopedRead,
     SemanticIndexOwner, StorageKernel,
@@ -501,21 +501,20 @@ fn bind_scope(
     proof: &[u8],
     identity: eg_types::MutationScopeIdentity,
 ) -> Result<OwnedStoreHandle<SemanticIndexOwner>, SemanticCodeError> {
-    let existing = kernel
-        .authenticate_scope::<SemanticIndexOwner>(
-            verifier,
-            identity.clone(),
-            principal.to_string(),
-            proof,
-        )
-        .and_then(|grant| kernel.resolve_bound_scope(grant))
+    // Decide reopen vs first open from the binding row (a plain read), so the
+    // scope is authenticated exactly once on either path.
+    let already_bound = kernel
+        .scope_binding_exists(&identity)
         .map_err(kernel_error)?;
-    if let Some(owner) = existing {
-        return Ok(owner);
-    }
     let grant = kernel
         .authenticate_scope::<SemanticIndexOwner>(verifier, identity, principal.to_string(), proof)
         .map_err(kernel_error)?;
+    if already_bound {
+        return kernel
+            .resolve_bound_scope(grant)
+            .map_err(kernel_error)?
+            .ok_or_else(|| corrupt("the bound serving scope vanished during reopen"));
+    }
     let owner = kernel.bind_serving_scope(grant, 0).map_err(kernel_error)?;
     mutations.bootstrap_ledger(&owner).map_err(kernel_error)?;
     Ok(owner)
