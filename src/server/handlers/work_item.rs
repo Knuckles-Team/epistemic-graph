@@ -33,14 +33,7 @@ pub(crate) struct HandleContext<'a> {
 /// remain with their distinct admission/authority routes.
 pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result<Response, Method> {
     let method = match method {
-        method @ (Method::ClaimWorkItem { .. }
-        | Method::RenewWorkItemLease { .. }
-        | Method::CommitWorkItemResult { .. }
-        | Method::CancelWorkItem { .. }
-        | Method::DeferWorkItem { .. }
-        | Method::CasWorkItemMetadata { .. }
-        | Method::IssueControlLease { .. }
-        | Method::TransitionControlLease { .. }) => method,
+        method @ (work_item_kernel_writes!() | Method::CommitWorkItemResult { .. }) => method,
         other => return Err(other),
     };
 

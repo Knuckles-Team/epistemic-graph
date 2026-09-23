@@ -562,13 +562,7 @@ fn apply_one_native_operation_row(
                 )
             },
         ),
-        method @ (Method::ClaimWorkItem { .. }
-        | Method::RenewWorkItemLease { .. }
-        | Method::CancelWorkItem { .. }
-        | Method::DeferWorkItem { .. }
-        | Method::CasWorkItemMetadata { .. }
-        | Method::IssueControlLease { .. }
-        | Method::TransitionControlLease { .. }) => apply_native_work_item_family_operation(
+        method @ work_item_kernel_writes!() => apply_native_work_item_family_operation(
             graph_fname,
             method,
             tables,

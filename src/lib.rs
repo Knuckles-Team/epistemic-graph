@@ -42,6 +42,35 @@ pub use eg_compute::finance;
 pub use eg_compute::reasoning;
 pub use eg_compute::{algorithms, ast, parser, screen};
 
+/// The native WorkItem-kernel lease and lifecycle writes (claim, renew,
+/// cancel, defer, metadata CAS, and the graph-os EG-2 control-lease writes),
+/// as ONE pattern. Every dispatch, apply and classification site that routes
+/// this family matches through it, so a new family member is added once and
+/// every exhaustive `match` using it still fails to compile until it is
+/// classified.
+macro_rules! work_item_kernel_writes {
+    () => {
+        $crate::protocol::Method::ClaimWorkItem { .. }
+            | $crate::protocol::Method::RenewWorkItemLease { .. }
+            | $crate::protocol::Method::CancelWorkItem { .. }
+            | $crate::protocol::Method::DeferWorkItem { .. }
+            | $crate::protocol::Method::CasWorkItemMetadata { .. }
+            | $crate::protocol::Method::IssueControlLease { .. }
+            | $crate::protocol::Method::TransitionControlLease { .. }
+    };
+}
+
+/// The WorkItem resource-reservation writes, as one pattern (see
+/// `work_item_kernel_writes`).
+macro_rules! work_item_resource_writes {
+    () => {
+        $crate::protocol::Method::ReserveWorkItemResources { .. }
+            | $crate::protocol::Method::ReleaseWorkItemResources { .. }
+            | $crate::protocol::Method::ReclaimWorkItemResources { .. }
+            | $crate::protocol::Method::UpdateResourceHost { .. }
+    };
+}
+
 #[cfg(feature = "server")]
 pub mod channels;
 pub mod metrics;

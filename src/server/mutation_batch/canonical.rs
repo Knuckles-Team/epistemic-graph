@@ -696,18 +696,9 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::ReleaseCapacity { .. }
         | Method::ReclaimExpiredCapacity { .. }
         | Method::UpdateCapacityCell { .. }
-        | Method::ClaimWorkItem { .. }
-        | Method::RenewWorkItemLease { .. }
+        | work_item_kernel_writes!()
         | Method::CommitWorkItemResult { .. }
-        | Method::CancelWorkItem { .. }
-        | Method::DeferWorkItem { .. }
-        | Method::CasWorkItemMetadata { .. }
-        | Method::IssueControlLease { .. }
-        | Method::TransitionControlLease { .. }
-        | Method::ReserveWorkItemResources { .. }
-        | Method::ReleaseWorkItemResources { .. }
-        | Method::ReclaimWorkItemResources { .. }
-        | Method::UpdateResourceHost { .. }
+        | work_item_resource_writes!()
         | Method::Sql { .. }
         | Method::AddTriples { .. }
         | Method::RemoveTriples { .. }

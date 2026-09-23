@@ -151,10 +151,7 @@ pub(crate) fn compute_native_terminal_work_item_cas(batch: &MutationBatch) -> bo
                             | Method::DeferWorkItem { .. }
                             | Method::IssueControlLease { .. }
                             | Method::TransitionControlLease { .. }
-                            | Method::ReserveWorkItemResources { .. }
-                            | Method::ReleaseWorkItemResources { .. }
-                            | Method::ReclaimWorkItemResources { .. }
-                            | Method::UpdateResourceHost { .. }
+                            | work_item_resource_writes!()
                             | Method::SubmitWorkItem { .. }
                             | Method::SubmitWorkItems { .. }
                     )
