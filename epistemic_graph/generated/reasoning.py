@@ -6,15 +6,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
 from ._runtime import (
     OpaqueResult,
-    decode_result,
     expect_bool,
-    models,
 )
 from .graph_schema import (
     GraphSchemaCommitted,
@@ -32,16 +30,27 @@ from .rdf_report import ProofNodeWire as ProofNodeWire
 from .rdf_report import ShaclSeverity as ShaclSeverity
 from .rdf_report import ShaclValidationResult as ShaclValidationResult
 
-if TYPE_CHECKING:
-    from . import models as _models
 
-    RunDatalogReasoningRequest = _models.MethodRunDatalogReasoningParams
-    SparqlRequest = _models.MethodSparqlParams
-    SparqlVirtualRequest = _models.MethodSparqlVirtualParams
-    OwlReasonDistributedRequest = _models.MethodOwlReasonDistributedParams
-    OwlExplainRequest = _models.MethodOwlExplainParams
-    ShaclValidateRequest = _models.MethodShaclValidateParams
-    IcvConfigureRequest = _models.MethodIcvConfigureParams
+class RunDatalogReasoningRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        RunDatalogReasoning
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/RunDatalogReasoning
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    domain_rules: list[list[Any]] | None = None
+    inverse_properties: list[list[Any]] | None = None
+    property_chains: list[list[Any]] | None = None
+    range_rules: list[list[Any]] | None = None
+    subclass_relations: list[list[Any]] | None = None
+    subproperty_relations: list[list[Any]] | None = None
+    symmetric_properties: list[str] | None = None
+    transitive_properties: list[str] | None = None
 
 
 async def send_run_datalog_reasoning(
@@ -74,7 +83,7 @@ async def send_run_datalog_reasoning(
         - REDIRECTED
         - READ_ONLY
     """
-    models().MethodRunDatalogReasoningParams.model_validate(params or {})
+    RunDatalogReasoningRequest.model_validate(params or {})
     payload = await client._send(
         "RunDatalogReasoning",
         params,
@@ -135,9 +144,22 @@ async def send_get_rdf(
     return OpaqueResult("GetRdf", payload)
 
 
-def decode_get_rdf(result: OpaqueResult) -> _models.GetRdfResult:
-    """Validate this method's result against its contract model."""
-    return decode_result("GetRdf", models().GetRdfResult, result)
+class SparqlRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        Sparql
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/Sparql
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    base_iri: str | None = None
+    explain: bool | None = None
+    query: str
+    type_convention: str | None = None
 
 
 async def send_sparql(
@@ -166,7 +188,7 @@ async def send_sparql(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    models().MethodSparqlParams.model_validate(params or {})
+    SparqlRequest.model_validate(params or {})
     payload = await client._send(
         "Sparql",
         params,
@@ -176,9 +198,22 @@ async def send_sparql(
     return OpaqueResult("Sparql", payload)
 
 
-def decode_sparql(result: OpaqueResult) -> _models.SparqlResult:
-    """Validate this method's result against its contract model."""
-    return decode_result("Sparql", models().SparqlResult, result)
+class SparqlVirtualRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        SparqlVirtual
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/SparqlVirtual
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    external_sources: list[Any] | None = None
+    mapping: str
+    query: str
+    tables: list[str]
 
 
 async def send_sparql_virtual(
@@ -207,7 +242,7 @@ async def send_sparql_virtual(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    models().MethodSparqlVirtualParams.model_validate(params or {})
+    SparqlVirtualRequest.model_validate(params or {})
     payload = await client._send(
         "SparqlVirtual",
         params,
@@ -215,11 +250,6 @@ async def send_sparql_virtual(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("SparqlVirtual", payload)
-
-
-def decode_sparql_virtual(result: OpaqueResult) -> _models.SparqlResult:
-    """Validate this method's result against its contract model."""
-    return decode_result("SparqlVirtual", models().SparqlResult, result)
 
 
 class OwlReasonRequest(BaseModel):
@@ -276,6 +306,25 @@ async def send_owl_reason(
     return OwlReasonResult.model_validate(payload)
 
 
+class OwlReasonDistributedRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        OwlReasonDistributed
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/OwlReasonDistributed
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    class_base: str | None = None
+    graphs: list[str]
+    min_confidence: float
+    ontology: str | None = None
+    target_class: str | None = None
+
+
 async def send_owl_reason_distributed(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -302,7 +351,7 @@ async def send_owl_reason_distributed(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    models().MethodOwlReasonDistributedParams.model_validate(params or {})
+    OwlReasonDistributedRequest.model_validate(params or {})
     payload = await client._send(
         "OwlReasonDistributed",
         params,
@@ -310,6 +359,23 @@ async def send_owl_reason_distributed(
         idempotency_key=idempotency_key,
     )
     return OwlReasonResult.model_validate(payload)
+
+
+class OwlExplainRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        OwlExplain
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/OwlExplain
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    ontology: str | None = None
+    sub: str
+    sup: str
 
 
 async def send_owl_explain(
@@ -338,7 +404,7 @@ async def send_owl_explain(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    models().MethodOwlExplainParams.model_validate(params or {})
+    OwlExplainRequest.model_validate(params or {})
     payload = await client._send(
         "OwlExplain",
         params,
@@ -346,6 +412,22 @@ async def send_owl_explain(
         idempotency_key=idempotency_key,
     )
     return OwlExplainResult.model_validate(payload)
+
+
+class ShaclValidateRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        ShaclValidate
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/ShaclValidate
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    data_graph: str | None = None
+    shapes: str | None = None
 
 
 async def send_shacl_validate(
@@ -374,7 +456,7 @@ async def send_shacl_validate(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    models().MethodShaclValidateParams.model_validate(params or {})
+    ShaclValidateRequest.model_validate(params or {})
     payload = await client._send(
         "ShaclValidate",
         params,
@@ -382,6 +464,23 @@ async def send_shacl_validate(
         idempotency_key=idempotency_key,
     )
     return ShaclValidationReport.model_validate(payload)
+
+
+class IcvConfigureRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        IcvConfigure
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/IcvConfigure
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    graph: str | None = None
+    mode: str
+    shapes: str
 
 
 async def send_icv_configure(
@@ -414,7 +513,7 @@ async def send_icv_configure(
         - REDIRECTED
         - READ_ONLY
     """
-    models().MethodIcvConfigureParams.model_validate(params or {})
+    IcvConfigureRequest.model_validate(params or {})
     payload = await client._send(
         "IcvConfigure",
         params,
@@ -528,25 +627,3 @@ async def send_graph_schema_list(
         idempotency_key=idempotency_key,
     )
     return GraphSchemaSourcesView.model_validate(payload)
-
-
-# Methods whose `{Id}Request` resolves to `models.Method{Id}Params` (EH-192).
-_REQUEST_METHODS = frozenset(
-    {
-        "RunDatalogReasoning",
-        "Sparql",
-        "SparqlVirtual",
-        "OwlReasonDistributed",
-        "OwlExplain",
-        "ShaclValidate",
-        "IcvConfigure",
-    }
-)
-
-
-def __getattr__(name: str) -> Any:
-    """Resolve a ``{Id}Request`` name to its generated model on first use."""
-    method = name.removesuffix("Request")
-    if name == method or method not in _REQUEST_METHODS:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    return getattr(models(), f"Method{method}Params")

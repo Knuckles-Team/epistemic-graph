@@ -87,6 +87,8 @@ pub(super) fn default_statistical_policy() -> StatisticalPolicy {
         tenant_public_features: false,
         audit_sample: rational(1, 20),
         approved_commit_principals: eg_types::contract::BoundedVec::default(),
+        compact_after_ms: None,
+        drop_blob_after_ms: None,
     }
 }
 

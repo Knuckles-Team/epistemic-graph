@@ -16,7 +16,8 @@ pub use work_items::*;
 
 use crate::control_lease::{ControlLeaseIssued, ControlLeaseTransition, ControlLeaseView};
 use crate::decision::statistical::log::{
-    DecisionLogCommitted, DecisionLogEntry, OutcomeAggregate, StoredEvaluation,
+    DecisionLogCommitted, DecisionLogCompacted, DecisionLogEntry, DecisionLogVerification,
+    OutcomeAggregate, StoredEvaluation,
 };
 use crate::decision::DecisionJobRecord;
 use crate::delegation::KgDelegateResult;
@@ -122,4 +123,6 @@ method_results! {
     DecisionLogEvaluate(DecisionLog / "evaluate") => Raw<StoredEvaluation>;
     DecisionLogGet(DecisionLog / "get") => Raw<Option<DecisionLogEntry>>;
     DecisionLogAggregate(DecisionLog / "aggregate") => Raw<OutcomeAggregate>;
+    DecisionLogCompact(DecisionLog / "compact") => Raw<DecisionLogCompacted>;
+    DecisionLogVerify(DecisionLog / "verify") => Raw<DecisionLogVerification>;
 }

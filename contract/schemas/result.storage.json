@@ -5857,9 +5857,29 @@
           "$ref": "#/$defs/UnitRationalWire",
           "description": "Share of decisions sampled into the audit stream."
         },
+        "compact_after_ms": {
+          "default": null,
+          "description": "Age after which a logged record's inputs move to Blob CAS (EH-060).\n`None` keeps them inline.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "delta": {
           "$ref": "#/$defs/UnitRationalWire",
           "description": "Failure probability of that guarantee."
+        },
+        "drop_blob_after_ms": {
+          "default": null,
+          "description": "Age after which a compacted record's blob is released; verification\nthen answers `INPUTS_RETIRED`. `None` keeps the blob.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "epsilon": {
           "$ref": "#/$defs/UnitRationalWire",

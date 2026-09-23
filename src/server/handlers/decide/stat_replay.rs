@@ -16,6 +16,7 @@ use eg_types::decision::statistical::{
 };
 use eg_types::decision::DecisionErrorCode;
 
+use super::stat_classes::current_rules;
 use super::stat_executor::{
     pinned_inputs, recorded_explanation, run_on_matrix, Executed, ExecutionContext, MatrixInputs,
 };
@@ -83,6 +84,11 @@ pub(super) fn replay(
         ));
     }
     let inputs = &record.inputs;
+    if inputs.classification_rules.is_some() && inputs.classification_rules != current_rules() {
+        return Err(mismatch(
+            "the record's classes were derived under another rule set",
+        ));
+    }
     let pinned = pinned_inputs(ctx, &inputs.feature_schema, inputs.head.as_ref())?;
     let policy = resolve_policy(ctx.store, ctx.tenant_id, &inputs.policy)?;
     if policy.digest != inputs.policy_digest {
