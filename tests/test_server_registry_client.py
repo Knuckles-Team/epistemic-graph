@@ -17,6 +17,8 @@ def _entry(name: str) -> dict[str, Any]:
     return {
         "name": name,
         "url": f"mcp-ref://{name}",
+        "transport": "stdio",
+        "desired": "enabled",
         "resources": {"tools": [name]},
         "ttl_secs": 60,
         "registered_at_ms": 1,
@@ -100,3 +102,43 @@ def test_registry_types_and_client_are_wheel_root_exports() -> None:
     ):
         assert name in epistemic_graph.__all__
         assert getattr(epistemic_graph, name) is not None
+
+
+class _RegisterTransport:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any] | None]] = []
+
+    async def _send(
+        self,
+        method: str,
+        params: dict[str, Any] | None,
+        graph: str | None,
+        *,
+        idempotency_key: str | None,
+    ) -> str:
+        self.calls.append((method, params))
+        return "srv:alpha"
+
+
+def test_register_sends_the_typed_transport_and_desired_state() -> None:
+    transport = _RegisterTransport()
+    client = ServerRegistryClient(cast(EpistemicGraphClient, transport))
+    assert asyncio.run(
+        client.register(
+            "alpha",
+            "mcp-ref://alpha",
+            transport="streamable_http",
+            desired="disabled",
+        )
+    )
+    method, params = transport.calls[0]
+    assert method == "RegisterServer"
+    assert params is not None
+    assert params["transport"] == "streamable_http"
+    assert params["desired"] == "disabled"
+
+
+def test_registered_server_view_carries_the_typed_registration_claim() -> None:
+    view = epistemic_graph.RegisteredServerView.model_validate(_entry("alpha"))
+    assert view.transport == "stdio"
+    assert view.desired == "enabled"

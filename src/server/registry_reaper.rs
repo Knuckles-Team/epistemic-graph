@@ -193,6 +193,8 @@ mod tests {
                     url: "mcp-ref://deadbeef".to_string(),
                     resources_json: String::new(),
                     ttl_secs,
+                    transport: Default::default(),
+                    desired: Default::default(),
                 },
             ),
         )

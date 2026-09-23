@@ -76,6 +76,41 @@ const TYPED_OPERATION_ADAPTERS: &[TypedOperationAdapter] = &[
         result_is_union: true,
     },
     TypedOperationAdapter {
+        method: "FleetCatalog",
+        operation: "record_discovery",
+        request_model: "FleetDiscoveryRecordRequest",
+        result_model: "FleetWriteReceipt",
+        result_is_union: false,
+    },
+    TypedOperationAdapter {
+        method: "FleetCatalog",
+        operation: "set_override",
+        request_model: "FleetOverrideSetRequest",
+        result_model: "FleetWriteReceipt",
+        result_is_union: false,
+    },
+    TypedOperationAdapter {
+        method: "FleetCatalog",
+        operation: "clear_override",
+        request_model: "FleetOverrideClearRequest",
+        result_model: "FleetWriteReceipt",
+        result_is_union: false,
+    },
+    TypedOperationAdapter {
+        method: "FleetCatalog",
+        operation: "list",
+        request_model: "FleetCatalogListRequest",
+        result_model: "FleetCatalogPage",
+        result_is_union: false,
+    },
+    TypedOperationAdapter {
+        method: "FleetCatalog",
+        operation: "lookup",
+        request_model: "FleetCatalogLookupRequest",
+        result_model: "FleetCatalogLookup",
+        result_is_union: false,
+    },
+    TypedOperationAdapter {
         method: "ConnectorPack",
         operation: "status",
         request_model: "ConnectorPackStatusRequest",
@@ -441,6 +476,20 @@ fn push_result_decode(
     }
 }
 
+/// The adapter's docstring, wrapped when the one-line form would exceed the
+/// formatter's 88-column limit (a long method/operation pair does).
+fn adapter_docstring(method: &str, operation: &str) -> String {
+    let one_line = format!(
+        "    \"\"\"Send typed {method}.{operation} through the existing {method} method.\"\"\""
+    );
+    if one_line.len() <= 88 {
+        return one_line;
+    }
+    format!(
+        "    \"\"\"Send typed {method}.{operation}.\n\n    Routed through the existing {method} method.\n    \"\"\""
+    )
+}
+
 fn push_typed_operation_adapter(out: &mut String, adapter: &TypedOperationAdapter) {
     let method = adapter.method;
     let operation = adapter.operation;
@@ -454,10 +503,7 @@ fn push_typed_operation_adapter(out: &mut String, adapter: &TypedOperationAdapte
     let _ = writeln!(out, "    *,");
     let _ = writeln!(out, "    idempotency_key: str | None = None,");
     let _ = writeln!(out, ") -> {result}:");
-    let _ = writeln!(
-        out,
-        "    \"\"\"Send typed {method}.{operation} through the existing {method} method.\"\"\""
-    );
+    let _ = writeln!(out, "{}", adapter_docstring(method, operation));
     let _ = writeln!(out, "    request = {request}.model_validate(request)");
     if method == "AgentComponent" && operation == "search" {
         // The server's own selector rule: a task (resolved through the native

@@ -2995,6 +2995,13 @@
       "maxItems": 16,
       "type": "array"
     },
+    "BoundedVec_Digest256_64": {
+      "items": {
+        "$ref": "#/$defs/Digest256"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
     "BoundedVec_Elimination_64": {
       "items": {
         "$ref": "#/$defs/Elimination"
@@ -7604,6 +7611,111 @@
       ],
       "type": "string"
     },
+    "DiscoveryCounts": {
+      "additionalProperties": false,
+      "description": "How many of each MCP primitive the probe saw.",
+      "properties": {
+        "prompts": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "resources": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "skills": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tools": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tools",
+        "skills",
+        "prompts",
+        "resources"
+      ],
+      "type": "object"
+    },
+    "DiscoveryOutcome": {
+      "description": "What the probe found.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "reachable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Recorded rather than omitted: \"unavailable\" must never look identical to\n\"empty\". `error` is caller-redacted text; it is bounded here and never\ninterpreted.",
+          "properties": {
+            "error": {
+              "type": "string"
+            },
+            "status": {
+              "const": "unreachable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "error"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DiscoveryScope": {
+      "description": "Under whose authority a discovery observation was made.\n\nClosed, and deliberately two-valued. A local/stdio probe has no provider\ngrant to fingerprint, so it is tenant-local and visible to the tenant; a\nprobe made with a principal's OAuth grant saw what THAT grant allows, so it\nis visible only to that principal while that grant is current. There is no\nthird \"global\" value: an observation that cannot say which of the two it is\nis not recorded.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "authority": {
+              "const": "tenant_local",
+              "type": "string"
+            }
+          },
+          "required": [
+            "authority"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`grant_digest` is the broker-minted fingerprint of the grant the probe\nused. The principal is NOT a field: the server binds it from the\nverified request context.",
+          "properties": {
+            "authority": {
+              "const": "oauth_grant",
+              "type": "string"
+            },
+            "grant_digest": {
+              "$ref": "#/$defs/Digest256"
+            }
+          },
+          "required": [
+            "authority",
+            "grant_digest"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "DistAlgo": {
       "description": "The distributed graph algorithm a `DistributedCompute` / matview runs across\nshards (CONCEPT:EG-KG.storage.feature). Each is a vertex-centric (Pregel/GAS) computation the\ncross-shard superstep coordinator drives; the single-shard fast path stays the\nalways-on `PageRank`/`ConnectedComponents` ops.",
       "oneOf": [
@@ -9612,6 +9724,329 @@
           "type": "object"
         }
       ]
+    },
+    "FleetCatalogCursor": {
+      "additionalProperties": false,
+      "description": "Where a page resumes, fenced to the snapshot that produced it.",
+      "properties": {
+        "after_id": {
+          "type": "string"
+        },
+        "after_name": {
+          "description": "Exclusive `(lowercased name, id)` lower bound for the next page.",
+          "type": "string"
+        },
+        "snapshot_digest": {
+          "$ref": "#/$defs/Digest256",
+          "description": "Digest of the whole visible, filtered snapshot of the page's kind. The\nfence is content, not a graph revision: a registry heartbeat that changes\nnothing this kind shows must not invalidate a caller's cursor."
+        }
+      },
+      "required": [
+        "after_name",
+        "after_id",
+        "snapshot_digest"
+      ],
+      "type": "object"
+    },
+    "FleetCatalogKind": {
+      "description": "Which kind of row a page lists.",
+      "enum": [
+        "discoveries",
+        "tools",
+        "prompts",
+        "resources",
+        "skills"
+      ],
+      "type": "string"
+    },
+    "FleetCatalogListRequest": {
+      "additionalProperties": false,
+      "description": "Read one bounded page of one kind.",
+      "properties": {
+        "cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FleetCatalogCursor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "grant_digests": {
+          "$ref": "#/$defs/BoundedVec_Digest256_64",
+          "default": [],
+          "description": "The caller's CURRENT grant fingerprints. Only narrows: an OAuth-scoped\nrow is visible when its principal is the verified caller AND its grant\nis listed here; nothing listed here can widen past the caller."
+        },
+        "kind": {
+          "$ref": "#/$defs/FleetCatalogKind"
+        },
+        "limit": {
+          "default": null,
+          "description": "`None` selects the maximum page size.",
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "query": {
+          "default": null,
+          "description": "Case-insensitive substring over name, server name and description.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "FleetCatalogLookupRequest": {
+      "additionalProperties": false,
+      "description": "Read the visible rows for a batch of ids of any kind: component ids for\ncontent rows, discovery ids for observations. An id the caller may not see\nis absent from the answer exactly as an unknown id is.",
+      "properties": {
+        "grant_digests": {
+          "$ref": "#/$defs/BoundedVec_Digest256_64",
+          "default": []
+        },
+        "ids": {
+          "$ref": "#/$defs/BoundedVec_string_256"
+        }
+      },
+      "required": [
+        "ids"
+      ],
+      "type": "object"
+    },
+    "FleetCatalogOp": {
+      "description": "Every fleet catalog operation.\n\nThe read/write split and the authorization action live on the op, so the\ncapability ledger and the server's write classifier cannot disagree about\nan operation.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Record one server's latest discovery observation under one scope.",
+          "properties": {
+            "op": {
+              "const": "record_discovery",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/FleetDiscoveryRecordRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Set one durable operator override on a published component.",
+          "properties": {
+            "op": {
+              "const": "set_override",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/FleetOverrideSetRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Clear one durable operator override.",
+          "properties": {
+            "op": {
+              "const": "clear_override",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/FleetOverrideClearRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Read one bounded, snapshot-fenced page of one kind.",
+          "properties": {
+            "op": {
+              "const": "list",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/FleetCatalogListRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Read the visible rows for a batch of ids, of any kind.",
+          "properties": {
+            "op": {
+              "const": "lookup",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/FleetCatalogLookupRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "FleetDiscoveryRecordRequest": {
+      "additionalProperties": false,
+      "description": "Record one server's latest discovery observation under one scope.\n\nOne record per `(tenant, server_name, scope)`; a later observation replaces\nthe earlier one through a compare-and-set on its revision.",
+      "properties": {
+        "connector": {
+          "description": "The connector whose pack holds what this probe observed. The join from\nobservation to content: every `mcp:<connector>/...` component inherits\nthis observation's visibility.",
+          "type": "string"
+        },
+        "counts": {
+          "$ref": "#/$defs/DiscoveryCounts",
+          "default": {
+            "prompts": 0,
+            "resources": 0,
+            "skills": 0,
+            "tools": 0
+          }
+        },
+        "expected_revision": {
+          "default": null,
+          "description": "`None` writes unconditionally; `Some(0)` requires that no record exists\nyet; `Some(n)` requires the stored revision to be exactly `n`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "outcome": {
+          "$ref": "#/$defs/DiscoveryOutcome"
+        },
+        "scope": {
+          "$ref": "#/$defs/DiscoveryScope"
+        },
+        "server_name": {
+          "description": "The registry name the server registers under.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "server_name",
+        "scope",
+        "connector",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "FleetOverride": {
+      "description": "One durable operator override. Closed, one variant per field.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Reclassify a skill. Survives every re-import of its pack, because the\nimport never writes override records and the projection applies them at\nread time.",
+          "properties": {
+            "field": {
+              "const": "skill_type",
+              "type": "string"
+            },
+            "skill_type": {
+              "$ref": "#/$defs/SkillType"
+            }
+          },
+          "required": [
+            "field",
+            "skill_type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "FleetOverrideClearRequest": {
+      "additionalProperties": false,
+      "description": "Clear one durable operator override. A cleared override is a tombstone\nrevision, not a deletion, so the compare-and-set chain never restarts.",
+      "properties": {
+        "component_id": {
+          "type": "string"
+        },
+        "expected_revision": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "field": {
+          "$ref": "#/$defs/FleetOverrideField"
+        }
+      },
+      "required": [
+        "component_id",
+        "field"
+      ],
+      "type": "object"
+    },
+    "FleetOverrideField": {
+      "description": "The field an override record governs; one record per `(component, field)`.",
+      "enum": [
+        "skill_type"
+      ],
+      "type": "string"
+    },
+    "FleetOverrideSetRequest": {
+      "additionalProperties": false,
+      "description": "Set one durable operator override.",
+      "properties": {
+        "component_id": {
+          "type": "string"
+        },
+        "expected_revision": {
+          "default": null,
+          "description": "Same compare-and-set meaning as on a discovery record.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "value": {
+          "$ref": "#/$defs/FleetOverride"
+        }
+      },
+      "required": [
+        "component_id",
+        "value"
+      ],
+      "type": "object"
     },
     "ForecastAlgorithm": {
       "description": "Which forecasting engine `MineForecast` runs (CONCEPT:EG-KG.mining.arima —\nPhase 4). ARIMA is the default (Hannan-Rissanen AR(p)/MA(q) after `d`-order\ndifferencing); `holtwinters` degrades to Holt's linear-trend method when\n`period` is 0; `stl` is a classical decomposition + extrapolation.",
@@ -17230,7 +17665,7 @@
         },
         {
           "additionalProperties": false,
-          "description": "Push-register (or renew, idempotently) this server's fleet identity\n(CONCEPT:EG-KG.sharding.server-registry) as a `:Server` node in\n`__commons__`. `name` becomes the node id `srv:<name>` (must match\n`^[A-Za-z0-9_.-]{1,128}$`, the same bound au's config-sync ingestion\nenforces); `url` is a bounded opaque endpoint reference (never a raw\ncredentialed URL — callers pass the same kind of privacy-safe reference\nau's `persistence_reference` produces); `resources_json` is an optional,\nsize-bounded opaque JSON object (non-sensitive metadata, mirrors au's\n`_mcp_persistence_resources`); `ttl_secs` is the caller's requested lease\nduration (bounded server-side). The SERVER computes the absolute\n`lease_expires_at_ms`/`last_heartbeat_ms` from its own clock — it never\ntrusts a caller-supplied timestamp. Re-calling with the SAME `name`\nrenews the lease (a heartbeat is just a repeat `RegisterServer` call) and\nrefreshes every other field, exactly like the internal topology self-report\nsemantics; `registered_at_ms` is preserved from the prior row if one\nexists. A periodic engine sweep expires (removes) a `:Server` node whose\nlease has lapsed, emitting a CDC `RemoveNode` event. Returns `Bool` on\nsuccess.",
+          "description": "Push-register (or renew, idempotently) this server's fleet identity\n(CONCEPT:EG-KG.sharding.server-registry) as a `:Server` node in\n`__commons__`. `name` becomes the node id `srv:<name>` (must match\n`^[A-Za-z0-9_.-]{1,128}$`, the same bound au's config-sync ingestion\nenforces); `url` is a bounded opaque endpoint reference (never a raw\ncredentialed URL — callers pass the same kind of privacy-safe reference\nau's `persistence_reference` produces); `resources_json` is an optional,\nsize-bounded opaque JSON object (non-sensitive metadata, mirrors au's\n`_mcp_persistence_resources`); `ttl_secs` is the caller's requested lease\nduration (bounded server-side). The SERVER computes the absolute\n`lease_expires_at_ms`/`last_heartbeat_ms` from its own clock — it never\ntrusts a caller-supplied timestamp. Re-calling with the SAME `name`\nrenews the lease (a heartbeat is just a repeat `RegisterServer` call) and\nrefreshes every other field, exactly like the internal topology self-report\nsemantics; `registered_at_ms` is preserved from the prior row if one\nexists. A periodic engine sweep expires (removes) a `:Server` node whose\nlease has lapsed, emitting a CDC `RemoveNode` event. Returns `Bool` on\nsuccess.\n\n`transport` and `desired` are the operator's typed registration claim\n(how the server is reached, and whether it should be used). Both default\nfor a caller that predates them: `unspecified` and `enabled`.",
           "properties": {
             "method": {
               "const": "RegisterServer",
@@ -17239,12 +17674,20 @@
             "params": {
               "additionalProperties": false,
               "properties": {
+                "desired": {
+                  "$ref": "#/$defs/ServerDesiredState",
+                  "default": "enabled"
+                },
                 "name": {
                   "type": "string"
                 },
                 "resources_json": {
                   "default": "",
                   "type": "string"
+                },
+                "transport": {
+                  "$ref": "#/$defs/ServerTransport",
+                  "default": "unspecified"
                 },
                 "ttl_secs": {
                   "format": "uint64",
@@ -17286,6 +17729,33 @@
               },
               "required": [
                 "request"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The fleet catalog (EH-345): the server registry's discovery\nobservations and operator overrides, plus ONE read projection that joins\nthem with the `AgentComponent` records connector packs publish. Not a\nsecond catalog: tools, prompts, resources and skills stay\n`AgentComponent`s and servers stay `:Server` rows; this op family records\nwhich principal observed which connector, and reads the join. Writes\nself-translate into `CreateNodeIfAbsent`/`CompareAndSetNodeFields`\nagainst `__commons__`; reads never take a request graph. Tenant and\nprincipal come only from the verified request context.",
+          "properties": {
+            "method": {
+              "const": "FleetCatalog",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "op": {
+                  "$ref": "#/$defs/FleetCatalogOp"
+                }
+              },
+              "required": [
+                "op"
               ],
               "type": "object"
             }
@@ -36057,6 +36527,44 @@
       ],
       "type": "string"
     },
+    "ServerDesiredState": {
+      "description": "The operator's DESIRED state for a registered server.\n\nDesired, not observed: whether the server answered its last probe is a\ndiscovery observation (`FleetCatalog.RecordDiscovery`), and the two are\nnever collapsed into one status.",
+      "enum": [
+        "enabled",
+        "disabled"
+      ],
+      "type": "string"
+    },
+    "ServerTransport": {
+      "description": "How a registered server is reached. Closed on purpose: a transport the\nengine cannot name is `Unspecified`, never a free-form string.",
+      "oneOf": [
+        {
+          "const": "unspecified",
+          "description": "A registration that predates the typed field, or did not say.",
+          "type": "string"
+        },
+        {
+          "const": "stdio",
+          "description": "A local child process speaking MCP over stdio.",
+          "type": "string"
+        },
+        {
+          "const": "streamable_http",
+          "description": "MCP streamable HTTP.",
+          "type": "string"
+        },
+        {
+          "const": "sse",
+          "description": "MCP over server-sent events.",
+          "type": "string"
+        },
+        {
+          "const": "http",
+          "description": "Plain HTTP JSON-RPC.",
+          "type": "string"
+        }
+      ]
+    },
     "Sha256Digest": {
       "description": "A SHA-256 digest, serialised as 64 lower-case hex characters.",
       "type": "string"
@@ -36091,6 +36599,16 @@
         "now_ms"
       ],
       "type": "object"
+    },
+    "SkillType": {
+      "description": "How a skill is run. The four values the agent ecosystem declares.",
+      "enum": [
+        "skill",
+        "workflow",
+        "graph",
+        "mcp_skill"
+      ],
+      "type": "string"
     },
     "SlotAssignment": {
       "additionalProperties": false,

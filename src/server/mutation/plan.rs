@@ -808,7 +808,13 @@ fn cluster_mutation_route_admin(method: &Method) -> Option<ClusterMutationRoute>
     // raft-replicated). Same shape as `PlacementAdmin` immediately above: this generic
     // layer does nothing extra for the method NAMED `RegisterServer` because its own
     // mechanism (the translation) already lands the mutation on an already-safe path.
-    if matches!(method, Method::RegisterServer { .. }) {
+    // `FleetCatalog` (EH-345) writes the same way: its handler self-translates
+    // each write into a `CreateNodeIfAbsent`/`CompareAndSetNodeFields` against
+    // `__commons__` through `dispatch_graph_op`.
+    if matches!(
+        method,
+        Method::RegisterServer { .. } | Method::FleetCatalog { .. }
+    ) {
         return Some(ClusterMutationRoute::VolatileControl);
     }
     None

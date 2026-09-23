@@ -85,6 +85,23 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
         constants: &[],
     },
     DtoSurface {
+        method: "FleetCatalog",
+        module: "fleet_catalog",
+        result_domain: "cluster",
+        roots: &[
+            "FleetCatalogOp",
+            "FleetWriteReceipt",
+            "FleetCatalogPage",
+            "FleetCatalogLookup",
+        ],
+        result_model: None,
+        required: true,
+        constants: &[(
+            "FLEET_CATALOG_SCHEMA_VERSION",
+            eg_types::fleet_catalog::FLEET_CATALOG_SCHEMA_VERSION as u64,
+        )],
+    },
+    DtoSurface {
         method: "AgentComponent",
         module: "agent_component",
         result_domain: "storage",
@@ -957,6 +974,15 @@ fn digest_paths(spec: &CanonicalDigestSpec) -> impl Iterator<Item = &str> {
         .chain(spec.named_struct_paths.iter().map(|(path, _)| *path))
 }
 
+/// Whether an ALIAS (rank 2) names another definition. Aliases are evaluated at
+/// import time, so a leaf alias (`Digest256 = Annotated[str, ...]`) must be
+/// bound before an alias built from it (`BoundedVec_Digest256_64 =
+/// Annotated[list[Digest256], ...]`); alphabetical order alone emitted the
+/// latter first. Classes are unaffected: postponed annotations resolve them.
+fn alias_references_definitions(rank: u8, node: &serde_json::Value) -> bool {
+    rank == 2 && node.to_string().contains("\"$ref\"")
+}
+
 fn render_definitions(
     names: &std::collections::BTreeSet<String>,
     definitions: &serde_json::Map<String, serde_json::Value>,
@@ -968,7 +994,8 @@ fn render_definitions(
         let node = definitions
             .get(name.as_str())
             .expect("referenced DTO definition exists");
-        dto_emission_rank(name, node)
+        let rank = dto_emission_rank(name, node);
+        (rank, alias_references_definitions(rank, node))
     });
     for name in ordered_names {
         let node = definitions

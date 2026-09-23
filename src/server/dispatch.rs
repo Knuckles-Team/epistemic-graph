@@ -363,11 +363,9 @@ fn redact_resource_status_result(
 }
 
 // ── Fleet server registry (CONCEPT:EG-KG.sharding.server-registry, W2.5) ──────────
-// `RegisterServer.name` mirrors au's `_SERVER_NAME` bound
-// (`agent_utilities/knowledge_graph/core/engine_mcp_discovery.py`) so the SAME
-// name is a valid node-id suffix on both the au config-sync path and this
-// engine-native push-registration path.
-const MAX_REGISTER_SERVER_NAME_BYTES: usize = 128;
+// `RegisterServer.name` is bounded by `eg_types::result_contract::cluster::
+// is_valid_server_name`, the one definition the registry, its cursors and the
+// fleet catalog's discovery records share.
 // `url` is an opaque endpoint reference (never a raw credentialed URL -- callers
 // pass the same kind of privacy-safe reference au's `persistence_reference`
 // produces), bounded generously for a reference string.

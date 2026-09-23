@@ -66,12 +66,20 @@ $($variants)*
     /// exists. A periodic engine sweep expires (removes) a `:Server` node whose
     /// lease has lapsed, emitting a CDC `RemoveNode` event. Returns `Bool` on
     /// success.
+    ///
+    /// `transport` and `desired` are the operator's typed registration claim
+    /// (how the server is reached, and whether it should be used). Both default
+    /// for a caller that predates them: `unspecified` and `enabled`.
     RegisterServer {
         name: String,
         url: String,
         #[serde(default)]
         resources_json: String,
         ttl_secs: u64,
+        #[serde(default)]
+        transport: crate::result_contract::cluster::ServerTransport,
+        #[serde(default)]
+        desired: crate::result_contract::cluster::ServerDesiredState,
     },
 
     /// List the live fleet server registry from the engine-owned `__commons__`
@@ -86,6 +94,19 @@ $($variants)*
     /// is added to this route.
     ListRegisteredServers {
         request: crate::result_contract::cluster::RegisteredServerListRequest,
+    },
+
+    /// The fleet catalog (EH-345): the server registry's discovery
+    /// observations and operator overrides, plus ONE read projection that joins
+    /// them with the `AgentComponent` records connector packs publish. Not a
+    /// second catalog: tools, prompts, resources and skills stay
+    /// `AgentComponent`s and servers stay `:Server` rows; this op family records
+    /// which principal observed which connector, and reads the join. Writes
+    /// self-translate into `CreateNodeIfAbsent`/`CompareAndSetNodeFields`
+    /// against `__commons__`; reads never take a request graph. Tenant and
+    /// principal come only from the verified request context.
+    FleetCatalog {
+        op: Box<crate::fleet_catalog::FleetCatalogOp>,
     },
 
 

@@ -31,6 +31,11 @@ method_results! {
     // The acknowledgement of the `__commons__` server-row write it performs.
     RegisterServer(RegisterServer) => Text<String>;
     ListRegisteredServers(ListRegisteredServers) => Raw<RegisteredServerListPage>;
+    FleetCatalogRecordDiscovery(FleetCatalog / "record_discovery") => Raw<crate::fleet_catalog::FleetWriteReceipt>;
+    FleetCatalogSetOverride(FleetCatalog / "set_override") => Raw<crate::fleet_catalog::FleetWriteReceipt>;
+    FleetCatalogClearOverride(FleetCatalog / "clear_override") => Raw<crate::fleet_catalog::FleetWriteReceipt>;
+    FleetCatalogList(FleetCatalog / "list") => Raw<crate::fleet_catalog::FleetCatalogPage>;
+    FleetCatalogLookupRows(FleetCatalog / "lookup") => Raw<crate::fleet_catalog::FleetCatalogLookup>;
     PlacementAssign(PlacementAdmin / "assign") => Json<PlacementEpoch>;
     PlacementMove(PlacementAdmin / "move") => Json<PlacementMoveResult>;
     PlacementAbortMove(PlacementAdmin / "abort_move") => Bool<bool>;

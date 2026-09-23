@@ -22,6 +22,7 @@ METHOD_IDS = frozenset(
         "ClusterMembers",
         "RegisterServer",
         "ListRegisteredServers",
+        "FleetCatalog",
         "PlacementAdmin",
         "Ping",
         "Health",

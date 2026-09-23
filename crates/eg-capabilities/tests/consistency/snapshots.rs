@@ -110,6 +110,8 @@ pub(crate) const ACCESS_RS_MUTATES_CONDITIONAL: &[&str] = &[
     "ConnectorPack",
     "DecisionEval",
     "DecisionFit",
+    // EH-345: record_discovery/set_override/clear_override write; list/lookup read.
+    "FleetCatalog",
     "MutationOutbox",
     "WriteBack",
     // Publish/Retire write; Current/History/Status remain authenticated reads.
@@ -259,6 +261,10 @@ pub(crate) const NATIVE_GRAPHREDB_DURABLE: &[&str] = &[
     // commit -- exactly the "ApplyMultisigMutation -> ApplyMutation" shape above --
     // so its real durability is AddNode's own MUTATION_APPLY_DURABLE_GRAPHREDB entry.
     "RegisterServer",
+    // EH-345: writes self-translate into `CreateNodeIfAbsent` /
+    // `CompareAndSetNodeFields` against `__commons__`, the same lowering shape as
+    // `RegisterServer` just above.
+    "FleetCatalog",
     "RunDatalogReasoning",
     // RF-ADR-009: SourceIngest prepares one governed ChangeEnvelope and calls
     // the existing ApplyChangeEnvelope authority. It owns no parallel graph
@@ -408,6 +414,8 @@ pub(crate) const AUDIT_RS_AUDITED: &[&str] = &[
     "ReleaseWorkItemResources",
     "Reinforce",
     "RegisterServer",
+    // EH-345: defense-in-depth marker; the real lines are the lowered primitives'.
+    "FleetCatalog",
     "RemoveEdge",
     "RemoveNode",
     "RemoveTriples",
@@ -462,6 +470,8 @@ pub(crate) const CDC_RS_EMITS_CDC: &[&str] = &[
     "GraphSchema",
     "Reconcile",
     "RegisterServer",
+    // EH-345: defense-in-depth marker, like `RegisterServer`.
+    "FleetCatalog",
     "RemoveEdge",
     "RemoveNode",
     "RunDatalogReasoning",

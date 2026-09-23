@@ -2049,6 +2049,7 @@ mod tests {
         // `emit_for_method` marker arms (mirroring `ApplyMultisigMutation`'s) are
         // defense-in-depth only, unreachable via this single-node delegation path.
         ("RegisterServer", "validates + computes the lease fields then TRANSLATES into a Method::AddNode dispatched through the ordinary dispatch_graph_op path against __commons__ (which IS gateway-routed) -- see dispatch.rs; by the time a mutation happens the method value has already become AddNode, so this variant itself never reaches commit_mutation directly"),
+        ("FleetCatalog", "EH-345: each write op TRANSLATES into exactly one Method::CreateNodeIfAbsent or Method::CompareAndSetNodeFields against __commons__ through the ordinary dispatch_graph_op path (which IS gateway-routed), exactly like RegisterServer above; list/lookup are reads"),
         ("PlacementAdmin", "raft-replicated placement-catalog admin op (Assign/Move/AbortMove); MultiRaft::placement_assign / TenantManager::move_partition / abort_move commit through the DEFAULT group's own client_write / commit_placement to the __placement_catalog__ control graph, not this gateway's per-graph MutationBatch"),
         ("CreateMatView", "prepared/committed control-plane MutationBatch saga around the durable cross-shard view row"),
         ("RefreshMatView", "prepared/committed control-plane MutationBatch saga around the durable cross-shard view row"),
@@ -2242,6 +2243,8 @@ mod tests {
         // classifier ever runs on it -- see `cluster_mutation_route`'s
         // `RegisterServer` arm (`VolatileControl`) for the full explanation.
         covered.insert("RegisterServer");
+        // Same self-translation into gateway-routed graph primitives.
+        covered.insert("FleetCatalog");
 
         let missing: Vec<_> = expected.difference(&covered).copied().collect();
         let stale: Vec<_> = covered.difference(&expected).copied().collect();

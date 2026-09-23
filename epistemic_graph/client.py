@@ -34,6 +34,7 @@ import msgpack
 
 from . import generated as _gen
 from .connector_pack import ConnectorPackClient
+from .fleet_catalog import FleetCatalogClient
 from .generated.server_registry import (
     RegisteredServerCursor,
     RegisteredServerListPage,
@@ -8197,6 +8198,8 @@ class ServerRegistryClient:
         *,
         resources: dict[str, Any] | None = None,
         ttl_secs: int = 300,
+        transport: str = "unspecified",
+        desired: str = "enabled",
     ) -> bool:
         """Push-register (or renew) ``name``'s fleet identity.
 
@@ -8208,7 +8211,11 @@ class ServerRegistryClient:
         caller-supplied timestamp. ``url`` should be a bounded, privacy-safe
         endpoint reference (never a raw credentialed URL). ``resources`` is
         optional, non-sensitive, size-bounded metadata (encoded as opaque
-        JSON). Returns ``True`` on success.
+        JSON). ``transport`` (``stdio``/``streamable_http``/``sse``/``http``)
+        and ``desired`` (``enabled``/``disabled``) are the operator's typed
+        registration claim; whether the server answered a probe is a separate
+        discovery observation (``client.fleet_catalog.record_discovery``).
+        Returns ``True`` on success.
         """
         _validate_register_server(name, url, ttl_secs, resources)
         resources_json = (
@@ -8223,6 +8230,8 @@ class ServerRegistryClient:
                 "url": url,
                 "resources_json": resources_json,
                 "ttl_secs": ttl_secs,
+                "transport": transport,
+                "desired": desired,
             },
         )
         return bool(result)
@@ -15060,6 +15069,9 @@ class EpistemicGraphClient:
         self.streaming = StreamingClient(self)
         self.blob = BlobClient(self)
         self.connector_packs = ConnectorPackClient(self)
+        # EH-345: registry discovery/override records and the typed projection
+        # joining them with connector-pack components.
+        self.fleet_catalog = FleetCatalogClient(self)
         # CONCEPT:EG-KG.ingest.broker-streams-namespaces — B1.7 multi-lang client
         # drivers: broker/streams (EG-275..284/314),
         # RBAC admin (EG-092), backup/restore (EG-090). NlQuery (EG-080) lives on
@@ -16144,6 +16156,7 @@ class SyncEpistemicGraphClient:
         self.server_registry = self._SyncWrapper(
             self._client.server_registry, self._loop
         )
+        self.fleet_catalog = self._SyncWrapper(self._client.fleet_catalog, self._loop)
         self.raft_admin = self._SyncWrapper(self._client.raft_admin, self._loop)
         self.consensus = self._SyncWrapper(self._client.consensus, self._loop)
         self.finance = self._SyncWrapper(self._client.finance, self._loop)

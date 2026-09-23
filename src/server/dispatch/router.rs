@@ -1,7 +1,7 @@
 use super::change_envelope::{dispatch_change_envelopes, multi_graph_batch_update};
 use super::consensus::{
-    handle_list_registered_servers, handle_register_server,
-    replicated_identity_bootstrap_authorized,
+    handle_fleet_catalog, handle_list_registered_servers, handle_register_server,
+    replicated_identity_bootstrap_authorized, ServerRegistration,
 };
 use super::graph_pipeline::dispatch_graph_op;
 #[cfg(feature = "knowledge-batch")]
@@ -35,7 +35,7 @@ mod source_ingest;
 use channels::dispatch_channel_methods;
 use control_plane::{
     dispatch_agent_library_methods, dispatch_cluster_admin_methods,
-    dispatch_compute_and_media_methods,
+    dispatch_compute_and_media_methods, dispatch_fleet_catalog_methods,
 };
 #[cfg(feature = "query")]
 use data_plane::dispatch_sql_source_methods;
@@ -128,6 +128,7 @@ async fn dispatch_control_plane_methods(
     let method = dispatch_agent_library_methods(ctx, method).await?;
     let method = dispatch_decision_plane_methods(ctx, method).await?;
     let method = dispatch_cluster_admin_methods(ctx, method).await?;
+    let method = dispatch_fleet_catalog_methods(ctx, method).await?;
     let method = dispatch_channel_methods(ctx, method).await?;
     let method = dispatch_identity_and_access_methods(ctx, method).await?;
     dispatch_compute_and_media_methods(ctx, method).await

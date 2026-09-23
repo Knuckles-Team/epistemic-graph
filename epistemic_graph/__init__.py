@@ -57,6 +57,19 @@ from .connector_pack import (
     connector_pack_import_key,
     pack_digest,
 )
+from .fleet_catalog import FleetCatalogClient, FleetCatalogSnapshotError
+from .generated.fleet_catalog import (
+    FLEET_CATALOG_SCHEMA_VERSION,
+    FleetCatalogCursor,
+    FleetCatalogListRequest,
+    FleetCatalogLookup,
+    FleetCatalogLookupRequest,
+    FleetCatalogPage,
+    FleetDiscoveryRecordRequest,
+    FleetOverrideClearRequest,
+    FleetOverrideSetRequest,
+    FleetWriteReceipt,
+)
 from .generated.server_registry import (
     RegisteredServerCursor,
     RegisteredServerListPage,
@@ -107,6 +120,18 @@ __all__ = [
     "RegisteredServerListRequest",
     "RegisteredServerView",
     "ServerRegistryClient",
+    "FLEET_CATALOG_SCHEMA_VERSION",
+    "FleetCatalogClient",
+    "FleetCatalogCursor",
+    "FleetCatalogListRequest",
+    "FleetCatalogLookup",
+    "FleetCatalogLookupRequest",
+    "FleetCatalogPage",
+    "FleetCatalogSnapshotError",
+    "FleetDiscoveryRecordRequest",
+    "FleetOverrideClearRequest",
+    "FleetOverrideSetRequest",
+    "FleetWriteReceipt",
     "SyncEpistemicGraphClient",
     "KnowledgeStreamClient",
     "KnowledgeStreamQuery",

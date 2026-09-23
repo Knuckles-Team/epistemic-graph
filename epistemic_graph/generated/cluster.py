@@ -16,6 +16,17 @@ from ._runtime import (
     expect_count,
     expect_string,
 )
+from .fleet_catalog import (
+    FleetCatalogListRequest,
+    FleetCatalogLookup,
+    FleetCatalogLookupRequest,
+    FleetCatalogOp,
+    FleetCatalogPage,
+    FleetDiscoveryRecordRequest,
+    FleetOverrideClearRequest,
+    FleetOverrideSetRequest,
+    FleetWriteReceipt,
+)
 from .server_registry import (
     RegisteredServerListPage,
     RegisteredServerListRequest,
@@ -794,8 +805,10 @@ class RegisterServerRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    desired: Any | None = None
     name: str
     resources_json: str | None = None
+    transport: Any | None = None
     ttl_secs: int
     url: str
 
@@ -889,6 +902,187 @@ async def send_list_registered_servers(
         idempotency_key=idempotency_key,
     )
     return RegisteredServerListPage.model_validate(payload)
+
+
+class FleetCatalogRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        FleetCatalog
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/FleetCatalog
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: FleetCatalogOp
+
+
+async def send_fleet_catalog(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        FleetCatalog
+    Authorization:
+        registry:write
+    Durability:
+        GraphRedb
+    Replay:
+        OperationIdentity
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.cluster.json
+        #/methods/FleetCatalog
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    FleetCatalogRequest.model_validate(params or {})
+    payload = await client._send(
+        "FleetCatalog",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("FleetCatalog", payload)
+
+
+async def send_fleet_catalog_record_discovery(
+    client: Any,
+    request: FleetDiscoveryRecordRequest,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> FleetWriteReceipt:
+    """Send typed FleetCatalog.record_discovery.
+
+    Routed through the existing FleetCatalog method.
+    """
+    request = FleetDiscoveryRecordRequest.model_validate(request)
+    params = {
+        "op": {
+            "op": "record_discovery",
+            "request": request.model_dump(mode="json", exclude_none=True),
+        },
+    }
+    payload = await client._send(
+        "FleetCatalog",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return FleetWriteReceipt.model_validate(payload)
+
+
+async def send_fleet_catalog_set_override(
+    client: Any,
+    request: FleetOverrideSetRequest,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> FleetWriteReceipt:
+    """Send typed FleetCatalog.set_override through the existing FleetCatalog method."""
+    request = FleetOverrideSetRequest.model_validate(request)
+    params = {
+        "op": {
+            "op": "set_override",
+            "request": request.model_dump(mode="json", exclude_none=True),
+        },
+    }
+    payload = await client._send(
+        "FleetCatalog",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return FleetWriteReceipt.model_validate(payload)
+
+
+async def send_fleet_catalog_clear_override(
+    client: Any,
+    request: FleetOverrideClearRequest,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> FleetWriteReceipt:
+    """Send typed FleetCatalog.clear_override.
+
+    Routed through the existing FleetCatalog method.
+    """
+    request = FleetOverrideClearRequest.model_validate(request)
+    params = {
+        "op": {
+            "op": "clear_override",
+            "request": request.model_dump(mode="json", exclude_none=True),
+        },
+    }
+    payload = await client._send(
+        "FleetCatalog",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return FleetWriteReceipt.model_validate(payload)
+
+
+async def send_fleet_catalog_list(
+    client: Any,
+    request: FleetCatalogListRequest,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> FleetCatalogPage:
+    """Send typed FleetCatalog.list through the existing FleetCatalog method."""
+    request = FleetCatalogListRequest.model_validate(request)
+    params = {
+        "op": {
+            "op": "list",
+            "request": request.model_dump(mode="json", exclude_none=True),
+        },
+    }
+    payload = await client._send(
+        "FleetCatalog",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return FleetCatalogPage.model_validate(payload)
+
+
+async def send_fleet_catalog_lookup(
+    client: Any,
+    request: FleetCatalogLookupRequest,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> FleetCatalogLookup:
+    """Send typed FleetCatalog.lookup through the existing FleetCatalog method."""
+    request = FleetCatalogLookupRequest.model_validate(request)
+    params = {
+        "op": {
+            "op": "lookup",
+            "request": request.model_dump(mode="json", exclude_none=True),
+        },
+    }
+    payload = await client._send(
+        "FleetCatalog",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return FleetCatalogLookup.model_validate(payload)
 
 
 class PlacementAdminRequest(BaseModel):

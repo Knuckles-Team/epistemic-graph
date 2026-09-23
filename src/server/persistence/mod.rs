@@ -67,6 +67,9 @@ pub mod agent_row;
 pub mod agent_template;
 #[cfg(feature = "redb")]
 pub mod connector_pack;
+// EH-345: the fleet catalog's one read over the AgentComponent owner.
+#[cfg(feature = "redb")]
+pub mod fleet_components;
 #[cfg(feature = "redb")]
 pub mod decision_jobs;
 pub mod decision_record;

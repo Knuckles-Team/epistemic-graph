@@ -301,6 +301,19 @@ class SourceIngestionRequest(SourceIngestionBatch):
         )
 
 
+Digest256 = Annotated[
+    str,
+    Field(
+        pattern="^[0-9a-f]{64}$",
+        min_length=64,
+        max_length=64,
+    ),
+]
+
+
+SourceJson = Any
+
+
 BoundedVec_RawAdmissionReceipt_1024 = Annotated[
     list[RawAdmissionReceipt],
     Field(
@@ -366,19 +379,6 @@ BoundedVec_SourceWithdrawal_1024 = Annotated[
         max_length=1024,
     ),
 ]
-
-
-Digest256 = Annotated[
-    str,
-    Field(
-        pattern="^[0-9a-f]{64}$",
-        min_length=64,
-        max_length=64,
-    ),
-]
-
-
-SourceJson = Any
 
 McpCatalogSnapshotBinding.model_rebuild()
 
