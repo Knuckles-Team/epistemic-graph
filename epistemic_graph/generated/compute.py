@@ -10,12 +10,12 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
+from . import solve as _solve
 from ._runtime import (
     OpaqueResult,
     expect_float,
 )
 from .solve import (
-    SolveRequest,
     SolveResult,
 )
 
@@ -7114,7 +7114,7 @@ class SolveRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    request: SolveRequest
+    request: _solve.SolveRequest
 
 
 async def send_solve(

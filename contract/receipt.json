@@ -24,7 +24,7 @@
     "epistemic_graph/generated/_runtime.py": "74ed6fd21563ae75c27757676cd4e633c7a2f29215199574bc4ddbe8d59fdebc",
     "epistemic_graph/generated/agent_component.py": "9abb6915fe7124743a2334166b4f18c5b5b469f866bd796ff6a2814f5651729a",
     "epistemic_graph/generated/cluster.py": "63c508feafe4b1a7fc9a77cfe1ac3e730ba6a6a6fb7f8ea47aba41709d01724c",
-    "epistemic_graph/generated/compute.py": "6622968b4d3c8e244830105fd6878d5c7cb2ecec8f0205cfaa381f742fd60204",
+    "epistemic_graph/generated/compute.py": "d3a56457fca867f917b60a7e092bd18d04edf7c888706785950de1d27d81cd6f",
     "epistemic_graph/generated/connector_pack.py": "236ef71870250b6e8a1ba5b0ca7d270adbf85f673dd4028821300e4b9b8c54cd",
     "epistemic_graph/generated/coordination.py": "81e0bf43f8b1a938eddd63a63d774bffc78568c9ff640a082aa158de0f060e16",
     "epistemic_graph/generated/decision.py": "acaab62b16cee5722d6d4a4831732c014d7176146aec7efede571474a8ca9938",
@@ -43,12 +43,12 @@
     "epistemic_graph/generated/server_registry.py": "558c5520b4a3161861985d668e72b93d435f019deb8915c13bd74f89cfb92ee6",
     "epistemic_graph/generated/solve.py": "8ed5b17a6a7e9485205b11daff778458515afb83315b8f632aca5208c5d714e5",
     "epistemic_graph/generated/source_ingestion.py": "bf27bc98c591273e645063af7258b6538963d1aa82f4578a2dcaa0b7ff205521",
-    "epistemic_graph/generated/storage.py": "2ace4a32a60ba8531383fd7829ab0078e86575dcfc0940c374ae00a958caad0c",
+    "epistemic_graph/generated/storage.py": "059943f8cd14e7b002023e22d4db2677317c2f2b8964b13fa7d17cb379f70326",
     "epistemic_graph/generated/transactions.py": "29172b0f7938e6c31f88a8def3676631fbfc08135607207919544aa7446cec68",
     "epistemic_graph/generated/write_back.py": "211f28015a9c510a06c939f6ad5da01dba2567d7a01bd56e3bd3d286728fba3d"
   },
   "cargo_lock_sha256": "a1b994c624888a0f24fce8e7dab119de26be496c6c025743903f02a7f7084107",
-  "contract_digest": "f8881e91366f582ccbc3766d5a51de669ad90408ada07c49b303a246495bde6c",
+  "contract_digest": "a408d0831dd5fd1eae40a4a504d334ec084a3d8a9c76b913f29573ea11d160af",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -585,5 +585,5 @@
     "schematized": 423,
     "unclassified": 0
   },
-  "source_tree_oid": "9d653d6d33c058acc2bf8c0d62fda7f5703036fab6bf716101c1e4b682d7a4da"
+  "source_tree_oid": "bc73bd514dc1307c630fef70fc3d56828f565152eb8be1631261568c8e6a871f"
 }

@@ -10,6 +10,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
+from . import decision_commit as _decision_commit
 from ._runtime import (
     OpaqueResult,
     expect_bool,
@@ -37,7 +38,6 @@ from .decision import (
     AssemblyResult,
 )
 from .decision_commit import (
-    DecisionCommitRequest,
     DecisionCommitResult,
 )
 from .write_back import (
@@ -727,7 +727,7 @@ class DecisionCommitRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    request: DecisionCommitRequest
+    request: _decision_commit.DecisionCommitRequest
 
 
 async def send_decision_commit(
