@@ -70,6 +70,13 @@ optional = true
 version = "0.4.3"
 optional = true
 
+# HMAC-SHA256 for the golden `eg2.` envelope MACs in
+# `contract/fixtures/method_body_vectors.json` -- the same crate and version the
+# server's `envelope_v2_mac` uses, so a vector's MAC is the engine's own.
+[dependencies.hmac]
+version = "0.12.1"
+optional = true
+
 # The format-identity pass parses Rust items instead of scanning lines, so a site is
 # identified by file + enclosing item path and a value by its tokens -- never by a
 # line number that `cargo fmt` or a blank line would move.
@@ -112,6 +119,7 @@ contract-schema = [
     "dep:serde_json",
     "dep:sha2",
     "dep:hex",
+    "dep:hmac",
     "dep:syn",
     "dep:quote",
     "dep:proc-macro2",
