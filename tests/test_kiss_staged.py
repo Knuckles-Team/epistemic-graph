@@ -22,7 +22,7 @@ def _run(*args: str, cwd: Path, env: dict[str, str] | None = None) -> None:
 def repository(tmp_path: Path) -> tuple[Path, Path, Path]:
     repo = tmp_path / "repo"
     (repo / "scripts").mkdir(parents=True)
-    (repo / ".kiss").mkdir()
+    (repo / ".config").mkdir()
     (repo / "src").mkdir()
     for name in (
         "check_kiss_staged.sh",
@@ -33,7 +33,7 @@ def repository(tmp_path: Path) -> tuple[Path, Path, Path]:
     ):
         shutil.copy2(ROOT / "scripts" / name, repo / "scripts" / name)
     shutil.copy2(ROOT / "pyproject.toml", repo / "pyproject.toml")
-    shutil.copy2(ROOT / ".kiss/kiss.toml", repo / ".kiss/kiss.toml")
+    shutil.copy2(ROOT / ".config/kiss.toml", repo / ".config/kiss.toml")
     source = repo / "src/example.rs"
     source.write_text("committed\n", encoding="utf-8")
 
@@ -84,7 +84,7 @@ def repository(tmp_path: Path) -> tuple[Path, Path, Path]:
         "git",
         "add",
         "--",
-        ".kiss/kiss.toml",
+        ".config/kiss.toml",
         "pyproject.toml",
         "scripts/check_kiss_staged.sh",
         "scripts/rust_lexer.py",
@@ -483,10 +483,10 @@ def test_hook_uses_staged_config_and_scanner_contract_module(
     repo, kiss, log = repository
     source = repo / "src/example.rs"
     source.write_text("staged clean\n", encoding="utf-8")
-    config = repo / ".kiss/kiss.toml"
+    config = repo / ".config/kiss.toml"
     staged_config = config.read_text(encoding="utf-8") + "\n# staged-policy-marker\n"
     config.write_text(staged_config, encoding="utf-8")
-    _run("git", "add", "--", "src/example.rs", ".kiss/kiss.toml", cwd=repo)
+    _run("git", "add", "--", "src/example.rs", ".config/kiss.toml", cwd=repo)
     config.write_text("# unstaged policy spoof\n", encoding="utf-8")
     (repo / "scripts/scanner_contract.py").write_text(
         'raise RuntimeError("unstaged module spoof")\n', encoding="utf-8"

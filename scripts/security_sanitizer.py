@@ -13,18 +13,12 @@ MAX_SCAN_BYTES = 8 * 1024 * 1024
 # overrides.txt is the sanctioned uv dependency-override file (UV_OVERRIDE in
 # docker/Dockerfile, mirroring [tool.uv] override-dependencies) shipped by the
 # pydantic-ai v2 migration — a canonical packaging input, not scratch.
-# .security-audit-allow.txt is the OSV dependency-audit risk-acceptance ledger
-# (scripts/audit_dependencies.py, wired into the dependency-audit pre-commit hook)
-# — a committed, actively-read governance input, not scratch/garbage.
-# .cargo-audit-allow.txt is its Rust twin: the RUSTSEC advisory risk-acceptance
-# ledger (deny.toml / cargo-deny CVE gate) — same governance role, not garbage.
+# The OSV and RUSTSEC risk-acceptance ledgers live in .config/, never at the root.
 ALLOWED_TXT_NAMES = {
     "requirements.txt",
     "requirements-dev.txt",
-    ".cargo-audit-allow.txt",
     "llms.txt",
     "overrides.txt",
-    ".security-audit-allow.txt",
 }
 TRANSIENT_PY_PATTERNS = [
     re.compile(r"^test_.*\.py$"),

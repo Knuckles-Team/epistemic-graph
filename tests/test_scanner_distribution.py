@@ -70,8 +70,8 @@ def test_scanner_contract_versions_and_native_policy_files_exist():
         "arch_lint_version": "0.5.0",
         "cargo_deny_version": "0.20.2",
     }
-    assert (REPO / ".importlinter").is_file()
-    assert (REPO / "arch-lint.toml").is_file()
+    assert (REPO / ".config" / "importlinter.ini").is_file()
+    assert (REPO / ".config" / "arch-lint.toml").is_file()
     assert (REPO / "clients/js/.dependency-cruiser.cjs").is_file()
     exclusions = scanners["jscpd_exclusions"]
     assert any("cache" in pattern for pattern in exclusions)
@@ -176,8 +176,8 @@ def _assert_scanner_job(jobs, workflow_source):
         "--source-manifest",
         "--require-zero",
         "cccc --no-config --min 0",
-        "kiss check --config .kiss/kiss.toml --lang rust",
-        "lint-imports --config .importlinter --no-cache",
+        "kiss check --config .config/kiss.toml --lang rust",
+        "lint-imports --config .config/importlinter.ini --no-cache",
         "depcruise --validate --config .dependency-cruiser.cjs",
         "python3 scripts/check_rust_arch_lint.py",
     ):
@@ -272,8 +272,8 @@ def test_ci_uses_central_exact_python_version():
 def test_advisory_gate_wires_exact_cargo_deny_version_check():
     advisory_hook = _hooks()["cargo-deny-advisories"]
     assert advisory_hook["files"] == (
-        r"^(Cargo\.lock|Cargo\.toml|crates/.*/Cargo\.toml|deny\.toml|"
-        r"\.cargo-audit-allow\.txt|pyproject\.toml|scripts/scanner_contract\.py|"
+        r"^(Cargo\.lock|Cargo\.toml|crates/.*/Cargo\.toml|\.config/deny\.toml|"
+        r"\.config/cargo-audit-allow\.txt|pyproject\.toml|scripts/scanner_contract\.py|"
         r"scripts/check_cargo_advisories\.sh)$"
     )
     precommit_source = (REPO / ".config" / "pre-commit.yaml").read_text(
@@ -285,7 +285,7 @@ def test_advisory_gate_wires_exact_cargo_deny_version_check():
     gate = (REPO / "scripts/check_cargo_advisories.sh").read_text(encoding="utf-8")
     assert "load_contract().cargo_deny_version" in gate
     assert '!= "cargo-deny $EXPECTED_CARGO_DENY_VERSION"' in gate
-    assert '"$CARGO_DENY_BIN" check advisories' in gate
+    assert '"$CARGO_DENY_BIN" --config "$DENY_TOML" check advisories' in gate
     assert (
         "cargo install --locked --version $EXPECTED_CARGO_DENY_VERSION cargo-deny"
         in gate
@@ -302,9 +302,9 @@ def test_ci_replica_classifies_scanner_job_and_scanner_files_as_build_affecting(
     for path in (
         "pyproject.toml",
         ".python-version",
-        ".kiss/kiss.toml",
-        ".importlinter",
-        "arch-lint.toml",
+        ".config/kiss.toml",
+        ".config/importlinter.ini",
+        ".config/arch-lint.toml",
         "clients/js/.dependency-cruiser.cjs",
         "clients/js/package.json",
         "scripts/scanner_contract.py",
@@ -322,7 +322,7 @@ def test_generated_status_page_describes_freshness_as_advisory():
 
 def test_native_architecture_configs_are_explicit_and_scoped():
     import_linter = configparser.ConfigParser()
-    import_linter.read(REPO / ".importlinter")
+    import_linter.read(REPO / ".config" / "importlinter.ini")
     assert import_linter["importlinter"]["root_package"] == "epistemic_graph"
     contracts = [
         section
@@ -332,7 +332,7 @@ def test_native_architecture_configs_are_explicit_and_scoped():
     assert contracts
     assert all(import_linter[section]["type"] == "forbidden" for section in contracts)
 
-    arch = tomllib.loads((REPO / "arch-lint.toml").read_text(encoding="utf-8"))
+    arch = tomllib.loads((REPO / ".config" / "arch-lint.toml").read_text(encoding="utf-8"))
     assert "preset" not in arch
     assert arch["fail_on"] == "error"
     assert arch["analyzer"]["root"] == "."

@@ -131,7 +131,7 @@ chains, and they are debt.
 
 ## KISS — three rules were calibrated for OO, not for Rust
 
-Thresholds live in `.kiss/kiss.toml`, which carries the measurement next to every
+Thresholds live in `.config/kiss.toml`, which carries the measurement next to every
 number. Three were recalibrated on 2026-09-11; the file holds the full reasoning
 inline, summarised here.
 
@@ -167,7 +167,7 @@ Costs and judgement calls, stated rather than buried:
 and the file-size family — `lines_per_file` (97), `statements_per_file` (80),
 `functions_per_file` (74), `imported_names_per_file` (10) — are **real debt at
 their current numbers**. Each is already set at a measured percentile in
-`.kiss/kiss.toml` and none of them mismeasures a Rust idiom. They belong to the
+`.config/kiss.toml` and none of them mismeasures a Rust idiom. They belong to the
 burndown lane, not to this page.
 
 ### Measured result
@@ -243,7 +243,7 @@ fail); `tests/test_kiss_staged.py` additionally proves the hook's bash-level
 wiring (materializing the HEAD tree, running the second KISS pass, invoking
 the filter, propagating its exit status) end-to-end with a fake KISS binary.
 
-The pinned-version check, the `--config .kiss/kiss.toml` requirement, the
+The pinned-version check, the `--config .config/kiss.toml` requirement, the
 one-path-per-invocation rule below, and the `.kissconfig` prohibition are all
 unchanged by this — diff-scoping narrows WHICH of KISS's own findings can
 fail the commit; it never changes what KISS itself measures or how it is
@@ -252,7 +252,7 @@ invoked per file.
 ## Running the scanners
 
 Never run bare `kiss check` — it writes the self-calibrating `.kissconfig`.
-Always pass `--config .kiss/kiss.toml` and **one path per invocation**
+Always pass `--config .config/kiss.toml` and **one path per invocation**
 (KISS 0.4.10 reports a false clean for a multi-path `check`). The two callers
 that get this right are `scripts/check_kiss_staged.sh` (the pre-commit hook) and
 the `kiss-census` hook; go through one of them.

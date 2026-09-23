@@ -4,21 +4,21 @@
 
 This is the Python twin of agent-utilities' own ``scripts/audit_dependencies.py`` --
 same file, same conventions, deliberately not reinvented, so EG and AU share one
-audit contract. It closes the gap recorded in ``deny.toml`` (commit 3027965e):
-``cargo-deny``/``deny.toml`` + ``.cargo-audit-allow.txt`` audit the RUST graph
+audit contract. It closes the gap recorded in ``.config/deny.toml`` (commit 3027965e):
+``cargo-deny``/``.config/deny.toml`` + ``.config/cargo-audit-allow.txt`` audit the RUST graph
 only, and ``bandit`` is SAST over EG's own source, not an advisory check against
 installed packages -- so EG's Python client + wheel had no CVE gate at all. The
-ledger here (``.security-audit-allow.txt``) is the Python twin of the Rust side's
-``.cargo-audit-allow.txt``, and ``scripts/check_python_advisories.sh`` cross-
+ledger here (``.config/security-audit-allow.txt``) is the Python twin of the Rust side's
+``.config/cargo-audit-allow.txt``, and ``scripts/check_python_advisories.sh`` cross-
 validates it the same way ``scripts/check_cargo_advisories.sh`` cross-validates
-the Rust ledger against ``deny.toml``: an accepted advisory can never exist
+the Rust ledger against ``.config/deny.toml``: an accepted advisory can never exist
 without a live, dated justification, and a justification can never go stale
 without failing the gate.
 
 The gate has no project-runtime dependencies.  It parses the lock with
 ``tomllib``, queries the fixed OSV HTTPS API, bounds every request/response, and
 fails for every affected dependency unless an exact advisory/package pair has a
-short-lived, justified risk acceptance in ``.security-audit-allow.txt``.
+short-lived, justified risk acceptance in ``.config/security-audit-allow.txt``.
 
 TLS trust remains an environment concern: ``SSL_CERT_FILE`` or
 ``REQUESTS_CA_BUNDLE`` may point at a complete PEM bundle and ``SSL_CERT_DIR``
@@ -241,7 +241,7 @@ def load_acceptances(root: pathlib.Path) -> dict[tuple[str, str], RiskAcceptance
     Broad package-only suppressions are deliberately rejected.
     """
 
-    path = root / ".security-audit-allow.txt"
+    path = root / ".config" / "security-audit-allow.txt"
     today = dt.date.today()
     accepted: dict[tuple[str, str], RiskAcceptance] = {}
     for number, raw_line in enumerate(_acceptance_lines(path), 1):

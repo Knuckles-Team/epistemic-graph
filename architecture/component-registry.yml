@@ -3777,11 +3777,11 @@ components:
       - "src/bin"
       - "src/test_support.rs"
       - ".cargo/config.toml"
-      - "arch-lint.toml"
+      - ".config/arch-lint.toml"
       - ".config/pre-commit.yaml"
-      - ".repo-layout.toml"
-      - ".importlinter"
-      - ".bumpversion.cfg"
+      - ".config/repo-layout.toml"
+      - ".config/importlinter.ini"
+      - ".config/bumpversion.cfg"
       - "scripts"
       - "docker"
       - "docs"
@@ -5123,7 +5123,7 @@ skill_gaps_found:
   - gap: >-
       "Layer 7 -- binary composition" is described as "[[bin]] targets ... feature selection and
       process lifecycle only", which omits that the same seam owns arch-lint.toml,
-      .cargo/config.toml, .config/pre-commit.yaml, .repo-layout.toml and scripts/ -- i.e. every
+      .cargo/config.toml, .config/pre-commit.yaml, .config/repo-layout.toml and scripts/ -- i.e. every
       gate. Four of the ten wiring decisions here are owned by that seam, and the skill gives no
       hint that it is a decision-bearing owner.
     impact: medium

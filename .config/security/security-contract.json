@@ -5,7 +5,7 @@
       "argv": [
         "python3",
         "-I",
-        ".security/repository_fuzz.py",
+        ".config/security/repository_fuzz.py",
         "security-results/fuzz.json"
       ],
       "timeout_seconds": 120,
@@ -16,7 +16,7 @@
       "argv": [
         "python3",
         "-I",
-        ".security/authenticated_negative.py",
+        ".config/security/authenticated_negative.py",
         "security-results/authenticated-negative.json"
       ],
       "timeout_seconds": 120,
