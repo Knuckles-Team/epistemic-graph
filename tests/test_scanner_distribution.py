@@ -299,10 +299,16 @@ def test_advisory_gate_wires_exact_cargo_deny_version_check():
 def test_ci_replica_classifies_scanner_job_and_scanner_files_as_build_affecting():
     module = _ci_replica()
     spec = module.WORKFLOW_REGISTRY["release.yml"]
-    assert "scanner-quality" in spec.job_skip_reasons
-    assert "security" in spec.job_skip_reasons
-    assert "documentation-advisory" in spec.job_skip_reasons
-    assert "quality-advisory" in spec.job_skip_reasons
+    # The replica is the one gate definition: these jobs execute locally, with
+    # their tool-installation steps replaced by pinned-tool verification.
+    for job in (
+        "scanner-quality",
+        "security",
+        "documentation-advisory",
+        "quality-advisory",
+        "tts-piper-inference",
+    ):
+        assert job in spec.executable_jobs, job
     for path in (
         "pyproject.toml",
         ".python-version",
@@ -391,3 +397,24 @@ def test_scanner_toolchain_cache_key_spells_out_every_install_pin():
         assert f"{name}-{version}" in key, f"cache key misses pin {name} {version}"
     verify = steps["Verify scanner versions"]
     assert "if" not in verify, "version verification must run on cache hits too"
+
+
+def test_replica_never_installs_a_tool_during_a_gate():
+    """Every executed step that would apt-get/cargo/npm-install is a
+    LOCAL_SETUP_STEPS entry, so a local run verifies the pinned tool instead."""
+    module = _ci_replica()
+    doc = _workflow()
+    plan, _, _ = module.build_plan_for_workflow(
+        module.WORKFLOW_REGISTRY["release.yml"], doc
+    )
+    installers = re.compile(r"apt-get install|cargo install|npm install")
+    offenders = [
+        (row["job"], row["name"])
+        for row in plan
+        if row["mode"] == "RUN" and installers.search(row["detail"])
+    ]
+    assert offenders == []
+    setup_rows = [
+        row for row in plan if "[local: verify pinned tool present]" in row["name"]
+    ]
+    assert len(setup_rows) == len(module.LOCAL_SETUP_STEPS)
