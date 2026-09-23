@@ -21,13 +21,13 @@ use crate::physical::manifest::{OwnerManifest, OwnerManifestDigest};
 use crate::physical::root::{
     initialize_strict_in, store_handle, validate_incarnation_read, PhysicalStore,
 };
+use crate::physical::write_authority::{TxnAuthority, WriteValidationCounts};
 use crate::recovery::validate::validate_recovery_content;
 use crate::tables::SCOPE_BINDINGS;
 use eg_types::MutationScopeIdentity;
 use redb::{Database, ReadableDatabase};
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 /// Largest admitted scope group.
@@ -370,6 +370,13 @@ impl StorageKernel {
         &self.store
     }
 
+    /// How often this open store has run each write-authority check: one
+    /// store-authority validation per write transaction, one scope-binding
+    /// read per capability per binding epoch (EH-390).
+    pub fn write_validation_counts(&self) -> WriteValidationCounts {
+        self.store.validations().snapshot()
+    }
+
     /// Authenticate the independent shared-service authority over the two
     /// physical CAS tables.
     pub fn authenticate_blob_shared_service(
@@ -458,14 +465,14 @@ impl MutationOwnerAuthority {
         }
 
         let transaction = Arc::new(self.store.begin_write()?);
-        let poison = Arc::new(AtomicBool::new(false));
+        let txn = Arc::new(TxnAuthority::default());
         let _open_members = tracing::debug_span!("commit_phase", phase = "open_members").entered();
         let mut capabilities = Vec::with_capacity(members.len() + 1);
         for owner in std::iter::once(&control).chain(members.iter()) {
             match PhysicalWriteCapability::open_member(
                 &self.store,
                 Arc::clone(&transaction),
-                Arc::clone(&poison),
+                Arc::clone(&txn),
                 owner,
             ) {
                 Ok(capability) => capabilities.push(capability),
