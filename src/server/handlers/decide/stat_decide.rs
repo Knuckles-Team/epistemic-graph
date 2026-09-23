@@ -16,8 +16,9 @@ use eg_types::decision::digest::{digest_text, statistical_record_digest};
 use eg_types::decision::statistical::keyed::seed_commitment;
 use eg_types::decision::statistical::nl::{NlBinding, NlChoiceSource};
 use eg_types::decision::statistical::{
-    DecideRequest, DecisionBatch, ExplorationRecord, FeatureMatrixRef, ShortlistProvenance,
-    StatisticalDecisionRecord, StatisticalErrorCode, StatisticalInputs, StatisticalOutcome,
+    CandidateSource, DecideRequest, DecisionBatch, ExplorationRecord, FeatureMatrixRef,
+    ShortlistProvenance, StatisticalDecisionRecord, StatisticalErrorCode, StatisticalInputs,
+    StatisticalOutcome,
 };
 use eg_types::decision::{
     EvidenceClass, PremiseClass, PremiseProvenance, PremiseRef, QuantScaleTag, ResolutionKind,
@@ -229,6 +230,27 @@ fn derived_premises<'a>(sealing: &'a Sealing) -> impl Iterator<Item = PremiseRef
     })
 }
 
+/// One CLAIM premise per caller-declared option: the caller vouches for its
+/// facts, nobody else does.
+fn declared_premises(request: &DecideRequest) -> Vec<PremiseRef> {
+    let CandidateSource::Declared { options } = &request.candidates else {
+        return Vec::new();
+    };
+    options
+        .iter()
+        .map(|option| {
+            premise(
+                &option.option_id,
+                "declared_option",
+                PremiseClass::Claim,
+                PremiseProvenance::Request {
+                    field: "candidates.options".to_string(),
+                },
+            )
+        })
+        .collect()
+}
+
 fn premises(sealing: &Sealing, nl: Option<&NlBinding>) -> Vec<PremiseRef> {
     let schema = &sealing.request.feature_schema;
     let mut out = vec![
@@ -267,6 +289,7 @@ fn premises(sealing: &Sealing, nl: Option<&NlBinding>) -> Vec<PremiseRef> {
         ));
     }
     out.extend(derived_premises(sealing));
+    out.extend(declared_premises(sealing.request));
     if let Some(NlBinding {
         source:
             NlChoiceSource::LlmProposal {
