@@ -13,9 +13,11 @@ from ci_replica.build_toolchain import (
     check_toolchain_requirements,
 )
 from ci_replica.registry import (
+    APT_VERIFY,
     ARTIFACT_IO_ACTIONS,
     ENV_SETUP_ACTIONS,
     GHA_EXPR_RE,
+    LOCAL_SETUP_STEPS,
     MATRIX_EXPR_RE,
     WORKFLOWS_DIR,
     WorkflowSpec,
@@ -230,6 +232,40 @@ def _step_disposition(
     return mode, detail
 
 
+_APT_INSTALL_RE = re.compile(r"apt-get\s+install\s+(?P<args>[^\n]*)")
+
+
+def apt_verification(run_text: str) -> str:
+    """Shell check: every package the step's `apt-get install` names is installed."""
+    packages = [
+        token
+        for match in _APT_INSTALL_RE.finditer(run_text)
+        for token in match.group("args").split()
+        if not token.startswith("-") and token != "\\"
+    ]
+    if not packages:
+        return "echo 'apt setup step names no packages' >&2; exit 2"
+    listed = " ".join(packages)
+    return (
+        f'for p in {listed}; do dpkg -s "$p" >/dev/null 2>&1 '
+        '|| { echo "missing apt package: $p" >&2; exit 1; }; done'
+    )
+
+
+def local_setup_row(workflow: str, job_id: str, name: str, run_text: str) -> str | None:
+    """The verification that replaces a tool-installation step locally, if any."""
+    verification = LOCAL_SETUP_STEPS.get((workflow, job_id, name))
+    if verification is None:
+        return None
+    return apt_verification(run_text) if verification == APT_VERIFY else verification
+
+
+def _working_directory(job: dict, step: dict) -> str:
+    """A `run:` step's cwd: its own `working-directory`, else the job default."""
+    default = ((job.get("defaults") or {}).get("run") or {}).get("working-directory")
+    return str(step.get("working-directory") or default or "")
+
+
 def _job_plan_rows(
     spec: WorkflowSpec,
     job_id: str,
@@ -247,14 +283,20 @@ def _job_plan_rows(
         for step in steps:
             substituted = _apply_matrix(step, combo)
             mode, detail = _step_disposition(substituted, skip_reason, feature_table)
+            name = _step_label(substituted)
+            setup = local_setup_row(spec.filename, job_id, name, detail)
+            if mode == "RUN" and setup is not None:
+                name, detail = f"{name} [local: verify pinned tool present]", setup
             rows.append(
                 {
                     "workflow": spec.filename,
                     "blocking": blocking,
                     "job": job_label,
-                    "name": _step_label(substituted),
+                    "name": name,
                     "mode": mode,
                     "detail": detail,
+                    "step_env": dict(substituted.get("env") or {}),
+                    "working_directory": _working_directory(job, substituted),
                 }
             )
     return rows

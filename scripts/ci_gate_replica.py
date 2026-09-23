@@ -121,6 +121,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -145,7 +146,8 @@ import push_gate_evidence
 # (the hooks, release.yml) already has this file's own directory as
 # `sys.path[0]` and needs no bootstrap. The one other caller — the meta-tests,
 # which load this file by path via `importlib` rather than executing it —
-# gets `scripts/` on `sys.path` from `pythonpath = ["scripts"]` in pyproject.toml's [tool.pytest.ini_options]
+# gets `scripts/` on `sys.path` from `pythonpath = ["scripts"]` in
+# pyproject.toml's [tool.pytest.ini_options]
 # instead. Neither caller needs `scripts/` to be importable as a dotted
 # package from the repo root, so the import below is a bare sibling import,
 # not `from scripts import push_gate_evidence`.
@@ -175,6 +177,7 @@ from ci_replica.registry import (
     CI_GATE_CARGO_BUILD_JOBS_ENV,
     ENV_SETUP_ACTIONS,
     LOCAL_ENV_OVERRIDES,
+    LOCAL_SETUP_STEPS,
     MAX_LOCAL_CARGO_BUILD_JOBS,
     NON_BLOCKING_STATUSES,
     STEP_TIMEOUT_SECS,
@@ -213,6 +216,7 @@ __all__ = (
     "DriftReport",
     "ENV_SETUP_ACTIONS",
     "LOCAL_ENV_OVERRIDES",
+    "LOCAL_SETUP_STEPS",
     "MAX_LOCAL_CARGO_BUILD_JOBS",
     "NON_BLOCKING_STATUSES",
     "STEP_TIMEOUT_SECS",
@@ -247,6 +251,39 @@ __all__ = (
     "load_workflow",
     "resolve_cargo_build_jobs",
 )
+
+
+#: `${{ github.* }}` values for a replicated PUSH event, set by --base-ref.
+#: Empty until then, so every expression is stripped to empty as before.
+_GITHUB_CONTEXT: dict[str, str] = {}
+_GITHUB_EXPR_RE = re.compile(r"\$\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}")
+
+
+def push_event_context(base_sha: str) -> dict[str, str]:
+    """The github context of a push whose previous remote tip is `base_sha`."""
+    return {
+        "github.event_name": "push",
+        "github.event.before": base_sha,
+        "github.event.pull_request.base.sha": "",
+        "github.base_ref": "",
+    }
+
+
+def _resolve_github_context(text: str) -> str:
+    """Substitute the replicated push context; unknown expressions are left
+    for `_strip_gha_expressions` (which blanks them, as before)."""
+    return _GITHUB_EXPR_RE.sub(
+        lambda m: _GITHUB_CONTEXT.get(m.group(1), m.group(0)), text
+    )
+
+
+def _resolved_step_env(step_env: dict | None) -> dict[str, str]:
+    """A step's own `env:` block, with expressions resolved like its `run:` text."""
+    resolved = {}
+    for key, value in (step_env or {}).items():
+        text, _ = _strip_gha_expressions(_resolve_github_context(str(value)))
+        resolved[str(key)] = text
+    return resolved
 
 
 def _resolved_cargo_build_jobs(cargo_build_jobs: int | None) -> int:
@@ -285,13 +322,17 @@ def _build_step_env(
     return env
 
 
-def _execute_step(cmd_text: str, env: dict) -> tuple[object, float]:
+def _execute_step(
+    cmd_text: str, env: dict, working_directory: str = ""
+) -> tuple[object, float]:
     t0 = time.monotonic()
     status: object
     try:
         proc = subprocess.run(
             ["bash", "-c", cmd_text],
-            cwd=REPO_ROOT,
+            # A step's `working-directory:` is relative to the checkout, as on
+            # a runner (e.g. the thin client's `npm ci` in clients/js).
+            cwd=REPO_ROOT / working_directory,
             env=env,
             timeout=STEP_TIMEOUT_SECS,
             # A replicated CI step is NON-INTERACTIVE by definition: on a real
@@ -341,8 +382,10 @@ def _run_step(
     run_text: str,
     job_env: dict,
     cargo_build_jobs: int | None = None,
+    step_env: dict | None = None,
+    working_directory: str = "",
 ) -> tuple[object, float]:
-    cmd_text, stripped = _strip_gha_expressions(run_text)
+    cmd_text, stripped = _strip_gha_expressions(_resolve_github_context(run_text))
     if stripped:
         print(f"    [gha-expr stripped to empty locally: {stripped}]")
 
@@ -353,7 +396,9 @@ def _run_step(
         os.close(fd)
 
     env = _build_step_env(job_env, cargo_build_jobs, env_path, out_path, path_path)
-    status, elapsed = _execute_step(cmd_text, env)
+    # A step's own `env:` is scoped to that step, as on a runner.
+    env.update(_resolved_step_env(step_env))
+    status, elapsed = _execute_step(cmd_text, env, working_directory)
 
     # Thread $GITHUB_ENV / $GITHUB_PATH additions forward to later steps in
     # this job, the same way GitHub Actions does.
@@ -544,6 +589,28 @@ def _parse_ci_gate_args() -> argparse.Namespace:
         ),
     )
     ap.add_argument(
+        "--jobs",
+        metavar="JOB[,JOB...]",
+        help=(
+            "run only these workflow jobs (ids as in the workflow file); an id that "
+            "no registered workflow defines is an error"
+        ),
+    )
+    ap.add_argument(
+        "--base-ref",
+        metavar="REF",
+        help=(
+            "replicate a push whose previous remote tip is REF: resolves "
+            "github.event.before (secret-history scan, jscpd/dupehound base) to it. "
+            "Landing: origin/main. Pre-push: the remote ref being updated"
+        ),
+    )
+    ap.add_argument(
+        "--all-blocking",
+        action="store_true",
+        help="count a failure in an advisory (continue-on-error) job as blocking",
+    )
+    ap.add_argument(
         "--workflows-dir",
         type=Path,
         default=WORKFLOWS_DIR,
@@ -621,6 +688,7 @@ def _selection_for_item(item: dict, state: _GateExecutionState):
         item,
         environment={
             **_environment_for_item(item, state),
+            **_resolved_step_env(item.get("step_env")),
             "CARGO_BUILD_JOBS": str(state.cargo_build_jobs),
         },
     )
@@ -681,6 +749,8 @@ def _run_fresh_item(item: dict, selection, state: _GateExecutionState) -> dict:
         item["detail"],
         _environment_for_item(item, state),
         state.cargo_build_jobs,
+        item.get("step_env"),
+        item.get("working_directory", ""),
     )
     print(
         f"### STEP_RESULT job={item['job']} name={item['name']!r} "
@@ -863,7 +933,53 @@ def main() -> int:
         return 1
 
     all_plan, docs = _build_execution_plan(args.workflows_dir)
+    try:
+        all_plan = select_plan(all_plan, args.jobs, all_blocking=args.all_blocking)
+        if args.base_ref:
+            _GITHUB_CONTEXT.update(push_event_context(resolve_commit(args.base_ref)))
+    except ValueError as exc:
+        print(f"FATAL: {exc}", file=sys.stderr)
+        return 2
+    if args.base_ref:
+        before = _GITHUB_CONTEXT["github.event.before"]
+        print(f"=== replicated push: github.event.before={before}")
     return _run_gate(args, all_plan, docs, cargo_build_jobs)
+
+
+def select_plan(
+    plan: list[dict], jobs: str | None, *, all_blocking: bool = False
+) -> list[dict]:
+    """Restrict the plan to the named jobs (every matrix leg of each) and,
+    for a landing gate, make every row blocking."""
+    if jobs:
+        wanted = {job.strip() for job in jobs.split(",") if job.strip()}
+        present = {row["job"].split("#", 1)[0] for row in plan}
+        unknown = sorted(wanted - present)
+        if unknown:
+            raise ValueError(
+                f"--jobs names job(s) no registered workflow defines: {unknown}"
+            )
+        plan = [row for row in plan if row["job"].split("#", 1)[0] in wanted]
+    if all_blocking:
+        plan = [{**row, "blocking": True} for row in plan]
+    return plan
+
+
+def resolve_commit(ref: str) -> str:
+    """The commit a --base-ref names; fails closed on anything else."""
+    if not ref or ref.startswith("-"):
+        raise ValueError("--base-ref must be a Git revision, not an option")
+    out = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        timeout=120,
+    )
+    if out.returncode != 0:
+        raise ValueError(f"--base-ref {ref!r} does not name a commit here")
+    return out.stdout.strip()
 
 
 if __name__ == "__main__":

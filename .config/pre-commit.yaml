@@ -577,6 +577,21 @@ repos:
     always_run: true
     require_serial: true
     stages: [manual]
+  # The no-cargo jobs of the release workflow, run through the SAME replica the
+  # build-host landing gate and hosted CI use: one gate definition, so a push
+  # sees exactly the checks CI will run -- including the jscpd/dupehound diff
+  # over the whole pushed range (github.event.before = the remote tip being
+  # replaced; origin/main for a new branch). Advisory jobs count as blocking
+  # here. The cargo jobs run at landing on a build host (see
+  # docs/quality-gate-terms.md "Landing gate").
+  - id: ci-replica-static
+    name: CI replica — no-cargo release jobs over the pushed range (pre-push)
+    entry: bash -c 'base="${PRE_COMMIT_FROM_REF:-}"; case "$base" in ""|0000000000000000000000000000000000000000) base=origin/main ;; esac; exec bash scripts/ci_gate_replica.sh --jobs lint-and-architecture,documentation-advisory,scanner-quality --all-blocking --base-ref "$base"'
+    language: system
+    pass_filenames: false
+    always_run: true
+    require_serial: true
+    stages: [pre-push, manual]
   # RF-RULING-003: the engine contract replaced the `protocol-parity` pytest gate
   # and its `tests/protocol_unbound_baseline.txt` ratchet. `gen_contract --check`
   # regenerates every committed artifact (`contract/methods.json`,
