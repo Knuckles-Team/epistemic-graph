@@ -54,10 +54,46 @@ const IDEMPOTENT_HINT: &str = "eg:fact/idempotent_hint";
 const OPEN_WORLD_HINT: &str = "eg:fact/open_world_hint";
 const TRANSPORT: &str = "eg:fact/transport";
 
-/// Smallest context window (tokens) that makes a model `eg:profile/long-context`.
-pub const LONG_CONTEXT_TOKENS: u32 = 128_000;
-/// Largest declared p95 latency (ms) that makes a component `eg:profile/low-latency`.
-pub const LOW_LATENCY_P95_MS: u32 = 1_000;
+/// Default smallest context window (tokens) that makes a model `eg:profile/long-context`.
+pub const DEFAULT_LONG_CONTEXT_TOKENS: u32 = 128_000;
+/// Default largest declared p95 latency (ms) that makes a component
+/// `eg:profile/low-latency`.
+pub const DEFAULT_LOW_LATENCY_P95_MS: u32 = 1_000;
+
+/// The tunable parameters the built-in classification rules read. The defaults are the
+/// documented `DEFAULT_*` constants; a caller that means something else by "long
+/// context" or "low latency" passes its own policy instead of editing a rule.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ClassificationPolicy {
+    pub long_context_tokens: u32,
+    pub low_latency_p95_ms: u32,
+}
+
+impl Default for ClassificationPolicy {
+    fn default() -> Self {
+        Self {
+            long_context_tokens: DEFAULT_LONG_CONTEXT_TOKENS,
+            low_latency_p95_ms: DEFAULT_LOW_LATENCY_P95_MS,
+        }
+    }
+}
+
+/// A threshold a built-in rule takes from the [`ClassificationPolicy`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PolicyBound {
+    LongContextTokens,
+    LowLatencyP95Ms,
+}
+
+impl ClassificationPolicy {
+    /// The value this policy gives `bound`.
+    pub fn bound(&self, bound: PolicyBound) -> u32 {
+        match bound {
+            PolicyBound::LongContextTokens => self.long_context_tokens,
+            PolicyBound::LowLatencyP95Ms => self.low_latency_p95_ms,
+        }
+    }
+}
 
 /// One body atom of a built-in derivation rule, over the component variable `?c`.
 #[derive(Clone, Copy, Debug)]
@@ -66,10 +102,10 @@ pub enum BodyAtom {
     Is(&'static str),
     /// `fact(?c, value)`.
     Has(&'static str, &'static str),
-    /// `fact(?c, ?v) ∧ ?v >= threshold`.
-    AtLeast(&'static str, u32),
-    /// `fact(?c, ?v) ∧ ?v <= threshold`.
-    AtMost(&'static str, u32),
+    /// `fact(?c, ?v) ∧ ?v >= policy bound`.
+    AtLeast(&'static str, PolicyBound),
+    /// `fact(?c, ?v) ∧ ?v <= policy bound`.
+    AtMost(&'static str, PolicyBound),
 }
 
 /// A built-in derivation rule: `body → class(?c)`, named `rule`.
@@ -118,13 +154,16 @@ pub const DERIVATION_RULES: &[DerivationRule] = &[
         "profile/long-context",
         &[
             BodyAtom::Is(MODEL_PROFILE),
-            BodyAtom::AtLeast(CONTEXT_WINDOW_TOKENS, LONG_CONTEXT_TOKENS),
+            BodyAtom::AtLeast(CONTEXT_WINDOW_TOKENS, PolicyBound::LongContextTokens),
         ],
         "eg:profile/long-context",
     ),
     derive(
         "profile/low-latency",
-        &[BodyAtom::AtMost(P95_LATENCY_MS, LOW_LATENCY_P95_MS)],
+        &[BodyAtom::AtMost(
+            P95_LATENCY_MS,
+            PolicyBound::LowLatencyP95Ms,
+        )],
         "eg:profile/low-latency",
     ),
     derive(
@@ -201,15 +240,17 @@ impl CapabilityClassification {
 /// A ground atom `(predicate, args, confidence)`.
 pub type GroundAtom = (String, Vec<String>, f64);
 
-/// Classify `components` under the built-in rules, the native ontology's subsumption,
-/// `ontology`'s own axioms and the caller's `extra` rules, in one fixpoint.
+/// Classify `components` under the built-in rules (parameterised by `policy`), the
+/// native ontology's subsumption, `ontology`'s own axioms and the caller's `extra`
+/// rules, in one fixpoint.
 pub fn classify_components(
     components: &[ProfiledComponent<'_>],
+    policy: &ClassificationPolicy,
     ontology: &Ontology,
     extra: &RuleSet,
 ) -> CapabilityClassification {
     let atoms: Vec<GroundAtom> = components.iter().flat_map(component_atoms).collect();
-    let mut rules = builtin_classification_rules();
+    let mut rules = builtin_classification_rules(policy);
     for rule in extra.rules() {
         rules.register(rule.clone());
     }
@@ -237,12 +278,12 @@ pub fn classify_components(
     out
 }
 
-/// The built-in rule set: [`DERIVATION_RULES`] plus one subsumption rule per `broader`
-/// edge of the native ontology.
-pub fn builtin_classification_rules() -> RuleSet {
+/// The built-in rule set: [`DERIVATION_RULES`] with `policy`'s thresholds, plus one
+/// subsumption rule per `broader` edge of the native ontology.
+pub fn builtin_classification_rules(policy: &ClassificationPolicy) -> RuleSet {
     let mut rules = RuleSet::new();
     for spec in DERIVATION_RULES {
-        rules.register(derivation_rule(spec));
+        rules.register(derivation_rule(spec, policy));
     }
     for term in AGENT_ONTOLOGY {
         if let Some(broader) = term.broader {
@@ -257,10 +298,14 @@ pub fn builtin_classification_rules() -> RuleSet {
     rules
 }
 
-fn derivation_rule(spec: &DerivationRule) -> Rule {
+fn derivation_rule(spec: &DerivationRule, policy: &ClassificationPolicy) -> Rule {
     Rule {
         name: spec.rule.to_string(),
-        body: spec.body.iter().flat_map(body_atoms).collect(),
+        body: spec
+            .body
+            .iter()
+            .flat_map(|atom| body_atoms(atom, policy))
+            .collect(),
         head: vec![component_class(spec.class)],
         conf: 1.0,
     }
@@ -268,12 +313,14 @@ fn derivation_rule(spec: &DerivationRule) -> Rule {
 
 /// The rule atoms one [`BodyAtom`] expands to. Each thresholded fact gets its own
 /// value variable, so two thresholds in one rule never alias.
-fn body_atoms(atom: &BodyAtom) -> Vec<Atom> {
+fn body_atoms(atom: &BodyAtom, policy: &ClassificationPolicy) -> Vec<Atom> {
     match *atom {
         BodyAtom::Is(class) => vec![component_class(class)],
         BodyAtom::Has(fact, value) => vec![component_fact(fact, RTerm::Const(value.into()))],
-        BodyAtom::AtLeast(fact, bound) => threshold(fact, "greaterThanOrEqual", bound),
-        BodyAtom::AtMost(fact, bound) => threshold(fact, "lessThanOrEqual", bound),
+        BodyAtom::AtLeast(fact, bound) => {
+            threshold(fact, "greaterThanOrEqual", policy.bound(bound))
+        }
+        BodyAtom::AtMost(fact, bound) => threshold(fact, "lessThanOrEqual", policy.bound(bound)),
     }
 }
 
