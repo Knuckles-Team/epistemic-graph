@@ -1186,7 +1186,7 @@ mod tests {
             ),
             (
                 "world_model",
-                "dca0ab84e991766f62bc5c0aa6262372c4d48a93da7c6afec7c3b61aeff3c348",
+                "2364f8c67845c4e2e4f4b29aa20b17b9cc42f78e5b3391a249fbb8acc94fbf62",
             ),
             (
                 "worldview",
