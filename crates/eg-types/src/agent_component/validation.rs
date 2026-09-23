@@ -112,14 +112,13 @@ fn validate_draft_dependencies(draft: &AgentComponentDraft) -> Result<(), String
     validate_draft_capability_fields(draft)
 }
 
-/// The four capability-name lists a draft carries -- `provides` plus the
-/// three tri-state-backed capability lists the contract wave added -- each
+/// The three capability-name lists a draft carries -- the declared, required
+/// and declared-required lists the contract wave added -- each
 /// bounded and name-validated the same way. Kept separate from
 /// `validate_draft_dependencies` so its own loop doesn't count against that
 /// function's budget.
 fn validate_draft_capability_fields(draft: &AgentComponentDraft) -> Result<(), String> {
     for (field, values) in [
-        ("provides", &draft.provides),
         ("declared_capabilities", &draft.declared_capabilities),
         ("required_capabilities", &draft.required_capabilities),
         (

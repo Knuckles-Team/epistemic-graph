@@ -150,7 +150,61 @@ pub struct DecisionPolicy {
     pub statistical: Option<StatisticalPolicy>,
 }
 
+/// The component attribute a published `DecisionPolicy` carries its body in:
+/// the policy's canonical JSON. The component's `content_digest` must be the
+/// policy's digest, so a pinned policy is exactly the body that was reviewed.
+pub const DECISION_POLICY_ATTRIBUTE: &str = "decision.policy";
+
+/// The policy a `DecisionPolicy` component's attributes carry, verified against
+/// its content digest and its own validating constructor.
+pub fn policy_from_attributes(
+    attributes: &std::collections::BTreeMap<String, String>,
+    content_digest: &str,
+) -> Result<DecisionPolicy, DecisionErrorCode> {
+    let body = attributes
+        .get(DECISION_POLICY_ATTRIBUTE)
+        .ok_or(DecisionErrorCode::PolicyBodyUnavailable)?;
+    let policy: DecisionPolicy =
+        serde_json::from_str(body).map_err(|_| DecisionErrorCode::PolicyBodyUnavailable)?;
+    if super::digest::policy_digest(&policy) != content_digest {
+        return Err(DecisionErrorCode::PolicyBodyUnavailable);
+    }
+    policy.checked()
+}
+
+/// How many excluded options per slot the engine explains by default.
+pub const DEFAULT_WHY_NOT_PER_SLOT: u8 = 3;
+
 impl DecisionPolicy {
+    /// The engine default: the lexicographic order of DECIDE-LAYER-DESIGN §7.3
+    /// (uncovered, then fewest components, then declared cost, then declared
+    /// p95 latency), an unknown cost excluded under a strict budget, no
+    /// accepted gap, the default node budget and bounded explanations.
+    pub fn engine_default() -> Self {
+        Self {
+            schema_version: super::DECISION_POLICY_SCHEMA_VERSION,
+            objective: ObjectiveOrder::Lexicographic {
+                levels: BoundedVec::new(vec![
+                    ObjectiveLevelKind::Uncovered,
+                    ObjectiveLevelKind::Components,
+                    ObjectiveLevelKind::DeclaredCost,
+                    ObjectiveLevelKind::DeclaredP95Latency,
+                ])
+                .expect("four levels fit the eight-level bound"),
+            },
+            unknown_cost: UnknownCostRule::ExcludeWhenStrict,
+            accepted_gap: Scalar::new(0),
+            node_budget: DEFAULT_DECISION_NODE_BUDGET,
+            max_templates: super::MAX_ASSEMBLY_TEMPLATES as u8,
+            max_slots: super::MAX_TEMPLATE_SLOTS as u8,
+            max_nogood_rounds: 8,
+            max_why_not_per_slot: DEFAULT_WHY_NOT_PER_SLOT,
+            a2a_requires_observation: true,
+            cold_start: ColdStart::DeterministicOnly,
+            statistical: None,
+        }
+    }
+
     /// The validating constructor: a decoded policy is usable only after this
     /// returns it. A newer schema version is a typed refusal, not a mismatch
     /// discovered later against an unfamiliar digest.

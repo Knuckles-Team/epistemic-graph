@@ -131,6 +131,9 @@ pub struct ObjectiveLevelSpec {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+// Named apart from the data-science pipeline's `ModelSpec`: both reach the
+// contract's schema documents, and one name must mean one definition.
+#[cfg_attr(feature = "contract-schema", schemars(rename = "SolveModelSpec"))]
 pub struct ModelSpec {
     pub variables: Vec<String>,
     pub constraints: Vec<ConstraintSpec>,
