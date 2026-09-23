@@ -191,7 +191,11 @@ fn sql_catalog_drop_kind(kind: &eg_query::StatementKind) -> bool {
     use eg_query::StatementKind as K;
     matches!(
         kind,
-        K::DropTable(_) | K::DropView(_) | K::DropExtension { .. } | K::DropFunction(_)
+        K::DropTable(_)
+            | K::DropView(_)
+            | K::DropExtension { .. }
+            | K::DropFunction(_)
+            | K::DropAnnIndex { .. }
     )
 }
 
@@ -386,6 +390,21 @@ async fn exec_sql_catalog_drop(ctx: SqlDispatchCtx<'_>, kind: eg_query::Statemen
             )
             .await
         }
+        K::DropAnnIndex { name, if_exists } => {
+            let op = match store.ann_index_table(&name) {
+                Ok(Some(table)) => eg_query::IndexCatalogTxnOp::DropAnnIndex { table, name },
+                Ok(None) if if_exists => return sql_write_ack(req_id, "DROP INDEX", Ok(Ok(0))),
+                Ok(None) => {
+                    return Response::err(
+                        req_id,
+                        format!("SQL error: index `{name}` does not exist"),
+                    )
+                }
+                Err(error) => return Response::err(req_id, format!("SQL error: {error}")),
+            };
+            let op = eg_query::TxnOp::IndexCatalog(op);
+            commit_catalog_op(req_id, scope, sql_method, store, op, "DROP INDEX").await
+        }
         _ => unreachable!("catalog drop statement was classified before dispatch"),
     }
 }
@@ -527,6 +546,7 @@ fn classify_sql_catalog_terminal(kind: &eg_query::StatementKind) -> SqlCatalogTe
         | K::CreateExtension { .. }
         | K::DropExtension { .. }
         | K::CreateAnnIndex(_)
+        | K::DropAnnIndex { .. }
         | K::CreateHypertable(_)
         | K::CreateContinuousAggregate(_)
         | K::CreateFunction(_)

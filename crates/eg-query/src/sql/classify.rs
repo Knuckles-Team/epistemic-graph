@@ -179,6 +179,8 @@ pub enum StatementKind {
     /// `CREATE INDEX … USING hnsw|ivfflat (col opclass)` (CONCEPT:EG-KG.query.real-ann-top-k) — register a
     /// pgvector ANN index so a `ORDER BY col <-> $1 LIMIT k` query pushes down to eg-ann.
     CreateAnnIndex(AnnIndexPlan),
+    /// `DROP INDEX [IF EXISTS] name` (EH-352) — the typed drop of a maintained ANN index.
+    DropAnnIndex { name: String, if_exists: bool },
     /// `SELECT create_hypertable('t','ts')` (CONCEPT:EG-KG.query.continuous-aggregate-lowering) — record TimescaleDB
     /// time-partitioning metadata for a table.
     CreateHypertable(HypertablePlan),
@@ -609,8 +611,15 @@ fn classify_textual_precheck(sql: &str) -> Option<Result<StatementKind, String>>
     // CONCEPT:EG-KG.query.real-ann-top-k — pgvector `CREATE INDEX … USING hnsw|ivfflat (col opclass)`. The
     // opclass (and `IF NOT EXISTS` on an index) does not parse in `sqlparser` 0.51, so
     // recognize the ANN-index shape textually. A non-ANN `CREATE INDEX` returns `None`.
-    if let Some(plan) = super::pgvector_ddl::parse_create_ann_index(sql) {
-        return Some(Ok(StatementKind::CreateAnnIndex(plan)));
+    // `DROP INDEX name` (EH-352) shares this branch, preserving the measured complexity.
+    if let Some(kind) = super::pgvector_ddl::parse_create_ann_index(sql)
+        .map(StatementKind::CreateAnnIndex)
+        .or_else(|| {
+            super::pgvector_ddl::parse_drop_ann_index(sql)
+                .map(|(name, if_exists)| StatementKind::DropAnnIndex { name, if_exists })
+        })
+    {
+        return Some(Ok(kind));
     }
     // CONCEPT:EG-KG.query.continuous-aggregate-lowering — TimescaleDB continuous aggregate. The dotted
     // `WITH (timescaledb.continuous)` option does not parse, so recognize it textually;
