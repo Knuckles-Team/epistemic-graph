@@ -10,6 +10,7 @@ mod recovery_binding;
 mod replay;
 mod scope_group;
 mod sweep_clock;
+mod write_authority;
 
 use crate::read::{read_ledger, read_outbox, read_private_payload, version};
 use crate::tables::{FENCES, OUTBOX, PRIVATE_PAYLOADS};

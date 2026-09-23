@@ -1,8 +1,5 @@
 use crate::codec::{decode_ledger_record, encode_bounded};
-use crate::owner::{
-    validate_declared_owner_tables, validate_declared_tables_write, validate_manifest_read,
-    validate_manifest_write,
-};
+use crate::owner::{validate_declared_owner_tables, validate_manifest_read};
 use crate::physical::incarnation::{
     require_persisted_root, StoreIdentityDigest, STORAGE_KERNEL_SCHEMA_VERSION,
 };
@@ -130,19 +127,21 @@ pub(crate) fn retire_scope_in(
     Ok(())
 }
 
+/// Read and validate one scope's binding inside a write transaction opened by
+/// [`PhysicalStore::begin_write`].
+///
+/// The store authority (persisted root, owner manifest, declared census) is
+/// NOT re-proved here: `begin_write` proved it once for this transaction and
+/// nothing can change it before commit (EH-390, see
+/// [`crate::physical::write_authority`]). Every caller holds a transaction
+/// from `begin_write` -- the two capability constructors and `verify_scope`.
 pub(crate) fn binding_for_write(
     store: &PhysicalStore,
     wtx: &WriteTransaction,
     identity: &MutationScopeIdentity,
 ) -> Result<ScopeBinding, String> {
+    store.validations().scope_binding_checked();
     let handle = &store.handle;
-    validate_handle_write(handle, wtx)?;
-    let cached = store.manifest();
-    let persisted = validate_manifest_write(wtx, &cached.physical_identity, cached.layout)?;
-    if persisted != *cached {
-        return Err("mutation write manifest authority changed".to_string());
-    }
-    validate_declared_tables_write(wtx, persisted.layout)?;
     identity.validate_digest()?;
     let key = identity.binding_digest().to_hex();
     let table = wtx
