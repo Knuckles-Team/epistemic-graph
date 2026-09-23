@@ -373,6 +373,7 @@ def test_advisory_checks_cannot_delay_the_release_path_and_obsolete_runs_cancel(
         "security",
         "lint-and-architecture",
         "tts-piper-inference",
+        "language-clients",
     }
     advisory = {
         "documentation-advisory",

@@ -74,6 +74,16 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
             }
         ),
         job_skip_reasons={
+            "language-clients": (
+                "CI-only client job: installs the pinned toolchain's wasm32 target "
+                "(rustup download), the Go toolchain and the locked npm dependencies, "
+                "which a local hook may not download. Run it locally with "
+                "`rustup target add wasm32-unknown-unknown && "
+                "python3 scripts/build_method_codec_wasm.py --check`, then "
+                "`go test -count=1 ./...` in clients/go and `npm ci && npm test` in "
+                "clients/js. Every step is therefore reported NOT VALIDATED LOCALLY "
+                "rather than silently omitted."
+            ),
             "build": (
                 "5-platform native cross-compilation matrix (linux-x86_64/aarch64, "
                 "windows-x86_64, macos-aarch64/x86_64) built via PyO3/maturin-action — "
