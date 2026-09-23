@@ -2,6 +2,7 @@
 
 use std::fmt::Write as _;
 
+use super::names::enum_member;
 use super::{mapping_type, push_field, FieldPresence, HEADER};
 
 /// One generated nested-DTO surface. The renderer is schema-driven: roots name
@@ -381,24 +382,24 @@ pub(super) const CANONICAL_DIGEST_SPECS: &[CanonicalDigestSpec] = &[
 
 /// Named schema types whose custom serde representation is an arbitrary JSON value,
 /// rather than the object shell exposed solely to keep the JSON Schema bounded.
-const JSON_VALUE_TYPES: &[&str] = &["SourceJson"];
+pub(super) const JSON_VALUE_TYPES: &[&str] = &["SourceJson"];
 
-struct ScopedPatchDigestSpec {
-    model: &'static str,
+pub(super) struct ScopedPatchDigestSpec {
+    pub(super) model: &'static str,
     method: &'static str,
     domain: &'static str,
     scope_field: &'static str,
     patch_field: &'static str,
 }
 
-const SCOPED_PATCH_DIGEST_SPECS: &[ScopedPatchDigestSpec] = &[ScopedPatchDigestSpec {
+pub(super) const SCOPED_PATCH_DIGEST_SPECS: &[ScopedPatchDigestSpec] = &[ScopedPatchDigestSpec {
     model: "SourceChangeSet",
     method: "patch_digest",
     domain: "eg/source-change-set-patch/v1",
     scope_field: "field_scope",
     patch_field: "desired_patch",
 }];
-fn ref_name(node: &serde_json::Value) -> Option<&str> {
+pub(super) fn ref_name(node: &serde_json::Value) -> Option<&str> {
     let reference = node.get("$ref").or_else(|| {
         node.get("allOf")
             .and_then(|value| value.as_array())
@@ -549,7 +550,7 @@ fn collect_definition_refs(
     }
 }
 
-fn pascal_case(value: &str) -> String {
+pub(super) fn pascal_case(value: &str) -> String {
     value
         .split('_')
         .filter(|part| !part.is_empty())
@@ -563,7 +564,7 @@ fn pascal_case(value: &str) -> String {
         .collect()
 }
 
-fn tagged_variants(node: &serde_json::Value) -> Option<(&str, Vec<&serde_json::Value>)> {
+pub(super) fn tagged_variants(node: &serde_json::Value) -> Option<(&str, Vec<&serde_json::Value>)> {
     let variants = node
         .get("oneOf")
         .or_else(|| node.get("anyOf"))?
@@ -580,7 +581,7 @@ fn tagged_variants(node: &serde_json::Value) -> Option<(&str, Vec<&serde_json::V
     Some((tag, variants.iter().collect()))
 }
 
-fn variant_tag<'a>(variant: &'a serde_json::Value, tag: &str) -> Option<&'a str> {
+pub(super) fn variant_tag<'a>(variant: &'a serde_json::Value, tag: &str) -> Option<&'a str> {
     let node = variant.get("properties")?.get(tag)?;
     node.get("const")
         .and_then(|value| value.as_str())
@@ -592,7 +593,7 @@ fn variant_tag<'a>(variant: &'a serde_json::Value, tag: &str) -> Option<&'a str>
         })
 }
 
-fn string_literal_variants(node: &serde_json::Value) -> Option<Vec<&str>> {
+pub(super) fn string_literal_variants(node: &serde_json::Value) -> Option<Vec<&str>> {
     let variants = node
         .get("oneOf")
         .or_else(|| node.get("anyOf"))?
@@ -645,7 +646,7 @@ fn push_digest_methods(out: &mut String, model: &str, leading_blank: bool) {
     }
 }
 
-fn canonical_digest_spec(model: &str) -> Option<&CanonicalDigestSpec> {
+pub(super) fn canonical_digest_spec(model: &str) -> Option<&CanonicalDigestSpec> {
     CANONICAL_DIGEST_SPECS
         .iter()
         .find(|spec| spec.model == model)
@@ -707,7 +708,11 @@ fn push_patch_digest(out: &mut String, patch: &ScopedPatchDigestSpec) {
     );
 }
 
-fn push_dto_definition(out: &mut String, name: &str, node: &serde_json::Value) -> Vec<String> {
+pub(super) fn push_dto_definition(
+    out: &mut String,
+    name: &str,
+    node: &serde_json::Value,
+) -> Vec<String> {
     if let Some(models) = push_digest_subclass(out, name, node) {
         return models;
     }
@@ -744,10 +749,14 @@ fn push_digest_subclass(
     Some(vec![name.to_string()])
 }
 
-fn push_string_enum<'a>(out: &mut String, name: &str, values: impl IntoIterator<Item = &'a str>) {
+pub(super) fn push_string_enum<'a>(
+    out: &mut String,
+    name: &str,
+    values: impl IntoIterator<Item = &'a str>,
+) {
     let _ = writeln!(out, "\n\nclass {name}(str, Enum):");
     for value in values {
-        let _ = writeln!(out, "    {} = {:?}", value.to_ascii_uppercase(), value);
+        let _ = writeln!(out, "    {} = {:?}", enum_member(value), value);
     }
 }
 
@@ -770,7 +779,7 @@ fn push_tagged_union(
     names
 }
 
-fn push_union_alias(out: &mut String, name: &str, tag: &str, variants: &[String]) {
+pub(super) fn push_union_alias(out: &mut String, name: &str, tag: &str, variants: &[String]) {
     let joined = variants.join(" | ");
     let _ = writeln!(out, "\n\n{name} = Annotated[");
     if joined.len() + 5 <= 88 {
@@ -793,7 +802,7 @@ fn push_object_model(out: &mut String, name: &str, node: &serde_json::Value) -> 
     vec![name.to_string()]
 }
 
-fn push_type_alias(out: &mut String, name: &str, annotation: &str) {
+pub(super) fn push_type_alias(out: &mut String, name: &str, annotation: &str) {
     if annotation.len() + name.len() + 3 <= 88 {
         let _ = writeln!(out, "\n\n{name} = {annotation}");
     } else if let Some((base, field)) = annotation
@@ -987,7 +996,7 @@ fn render_definitions(
     (body, models)
 }
 
-fn push_dto_imports(out: &mut String, body: &str) {
+pub(super) fn push_dto_imports(out: &mut String, body: &str) {
     if body.contains("(str, Enum)") {
         out.push_str("from enum import Enum\n");
     }

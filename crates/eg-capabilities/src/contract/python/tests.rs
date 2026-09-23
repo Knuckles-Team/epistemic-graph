@@ -28,6 +28,7 @@ fn execute_source_ingestion_modules(generated: &BTreeMap<String, String>) {
         "_runtime",
         "digest",
         "index_repository",
+        "models",
         "source_ingestion",
         "ingestion",
     ] {

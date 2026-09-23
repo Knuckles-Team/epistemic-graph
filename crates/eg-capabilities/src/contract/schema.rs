@@ -55,9 +55,50 @@ fn variant_tag(subschema: &serde_json::Value, field: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// The `$defs` name the request document gives its own `Method` root.
+const METHOD_DEFINITION: &str = "Method";
+
+/// Name the `Method` root inside `$defs` and point every self-reference (`"#"`) at it.
+///
+/// schemars refers to the root of `schema_for!(Method)` as `"#"`, so a nested
+/// `MutationOperation.method` resolved to `#` here but to `#/$defs/Method` in a result
+/// document, where `Method` is an ordinary definition. The two documents then disagreed
+/// on `MutationOperation`, and no generator could merge them. One definition, one
+/// reference form: the result documents' form.
+fn name_method_root(root: &mut serde_json::Value) {
+    let mut named = root.clone();
+    if let Some(object) = named.as_object_mut() {
+        for key in ["$schema", "$defs", "definitions", "title"] {
+            object.remove(key);
+        }
+    }
+    retarget_root_refs(&mut named);
+    retarget_root_refs(root);
+    if let Some(defs) = root.get_mut("$defs").and_then(|defs| defs.as_object_mut()) {
+        defs.insert(METHOD_DEFINITION.to_string(), named);
+    }
+}
+
+fn retarget_root_refs(node: &mut serde_json::Value) {
+    match node {
+        serde_json::Value::Object(object) => {
+            if object.get("$ref").and_then(|r| r.as_str()) == Some("#") {
+                object.insert(
+                    "$ref".to_string(),
+                    serde_json::Value::String(format!("#/$defs/{METHOD_DEFINITION}")),
+                );
+            }
+            object.values_mut().for_each(retarget_root_refs);
+        }
+        serde_json::Value::Array(values) => values.iter_mut().for_each(retarget_root_refs),
+        _ => {}
+    }
+}
+
 /// Split the `Method` schema into one subschema per variant, keyed by serde tag.
 pub(super) fn method_request_document() -> serde_json::Value {
-    let root = to_value(schemars::schema_for!(Method));
+    let mut root = to_value(schemars::schema_for!(Method));
+    name_method_root(&mut root);
     let mut methods: BTreeMap<String, serde_json::Value> = BTreeMap::new();
     for subschema in variant_subschemas(&root) {
         if let Some(tag) = variant_tag(&subschema, "method") {
