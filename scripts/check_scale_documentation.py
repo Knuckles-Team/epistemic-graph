@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_CLAIMS = ROOT / "docs/architecture/scale_claims.md"
+DEFAULT_CLAIMS = ROOT / "architecture/scale_claims.md"
 STATUSES = frozenset(
     {"DESIGNED", "IMPLEMENTED", "UNIT-PROVEN", "LAB-PROVEN", "LIVE", "1M-CERTIFIED"}
 )
