@@ -36,6 +36,8 @@ mod stat_replay;
 #[cfg(feature = "decide")]
 mod stat_resolve;
 #[cfg(feature = "decide")]
+mod stat_slate;
+#[cfg(feature = "decide")]
 mod stat_retention;
 #[cfg(feature = "decide")]
 mod stat_support;
