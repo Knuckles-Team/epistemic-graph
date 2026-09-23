@@ -5,6 +5,10 @@
 
 use super::*;
 
+// EH-196 — the `VALIDATE SHAPE` executor (SHACL focus-node validation of each row).
+#[cfg(feature = "owl")]
+mod shape;
+
 /// The one error every op-dispatch tier below (and [`super::apply`]'s own trailing arm)
 /// falls back to when the `Op` variant it was handed exists on the wire
 /// (`eg-types/query`'s full contract) but this build did not compile in the eg-plan
@@ -56,8 +60,12 @@ pub(crate) fn apply(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, Str
         | Op::Foreign { .. }
         | Op::Limit { .. } => apply_core_ops(op, input, ctx),
 
-        #[cfg(any(feature = "text", feature = "owl"))]
-        Op::RankText { .. } | Op::FuseRrf { .. } | Op::Reason { .. } | Op::SparqlBgp { .. } => {
+        // Each gate names only the variants its own feature compiles: an `owl` build
+        // without `text` has no `RankText`/`FuseRrf` variant to match.
+        #[cfg(feature = "text")]
+        Op::RankText { .. } | Op::FuseRrf { .. } => apply_text_and_owl(op, input, ctx),
+        #[cfg(feature = "owl")]
+        Op::Reason { .. } | Op::SparqlBgp { .. } | Op::ValidateShape { .. } => {
             apply_text_and_owl(op, input, ctx)
         }
 
@@ -182,9 +190,9 @@ fn apply_ranking(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String
     }
 }
 
-/// RANK (lexical BM25) + FUSE (RRF) under `text`; OWL classification + BGP source under
-/// `owl`. Two independent feature gates share one tier because each contributes only
-/// two arms; every arm keeps its own `#[cfg]` exactly as it had at the top level.
+/// RANK (lexical BM25) + FUSE (RRF) under `text`; OWL classification, BGP source and
+/// SHACL shape filter under `owl`. Two independent feature gates share one tier; every
+/// arm keeps its own `#[cfg]` exactly as it had at the top level.
 pub(super) fn apply_text_and_owl(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<RowSet, String> {
     match op {
         #[cfg(feature = "text")]
@@ -198,6 +206,12 @@ pub(super) fn apply_text_and_owl(op: &Op, input: RowSet, ctx: &PlanCtx) -> Resul
         } => reason_op(ctx.view, ctx.decay, input, target_class, ontology),
         #[cfg(feature = "owl")]
         Op::SparqlBgp { query, var } => sparql_source(ctx.view, query, var),
+        #[cfg(feature = "owl")]
+        Op::ValidateShape {
+            shape,
+            shapes,
+            keep,
+        } => shape::validate_shape(ctx.view, input, shape, shapes, *keep),
         // `input` may go unused here when a build enables neither `text` nor `owl` (the
         // routing arm in `apply` still exists under `any(text, owl)`); bind it explicitly
         // so the parameter is never reported unused in that configuration.

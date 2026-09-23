@@ -22,6 +22,37 @@ pub fn export_triples(core: &GraphCore, graph_name: &str) -> Result<Vec<Triple>,
     Ok(out)
 }
 
+/// Project an off-lock [`eg_core::graph::GraphView`] snapshot to RDF triples — the
+/// snapshot twin of [`export_triples`] over the same node/edge encodings (EH-196: the
+/// data graph a query-time shape validation reads). Only resources are projected: a node
+/// or edge endpoint whose id is not an RDF term (`<iri>` / `_:b`) is a plain property-
+/// graph element with no RDF identity, so it contributes no triple rather than failing
+/// the whole projection.
+pub fn export_view_triples(view: &eg_core::graph::GraphView) -> Result<Vec<Triple>, String> {
+    let mut out: Vec<Triple> = Vec::new();
+    for ((s, o), blobs) in &view.edge_properties {
+        if !is_rdf_term(s) || !is_rdf_term(o) {
+            continue;
+        }
+        for blob in blobs {
+            let relationship = eg_types::msgpack::decode_edge_relationship(blob)
+                .ok_or("edge missing relationship")?;
+            out.push(make_triple(s, &relationship, o)?);
+        }
+    }
+    for (id, props) in &view.node_properties {
+        if is_rdf_term(id) {
+            export_node_triples(id, props, &mut out)?;
+        }
+    }
+    Ok(out)
+}
+
+/// Whether a graph node id is an RDF resource term (`<iri>` or `_:bnode`).
+pub fn is_rdf_term(id: &str) -> bool {
+    (id.starts_with('<') && id.ends_with('>')) || id.starts_with("_:")
+}
+
 /// Object triples from edges. Half of [`export_triples`]'s two sources.
 fn export_edge_triples(core: &GraphCore, out: &mut Vec<Triple>) -> Result<(), String> {
     for (s, o, props) in core.get_edges() {

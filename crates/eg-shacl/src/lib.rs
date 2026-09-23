@@ -53,7 +53,7 @@ pub use icv::{
 };
 pub use policy::{IcvPolicy, IcvPolicyRegistry};
 pub use report::{Severity, ValidationReport, ValidationResult};
-pub use validate::{graph_from_turtle, validate, validate_turtle};
+pub use validate::{graph_from_turtle, validate, validate_nodes, validate_turtle};
 
 /// Re-export the RDF graph model so callers name `eg_shacl::Graph` without their own
 /// oxrdf dependency (the shapes graph and data graph are both this type).
