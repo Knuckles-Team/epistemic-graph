@@ -34,6 +34,8 @@ use crate::protocol::Method;
 #[cfg(any(feature = "query", feature = "cypher", feature = "graphql"))]
 use crate::protocol::{Response, ResultPayload};
 use crate::server::access::GraphReadAuthority;
+#[cfg(feature = "federation")]
+use crate::server::foreign_catalog::{bound_registry, served_foreign_leg};
 #[cfg(feature = "result-cache")]
 use eg_core::result_cache::ResultCache;
 #[cfg(feature = "graphql")]

@@ -313,12 +313,22 @@ pub(super) async fn route_process_global_domains(
         Err(m) => m,
     };
     // Query federation (CONCEPT:EG-KG.query.query-federation, feature `federation`):
-    // RegisterForeignSource records a named foreign source on ServerState. The
-    // `Op::ForeignScan` op itself runs through the unified-query handler above
-    // (inline spec). Process-global, so it takes `state`. A method whose feature
-    // is off falls through to the graph_ops not-available catch-all.
+    // RegisterForeignSource records a named foreign source in the tenant-scoped
+    // catalog on ServerState, under the VERIFIED carrier's tenant (EH-373) — never a
+    // request field. Plans resolve names through the caller's tenant view only. A
+    // method whose feature is off falls through to the graph_ops not-available
+    // catch-all.
     #[cfg(feature = "federation")]
-    let method = match handlers::federation::try_handle(state, req_id, method).await {
+    let method = match handlers::federation::try_handle(
+        state,
+        req_id,
+        read_authority
+            .as_ref()
+            .and_then(GraphReadAuthority::carrier),
+        method,
+    )
+    .await
+    {
         Ok(r) => return Ok(r),
         Err(m) => m,
     };

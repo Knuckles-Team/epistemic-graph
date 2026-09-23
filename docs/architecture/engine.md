@@ -304,6 +304,20 @@ graph/vector/SQL ops in **one** plan — no Python round-trip. The `Op::ForeignS
 resolved executor; the UQL `FOREIGN "<name>"` clause is the lighter name marker resolved against the
 server-side `foreign_sources` registry.
 
+**Tenancy.** `RegisterForeignSource` records a source under the caller's **verified tenant** (taken
+from the signed request carrier, never from a request field), keyed by `(tenant, name)`. Every
+served path that resolves a name — a `Named` `ForeignScan`, the UQL `FOREIGN "<name>"` marker, the
+in-txn and wire-protocol UQL paths, and `NlQuery` — builds its registry from the caller's tenant's
+entries only (`src/server/foreign_catalog.rs`). A name another tenant registered resolves exactly
+like an unregistered name, so neither the credential nor the existence of the name crosses tenants.
+Two tenants may register the same name independently; neither can overwrite the other's source.
+Registrations are held in memory and are not persisted.
+
+**Foreign rows are not RLS-filtered.** A foreign source's rows come from outside the local snapshot,
+so the row-level visibility filter that governs local graph reads never sees them. Access to them
+is governed by the remote side's authorization of the registered credential, plus the tenant
+scoping above of who may use that credential.
+
 ```mermaid
 flowchart LR
     subgraph Plan["One UnifiedQuery plan"]

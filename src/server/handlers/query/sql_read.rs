@@ -233,9 +233,10 @@ pub(crate) async fn handle_unified_query(
     let core = ctx.core.clone();
     #[cfg(feature = "security")]
     let rls = ctx.rls;
-    #[cfg(feature = "tsdb")]
-    let tsdb_scope = match served_tsdb_scope(&plan, ctx.graph_name, ctx.read_authority) {
-        Ok(scope) => scope,
+    // Verified-carrier legs (tsdb scope + the caller's tenant foreign registry, EH-373).
+    let legs = match ServedPlanLegs::resolve(state, ctx.graph_name, ctx.read_authority, &plan).await
+    {
+        Ok(legs) => legs,
         Err(denied) => return Ok(Response::err(req_id, denied)),
     };
     // ONE cross-modal plan (CONCEPT:AU-KG.compute.vector/209): filter (DataFusion) →
@@ -259,11 +260,7 @@ pub(crate) async fn handle_unified_query(
             Ok(payload) => payload,
             Err(error) => return Ok(Response::err(req_id, error)),
         };
-        #[cfg(feature = "tsdb")]
-        if let Some((tenant, graph)) = tsdb_scope.as_ref() {
-            payload.extend_from_slice(tenant.as_bytes());
-            payload.extend_from_slice(graph.as_bytes());
-        }
+        legs.salt_cache_key(&mut payload);
         let hash = rls_cache_hash(
             "unified",
             &payload,
@@ -324,16 +321,7 @@ pub(crate) async fn handle_unified_query(
     // CONCEPT:EG-KG.query.served-vector-index-binding / served-text-index-binding — push the
     // vector kNN AND lexical legs down into the LIVE persistent indexes instead
     // of cloning/rebuilding them per request, via the shared off-lock runner.
-    let result = run_unified_off_lock(
-        state,
-        req_id,
-        &core,
-        snap,
-        plan,
-        #[cfg(feature = "tsdb")]
-        tsdb_scope,
-    )
-    .await;
+    let result = run_unified_off_lock(state, req_id, &core, snap, plan, legs).await;
     let resp = unified_response::<query_results::UnifiedQuery>(
         req_id,
         result,
@@ -363,9 +351,10 @@ pub(crate) async fn handle_unified_query_text(
         Ok(plan) => plan,
         Err(e) => return Ok(Response::err(req_id, e.render(&text))),
     };
-    #[cfg(feature = "tsdb")]
-    let tsdb_scope = match served_tsdb_scope(&plan, ctx.graph_name, ctx.read_authority) {
-        Ok(scope) => scope,
+    // Verified-carrier legs (tsdb scope + the caller's tenant foreign registry, EH-373).
+    let legs = match ServedPlanLegs::resolve(state, ctx.graph_name, ctx.read_authority, &plan).await
+    {
+        Ok(legs) => legs,
         Err(denied) => return Ok(Response::err(req_id, denied)),
     };
     // UQL (CONCEPT:AU-KG.query.top-nodes-by-degree): parse the TEXT query into the SAME `wire::Plan`
@@ -384,11 +373,7 @@ pub(crate) async fn handle_unified_query_text(
     #[cfg(feature = "result-cache")]
     let (snap, version, hash) = {
         let mut payload = text.clone().into_bytes();
-        #[cfg(feature = "tsdb")]
-        if let Some((tenant, graph)) = tsdb_scope.as_ref() {
-            payload.extend_from_slice(tenant.as_bytes());
-            payload.extend_from_slice(graph.as_bytes());
-        }
+        legs.salt_cache_key(&mut payload);
         let hash = rls_cache_hash(
             "unified-text",
             &payload,
@@ -433,16 +418,7 @@ pub(crate) async fn handle_unified_query_text(
     // See the `UnifiedQuery` arm above: push the vector + lexical legs down
     // into the live persistent indexes via the shared off-lock runner, instead
     // of pre-cloning the whole `SemanticStore` here.
-    let result = run_unified_off_lock(
-        state,
-        req_id,
-        &core,
-        snap,
-        plan,
-        #[cfg(feature = "tsdb")]
-        tsdb_scope,
-    )
-    .await;
+    let result = run_unified_off_lock(state, req_id, &core, snap, plan, legs).await;
     let resp = unified_response::<query_results::UnifiedQueryText>(
         req_id,
         result,

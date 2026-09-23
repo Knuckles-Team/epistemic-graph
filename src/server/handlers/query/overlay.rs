@@ -163,13 +163,14 @@ where
         Some((tenant, graph)) => (Some(tenant), Some(graph)),
         None => (None, None),
     };
-    // CONCEPT:EG-KG.query.closure-backed-source — the server's REGISTERED foreign sources,
-    // cloned (a cheap `Arc` handle) for the off-lock closure exactly like the tsdb store
-    // above, so `run_unified` can resolve a `FOREIGN "<name>"` / `Named` `ForeignScan`
-    // leg through `ServerState::foreign_sources` instead of erroring on every named
-    // source `Method::RegisterForeignSource` accepted.
+    // CONCEPT:EG-KG.query.closure-backed-source — the CALLER'S tenant-scoped foreign
+    // registry (EH-373): an in-txn `FOREIGN "<name>"` / `Named` `ForeignScan` leg
+    // resolves only sources the caller's verified tenant registered.
     #[cfg(feature = "federation")]
-    let foreign_sources = state.read().await.foreign_sources.clone();
+    let foreign = match served_foreign_leg(state, &plan, read_authority).await {
+        Ok(foreign) => foreign,
+        Err(denied) => return Response::err(req_id, denied),
+    };
     // CONCEPT:EG-KG.query.txn-tsdb-read-your — the in-txn tsdb read-your-own-writes overlay: seed a `StagedSeries`
     // from the txn's OWN staged, uncommitted `GraphTxnState.measurements` so an in-txn
     // `Op::TsScan` sees its own points (merged BEFORE the committed store), while an
@@ -196,7 +197,7 @@ where
             &core,
             &vectors,
             #[cfg(feature = "federation")]
-            Some(&*foreign_sources),
+            bound_registry(&foreign),
             #[cfg(feature = "tsdb")]
             TsdbLegBind {
                 tsdb: tsdb.as_deref(),
@@ -263,7 +264,7 @@ pub(crate) fn overlay_write_set(view: &mut crate::graph::GraphView, write_set: &
 }
 
 /// Run `plan` over `view` with `core`'s maintained indexes bound (and the
-/// registered foreign sources when the caller has them), against `core`'s
+/// caller's tenant-scoped foreign registry, EH-373, when bound), against `core`'s
 /// semantic store with `staged` embeddings overlaid (read-your-own-writes). No
 /// staged embedding ⇒ the COMMITTED store is searched through a guard -- no
 /// clone, no forced HNSW rebuild (CONCEPT:EG-KG.query.served-vector-index-
@@ -275,9 +276,7 @@ pub(crate) fn run_unified_with_staged(
     view: &crate::graph::GraphView,
     core: &Arc<GraphCore>,
     staged: &[(String, Vec<f32>)],
-    #[cfg(feature = "federation")] foreign: Option<
-        &dashmap::DashMap<String, eg_types::wire::ForeignSourceSpec>,
-    >,
+    #[cfg(feature = "federation")] foreign: Option<&eg_plan::federation::ForeignSourceRegistry>,
     #[cfg(feature = "tsdb")] tsdb_ctx: TsdbLegBind<'_>,
 ) -> Result<Vec<(String, Option<f32>)>, String> {
     let indexes = CoreIndexes::open(core);
