@@ -19,6 +19,7 @@ use crate::decision::statistical::log::{
     DecisionLogCommitted, DecisionLogCompacted, DecisionLogEntry, DecisionLogVerification,
     OutcomeAggregate, StoredEvaluation, StoredResolution,
 };
+use crate::decision::statistical::log_view::DecisionLogRows;
 use crate::decision::DecisionJobRecord;
 use crate::delegation::KgDelegateResult;
 use crate::epistemic_operations::{
@@ -126,4 +127,5 @@ method_results! {
     DecisionLogCompact(DecisionLog / "compact") => Raw<DecisionLogCompacted>;
     DecisionLogVerify(DecisionLog / "verify") => Raw<DecisionLogVerification>;
     DecisionLogResolve(DecisionLog / "resolve") => Raw<StoredResolution>;
+    DecisionLogQuery(DecisionLog / "query") => Raw<DecisionLogRows>;
 }
