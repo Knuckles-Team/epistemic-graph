@@ -64,6 +64,27 @@ pub fn contract_wave_samples() -> Vec<(&'static str, Method)> {
         ),
         ("GraphSchemaList", Method::GraphSchemaList),
         (
+            "EdgeIndex.status",
+            Method::EdgeIndex {
+                op: Box::new(crate::managed_index::EdgeIndexOp::Status),
+            },
+        ),
+        (
+            "EdgeSearch",
+            Method::EdgeSearch {
+                request: Box::new(crate::managed_index::EdgeSearchRequest {
+                    index: "rel_text".to_string(),
+                    purpose: "retrieval".to_string(),
+                    query: crate::managed_index::EdgeSearchQuery::Text {
+                        text: "graph".to_string(),
+                    },
+                    k: 5,
+                    edge_type: None,
+                    property_equals: Default::default(),
+                }),
+            },
+        ),
+        (
             "AgentComponent.content",
             Method::AgentComponent {
                 op: AgentComponentOp::Content {

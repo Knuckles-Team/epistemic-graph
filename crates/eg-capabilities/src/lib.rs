@@ -516,6 +516,12 @@ fn control_family_policy(method: &Method) -> Option<MethodPolicy> {
             Some(decision_job_policy(op.is_mutation(), "admin:decision-eval"))
         }
         Method::MutationOutbox { op } => Some(mutation_outbox_policy(op)),
+        Method::EdgeIndex { op } => Some(native_owner_policy(
+            op.is_mutation(),
+            DurabilityDomain::GraphRedb,
+            op.authz_action(),
+            TxnParticipation::Atomic,
+        )),
         _ => None,
     }
 }
