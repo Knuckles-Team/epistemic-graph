@@ -55,6 +55,14 @@ nav:
       - Numeric kernel: architecture/numeric_kernel.md
       - Hot-path complexity: architecture/hot-path-complexity.md
       - Market bars and trend signals: architecture/finance-market.md
+  - Components:
+      - Overview: components/index.md
+      - eg.types: components/eg-types.md
+      - eg.core: components/eg-core.md
+      - eg.storage-transaction: components/eg-storage-transaction.md
+      - eg.query-reasoning: components/eg-query-reasoning.md
+      - eg.server-protocol: components/eg-server-protocol.md
+      - eg.composition: components/eg-composition.md
   - Operate:
       - Deploy the engine: standalone_deployment.md
       - Deployment reference: deployment.md
