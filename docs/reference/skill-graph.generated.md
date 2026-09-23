@@ -123,7 +123,7 @@ Every concept and component this repo's own registries and documentation nav dec
 
 ## Status
 
-- **Status** — `status.md`
+- **Status** — `https://github.com/Knuckles-Team/epistemic-graph/blob/main/status/status.md`
 
 ## admission
 

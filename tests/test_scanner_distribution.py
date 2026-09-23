@@ -314,7 +314,7 @@ def test_ci_replica_classifies_scanner_job_and_scanner_files_as_build_affecting(
 
 
 def test_generated_status_page_describes_freshness_as_advisory():
-    status_page = (REPO / "docs/status.md").read_text(encoding="utf-8")
+    status_page = (REPO / "status/status.md").read_text(encoding="utf-8")
     assert "`documentation-advisory` job" in status_page
     assert "does not block builds or releases" in status_page
     assert "release-blocking, no `continue-on-error`" not in status_page
