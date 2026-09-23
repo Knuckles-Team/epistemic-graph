@@ -114,6 +114,8 @@ pub mod graph_schema;
 // X10 — the operator view of one owner's mutation outbox: standing, dead
 // letters and bounded re-delivery.
 pub mod mutation_outbox;
+/// User-managed indexes and edge-native search on the wire (EH-351 / EH-352).
+pub mod managed_index;
 // RF-RULING-004 — untrusted serialized mutation request/evidence DTOs only.
 // Executable admitted plans/tokens are private to the future eg-transaction kernel.
 pub mod mutation;
