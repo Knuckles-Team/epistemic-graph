@@ -1,0 +1,25 @@
+# Reviewed, byte-verified generated artifacts -- NOT a ratchet, NOT a path allowlist.
+#
+# A hygiene gate (sprawl's binary-size cap, the security sanitizer's text
+# inspection) skips a listed path ONLY while the file's sha256 equals the pin
+# below. A listed file that is missing or whose bytes changed FAILS the gate, so
+# this ledger detects its own rot. Every entry's `reproducer` must run in its
+# `proven_by` CI job (tests/test_generated_artifacts_ledger.py), so no entry can
+# outlive the proof that its bytes reproduce. Changing an artifact means
+# regenerating it AND updating its pin in the same commit.
+# Readers: scripts/generated_artifacts.py (EG); agent-utilities
+# scripts/generated_artifacts.py (the fleet sprawl gate).
+
+[[artifact]]
+path = "clients/go/eg_method_codec.wasm"
+sha256 = "b7731c845769de406f0f49c58b62ad33a603bf4e450e210bfecedac244e2a35f"
+reproducer = "python3 scripts/build_method_codec_wasm.py --check"
+proven_by = "language-clients"
+reason = "The eg2 method-body codec (crates/eg-method-codec, wasm32-unknown-unknown) the Go client embeds with //go:embed, which cannot reach outside the Go module, so the module must carry the bytes. --check rebuilds it and requires the committed copy byte-identical."
+
+[[artifact]]
+path = "clients/js/eg_method_codec.wasm"
+sha256 = "b7731c845769de406f0f49c58b62ad33a603bf4e450e210bfecedac244e2a35f"
+reproducer = "python3 scripts/build_method_codec_wasm.py --check"
+proven_by = "language-clients"
+reason = "The same eg2 method-body codec, shipped inside the JavaScript client package so it loads without a build step. --check rebuilds it and requires the committed copy byte-identical."
