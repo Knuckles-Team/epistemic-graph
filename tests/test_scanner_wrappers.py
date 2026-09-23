@@ -132,47 +132,48 @@ def _load_kiss_census():
     return _load_script("check_kiss_census")
 
 
-def test_kiss_census_worker_count_is_resource_bounded():
+def test_kiss_census_is_one_whole_tree_invocation():
     census = _load_kiss_census()
 
-    assert census.worker_count(None, available_cpus=24) == 4
-    assert census.worker_count(None, available_cpus=2) == 2
-    assert census.worker_count("3", available_cpus=2) == 2
-    with pytest.raises(ValueError, match="between 1 and 4"):
-        census.worker_count("5", available_cpus=24)
-    with pytest.raises(ValueError, match="must be an integer"):
-        census.worker_count("many", available_cpus=24)
+    command = census.census_command("kiss", [])
+    assert command == [
+        "kiss",
+        "check",
+        "--config",
+        ".config/kiss.toml",
+        "--lang",
+        "rust",
+        ".",
+    ]
+    ignored = census.census_command("kiss", ["scratch/a.rs", "b.rs"])
+    assert ignored[-1] == "."
+    assert [ignored[i + 1] for i, arg in enumerate(ignored) if arg == "--ignore"] == [
+        "scratch/a.rs",
+        "b.rs",
+    ]
 
 
-def test_kiss_census_passes_one_path_and_caps_child_threads(tmp_path, monkeypatch):
+def test_kiss_census_scans_the_tree_once_and_counts_findings(tmp_path, monkeypatch):
     census = _load_kiss_census()
     log = tmp_path / "calls"
     fake = tmp_path / "kiss"
     fake.write_text(
         "#!/bin/sh\n"
-        'printf "%s|%s|%s\\n" "$RAYON_NUM_THREADS" "$#" "$6" >> "$KISS_LOG"\n'
-        'printf "VIOLATION:test:%s:1:item: detail\\n" "$6"\n'
+        'printf "%s\\n" "$*" >> "$KISS_LOG"\n'
+        'printf "VIOLATION:test:src/one.rs:1:item: detail\\n"\n'
+        'printf "VIOLATION:duplication:src/two.rs:4:item: detail\\n"\n'
         "exit 1\n",
         encoding="utf-8",
     )
     fake.chmod(0o755)
     monkeypatch.setattr(census, "ROOT", tmp_path)
-    env = {"KISS_LOG": str(log), "RAYON_NUM_THREADS": "1"}
 
-    result = census.scan_one(str(fake), "src/one.rs", env)
+    result = census.scan_tree(str(fake), ["wip.rs"], {"KISS_LOG": str(log)})
 
-    assert result.path == "src/one.rs"
-    assert result.status == 1
-    assert census.validate(result) == 1
-    assert log.read_text(encoding="utf-8") == "1|6|src/one.rs\n"
-
-    log.write_text("", encoding="utf-8")
-    paths = ["src/one.rs", "src/two.rs", "src/three.rs"]
-    assert census.scan_paths(str(fake), paths, env, workers=2) == 3
-    assert sorted(log.read_text(encoding="utf-8").splitlines()) == [
-        "1|6|src/one.rs",
-        "1|6|src/three.rs",
-        "1|6|src/two.rs",
+    assert (result.path, result.status, result.violation_count) == (".", 1, 2)
+    assert census.validate(result) == 2
+    assert log.read_text(encoding="utf-8").splitlines() == [
+        "check --config .config/kiss.toml --lang rust --ignore wip.rs ."
     ]
 
 
@@ -181,15 +182,13 @@ def test_kiss_census_passes_one_path_and_caps_child_threads(tmp_path, monkeypatc
     [
         (0, b"VIOLATION:test:file:1:item: detail\n", "status and report disagree"),
         (1, b"Analyzed: 1 files\n", "status and report disagree"),
-        (2, b"native failure\n", "failed on src/bad.rs with exit 2"),
+        (2, b"native failure\n", "failed on . with exit 2"),
         (0, b"Unknown config key: typo\n", "rejected a config key"),
     ],
 )
 def test_kiss_census_validate_fails_closed(status, output, message, capsys):
     census = _load_kiss_census()
-    result = census.ScanResult(
-        "src/bad.rs", status, output, output.count(b"VIOLATION:")
-    )
+    result = census.ScanResult(".", status, output, output.count(b"VIOLATION:"))
 
     with pytest.raises(SystemExit) as raised:
         census.validate(result)

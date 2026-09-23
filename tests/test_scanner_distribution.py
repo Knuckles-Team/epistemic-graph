@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import configparser
 import importlib.util
+import re
 import sys
 from pathlib import Path
 
@@ -176,13 +177,14 @@ def _assert_scanner_job(jobs, workflow_source):
         "--source-manifest",
         "--require-zero",
         "cccc --no-config --min 0",
-        "kiss check --config .config/kiss.toml --lang rust",
+        "python3 scripts/check_kiss_census.py",
         "lint-imports --config .config/importlinter.ini --no-cache",
         "depcruise --validate --config .dependency-cruiser.cjs",
         "python3 scripts/check_rust_arch_lint.py",
     ):
         assert command in all_runs, f"scanner-quality is missing {command!r}"
     assert "arch-lint check" not in all_runs
+    assert "kiss check" not in all_runs, "the KISS census must go through its wrapper"
     assert "Upload CCCC census evidence" in workflow_source
     assert "epistemic-graph-cccc-stderr.txt" in workflow_source
     assert (
@@ -332,7 +334,9 @@ def test_native_architecture_configs_are_explicit_and_scoped():
     assert contracts
     assert all(import_linter[section]["type"] == "forbidden" for section in contracts)
 
-    arch = tomllib.loads((REPO / ".config" / "arch-lint.toml").read_text(encoding="utf-8"))
+    arch = tomllib.loads(
+        (REPO / ".config" / "arch-lint.toml").read_text(encoding="utf-8")
+    )
     assert "preset" not in arch
     assert arch["fail_on"] == "error"
     assert arch["analyzer"]["root"] == "."
@@ -358,3 +362,30 @@ def test_native_architecture_configs_are_explicit_and_scoped():
     dependency_cruiser = (REPO / "clients/js/.dependency-cruiser.cjs").read_text()
     assert 'name: "no-circular"' in dependency_cruiser
     assert 'name: "no-unresolved"' in dependency_cruiser
+
+
+def test_scanner_toolchain_cache_key_spells_out_every_install_pin():
+    """A cached scanner toolchain is keyed on exactly the pins it was built from."""
+
+    scanner = _workflow()["jobs"]["scanner-quality"]
+    steps = {step.get("name"): step for step in scanner["steps"]}
+    cache = steps["Restore pinned scanner toolchain"]
+    install = steps["Provision pinned scanner toolchain"]
+    key = cache["with"]["key"]
+    assert install["if"] == "steps.scanner-cache.outputs.cache-hit != 'true'"
+    assert cache["with"]["path"] == "${{ runner.temp }}/epistemic-graph-scanners"
+    script = install["run"]
+    pins = re.findall(r"--rev (\S+) --root \S+ (\S+)", script)
+    pins += [
+        (version, crate)
+        for version, crate in re.findall(r"--version (\S+) --root \S+ (\S+)", script)
+    ]
+    pins += [
+        (version, package)
+        for package, version in re.findall(r'"([\w-]+)@([\w.]+)"', script)
+    ]
+    assert len(pins) == 6, pins
+    for version, name in pins:
+        assert f"{name}-{version}" in key, f"cache key misses pin {name} {version}"
+    verify = steps["Verify scanner versions"]
+    assert "if" not in verify, "version verification must run on cache hits too"
