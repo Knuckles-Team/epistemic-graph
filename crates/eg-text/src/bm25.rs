@@ -254,8 +254,10 @@ fn render_snippet(
 /// Lowercased alphanumeric tokens of `text` (CONCEPT:EG-KG.query.bm25-ranking-snippets). Deliberately simple —
 /// split on any non-alphanumeric run, lowercase — matching the value-shaped scorer's
 /// "no external tokenizer" contract (the Tantivy path in [`crate::TextIndex`] does the
-/// stemming; here we keep it dep-free).
-fn tokenize(text: &str) -> Vec<String> {
+/// stemming; here we keep it dep-free). Public so an index that pre-tokenizes its
+/// postings (the edge-native text index, EH-351) splits text exactly as this
+/// scorer does.
+pub fn tokenize(text: &str) -> Vec<String> {
     text.split(|c: char| !c.is_alphanumeric())
         .filter(|t| !t.is_empty())
         .map(|t| t.to_ascii_lowercase())
