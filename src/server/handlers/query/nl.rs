@@ -149,31 +149,16 @@ pub(crate) async fn handle_nl_query(
     #[cfg(feature = "federation")]
     let foreign_sources = state.read().await.foreign_sources.clone();
     let resp = match compute_off_lock(req_id, move || {
-        #[cfg(feature = "text")]
-        let served_text =
-            crate::server::secondary_indexes::ServedTextIndex::new(core_for_ctx.clone());
-        #[cfg(feature = "geo")]
-        let served_spatial =
-            crate::server::secondary_indexes::ServedSpatialIndex::new(core_for_ctx.clone());
-        #[cfg(all(feature = "shacl", feature = "owl-plan"))]
-        let served_shapes = crate::server::handlers::rdf::ServedShapes::new(&core_for_ctx);
+        let indexes = crate::server::handlers::query::CoreIndexes::open(&core_for_ctx);
         let semantic_guard = core_for_ctx.semantic_store.read();
         run_unified(
             plan,
             &snap,
             &semantic_guard,
-            ServedIndexes {
-                #[cfg(feature = "text")]
-                text: Some(&served_text),
-                #[cfg(feature = "geo")]
-                spatial: Some(&served_spatial),
+            indexes.served(
                 #[cfg(feature = "federation")]
-                foreign: Some(&*foreign_sources),
-                #[cfg(all(feature = "shacl", feature = "owl-plan"))]
-                shapes: Some(&served_shapes),
-                #[cfg(not(any(feature = "text", feature = "geo")))]
-                _marker: std::marker::PhantomData,
-            },
+                Some(&*foreign_sources),
+            ),
             #[cfg(feature = "tsdb")]
             TsdbLegBind {
                 tsdb: tsdb.as_deref(),

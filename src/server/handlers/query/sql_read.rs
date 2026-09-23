@@ -112,35 +112,14 @@ async fn handle_sql_read(scope: SqlReadScope<'_>, query: String) -> Response {
         #[cfg(feature = "security")]
         rls,
     );
-    let cancel = eg_query::CancellationToken::new();
-    let _cancel_guard = crate::server::request_cancel::register(req_id, cancel.clone());
-    let timeout_task = crate::server::request_cancel::spawn_timeout(cancel.clone());
-    let cancel_for_task = cancel.clone();
-    let authority = authority.clone();
-    let persist_dir = persist_dir.to_path_buf();
-    let resp = match compute_off_lock(req_id, move || {
-        let authorized = crate::server::sql_catalog_acl::authorized_read_store_for_query(
-            &authority,
-            &persist_dir,
-            &query,
-        )?;
-        eg_query::exec_sql_typed_with_tables_cancellable(
-            &snap,
-            authorized.store(),
-            &query,
-            &cancel_for_task,
-        )
-    })
+    catalog_sql_response(
+        req_id,
+        snap,
+        authority.clone(),
+        persist_dir.to_path_buf(),
+        query,
+    )
     .await
-    {
-        Ok(Ok(typed)) => typed_sql_response(req_id, typed),
-        Ok(Err(message)) => Response::err(req_id, format!("SQL error: {message}")),
-        Err(response) => response,
-    };
-    if let Some(task) = timeout_task {
-        task.abort();
-    }
-    resp
 }
 
 #[cfg(feature = "query")]
@@ -477,4 +456,44 @@ pub(crate) async fn handle_unified_query_text(
         hash,
     );
     Ok(resp)
+}
+
+/// Run one read statement against the tenant's authorized SQL catalog off the
+/// async runtime, cancellable by the request's cancel token and timeout: the
+/// execution both served SQL read paths (`handle_sql`, KnowledgeStream) share.
+#[cfg(feature = "query")]
+pub(super) async fn catalog_sql_response(
+    req_id: u64,
+    snap: Arc<crate::graph::GraphView>,
+    authority: crate::server::access::CarrierAuthority,
+    persist_dir: std::path::PathBuf,
+    query: String,
+) -> Response {
+    let cancel = eg_query::CancellationToken::new();
+    let _cancel_guard = crate::server::request_cancel::register(req_id, cancel.clone());
+    let timeout_task = crate::server::request_cancel::spawn_timeout(cancel.clone());
+    let cancel_for_task = cancel.clone();
+    let resp = match compute_off_lock(req_id, move || {
+        let authorized = crate::server::sql_catalog_acl::authorized_read_store_for_query(
+            &authority,
+            &persist_dir,
+            &query,
+        )?;
+        eg_query::exec_sql_typed_with_tables_cancellable(
+            &snap,
+            authorized.store(),
+            &query,
+            &cancel_for_task,
+        )
+    })
+    .await
+    {
+        Ok(Ok(typed)) => typed_sql_response(req_id, typed),
+        Ok(Err(message)) => Response::err(req_id, format!("SQL error: {message}")),
+        Err(response) => response,
+    };
+    if let Some(task) = timeout_task {
+        task.abort();
+    }
+    resp
 }

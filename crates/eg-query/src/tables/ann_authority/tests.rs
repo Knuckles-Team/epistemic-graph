@@ -37,15 +37,12 @@ fn hnsw_l2() -> AnnIndexPlan {
     plan(AnnMethod::Hnsw, VectorMetric::L2)
 }
 
-/// SplitMix64: a deterministic, dependency-free stream of `f32`s in `[-1, 1)`.
+/// SplitMix64 (eg-compute's one implementation): a deterministic stream of
+/// `f32`s in `[-1, 1)`.
 fn stream(seed: u64) -> impl FnMut() -> f32 {
     let mut state = seed;
     move || {
-        state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = state;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^= z >> 31;
+        let z = eg_compute::splitmix64_next(&mut state);
         ((z >> 40) as f32 / (1u64 << 24) as f32) * 2.0 - 1.0
     }
 }

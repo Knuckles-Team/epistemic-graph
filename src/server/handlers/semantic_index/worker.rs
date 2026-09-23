@@ -108,15 +108,24 @@ async fn claim(
     reply::<ingestion_results::SemanticIndexClaimStageLeases, _>(ctx.req_id, claimed)
 }
 
+/// The service a lease operation runs on, once the lease is the caller's own.
+fn lease_service(
+    ctx: &SemanticIndexContext<'_>,
+    lease: &eg_types::mutation_batch::MutationOutboxLease,
+) -> Result<Arc<eg_core::compute::semantic_index_service::SemanticIndexService>, Response> {
+    own_lease(lease, ctx.authority).map_err(|error| Response::err(ctx.req_id, error))?;
+    Ok(Arc::clone(&ctx.service))
+}
+
 async fn validate(
     ctx: &SemanticIndexContext<'_>,
     lease: eg_types::mutation_batch::MutationOutboxLease,
 ) -> Response {
-    if let Err(error) = own_lease(&lease, ctx.authority) {
-        return Response::err(ctx.req_id, error);
-    }
+    let service = match lease_service(ctx, &lease) {
+        Ok(service) => service,
+        Err(response) => return response,
+    };
     let consumer = ctx.authority.agent_id().to_string();
-    let service = Arc::clone(&ctx.service);
     let now_ms = ctx.now_ms;
     reply::<ingestion_results::SemanticIndexValidateStageLease, _>(
         ctx.req_id,
@@ -148,10 +157,10 @@ async fn complete_stage(
     artifact: eg_types::semantic_index::SemanticStageArtifact,
     successor: Option<eg_types::semantic_index::SemanticStageIntent>,
 ) -> Response {
-    if let Err(error) = own_lease(&lease, ctx.authority) {
-        return Response::err(ctx.req_id, error);
-    }
-    let service = Arc::clone(&ctx.service);
+    let service = match lease_service(ctx, &lease) {
+        Ok(service) => service,
+        Err(response) => return response,
+    };
     let now_ms = ctx.now_ms;
     reply::<ingestion_results::SemanticIndexCompleteStage, _>(
         ctx.req_id,
@@ -170,10 +179,10 @@ async fn complete_generation_stage(
     artifact: eg_types::semantic_index::SemanticGenerationArtifact,
     successor: Option<eg_types::semantic_index::SemanticStageIntent>,
 ) -> Response {
-    if let Err(error) = own_lease(&lease, ctx.authority) {
-        return Response::err(ctx.req_id, error);
-    }
-    let service = Arc::clone(&ctx.service);
+    let service = match lease_service(ctx, &lease) {
+        Ok(service) => service,
+        Err(response) => return response,
+    };
     let now_ms = ctx.now_ms;
     reply::<ingestion_results::SemanticIndexCompleteGenerationStage, _>(
         ctx.req_id,
@@ -310,10 +319,10 @@ async fn release(
     ctx: &SemanticIndexContext<'_>,
     lease: eg_types::mutation_batch::MutationOutboxLease,
 ) -> Response {
-    if let Err(error) = own_lease(&lease, ctx.authority) {
-        return Response::err(ctx.req_id, error);
-    }
-    let service = Arc::clone(&ctx.service);
+    let service = match lease_service(ctx, &lease) {
+        Ok(service) => service,
+        Err(response) => return response,
+    };
     reply::<ingestion_results::SemanticIndexReleaseStageLease, _>(
         ctx.req_id,
         blocking(ctx.req_id, move || service.release_stage_lease(&lease))

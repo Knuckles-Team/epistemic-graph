@@ -635,14 +635,9 @@ fn leased_s1_completion_persists_the_explicit_authorization_time() {
     // Each queue class is its own consumer (`<worker>#<class>`): S1 and the
     // S2 it derives sit in different classes, so the worker's figures are the
     // sum over its class consumers.
-    let per_class: Vec<_> = crate::compute::semantic_ann_codes::SEMANTIC_QUEUE_CLASSES
-        .iter()
-        .map(|class| {
-            let consumer =
-                crate::compute::semantic_ann_codes::stage_consumer("semantic-s1-worker", *class);
-            service.stage_status(&consumer, 8).unwrap()
-        })
-        .collect();
+    let per_class = service
+        .worker_stage_status("semantic-s1-worker", 8)
+        .unwrap();
     let total = |field: fn(&eg_transaction::OutboxStatus) -> u64| -> u64 {
         per_class.iter().map(field).sum()
     };

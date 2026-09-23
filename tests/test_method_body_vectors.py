@@ -13,12 +13,10 @@ field order or defaults instead of delegating to eg-types fails here by name.
 from __future__ import annotations
 
 import hashlib
-import json
-from pathlib import Path
 from typing import Any
 
-import msgpack
 import pytest
+from _method_vectors import VECTORS, vector_request
 
 from epistemic_graph.client import _canonical_method_body
 from epistemic_graph.generated import METHOD_IDS
@@ -36,32 +34,15 @@ from epistemic_graph.generated.storage import (
 
 pytestmark = pytest.mark.no_engine
 
-_FIXTURE = (
-    Path(__file__).parents[1] / "contract" / "fixtures" / "method_body_vectors.json"
-)
-_VECTORS: list[dict[str, Any]] = json.loads(_FIXTURE.read_text(encoding="utf-8"))[
-    "vectors"
-]
-
-
-def _request(vector: dict[str, Any]) -> dict[str, Any]:
-    request = msgpack.unpackb(
-        bytes.fromhex(vector["request_msgpack"]), raw=False, strict_map_key=False
-    )
-    assert isinstance(request, dict)
-    return request
-
 
 def test_vectors_cover_every_published_method() -> None:
-    covered = {vector["method"] for vector in _VECTORS}
+    covered = {vector["method"] for vector in VECTORS}
     assert METHOD_IDS - covered == set()
 
 
-@pytest.mark.parametrize(
-    "vector", _VECTORS, ids=[vector["label"] for vector in _VECTORS]
-)
+@pytest.mark.parametrize("vector", VECTORS, ids=[vector["label"] for vector in VECTORS])
 def test_signer_body_is_the_server_canonical_body(vector: dict[str, Any]) -> None:
-    request = _request(vector)
+    request = vector_request(vector)
     body = _canonical_method_body(request["method"], request.get("params"))
     assert len(body) == vector["canonical_len"]
     assert hashlib.sha256(body).hexdigest() == vector["canonical_sha256"]

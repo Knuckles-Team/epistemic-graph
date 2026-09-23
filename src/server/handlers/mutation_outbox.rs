@@ -52,6 +52,10 @@ use crate::server::outbox_operator::{
     position, OutboxView, OutboxViewAnswer, OutboxWrite, OutboxWriteReply,
 };
 
+/// The label a failed blocking store task names.
+#[cfg(feature = "redb")]
+const BLOCKING_TASK: &str = "mutation outbox";
+
 /// Everything one operation can answer.
 #[cfg(feature = "redb")]
 enum Answer {
@@ -296,12 +300,15 @@ impl Owner {
             }
             Owner::AgentLibrary { store, tenant_id } => {
                 let now_ms = crate::server::dispatch::authoritative_now_ms();
-                blocking(move || store.outbox_view(&tenant_id, &view, now_ms)).await
+                crate::server::dispatch::blocking_task(BLOCKING_TASK, move || {
+                    store.outbox_view(&tenant_id, &view, now_ms)
+                })
+                .await
             }
             #[cfg(feature = "ann-redb")]
             Owner::SemanticBinding { service } => {
                 let now_ms = crate::server::dispatch::authoritative_now_ms();
-                blocking(move || {
+                crate::server::dispatch::blocking_task(BLOCKING_TASK, move || {
                     service
                         .outbox_operator_view(&view, now_ms)
                         .map_err(|error| error.to_string())
@@ -315,7 +322,7 @@ impl Owner {
                 resource,
             } => {
                 let now_ms = crate::server::dispatch::authoritative_now_ms();
-                blocking(move || {
+                crate::server::dispatch::blocking_task(BLOCKING_TASK, move || {
                     store.outbox_operator_view(&tenant_scope, &resource, &view, now_ms)
                 })
                 .await
@@ -323,7 +330,7 @@ impl Owner {
             #[cfg(feature = "jobs")]
             Owner::Jobs { store } => {
                 let now_ms = crate::server::dispatch::authoritative_now_ms();
-                blocking(move || {
+                crate::server::dispatch::blocking_task(BLOCKING_TASK, move || {
                     let (mutations, kernel, owner) = store.outbox_owner();
                     let read = kernel.read_scope(owner)?;
                     crate::server::outbox_operator::read_view(mutations, &read, &view, now_ms)
@@ -340,11 +347,14 @@ impl Owner {
                 graph_fname,
             } => persistence.write_mutation_outbox(&graph_fname, write).await,
             Owner::AgentLibrary { store, tenant_id } => {
-                blocking(move || store.outbox_write(&tenant_id, write)).await
+                crate::server::dispatch::blocking_task(BLOCKING_TASK, move || {
+                    store.outbox_write(&tenant_id, write)
+                })
+                .await
             }
             #[cfg(feature = "ann-redb")]
             Owner::SemanticBinding { service } => {
-                blocking(move || {
+                crate::server::dispatch::blocking_task(BLOCKING_TASK, move || {
                     service
                         .outbox_operator_write(write)
                         .map_err(|error| error.to_string())
@@ -357,11 +367,14 @@ impl Owner {
                 tenant_scope,
                 resource,
             } => {
-                blocking(move || store.outbox_operator_write(&tenant_scope, &resource, write)).await
+                crate::server::dispatch::blocking_task(BLOCKING_TASK, move || {
+                    store.outbox_operator_write(&tenant_scope, &resource, write)
+                })
+                .await
             }
             #[cfg(feature = "jobs")]
             Owner::Jobs { store } => {
-                blocking(move || {
+                crate::server::dispatch::blocking_task(BLOCKING_TASK, move || {
                     let (mutations, _, owner) = store.outbox_owner();
                     crate::server::outbox_operator::operate(mutations, owner, write)
                 })
@@ -369,13 +382,4 @@ impl Owner {
             }
         }
     }
-}
-
-#[cfg(feature = "redb")]
-async fn blocking<T: Send + 'static>(
-    work: impl FnOnce() -> Result<T, String> + Send + 'static,
-) -> Result<T, String> {
-    tokio::task::spawn_blocking(work)
-        .await
-        .map_err(|error| format!("mutation outbox task failed: {error}"))?
 }

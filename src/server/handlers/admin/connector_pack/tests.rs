@@ -12,7 +12,6 @@ use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
 use tokio::sync::RwLock;
 
-use eg_types::acl::RequestContextClaims;
 use eg_types::connector_pack::{
     ConnectorPackIndex, ConnectorPackOp, McpCatalogSnapshotBinding, PackAnnotations,
     PackArchiveRef, PackEntry, PackEntryKind, PackProducer, PackRef, PackSection,
@@ -20,10 +19,8 @@ use eg_types::connector_pack::{
 };
 use eg_types::contract::{BoundedVec, Digest256, ResourceId};
 
-use crate::protocol::{Method, Request, Response, ResultPayload};
-use crate::server::auth::{
-    compute_verified_envelope_token, dispatch_test_on_heap, VerifiedEnvelopeParams,
-};
+use crate::protocol::{Method, Response, ResultPayload};
+use crate::server::auth::dispatch_test_on_heap;
 use crate::server::state::ServerState;
 
 mod admin;
@@ -95,28 +92,14 @@ impl Served {
         method: Method,
     ) -> Response {
         let id = next_id();
-        let mut request = Request {
-            id,
-            graph: "__commons__".to_string(),
-            auth_token: String::new(),
-            agent_id: Some(principal.to_string()),
-            method,
-        };
-        let context = RequestContextClaims {
-            principal: principal.to_string(),
-            agent_id: principal.to_string(),
-            tenant: TENANT.to_string(),
-            audience: "epistemic-graph-test".to_string(),
-            policy_version: "policy-test".to_string(),
-            scopes: scopes.iter().map(|scope| scope.to_string()).collect(),
-            ..RequestContextClaims::default()
-        };
-        request.auth_token = compute_verified_envelope_token(
+        let request = crate::server::auth::scoped_test_request(
             SECRET,
-            &request,
-            &VerifiedEnvelopeParams {
-                context: &context,
-                timestamp: crate::server::dispatch::authoritative_now_ms() / 1000,
+            id,
+            method,
+            crate::server::auth::ScopedTestCaller {
+                principal,
+                tenant: TENANT,
+                scopes,
                 nonce: &format!("pack-served-nonce-{id}"),
                 idempotency_key: key,
             },

@@ -24,6 +24,9 @@ use tokio::sync::RwLock;
 
 use crate::server::state::ServerState;
 
+/// The label a failed blocking store task names.
+const BLOCKING_TASK: &str = "connector pack projection";
+
 /// Start the singleton projection worker. A build without the Agent Library,
 /// the Blob CAS or the SHACL projection has nothing to project.
 pub fn spawn(state: Arc<RwLock<ServerState>>) {
@@ -98,7 +101,7 @@ pub(crate) mod worker {
         let store = state.write().await.ensure_agent_library()?;
         if !subscribed.load(Ordering::Acquire) {
             let (store, tenant) = (Arc::clone(&store), tenant.clone());
-            blocking(move || {
+            crate::server::dispatch::blocking_task(BLOCKING_TASK, move || {
                 store.outbox_subscribe(&tenant, CONSUMER, CONNECTOR_PACK_IMPORT_TOPIC)
             })
             .await?;
@@ -120,7 +123,10 @@ pub(crate) mod worker {
         let now_ms = crate::server::dispatch::authoritative_now_ms();
         let mut budget = OutboxClaimBudget::new(CLAIM_LIMIT, LEASE_MS, now_ms)?;
         let (store, tenant) = (Arc::clone(store), tenant.to_string());
-        blocking(move || store.outbox_claim(&tenant, CONSUMER, &mut budget)).await
+        crate::server::dispatch::blocking_task(BLOCKING_TASK, move || {
+            store.outbox_claim(&tenant, CONSUMER, &mut budget)
+        })
+        .await
     }
 
     fn report(outcome: &OutboxClaimOutcome) {
@@ -179,7 +185,10 @@ pub(crate) mod worker {
         let now_ms = crate::server::dispatch::authoritative_now_ms();
         let (store, tenant) = (Arc::clone(store), tenant.to_string());
         let Some(reason) = reason else {
-            return blocking(move || store.outbox_ack(&tenant, &lease, now_ms)).await;
+            return crate::server::dispatch::blocking_task(BLOCKING_TASK, move || {
+                store.outbox_ack(&tenant, &lease, now_ms)
+            })
+            .await;
         };
         crate::metrics::outbox_dead_lettered(
             CONSUMER,
@@ -192,7 +201,10 @@ pub(crate) mod worker {
             reason,
             now_ms,
         };
-        blocking(move || store.outbox_write(&tenant, write).map(drop)).await
+        crate::server::dispatch::blocking_task(BLOCKING_TASK, move || {
+            store.outbox_write(&tenant, write).map(drop)
+        })
+        .await
     }
 
     fn reject_cause(reason: OutboxRejectReason) -> &'static str {
@@ -291,13 +303,5 @@ pub(crate) mod worker {
             trace_id: None,
             created_at_ms: 0,
         }
-    }
-
-    async fn blocking<T: Send + 'static>(
-        work: impl FnOnce() -> Result<T, String> + Send + 'static,
-    ) -> Result<T, String> {
-        tokio::task::spawn_blocking(work)
-            .await
-            .map_err(|error| format!("connector pack projection task failed: {error}"))?
     }
 }

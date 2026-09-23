@@ -19,118 +19,129 @@ use crate::server::persistence::agent_library::AgentLibraryStore;
 use crate::server::persistence::connector_pack::admin as binding;
 use crate::server::state::ServerState;
 
-/// Bind a connector to the importer allowed to publish its packs.
-pub(crate) async fn serve_bind(
+/// One served admin entry point: the dispatch signature, the named refusal in
+/// a build without the Agent Library, and the redb body `$body`.
+macro_rules! connector_pack_admin_entry {
+    ($(#[$meta:meta])* $name:ident($request:ty) => $body:ident) => {
+        $(#[$meta])*
+        pub(crate) async fn $name(
+            state: &Arc<RwLock<ServerState>>,
+            req_id: u64,
+            verified: &VerifiedRequestContext,
+            request: $request,
+        ) -> Response {
+            #[cfg(not(feature = "redb"))]
+            {
+                let _ = (state, verified, request);
+                Response::err(req_id, REQUIRES_REDB)
+            }
+            #[cfg(feature = "redb")]
+            {
+                $body(state, req_id, verified, request).await
+            }
+        }
+    };
+}
+
+connector_pack_admin_entry! {
+    /// Bind a connector to the importer allowed to publish its packs.
+    serve_bind(eg_types::connector_pack::ConnectorPackBindRequest) => bind
+}
+
+connector_pack_admin_entry! {
+    /// Remove a connector's importer binding; the configured bootstrap importer
+    /// applies to it again.
+    serve_unbind(eg_types::connector_pack::ConnectorPackUnbindRequest) => unbind
+}
+
+connector_pack_admin_entry! {
+    /// Permanently retire named entries. Unlike withdrawal this cannot be undone
+    /// by a later import: a retired entry that reappears is
+    /// `RETIRED_ENTRY_RETURNED`.
+    serve_retire(eg_types::connector_pack::ConnectorPackRetireRequest) => retire
+}
+
+#[cfg(feature = "redb")]
+async fn bind(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified: &VerifiedRequestContext,
     request: eg_types::connector_pack::ConnectorPackBindRequest,
 ) -> Response {
-    #[cfg(not(feature = "redb"))]
-    {
-        let _ = (state, verified, request);
-        return Response::err(req_id, REQUIRES_REDB);
-    }
-    #[cfg(feature = "redb")]
-    {
-        let eg_types::connector_pack::ConnectorPackBindRequest {
+    let eg_types::connector_pack::ConnectorPackBindRequest {
+        context,
+        connector,
+        importer,
+    } = request;
+    admin_write::<eg_types::result_contract::storage::ConnectorPackBind, _>(
+        AdminWrite {
+            state,
+            req_id,
+            verified,
             context,
-            connector,
-            importer,
-        } = request;
-        admin_write::<eg_types::result_contract::storage::ConnectorPackBind, _>(
-            AdminWrite {
-                state,
-                req_id,
-                verified,
+            purpose: "connector-pack:bind",
+        },
+        move |store, context| {
+            store.change_connector_pack_binding(
                 context,
-                purpose: "connector-pack:bind",
-            },
-            move |store, context| {
-                store.change_connector_pack_binding(
-                    context,
-                    &connector,
-                    binding::BindingChange::Bind {
-                        importer: &importer,
-                    },
-                )
-            },
-        )
-        .await
-    }
+                &connector,
+                binding::BindingChange::Bind {
+                    importer: &importer,
+                },
+            )
+        },
+    )
+    .await
 }
 
-/// Remove a connector's importer binding; the configured bootstrap importer
-/// applies to it again.
-pub(crate) async fn serve_unbind(
+#[cfg(feature = "redb")]
+async fn unbind(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified: &VerifiedRequestContext,
     request: eg_types::connector_pack::ConnectorPackUnbindRequest,
 ) -> Response {
-    #[cfg(not(feature = "redb"))]
-    {
-        let _ = (state, verified, request);
-        return Response::err(req_id, REQUIRES_REDB);
-    }
-    #[cfg(feature = "redb")]
-    {
-        let eg_types::connector_pack::ConnectorPackUnbindRequest { context, connector } = request;
-        admin_write::<eg_types::result_contract::storage::ConnectorPackUnbind, _>(
-            AdminWrite {
-                state,
-                req_id,
-                verified,
-                context,
-                purpose: "connector-pack:unbind",
-            },
-            move |store, context| {
-                store.change_connector_pack_binding(
-                    context,
-                    &connector,
-                    binding::BindingChange::Unbind,
-                )
-            },
-        )
-        .await
-    }
+    let eg_types::connector_pack::ConnectorPackUnbindRequest { context, connector } = request;
+    admin_write::<eg_types::result_contract::storage::ConnectorPackUnbind, _>(
+        AdminWrite {
+            state,
+            req_id,
+            verified,
+            context,
+            purpose: "connector-pack:unbind",
+        },
+        move |store, context| {
+            store.change_connector_pack_binding(context, &connector, binding::BindingChange::Unbind)
+        },
+    )
+    .await
 }
 
-/// Permanently retire named entries. Unlike withdrawal this cannot be undone
-/// by a later import: a retired entry that reappears is
-/// `RETIRED_ENTRY_RETURNED`.
-pub(crate) async fn serve_retire(
+#[cfg(feature = "redb")]
+async fn retire(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     verified: &VerifiedRequestContext,
     request: eg_types::connector_pack::ConnectorPackRetireRequest,
 ) -> Response {
-    #[cfg(not(feature = "redb"))]
-    {
-        let _ = (state, verified, request);
-        return Response::err(req_id, REQUIRES_REDB);
-    }
-    #[cfg(feature = "redb")]
-    {
-        let eg_types::connector_pack::ConnectorPackRetireRequest {
+    let eg_types::connector_pack::ConnectorPackRetireRequest {
+        context,
+        connector,
+        uris,
+    } = request;
+    admin_write::<eg_types::result_contract::storage::ConnectorPackRetire, _>(
+        AdminWrite {
+            state,
+            req_id,
+            verified,
             context,
-            connector,
-            uris,
-        } = request;
-        admin_write::<eg_types::result_contract::storage::ConnectorPackRetire, _>(
-            AdminWrite {
-                state,
-                req_id,
-                verified,
-                context,
-                purpose: "connector-pack:retire",
-            },
-            move |store, context| {
-                store.retire_connector_pack_entries(context, &connector, uris.as_slice())
-            },
-        )
-        .await
-    }
+            purpose: "connector-pack:retire",
+        },
+        move |store, context| {
+            store.retire_connector_pack_entries(context, &connector, uris.as_slice())
+        },
+    )
+    .await
 }
 
 #[cfg(not(feature = "redb"))]
@@ -190,7 +201,6 @@ where
         request.purpose,
         true,
     )?;
-    tokio::task::spawn_blocking(move || write(&store, context))
+    crate::server::dispatch::blocking_task("connector pack admin", move || write(&store, context))
         .await
-        .map_err(|error| format!("connector pack admin task failed: {error}"))?
 }

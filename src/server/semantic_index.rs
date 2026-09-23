@@ -1737,14 +1737,7 @@ mod sql_source_read_tests {
         );
         // Each queue class is its own consumer (`<worker>#<class>`); S1 and
         // S2 run in different classes, so the worker's totals are the sum.
-        let per_class: Vec<_> = eg_core::compute::semantic_ann_codes::SEMANTIC_QUEUE_CLASSES
-            .iter()
-            .map(|class| {
-                let consumer =
-                    eg_core::compute::semantic_ann_codes::stage_consumer(worker.agent_id(), *class);
-                service.stage_status(&consumer, 12).unwrap()
-            })
-            .collect();
+        let per_class = service.worker_stage_status(worker.agent_id(), 12).unwrap();
         let total = |field: fn(&eg_transaction::OutboxStatus) -> u64| -> u64 {
             per_class.iter().map(field).sum()
         };

@@ -3,17 +3,13 @@
 //! Served by [`super::stat_log`] in a build with the `decide` feature; a build
 //! without it answers a typed refusal naming the feature.
 
-use std::sync::Arc;
-
-use tokio::sync::RwLock;
-
+use super::SharedState;
 use crate::protocol::Response;
 use crate::server::auth::VerifiedRequestContext;
-use crate::server::state::ServerState;
 
 /// Commit, evaluate or read the decision log.
 pub(crate) async fn handle_decision_log(
-    state: &Arc<RwLock<ServerState>>,
+    state: &SharedState,
     req_id: u64,
     verified: &VerifiedRequestContext,
     op: eg_types::decision::statistical::log::DecisionLogOp,

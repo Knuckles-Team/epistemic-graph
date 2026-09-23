@@ -20,9 +20,7 @@ mod common;
 mod test_support;
 
 use eg_types::contract::BoundedVec;
-use eg_types::ingestion_wire::{
-    IndexFileVersion, IndexRef, IndexRefStatus, IndexRepositoryScope, IndexTombstone,
-};
+use eg_types::ingestion_wire::{IndexFileVersion, IndexRepositoryScope, IndexTombstone};
 use epistemic_graph::protocol::{GraphType, Method, Response, ResultPayload};
 use sha2::{Digest, Sha256};
 
@@ -36,20 +34,10 @@ fn digest(content: &[u8]) -> String {
     format!("sha256:{}", hex::encode(Sha256::digest(content)))
 }
 
-fn live(name: &str, revision: char) -> IndexRef {
-    IndexRef {
-        ref_name: name.to_string(),
-        revision_id: revision.to_string().repeat(40),
-        status: IndexRefStatus::Live,
-    }
-}
+use eg_types::test_support::repository_index::live_ref as live;
 
 fn member(ref_name: &str, path: &str, content: &[u8]) -> IndexFileVersion {
-    IndexFileVersion {
-        ref_name: ref_name.to_string(),
-        path: path.to_string(),
-        blob_digest: digest(content),
-    }
+    eg_types::test_support::repository_index::file_version(ref_name, path, digest(content))
 }
 
 fn scope(versions: Vec<IndexFileVersion>, tombstones: Vec<IndexTombstone>) -> IndexRepositoryScope {
@@ -201,13 +189,7 @@ async fn commit_replay_tombstone_restart() {
     test_support::provision_encryption_key_once("repository-index-durable-encryption-key");
     let dir = test_support::fresh_dir("eg-repoindex");
     let dir_s = dir.to_string_lossy().to_string();
-    let backend = test_support::open_redb_backend(dir_s.clone()).unwrap();
-    let state = test_support::state_with(
-        SECRET,
-        common::current_isolation(),
-        Some(dir_s.clone()),
-        Some(backend.clone()),
-    );
+    let (backend, state) = test_support::redb_state_at(SECRET, common::current_isolation(), &dir_s);
     call(
         &state,
         1,
@@ -310,13 +292,7 @@ async fn code_with_decorators_and_home_paths() {
     test_support::provision_encryption_key_once("repository-index-durable-encryption-key");
     let dir = test_support::fresh_dir("eg-repoindex-code");
     let dir_s = dir.to_string_lossy().to_string();
-    let backend = test_support::open_redb_backend(dir_s.clone()).unwrap();
-    let state = test_support::state_with(
-        SECRET,
-        common::current_isolation(),
-        Some(dir_s),
-        Some(backend.clone()),
-    );
+    let (backend, state) = test_support::redb_state_at(SECRET, common::current_isolation(), &dir_s);
     call(
         &state,
         1,

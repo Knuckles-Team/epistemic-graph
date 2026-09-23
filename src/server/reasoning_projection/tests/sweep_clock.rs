@@ -25,16 +25,11 @@ fn stepping_clock() -> u64 {
 #[tokio::test(flavor = "current_thread")]
 async fn every_graph_of_a_sweep_is_leased_from_the_moment_it_is_claimed() {
     let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-    use crate::server::persistence::redb_backend::RedbBackend;
 
-    let root = test_root();
-    let root_str = root.to_string_lossy().to_string();
+    let (root, root_str, backend) = shard_backend("open sweep clock backend");
     let graph_names: Vec<String> = (0..3)
         .map(|index| format!("sweep-clock-{}-{index}", std::process::id()))
         .collect();
-    let backend = Arc::new(
-        RedbBackend::open_with_shards(root_str.clone(), 256, 1).expect("open sweep clock backend"),
-    );
     let persistence: Arc<dyn crate::server::persistence::PersistenceBackend> = backend.clone();
     for graph in &graph_names {
         persistence

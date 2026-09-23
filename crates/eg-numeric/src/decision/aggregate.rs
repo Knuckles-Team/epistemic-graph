@@ -13,11 +13,11 @@
 use std::collections::BTreeMap;
 
 use eg_types::contract::BoundedVec;
-use eg_types::decision::statistical::dataset::OutcomeFidelity;
 use eg_types::decision::statistical::log::{FidelityCounts, OptionAggregate, StoredEvaluation};
 use eg_types::decision::statistical::StatisticalErrorCode;
 use eg_types::decision::{EvidenceClass, TraceFidelityLevel};
 
+use super::admission::{fidelity_rank, floor_rank};
 use super::quant::q32;
 use super::refusal::{Refusal, RefusalResult};
 use crate::risk::{
@@ -51,25 +51,6 @@ struct Tally {
     successes: u64,
     refused: u64,
     by_fidelity: FidelityCounts,
-}
-
-fn fidelity_rank(fidelity: OutcomeFidelity) -> Option<u8> {
-    match fidelity {
-        OutcomeFidelity::FullStep => Some(0),
-        OutcomeFidelity::ToolCalls => Some(1),
-        OutcomeFidelity::FinalOutput => Some(2),
-        OutcomeFidelity::TraceIncomplete
-        | OutcomeFidelity::OutcomeUncertain
-        | OutcomeFidelity::Cancelled => None,
-    }
-}
-
-fn floor_rank(floor: TraceFidelityLevel) -> u8 {
-    match floor {
-        TraceFidelityLevel::FullStep => 0,
-        TraceFidelityLevel::ToolCalls => 1,
-        TraceFidelityLevel::FinalOutput => 2,
-    }
 }
 
 fn independent(stored: &StoredEvaluation, decider: &str) -> bool {

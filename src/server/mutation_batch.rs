@@ -58,6 +58,48 @@ pub(crate) use digest::{
     principal_fingerprint,
 };
 
+/// The verified coordinates one governed graph-row write is compiled under:
+/// the request, the verified caller, the tenant/graph it targets and the
+/// placement fence (epoch, graph version, fencing token) it commits behind.
+pub(crate) struct GraphWriteScope<'a> {
+    pub request_id: u64,
+    pub graph_name: &'a str,
+    pub tenant_scope: &'a str,
+    pub verified: &'a crate::server::auth::VerifiedRequestContext,
+    pub graph_version: u64,
+    pub placement_epoch: u64,
+    pub fencing_token: Option<u64>,
+}
+
+impl GraphWriteScope<'_> {
+    /// Compile `methods` as one graph-surface batch `batch_id` under this scope.
+    pub(crate) fn compile(
+        &self,
+        batch_id: &str,
+        methods: Vec<crate::protocol::Method>,
+    ) -> Result<crate::mutation_batch::MutationBatch, String> {
+        let principal = self.verified.principal_persistence_id();
+        compile_methods(
+            CompileBatch {
+                batch_id,
+                request_id: self.request_id,
+                attempt_nonce: self.verified.attempt_nonce(),
+                principal: Some(&principal),
+                tenant: self.tenant_scope,
+                graph: self.graph_name,
+                placement_epoch: self.placement_epoch,
+                idempotency_key: self.verified.idempotency_key(),
+                expected_graph_version: Some(self.graph_version),
+                fencing_token: self.fencing_token,
+                created_at_ms: crate::server::dispatch::authoritative_now_ms(),
+                default_surface: crate::mutation_batch::MutationSurface::Graph,
+                authoritative_state: None,
+            },
+            methods,
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests;
 

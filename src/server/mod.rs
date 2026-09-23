@@ -5916,6 +5916,15 @@ ex:bob   a ex:Person ; ex:name "Bob"@en .
         );
     }
 
+    /// The SPARQL result an OK response carries.
+    fn sparql_result(r: Response) -> crate::protocol::SparqlResult {
+        assert_ok(&r);
+        match r.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("expected Raw(SparqlResult), got {other:?}"),
+        }
+    }
+
     /// Sparql Method round-trips through dispatch: a BGP+FILTER over a loaded graph.
     #[cfg(feature = "sparql")]
     #[tokio::test]
@@ -5970,11 +5979,7 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
             ),
         )
         .await;
-        assert_ok(&r);
-        let res: crate::protocol::SparqlResult = match r.result {
-            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
-            other => panic!("expected Raw(SparqlResult), got {other:?}"),
-        };
+        let res = sparql_result(r);
         let name_idx = res.vars.iter().position(|v| v == "name").unwrap();
         let mut names: Vec<String> = res
             .rows
@@ -6343,11 +6348,7 @@ ex:Animal rdfs:subClassOf ex:LivingThing .
             ),
         )
         .await;
-        assert_ok(&r);
-        let res: crate::protocol::SparqlResult = match r.result {
-            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
-            other => panic!("expected Raw(SparqlResult), got {other:?}"),
-        };
+        let res = sparql_result(r);
         assert_eq!(res.vars, vec!["name".to_string()]);
         let name_idx = 0;
         let mut names: Vec<Option<String>> =

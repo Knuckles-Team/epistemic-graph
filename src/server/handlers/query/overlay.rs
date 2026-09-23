@@ -190,13 +190,7 @@ where
     #[cfg(feature = "security")]
     rls.filter_view(caller, &mut view);
     match compute_off_lock(req_id, move || {
-        #[cfg(feature = "text")]
-        let served_text = crate::server::secondary_indexes::ServedTextIndex::new(core.clone());
-        #[cfg(feature = "geo")]
-        let served_spatial =
-            crate::server::secondary_indexes::ServedSpatialIndex::new(core.clone());
-        #[cfg(all(feature = "shacl", feature = "owl-plan"))]
-        let served_shapes = crate::server::handlers::rdf::ServedShapes::new(&core);
+        let indexes = crate::server::handlers::query::CoreIndexes::open(&core);
         // Fast path (CONCEPT:EG-KG.query.served-vector-index-binding): no staged embeddings this txn ⇒
         // search the COMMITTED store directly through a guard — no clone, no forced
         // HNSW rebuild. Only when the txn actually staged embeddings do we need a
@@ -209,18 +203,10 @@ where
                 plan,
                 &view,
                 &semantic_guard,
-                ServedIndexes {
-                    #[cfg(feature = "text")]
-                    text: Some(&served_text),
-                    #[cfg(feature = "geo")]
-                    spatial: Some(&served_spatial),
+                indexes.served(
                     #[cfg(feature = "federation")]
-                    foreign: Some(&*foreign_sources),
-                    #[cfg(all(feature = "shacl", feature = "owl-plan"))]
-                    shapes: Some(&served_shapes),
-                    #[cfg(not(any(feature = "text", feature = "geo")))]
-                    _marker: std::marker::PhantomData,
-                },
+                    Some(&*foreign_sources),
+                ),
                 #[cfg(feature = "tsdb")]
                 TsdbLegBind {
                     tsdb: tsdb.as_deref(),
@@ -236,18 +222,10 @@ where
                 plan,
                 &view,
                 &semantic,
-                ServedIndexes {
-                    #[cfg(feature = "text")]
-                    text: Some(&served_text),
-                    #[cfg(feature = "geo")]
-                    spatial: Some(&served_spatial),
+                indexes.served(
                     #[cfg(feature = "federation")]
-                    foreign: Some(&*foreign_sources),
-                    #[cfg(all(feature = "shacl", feature = "owl-plan"))]
-                    shapes: Some(&served_shapes),
-                    #[cfg(not(any(feature = "text", feature = "geo")))]
-                    _marker: std::marker::PhantomData,
-                },
+                    Some(&*foreign_sources),
+                ),
                 #[cfg(feature = "tsdb")]
                 TsdbLegBind {
                     tsdb: tsdb.as_deref(),

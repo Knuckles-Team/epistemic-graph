@@ -237,6 +237,62 @@ pub(crate) struct ServedIndexes<'a> {
     pub _marker: std::marker::PhantomData<&'a ()>,
 }
 
+/// A graph's maintained secondary indexes, opened where a plan runs (inside
+/// the off-lock closure) and lent to `run_unified` as [`ServedIndexes`]: the
+/// one construction every served plan path shares (UnifiedQuery, NL, in-txn
+/// overlay, wire UQL, mining-sourced plans).
+pub(crate) struct CoreIndexes<'c> {
+    #[cfg(feature = "text")]
+    text: crate::server::secondary_indexes::ServedTextIndex,
+    #[cfg(feature = "geo")]
+    spatial: crate::server::secondary_indexes::ServedSpatialIndex,
+    #[cfg(all(feature = "shacl", feature = "owl-plan"))]
+    shapes: crate::server::handlers::rdf::ServedShapes<'c>,
+    core: std::marker::PhantomData<&'c ()>,
+}
+
+impl<'c> CoreIndexes<'c> {
+    pub(crate) fn open(core: &'c std::sync::Arc<crate::graph::GraphCore>) -> Self {
+        #[cfg(not(any(
+            feature = "text",
+            feature = "geo",
+            all(feature = "shacl", feature = "owl-plan")
+        )))]
+        let _ = core;
+        Self {
+            #[cfg(feature = "text")]
+            text: crate::server::secondary_indexes::ServedTextIndex::new(core.clone()),
+            #[cfg(feature = "geo")]
+            spatial: crate::server::secondary_indexes::ServedSpatialIndex::new(core.clone()),
+            #[cfg(all(feature = "shacl", feature = "owl-plan"))]
+            shapes: crate::server::handlers::rdf::ServedShapes::new(core),
+            core: std::marker::PhantomData,
+        }
+    }
+
+    /// These indexes as `run_unified` takes them, with the server's registered
+    /// foreign sources when the caller has them.
+    pub(crate) fn served<'a>(
+        &'a self,
+        #[cfg(feature = "federation")] foreign: Option<
+            &'a dashmap::DashMap<String, eg_types::wire::ForeignSourceSpec>,
+        >,
+    ) -> ServedIndexes<'a> {
+        ServedIndexes {
+            #[cfg(feature = "text")]
+            text: Some(&self.text),
+            #[cfg(feature = "geo")]
+            spatial: Some(&self.spatial),
+            #[cfg(feature = "federation")]
+            foreign,
+            #[cfg(all(feature = "shacl", feature = "owl-plan"))]
+            shapes: Some(&self.shapes),
+            #[cfg(not(any(feature = "text", feature = "geo")))]
+            _marker: std::marker::PhantomData,
+        }
+    }
+}
+
 /// Bundles `run_unified`'s tsdb `Op::TsScan` leg-binding parameters — ONE
 /// parameter rather than four, so the function's argument count stays under the
 /// clippy ceiling (mirrors the `ServedIndexes` rationale above). Only exists
@@ -526,31 +582,16 @@ pub(crate) async fn run_unified_off_lock(
     #[cfg(not(feature = "tsdb"))]
     let _ = state;
     compute_off_lock(req_id, move || {
-        #[cfg(feature = "text")]
-        let served_text =
-            crate::server::secondary_indexes::ServedTextIndex::new(core_for_ctx.clone());
-        #[cfg(feature = "geo")]
-        let served_spatial =
-            crate::server::secondary_indexes::ServedSpatialIndex::new(core_for_ctx.clone());
-        #[cfg(all(feature = "shacl", feature = "owl-plan"))]
-        let served_shapes = crate::server::handlers::rdf::ServedShapes::new(&core_for_ctx);
+        let indexes = crate::server::handlers::query::CoreIndexes::open(&core_for_ctx);
         let semantic_guard = core_for_ctx.semantic_store.read();
         run_unified(
             plan,
             &snap,
             &semantic_guard,
-            ServedIndexes {
-                #[cfg(feature = "text")]
-                text: Some(&served_text),
-                #[cfg(feature = "geo")]
-                spatial: Some(&served_spatial),
+            indexes.served(
                 #[cfg(feature = "federation")]
-                foreign: Some(&*foreign_sources),
-                #[cfg(all(feature = "shacl", feature = "owl-plan"))]
-                shapes: Some(&served_shapes),
-                #[cfg(not(any(feature = "text", feature = "geo")))]
-                _marker: std::marker::PhantomData,
-            },
+                Some(&*foreign_sources),
+            ),
             #[cfg(feature = "tsdb")]
             TsdbLegBind {
                 tsdb: tsdb.as_deref(),

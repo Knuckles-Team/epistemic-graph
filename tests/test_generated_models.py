@@ -11,12 +11,10 @@ disagree about a real request.
 from __future__ import annotations
 
 import importlib
-import json
-from pathlib import Path
 from typing import Any
 
-import msgpack
 import pytest
+from _method_vectors import VECTORS, vector_request
 from pydantic import TypeAdapter, ValidationError
 
 from epistemic_graph.generated import SEND_BY_METHOD, models
@@ -24,21 +22,7 @@ from epistemic_graph.generated._runtime import ContractViolation, OpaqueResult
 
 pytestmark = pytest.mark.no_engine
 
-_FIXTURE = (
-    Path(__file__).parents[1] / "contract" / "fixtures" / "method_body_vectors.json"
-)
-_VECTORS: list[dict[str, Any]] = json.loads(_FIXTURE.read_text(encoding="utf-8"))[
-    "vectors"
-]
 _METHOD = TypeAdapter(models.Method)
-
-
-def _request(vector: dict[str, Any]) -> dict[str, Any]:
-    request = msgpack.unpackb(
-        bytes.fromhex(vector["request_msgpack"]), raw=False, strict_map_key=False
-    )
-    assert isinstance(request, dict)
-    return request
 
 
 def _set(document: Any, location: tuple[Any, ...], value: Any) -> None:
@@ -82,14 +66,14 @@ def _validate(adapter: Any, document: Any) -> Any:
     raise AssertionError("byte retyping did not converge")
 
 
-@pytest.mark.parametrize("vector", _VECTORS, ids=lambda vector: vector["label"])
+@pytest.mark.parametrize("vector", VECTORS, ids=lambda vector: vector["label"])
 def test_every_request_vector_validates_as_a_method(vector: dict[str, Any]) -> None:
-    request = _request(vector)
+    request = vector_request(vector)
     _validate(lambda doc: _METHOD.validate_python(doc), request)
 
 
 # Only methods published to the python profile have a domain module.
-_PUBLISHED = [vector for vector in _VECTORS if vector["method"] in SEND_BY_METHOD]
+_PUBLISHED = [vector for vector in VECTORS if vector["method"] in SEND_BY_METHOD]
 
 
 @pytest.mark.parametrize("vector", _PUBLISHED, ids=lambda vector: vector["label"])
@@ -99,7 +83,7 @@ def test_every_request_vector_validates_as_its_domain_request(
     method = vector["method"]
     domain = importlib.import_module(SEND_BY_METHOD[method].__module__)
     model = getattr(domain, f"{method}Request")
-    params = _request(vector).get("params", {})
+    params = vector_request(vector).get("params", {})
     _validate(lambda doc: model.model_validate(doc), params)
 
 

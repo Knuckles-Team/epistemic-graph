@@ -7,11 +7,10 @@
 use eg_transaction::{OutboxClaimBudget, OutboxView, OutboxViewAnswer};
 use eg_types::contract::Nonce;
 use eg_types::semantic_index::{
-    SemanticBindingState, SemanticDigest, SemanticQueueClass, SemanticStage, SemanticStageIntent,
-    SemanticStageIntentDraft, SemanticStagePredecessor, SemanticStageScope,
+    SemanticBindingState, SemanticDigest, SemanticQueueClass, SemanticStageIntent,
 };
 
-use super::tests::{open_store, pending_binding, tmp_dir};
+use super::tests::{open_store, pending_binding, source_commit_intent, tmp_dir};
 use super::{stage_consumer, SemanticCodeStore};
 
 const WORKER: &str = "operator-reopen";
@@ -22,19 +21,7 @@ fn intent(
     entity: &str,
     seed: u8,
 ) -> SemanticStageIntent {
-    SemanticStageIntent::create(SemanticStageIntentDraft {
-        binding_id: binding.binding_id.clone(),
-        binding_digest: binding.binding_digest,
-        generation: binding.generation,
-        scope: SemanticStageScope::Entity {
-            source_entity_id: entity.to_string(),
-        },
-        source_revision: binding.source_revision.clone(),
-        stage: SemanticStage::SourceCommit,
-        predecessor: SemanticStagePredecessor::None,
-        input_digest: SemanticDigest::from_bytes([seed; 32]),
-    })
-    .unwrap()
+    source_commit_intent(binding, entity, SemanticDigest::from_bytes([seed; 32]))
 }
 
 fn status(codes: &SemanticCodeStore) -> eg_types::mutation_outbox::MutationOutboxStatusView {

@@ -5245,6 +5245,54 @@ mod mutation_batch_tests {
         let _ = std::fs::remove_file(path);
     }
 
+    /// Who a fixture envelope's one material policy record names.
+    struct PolicyParts {
+        policy_id: String,
+        object_id: String,
+        tenant: String,
+    }
+
+    /// A governed fixture envelope: one attested upsert policy for `policy`'s
+    /// object, the fixture privacy attestation, and nothing else attached.
+    fn attested_envelope(
+        envelope_id: String,
+        mutation: MutationBatch,
+        content_version: ContentVersion,
+        cursor: ChangeCursor,
+        policy: PolicyParts,
+    ) -> ChangeEnvelope {
+        ChangeEnvelope {
+            schema_version: CHANGE_ENVELOPE_VERSION,
+            envelope_id,
+            mutation,
+            content_version,
+            cursor: Some(cursor),
+            blobs: Vec::new(),
+            features: Vec::new(),
+            evidence: Vec::new(),
+            policies: vec![PolicyRecord {
+                policy_id: policy.policy_id,
+                operation: MaterialOperation::Upsert,
+                object_id: policy.object_id,
+                tenant: policy.tenant,
+                classification: "internal".to_string(),
+                policy_version: "policy-v1".to_string(),
+                subject_set_digest: "c".repeat(64),
+                retention_policy: "standard".to_string(),
+                legal_hold: false,
+            }],
+            lineage: Vec::new(),
+            privacy: PrivacyAttestation {
+                policy_version: "privacy-v1".to_string(),
+                sanitizer_version: "sanitizer-v1".to_string(),
+                sanitized_payload_digest: "d".repeat(64),
+            },
+            material_class: eg_types::change_envelope::MaterialClass::Attested,
+            commit_seq: None,
+            commit_descriptor_ref: None,
+        }
+    }
+
     fn governed_envelope_for_tenant(
         tenant: &str,
         batch_id: &str,
@@ -5272,47 +5320,28 @@ mod mutation_batch_tests {
             .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
         let digest = if sequence == 1 { "a" } else { "b" }.repeat(64);
-        ChangeEnvelope {
-            schema_version: CHANGE_ENVELOPE_VERSION,
-            envelope_id: envelope_id.to_string(),
+        attested_envelope(
+            envelope_id.to_string(),
             mutation,
-            content_version: ContentVersion {
+            ContentVersion {
                 object_id: "object-1".to_string(),
                 digest_algorithm: "sha256".to_string(),
                 digest,
                 previous_digest: (sequence > 1).then(|| "a".repeat(64)),
                 source_version: ContentVersionPosition::Sequence(sequence),
             },
-            cursor: Some(ChangeCursor {
+            ChangeCursor {
                 source: "fixture-source".to_string(),
                 partition: "partition-1".to_string(),
                 position: CursorPosition::Sequence(sequence),
                 expected_previous: (sequence > 1).then_some(CursorPosition::Sequence(sequence - 1)),
-            }),
-            blobs: Vec::new(),
-            features: Vec::new(),
-            evidence: Vec::new(),
-            policies: vec![PolicyRecord {
+            },
+            PolicyParts {
                 policy_id: "policy-object-1".to_string(),
-                operation: MaterialOperation::Upsert,
                 object_id: "object-1".to_string(),
                 tenant: tenant.to_string(),
-                classification: "internal".to_string(),
-                policy_version: "policy-v1".to_string(),
-                subject_set_digest: "c".repeat(64),
-                retention_policy: "standard".to_string(),
-                legal_hold: false,
-            }],
-            lineage: Vec::new(),
-            privacy: PrivacyAttestation {
-                policy_version: "privacy-v1".to_string(),
-                sanitizer_version: "sanitizer-v1".to_string(),
-                sanitized_payload_digest: "d".repeat(64),
             },
-            material_class: eg_types::change_envelope::MaterialClass::Attested,
-            commit_seq: None,
-            commit_descriptor_ref: None,
-        }
+        )
     }
 
     fn governed_envelope(batch_id: &str, key: &str, sequence: u64) -> ChangeEnvelope {
@@ -5521,47 +5550,28 @@ mod mutation_batch_tests {
         mutation
             .reseal_envelope(eg_types::contract::Digest256::from_bytes([1_u8; 32]))
             .unwrap();
-        ChangeEnvelope {
-            schema_version: CHANGE_ENVELOPE_VERSION,
-            envelope_id: format!("env-{index}"),
+        attested_envelope(
+            format!("env-{index}"),
             mutation,
-            content_version: ContentVersion {
+            ContentVersion {
                 object_id: object.clone(),
                 digest_algorithm: "sha256".to_string(),
                 digest: format!("{:064x}", index + 1),
                 previous_digest: None,
                 source_version: ContentVersionPosition::Sequence(1),
             },
-            cursor: Some(ChangeCursor {
+            ChangeCursor {
                 source: "batch-source".to_string(),
                 partition: "p1".to_string(),
                 position: CursorPosition::Sequence(index + 1),
                 expected_previous: (index > 0).then_some(CursorPosition::Sequence(index)),
-            }),
-            blobs: Vec::new(),
-            features: Vec::new(),
-            evidence: Vec::new(),
-            policies: vec![PolicyRecord {
+            },
+            PolicyParts {
                 policy_id: format!("policy-{index}"),
-                operation: MaterialOperation::Upsert,
                 object_id: object,
                 tenant: "tenant-a".to_string(),
-                classification: "internal".to_string(),
-                policy_version: "policy-v1".to_string(),
-                subject_set_digest: "c".repeat(64),
-                retention_policy: "standard".to_string(),
-                legal_hold: false,
-            }],
-            lineage: Vec::new(),
-            privacy: PrivacyAttestation {
-                policy_version: "privacy-v1".to_string(),
-                sanitizer_version: "sanitizer-v1".to_string(),
-                sanitized_payload_digest: "d".repeat(64),
             },
-            material_class: eg_types::change_envelope::MaterialClass::Attested,
-            commit_seq: None,
-            commit_descriptor_ref: None,
-        }
+        )
     }
 
     fn commit_envelopes_at(

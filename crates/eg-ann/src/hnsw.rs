@@ -296,6 +296,23 @@ mod tests {
     use rand::{Rng, SeedableRng};
     use rand_chacha::ChaCha8Rng;
 
+    /// Recall@10 of one HNSW query against the exact flat answer.
+    fn query_recall_at_10(
+        hnsw: &HnswIndex,
+        flat: &FlatIndex,
+        q: &[f32],
+        metric: Metric,
+        ef: usize,
+    ) -> f64 {
+        let truth: Vec<u64> = flat
+            .search(q, 10, metric)
+            .into_iter()
+            .map(|r| r.id)
+            .collect();
+        let got: Vec<u64> = hnsw.search(q, 10, ef).into_iter().map(|r| r.id).collect();
+        recall_at_k(&got, &truth, 10)
+    }
+
     /// A tiny, hand-checkable 2-D graph — with only a handful of points every node
     /// is reachable, so HNSW must reproduce the exact brute-force order.
     fn tiny() -> HnswIndex {
@@ -421,13 +438,7 @@ mod tests {
         let mut sum = 0.0f64;
         for _ in 0..nq {
             let q: Vec<f32> = (0..dim).map(|_| qr.gen::<f32>() * 2.0 - 1.0).collect();
-            let truth: Vec<u64> = flat
-                .search(&q, 10, Metric::L2)
-                .into_iter()
-                .map(|r| r.id)
-                .collect();
-            let got: Vec<u64> = hnsw.search(&q, 10, 100).into_iter().map(|r| r.id).collect();
-            sum += recall_at_k(&got, &truth, 10);
+            sum += query_recall_at_10(&hnsw, &flat, &q, Metric::L2, 100);
         }
         let recall = sum / nq as f64;
         assert!(
@@ -460,13 +471,7 @@ mod tests {
         let mut sum = 0.0f64;
         for _ in 0..40 {
             let q: Vec<f32> = (0..dim).map(|_| rng.gen::<f32>() * 8.0 - 4.0).collect();
-            let truth: Vec<u64> = flat
-                .search(&q, 10, Metric::L2)
-                .into_iter()
-                .map(|r| r.id)
-                .collect();
-            let got: Vec<u64> = hnsw.search(&q, 10, 80).into_iter().map(|r| r.id).collect();
-            sum += recall_at_k(&got, &truth, 10);
+            sum += query_recall_at_10(&hnsw, &flat, &q, Metric::L2, 80);
         }
         let recall = sum / 40.0;
         assert!(
@@ -491,13 +496,7 @@ mod tests {
         let mut sum = 0.0f64;
         for _ in 0..nq {
             let q: Vec<f32> = (0..dim).map(|_| qr.gen::<f32>() * 2.0 - 1.0).collect();
-            let truth: Vec<u64> = flat
-                .search(&q, 10, Metric::Cosine)
-                .into_iter()
-                .map(|r| r.id)
-                .collect();
-            let got: Vec<u64> = hnsw.search(&q, 10, 120).into_iter().map(|r| r.id).collect();
-            sum += recall_at_k(&got, &truth, 10);
+            sum += query_recall_at_10(&hnsw, &flat, &q, Metric::Cosine, 120);
         }
         let recall = sum / nq as f64;
         assert!(

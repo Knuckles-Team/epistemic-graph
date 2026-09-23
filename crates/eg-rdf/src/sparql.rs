@@ -2839,7 +2839,9 @@ mod tests {
         execute(dataset, query, projection, service)
     }
 
-    fn loaded_view() -> GraphView {
+    /// Three people, ages and `knows` edges: the SPARQL fixture the proof
+    /// tests (`sparql::proof::tests`) share.
+    pub(super) fn loaded_view() -> GraphView {
         let ttl = r#"
 @prefix ex: <http://example.org/> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .

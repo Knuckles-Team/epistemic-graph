@@ -482,34 +482,14 @@ async fn handle_sql_with_lease(
         "SQL error: tenant SQL catalog requires the configured persistence directory".to_string()
     })?;
     let (snap, _graph_version) = lease_filtered_snapshot(core, policy_lease, store)?;
-    let cancel = eg_query::CancellationToken::new();
-    let _cancel_guard = crate::server::request_cancel::register(req_id, cancel.clone());
-    let timeout_task = crate::server::request_cancel::spawn_timeout(cancel.clone());
-    let cancel_for_task = cancel.clone();
-    let authority = authority.clone();
-    let resp = match compute_off_lock(req_id, move || {
-        let authorized = crate::server::sql_catalog_acl::authorized_read_store_for_query(
-            &authority,
-            std::path::Path::new(&persist_dir),
-            &query,
-        )?;
-        eg_query::exec_sql_typed_with_tables_cancellable(
-            &snap,
-            authorized.store(),
-            &query,
-            &cancel_for_task,
-        )
-    })
-    .await
-    {
-        Ok(Ok(typed)) => typed_sql_response(req_id, typed),
-        Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
-        Err(resp) => resp,
-    };
-    if let Some(t) = timeout_task {
-        t.abort();
-    }
-    Ok(resp)
+    Ok(super::sql_read::catalog_sql_response(
+        req_id,
+        snap,
+        authority.clone(),
+        std::path::PathBuf::from(persist_dir),
+        query,
+    )
+    .await)
 }
 
 #[cfg(all(feature = "query", feature = "security"))]

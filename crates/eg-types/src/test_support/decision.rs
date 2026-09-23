@@ -30,3 +30,17 @@ pub fn published_candidate(
         fact_premises: BoundedVec::default(),
     }
 }
+
+/// The BM25 text feature over a component's `summary`, scored against the
+/// request's `query` parameter; abstains when either is missing.
+pub fn summary_text_feature() -> crate::decision::statistical::features::FeatureSpec {
+    use crate::decision::statistical::features::{FeatureKind, FeatureSpec, MissingValue};
+    FeatureSpec {
+        name: "text".to_string(),
+        kind: FeatureKind::TextBm25 {
+            key: "summary".to_string(),
+            param: "query".to_string(),
+        },
+        missing: MissingValue::Abstain,
+    }
+}

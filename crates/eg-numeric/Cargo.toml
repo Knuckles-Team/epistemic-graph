@@ -107,3 +107,7 @@ eg-modality = { path = "../eg-modality", optional = true }
 # false` keeps out num-complex's own optional `rand`/`serde` integration features,
 # none of which this crate's `complex` module needs.
 num-complex = { version = "0.4", default-features = false, optional = true }
+
+[dev-dependencies]
+# Shared Decide-layer fixtures (`eg_types::test_support::decision`).
+eg-types = { path = "../eg-types", features = ["test-support"] }

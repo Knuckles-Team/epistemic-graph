@@ -653,6 +653,20 @@ mod tests {
         assert_eq!(core.schema_sources(), before);
     }
 
+    /// Attaching `turtle` as source `admin:<name>` is refused as inconsistent
+    /// and leaves the schema catalog exactly as it was.
+    fn assert_attach_is_inconsistent(name: &str, turtle: &str) {
+        let core = GraphCore::new();
+        let before = core.schema_sources();
+        let source = format!("admin:{name}");
+        let error = apply(&core, "g", &attach(&source, turtle)).unwrap_err();
+        assert!(
+            error.starts_with("ONTOLOGY_INCONSISTENT"),
+            "{name}: {error}"
+        );
+        assert_eq!(core.schema_sources(), before);
+    }
+
     /// EH-363: the entry check sees the core's n-ary disjointness (`AllDisjointClasses`)
     /// and BFO's `Continuant ⊥ Occurrent`. Each individual below sits in two disjoint
     /// core classes: GDC and IC (a taxon typed as an organism), Person and Event, and a
@@ -666,16 +680,7 @@ mod tests {
             ("agent", "ex:ada a kg:Person, kg:Event ."),
             ("bfo", "ex:moment a bfo:0000020, bfo:0000008 ."),
         ] {
-            let core = GraphCore::new();
-            let before = core.schema_sources();
-            let source = format!("admin:{name}");
-            let error =
-                apply(&core, "g", &attach(&source, &format!("{bfo}{individual}"))).unwrap_err();
-            assert!(
-                error.starts_with("ONTOLOGY_INCONSISTENT"),
-                "{name}: {error}"
-            );
-            assert_eq!(core.schema_sources(), before);
+            assert_attach_is_inconsistent(name, &format!("{bfo}{individual}"));
         }
     }
 
@@ -697,16 +702,7 @@ mod tests {
                 "ex:doc kg:createdBy ex:job . ex:job a bfo:0000015 .",
             ),
         ] {
-            let core = GraphCore::new();
-            let before = core.schema_sources();
-            let source = format!("admin:{name}");
-            let error =
-                apply(&core, "g", &attach(&source, &format!("{prefixes}{data}"))).unwrap_err();
-            assert!(
-                error.starts_with("ONTOLOGY_INCONSISTENT"),
-                "{name}: {error}"
-            );
-            assert_eq!(core.schema_sources(), before);
+            assert_attach_is_inconsistent(name, &format!("{prefixes}{data}"));
         }
         let core = GraphCore::new();
         let fine = format!("{prefixes}ex:ada a kg:Person . ex:ada kg:memberOf ex:team .");

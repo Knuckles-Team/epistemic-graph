@@ -233,13 +233,7 @@ async fn commit_retry_after_ack_loss_reconciles_across_resident_graphs() {
         "txn-reconcile-ack-lost-retry-test-key",
     );
 
-    let backend = test_support::open_redb_backend(dir_s.clone()).unwrap();
-    let state = test_support::state_with(
-        SECRET,
-        common::current_isolation(),
-        Some(dir_s.clone()),
-        Some(backend.clone()),
-    );
+    let (backend, state) = test_support::redb_state_at(SECRET, common::current_isolation(), &dir_s);
 
     // Register several resident graphs so the retry's reconcile walk actually has
     // more than one (graph x namespace) candidate to consider — the target graph
@@ -444,13 +438,7 @@ async fn signed_dispatch_commit_fault_child() {
         certification_fault_spec(405, &phase),
     );
 
-    let backend = test_support::open_redb_backend(dir_s.clone()).unwrap();
-    let state = test_support::state_with(
-        SECRET,
-        common::current_isolation(),
-        Some(dir_s.clone()),
-        Some(backend),
-    );
+    let (_, state) = test_support::redb_state_at(SECRET, common::current_isolation(), &dir_s);
     let created: Response = Box::pin(dispatch(
         &state,
         test_support::request(
@@ -819,13 +807,7 @@ async fn signed_dispatch_lifecycle_fault_child() {
         epistemic_graph::crypto::ENCRYPTION_KEY_ENV,
         "txn-signed-lifecycle-fault-test-key",
     );
-    let backend = test_support::open_redb_backend(dir_s.clone()).unwrap();
-    let state = test_support::state_with(
-        SECRET,
-        common::current_isolation(),
-        Some(dir_s.clone()),
-        Some(backend),
-    );
+    let (_, state) = test_support::redb_state_at(SECRET, common::current_isolation(), &dir_s);
     let created: Response = Box::pin(dispatch(
         &state,
         test_support::request(
@@ -1075,13 +1057,7 @@ async fn native_lifecycle_reopen_refuses_stale_begin_and_stage_success() {
         "txn-lifecycle-restart-test-key",
     );
 
-    let backend = test_support::open_redb_backend(dir_s.clone()).unwrap();
-    let state = test_support::state_with(
-        SECRET,
-        common::current_isolation(),
-        Some(dir_s.clone()),
-        Some(backend.clone()),
-    );
+    let (backend, state) = test_support::redb_state_at(SECRET, common::current_isolation(), &dir_s);
     let target = "txn-lifecycle-restart-graph";
     let created: Response = Box::pin(dispatch(
         &state,

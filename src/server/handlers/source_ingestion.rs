@@ -1565,25 +1565,16 @@ fn compile_mutation(
     batch_id: &str,
     methods: Vec<Method>,
 ) -> Result<eg_types::mutation_batch::MutationBatch, String> {
-    let principal = ctx.verified.principal_persistence_id();
-    crate::server::mutation_batch::compile_methods(
-        crate::server::mutation_batch::CompileBatch {
-            batch_id,
-            request_id: ctx.request_id,
-            attempt_nonce: ctx.verified.attempt_nonce(),
-            principal: Some(&principal),
-            tenant: ctx.tenant_scope,
-            graph: ctx.graph_name,
-            placement_epoch: ctx.placement_epoch,
-            idempotency_key: ctx.verified.idempotency_key(),
-            expected_graph_version: Some(ctx.graph_version),
-            fencing_token: ctx.fencing_token,
-            created_at_ms: crate::server::dispatch::authoritative_now_ms(),
-            default_surface: crate::mutation_batch::MutationSurface::Graph,
-            authoritative_state: None,
-        },
-        methods,
-    )
+    crate::server::mutation_batch::GraphWriteScope {
+        request_id: ctx.request_id,
+        graph_name: ctx.graph_name,
+        tenant_scope: ctx.tenant_scope,
+        verified: ctx.verified,
+        graph_version: ctx.graph_version,
+        placement_epoch: ctx.placement_epoch,
+        fencing_token: ctx.fencing_token,
+    }
+    .compile(batch_id, methods)
 }
 
 #[cfg(all(feature = "redb", feature = "blob"))]

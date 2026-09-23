@@ -4592,32 +4592,17 @@ impl WireSession {
         // `semantic_overlay` clone is paid ONLY when the txn actually staged embeddings.
         let core_for_ctx = core.clone();
         let rows = tokio::task::spawn_blocking(move || {
-            #[cfg(feature = "text")]
-            let served_text =
-                crate::server::secondary_indexes::ServedTextIndex::new(core_for_ctx.clone());
-            #[cfg(feature = "geo")]
-            let served_spatial =
-                crate::server::secondary_indexes::ServedSpatialIndex::new(core_for_ctx.clone());
-            #[cfg(all(feature = "shacl", feature = "owl-plan"))]
-            let served_shapes = crate::server::handlers::rdf::ServedShapes::new(&core_for_ctx);
+            let indexes = crate::server::handlers::query::CoreIndexes::open(&core_for_ctx);
             if vectors.is_empty() {
                 let semantic_guard = core_for_ctx.semantic_store.read();
                 crate::server::handlers::query::run_unified(
                     plan,
                     &view,
                     &semantic_guard,
-                    crate::server::handlers::query::ServedIndexes {
-                        #[cfg(feature = "text")]
-                        text: Some(&served_text),
-                        #[cfg(feature = "geo")]
-                        spatial: Some(&served_spatial),
+                    indexes.served(
                         #[cfg(feature = "federation")]
-                        foreign: Some(&*foreign_sources),
-                        #[cfg(all(feature = "shacl", feature = "owl-plan"))]
-                        shapes: Some(&served_shapes),
-                        #[cfg(not(any(feature = "text", feature = "geo")))]
-                        _marker: std::marker::PhantomData,
-                    },
+                        Some(&*foreign_sources),
+                    ),
                     #[cfg(feature = "tsdb")]
                     crate::server::handlers::query::TsdbLegBind {
                         tsdb: tsdb.as_deref(),
@@ -4633,18 +4618,10 @@ impl WireSession {
                     plan,
                     &view,
                     &semantic,
-                    crate::server::handlers::query::ServedIndexes {
-                        #[cfg(feature = "text")]
-                        text: Some(&served_text),
-                        #[cfg(feature = "geo")]
-                        spatial: Some(&served_spatial),
+                    indexes.served(
                         #[cfg(feature = "federation")]
-                        foreign: Some(&*foreign_sources),
-                        #[cfg(all(feature = "shacl", feature = "owl-plan"))]
-                        shapes: Some(&served_shapes),
-                        #[cfg(not(any(feature = "text", feature = "geo")))]
-                        _marker: std::marker::PhantomData,
-                    },
+                        Some(&*foreign_sources),
+                    ),
                     #[cfg(feature = "tsdb")]
                     crate::server::handlers::query::TsdbLegBind {
                         tsdb: tsdb.as_deref(),

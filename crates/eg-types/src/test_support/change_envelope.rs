@@ -6,14 +6,25 @@ use crate::change_envelope::{
     PrivacyAttestation, CHANGE_ENVELOPE_VERSION,
 };
 
+/// The compiled-batch operation every fixture envelope carries: the batch
+/// method with fixed schema and payload digests.
+pub fn compiled_batch_operation() -> crate::mutation_batch::CompiledOperation {
+    let method =
+        crate::contract::MethodId::new(crate::mutation_batch::BATCH_COMPILED_METHODS).unwrap();
+    crate::mutation_batch::CompiledOperation {
+        method_schema_id: crate::mutation_batch::method_schema_id(&method).unwrap(),
+        method,
+        method_schema_digest: crate::contract::Digest256::from_bytes([1_u8; 32]),
+        canonical_payload_digest: crate::contract::Digest256::from_bytes([2_u8; 32]),
+    }
+}
+
 fn minimal_mutation_envelope() -> crate::mutation_batch::MutationEnvelope {
     let identity = crate::mutation_batch::MutationScopeIdentity::graph(
         crate::mutation_batch::ScopeTenantId::new("tenant-a").unwrap(),
         crate::mutation_batch::LogicalName::new("graph-a").unwrap(),
         crate::mutation_batch::IncarnationId::new("incarnation:test:change-envelope").unwrap(),
     );
-    let method =
-        crate::contract::MethodId::new(crate::mutation_batch::BATCH_COMPILED_METHODS).unwrap();
     crate::mutation_batch::MutationEnvelope::for_scope(
         crate::mutation_batch::CompiledScope {
             identity: &identity,
@@ -24,12 +35,7 @@ fn minimal_mutation_envelope() -> crate::mutation_batch::MutationEnvelope {
             nonce: crate::contract::Nonce::from_bytes([1_u8; 32]),
             now_ms: 0,
         },
-        crate::mutation_batch::CompiledOperation {
-            method_schema_id: crate::mutation_batch::method_schema_id(&method).unwrap(),
-            method,
-            method_schema_digest: crate::contract::Digest256::from_bytes([1_u8; 32]),
-            canonical_payload_digest: crate::contract::Digest256::from_bytes([2_u8; 32]),
-        },
+        compiled_batch_operation(),
     )
     .unwrap()
 }

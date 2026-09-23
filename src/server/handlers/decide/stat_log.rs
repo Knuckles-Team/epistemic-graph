@@ -6,10 +6,8 @@
 //! records, the committing principal only for graph-sourced ones.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
 use std::time::Instant;
 
-use tokio::sync::RwLock;
 use tracing::Instrument;
 
 use eg_numeric::decision::aggregate::{aggregate, AggregateRules, JoinedRecord};
@@ -37,13 +35,15 @@ use super::stat_replay::replay;
 use super::stat_retention::{compact, full_record, verify, Retention};
 use super::stat_support::{default_statistical_policy, pinned_entry, refusal};
 use super::telemetry;
+use super::SharedState;
 use crate::protocol::{Response, ResultPayload};
-use crate::server::auth::VerifiedRequestContext;
-use crate::server::persistence::agent_library::AgentLibraryStore;
-use crate::server::persistence::decision_jobs::{
-    decode_artifact, encode_artifact, evaluation_key, record_key,
+use crate::server::{
+    auth::VerifiedRequestContext,
+    persistence::{
+        agent_library::AgentLibraryStore,
+        decision_jobs::{decode_artifact, encode_artifact, evaluation_key, record_key},
+    },
 };
-use crate::server::state::ServerState;
 
 /// Most log rows one read walks before refusing as unbounded.
 pub(super) const MAX_LOG_ROWS: usize = 100_000;
@@ -67,10 +67,7 @@ impl LogReader {
     }
 
     /// A reader that restores compacted inputs from the served Blob CAS.
-    pub(super) async fn served(
-        state: &Arc<RwLock<ServerState>>,
-        verified: &VerifiedRequestContext,
-    ) -> Self {
+    pub(super) async fn served(state: &SharedState, verified: &VerifiedRequestContext) -> Self {
         let retention = Retention::of(&*state.read().await, verified);
         Self {
             retention,
@@ -412,7 +409,7 @@ fn dispatch(
 }
 
 async fn serve(
-    state: &Arc<RwLock<ServerState>>,
+    state: &SharedState,
     verified: &VerifiedRequestContext,
     op: DecisionLogOp,
 ) -> Result<ResultPayload, String> {
@@ -445,7 +442,7 @@ async fn serve(
 
 /// Serve one `DecisionLog` op.
 pub(super) async fn handle_log(
-    state: &Arc<RwLock<ServerState>>,
+    state: &SharedState,
     req_id: u64,
     verified: &VerifiedRequestContext,
     op: DecisionLogOp,

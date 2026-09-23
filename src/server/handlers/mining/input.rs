@@ -187,15 +187,9 @@ pub(super) fn gather_plan_rows(
     // `Arc<GraphCore>` (mirroring EG-P1-4's served `run_unified` call sites), so a `RankText`/
     // `FuseRrf` leg in a mining-sourced plan ALSO pushes down into the graph's MAINTAINED
     // persistent `GraphTextIndex` via `ServedTextIndex`, instead of falling back to a
-    // snapshot-derived index rebuilt from `snap` on every mining request.
-    #[cfg(feature = "text")]
-    let served_text = crate::server::secondary_indexes::ServedTextIndex::new(core.clone());
-    // L37: an `Arc<GraphCore>` in hand ⇒ a `SpatialScan` leg in a mining-sourced plan ALSO
-    // pushes down into the graph's MAINTAINED persistent spatial index, same as the text leg.
-    #[cfg(feature = "geo")]
-    let served_spatial = crate::server::secondary_indexes::ServedSpatialIndex::new(core.clone());
-    #[cfg(all(feature = "shacl", feature = "owl-plan"))]
-    let served_shapes = crate::server::handlers::rdf::ServedShapes::new(&core);
+    // snapshot-derived index rebuilt from `snap` on every mining request; the spatial
+    // (L37) and SHACL-shape legs push down the same way.
+    let indexes = crate::server::handlers::query::CoreIndexes::open(&core);
     // CONCEPT:EG-KG.mining.tsdb-typed-absent — resolve the SAME verified tenant/namespace scope
     // the served `UnifiedQuery` path resolves (`query::served_tsdb_scope`, single source of
     // truth), THEN require the live store to actually be bound before falling through to the
@@ -219,26 +213,13 @@ pub(super) fn gather_plan_rows(
         plan.clone(),
         &snap,
         &store,
-        crate::server::handlers::query::ServedIndexes {
-            #[cfg(feature = "text")]
-            text: Some(&served_text),
-            #[cfg(feature = "geo")]
-            spatial: Some(&served_spatial),
-            // CONCEPT:EG-KG.query.closure-backed-source — `gather_plan_rows` runs off a bare
-            // `Arc<GraphCore>` (the WAL-replay-compatible signature), with NO `ServerState`
-            // in hand, so the registered foreign sources cannot be threaded here without
-            // widening `build_vectors`/`build_anomaly_rows` too. A mining-sourced plan with
-            // a NAMED foreign leg therefore still returns the clean "no registry attached"
-            // typed error rather than silently-local rows — the served `UnifiedQuery`
-            // /`UnifiedQueryText`/NL/in-txn/wire paths all bind it. Threading it into the
-            // mining source is a follow-up.
+        // CONCEPT:EG-KG.query.closure-backed-source — no `ServerState` here, so no
+        // registered foreign sources: a NAMED foreign leg in a mining-sourced plan is
+        // the clean "no registry attached" typed error, never silently-local rows.
+        indexes.served(
             #[cfg(feature = "federation")]
-            foreign: None,
-            #[cfg(all(feature = "shacl", feature = "owl-plan"))]
-            shapes: Some(&served_shapes),
-            #[cfg(not(any(feature = "text", feature = "geo")))]
-            _marker: std::marker::PhantomData,
-        },
+            None,
+        ),
         #[cfg(feature = "tsdb")]
         match &tsdb_scope {
             Some((tenant, graph)) => crate::server::handlers::query::TsdbLegBind {

@@ -92,11 +92,8 @@ mod dispatch_reachability_tests {
 
     use super::*;
     use crate::protocol::{Method, Request};
-    use crate::server::auth::{
-        compute_verified_envelope_token, dispatch_test_on_heap, VerifiedEnvelopeParams,
-    };
+    use crate::server::auth::dispatch_test_on_heap;
     use crate::server::state::ServerState;
-    use eg_types::acl::RequestContextClaims;
     use eg_types::test_support::contract_wave::contract_wave_samples;
 
     pub(super) const SECRET: &str = "contract-wave-dispatch-secret";
@@ -125,33 +122,18 @@ mod dispatch_reachability_tests {
     }
 
     pub(super) fn signed(surface: &str, method: Method) -> Request {
-        let mut request = Request {
-            id: 11,
-            graph: "__commons__".to_string(),
-            auth_token: String::new(),
-            agent_id: Some(CALLER.to_string()),
-            method,
-        };
-        let context = RequestContextClaims {
-            principal: CALLER.into(),
-            agent_id: CALLER.into(),
-            tenant: TENANT.into(),
-            audience: "epistemic-graph-test".into(),
-            policy_version: "policy-test".into(),
-            scopes: vec!["kg:admin".to_string()],
-            ..RequestContextClaims::default()
-        };
-        request.auth_token = compute_verified_envelope_token(
+        crate::server::auth::scoped_test_request(
             SECRET,
-            &request,
-            &VerifiedEnvelopeParams {
-                context: &context,
-                timestamp: crate::server::dispatch::authoritative_now_ms() / 1000,
+            11,
+            method,
+            crate::server::auth::ScopedTestCaller {
+                principal: CALLER,
+                tenant: TENANT,
+                scopes: &["kg:admin"],
                 nonce: &nonce_for(surface),
                 idempotency_key: "contract-wave-probe",
             },
-        );
-        request
+        )
     }
 
     /// Contract-wave surfaces whose real handler has landed (wave rule R6):

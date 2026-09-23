@@ -704,27 +704,9 @@ where
     Ok(())
 }
 
+/// Every layout, in registry order (the lineage module's one list).
 pub(crate) fn owner_layouts() -> [OwnerLayout; 18] {
-    [
-        OwnerLayout::LedgerOnly,
-        OwnerLayout::Rbac,
-        OwnerLayout::Jobs,
-        OwnerLayout::Statechart,
-        OwnerLayout::TimeSeries,
-        OwnerLayout::Kv,
-        OwnerLayout::Blob,
-        OwnerLayout::SemanticIndex,
-        OwnerLayout::Sql,
-        OwnerLayout::PathIndex,
-        OwnerLayout::RequestReplay,
-        OwnerLayout::VizProvenance,
-        OwnerLayout::ColdTier,
-        OwnerLayout::TenantCatalog,
-        OwnerLayout::NodeInfo,
-        OwnerLayout::ClusterHierarchy,
-        OwnerLayout::GraphShard,
-        OwnerLayout::AgentLibrary,
-    ]
+    crate::owner::lineage::ALL_LAYOUTS
 }
 
 fn open_table<K, V>(

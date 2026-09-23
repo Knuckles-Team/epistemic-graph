@@ -49,14 +49,7 @@ name = "eg_capabilities"
 # BOTH `eg-types/jobs` and `eg-capabilities/jobs` in lockstep (see root Cargo.toml).
 [dependencies.eg-types]
 path = "../eg-types"
-features = [
-    "metrics", "finance", "datascience", "mining", "graphlearn", "ml-pipeline",
-    "epistemic",
-    "query", "graphql", "broker", "text", "blob", "kv", "sqlite-file",
-    "streaming", "cost", "rdf", "sparql", "owl", "owl-plan", "obda",
-    "wasm-udf", "compute-dist", "matview", "security", "federation",
-    "geo", "tensor", "stream",
-]
+features = ["metrics", "wire-contract"]
 
 # Only ever pulled in by the `contract-schema` feature: the generator needs JSON
 # Schema derivation, a JSON serializer, and a digest. A default build of this crate

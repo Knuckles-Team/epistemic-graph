@@ -3,22 +3,11 @@ use eg_types::rdf_report::{SparqlObjectKind, SparqlProofCoverage, SparqlRowProof
 
 use super::super::{Dataset, Projection};
 use super::execute_explained;
-use crate::mapping::{load_triples, parse_turtle, IriStore};
 
 const EX: &str = "http://example.org/";
 
 fn people() -> GraphView {
-    let ttl = r#"
-@prefix ex: <http://example.org/> .
-@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
-ex:alice a ex:Person ; ex:name "Alice" ; ex:age "30"^^xsd:integer ; ex:knows ex:bob .
-ex:bob   a ex:Person ; ex:name "Bob"   ; ex:age "25"^^xsd:integer .
-ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:alice .
-"#;
-    let core = eg_core::graph::GraphCore::new();
-    let mut iris = IriStore::default();
-    load_triples(&core, &mut iris, "g", parse_turtle(ttl).unwrap()).unwrap();
-    core.analysis_snapshot()
+    super::super::tests::loaded_view()
 }
 
 fn explain(view: &GraphView, query: &str) -> (Vec<Vec<Option<String>>>, Vec<SparqlRowProof>) {

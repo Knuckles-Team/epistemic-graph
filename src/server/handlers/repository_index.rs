@@ -22,7 +22,6 @@ use eg_types::contract::Digest256;
 use eg_types::ingestion_wire::{ExtractedEdge, ExtractedNode, IndexResult};
 
 use crate::protocol::{Method, Response, ResultPayload};
-use crate::server::auth::VerifiedRequestContext;
 
 /// The projection edge a tombstone is reported as; it lowers to a removal.
 const TOMBSTONE_EDGE: &str = "removesFileVersion";
@@ -31,15 +30,7 @@ const VERSION_TYPE: &str = "repository-index-sha256";
 const POLICY_VERSION: &str = "repository-index";
 
 /// The verified request coordinates one scoped commit is compiled under.
-pub(crate) struct IndexCommitContext<'a> {
-    pub request_id: u64,
-    pub graph_name: &'a str,
-    pub tenant_scope: &'a str,
-    pub verified: &'a VerifiedRequestContext,
-    pub graph_version: u64,
-    pub placement_epoch: u64,
-    pub fencing_token: Option<u64>,
-}
+pub(crate) type IndexCommitContext<'a> = crate::server::mutation_batch::GraphWriteScope<'a>;
 
 /// The lowered, digest-keyed write-set of one scoped result.
 pub(crate) struct IndexWriteSet {
@@ -135,25 +126,7 @@ pub(crate) fn build_envelope(
         digest,
         methods,
     } = write_set;
-    let principal = ctx.verified.principal_persistence_id();
-    let mutation = crate::server::mutation_batch::compile_methods(
-        crate::server::mutation_batch::CompileBatch {
-            batch_id: &envelope_id,
-            request_id: ctx.request_id,
-            attempt_nonce: ctx.verified.attempt_nonce(),
-            principal: Some(&principal),
-            tenant: ctx.tenant_scope,
-            graph: ctx.graph_name,
-            placement_epoch: ctx.placement_epoch,
-            idempotency_key: ctx.verified.idempotency_key(),
-            expected_graph_version: Some(ctx.graph_version),
-            fencing_token: ctx.fencing_token,
-            created_at_ms: crate::server::dispatch::authoritative_now_ms(),
-            default_surface: crate::mutation_batch::MutationSurface::Graph,
-            authoritative_state: None,
-        },
-        methods,
-    )?;
+    let mutation = ctx.compile(&envelope_id, methods)?;
     seal(mutation, envelope_id, &digest, ctx.tenant_scope)
 }
 

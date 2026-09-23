@@ -11,7 +11,6 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use tokio::sync::RwLock;
 use tracing::Instrument;
 
 use eg_numeric::decision::admission::{admit, AdmissionRules, Regime};
@@ -34,13 +33,16 @@ use eg_types::decision::{
 use super::stat_log::{logged_dataset, LogReader};
 use super::stat_support::{pinned_body, refusal, resolve_policy, ResolvedPolicy};
 use super::telemetry;
+use super::SharedState;
 use crate::protocol::{Response, ResultPayload};
 use crate::server::auth::VerifiedRequestContext;
 use crate::server::persistence::agent_library::AgentLibraryStore;
 use crate::server::persistence::decision_jobs::{
     decode_artifact, draft_key, encode_artifact, job_key, receipt_key,
 };
-use crate::server::state::ServerState;
+
+/// The label a failed blocking store task names.
+const BLOCKING_TASK: &str = "decision job";
 
 /// Domain of a job id.
 const JOB_ID_DOMAIN: &str = "eg/decision-job-id/v1";
@@ -353,9 +355,7 @@ fn submit_job(
     Ok(job)
 }
 
-async fn store_and_now(
-    state: &Arc<RwLock<ServerState>>,
-) -> Result<(Arc<AgentLibraryStore>, u64), String> {
+async fn store_and_now(state: &SharedState) -> Result<(Arc<AgentLibraryStore>, u64), String> {
     let store = state.write().await.ensure_agent_library()?;
     Ok((store, crate::server::dispatch::authoritative_now_ms()))
 }
@@ -376,16 +376,8 @@ fn identity<T: serde::Serialize>(
     }
 }
 
-async fn blocking<T: Send + 'static>(
-    work: impl FnOnce() -> Result<T, String> + Send + 'static,
-) -> Result<T, String> {
-    tokio::task::spawn_blocking(work)
-        .await
-        .map_err(|error| format!("decision job task failed: {error}"))?
-}
-
 async fn serve_fit(
-    state: &Arc<RwLock<ServerState>>,
+    state: &SharedState,
     reader: LogReader,
     op: DecisionFitOp,
 ) -> Result<ResultPayload, String> {
@@ -400,9 +392,10 @@ async fn serve_fit(
                 &request,
                 now_ms,
             );
-            let job =
-                blocking(move || submit_job(&store, &id, || run_fit(&store, &reader, &request)))
-                    .await?;
+            let job = crate::server::dispatch::blocking_task(BLOCKING_TASK, move || {
+                submit_job(&store, &id, || run_fit(&store, &reader, &request))
+            })
+            .await?;
             ResultPayload::of::<DecisionFitSubmit>(job)
         }
         DecisionFitOp::Status { request } => ResultPayload::of::<DecisionFitStatus>(stored_job(
@@ -414,7 +407,7 @@ async fn serve_fit(
 }
 
 async fn serve_eval(
-    state: &Arc<RwLock<ServerState>>,
+    state: &SharedState,
     reader: LogReader,
     op: DecisionEvalOp,
 ) -> Result<ResultPayload, String> {
@@ -429,7 +422,7 @@ async fn serve_eval(
                 &request,
                 now_ms,
             );
-            let job = blocking(move || {
+            let job = crate::server::dispatch::blocking_task(BLOCKING_TASK, move || {
                 submit_job(&store, &id, || {
                     run_eval(&store, &reader, &request).map(|(receipt, rows)| {
                         (
@@ -472,7 +465,7 @@ fn tenant_refusal(method: &str) -> String {
 
 /// Serve one `DecisionFit` op.
 pub(super) async fn handle_fit(
-    state: &Arc<RwLock<ServerState>>,
+    state: &SharedState,
     req_id: u64,
     verified: &VerifiedRequestContext,
     op: DecisionFitOp,
@@ -492,7 +485,7 @@ pub(super) async fn handle_fit(
 
 /// Serve one `DecisionEval` op.
 pub(super) async fn handle_eval(
-    state: &Arc<RwLock<ServerState>>,
+    state: &SharedState,
     req_id: u64,
     verified: &VerifiedRequestContext,
     op: DecisionEvalOp,

@@ -176,14 +176,7 @@ fn schema() -> FeatureSchemaBody {
     FeatureSchemaBody {
         schema_version: FEATURE_SCHEMA_VERSION,
         features: BoundedVec::new(vec![
-            FeatureSpec {
-                name: "text".to_string(),
-                kind: FeatureKind::TextBm25 {
-                    key: "summary".to_string(),
-                    param: "query".to_string(),
-                },
-                missing: MissingValue::Abstain,
-            },
+            eg_types::test_support::decision::summary_text_feature(),
             FeatureSpec {
                 name: "coverage".to_string(),
                 kind: FeatureKind::CoverageFraction {
@@ -651,14 +644,7 @@ async fn graph_candidates_are_read_through_acl_rls_and_a_select_only_plan() {
                 },
                 missing: MissingValue::Abstain,
             },
-            FeatureSpec {
-                name: "text".to_string(),
-                kind: FeatureKind::TextBm25 {
-                    key: "summary".to_string(),
-                    param: "query".to_string(),
-                },
-                missing: MissingValue::Abstain,
-            },
+            eg_types::test_support::decision::summary_text_feature(),
         ])
         .unwrap(),
     };

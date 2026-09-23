@@ -30,9 +30,9 @@ mod model;
 mod propagate;
 // EH-194 — typed `Claim`/`Evidence` nodes decoded from a snapshot (the reader half of
 // `eg_types::epistemic_node`). Unconditional: it adds no dependency.
-mod typed;
 #[cfg(feature = "epistemic-tms")]
 mod tms;
+mod typed;
 // EPI-P3-3 — calibrated probabilistic + causal reasoning: a linear-Gaussian SCM
 // supporting genuine do-calculus interventions, Pearl-style point counterfactuals,
 // and calibrated intervals. Independent of `epistemic-tms`/`contract` — its own

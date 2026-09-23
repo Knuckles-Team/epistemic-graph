@@ -1157,6 +1157,28 @@ mod tests {
         ))
     }
 
+    /// A fresh test root and a one-shard durable backend opened on it.
+    #[cfg(feature = "redb")]
+    fn shard_backend(
+        label: &str,
+    ) -> (
+        PathBuf,
+        String,
+        Arc<crate::server::persistence::redb_backend::RedbBackend>,
+    ) {
+        let root = test_root();
+        let root_str = root.to_string_lossy().to_string();
+        let backend = Arc::new(
+            crate::server::persistence::redb_backend::RedbBackend::open_with_shards(
+                root_str.clone(),
+                256,
+                1,
+            )
+            .expect(label),
+        );
+        (root, root_str, backend)
+    }
+
     fn derived_properties() -> Vec<u8> {
         rmp_serde::to_vec_named(&serde_json::json!({
             "invalidation_deps": ["base"],
@@ -1776,18 +1798,12 @@ mod tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        use crate::server::persistence::redb_backend::RedbBackend;
 
-        let root = test_root();
-        let root_str = root.to_string_lossy().to_string();
+        let (root, root_str, backend) = shard_backend("open projection recreate backend");
         let graph = format!("projection-recreate-{}", std::process::id());
         let graph_fname = crate::persist::sanitize(&graph);
         subscribed_graphs().write().await.remove(&graph_fname);
 
-        let backend = Arc::new(
-            RedbBackend::open_with_shards(root_str.clone(), 256, 1)
-                .expect("open projection recreate backend"),
-        );
         let persistence: Arc<dyn crate::server::persistence::PersistenceBackend> = backend.clone();
         let retired_batch =
             projection_batch(&graph_fname, 0, format!("projection-retired-{graph_fname}"));
@@ -1921,17 +1937,11 @@ mod tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        use crate::server::persistence::redb_backend::RedbBackend;
 
-        let root = test_root();
-        let root_str = root.to_string_lossy().to_string();
+        let (root, root_str, backend) = shard_backend("open projection budget backend");
         let graph_names: Vec<String> = (0..5)
             .map(|index| format!("shared-budget-{}-{index}", std::process::id()))
             .collect();
-        let backend = Arc::new(
-            RedbBackend::open_with_shards(root_str.clone(), 256, 1)
-                .expect("open projection budget backend"),
-        );
         let persistence: Arc<dyn crate::server::persistence::PersistenceBackend> = backend.clone();
 
         for graph in &graph_names {

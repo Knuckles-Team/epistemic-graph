@@ -274,6 +274,23 @@ pub fn state_with(
     )
 }
 
+/// A fresh redb backend at `persist_dir` and a server state serving from it:
+/// the opening move of every durable restart test.
+pub fn redb_state_at(
+    auth_secret: &str,
+    isolation: IsolationLayer,
+    persist_dir: &str,
+) -> (SharedPersistence, SharedState) {
+    let backend = open_redb_backend(persist_dir.to_string()).unwrap();
+    let state = state_with(
+        auth_secret,
+        isolation,
+        Some(persist_dir.to_string()),
+        Some(backend.clone()),
+    );
+    (backend, state)
+}
+
 pub fn durable_state(auth_secret: &str, isolation: IsolationLayer) -> SharedState {
     let (persist_dir, persistence) = crate::common::tempdir_persistence();
     state_with(auth_secret, isolation, persist_dir, persistence)

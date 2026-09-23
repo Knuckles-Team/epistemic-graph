@@ -122,6 +122,47 @@ pub struct ClaimWritePlan {
     pub methods: Vec<Method>,
 }
 
+/// The job's input-snapshot and algorithm lineage -- the fields the claim's
+/// attributes and the activity node both carry -- plus `extra`.
+fn job_lineage_fields<const N: usize>(
+    job: &AnalyticsJob,
+    extra: [(&str, serde_json::Value); N],
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut fields = serde_json::Map::new();
+    for (key, value) in [
+        ("job_id", serde_json::json!(job.job_id)),
+        (
+            "input_dataset_ref",
+            serde_json::json!(job.input_snapshot.dataset_ref),
+        ),
+        (
+            "input_content_digest",
+            serde_json::json!(job.input_snapshot.content_digest),
+        ),
+        (
+            "input_snapshot_version",
+            serde_json::json!(job.input_snapshot.version),
+        ),
+        ("algo_family", serde_json::json!(job.algo.family)),
+        ("algo_algorithm", serde_json::json!(job.algo.algorithm)),
+        (
+            "algo_params_digest",
+            serde_json::json!(job.algo.params_digest),
+        ),
+        (
+            "algo_code_version",
+            serde_json::json!(job.algo.code_version),
+        ),
+        ("algo_env_version", serde_json::json!(job.algo.env_version)),
+    ]
+    .into_iter()
+    .chain(extra)
+    {
+        fields.insert(key.to_string(), value);
+    }
+    fields
+}
+
 /// Lower a durably staged result to canonical graph methods without applying them.
 /// The write-set is deterministic for `(result_ref, job_id)` and therefore safe to
 /// stage, digest, retry and replay through the engine's universal mutation kernel.
@@ -161,18 +202,10 @@ pub fn plan_result_claim(
     )
     .with_calibration(calibration)
     .with_invalidation_deps([snapshot_handle.as_str(), evidence_id.as_str()])
-    .with_attributes(serde_json::json!({
-        "job_id": job.job_id,
-        "input_dataset_ref": job.input_snapshot.dataset_ref,
-        "input_content_digest": job.input_snapshot.content_digest,
-        "input_snapshot_version": job.input_snapshot.version,
-        "algo_family": job.algo.family,
-        "algo_algorithm": job.algo.algorithm,
-        "algo_params_digest": job.algo.params_digest,
-        "algo_code_version": job.algo.code_version,
-        "algo_env_version": job.algo.env_version,
-        "result_ref": result_ref.clone(),
-    }))
+    .with_attributes(serde_json::Value::Object(job_lineage_fields(
+        job,
+        [("result_ref", serde_json::json!(result_ref.clone()))],
+    )))
     .and_then(|claim| claim.to_properties())
     .map_err(|error| error.to_string())?;
     let evidence_props = Evidence::new(
@@ -190,18 +223,10 @@ pub fn plan_result_claim(
     }))
     .and_then(|evidence| evidence.to_properties())
     .map_err(|error| error.to_string())?;
-    let activity_props = serde_json::json!({
-        "type": "Activity",
-        "job_id": job.job_id,
-        "input_dataset_ref": job.input_snapshot.dataset_ref,
-        "input_content_digest": job.input_snapshot.content_digest,
-        "input_snapshot_version": job.input_snapshot.version,
-        "algo_family": job.algo.family,
-        "algo_algorithm": job.algo.algorithm,
-        "algo_params_digest": job.algo.params_digest,
-        "algo_code_version": job.algo.code_version,
-        "algo_env_version": job.algo.env_version,
-    });
+    let activity_props = serde_json::Value::Object(job_lineage_fields(
+        job,
+        [("type", serde_json::json!("Activity"))],
+    ));
     let supports = rmp_serde::to_vec_named(&serde_json::json!({ "relationship": "SUPPORTS" }))
         .map_err(|error| error.to_string())?;
     let generated_by =

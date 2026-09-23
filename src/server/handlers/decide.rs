@@ -20,6 +20,8 @@ pub(crate) mod statistical;
 #[cfg(feature = "decide")]
 mod candidates;
 #[cfg(feature = "decide")]
+mod stat_classes;
+#[cfg(feature = "decide")]
 mod stat_decide;
 #[cfg(feature = "decide")]
 mod stat_executor;
@@ -29,8 +31,6 @@ mod stat_jobs;
 mod stat_log;
 #[cfg(feature = "decide")]
 mod stat_nl;
-#[cfg(feature = "decide")]
-mod stat_classes;
 #[cfg(feature = "decide")]
 mod stat_replay;
 #[cfg(feature = "decide")]

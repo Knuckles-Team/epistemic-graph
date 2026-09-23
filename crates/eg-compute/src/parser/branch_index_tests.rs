@@ -14,20 +14,14 @@ const UTIL: &str = "def shared():\n    return 1\n";
 const APP_MAIN: &str = "from pkg.util import shared\n\ndef run():\n    return shared()\n";
 const APP_FEATURE: &str = "from pkg.util import shared\n\ndef run():\n    return shared() + 1\n";
 
-fn live(name: &str, revision: char) -> IndexRef {
-    IndexRef {
-        ref_name: name.to_string(),
-        revision_id: revision.to_string().repeat(40),
-        status: IndexRefStatus::Live,
-    }
-}
+use eg_types::test_support::repository_index::live_ref as live;
 
 fn member(ref_name: &str, path: &str, content: &str) -> IndexFileVersion {
-    IndexFileVersion {
-        ref_name: ref_name.to_string(),
-        path: path.to_string(),
-        blob_digest: content_digest(content.as_bytes()),
-    }
+    eg_types::test_support::repository_index::file_version(
+        ref_name,
+        path,
+        content_digest(content.as_bytes()),
+    )
 }
 
 fn scope(

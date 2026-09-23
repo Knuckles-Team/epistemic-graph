@@ -248,12 +248,19 @@ viz = []
 # gate (`tests/test_method_body_vectors.py`) fails for any method a missing gate
 # would hide.
 wire-complete = [
+    "wire-contract", "timeseries", "probabilistic", "jobs", "statechart",
+    "program-optimization", "knowledge-batch", "modality-serving", "quantum",
+    "asr-native", "viz",
+]
+# The type gates the capability ledger (`eg-capabilities`) always compiles
+# against: every wire family whose policy rows are unconditional. The
+# cfg-mirrored families (`jobs`, `statechart`, ...) stay out: eg-capabilities
+# enables each in lockstep with its own mirrored feature.
+wire-contract = [
     "finance", "datascience", "mining", "graphlearn", "ml-pipeline", "epistemic",
     "query", "graphql", "broker", "text", "blob", "kv", "sqlite-file", "streaming",
     "cost", "rdf", "sparql", "owl", "owl-plan", "obda", "wasm-udf", "compute-dist",
-    "matview", "security", "federation", "geo", "tensor", "stream", "timeseries",
-    "probabilistic", "jobs", "statechart", "program-optimization", "knowledge-batch",
-    "modality-serving", "quantum", "asr-native", "viz",
+    "matview", "security", "federation", "geo", "tensor", "stream",
 ]
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }

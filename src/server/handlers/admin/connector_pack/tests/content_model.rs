@@ -3,7 +3,9 @@
 use eg_types::agent_library::AgentLibraryLifecycle;
 use eg_types::connector_pack::{PackImportResult, PackViolationCode};
 
-use super::{bind, build_pack, head_of, import, imported, ok, skill, tool, Served, ADMIN, TENANT};
+use super::{
+    bind, build_pack, head_of, import, imported, ok, skill, tool, Content, Served, ADMIN, TENANT,
+};
 
 const CONNECTOR: &str = "content-model";
 
@@ -78,8 +80,12 @@ async fn a_package_release_with_identical_content_is_unchanged() {
     }
 }
 
-#[tokio::test]
-async fn an_absent_entry_is_withdrawn_and_returns_under_the_same_id() {
+/// A served engine with `CONNECTOR` bound and four tools `a`..`d` imported.
+async fn four_tools_imported() -> (
+    Served,
+    Vec<Content>,
+    eg_types::connector_pack::PackImportReceipt,
+) {
     let served = Served::new();
     bind(&served, CONNECTOR, ADMIN).await;
     let tools: Vec<_> = ["a", "b", "c", "d"]
@@ -87,6 +93,12 @@ async fn an_absent_entry_is_withdrawn_and_returns_under_the_same_id() {
         .map(|name| tool(CONNECTOR, name, "A tool."))
         .collect();
     let first = imported(&served, &build_pack(CONNECTOR, &tools), None).await;
+    (served, tools, first)
+}
+
+#[tokio::test]
+async fn an_absent_entry_is_withdrawn_and_returns_under_the_same_id() {
+    let (served, tools, first) = four_tools_imported().await;
     let second = imported(
         &served,
         &build_pack(CONNECTOR, &tools[..3]),
@@ -115,13 +127,7 @@ async fn an_absent_entry_is_withdrawn_and_returns_under_the_same_id() {
 
 #[tokio::test]
 async fn withdrawing_most_of_a_connector_needs_the_admin_override() {
-    let served = Served::new();
-    bind(&served, CONNECTOR, ADMIN).await;
-    let tools: Vec<_> = ["a", "b", "c", "d"]
-        .into_iter()
-        .map(|name| tool(CONNECTOR, name, "A tool."))
-        .collect();
-    let first = imported(&served, &build_pack(CONNECTOR, &tools), None).await;
+    let (served, tools, first) = four_tools_imported().await;
     match ok(
         "Import",
         import(

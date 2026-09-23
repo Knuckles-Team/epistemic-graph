@@ -45,15 +45,7 @@ pub(crate) mod tests {
                 nonce: crate::contract::Nonce::from_bytes([request_id as u8; 32]),
                 now_ms: 10,
             },
-            CompiledOperation {
-                method: crate::contract::MethodId::new(BATCH_COMPILED_METHODS).unwrap(),
-                method_schema_id: method_schema_id(
-                    &crate::contract::MethodId::new(BATCH_COMPILED_METHODS).unwrap(),
-                )
-                .unwrap(),
-                method_schema_digest: crate::contract::Digest256::from_bytes([1_u8; 32]),
-                canonical_payload_digest: crate::contract::Digest256::from_bytes([2_u8; 32]),
-            },
+            crate::test_support::change_envelope::compiled_batch_operation(),
         )
         .unwrap()
     }
