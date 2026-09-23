@@ -6,4 +6,4 @@
 // at run time -- a deployment-editable file cannot be an identity input.
 
 /// `contract/receipt.json`'s `contract_digest`.
-pub const CONTRACT_CATALOG_DIGEST: &str = "f817e7fdc96451471959c8dd6e3a275a9ddde046328f416ef034a0927bc2c6b8";
+pub const CONTRACT_CATALOG_DIGEST: &str = "4522280fc6e76af67e4d8c23b7221d5791e0d0993481da908465fc67f359187f";

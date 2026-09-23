@@ -2,16 +2,16 @@
   "artifact_digests": {
     "contract/fixtures/connector_pack_digest_vectors.json": "b1fe4660272ca12419349fd1e1c57a6f54db762e24b4b47d2d1f8fd46016588a",
     "contract/fixtures/decision_digest_vectors.json": "cbf0d0712d78901015451aa9e7e2b0041063c53d8056a8046faf64330f4c5a41",
-    "contract/methods.json": "c00b77858bd9a5fc6bd8575998203dfd4d8573703da7cd1c7dd4f4eeb60afe8f",
-    "contract/schemas/method.request.json": "948e0ce9d8f4c1a7cb04f3ae992bd64c906c54957905eb1a07574fceee7b6730",
+    "contract/methods.json": "4d069102bcf3ce4d1762241b78cc01ae5b6f55b0e4f09bf05f4d1e69b1a565b5",
+    "contract/schemas/method.request.json": "8b816e217f2b18942f1a9657abeff961128ba2142bd7fa3d8f7039b399bb7b69",
     "contract/schemas/result.cluster.json": "0aac12793ab69a65c1326ba4471c48bfa4a87596be9eb7972eaa09fe65608c42",
     "contract/schemas/result.compute.json": "2522ca588ef3e4ea8af402faa167dee281cb33e5df901d5124404ec5bc0504db",
-    "contract/schemas/result.coordination.json": "80e866c1b9189805b1f27371c303b9a7b384ca6c18d317f50523592f53c31c03",
+    "contract/schemas/result.coordination.json": "39f70fcbc42ba32eadbd16a18d4d20643254cfe958effc0dcf1a7bb532ca8288",
     "contract/schemas/result.graph.json": "71d2305b12cdc37b83f1e04559e86a553040adec483e8cdc8e8202a1af2f2cbe",
     "contract/schemas/result.ingestion.json": "33b88b5728252a24f66d0c201eac9bd548810a428631a4ab9705e01ccce3e415",
     "contract/schemas/result.messaging.json": "eaa28f229255ef4b26195218eac9f34ecf2c35b196f1784baefef1aa7179aa3e",
     "contract/schemas/result.payload.json": "1bd5261c36024a16810f262e65449f3cf81de819c1d8189abd68a75133cae8c8",
-    "contract/schemas/result.query.json": "0123953087f1d5a3cc2926ceee7af7b46b815d00cd4920e9263cef6b9f0edbca",
+    "contract/schemas/result.query.json": "2122e19c4546fd9c7acedf66f5a3570c40b63773d4dc2f0a66b279033292cfb0",
     "contract/schemas/result.reasoning.json": "63d1811dc679bf4ddbd59626c64f4312f23226e5db224989c2d09e336ae6264f",
     "contract/schemas/result.security.json": "af85883a336f9b8d93f2fba7e6f0b47cccd1697deeb9fb92c7565cf58417267c",
     "contract/schemas/result.storage.json": "0dedeba42be4b4ac8129102abf9829052a089d65b15b3d5e5e6e7dbe15ac07dd",
@@ -48,7 +48,7 @@
     "epistemic_graph/generated/write_back.py": "211f28015a9c510a06c939f6ad5da01dba2567d7a01bd56e3bd3d286728fba3d"
   },
   "cargo_lock_sha256": "a1b994c624888a0f24fce8e7dab119de26be496c6c025743903f02a7f7084107",
-  "contract_digest": "f817e7fdc96451471959c8dd6e3a275a9ddde046328f416ef034a0927bc2c6b8",
+  "contract_digest": "4522280fc6e76af67e4d8c23b7221d5791e0d0993481da908465fc67f359187f",
   "contract_version": 1,
   "feature_profile": [
     "contract",
@@ -567,6 +567,13 @@
         "value": "2"
       }
     ],
+    "VIEW_SCHEMA_VERSION": [
+      {
+        "file": "src/server/handlers/decide/stat_view.rs",
+        "scope": "",
+        "value": "1"
+      }
+    ],
     "WIRE_VERSION": [
       {
         "file": "crates/eg-viz-graph-tiles/src/wire.rs",
@@ -592,5 +599,5 @@
     "schematized": 424,
     "unclassified": 0
   },
-  "source_tree_oid": "b571cb47632170fa77c881b5a978e49697408f282763ffdce36bf837088e888e"
+  "source_tree_oid": "19ff42e988abf3e92bb4368b3e16d7a42ec247818e430f820c28618f742489ae"
 }
