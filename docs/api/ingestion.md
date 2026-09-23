@@ -102,25 +102,29 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Disc
 
 ## `IndexRepository`
 
+EH-280 runtime-conditional: without `scope` a stateless parse+resolve of the submitted files; with `scope` each unique blob is parsed once and the :Blob/:FileVersion/:Branch projection (tombstones remove membership) commits as one content-addressed ChangeEnvelope through ApplyChangeEnvelope, replaying an unchanged batch
+
 | Property | Value |
 |---|---|
 | Stability | `stable` |
-| Authz action | `compute:parse` |
-| Mutates | `false` |
-| Durability domain | `None` |
+| Authz action | `source:ingest` |
+| Mutates | `true` |
+| Durability domain | `GraphRedb` |
 | Idempotent | `true` |
-| Audited | `false` |
-| Emits CDC | `false` |
-| Txn participation | `None` |
-| Replay class | `NotReplayable` |
+| Audited | `true` |
+| Emits CDC | `true` |
+| Txn participation | `Saga` |
+| Replay class | `OperationIdentity` |
 | Consumer profiles | `python` |
-| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
+| Format identities | `STORAGE_KERNEL_SCHEMA_VERSION`, `GRAPH_SNAPSHOT_SCHEMA_VERSION`, `GRAPH_META_SCHEMA_VERSION` |
 
 **Request parameters**
 
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
 | `files_msgpack` | array of integer (uint8) | yes |  |
+| `scope` | one of: `IndexRepositoryScope` \| null | no |  |
 
 **Result**
 

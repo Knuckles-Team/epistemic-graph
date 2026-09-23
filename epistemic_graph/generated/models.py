@@ -171,7 +171,6 @@ class AgentComponentDraft(BaseModel):
     kind: AgentComponentKind
     policy_digest: str
     provenance: ComponentProvenance
-    provides: list[str] | None = None
     purpose_id: str
     required_capabilities: list[str] | None = None
     requires: list[ComponentDependency] | None = None
@@ -201,7 +200,6 @@ class AgentComponentEntry(BaseModel):
     lifecycle: AgentLibraryLifecycle
     policy_digest: str
     provenance: ComponentProvenance
-    provides: list[str] | None = None
     purpose_id: str
     required_capabilities: list[str] | None = None
     requires: list[ComponentDependency] | None = None
@@ -1136,7 +1134,9 @@ class AssemblyRequirements(BaseModel):
 class AssemblyResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    agents: BoundedVec_AgentLibraryEntryDraft_8 | None = None
     graph: AgentGraphDraft | None = None
+    model: SolveModelSpec | None = None
     record: DecisionRecord
     schema_version: Annotated[int, Field(ge=0, le=65535)]
 
@@ -1158,6 +1158,13 @@ class AssociationRuleRow(BaseModel):
     consequent: list[str]
     lift: float
     support: float
+
+
+class AuditDraw(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    inclusion_probability: UnitRationalWire
+    sampled: bool
 
 
 class AuditReport(BaseModel):
@@ -1337,6 +1344,7 @@ class CandidateSourceAgentLibrary(BaseModel):
 class CandidateSourceGraph(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    graph: str
     plan: Plan
     source: Literal["graph"]
 
@@ -1881,6 +1889,7 @@ class ChangeEnvelope(BaseModel):
     evidence: list[EvidenceRecord] | None = None
     features: list[FeatureRecord] | None = None
     lineage: list[LineageRecord] | None = None
+    material_class: MaterialClass | None = None
     mutation: MutationBatch
     policies: list[PolicyRecord] | None = None
     privacy: PrivacyAttestation
@@ -2373,6 +2382,11 @@ class CommunityMiningResult(BaseModel):
     written_back: Annotated[int, Field(ge=0)]
 
 
+class CommunityQualityFunction(str, Enum):
+    MODULARITY = "modularity"
+    CPM = "cpm"
+
+
 class CommunityRow(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -2747,6 +2761,52 @@ class ContinuousQueryResult(BaseModel):
     value: float
 
 
+class ControlLeaseIssueOutcome(str, Enum):
+    ISSUED = "issued"
+    COLLISION = "collision"
+
+
+class ControlLeaseIssued(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    changed_work_item_ids: list[str]
+    lease: ControlLeaseView | None = None
+    outcome: ControlLeaseIssueOutcome
+
+
+class ControlLeaseTarget(str, Enum):
+    CONSUMED = "consumed"
+    REVOKED = "revoked"
+    EXPIRED = "expired"
+
+
+class ControlLeaseTransition(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    changed_work_item_ids: list[str]
+    lease: ControlLeaseView | None = None
+    outcome: ControlLeaseTransitionOutcome
+
+
+class ControlLeaseTransitionOutcome(str, Enum):
+    APPLIED = "applied"
+    CONFLICT = "conflict"
+    NOT_FOUND = "not_found"
+
+
+class ControlLeaseView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expires_at_ms: Annotated[int, Field(ge=0)]
+    grant: dict[str, Any]
+    hard_expires_at_ms: Annotated[int, Field(ge=0)]
+    issued_at_ms: Annotated[int, Field(ge=0)]
+    kind: str
+    lease_id: str
+    revision: Annotated[int, Field(ge=0)]
+    status: ControlLeaseStatus
+
+
 class ConvergenceGate(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -2845,6 +2905,26 @@ class DatalogReasoningResult(BaseModel):
     schema_digests: list[str]
 
 
+class DatasetSourceInline(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    dataset: LabelledDataset
+    source: Literal["inline"]
+
+
+class DatasetSourceLogged(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    question_id: str
+    source: Literal["logged"]
+
+
+DatasetSource = Annotated[
+    DatasetSourceInline | DatasetSourceLogged,
+    Field(discriminator="source"),
+]
+
+
 class DatasetStats(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -2929,10 +3009,14 @@ class DecisionEvalReceipt(BaseModel):
 
     calibration: CalibrationStatement | None = None
     estimates: BoundedVec_OpeEstimateView_8
+    exclusions: LabelExclusions
+    failed_gates: BoundedVec_string_16 | None = None
     head_digest: str
+    metrics: FullLabelMetrics | None = None
     n_records: Annotated[int, Field(ge=0)]
     passed: bool
     policy_digest: str
+    pooled: BoundedVec_PooledRate_64 | None = None
     receipt_digest: str
     synthetic: bool
 
@@ -2945,6 +3029,7 @@ class DecisionEvalRequest(BaseModel):
     gold_set_digest: str | None = None
     idempotency_key: str
     policy: DecisionPolicyRef
+    source: DatasetSource
     tenant_id: str
     window: RecordWindow
 
@@ -2978,8 +3063,24 @@ class DecisionFitRequest(BaseModel):
     label_regime: LabelRegime
     optimiser: OptimiserSpec
     policy: DecisionPolicyRef
+    source: DatasetSource
     tenant_id: str
     window: RecordWindow
+
+
+class DecisionHeadBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    calibration: HeadCalibration | None = None
+    feature_schema_digest: str
+    kind: HeadKind
+    n_training: Annotated[int, Field(ge=0)]
+    regime: FittedRegime
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    standardisation: BoundedVec_FeatureStandardisation_32
+    synthetic: bool
+    training_records_digest: str
+    weights: BoundedVec_QuantisedValue_32
 
 
 class DecisionInputs(BaseModel):
@@ -2992,6 +3093,7 @@ class DecisionInputs(BaseModel):
     policy_digest: str
     request: AssemblyRequest
     solver: SolverIdentity
+    templates: BoundedVec_TemplateFacts_8 | None = None
 
 
 class DecisionJobKind(str, Enum):
@@ -3002,8 +3104,10 @@ class DecisionJobKind(str, Enum):
 class DecisionJobOutputFit(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    draft: DecisionHeadBody
     draft_length: Annotated[int, Field(ge=0)]
     draft_sha256: str
+    exclusions: LabelExclusions
     head_digest: str
     output: Literal["fit"]
     synthetic: bool
@@ -3084,6 +3188,113 @@ class DecisionJobStatusRequest(BaseModel):
     tenant_id: str
 
 
+class DecisionLogCommitted(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    record_digest: str
+    record_id: str
+    replayed: bool
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+
+
+class DecisionLogCompacted(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    compacted: Annotated[int, Field(ge=0)]
+    more: bool
+    retired: Annotated[int, Field(ge=0)]
+
+
+class DecisionLogEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    committed_at_ms: Annotated[int, Field(ge=0)]
+    committed_by: str
+    inputs: EntryInputs | None = None
+    record: StatisticalDecisionRecord
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    visibility: RecordVisibility
+
+
+class DecisionLogOpCommit(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["commit"]
+    record: StatisticalDecisionRecord
+
+
+class DecisionLogOpEvaluate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    evaluation: DecisionOutcomeEvaluation
+    op: Literal["evaluate"]
+    tenant_id: str
+
+
+class DecisionLogOpGet(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["get"]
+    record_id: str
+    tenant_id: str
+
+
+class DecisionLogOpAggregate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["aggregate"]
+    request: OutcomeAggregateRequest
+
+
+class DecisionLogOpCompact(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    limit: Annotated[int, Field(ge=0)]
+    op: Literal["compact"]
+    policy: DecisionPolicyRef
+    tenant_id: str
+
+
+class DecisionLogOpVerify(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["verify"]
+    record_id: str
+    tenant_id: str
+
+
+DecisionLogOp = Annotated[
+    DecisionLogOpCommit
+    | DecisionLogOpEvaluate
+    | DecisionLogOpGet
+    | DecisionLogOpAggregate
+    | DecisionLogOpCompact
+    | DecisionLogOpVerify,
+    Field(discriminator="op"),
+]
+
+
+class DecisionLogVerificationVerified(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    record_digest: str
+    verification: Literal["verified"]
+
+
+class DecisionLogVerificationInputsRetired(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    blob_sha256: str
+    record_digest: str
+    verification: Literal["inputs_retired"]
+
+
+DecisionLogVerification = Annotated[
+    DecisionLogVerificationVerified | DecisionLogVerificationInputsRetired,
+    Field(discriminator="verification"),
+]
+
+
 class DecisionOutcomeSolved(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -3104,6 +3315,18 @@ DecisionOutcome = Annotated[
     DecisionOutcomeSolved | DecisionOutcomeAbstained,
     Field(discriminator="outcome"),
 ]
+
+
+class DecisionOutcomeEvaluation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    class_: EvidenceClass = Field(..., alias="class")
+    evaluation_id: str
+    fidelity: OutcomeFidelity
+    lease_holder: str
+    record_id: str
+    selected_agent: str
+    success: bool | None = None
 
 
 class DecisionPolicy(BaseModel):
@@ -3901,6 +4124,53 @@ class DiscoveryAuthBinding(BaseModel):
     tenant_digest: str
 
 
+class DiscoveryCounts(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    prompts: Annotated[int, Field(ge=0)]
+    resources: Annotated[int, Field(ge=0)]
+    skills: Annotated[int, Field(ge=0)]
+    tools: Annotated[int, Field(ge=0)]
+
+
+class DiscoveryOutcomeReachable(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    status: Literal["reachable"]
+
+
+class DiscoveryOutcomeUnreachable(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    error: str
+    status: Literal["unreachable"]
+
+
+DiscoveryOutcome = Annotated[
+    DiscoveryOutcomeReachable | DiscoveryOutcomeUnreachable,
+    Field(discriminator="status"),
+]
+
+
+class DiscoveryScopeTenantLocal(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    authority: Literal["tenant_local"]
+
+
+class DiscoveryScopeOauthGrant(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    authority: Literal["oauth_grant"]
+    grant_digest: Digest256
+
+
+DiscoveryScope = Annotated[
+    DiscoveryScopeTenantLocal | DiscoveryScopeOauthGrant,
+    Field(discriminator="authority"),
+]
+
+
 class DistAlgoBfs(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -4028,6 +4298,35 @@ class EntityResolutionMiningResult(BaseModel):
     n_matches: Annotated[int, Field(ge=0)]
     n_records: Annotated[int, Field(ge=0)]
     written_back: Annotated[int, Field(ge=0)]
+
+
+class EntryInputsInline(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    inputs: Literal["inline"]
+
+
+class EntryInputsCompacted(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    blob: InputsBlob
+    compacted_at_ms: Annotated[int, Field(ge=0)]
+    inputs: Literal["compacted"]
+
+
+class EntryInputsRetired(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    blob: InputsBlob
+    compacted_at_ms: Annotated[int, Field(ge=0)]
+    inputs: Literal["retired"]
+    retired_at_ms: Annotated[int, Field(ge=0)]
+
+
+EntryInputs = Annotated[
+    EntryInputsInline | EntryInputsCompacted | EntryInputsRetired,
+    Field(discriminator="inputs"),
+]
 
 
 class EpistemicStatusResult(BaseModel):
@@ -4486,6 +4785,15 @@ class FeatureRecord(BaseModel):
     value_msgpack: bytes
 
 
+class FeatureStandardisation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    center: QuantisedValue
+    lower: QuantisedValue
+    scale: QuantisedValue
+    upper: QuantisedValue
+
+
 class FeatureStepEmbedding(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -4516,6 +4824,15 @@ FeatureStep = Annotated[
     FeatureStepEmbedding | FeatureStepNodeVector | FeatureStepNormalize,
     Field(discriminator="step"),
 ]
+
+
+class FidelityCounts(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    censored: Annotated[int, Field(ge=0)]
+    final_output: Annotated[int, Field(ge=0)]
+    full_step: Annotated[int, Field(ge=0)]
+    tool_calls: Annotated[int, Field(ge=0)]
 
 
 class Fill(BaseModel):
@@ -4711,6 +5028,305 @@ class FittedModelSvrModel(BaseModel):
     support_vectors: list[list[float]]
 
 
+class FittedRegime(str, Enum):
+    FULL_LABEL = "full_label"
+    BANDIT_LABEL = "bandit_label"
+
+
+class FleetCatalogCursor(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    after_id: str
+    after_name: str
+    snapshot_digest: Digest256
+
+
+class FleetCatalogKind(str, Enum):
+    DISCOVERIES = "discoveries"
+    TOOLS = "tools"
+    PROMPTS = "prompts"
+    RESOURCES = "resources"
+    SKILLS = "skills"
+
+
+class FleetCatalogListRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cursor: FleetCatalogCursor | None = None
+    grant_digests: BoundedVec_Digest256_64 | None = None
+    kind: FleetCatalogKind
+    limit: Annotated[int, Field(ge=0, le=65535)] | None = None
+    query: str | None = None
+
+
+class FleetCatalogLookup(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    commons_revision: Annotated[int, Field(ge=0)]
+    observed_at_ms: Annotated[int, Field(ge=0)]
+    rows: BoundedVec_FleetCatalogRow_256
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+
+
+class FleetCatalogLookupRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    grant_digests: BoundedVec_Digest256_64 | None = None
+    ids: BoundedVec_string_256
+
+
+class FleetCatalogOpRecordDiscovery(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["record_discovery"]
+    request: FleetDiscoveryRecordRequest
+
+
+class FleetCatalogOpSetOverride(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["set_override"]
+    request: FleetOverrideSetRequest
+
+
+class FleetCatalogOpClearOverride(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["clear_override"]
+    request: FleetOverrideClearRequest
+
+
+class FleetCatalogOpList(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["list"]
+    request: FleetCatalogListRequest
+
+
+class FleetCatalogOpLookup(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["lookup"]
+    request: FleetCatalogLookupRequest
+
+
+FleetCatalogOp = Annotated[
+    FleetCatalogOpRecordDiscovery
+    | FleetCatalogOpSetOverride
+    | FleetCatalogOpClearOverride
+    | FleetCatalogOpList
+    | FleetCatalogOpLookup,
+    Field(discriminator="op"),
+]
+
+
+class FleetCatalogPage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    commons_revision: Annotated[int, Field(ge=0)]
+    kind: FleetCatalogKind
+    next_cursor: FleetCatalogCursor | None = None
+    observed_at_ms: Annotated[int, Field(ge=0)]
+    rows: BoundedVec_FleetCatalogRow_256
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    snapshot_digest: Digest256
+    total: Annotated[int, Field(ge=0)]
+
+
+class FleetCatalogRowDiscovery(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["discovery"]
+    row: FleetDiscoveryRow
+
+
+class FleetCatalogRowTool(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["tool"]
+    row: FleetToolRow
+
+
+class FleetCatalogRowPrompt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["prompt"]
+    row: FleetPromptRow
+
+
+class FleetCatalogRowResource(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["resource"]
+    row: FleetResourceRow
+
+
+class FleetCatalogRowSkill(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    kind: Literal["skill"]
+    row: FleetSkillRow
+
+
+FleetCatalogRow = Annotated[
+    FleetCatalogRowDiscovery
+    | FleetCatalogRowTool
+    | FleetCatalogRowPrompt
+    | FleetCatalogRowResource
+    | FleetCatalogRowSkill,
+    Field(discriminator="kind"),
+]
+
+
+class FleetComponentRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    acl: FleetRowAcl
+    connector: str
+    definition_digest: str
+    description: str
+    enabled: bool
+    entry_revision: Annotated[int, Field(ge=0)]
+    id: str
+    name: str
+    server_name: str
+
+
+class FleetDiscoveryRecordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    connector: str
+    counts: DiscoveryCounts | None = None
+    expected_revision: Annotated[int, Field(ge=0)] | None = None
+    outcome: DiscoveryOutcome
+    scope: DiscoveryScope
+    server_name: str
+
+
+class FleetDiscoveryRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    acl: FleetRowAcl
+    connector: str
+    counts: DiscoveryCounts
+    id: str
+    observed_at_ms: Annotated[int, Field(ge=0)]
+    outcome: DiscoveryOutcome
+    revision: Annotated[int, Field(ge=0)]
+    scope: DiscoveryScope
+    server_name: str
+
+
+class FleetOverrideSkillType(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    field: Literal["skill_type"]
+    skill_type: SkillType
+
+
+FleetOverride = Annotated[
+    FleetOverrideSkillType,
+    Field(discriminator="field"),
+]
+
+
+class FleetOverrideClearRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    component_id: str
+    expected_revision: Annotated[int, Field(ge=0)] | None = None
+    field: FleetOverrideField
+
+
+class FleetOverrideField(str, Enum):
+    SKILL_TYPE = "skill_type"
+
+
+class FleetOverrideSetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    component_id: str
+    expected_revision: Annotated[int, Field(ge=0)] | None = None
+    value: FleetOverride
+
+
+class FleetPromptRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    component: FleetComponentRef
+    uri: str
+
+
+class FleetResourceRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    component: FleetComponentRef
+    media_type: str | None = None
+    resource_kind: ResourceKind
+    uri: str
+
+
+class FleetRowAcl(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    publisher: str
+    tenant_id: str
+    visibility: FleetVisibility
+
+
+class FleetSkillRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    classification: str
+    component: FleetComponentRef
+    override_revision: Annotated[int, Field(ge=0)] | None = None
+    skill_type: SkillType
+    skill_type_source: SkillTypeSource
+    uri: str
+
+
+class FleetToolRow(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    component: FleetComponentRef
+    effect: ToolEffect
+    input_schema_digest: str | None = None
+    tool_mode: ToolMode
+
+
+class FleetVisibilityTenant(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    scope: Literal["tenant"]
+
+
+class FleetVisibilityPrincipal(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    principal: str
+    scope: Literal["principal"]
+
+
+FleetVisibility = Annotated[
+    FleetVisibilityTenant | FleetVisibilityPrincipal,
+    Field(discriminator="scope"),
+]
+
+
+class FleetWriteDisposition(str, Enum):
+    WRITTEN = "written"
+    REPLAYED = "replayed"
+
+
+class FleetWriteReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    disposition: FleetWriteDisposition
+    observed_at_ms: Annotated[int, Field(ge=0)]
+    record_id: str
+    revision: Annotated[int, Field(ge=0)]
+
+
 class ForecastAlgorithm(str, Enum):
     ARIMA = "arima"
     HOLTWINTERS = "holtwinters"
@@ -4800,6 +5416,23 @@ class ForensicReport(BaseModel):
     m_score: float
     verdict: str
     z_score: float
+
+
+class FullLabelMetrics(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    act_risk_upper: UnitRationalWire
+    acted: Annotated[int, Field(ge=0)]
+    acted_wrong: Annotated[int, Field(ge=0)]
+    brier: QuantisedValue
+    coverage_lower: UnitRationalWire
+    coverage_upper: UnitRationalWire
+    covered: Annotated[int, Field(ge=0)]
+    expected_calibration_error: QuantisedValue
+    log_loss: QuantisedValue
+    n_items: Annotated[int, Field(ge=0)]
+    set_size_total: Annotated[int, Field(ge=0)]
+    top1_hits: Annotated[int, Field(ge=0)]
 
 
 class FuseClockTumbling(BaseModel):
@@ -4996,7 +5629,7 @@ class GraphSchemaSourcesView(BaseModel):
 
     composed_digest: str
     core_catalog_digest: str
-    core_sources: BoundedVec_GraphSchemaSourceView_32
+    core_sources: BoundedVec_GraphSchemaSourceView_64
     dynamic_sources: BoundedVec_GraphSchemaSourceView_32
     graph: str
     schema_version: Annotated[int, Field(ge=0, le=65535)]
@@ -5072,6 +5705,20 @@ class HawkesFit(BaseModel):
     mu: float
 
 
+class HeadCalibration(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    act_threshold: QuantisedValue | None = None
+    alpha: UnitRationalWire
+    coverage_lower: UnitRationalWire
+    coverage_upper: UnitRationalWire
+    inverse_temperature: QuantisedValue
+    n_calibration: Annotated[int, Field(ge=0)]
+    risk: RiskStatement | None = None
+    set_threshold: QuantisedValue
+    synthetic: bool
+
+
 class HeadKind(str, Enum):
     WEIGHTED_FEATURES = "weighted_features"
     LISTWISE_LOGISTIC = "listwise_logistic"
@@ -5141,6 +5788,14 @@ class IndexFileStatus(str, Enum):
     ERROR = "error"
 
 
+class IndexFileVersion(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    blob_digest: str
+    path: str
+    ref_name: str
+
+
 class IndexManifestListing(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5149,6 +5804,28 @@ class IndexManifestListing(BaseModel):
     kind: str
     source_snapshot_version: Annotated[int, Field(ge=0)]
     validity: str
+
+
+class IndexRef(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    ref_name: str
+    revision_id: str
+    status: IndexRefStatus
+
+
+class IndexRefStatus(str, Enum):
+    LIVE = "live"
+    DELETED = "deleted"
+
+
+class IndexRepositoryScope(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    file_versions: BoundedVec_IndexFileVersion_262144 | None = None
+    refs: BoundedVec_IndexRef_4096
+    repository_id: str
+    tombstones: BoundedVec_IndexTombstone_262144 | None = None
 
 
 class IndexResult(BaseModel):
@@ -5170,12 +5847,69 @@ class IndexResult(BaseModel):
     symbols_extracted: Annotated[int, Field(ge=0)]
 
 
+class IndexTombstone(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    path: str
+    prior_blob_digest: str
+    ref_name: str
+    successor_path: str | None = None
+
+
+class InputsBlob(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    holder_id: str
+    length: Annotated[int, Field(ge=0)]
+    manifest_digest: str
+    sha256: str
+
+
 class InterClusterEdge(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     dst_idx: Annotated[int, Field(ge=0)]
     src_idx: Annotated[int, Field(ge=0)]
     weight: float
+
+
+class IssueControlLeaseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expires_at_ms: Annotated[int, Field(ge=0)]
+    grant: dict[str, Any]
+    hard_expires_at_ms: Annotated[int, Field(ge=0)]
+    idempotency_key: str
+    issued_at_ms: Annotated[int, Field(ge=0)]
+    kind: str
+    lease_id: str
+    tenant: str
+
+
+class ItemLabelGold(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    acceptable: BoundedVec_string_64
+    label: Literal["gold"]
+    source: LabelSource
+
+
+class ItemLabelLogged(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    commit_principal: str
+    evaluation: OutcomeEvaluation
+    executed: str
+    label: Literal["logged"]
+    logging_propensities: BoundedVec_UnitRationalWire_64
+    pinned: bool
+    propensity_source: PropensitySource
+
+
+ItemLabel = Annotated[
+    ItemLabelGold | ItemLabelLogged,
+    Field(discriminator="label"),
+]
 
 
 class JobAlgoVersion(BaseModel):
@@ -5751,6 +6485,22 @@ class KnowledgeStreamRequest(BaseModel):
     schema_version: Annotated[int, Field(ge=0, le=65535)]
 
 
+class LabelExclusions(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    below_fidelity_floor: Annotated[int, Field(ge=0)]
+    censored: Annotated[int, Field(ge=0)]
+    llm_resolved: Annotated[int, Field(ge=0)]
+    not_observation: Annotated[int, Field(ge=0)]
+    outside_window: Annotated[int, Field(ge=0)]
+    pinned: Annotated[int, Field(ge=0)]
+    propensity_not_executed_policy: Annotated[int, Field(ge=0)]
+    self_reported: Annotated[int, Field(ge=0)]
+    unapproved_principal: Annotated[int, Field(ge=0)]
+    wrong_regime: Annotated[int, Field(ge=0)]
+    zero_executed_propensity: Annotated[int, Field(ge=0)]
+
+
 class LabelRegimeFullLabel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5768,6 +6518,35 @@ LabelRegime = Annotated[
     LabelRegimeFullLabel | LabelRegimeBanditLabel,
     Field(discriminator="regime"),
 ]
+
+
+class LabelSource(str, Enum):
+    HUMAN = "human"
+    SYNTHETIC_CONSTRUCTION = "synthetic_construction"
+    LLM_RESOLVED = "llm_resolved"
+
+
+class LabelledDataset(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    feature_names: BoundedVec_string_32
+    feature_schema_digest: str
+    items: BoundedVec_LabelledItem_4096
+    scale: QuantScaleTag
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    synthetic: bool
+
+
+class LabelledItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    audit_inclusion: UnitRationalWire | None = None
+    candidate_ids: BoundedVec_string_64
+    class_key: str
+    features: BoundedVec_int64_2048
+    item_id: str
+    label: ItemLabel
+    recorded_at_ms: Annotated[int, Field(ge=0)]
 
 
 class LagrangeDual(BaseModel):
@@ -5864,6 +6643,13 @@ class LineageRecord(BaseModel):
     transform_version: str
 
 
+class LinearExplanation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    contributions: BoundedVec_QuantisedValue_32
+    option_id: str
+
+
 class LinkPrediction(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5906,6 +6692,11 @@ class MaintenanceEnvelope(BaseModel):
     maintenance_key: str
     serving_principal: str
     subject: str
+
+
+class MaterialClass(str, Enum):
+    ATTESTED = "attested"
+    REPOSITORY_SNAPSHOT = "repository_snapshot"
 
 
 class MaterialOperation(str, Enum):
@@ -7152,6 +7943,13 @@ class MethodListRegisteredServers(BaseModel):
 
     method: Literal["ListRegisteredServers"]
     params: MethodListRegisteredServersParams
+
+
+class MethodFleetCatalog(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FleetCatalog"]
+    params: MethodFleetCatalogParams
 
 
 class MethodPlacementRoute(BaseModel):
@@ -8895,6 +9693,13 @@ class MethodDecisionEval(BaseModel):
     params: MethodDecisionEvalParams
 
 
+class MethodDecisionLog(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["DecisionLog"]
+    params: MethodDecisionLogParams
+
+
 class MethodSolve(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -8948,6 +9753,48 @@ class MethodMutationOutbox(BaseModel):
 
     method: Literal["MutationOutbox"]
     params: MethodMutationOutboxParams
+
+
+class MethodGetWorkItem(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["GetWorkItem"]
+    params: MethodGetWorkItemParams
+
+
+class MethodListWorkItems(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["ListWorkItems"]
+    params: MethodListWorkItemsParams
+
+
+class MethodGetWorkItemOutcome(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["GetWorkItemOutcome"]
+    params: MethodGetWorkItemOutcomeParams
+
+
+class MethodIssueControlLease(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["IssueControlLease"]
+    params: MethodIssueControlLeaseParams
+
+
+class MethodTransitionControlLease(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["TransitionControlLease"]
+    params: MethodTransitionControlLeaseParams
+
+
+class MethodGetControlLease(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["GetControlLease"]
+    params: MethodGetControlLeaseParams
 
 
 Method = Annotated[
@@ -9122,6 +9969,7 @@ Method = Annotated[
     | MethodClusterMembers
     | MethodRegisterServer
     | MethodListRegisteredServers
+    | MethodFleetCatalog
     | MethodPlacementRoute
     | MethodPlacementAdmin
     | MethodBackup
@@ -9372,6 +10220,7 @@ Method = Annotated[
     | MethodDecide
     | MethodDecisionFit
     | MethodDecisionEval
+    | MethodDecisionLog
     | MethodSolve
     | MethodConnectorPack
     | MethodSourceIngest
@@ -9379,7 +10228,13 @@ Method = Annotated[
     | MethodWriteBack
     | MethodGraphSchema
     | MethodGraphSchemaList
-    | MethodMutationOutbox,
+    | MethodMutationOutbox
+    | MethodGetWorkItem
+    | MethodListWorkItems
+    | MethodGetWorkItemOutcome
+    | MethodIssueControlLease
+    | MethodTransitionControlLease
+    | MethodGetControlLease,
     Field(discriminator="method"),
 ]
 
@@ -9833,6 +10688,7 @@ class MethodCommunityDetectEphemeralParams(BaseModel):
 
     edges: list[MethodCommunityDetectEphemeralParamsEdgesItem]
     node_ids: list[str]
+    quality: CommunityQualityFunction | None = None
     resolution: float
 
 
@@ -9968,6 +10824,12 @@ class MethodDecisionFitParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     op: DecisionFitOp
+
+
+class MethodDecisionLogParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: DecisionLogOp
 
 
 class MethodDeclareExchangeParams(BaseModel):
@@ -10829,6 +11691,12 @@ class MethodFiredTriggersParams(BaseModel):
     limit: Annotated[int, Field(ge=0)] | None = None
 
 
+class MethodFleetCatalogParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: FleetCatalogOp
+
+
 class MethodFromMsgpackParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -10882,6 +11750,13 @@ class MethodGetContextViewParams(BaseModel):
 
     agent_id: str
     max_tokens: Annotated[int, Field(ge=0)]
+
+
+class MethodGetControlLeaseParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    lease_id: str
+    tenant: str
 
 
 class MethodGetEdgePropertiesBatchParams(BaseModel):
@@ -10973,6 +11848,20 @@ class MethodGetSuccessorsParams(BaseModel):
     node_id: str
 
 
+class MethodGetWorkItemOutcomeParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    tenant: str
+    work_item_id: str
+
+
+class MethodGetWorkItemParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    tenant: str
+    work_item_id: str
+
+
 class MethodGraphLearnFitParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -11047,6 +11936,7 @@ class MethodIndexRepositoryParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     files_msgpack: bytes
+    scope: IndexRepositoryScope | None = None
 
 
 class MethodInvalidateEdgeParams(BaseModel):
@@ -11057,6 +11947,12 @@ class MethodInvalidateEdgeParams(BaseModel):
     source_id: str
     target_id: str
     tx_now: Annotated[int, Field(ge=0)]
+
+
+class MethodIssueControlLeaseParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: IssueControlLeaseRequest
 
 
 class MethodJoinChannelParams(BaseModel):
@@ -11134,6 +12030,16 @@ class MethodListTriggersParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     graph: str
+
+
+class MethodListWorkItemsParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cursor: str | None = None
+    kind: str | None = None
+    limit: Annotated[int, Field(ge=0)]
+    metadata_match: dict[str, Any] | None = None
+    tenant: str
 
 
 class MethodMaintainParams(BaseModel):
@@ -11767,8 +12673,10 @@ class MethodRegisterIdentityParams(BaseModel):
 class MethodRegisterServerParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    desired: ServerDesiredState | None = None
     name: str
     resources_json: str | None = None
+    transport: ServerTransport | None = None
     ttl_secs: Annotated[int, Field(ge=0)]
     url: str
 
@@ -11941,6 +12849,7 @@ class MethodRunRulesParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     derived_only: bool | None = None
+    explain: bool | None = None
     min_confidence: float | None = None
     ontology_ttl: str | None = None
     query_predicate: str | None = None
@@ -12032,6 +12941,7 @@ class MethodSparqlParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     base_iri: str | None = None
+    explain: bool | None = None
     query: str
     type_convention: str | None = None
 
@@ -12163,6 +13073,12 @@ class MethodTouchNodesParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     node_ids: list[str]
+
+
+class MethodTransitionControlLeaseParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    request: TransitionControlLeaseRequest
 
 
 class MethodTsAppendParams(BaseModel):
@@ -12487,14 +13403,6 @@ class ModelSpec(BaseModel):
     params: Any | None = None
 
 
-class ModelSpec2(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
-
-    constraints: list[ConstraintSpec]
-    objective: list[ObjectiveLevelSpec]
-    variables: list[str]
-
-
 class MotifCountsRow(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -12697,11 +13605,95 @@ class NativeControlSchemaVersion(str, Enum):
     V_1 = "1"
 
 
+class NativeOutboxScopeTenant(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    scope: Literal["tenant"]
+
+
+class NativeOutboxScopeSemanticBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    binding_id: str
+    scope: Literal["semantic_binding"]
+
+
+class NativeOutboxScopeSqlResource(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    resource: str
+    scope: Literal["sql_resource"]
+
+
+NativeOutboxScope = Annotated[
+    NativeOutboxScopeTenant
+    | NativeOutboxScopeSemanticBinding
+    | NativeOutboxScopeSqlResource,
+    Field(discriminator="scope"),
+]
+
+
 class NativeOutboxStore(str, Enum):
     AGENT_LIBRARY = "agent_library"
     SEMANTIC_INDEX = "semantic_index"
     JOBS = "jobs"
     SQL_CATALOG = "sql_catalog"
+
+
+class NlBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    params: BoundedVec_TypedParam_16
+    source: NlChoiceSource
+    target: NlTarget
+    template: ComponentDependency
+    unfilled: BoundedVec_string_16 | None = None
+
+
+class NlChoiceSourceEngine(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    by: Literal["engine"]
+
+
+class NlChoiceSourceLlmProposal(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    by: Literal["llm_proposal"]
+    producer: str
+    prompt_digest: str
+
+
+NlChoiceSource = Annotated[
+    NlChoiceSourceEngine | NlChoiceSourceLlmProposal,
+    Field(discriminator="by"),
+]
+
+
+class NlTargetDecide(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    question: StatisticalQuestion
+    target: Literal["decide"]
+
+
+class NlTargetAgentAssemble(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    target: Literal["agent_assemble"]
+
+
+class NlTargetNamedQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    query_id: str
+    target: Literal["named_query"]
+
+
+NlTarget = Annotated[
+    NlTargetDecide | NlTargetAgentAssemble | NlTargetNamedQuery,
+    Field(discriminator="target"),
+]
 
 
 class ObdaExternalSource(BaseModel):
@@ -13205,6 +14197,20 @@ class OpUdfBody(BaseModel):
     id: str
 
 
+class OpValidateShape(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    ValidateShape: OpValidateShapeBody
+
+
+class OpValidateShapeBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    keep: ShapeKeep
+    shape: str
+    shapes: str
+
+
 class OpWindow(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -13277,6 +14283,19 @@ class OptimizationResult(BaseModel):
     method: str
     sharpe_ratio: float
     weights: list[float]
+
+
+class OptionAggregate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    by_fidelity: FidelityCounts
+    option_id: str
+    policy_digest: str | None = None
+    pooled_rate: QuantisedValue | None = None
+    question_id: str | None = None
+    refused: Annotated[int, Field(ge=0)]
+    successes: Annotated[int, Field(ge=0)]
+    trials: Annotated[int, Field(ge=0)]
 
 
 class Order(BaseModel):
@@ -13386,6 +14405,7 @@ class OutboxTargetGraph(BaseModel):
 class OutboxTargetNativeStore(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    scope: NativeOutboxScope | None = None
     store: NativeOutboxStore
     target: Literal["native_store"]
     tenant_id: str
@@ -13395,6 +14415,22 @@ OutboxTarget = Annotated[
     OutboxTargetGraph | OutboxTargetNativeStore,
     Field(discriminator="target"),
 ]
+
+
+class OutcomeAggregate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    min_support: Annotated[int, Field(ge=0)]
+    rows: BoundedVec_OptionAggregate_1024
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+
+
+class OutcomeAggregateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    question_id: str | None = None
+    tenant_id: str
+    window: RecordWindow
 
 
 class OutcomeArtifactRef(BaseModel):
@@ -13411,6 +14447,27 @@ class OutcomeCompleteness(str, Enum):
     COMPLETE = "complete"
     DEGRADED = "degraded"
     RECONCILING = "reconciling"
+
+
+class OutcomeEvaluation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    class_: EvidenceClass = Field(..., alias="class")
+    evaluation_id: str
+    fidelity: OutcomeFidelity
+    lease_holder: str
+    producer: str
+    selected_agent: str
+    success: bool | None = None
+
+
+class OutcomeFidelity(str, Enum):
+    FULL_STEP = "full_step"
+    TOOL_CALLS = "tool_calls"
+    FINAL_OUTPUT = "final_output"
+    TRACE_INCOMPLETE = "trace_incomplete"
+    OUTCOME_UNCERTAIN = "outcome_uncertain"
+    CANCELLED = "cancelled"
 
 
 class OwlExplainResult(BaseModel):
@@ -13475,6 +14532,7 @@ class PackAnnotations(BaseModel):
     required_scopes: BoundedVec_string_64 | None = None
     requires_capabilities: BoundedVec_string_64 | None = None
     sdk_contract_pin: str | None = None
+    tool_mode: PackToolMode | None = None
 
 
 class PackArchiveRef(BaseModel):
@@ -13532,6 +14590,7 @@ class PackEntryKind(str, Enum):
     MODEL_PROFILE = "model_profile"
     A2A_CARD = "a2a_card"
     MANIFEST = "manifest"
+    SKILL_FILE = "skill_file"
 
 
 class PackHeadRef(BaseModel):
@@ -13653,6 +14712,7 @@ class PackProjectionStateFailed(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     code: str
+    detail: str | None = None
     projection: Literal["failed"]
 
 
@@ -13689,6 +14749,11 @@ class PackSection(BaseModel):
     length: Annotated[int, Field(ge=0)]
     offset: Annotated[int, Field(ge=0)]
     sha256: Digest256
+
+
+class PackToolMode(str, Enum):
+    CONDENSED = "condensed"
+    VERBOSE = "verbose"
 
 
 class PackViolation(BaseModel):
@@ -13963,6 +15028,15 @@ class PolicyRecord(BaseModel):
     tenant: str
 
 
+class PooledRate(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    class_key: str
+    option_id: str
+    posterior_mean: QuantisedValue
+    trials: Annotated[int, Field(ge=0)]
+
+
 class PosteriorCredibleInterval(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -14202,13 +15276,21 @@ class PremiseProvenanceObservation(BaseModel):
     provenance: Literal["observation"]
 
 
+class PremiseProvenanceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    field: str
+    provenance: Literal["request"]
+
+
 PremiseProvenance = Annotated[
     PremiseProvenanceNativeOntology
     | PremiseProvenancePolicy
     | PremiseProvenancePublisher
     | PremiseProvenanceConnectorPack
     | PremiseProvenanceClaimedMapping
-    | PremiseProvenanceObservation,
+    | PremiseProvenanceObservation
+    | PremiseProvenanceRequest,
     Field(discriminator="provenance"),
 ]
 
@@ -14379,6 +15461,11 @@ class ProofNodeWire(BaseModel):
     rule: str
     sub: str
     sup: str
+
+
+class PropensitySource(str, Enum):
+    EXECUTED_POLICY = "executed_policy"
+    HEAD_MASS = "head_mass"
 
 
 class PruneStats(BaseModel):
@@ -14761,6 +15848,25 @@ class ReconciliationReceipt(BaseModel):
     tenant_id: str
 
 
+class RecordVisibilityTenant(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    visibility: Literal["tenant"]
+
+
+class RecordVisibilityPrincipal(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    principal: str
+    visibility: Literal["principal"]
+
+
+RecordVisibility = Annotated[
+    RecordVisibilityTenant | RecordVisibilityPrincipal,
+    Field(discriminator="visibility"),
+]
+
+
 class RecordWindow(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -14864,11 +15970,13 @@ class RegisteredServerListRequest(BaseModel):
 class RegisteredServerView(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    desired: ServerDesiredState
     last_heartbeat_ms: Annotated[int, Field(ge=0)]
     lease_expires_at_ms: Annotated[int, Field(ge=0)]
     name: str
     registered_at_ms: Annotated[int, Field(ge=0)]
     resources: Any
+    transport: ServerTransport
     ttl_secs: Annotated[int, Field(ge=0)]
     url: str
 
@@ -15084,6 +16192,12 @@ class ResourceHostUpdateSnapshot(BaseModel):
 class ResourceHostUpdateSnapshotTargetKind(str, Enum):
     LOCAL = "local"
     INVENTORY_ALIAS = "inventory_alias"
+
+
+class ResourceKind(str, Enum):
+    SKILL = "skill"
+    PROMPT = "prompt"
+    RESOURCE = "resource"
 
 
 class ResourceRequirement(BaseModel):
@@ -15585,6 +16699,18 @@ class RuleFact(BaseModel):
     confidence: float
     derived: bool
     predicate: str
+    proof: RuleProofNode | None = None
+
+
+class RuleProofNode(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    args: list[str]
+    confidence: float
+    predicate: str
+    premises: list[RuleProofNode]
+    rule: str
+    truncated: bool
 
 
 class RuleReasonResponse(BaseModel):
@@ -16150,6 +17276,7 @@ class SemanticIndexOpStageStatus(BaseModel):
     binding_id: str
     consumer: str
     op: Literal["stage_status"]
+    queue_class: SemanticQueueClass
     tenant_id: str
 
 
@@ -16576,7 +17703,6 @@ class SemanticStageLeasePage(BaseModel):
     entries: list[SemanticStageLeaseEntry]
     more_available: bool
     queue_class: SemanticQueueClass
-    released_other_class: Annotated[int, Field(ge=0)]
 
 
 class SemanticStageOutcome(str, Enum):
@@ -17005,6 +18131,19 @@ class ServedSegmentKind(str, Enum):
     TRACE_SPAN = "trace_span"
 
 
+class ServerDesiredState(str, Enum):
+    ENABLED = "enabled"
+    DISABLED = "disabled"
+
+
+class ServerTransport(str, Enum):
+    UNSPECIFIED = "unspecified"
+    STDIO = "stdio"
+    STREAMABLE_HTTP = "streamable_http"
+    SSE = "sse"
+    HTTP = "http"
+
+
 class ShaclSeverity(str, Enum):
     VIOLATION = "Violation"
     WARNING = "Warning"
@@ -17030,6 +18169,11 @@ class ShaclValidationResult(BaseModel):
     severity: ShaclSeverity
     source_shape: str
     value: str | None = None
+
+
+class ShapeKeep(str, Enum):
+    CONFORMING = "conforming"
+    VIOLATING = "violating"
 
 
 class ShardLoadSummary(BaseModel):
@@ -17080,6 +18224,19 @@ class ShortlistProvenance(BaseModel):
     now_ms: Annotated[int, Field(ge=0)]
 
 
+class SkillType(str, Enum):
+    SKILL = "skill"
+    WORKFLOW = "workflow"
+    GRAPH = "graph"
+    MCP_SKILL = "mcp_skill"
+
+
+class SkillTypeSource(str, Enum):
+    OVERRIDE = "override"
+    DECLARED = "declared"
+    DEFAULT = "default"
+
+
 class SlotAssignment(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -17087,11 +18244,19 @@ class SlotAssignment(BaseModel):
     slot: str
 
 
+class SolveModelSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    constraints: list[ConstraintSpec]
+    objective: list[ObjectiveLevelSpec]
+    variables: list[str]
+
+
 class SolveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     config: SolverConfigSpec | None = None
-    model: ModelSpec2
+    model: SolveModelSpec
 
 
 class SolveResult(BaseModel):
@@ -17409,11 +18574,30 @@ class SourceWithdrawal(BaseModel):
     reason: str
 
 
+class SparqlObjectKind(str, Enum):
+    RESOURCE = "resource"
+    LITERAL = "literal"
+
+
+class SparqlProofCoverage(str, Enum):
+    COMPLETE = "complete"
+    PARTIAL = "partial"
+
+
 class SparqlResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    proofs: list[SparqlRowProof]
     rows: list[list[str | None]]
     vars: list[str]
+
+
+class SparqlRowProof(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    coverage: SparqlProofCoverage
+    row: Annotated[int, Field(ge=0)]
+    witnesses: list[SparqlWitnessTriple]
 
 
 class SparqlUpdateReport(BaseModel):
@@ -17424,6 +18608,15 @@ class SparqlUpdateReport(BaseModel):
     inserted: Annotated[int, Field(ge=0)]
     operations: Annotated[int, Field(ge=0)]
     updated_graphs: Annotated[int, Field(ge=0)]
+
+
+class SparqlWitnessTriple(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    object: str
+    object_kind: SparqlObjectKind
+    predicate: str
+    subject: str
 
 
 class SpatialOpKindBuffer(BaseModel):
@@ -17867,13 +19060,17 @@ class StatechartOpSendEventBody(BaseModel):
 class StatisticalDecisionRecord(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    audit: AuditDraw | None = None
     calibration: CalibrationStatement | None = None
     caller_principal: str
     candidate_source: CandidateSourceRecord
     created_at_ms: Annotated[int, Field(ge=0)]
     evidence_class: EvidenceClass
+    explanation: LinearExplanation | None = None
     inputs: StatisticalInputs
     inputs_digest: str
+    logging_propensities: BoundedVec_UnitRationalWire_64 | None = None
+    nl_binding: NlBinding | None = None
     outcome: StatisticalOutcome
     premises: BoundedVec_PremiseRef_1024
     question: StatisticalQuestion
@@ -17889,10 +19086,13 @@ class StatisticalDecisionRecord(BaseModel):
 class StatisticalInputs(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
+    classification_rules: str | None = None
     exploration: ExplorationRecord | None = None
     feature_matrix: FeatureMatrixRef
     feature_schema: ComponentDependency
     head: ComponentDependency | None = None
+    params: BoundedVec_TypedParam_64 | None = None
+    policy: DecisionPolicyRef
     policy_digest: str
     shortlist: ShortlistProvenance
 
@@ -17905,6 +19105,14 @@ class StatisticalOutcomeActed(BaseModel):
     prediction_set: BoundedVec_string_64
     propensity: UnitRationalWire
     risk: RiskStatement
+
+
+class StatisticalOutcomeExplored(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    option_id: str
+    outcome: Literal["explored"]
+    propensity: UnitRationalWire
 
 
 class StatisticalOutcomeAdvisory(BaseModel):
@@ -17923,7 +19131,10 @@ class StatisticalOutcomeAbstained(BaseModel):
 
 
 StatisticalOutcome = Annotated[
-    StatisticalOutcomeActed | StatisticalOutcomeAdvisory | StatisticalOutcomeAbstained,
+    StatisticalOutcomeActed
+    | StatisticalOutcomeExplored
+    | StatisticalOutcomeAdvisory
+    | StatisticalOutcomeAbstained,
     Field(discriminator="outcome"),
 ]
 
@@ -17932,8 +19143,11 @@ class StatisticalPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     alpha: UnitRationalWire
+    approved_commit_principals: BoundedVec_string_64 | None = None
     audit_sample: UnitRationalWire
+    compact_after_ms: Annotated[int, Field(ge=0)] | None = None
     delta: UnitRationalWire
+    drop_blob_after_ms: Annotated[int, Field(ge=0)] | None = None
     epsilon: UnitRationalWire
     min_ess: QuantisedValue
     min_outcome_fidelity: TraceFidelityLevel
@@ -17948,6 +19162,14 @@ class StatisticalQuestion(BaseModel):
     kind: QuestionKind
     question_id: str
     safety: QuestionSafety
+
+
+class StoredEvaluation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    evaluation: DecisionOutcomeEvaluation
+    producer: str
+    recorded_at_ms: Annotated[int, Field(ge=0)]
 
 
 class StructuralEquationWire(BaseModel):
@@ -18090,6 +19312,15 @@ class SurveillanceRisk(BaseModel):
 class SvmKernel(str, Enum):
     RBF = "rbf"
     LINEAR = "linear"
+
+
+class TemplateFacts(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    definition_digest: str
+    entry_revision: Annotated[int, Field(ge=0)]
+    graph_id: str
+    shape: AgentGraphShape
 
 
 class TemplateInstanceRef(BaseModel):
@@ -18300,6 +19531,16 @@ class TransactionSource(BaseModel):
     relation: str | None = None
 
 
+class TransitionControlLeaseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    expected_revision: Annotated[int, Field(ge=0)]
+    idempotency_key: str
+    lease_id: str
+    tenant: str
+    to: ControlLeaseTarget
+
+
 class TreeNode(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -18489,6 +19730,18 @@ class ViolationTemplateValidation(BaseModel):
     violation: Literal["template_validation"]
 
 
+class ViolationUnknownLatencyUnderBudget(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    violation: Literal["unknown_latency_under_budget"]
+
+
+class ViolationInfeasibleWhenForced(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    violation: Literal["infeasible_when_forced"]
+
+
 Violation = Annotated[
     ViolationDenied
     | ViolationWithdrawn
@@ -18500,7 +19753,9 @@ Violation = Annotated[
     | ViolationMissingModality
     | ViolationUnknownCostUnderStrictBudget
     | ViolationOverBudget
-    | ViolationTemplateValidation,
+    | ViolationTemplateValidation
+    | ViolationUnknownLatencyUnderBudget
+    | ViolationInfeasibleWhenForced,
     Field(discriminator="violation"),
 ]
 
@@ -18790,6 +20045,23 @@ class WorkItemLeaseRenewal(BaseModel):
     work_item_id: str | None = None
 
 
+class WorkItemOutcomeView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    outcome: dict[str, Any] | None = None
+    outcome_ref: str
+    tool_call_refs: list[str]
+    trace_ref: str
+    work_item: WorkItemView
+
+
+class WorkItemPage(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    items: list[WorkItemView]
+    next_cursor: str | None = None
+
+
 class WorkItemTransition(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -18808,6 +20080,18 @@ class WorkItemTransition2(BaseModel):
     lease_epoch: Annotated[int, Field(ge=0)] | None = None
     status: WorkItemCancelStatus
     work_item_id: str | None = None
+
+
+class WorkItemView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    input_ref: str
+    kind: str
+    metadata: dict[str, Any]
+    status: WorkItemStatus
+    updated_at_ms: Annotated[int, Field(ge=0)]
+    version: Annotated[int, Field(ge=0)]
+    work_item_id: str
 
 
 class WorkerJobClaim(BaseModel):
@@ -19089,6 +20373,14 @@ BoundedVec_AgentGraphEntryRef_8 = Annotated[
 ]
 
 
+BoundedVec_AgentLibraryEntryDraft_8 = Annotated[
+    list[AgentLibraryEntryDraft],
+    Field(
+        max_length=8,
+    ),
+]
+
+
 BoundedVec_SqlSourceCell_256 = Annotated[list[SqlSourceCell], Field(max_length=256)]
 
 
@@ -19146,7 +20438,31 @@ BoundedVec_CoverageDerivation_32 = Annotated[
 BoundedVec_DerivationEdge_16 = Annotated[list[DerivationEdge], Field(max_length=16)]
 
 
+Digest256 = Annotated[
+    str,
+    Field(
+        pattern="^[0-9a-f]{64}$",
+        min_length=64,
+        max_length=64,
+    ),
+]
+
+
+BoundedVec_Digest256_64 = Annotated[list[Digest256], Field(max_length=64)]
+
+
 BoundedVec_Elimination_64 = Annotated[list[Elimination], Field(max_length=64)]
+
+
+BoundedVec_FeatureStandardisation_32 = Annotated[
+    list[FeatureStandardisation],
+    Field(
+        max_length=32,
+    ),
+]
+
+
+BoundedVec_FleetCatalogRow_256 = Annotated[list[FleetCatalogRow], Field(max_length=256)]
 
 
 BoundedVec_GraphSchemaSourceView_32 = Annotated[
@@ -19157,7 +20473,37 @@ BoundedVec_GraphSchemaSourceView_32 = Annotated[
 ]
 
 
+BoundedVec_GraphSchemaSourceView_64 = Annotated[
+    list[GraphSchemaSourceView],
+    Field(
+        max_length=64,
+    ),
+]
+
+
 BoundedVec_IndexDiagnostic_8 = Annotated[list[IndexDiagnostic], Field(max_length=8)]
+
+
+BoundedVec_IndexFileVersion_262144 = Annotated[
+    list[IndexFileVersion],
+    Field(
+        max_length=262144,
+    ),
+]
+
+
+BoundedVec_IndexRef_4096 = Annotated[list[IndexRef], Field(max_length=4096)]
+
+
+BoundedVec_IndexTombstone_262144 = Annotated[
+    list[IndexTombstone],
+    Field(
+        max_length=262144,
+    ),
+]
+
+
+BoundedVec_LabelledItem_4096 = Annotated[list[LabelledItem], Field(max_length=4096)]
 
 
 BoundedVec_ObjectiveLevelKind_8 = Annotated[
@@ -19172,6 +20518,14 @@ BoundedVec_OpeEstimateView_8 = Annotated[list[OpeEstimateView], Field(max_length
 
 
 BoundedVec_OpeEstimatorKind_8 = Annotated[list[OpeEstimatorKind], Field(max_length=8)]
+
+
+BoundedVec_OptionAggregate_1024 = Annotated[
+    list[OptionAggregate],
+    Field(
+        max_length=1024,
+    ),
+]
 
 
 BoundedVec_OutboxDeadLetterView_256 = Annotated[
@@ -19194,10 +20548,16 @@ BoundedVec_PackViolation_256 = Annotated[list[PackViolation], Field(max_length=2
 BoundedVec_PackWarning_256 = Annotated[list[PackWarning], Field(max_length=256)]
 
 
+BoundedVec_PooledRate_64 = Annotated[list[PooledRate], Field(max_length=64)]
+
+
 BoundedVec_PremiseRef_1024 = Annotated[list[PremiseRef], Field(max_length=1024)]
 
 
 BoundedVec_PremiseRef_32 = Annotated[list[PremiseRef], Field(max_length=32)]
+
+
+BoundedVec_QuantisedValue_32 = Annotated[list[QuantisedValue], Field(max_length=32)]
 
 
 BoundedVec_RawAdmissionReceipt_1024 = Annotated[
@@ -19289,7 +20649,16 @@ BoundedVec_StatisticalDecisionRecord_256 = Annotated[
 ]
 
 
+BoundedVec_TemplateFacts_8 = Annotated[list[TemplateFacts], Field(max_length=8)]
+
+
+BoundedVec_TypedParam_16 = Annotated[list[TypedParam], Field(max_length=16)]
+
+
 BoundedVec_TypedParam_64 = Annotated[list[TypedParam], Field(max_length=64)]
+
+
+BoundedVec_UnitRationalWire_64 = Annotated[list[UnitRationalWire], Field(max_length=64)]
 
 
 BoundedVec_WeightedLevel_8 = Annotated[list[WeightedLevel], Field(max_length=8)]
@@ -19449,6 +20818,9 @@ ContextViewEdgesItem = Annotated[
 ]
 
 
+ControlLeaseStatus = str | Literal["consumed"]
+
+
 DegreeCentralityAllResultValueItem = Annotated[
     tuple[str, float],
     Field(
@@ -19459,16 +20831,6 @@ DegreeCentralityAllResultValueItem = Annotated[
 
 
 DegreeCentralityAllResult = list[DegreeCentralityAllResultValueItem]
-
-
-Digest256 = Annotated[
-    str,
-    Field(
-        pattern="^[0-9a-f]{64}$",
-        min_length=64,
-        max_length=64,
-    ),
-]
 
 
 DiscoverResult = list[DiscoverHit]
@@ -19656,6 +21018,9 @@ GetChannelMessagesResult = list[ChannelMessage]
 GetContentVersionResult = ContentVersion | None
 
 
+GetControlLeaseResult = ControlLeaseView | None
+
+
 PropertyBlob = bytes
 
 
@@ -19714,6 +21079,12 @@ GetRdfResult = str
 
 
 GetShortestPathResult = list[str] | None
+
+
+GetWorkItemOutcomeResult = WorkItemOutcomeView | None
+
+
+GetWorkItemResult = WorkItemView | None
 
 
 GraphColoringResultValueItemItem1 = Annotated[int, Field(ge=0)]
@@ -19820,10 +21191,10 @@ MatchOntologyTermsResult = list[OntologyMatch]
 
 
 MethodCommunityDetectEphemeralParamsEdgesItem = Annotated[
-    tuple[str, str],
+    tuple[str, str, float],
     Field(
-        min_length=2,
-        max_length=2,
+        min_length=3,
+        max_length=3,
     ),
 ]
 
@@ -20040,6 +21411,7 @@ Op = (
     | OpFuseRrf
     | OpReason
     | OpSparqlBgp
+    | OpValidateShape
     | OpUdf
     | OpForeignScan
     | OpAsOf
@@ -20434,6 +21806,9 @@ TensorOpKindSliceBodyRangesItem = Annotated[
 ToMsgpackResult = bytes
 
 
+ToolMode = str | Literal["undeclared"]
+
+
 TopologicalSortResult = list[str]
 
 
@@ -20573,6 +21948,16 @@ WorkItemCommitStatus = (
     | Literal["fenced"]
     | Literal["dead_letter"]
     | Literal["retry_scheduled"]
+)
+
+
+WorkItemStatus = (
+    str
+    | Literal["submitted"]
+    | Literal["ready"]
+    | Literal["leased"]
+    | Literal["running"]
+    | Literal["dead_letter"]
 )
 
 

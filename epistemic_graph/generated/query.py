@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     NlQueryRequest = _models.MethodNlQueryParams
     TxnUnifiedQueryRequest = _models.MethodTxnUnifiedQueryParams
     TxnUnifiedQueryTextRequest = _models.MethodTxnUnifiedQueryTextParams
+    DecideRequest = _models.MethodDecideParams
 
 
 async def send_get_context_view(
@@ -1235,6 +1236,47 @@ def decode_txn_unified_query_text(
     )
 
 
+async def send_decide(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        Decide
+    Authorization:
+        query:decide
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.query.json
+        #/methods/Decide
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodDecideParams.model_validate(params or {})
+    payload = await client._send(
+        "Decide",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("Decide", payload)
+
+
+def decode_decide(result: OpaqueResult) -> _models.DecisionBatch:
+    """Validate this method's result against its contract model."""
+    return decode_result("Decide", models().DecisionBatch, result)
+
+
 # Methods whose `{Id}Request` resolves to `models.Method{Id}Params` (EH-192).
 _REQUEST_METHODS = frozenset(
     {
@@ -1265,6 +1307,7 @@ _REQUEST_METHODS = frozenset(
         "NlQuery",
         "TxnUnifiedQuery",
         "TxnUnifiedQueryText",
+        "Decide",
     }
 )
 

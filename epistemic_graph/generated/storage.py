@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, TypeAdapter
 
+from . import decision_commit as _decision_commit
 from ._runtime import (
     OpaqueResult,
     decode_result,
@@ -33,6 +34,13 @@ from .connector_pack import (
     ConnectorPackStatus,
     ConnectorPackStatusRequest,
     PackImportResult,
+)
+from .decision import (
+    AssemblyRequest,
+    AssemblyResult,
+)
+from .decision_commit import (
+    DecisionCommitResult,
 )
 from .write_back import (
     WriteBackOp,
@@ -489,10 +497,8 @@ async def send_agent_component_search(
 ) -> AgentComponentSearchPage:
     """Send typed AgentComponent.search through the existing AgentComponent method."""
     request = AgentComponentSearchRequest.model_validate(request)
-    if request.task is not None or request.capabilities or not request.kinds:
-        raise ValueError(
-            "AgentComponent.Search requires kinds and no task/capabilities"
-        )
+    if request.task is None and not request.capabilities and not request.kinds:
+        raise ValueError("AgentComponent.Search requires a task, capability, or kind")
     if request.limit is not None and not 1 <= request.limit <= 256:
         raise ValueError("AgentComponent.Search limit must be in 1..=256")
     if request.cursor is not None and (
@@ -595,6 +601,112 @@ async def send_agent_template(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("AgentTemplate", payload)
+
+
+class AgentAssembleRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        AgentAssemble
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/AgentAssemble
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: AssemblyRequest
+
+
+async def send_agent_assemble(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> AssemblyResult:
+    """Send one engine-contract request.
+
+    Method:
+        AgentAssemble
+    Authorization:
+        agent:assemble-read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/AgentAssemble
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    AgentAssembleRequest.model_validate(params or {})
+    payload = await client._send(
+        "AgentAssemble",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return AssemblyResult.model_validate(payload)
+
+
+class DecisionCommitRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        DecisionCommit
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/DecisionCommit
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: _decision_commit.DecisionCommitRequest
+
+
+async def send_decision_commit(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> DecisionCommitResult:
+    """Send one engine-contract request.
+
+    Method:
+        DecisionCommit
+    Authorization:
+        agent:decision-write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.storage.json
+        #/methods/DecisionCommit
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    DecisionCommitRequest.model_validate(params or {})
+    payload = await client._send(
+        "DecisionCommit",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return DecisionCommitResult.model_validate(payload)
 
 
 class ConnectorPackRequest(BaseModel):

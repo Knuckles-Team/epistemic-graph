@@ -47,7 +47,6 @@ class AgentComponentDraft(BaseModel):
     kind: AgentComponentKind
     policy_digest: str
     provenance: ComponentProvenance
-    provides: list[str] = Field(default_factory=list)
     purpose_id: str
     required_capabilities: list[str] = Field(default_factory=list)
     requires: list[ComponentDependency] = Field(default_factory=list)
@@ -77,7 +76,6 @@ class AgentComponentEntry(BaseModel):
     lifecycle: AgentLibraryLifecycle
     policy_digest: str
     provenance: ComponentProvenance
-    provides: list[str] = Field(default_factory=list)
     purpose_id: str
     required_capabilities: list[str] = Field(default_factory=list)
     requires: list[ComponentDependency] = Field(default_factory=list)

@@ -40,18 +40,11 @@ OpenAPI media type and states the JSON-Schema-shape/wire-encoding
 distinction in ``info.description`` -- it does not claim EG serves literal
 JSON-over-HTTP.
 
-KNOWN LIMITATION: exactly one ``$defs`` entry in ``method.request.json``
-(``MutationOperation.method``) carries a self-referential ``"$ref": "#"``
-pointing at that *source* file's own document root, not at a ``$defs``
-entry. After inlining into ``docs/openapi.json``'s ``components.schemas``
-this ref is left as the literal string ``"#"`` (now pointing at the
-*generated* document's own root) rather than rewritten -- there is no
-component in the flattened schema it could correctly resolve to, and this
-generator does not fabricate one. It is a pre-existing quirk of the
-upstream generated contract (not introduced here); Swagger UI renders that
-one nested property as an unresolved/recursive reference instead of
-failing the build. See ``check_api_contract_docs.py`` / the test suite for
-the exact count this is pinned at (1).
+SELF-REFERENCES: the generated contract once carried one literal
+``"$ref": "#"`` (``MutationOperation.method``); the EH-192 strict-model
+generator resolves it to a ``$defs`` entry, so every ``$ref`` in
+``docs/openapi.json`` now names a component. The test suite pins that count
+at 0, so a regression in the upstream contract fails here.
 
 Usage::
 
@@ -130,8 +123,8 @@ def _rewrite_refs(node: Any, prefix: str) -> Any:
     Every `$ref` in the contract's schema files is file-local (verified: no
     cross-file refs exist in `contract/schemas/*.json` other than the
     pointer *strings* recorded in `methods.json`, which are not JSON Schema
-    `$ref`s). The one exception is the literal self-reference `"$ref": "#"`
-    (see module docstring) which is left untouched.
+    `$ref`s). A literal self-reference `"$ref": "#"` would be left untouched
+    (see module docstring); none remains.
     """
     if isinstance(node, dict):
         out: dict[str, Any] = {}

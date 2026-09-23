@@ -10,11 +10,15 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
+from . import solve as _solve
 from ._runtime import (
     OpaqueResult,
     decode_result,
     expect_float,
     models,
+)
+from .solve import (
+    SolveResult,
 )
 
 if TYPE_CHECKING:
@@ -5710,6 +5714,57 @@ async def send_mine_community(
 def decode_mine_community(result: OpaqueResult) -> _models.CommunityMiningResult:
     """Validate this method's result against its contract model."""
     return decode_result("MineCommunity", models().CommunityMiningResult, result)
+
+
+class SolveRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        Solve
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/Solve
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: _solve.SolveRequest
+
+
+async def send_solve(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> SolveResult:
+    """Send one engine-contract request.
+
+    Method:
+        Solve
+    Authorization:
+        compute:solve
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.compute.json
+        #/methods/Solve
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    SolveRequest.model_validate(params or {})
+    payload = await client._send(
+        "Solve",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return SolveResult.model_validate(payload)
 
 
 # Methods whose `{Id}Request` resolves to `models.Method{Id}Params` (EH-192).

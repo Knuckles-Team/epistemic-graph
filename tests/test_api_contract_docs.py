@@ -95,10 +95,9 @@ def test_openapi_document_is_valid_json_and_self_contained():
                 _walk(item)
 
     _walk(doc)
-    # Pinned count from the module docstring's "KNOWN LIMITATION" section —
-    # if this changes, the docstring (and the explanation) needs updating,
-    # not just this number.
-    assert len(unresolved_self_refs) == 1
+    # The contract's one literal self-reference was resolved upstream (EH-192);
+    # see the module docstring's "SELF-REFERENCES" section.
+    assert unresolved_self_refs == []
 
 
 def test_every_method_has_a_path_and_authz_metadata():

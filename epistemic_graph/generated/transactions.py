@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     TxnMaterializeBeliefRequest = _models.MethodTxnMaterializeBeliefParams
     CommitRequest = _models.MethodCommitParams
     RollbackRequest = _models.MethodRollbackParams
+    MutationOutboxRequest = _models.MethodMutationOutboxParams
 
 
 async def send_batch_update(
@@ -882,6 +883,46 @@ async def send_rollback(
     return expect_bool("Rollback", payload)
 
 
+async def send_mutation_outbox(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        MutationOutbox
+    Authorization:
+        admin:outbox
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.transactions.json
+        #/methods/MutationOutbox
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    models().MethodMutationOutboxParams.model_validate(params or {})
+    payload = await client._send(
+        "MutationOutbox",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("MutationOutbox", payload)
+
+
 # Methods whose `{Id}Request` resolves to `models.Method{Id}Params` (EH-192).
 _REQUEST_METHODS = frozenset(
     {
@@ -905,6 +946,7 @@ _REQUEST_METHODS = frozenset(
         "TxnMaterializeBelief",
         "Commit",
         "Rollback",
+        "MutationOutbox",
     }
 )
 

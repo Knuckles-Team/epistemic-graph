@@ -238,11 +238,11 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Mult
 
 ## `MutationOutbox`
 
-X10, runtime-conditional: status and dead_letters are reads; rewind resets one consumer's durable cursor through bounded eg-transaction transactions, so it is a saga rather than one atomic write. Local-only authority, refused in clustered mode
+X10, runtime-conditional: status and dead_letters are reads; rewind resets one consumer's durable cursor through bounded eg-transaction transactions, so it is a saga rather than one atomic write. Targets a graph's outbox, or a native store of the verified tenant through a typed scope selector (tenant for Agent Library and jobs, binding for a semantic index, resource for the shared SQL catalog). Local-only authority, refused in clustered mode
 
 | Property | Value |
 |---|---|
-| Stability | `internal` |
+| Stability | `stable` |
 | Authz action | `admin:outbox` |
 | Mutates | `true` |
 | Durability domain | `ControlRedb` |
@@ -251,7 +251,7 @@ X10, runtime-conditional: status and dead_letters are reads; rewind resets one c
 | Emits CDC | `false` |
 | Txn participation | `Saga` |
 | Replay class | `OperationIdentity` |
-| Consumer profiles |  |
+| Consumer profiles | `python` |
 | Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
 | Format identities | `RBAC_SCOPE_INCARNATION`, `CONSENSUS_TRANSACTION_SCHEMA_VERSION` |
 
