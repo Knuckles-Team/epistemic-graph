@@ -1106,7 +1106,7 @@ mod tests {
             ),
             (
                 "foundation",
-                "bd95b075396df1d66da652b82208c81b65a5687f83ae22022de594dfefff33a6",
+                "6d7fd3a3f789f0fa451633e1fac024f79f12cecad1fe97c59b4d7c02f4788d5a",
             ),
             (
                 "documentation",
@@ -1186,7 +1186,7 @@ mod tests {
             ),
             (
                 "world_model",
-                "6992ec5d53d83e62d87d61a6deafa8368df92bb592a95aca7842a6270b1f3d01",
+                "dca0ab84e991766f62bc5c0aa6262372c4d48a93da7c6afec7c3b61aeff3c348",
             ),
             (
                 "worldview",
