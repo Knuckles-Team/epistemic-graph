@@ -251,20 +251,20 @@ pub fn uql_sample_pred(kind: PredKind) -> Pred {
         PredKind::Cmp => Pred::Cmp {
             prop: "weight".into(),
             op: CmpOp::Ge,
-            value: Scalar::Num(1.5e-3),
+            value: PredLiteral::Num(1.5e-3),
         },
         PredKind::In => Pred::In {
             prop: "status".into(),
             values: vec![
-                Scalar::Str("open".into()),
-                Scalar::Num(3.0),
-                Scalar::Bool(true),
+                PredLiteral::Str("open".into()),
+                PredLiteral::Num(3.0),
+                PredLiteral::Bool(true),
             ],
         },
         PredKind::Between => Pred::Between {
             prop: "year".into(),
-            lo: Scalar::Num(2000.0),
-            hi: Scalar::Num(2010.0),
+            lo: PredLiteral::Num(2000.0),
+            hi: PredLiteral::Num(2010.0),
         },
         PredKind::IsNull => Pred::IsNull {
             prop: "limit".into(),

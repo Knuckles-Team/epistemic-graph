@@ -11,7 +11,7 @@
 
 use std::cmp::Ordering;
 
-use eg_types::wire::{CmpOp, Pred, Scalar};
+use eg_types::wire::{CmpOp, Pred, PredLiteral};
 use serde_json::{Map, Value};
 
 /// Three-valued truth: `Some(true)`, `Some(false)`, or UNKNOWN (`None`).
@@ -52,10 +52,10 @@ pub fn holds(props: &Map<String, Value>, pred: &Pred) -> Truth {
     match pred {
         Pred::Eq { prop, value } => legacy_eq(props.get(prop), value),
         Pred::GtNum { prop, n } => {
-            compare(props.get(prop), &Scalar::Num(*n)).map(|o| o == Ordering::Greater)
+            compare(props.get(prop), &PredLiteral::Num(*n)).map(|o| o == Ordering::Greater)
         }
         Pred::LtNum { prop, n } => {
-            compare(props.get(prop), &Scalar::Num(*n)).map(|o| o == Ordering::Less)
+            compare(props.get(prop), &PredLiteral::Num(*n)).map(|o| o == Ordering::Less)
         }
         Pred::Cmp { prop, op, value } => compare(props.get(prop), value).map(|o| cmp_holds(*op, o)),
         Pred::In { prop, values } => in_list(props.get(prop), values),
@@ -90,11 +90,11 @@ fn cmp_holds(op: CmpOp, o: Ordering) -> bool {
 
 /// Order a stored value against a typed literal; UNKNOWN when either side is missing or
 /// the types differ (SQL would not compare them).
-fn compare(stored: Option<&Value>, lit: &Scalar) -> Option<Ordering> {
+fn compare(stored: Option<&Value>, lit: &PredLiteral) -> Option<Ordering> {
     match (stored?, lit) {
-        (Value::Number(n), Scalar::Num(x)) => n.as_f64()?.partial_cmp(x),
-        (Value::String(s), Scalar::Str(x)) => Some(s.as_str().cmp(x.as_str())),
-        (Value::Bool(b), Scalar::Bool(x)) => Some(b.cmp(x)),
+        (Value::Number(n), PredLiteral::Num(x)) => n.as_f64()?.partial_cmp(x),
+        (Value::String(s), PredLiteral::Str(x)) => Some(s.as_str().cmp(x.as_str())),
+        (Value::Bool(b), PredLiteral::Bool(x)) => Some(b.cmp(x)),
         _ => None,
     }
 }
@@ -113,7 +113,7 @@ fn legacy_eq(stored: Option<&Value>, value: &str) -> Truth {
     }
 }
 
-fn in_list(stored: Option<&Value>, values: &[Scalar]) -> Truth {
+fn in_list(stored: Option<&Value>, values: &[PredLiteral]) -> Truth {
     kleene_or(
         values
             .iter()
@@ -121,7 +121,7 @@ fn in_list(stored: Option<&Value>, values: &[Scalar]) -> Truth {
     )
 }
 
-fn between(stored: Option<&Value>, lo: &Scalar, hi: &Scalar) -> Truth {
+fn between(stored: Option<&Value>, lo: &PredLiteral, hi: &PredLiteral) -> Truth {
     let above = compare(stored, lo).map(|o| o != Ordering::Less);
     let below = compare(stored, hi).map(|o| o != Ordering::Greater);
     kleene_and([above, below].into_iter())
@@ -160,7 +160,7 @@ mod tests {
         v.as_object().cloned().unwrap_or_default()
     }
 
-    fn cmp(prop: &str, op: CmpOp, value: Scalar) -> Pred {
+    fn cmp(prop: &str, op: CmpOp, value: PredLiteral) -> Pred {
         Pred::Cmp {
             prop: prop.into(),
             op,
@@ -171,7 +171,7 @@ mod tests {
     #[test]
     fn missing_property_is_unknown_and_not_does_not_rescue_it() {
         let r = row(json!({"a": 1}));
-        let gt = cmp("b", CmpOp::Gt, Scalar::Num(0.0));
+        let gt = cmp("b", CmpOp::Gt, PredLiteral::Num(0.0));
         assert_eq!(holds(&r, &gt), None);
         assert_eq!(
             holds(
@@ -188,9 +188,9 @@ mod tests {
     #[test]
     fn kleene_connectives_match_sql() {
         let r = row(json!({"a": 1, "s": "x"}));
-        let unknown = cmp("zz", CmpOp::Eq, Scalar::Num(1.0));
-        let yes = cmp("a", CmpOp::Eq, Scalar::Num(1.0));
-        let no = cmp("s", CmpOp::Eq, Scalar::Str("y".into()));
+        let unknown = cmp("zz", CmpOp::Eq, PredLiteral::Num(1.0));
+        let yes = cmp("a", CmpOp::Eq, PredLiteral::Num(1.0));
+        let no = cmp("s", CmpOp::Eq, PredLiteral::Str("y".into()));
         let or = Pred::Or {
             preds: vec![unknown.clone(), yes.clone()],
         };
@@ -209,18 +209,18 @@ mod tests {
     fn typed_literals_do_not_cross_types() {
         let r = row(json!({"n": 3, "s": "3", "b": true}));
         assert_eq!(
-            holds(&r, &cmp("n", CmpOp::Eq, Scalar::Num(3.0))),
+            holds(&r, &cmp("n", CmpOp::Eq, PredLiteral::Num(3.0))),
             Some(true)
         );
-        assert_eq!(holds(&r, &cmp("s", CmpOp::Eq, Scalar::Num(3.0))), None);
+        assert_eq!(holds(&r, &cmp("s", CmpOp::Eq, PredLiteral::Num(3.0))), None);
         assert_eq!(
-            holds(&r, &cmp("b", CmpOp::Ne, Scalar::Bool(false))),
+            holds(&r, &cmp("b", CmpOp::Ne, PredLiteral::Bool(false))),
             Some(true)
         );
         let between = Pred::Between {
             prop: "n".into(),
-            lo: Scalar::Num(3.0),
-            hi: Scalar::Num(3.0),
+            lo: PredLiteral::Num(3.0),
+            hi: PredLiteral::Num(3.0),
         };
         assert_eq!(holds(&r, &between), Some(true));
         let is_null = Pred::IsNull {

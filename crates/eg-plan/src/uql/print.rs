@@ -10,7 +10,9 @@
 
 use std::collections::BTreeMap;
 
-use eg_types::wire::{uql_op, CmpOp, EdgeDir, Op, Plan, Pred, Scalar, UqlPrintCode, UqlPrintError};
+use eg_types::wire::{
+    uql_op, CmpOp, EdgeDir, Op, Plan, Pred, PredLiteral, UqlPrintCode, UqlPrintError,
+};
 
 use super::{parse_statement, Body, DagNode, Mode, Params, Statement};
 
@@ -69,12 +71,12 @@ pub fn canonical_pred(pred: &Pred) -> Pred {
     }
 }
 
-fn canonical_cmp(prop: &str, op: CmpOp, value: &Scalar) -> Pred {
+fn canonical_cmp(prop: &str, op: CmpOp, value: &PredLiteral) -> Pred {
     let prop = prop.to_string();
     match (op, value) {
-        (CmpOp::Gt, Scalar::Num(n)) => Pred::GtNum { prop, n: *n },
-        (CmpOp::Lt, Scalar::Num(n)) => Pred::LtNum { prop, n: *n },
-        (CmpOp::Eq, Scalar::Str(s)) => Pred::Eq {
+        (CmpOp::Gt, PredLiteral::Num(n)) => Pred::GtNum { prop, n: *n },
+        (CmpOp::Lt, PredLiteral::Num(n)) => Pred::LtNum { prop, n: *n },
+        (CmpOp::Eq, PredLiteral::Str(s)) => Pred::Eq {
             prop,
             value: s.clone(),
         },

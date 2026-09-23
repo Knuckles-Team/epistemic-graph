@@ -1,6 +1,6 @@
 //! Bracketed lists, query vectors, list parameters and JSON literals.
 
-use eg_types::wire::{Scalar, UqlParam};
+use eg_types::wire::{PredLiteral, UqlParam};
 
 use super::literal::Want;
 use super::Parser;
@@ -55,7 +55,7 @@ impl<'a> Parser<'a> {
     }
 
     /// A scalar list parameter (`x IN $values`).
-    pub(super) fn list_param(&mut self) -> Result<Vec<Scalar>, UqlError> {
+    pub(super) fn list_param(&mut self) -> Result<Vec<PredLiteral>, UqlError> {
         match self.param(Want::List)? {
             Some(UqlParam::List(v)) => Ok(v),
             Some(_) => Err(self.param_type_error(Want::List)),
@@ -94,10 +94,10 @@ impl<'a> Parser<'a> {
             });
         }
         Ok(match self.scalar()? {
-            Scalar::Str(s) => serde_json::Value::String(s),
-            Scalar::Num(n) => serde_json::Number::from_f64(n)
+            PredLiteral::Str(s) => serde_json::Value::String(s),
+            PredLiteral::Num(n) => serde_json::Number::from_f64(n)
                 .map_or(serde_json::Value::Null, serde_json::Value::Number),
-            Scalar::Bool(b) => serde_json::Value::Bool(b),
+            PredLiteral::Bool(b) => serde_json::Value::Bool(b),
         })
     }
 }

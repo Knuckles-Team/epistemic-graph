@@ -37,15 +37,18 @@ pub enum Pred {
     Cmp {
         prop: String,
         op: CmpOp,
-        value: Scalar,
+        value: PredLiteral,
     },
     /// `prop IN (v, …)` — membership in a typed literal list (non-empty).
-    In { prop: String, values: Vec<Scalar> },
+    In {
+        prop: String,
+        values: Vec<PredLiteral>,
+    },
     /// `prop BETWEEN lo AND hi` — inclusive on both ends (SQL semantics).
     Between {
         prop: String,
-        lo: Scalar,
-        hi: Scalar,
+        lo: PredLiteral,
+        hi: PredLiteral,
     },
     /// `prop IS NULL` — the property is absent or JSON `null`. `IS NOT NULL` is
     /// `Not { IsNull }` (one encoding).
@@ -132,7 +135,7 @@ pub enum CmpOp {
 #[cfg(feature = "query")]
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
-pub enum Scalar {
+pub enum PredLiteral {
     Str(String),
     Num(f64),
     Bool(bool),
@@ -164,7 +167,7 @@ pub enum UqlParam {
     /// A query vector (`RANK BY ~$v`).
     Vector(Vec<f32>),
     /// A literal list (`x IN $values`).
-    List(Vec<Scalar>),
+    List(Vec<PredLiteral>),
 }
 
 /// DOCUMENT/JSON — the test applied by [`Pred::JsonPath`] against the value(s) a

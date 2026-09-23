@@ -2,7 +2,7 @@
 //! accepts, `parse(print(p)) == canonicalize(p)`. Generated values deliberately include
 //! quotes, back-quotes, unicode, reserved words, negative zero and extreme magnitudes.
 
-use eg_types::wire::{CmpOp, EdgeDir, JsonPathOp, Op, Plan, Pred, Scalar, TimeAxis};
+use eg_types::wire::{CmpOp, EdgeDir, JsonPathOp, Op, Plan, Pred, PredLiteral, TimeAxis};
 use proptest::prelude::*;
 
 use crate::uql::{canonicalize, parse};
@@ -30,11 +30,11 @@ fn finite32() -> impl Strategy<Value = f32> {
     any::<f32>().prop_filter("finite", |n| n.is_finite())
 }
 
-fn scalar() -> impl Strategy<Value = Scalar> {
+fn scalar() -> impl Strategy<Value = PredLiteral> {
     prop_oneof![
-        text().prop_map(Scalar::Str),
-        finite().prop_map(Scalar::Num),
-        any::<bool>().prop_map(Scalar::Bool),
+        text().prop_map(PredLiteral::Str),
+        finite().prop_map(PredLiteral::Num),
+        any::<bool>().prop_map(PredLiteral::Bool),
     ]
 }
 

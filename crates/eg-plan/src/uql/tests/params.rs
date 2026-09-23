@@ -1,7 +1,7 @@
 //! Typed parameters (UQL-07): values are bound, never spliced.
 
 use crate::uql::{parse_with, Params, UqlCode};
-use eg_types::wire::{CmpOp, Op, Pred, Scalar, UqlParam};
+use eg_types::wire::{CmpOp, Op, Pred, PredLiteral, UqlParam};
 
 fn params(items: &[(&str, UqlParam)]) -> Params {
     items
@@ -34,7 +34,7 @@ fn parameters_bind_as_typed_values() {
                     Pred::Cmp {
                         prop: "year".into(),
                         op: CmpOp::Ge,
-                        value: Scalar::Num(2024.0)
+                        value: PredLiteral::Num(2024.0)
                     },
                     Pred::Eq {
                         prop: "lang".into(),
@@ -85,7 +85,10 @@ fn string_parameter_in_rank_position_embeds() {
 fn list_parameter_feeds_in() {
     let p = params(&[(
         "ids",
-        UqlParam::List(vec![Scalar::Str("a".into()), Scalar::Str("b".into())]),
+        UqlParam::List(vec![
+            PredLiteral::Str("a".into()),
+            PredLiteral::Str("b".into()),
+        ]),
     )]);
     let plan = parse_with("MATCH () WHERE id IN $ids", &p).unwrap();
     assert_eq!(
@@ -93,7 +96,7 @@ fn list_parameter_feeds_in() {
         Op::Filter {
             preds: vec![Pred::In {
                 prop: "id".into(),
-                values: vec![Scalar::Str("a".into()), Scalar::Str("b".into())]
+                values: vec![PredLiteral::Str("a".into()), PredLiteral::Str("b".into())]
             }]
         }
     );

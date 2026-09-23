@@ -11,7 +11,7 @@
 //!    is gone);
 //!  * `x NOT IN …`, `x NOT BETWEEN …`, `x IS NOT NULL` → `Not { … }`.
 
-use eg_types::wire::{CmpOp, JsonPathOp, Pred, Scalar};
+use eg_types::wire::{CmpOp, JsonPathOp, Pred, PredLiteral};
 
 use super::Parser;
 use crate::uql::diag::UqlError;
@@ -103,9 +103,9 @@ impl<'a> Parser<'a> {
 
     fn comparison(&mut self, prop: String, op: CmpOp) -> Result<Pred, UqlError> {
         Ok(match (op, self.scalar()?) {
-            (CmpOp::Gt, Scalar::Num(n)) => Pred::GtNum { prop, n },
-            (CmpOp::Lt, Scalar::Num(n)) => Pred::LtNum { prop, n },
-            (CmpOp::Eq, Scalar::Str(value)) => Pred::Eq { prop, value },
+            (CmpOp::Gt, PredLiteral::Num(n)) => Pred::GtNum { prop, n },
+            (CmpOp::Lt, PredLiteral::Num(n)) => Pred::LtNum { prop, n },
+            (CmpOp::Eq, PredLiteral::Str(value)) => Pred::Eq { prop, value },
             (op, value) => Pred::Cmp { prop, op, value },
         })
     }

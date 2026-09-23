@@ -123,7 +123,7 @@ fn surface_variations() {
                     Pred::Cmp {
                         prop: "rank".into(),
                         op: eg_types::wire::CmpOp::Eq,
-                        value: eg_types::wire::Scalar::Num(1.0)
+                        value: eg_types::wire::PredLiteral::Num(1.0)
                     },
                 ]
             },

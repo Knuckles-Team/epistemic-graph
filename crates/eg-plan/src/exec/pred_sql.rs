@@ -14,7 +14,7 @@
 //! no SQL fragment can stand in for them there.
 
 use crate::algebra::Pred;
-use eg_types::wire::{CmpOp, Scalar};
+use eg_types::wire::{CmpOp, PredLiteral};
 
 const MAX_FILTER_PREDICATES: usize = 256;
 const MAX_FILTER_IDENTIFIER_BYTES: usize = 256;
@@ -67,12 +67,12 @@ fn sql_number(n: f64) -> Result<String, String> {
     Ok(format!("{n}"))
 }
 
-fn sql_scalar(value: &Scalar) -> Result<String, String> {
+fn sql_scalar(value: &PredLiteral) -> Result<String, String> {
     match value {
-        Scalar::Str(s) => sql_literal(s),
-        Scalar::Num(n) => sql_number(*n),
-        Scalar::Bool(true) => Ok("TRUE".into()),
-        Scalar::Bool(false) => Ok("FALSE".into()),
+        PredLiteral::Str(s) => sql_literal(s),
+        PredLiteral::Num(n) => sql_number(*n),
+        PredLiteral::Bool(true) => Ok("TRUE".into()),
+        PredLiteral::Bool(false) => Ok("FALSE".into()),
     }
 }
 
@@ -126,7 +126,7 @@ fn per_row_only(at: Position) -> Result<String, String> {
     }
 }
 
-fn in_list(prop: &str, values: &[Scalar]) -> Result<String, String> {
+fn in_list(prop: &str, values: &[PredLiteral]) -> Result<String, String> {
     if values.is_empty() {
         return Ok("FALSE".into());
     }
@@ -223,12 +223,12 @@ mod tests {
                 Pred::Cmp {
                     prop: "year".into(),
                     op: CmpOp::Ge,
-                    value: Scalar::Num(2020.0),
+                    value: PredLiteral::Num(2020.0),
                 },
                 Pred::Not {
                     pred: Box::new(Pred::In {
                         prop: "lang".into(),
-                        values: vec![Scalar::Str("en".into()), Scalar::Bool(true)],
+                        values: vec![PredLiteral::Str("en".into()), PredLiteral::Bool(true)],
                     }),
                 },
                 Pred::And {
@@ -236,8 +236,8 @@ mod tests {
                         Pred::IsNull { prop: "x".into() },
                         Pred::Between {
                             prop: "n".into(),
-                            lo: Scalar::Num(-1.0),
-                            hi: Scalar::Num(2.5),
+                            lo: PredLiteral::Num(-1.0),
+                            hi: PredLiteral::Num(2.5),
                         },
                     ],
                 },

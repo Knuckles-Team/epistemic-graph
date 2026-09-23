@@ -274,7 +274,7 @@ pub const PRODUCTIONS: &[Production] = &[
     p("json", Aux, &[], None, "scalar | \"NULL\" | \"JSON\" string", "serde_json::Value", ""),
     // ── literals ──
     p("scalar", Aux, &[], None, "string | signed_num | \"TRUE\" | \"FALSE\" | name | param",
-      "Scalar (a bare name is a string)", ""),
+      "PredLiteral (a bare name is a string)", ""),
     p("ts", Aux, &[], None, "\"@\" signed_num | param", "unix seconds", ""),
     p("vector", Aux, &[], None, "\"[\" [ signed_num { \",\" signed_num } ] \"]\"", "Vec<f32>", ""),
     p("string_list", Aux, &[], None, "\"[\" [ string { \",\" string } ] \"]\"", "Vec<String>", ""),

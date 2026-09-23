@@ -1,7 +1,7 @@
 //! The predicate algebra (UQL-01): operators, precedence, typed literals.
 
 use crate::uql::{parse, UqlCode};
-use eg_types::wire::{CmpOp, JsonPathOp, Op, Pred, Scalar};
+use eg_types::wire::{CmpOp, JsonPathOp, Op, Pred, PredLiteral};
 
 fn preds(where_body: &str) -> Vec<Pred> {
     match parse(&format!("MATCH () |> WHERE {where_body}"))
@@ -14,7 +14,7 @@ fn preds(where_body: &str) -> Vec<Pred> {
     }
 }
 
-fn cmp(prop: &str, op: CmpOp, value: Scalar) -> Pred {
+fn cmp(prop: &str, op: CmpOp, value: PredLiteral) -> Pred {
     Pred::Cmp {
         prop: prop.into(),
         op,
@@ -24,15 +24,21 @@ fn cmp(prop: &str, op: CmpOp, value: Scalar) -> Pred {
 
 #[test]
 fn every_comparison_operator_parses() {
-    assert_eq!(preds("a != 1"), vec![cmp("a", CmpOp::Ne, Scalar::Num(1.0))]);
+    assert_eq!(
+        preds("a != 1"),
+        vec![cmp("a", CmpOp::Ne, PredLiteral::Num(1.0))]
+    );
     assert_eq!(
         preds("a <> 'x'"),
-        vec![cmp("a", CmpOp::Ne, Scalar::Str("x".into()))]
+        vec![cmp("a", CmpOp::Ne, PredLiteral::Str("x".into()))]
     );
-    assert_eq!(preds("a >= 1"), vec![cmp("a", CmpOp::Ge, Scalar::Num(1.0))]);
+    assert_eq!(
+        preds("a >= 1"),
+        vec![cmp("a", CmpOp::Ge, PredLiteral::Num(1.0))]
+    );
     assert_eq!(
         preds("a <= -2.5"),
-        vec![cmp("a", CmpOp::Le, Scalar::Num(-2.5))]
+        vec![cmp("a", CmpOp::Le, PredLiteral::Num(-2.5))]
     );
     assert_eq!(
         preds("a > 1"),
@@ -54,11 +60,11 @@ fn every_comparison_operator_parses() {
 fn equality_is_typed_not_stringified() {
     assert_eq!(
         preds("rank = 1"),
-        vec![cmp("rank", CmpOp::Eq, Scalar::Num(1.0))]
+        vec![cmp("rank", CmpOp::Eq, PredLiteral::Num(1.0))]
     );
     assert_eq!(
         preds("ok = TRUE"),
-        vec![cmp("ok", CmpOp::Eq, Scalar::Bool(true))]
+        vec![cmp("ok", CmpOp::Eq, PredLiteral::Bool(true))]
     );
     assert_eq!(
         preds("lang = 'en'"),
@@ -123,9 +129,9 @@ fn in_between_and_null_tests() {
         vec![Pred::In {
             prop: "s".into(),
             values: vec![
-                Scalar::Str("a".into()),
-                Scalar::Num(2.0),
-                Scalar::Bool(false)
+                PredLiteral::Str("a".into()),
+                PredLiteral::Num(2.0),
+                PredLiteral::Bool(false)
             ]
         }]
     );
@@ -134,8 +140,8 @@ fn in_between_and_null_tests() {
         vec![Pred::Not {
             pred: Box::new(Pred::Between {
                 prop: "y".into(),
-                lo: Scalar::Num(1.0),
-                hi: Scalar::Num(2.0)
+                lo: PredLiteral::Num(1.0),
+                hi: PredLiteral::Num(2.0)
             })
         }]
     );

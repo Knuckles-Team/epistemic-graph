@@ -7,7 +7,7 @@
 
 use std::str::FromStr;
 
-use eg_types::wire::{Scalar, UqlParam};
+use eg_types::wire::{PredLiteral, UqlParam};
 
 use super::Parser;
 use crate::uql::diag::{UqlCode, UqlError};
@@ -157,28 +157,30 @@ impl<'a> Parser<'a> {
 
     /// A typed scalar: string, signed number, `TRUE`/`FALSE`, a bare name (a string),
     /// or a scalar parameter. `NULL` is refused with a hint (use `IS NULL`).
-    pub(super) fn scalar(&mut self) -> Result<Scalar, UqlError> {
+    pub(super) fn scalar(&mut self) -> Result<PredLiteral, UqlError> {
         if self.peek_kw("NULL") {
             return Err(self
                 .error(UqlCode::NullLiteral, "NULL is not a comparable value")
                 .with_help("use `<prop> IS NULL` / `<prop> IS NOT NULL`"));
         }
         if let Some(b) = self.boolean() {
-            return Ok(Scalar::Bool(b));
+            return Ok(PredLiteral::Bool(b));
         }
         match self.peek_kind() {
-            Some(Tok::Str(_)) => Ok(Scalar::Str(self.string("a value")?)),
-            Some(Tok::Ident(_)) | Some(Tok::QIdent(_)) => Ok(Scalar::Str(self.name("a value")?)),
+            Some(Tok::Str(_)) => Ok(PredLiteral::Str(self.string("a value")?)),
+            Some(Tok::Ident(_)) | Some(Tok::QIdent(_)) => {
+                Ok(PredLiteral::Str(self.name("a value")?))
+            }
             Some(Tok::Param(_)) => self.scalar_param(),
-            _ => Ok(Scalar::Num(self.number("a value")?)),
+            _ => Ok(PredLiteral::Num(self.number("a value")?)),
         }
     }
 
-    fn scalar_param(&mut self) -> Result<Scalar, UqlError> {
+    fn scalar_param(&mut self) -> Result<PredLiteral, UqlError> {
         match self.param(Want::Scalar)? {
-            Some(UqlParam::Str(s)) => Ok(Scalar::Str(s)),
-            Some(UqlParam::Num(n)) => Ok(Scalar::Num(n)),
-            Some(UqlParam::Bool(b)) => Ok(Scalar::Bool(b)),
+            Some(UqlParam::Str(s)) => Ok(PredLiteral::Str(s)),
+            Some(UqlParam::Num(n)) => Ok(PredLiteral::Num(n)),
+            Some(UqlParam::Bool(b)) => Ok(PredLiteral::Bool(b)),
             _ => Err(self.param_type_error(Want::Scalar)),
         }
     }

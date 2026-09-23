@@ -96,15 +96,15 @@ pub fn cmp_op(op: CmpOp) -> &'static str {
 }
 
 /// A typed scalar literal.
-pub fn uql_scalar(value: &Scalar) -> Printed {
+pub fn uql_scalar(value: &PredLiteral) -> Printed {
     match value {
-        Scalar::Str(s) => Ok(uql_quote(s)),
-        Scalar::Num(n) => uql_num(*n),
-        Scalar::Bool(b) => Ok(uql_bool(*b).into()),
+        PredLiteral::Str(s) => Ok(uql_quote(s)),
+        PredLiteral::Num(n) => uql_num(*n),
+        PredLiteral::Bool(b) => Ok(uql_bool(*b).into()),
     }
 }
 
-fn in_list(prop: &str, values: &[Scalar]) -> Printed {
+fn in_list(prop: &str, values: &[PredLiteral]) -> Printed {
     if values.is_empty() {
         return Err(refuse(
             UqlPrintCode::DegenerateShape,
