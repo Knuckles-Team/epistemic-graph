@@ -38,7 +38,7 @@ fn graph_of(owner: &OwnedStoreHandle<GraphShardOwner>) -> &str {
     owner.identity().scope().graph_name().unwrap().as_str()
 }
 
-fn graph_identity(graph: &str) -> MutationScopeIdentity {
+pub(super) fn graph_identity(graph: &str) -> MutationScopeIdentity {
     MutationScopeIdentity::graph(
         ScopeTenantId::new("tenant-a").unwrap(),
         LogicalName::new(graph).unwrap(),
@@ -131,14 +131,14 @@ fn maintenance_batch_preserves_graph_and_native_expectations() {
     native_write.abort().unwrap();
 }
 
-struct Shard {
-    fixture: Fixture,
-    control: OwnedStoreHandle<GraphShardOwner>,
-    graphs: Vec<OwnedStoreHandle<GraphShardOwner>>,
+pub(super) struct Shard {
+    pub(super) fixture: Fixture,
+    pub(super) control: OwnedStoreHandle<GraphShardOwner>,
+    pub(super) graphs: Vec<OwnedStoreHandle<GraphShardOwner>>,
 }
 
 /// One shard file with a control scope and `graphs` graph scopes bound to it.
-fn shard(path: &Path, graphs: &[&str]) -> Shard {
+pub(super) fn shard(path: &Path, graphs: &[&str]) -> Shard {
     let fixture = Fixture::create::<GraphShardOwner>(path, "physical:test:graph-0", None);
     open_shard(fixture, graphs)
 }
@@ -850,7 +850,7 @@ fn current_graph_batch_with_stable_outbox(
 impl Shard {
     /// Admit a drain: control member plus every graph, each batch built from
     /// the version resolved inside the group's own write transaction.
-    fn admit_current(
+    pub(super) fn admit_current(
         &self,
         suffix: &str,
     ) -> Result<(AdmittedGroup<'_, GraphShardOwner>, Vec<MutationBatch>), String> {
@@ -869,7 +869,7 @@ impl Shard {
         )
     }
 
-    fn finish_and_commit_current(
+    pub(super) fn finish_and_commit_current(
         &self,
         group: AdmittedGroup<'_, GraphShardOwner>,
         batches: &[MutationBatch],
