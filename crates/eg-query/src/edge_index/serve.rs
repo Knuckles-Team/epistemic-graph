@@ -173,7 +173,7 @@ impl<'p> Probe<'p> {
         if let EdgeGraph::Text(postings) = &generation.graph {
             self.corpus = Some(&postings.corpus);
         }
-        let reason = match self.from_generation(generation) {
+        let reason = match self.serve_generation(generation) {
             Ok(hits) => {
                 return Ok(EdgeSearchAnswer {
                     hits,
@@ -186,7 +186,7 @@ impl<'p> Probe<'p> {
         self.bounded_exact(reason)
     }
 
-    fn from_generation(
+    fn serve_generation(
         &self,
         generation: &EdgeGeneration,
     ) -> Result<Vec<EdgeHit>, EdgeFallbackReason> {
