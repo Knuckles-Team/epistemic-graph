@@ -39,7 +39,7 @@ source     = "MATCH" "(" [ ":" ] label ")" [ "WHERE" pred_list ]   (* property-g
            | "REASON" class                                        (* OWL-inferred members *)
            | "FOREIGN" string ;                                     (* external source seed  *)
 stage      = filter | traverse | rank | text | fuse | rerank
-           | asof | window | foreign | reason | limit
+           | asof | window | foreign | reason | limit | validate_shape
            | evidence_for | contradicts | supported_by
            | belief_asof | valid_asof | source_reliability
            | confidence | explain_belief ;                          (* epistemic, E2 *)
@@ -61,6 +61,8 @@ window     = "WINDOW" num [ unit ] ;                                (* s | m | h
 foreign    = "FOREIGN" string ;
 reason     = "REASON" class ;
 limit      = "LIMIT" int ;
+validate_shape = "VALIDATE" "SHAPE" ( iri | string | ident ) "USING" string
+                 [ "KEEP" ( "CONFORMING" | "VIOLATING" ) ] ;       (* SHACL filter, EH-196 *)
 pred_list  = pred { "AND" pred } ;
 pred       = prop ( ">" | "<" | ( "=" | "==" ) ) value ;
 value      = num | string | ident ;
@@ -175,6 +177,17 @@ a 30-second min-aggregate. Canonical example — downsample a series and rerank:
 #### `LIMIT`
 `LIMIT 10` → `Limit{k}`. Order-respecting top-k.
 
+#### `VALIDATE SHAPE` — SHACL conformance filter (EH-196, `owl`)
+`VALIDATE SHAPE <shape> USING "<turtle>" [KEEP CONFORMING|VIOLATING]` →
+`ValidateShape{shape, shapes, keep}`. Every row's node is validated, as an explicit SHACL
+focus node, against the one named shape of the `USING` shapes graph over the RDF projection
+of the queried snapshot; `KEEP CONFORMING` (the default) keeps the nodes with no validation
+result, `KEEP VIOLATING` keeps the rest. Order and scores are preserved. A shape the shapes
+graph does not declare, or a row whose id is not an RDF resource (`<iri>` / `_:b`), is an
+error, never a vacuous pass. Only `VALIDATE SHAPE` is a UQL stage — `VALIDATE POLICY`
+belongs to the DecideText front end. Write the Turtle in a single-quoted UQL string so its
+own double quotes need no escaping.
+
 #### Epistemic — belief, evidence & justification (CONCEPT:EG-KG.epistemic.epistemic-substrate, E2)
 Claims/Evidence/Sources are ordinary `type`-tagged nodes; SUPPORTS/CONTRADICTS/ATTACKS
 edges (classified from canonical `relationship` — `SUPPORTS`/`SUPPORTS_BELIEF`/`HAS_EVIDENCE`/
@@ -249,6 +262,7 @@ Ebbinghaus-decayed **in-plan** and composes alongside `AS OF` in one fused pipel
 | `WINDOW 60 s SUM` | `WindowAgg{secs:60,agg:"sum"}` |
 | `FOREIGN "peer"` | `Foreign{name:"peer"}` |
 | `REASON Mammal` | `Reason{target_class:"Mammal"}` |
+| `VALIDATE SHAPE <s> USING 'ttl'` | `ValidateShape{shape:"<s>",shapes:"ttl",keep:Conforming}` |
 | `EVIDENCE FOR "c1"` | `EvidenceFor{claim_id:"c1"}` |
 | `CONTRADICTS "c1"` | `Contradicts{node_id:"c1"}` |
 | `SUPPORTED BY "c1"` | `SupportedBy{node_id:"c1"}` |
