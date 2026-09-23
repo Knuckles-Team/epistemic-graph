@@ -582,7 +582,8 @@ fn authorize_index_catalog_op(
             sql_catalog_acl::authorize_ddl(source, &plan.table, SqlPrivilege::Alter)
                 .map_err(user_err)
         }
-        IndexCatalogTxnOp::DropAnnIndexesForColumn { table, .. } => {
+        IndexCatalogTxnOp::DropAnnIndexesForColumn { table, .. }
+        | IndexCatalogTxnOp::DropAnnIndex { table, .. } => {
             authorize_alter_like(source, authority, table, provisional_creates)
         }
     }
@@ -2135,6 +2136,9 @@ impl WireSession {
             StatementKind::CreateAnnIndex(plan) => {
                 self.run_create_ann_index(graph, sql, plan).await
             }
+            StatementKind::DropAnnIndex { name, if_exists } => {
+                self.run_drop_ann_index(graph, sql, name, if_exists).await
+            }
             // CONCEPT:EG-KG.query.continuous-aggregate-lowering — TimescaleDB hypertable + continuous aggregate.
             StatementKind::CreateHypertable(plan) => {
                 self.run_create_hypertable(graph, sql, plan).await
@@ -3075,6 +3079,31 @@ impl WireSession {
         txn.push(TxnOp::IndexCatalog(IndexCatalogTxnOp::PutAnnIndex { plan }));
         self.commit_table_txn(graph, sql, txn).await?;
         Ok(WireOutcome::command("CREATE INDEX"))
+    }
+
+    /// `DROP INDEX [IF EXISTS] name` (EH-352): resolve the index to its table,
+    /// then drop it through the same authorized catalog transaction as CREATE.
+    async fn run_drop_ann_index(
+        &self,
+        graph: &str,
+        sql: &str,
+        name: String,
+        if_exists: bool,
+    ) -> WireResult<WireOutcome> {
+        let store = self.user_table_store().await?;
+        let Some(table) = store.ann_index_table(&name).map_err(user_err)? else {
+            if if_exists {
+                return Ok(WireOutcome::command("DROP INDEX"));
+            }
+            return Err(user_err(format!("index `{name}` does not exist")));
+        };
+        let mut txn = TableTxn::new();
+        txn.push(TxnOp::IndexCatalog(IndexCatalogTxnOp::DropAnnIndex {
+            table,
+            name,
+        }));
+        self.commit_table_txn(graph, sql, txn).await?;
+        Ok(WireOutcome::command("DROP INDEX"))
     }
 
     /// CONCEPT:EG-KG.query.continuous-aggregate-lowering — persist native

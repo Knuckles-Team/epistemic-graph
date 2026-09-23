@@ -62,7 +62,7 @@ mod outbox;
 mod row_insert;
 mod source_batch;
 
-use ann_durable::{drop_ann_indexes_for_column_in, put_ann_index_in};
+use ann_durable::{drop_ann_index_in, drop_ann_indexes_for_column_in, put_ann_index_in};
 pub(crate) use ann_durable::{GenerationWrite, StoredGeneration};
 pub(crate) use ann_source::{AnnChangedRows, AnnRowReader, AnnSourceRows, ScanExtent};
 use authority::{sql_scope_identity, SqlAuthority, SqlMutation};
@@ -373,6 +373,8 @@ pub enum IndexCatalogTxnOp {
     PutHypertable { plan: HypertablePlan },
     /// Drop every ANN index registered on one column.
     DropAnnIndexesForColumn { table: String, column: String },
+    /// `DROP INDEX name` — the ANN index `name` on `table` (EH-352).
+    DropAnnIndex { table: String, name: String },
 }
 
 /// One SQL/PGQ property-graph catalog mutation. A property graph is a catalog
@@ -2430,6 +2432,7 @@ fn apply_txn_op_index_catalog(wtx: &SqlWrite<'_>, op: &IndexCatalogTxnOp) -> Res
         IndexCatalogTxnOp::DropAnnIndexesForColumn { table, column } => {
             drop_ann_indexes_for_column_in(wtx, table, column)
         }
+        IndexCatalogTxnOp::DropAnnIndex { table, name } => drop_ann_index_in(wtx, table, name),
     }
 }
 
