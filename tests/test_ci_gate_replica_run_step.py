@@ -165,6 +165,8 @@ def test_apt_setup_step_is_verified_from_its_own_package_list():
         "sudo apt-get install -y --no-install-recommends libsasl2-dev \\\n"
     )
     assert "libsasl2-dev" in check and "-y" not in check.split(";")[0]
+    # A package provided by an installed one (pkg-config <- pkgconf) is present.
+    assert "${Provides}" in check
     status = (
         __import__("subprocess")
         .run(
