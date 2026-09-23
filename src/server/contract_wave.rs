@@ -217,12 +217,19 @@ mod dispatch_reachability_tests {
         "DecisionEval.submit",
         "DecisionEval.status",
         "AgentComponent.content",
+        "ConnectorPack.bind",
         "ConnectorPack.import",
+        "ConnectorPack.reconcile_bodies",
         "ConnectorPack.reproject",
+        "ConnectorPack.retire",
         "ConnectorPack.status",
+        "ConnectorPack.unbind",
         "GraphSchema.attach",
         "GraphSchema.attach_pack",
         "GraphSchema.detach",
+        "MutationOutbox.dead_letters",
+        "MutationOutbox.rewind",
+        "MutationOutbox.status",
     ];
 
     /// Every declared surface is REACHABLE: dispatch routes a pending one to a

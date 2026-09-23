@@ -654,19 +654,24 @@ fn validate_rdf_unions(
             "ontology union exceeds the triple validation budget",
         ));
     }
-    const MAX_REASONING_STEPS: usize = 25_000_000;
-    if triples.len().saturating_mul(triples.len()) > MAX_REASONING_STEPS {
-        return Err((
-            PackViolationCode::ValidationBudgetExceeded,
-            "ontology classification exceeds the deterministic derivation budget",
-        ));
-    }
-    let mut reasoner = eg_rdf::owl::Reasoner::from_triples(&triples);
-    if !reasoner.classify().consistent {
-        return Err((
-            PackViolationCode::OntologyInconsistent,
-            "ontology union contains an unsatisfiable named class",
-        ));
+    // G14 (EH-119, EH-355 ruling (c)): the EL+/RL classification and then the
+    // full-ABox tableau, each inside one deterministic step budget -- the same
+    // verdict on every host, and the same budget the schema attach uses.
+    const MAX_REASONING_STEPS: u64 = 10_000_000;
+    match eg_rdf::tableau::check_pack_ontology(&triples, MAX_REASONING_STEPS) {
+        Ok(()) => {}
+        Err(eg_rdf::tableau::BoundedCheckRefusal::Inconsistent { .. }) => {
+            return Err((
+                PackViolationCode::OntologyInconsistent,
+                "ontology union is inconsistent: an unsatisfiable class or individual",
+            ));
+        }
+        Err(eg_rdf::tableau::BoundedCheckRefusal::BudgetExceeded { .. }) => {
+            return Err((
+                PackViolationCode::ValidationBudgetExceeded,
+                "ontology reasoning exceeds the deterministic step budget",
+            ));
+        }
     }
     if shapes.is_empty() {
         return Ok(());
