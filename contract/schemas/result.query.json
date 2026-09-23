@@ -6712,6 +6712,28 @@
             "resolution"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "One read-only SQL statement over the caller's visible log (EH-066,\n[`super::log_view`]).",
+          "properties": {
+            "op": {
+              "const": "query",
+              "type": "string"
+            },
+            "sql": {
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "sql"
+          ],
+          "type": "object"
         }
       ]
     },
