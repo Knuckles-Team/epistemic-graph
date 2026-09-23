@@ -302,6 +302,9 @@ pub enum DecisionLogOp {
         tenant_id: String,
         resolution: AbstentionResolution,
     },
+    /// One read-only SQL statement over the caller's visible log (EH-066,
+    /// [`super::log_view`]).
+    Query { tenant_id: String, sql: String },
 }
 
 impl DecisionLogOp {
@@ -322,9 +325,10 @@ impl DecisionLogOp {
             Self::Commit { .. } => "agent:decision-write",
             Self::Evaluate { .. } | Self::Resolve { .. } => "agent:decision-evaluate",
             Self::Compact { .. } => "admin:decision-log",
-            Self::Get { .. } | Self::Aggregate { .. } | Self::Verify { .. } => {
-                "agent:decision-read"
-            }
+            Self::Get { .. }
+            | Self::Aggregate { .. }
+            | Self::Verify { .. }
+            | Self::Query { .. } => "agent:decision-read",
         }
     }
 
@@ -336,7 +340,8 @@ impl DecisionLogOp {
             | Self::Get { tenant_id, .. }
             | Self::Compact { tenant_id, .. }
             | Self::Verify { tenant_id, .. }
-            | Self::Resolve { tenant_id, .. } => tenant_id,
+            | Self::Resolve { tenant_id, .. }
+            | Self::Query { tenant_id, .. } => tenant_id,
             Self::Aggregate { request } => &request.tenant_id,
         }
     }

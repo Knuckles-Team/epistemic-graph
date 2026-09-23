@@ -310,3 +310,78 @@ async fn an_assembly_outcome_is_credited_to_its_slate() {
         "components are never credited individually"
     );
 }
+
+/// EH-066: the SQL view answers only from what the caller may read, and only
+/// read-only statements run.
+#[cfg(feature = "query")]
+#[tokio::test]
+async fn the_decision_view_answers_only_from_visible_rows() {
+    use eg_types::decision::statistical::log_view::{DecisionLogRows, ViewCell};
+
+    let h = Harness::new().await;
+    let record = declared_abstention(&h).await;
+    let commit = DecisionLogOp::Commit {
+        record: Box::new(record.clone()),
+    };
+    let logged: DecisionLogCommitted = decode(log_op(&h, "decider", commit).await).unwrap();
+    let human = AbstentionResolver::Human;
+    resolve(&h, resolution(&logged.record_id, "r-1", "plan-deep", human))
+        .await
+        .unwrap();
+    let query = |sql: &str| DecisionLogOp::Query {
+        tenant_id: TENANT.to_string(),
+        sql: sql.to_string(),
+    };
+    let text = |s: &str| ViewCell::Text(s.to_string());
+
+    let mine: DecisionLogRows = decode(
+        log_op(
+            &h,
+            "decider",
+            query("SELECT outcome, source, evidence_class FROM decisions"),
+        )
+        .await,
+    )
+    .unwrap();
+    assert_eq!(
+        mine.rows.as_slice()[0].as_slice(),
+        [text("abstained"), text("declared"), text("claim")]
+    );
+    let joined: DecisionLogRows = decode(
+        log_op(
+            &h,
+            "decider",
+            query("SELECT r.option_id FROM resolutions r JOIN decisions d USING (record_id)"),
+        )
+        .await,
+    )
+    .unwrap();
+    assert_eq!(joined.rows.as_slice()[0].as_slice(), [text("plan-deep")]);
+
+    for table in ["decisions", "resolutions"] {
+        let theirs: DecisionLogRows = decode(
+            log_op(
+                &h,
+                "stranger",
+                query(&format!("SELECT count(*) FROM {table}")),
+            )
+            .await,
+        )
+        .unwrap();
+        assert_eq!(
+            theirs.rows.as_slice()[0].as_slice(),
+            [ViewCell::Int(0)],
+            "{table}: another principal's declared record is not even counted"
+        );
+    }
+    for sql in [
+        "CREATE EXTERNAL TABLE t STORED AS CSV LOCATION '/etc/passwd'",
+        "INSERT INTO decisions (record_id) VALUES ('x')",
+    ] {
+        let refused = decode::<DecisionLogRows>(log_op(&h, "decider", query(sql)).await);
+        assert!(
+            refused.unwrap_err().starts_with("PARAMETER_INVALID"),
+            "{sql}"
+        );
+    }
+}
