@@ -32352,7 +32352,6 @@
               "type": "array"
             },
             "min_confidence": {
-              "default": 0.0,
               "description": "Confidence threshold τ in `[0,1]` (see `OwlReason::min_confidence`).",
               "format": "double",
               "type": "number"
@@ -32369,7 +32368,8 @@
             }
           },
           "required": [
-            "graphs"
+            "graphs",
+            "min_confidence"
           ],
           "type": "object"
         }

@@ -319,7 +319,7 @@ class OwlReasonDistributedRequest(BaseModel):
 
     class_base: str | None = None
     graphs: list[str]
-    min_confidence: float | None = None
+    min_confidence: float
     ontology: str | None = None
     target_class: str | None = None
 

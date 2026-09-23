@@ -114,7 +114,10 @@ def test_graph_ops_facade_declares_complete_non_orphan_module_tree() -> None:
     assert child_paths == expected_children
     assert len(facade.splitlines()) <= 80
     assert not re.search(r"(?m)^\s*(?:pub\([^)]*\)\s+)?(?:async\s+)?fn\s+", facade)
+    # `commit_gateway` is re-exported since f17f47ab3: the governed GraphSchema
+    # authority (`server::graph_schema`) commits through the same gateway kernel.
     assert re.findall(r"(?m)^pub\(crate\) use ([^;]+);$", facade) == [
+        "gateway::commit_gateway",
         "gateway::try_handle_gateway",
         "terminal::try_handle",
     ]
@@ -127,9 +130,10 @@ def test_graph_ops_facade_declares_complete_non_orphan_module_tree() -> None:
         )
     ]
     assert re.sub(r"\s+", " ", gateway_signature).strip() == (
-        "pub(crate) async fn try_handle_gateway( req_id: u64, caller: Option<&str>, "
+        "pub(crate) async fn try_handle_gateway( state: &Arc<RwLock<ServerState>>, "
+        "req_id: u64, caller: Option<&str>, "
         "attempt_nonce: Option<eg_types::contract::Nonce>, idempotency_key: &str, "
-        "tenant_scope: &str, graph_name: &str, core: &Arc<GraphCore>, "
+        "tenant_scope: &str, tenant_id: &str, graph_name: &str, core: &Arc<GraphCore>, "
         "materialization_manifest: Option< "
         "&Arc<std::sync::RwLock<crate::registry::MaterializationManifest>>, >, "
         "read_authority: Option<&GraphReadAuthority>, "
@@ -159,7 +163,8 @@ def test_graph_ops_facade_declares_complete_non_orphan_module_tree() -> None:
         "method: Method, ) -> Response"
     )
     production_code = module._rust_code_mask(family.production)
-    assert len(module._METHOD_VARIANT.findall(production_code)) == 260
+    # 262 since f17f47ab3 routed `GraphSchema` and `GraphSchemaList` here.
+    assert len(module._METHOD_VARIANT.findall(production_code)) == 262
     assert "under_cap_returns_no_error_so_data_is_served" not in family.production
     assert "under_cap_returns_no_error_so_data_is_served" in family.with_tests
 

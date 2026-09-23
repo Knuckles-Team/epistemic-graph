@@ -236,7 +236,7 @@ $($variants)*
         #[serde(default)]
         class_base: String,
         /// Confidence threshold τ in `[0,1]` (see `OwlReason::min_confidence`).
-        #[serde(default)]
+        // Required on the wire (current-only), exactly as on `OwlReason`.
         min_confidence: f64,
     },
 
