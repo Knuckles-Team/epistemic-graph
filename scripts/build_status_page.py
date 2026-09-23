@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate the honesty-first status page (the "Codex") at docs/status.md.
+"""Regenerate the honesty-first status page (the "Codex") at status/status.md.
 
 Extends this repo's existing "Honesty first" framing (docs/index.md) into a
 single, generated page that other pages can link to instead of restating a
@@ -53,13 +53,13 @@ ROOT = Path(__file__).resolve().parent.parent
 CAPABILITIES_MD = ROOT / "docs" / "capabilities.md"
 CAPABILITIES_GENERATED_MD = ROOT / "docs" / "capabilities.generated.md"
 RESERVATIONS_PATH = ROOT / "docs" / "concept_reservations.yaml"
-STATUS_PATH = ROOT / "docs" / "status.md"
+STATUS_PATH = ROOT / "status" / "status.md"
 
 CONCEPT_MARKER_RE = re.compile(r"CONCEPT:([A-Za-z]{2,5}-[A-Za-z0-9]+)\.[A-Za-z0-9.-]+")
 STATUS_CELL_RE = re.compile(r"\|\s*(✅|🔶|🗺)")
 
 # Structural pillar -> owning doc subtree -> primary enforcing CI/pre-commit
-# gate. Not named humans -- see docs/status.md's "Domain ownership" section.
+# gate. Not named humans -- see status/status.md's "Domain ownership" section.
 PILLAR_LABEL = {
     "EG-AHE": "harness-facing engine concepts",
     "EG-KG": "knowledge-graph engine core",
@@ -380,7 +380,7 @@ def render() -> str:
     # `end-of-file-fixer` strips on the very next commit -- after which
     # `check_status_page.py` (which compares byte-for-byte against this
     # renderer) reports the page stale again. The two hooks were mutually
-    # unsatisfiable, so `docs/status.md` could not be regenerated and committed
+    # unsatisfiable, so `status/status.md` could not be regenerated and committed
     # at all; it only surfaced once something actually made the page stale.
 
     return "\n".join(lines) + "\n"
@@ -390,10 +390,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
-        "--write", action="store_true", help="write docs/status.md in place"
+        "--write", action="store_true", help="write status/status.md in place"
     )
     group.add_argument(
-        "--check", action="store_true", help="exit non-zero if docs/status.md is stale"
+        "--check",
+        action="store_true",
+        help="exit non-zero if status/status.md is stale",
     )
     args = parser.parse_args()
 
@@ -405,18 +407,18 @@ def main() -> int:
         return 0
 
     if not STATUS_PATH.is_file():
-        print("docs/status.md is missing — run --write first.", file=sys.stderr)
+        print("status/status.md is missing — run --write first.", file=sys.stderr)
         return 1
     current = STATUS_PATH.read_text(encoding="utf-8")
     if current != rendered:
         print(
-            "docs/status.md is stale relative to docs/capabilities.md / "
+            "status/status.md is stale relative to docs/capabilities.md / "
             "docs/capabilities.generated.md / docs/concept_reservations.yaml. "
             "Run: python scripts/build_status_page.py --write",
             file=sys.stderr,
         )
         return 1
-    print("docs/status.md is up to date.")
+    print("status/status.md is up to date.")
     return 0
 
 
