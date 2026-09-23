@@ -8,32 +8,22 @@
 
 ## Architecture
 
-```
-┌────────────────────────────────────────────────────────────┐
-│ Python (agent-utilities)                                    │
-│                                                            │
-│  GraphComputeEngine ──────▶ EpistemicGraph (Unix Sockets)          │
-│  graph_primitives.py        │                              │
-│                             ▼                              │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │ Rust Core (lib.rs)                                    │  │
-│  │                                                       │  │
-│  │  ┌─────────────┐  ┌──────────────┐  ┌─────────────┐  ┌─────────────┐  │  │
-│  │  │ graph.rs     │  │ algorithms.rs│  │ reasoning.rs│  │ finance.rs   │  │  │
-│  │  │ (GraphCore,  │  │ (PageRank,   │  │ (Datalog,   │  │ (MVO, RP,    │  │  │
-│  │  │  petgraph)   │  │  BFS, DFS,   │  │  Prolog)    │  │  Kelly,      │  │  │
-│  │  │              │  │  community,  │  │             │  │  Optimization│  │  │
-│  │  │              │  │  coloring,   │  │             │  │  via faer)   │  │  │
-│  │  │              │  │  similarity) │  │             │  │              │  │  │
-│  │  └─────────────┘  └──────────────┘  └─────────────┘  └─────────────┘  │  │
-│  │                                                       │  │
-│  │  ┌─────────────┐                                      │  │
-│  │  │ types.rs     │  NodeData, EdgeData, LifecycleState  │  │
-│  │  │              │  GraphMetrics, PruneStats, ContextView│ │
-│  │  └─────────────┘                                      │  │
-│  └──────────────────────────────────────────────────────┘  │
-└────────────────────────────────────────────────────────────┘
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Module layout</p>
+
+Python (`agent-utilities`): `graph_primitives.py`'s `GraphComputeEngine`
+calls `EpistemicGraph` over Unix sockets, into the Rust core (`lib.rs`),
+which holds four modules:
+
+- `graph.rs` — `GraphCore`, petgraph-backed
+- `algorithms.rs` — PageRank, BFS, DFS, community, coloring, similarity
+- `reasoning.rs` — Datalog, Prolog
+- `finance.rs` — MVO, RP, Kelly, optimization via faer
+
+and one shared types module, `types.rs` — `NodeData`, `EdgeData`,
+`LifecycleState`, `GraphMetrics`, `PruneStats`, `ContextView`.
+
+</div>
 
 ## Modules
 

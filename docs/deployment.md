@@ -349,85 +349,56 @@ relying on the shared HMAC secret alone.
 The engine is a Cargo workspace: a layered crate stack under one server process that opens the
 RPC transports and owns the durable store.
 
-```mermaid
-flowchart TD
-    subgraph Client["Client (any agent / agent-utilities)"]
-        PY[epistemic_graph.EpistemicGraphClient]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Server architecture</p>
 
-    subgraph Server["epistemic-graph-server (single Rust process)"]
-        T["Transport — length-prefixed MessagePack over UDS / TCP, HMAC-SHA256"]
-        ADM["Admission control (try-acquire permits, sheds BUSY)"]
-        CORE["GraphCore — petgraph StableDiGraph + node/edge property maps"]
+The client (`epistemic_graph.EpistemicGraphClient`, any agent or
+agent-utilities) makes an RPC over the transport (length-prefixed
+MessagePack over UDS/TCP, HMAC-SHA256), through admission control
+(try-acquire permits, sheds BUSY), into `GraphCore` (petgraph
+`StableDiGraph` + node/edge property maps). `GraphCore` feeds every query
+surface — Cypher, `eg-query` (DataFusion SQL), `pgwire` (Postgres wire SQL),
+`eg-ann` (IVF-PQ vector ANN), `eg-tsdb`, `eg-rdf`, `eg-text` — and also
+feeds durability: the canonical mutation applier → `write_coalescer.rs` →
+the authoritative on-disk `redb_store`, which replicates via `raft`
+(openraft, `cluster` feature) bidirectionally.
 
-        subgraph Query["Query surfaces"]
-            CY[Cypher]
-            SQL["eg-query — DataFusion SQL"]
-            PGW["pgwire — Postgres wire SQL"]
-            ANN["eg-ann — IVF-PQ vector ANN"]
-            TS[eg-tsdb]
-            RDF[eg-rdf]
-            TXT[eg-text]
-        end
+The crate dependency stack is linear: `eg-types` → `eg-core` → `eg-compute`
+→ `epistemic-graph`.
 
-        subgraph Durability["Durability"]
-            APPLY[canonical mutation applier]
-            WC[write_coalescer.rs]
-            REDB[(redb_store — authoritative on disk)]
-            RAFT["raft — openraft replication, cluster feature"]
-        end
-    end
-
-    PY -->|RPC| T --> ADM --> CORE
-    CORE --> CY & SQL & PGW & ANN & TS & RDF & TXT
-    CORE --> APPLY --> WC --> REDB
-    REDB <--> RAFT
-
-    subgraph Crates["Crate dependency stack"]
-        direction LR
-        EGT[eg-types] --> EGC[eg-core] --> EGCO[eg-compute] --> EGTOP[epistemic-graph]
-    end
-```
+</div>
 
 ### Deployment topologies
 
-```mermaid
-flowchart LR
-    subgraph Single["Single-node"]
-        A1[agent / MCP container] -->|TCP 9100| S1[("epistemic-graph<br/>redb @ eg-data")]
-        GOS[graph-os front-end] -->|UDS / TCP| S1
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Deployment topologies</p>
 
-    subgraph HA["Cluster (Raft HA)"]
-        A2[agents] --> N1[(eg-node-1)]
-        N1 <-->|raft :9200| N2[(eg-node-2)]
-        N2 <-->|raft :9200| N3[(eg-node-3)]
-        N1 <-->|raft :9200| N3
-    end
-```
+**Single-node:** an agent/MCP container connects over TCP 9100, and the
+graph-os front-end connects over UDS/TCP, both to the one
+`epistemic-graph` process (redb at `eg-data`).
+
+**Cluster (Raft HA):** agents connect to `eg-node-1`, which replicates via
+`raft` (port 9200) to `eg-node-2` and `eg-node-3`, each pair connected
+directly (a full mesh of three nodes).
+
+</div>
 
 ### Write path & data model
 
 Writes are durable **before** the client is acked (commit-before-ack); reads are served from RAM
 with a redb read-through for evicted nodes.
 
-```mermaid
-flowchart LR
-    W[Client write] --> APPLY[Canonical mutation applier]
-    APPLY --> WC["Write coalescer<br/>group commit"]
-    WC --> REDB[(redb authoritative store)]
-    REDB -->|commit| ACK[ACK to client]
-    REDB -.read-through.-> CACHE["In-RAM GraphCore<br/>LRU eviction"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Write path & stored entities</p>
 
-    subgraph Model["Stored entities"]
-        direction LR
-        N["Node (id, JSON props, labels)"]
-        E["Edge (src, dst, JSON props)"]
-        IDX[Label / property indexes]
-        TH["Thread / Message (chat persistence)"]
-    end
-    REDB --- Model
-```
+A client write goes through the canonical mutation applier, then the write
+coalescer (group commit), into the authoritative redb store, which acks the
+client on commit. The in-RAM `GraphCore` (LRU eviction) reads through to
+redb on a miss. The redb store holds: nodes (id, JSON props, labels), edges
+(src, dst, JSON props), label/property indexes, and threads/messages (chat
+persistence).
+
+</div>
 
 ---
 

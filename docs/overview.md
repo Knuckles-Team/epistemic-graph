@@ -17,28 +17,17 @@ multimodal) see [the master-of-all engine](architecture/engine.md); for build co
 
 ## One core, two transports
 
-```mermaid
-flowchart LR
-    subgraph PyCallers["Python callers"]
-        AU["agent-utilities GraphComputeEngine"]
-        CLI["CLI / MCP / UIs / ingestion"]
-    end
-    subgraph Edge["Edge / embedded"]
-        EMB["EmbeddedEngine (in-process, no socket)"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Two front doors, one core</p>
 
-    subgraph Server["epistemic-graph-server"]
-        DISP["dispatch + handlers"]
-        CORE["GraphCore + GraphRegistry"]
-        REDB[("redb authoritative store")]
-    end
+Python callers — `agent-utilities`' `GraphComputeEngine` (length-prefixed
+MessagePack over UDS/TCP) and CLI/MCP/UIs/ingestion (HMAC-SHA256 framed
+RPC) — both reach `epistemic-graph-server`'s dispatch + handlers, which
+call into `GraphCore` + `GraphRegistry`. Separately, the edge/embedded
+`EmbeddedEngine` calls the same core directly, in-process, with no socket.
+Either path writes through to the redb authoritative store.
 
-    AU -->|"length-prefixed MessagePack over UDS / TCP"| DISP
-    CLI -->|"HMAC-SHA256 framed RPC"| DISP
-    DISP --> CORE
-    EMB -->|"direct calls, same core"| CORE
-    CORE --> REDB
-```
+</div>
 
 Both transports drive the **same** `GraphCore`, canonical mutation applier, and
 redb-authoritative durable rows. The socket path adds Tokio + HMAC; the embedded path is a plain
@@ -52,53 +41,30 @@ The engine is an acyclic Cargo workspace. The diagram below shows the primary qu
 the current workspace-member list and exact optional edges live in `Cargo.toml`. A dependency cycle
 will not compile, which is the enforcement.
 
-```mermaid
-flowchart LR
-    EGT["eg-types<br/>protocol, wire DTOs, ACL"]
-    EGANN["eg-ann<br/>IVF-PQ + OPQ + SQ8 + exact/recall"]
-    EGGEO["eg-geo<br/>geometry · R-tree · CRS · routing (GIS)"]
-    EGSTREAM["eg-stream<br/>windowed events + CEP NFA"]
-    EGKV["eg-kvcache<br/>tiered hot/warm/cold KV-block cache"]
-    EGTEXT["eg-text<br/>Tantivy BM25"]
-    EGWASM["eg-wasm<br/>WASM UDF sandbox"]
-    EGCORE["eg-core<br/>GraphCore · registry · broker · agent-memory · task queue"]
-    EGCOMPUTE["eg-compute<br/>algorithms, finance, datascience, reasoning, ast"]
-    EGQUERY["eg-query<br/>DataFusion SQL + Cypher"]
-    EGTSDB["eg-tsdb<br/>time-series + VRL pipelines"]
-    EGTENSOR["eg-tensor<br/>N-D array store + ops"]
-    EGRDF["eg-rdf<br/>RDF / SPARQL / OWL / GeoSPARQL"]
-    EGSHACL["eg-shacl<br/>SHACL Core validation"]
-    EGSHEX["eg-shex<br/>ShEx shape validation"]
-    EGPLAN["eg-plan<br/>unified RowSet planner + ops"]
-    EGGQL["eg-graphql<br/>GraphQL + Apollo Federation"]
-    EGLAKE["eg-lake<br/>LTAP: Parquet · Delta · Iceberg · LSN as-of"]
-    FACADE["epistemic-graph<br/>facade + Tokio server + wire adapters + observability + LTAP egress + QoS scheduler + embedded"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Crate dependency DAG (illustrative — `Cargo.toml` is authoritative)</p>
 
-    EGT --> EGANN --> EGCORE
-    EGT --> EGCORE
-    EGCORE --> EGCOMPUTE --> EGQUERY
-    EGCOMPUTE --> EGTSDB --> EGTENSOR
-    EGGEO --> EGRDF
-    EGCORE --> EGRDF --> EGSHACL
-    EGRDF --> EGSHEX
-    EGCORE --> EGGQL --> FACADE
-    EGCOMPUTE --> EGPLAN
-    EGCORE --> EGPLAN
-    EGQUERY --> EGPLAN
-    EGRDF --> EGPLAN
-    EGTSDB --> EGPLAN
-    EGTENSOR --> EGPLAN
-    EGTEXT --> EGPLAN
-    EGWASM --> EGPLAN
-    EGGEO --> EGPLAN
-    EGSTREAM --> EGPLAN
-    EGPLAN --> FACADE
-    EGSHACL --> FACADE
-    EGSHEX --> FACADE
-    EGKV --> FACADE
-    EGQUERY --> EGLAKE --> FACADE
-    EGTSDB --> EGLAKE
-```
+`eg-types` (protocol, wire DTOs, ACL) is the base: it feeds `eg-ann`
+(IVF-PQ + OPQ + SQ8 + exact/recall), which feeds `eg-core` (`GraphCore`,
+registry, broker, agent-memory, task queue) directly too. `eg-core` feeds
+`eg-compute` (algorithms, finance, datascience, reasoning, ast), which feeds
+`eg-query` (DataFusion SQL + Cypher) and `eg-tsdb` (time-series + VRL),
+which in turn feeds `eg-tensor` (N-D array store + ops). `eg-geo` (GIS)
+feeds `eg-rdf` (RDF/SPARQL/OWL/GeoSPARQL) alongside `eg-core`; `eg-rdf`
+feeds `eg-shacl` and `eg-shex`. `eg-core` also feeds `eg-graphql`
+(GraphQL + Apollo Federation) directly into the facade.
+
+Nine crates converge on `eg-plan` (the unified RowSet planner + ops):
+`eg-compute`, `eg-core`, `eg-query`, `eg-rdf`, `eg-tsdb`, `eg-tensor`,
+`eg-text` (Tantivy BM25), `eg-wasm` (WASM UDF sandbox), `eg-geo`, and
+`eg-stream` (windowed events + CEP NFA). `eg-plan`, `eg-shacl`, `eg-shex`,
+and `eg-kvcache` (tiered hot/warm/cold KV-block cache) all feed directly
+into the top-level `epistemic-graph` facade (Tokio server + wire adapters +
+observability + LTAP egress + QoS scheduler + embedded). `eg-query` and
+`eg-tsdb` both feed `eg-lake` (LTAP: Parquet/Delta/Iceberg/LSN as-of), which
+feeds the facade too.
+
+</div>
 
 The facade re-exports `eg-{types,core,compute}` through the current public `crate::` paths and adds the
 server-side modules (dispatch, handlers, persistence, raft, embedded, **the multi-wire adapters**, and
@@ -128,28 +94,19 @@ text front-end `Uql` / UQL) carries a `Plan` — a list of `Op`s that each trans
 `RowSet` (a candidate set of `(id, score)`), composing graph, vector, SQL, OWL, SPARQL, text, time, and
 federation in **one** execution pipeline.
 
-```mermaid
-flowchart LR
-    subgraph Sources["Source ops (seed the RowSet)"]
-        SCAN["Scan{label}"]
-        REASON["Reason{class} — OWL inference"]
-        SPARQL["SparqlBgp{query,var}"]
-        FOREIGN["ForeignScan{source} — federation"]
-    end
-    subgraph Transforms["Transform ops (RowSet to RowSet)"]
-        FILTER["Filter{preds} — DataFusion SQL"]
-        TRAVERSE["Traverse{rel,min,max} — graph BFS"]
-        RANK["Rank{vector} — ANN cosine"]
-        RANKTEXT["RankText{query} — BM25"]
-        FUSE["FuseRrf{left,right,k} — hybrid fusion"]
-        UDF["Udf{id} — sandboxed WASM"]
-        ASOF["AsOf / Window — time context"]
-    end
-    LIMIT["Limit{k} — top-k"]
-    OUT["RowSet result"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Unified query plan shape</p>
 
-    Sources --> Transforms --> LIMIT --> OUT
-```
+A plan starts from one or more source ops that seed the `RowSet` —
+`Scan{label}`, `Reason{class}` (OWL inference), `SparqlBgp{query,var}`, or
+`ForeignScan{source}` (federation) — flows through transform ops
+(`RowSet` → `RowSet`) — `Filter{preds}` (DataFusion SQL), `Traverse{rel,min,max}`
+(graph BFS), `Rank{vector}` (ANN cosine), `RankText{query}` (BM25),
+`FuseRrf{left,right,k}` (hybrid fusion), `Udf{id}` (sandboxed WASM), and
+the time-context ops `AsOf`/`Window` — then `Limit{k}` (top-k), producing
+the final `RowSet` result.
+
+</div>
 
 - **Source ops** seed candidates: `Scan` (label), `Reason` (every individual the OWL reasoner *infers*
   to be a class member, including ids with no explicit type edge), `SparqlBgp` (a SPARQL SELECT's
