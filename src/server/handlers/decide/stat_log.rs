@@ -36,6 +36,7 @@ use super::stat_executor::ExecutionContext;
 use super::stat_replay::replay;
 use super::stat_resolve::resolve;
 use super::stat_retention::{compact, full_record, verify, Retention};
+use super::stat_slate::{evaluated_slates, slate_of, SLATE_QUESTION};
 use super::stat_support::{default_statistical_policy, pinned_entry, refusal};
 use super::telemetry;
 use crate::protocol::{Response, ResultPayload};
@@ -187,23 +188,32 @@ fn commit(
     Ok(committed(false))
 }
 
+/// An evaluation joins an executed statistical record, or a committed solved
+/// assembly (its slate, EH-012); anything else has nothing to evaluate.
+fn check_evaluable(
+    ctx: &ExecutionContext,
+    reader: &LogReader,
+    record_id: &str,
+) -> Result<(), String> {
+    let invalid = |detail: &str| refusal(StatisticalErrorCode::ParameterInvalid, detail);
+    match visible_entry(ctx.store, reader, record_id)? {
+        Some(entry) if executed_option(&entry.record.outcome).is_none() => {
+            Err(invalid("the record executed no option"))
+        }
+        Some(_) => Ok(()),
+        None => match slate_of(ctx.store, ctx.tenant_id, record_id)? {
+            Some(_) => Ok(()),
+            None => Err(invalid("no committed record with that id is visible")),
+        },
+    }
+}
+
 fn evaluate(
     ctx: &ExecutionContext,
     reader: &LogReader,
     evaluation: DecisionOutcomeEvaluation,
 ) -> Result<StoredEvaluation, String> {
-    let entry = visible_entry(ctx.store, reader, &evaluation.record_id)?.ok_or_else(|| {
-        refusal(
-            StatisticalErrorCode::ParameterInvalid,
-            "no committed record with that id is visible",
-        )
-    })?;
-    if executed_option(&entry.record.outcome).is_none() {
-        return Err(refusal(
-            StatisticalErrorCode::ParameterInvalid,
-            "the record executed no option",
-        ));
-    }
+    check_evaluable(ctx, reader, &evaluation.record_id)?;
     let key = evaluation_key(&evaluation.record_id, &evaluation.evaluation_id);
     let stored = StoredEvaluation {
         evaluation,
@@ -286,6 +296,23 @@ pub(super) fn aggregate_log(
                 evaluations,
             })
         })
+        .collect();
+    let slates = evaluated_slates(
+        store,
+        &reader.tenant_id,
+        request.question_id.as_deref(),
+        (request.window.from_ms, request.window.to_ms),
+        MAX_LOG_ROWS,
+    )?;
+    let records: Vec<JoinedRecord> = records
+        .into_iter()
+        .chain(slates.iter().map(|(slate, evaluations)| JoinedRecord {
+            option_id: &slate.option_id,
+            question_id: SLATE_QUESTION,
+            policy_digest: &slate.policy_digest,
+            decider: &slate.decider,
+            evaluations,
+        }))
         .collect();
     let policy = default_statistical_policy();
     let rules = AggregateRules {

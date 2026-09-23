@@ -18,7 +18,7 @@ use super::super::agent_component::{test_component_draft, test_tool_facts};
 use super::super::agent_fixtures::{mutation_context, open_agent_store};
 use super::*;
 
-const TENANT: &str = "tenant-a";
+pub(crate) const TENANT: &str = "tenant-a";
 
 fn publish(
     store: &AgentLibraryStore,
@@ -51,7 +51,7 @@ fn draft(
     }
 }
 
-fn seed_library(store: &AgentLibraryStore) {
+pub(crate) fn seed_library(store: &AgentLibraryStore) {
     let model = AgentComponentFacts::ModelProfile {
         provider: "provider".into(),
         model_identity: "model-a".into(),
@@ -131,7 +131,7 @@ fn request() -> AssemblyRequest {
     }
 }
 
-fn decided(store: &AgentLibraryStore) -> Assembly {
+pub(crate) fn decided(store: &AgentLibraryStore) -> Assembly {
     let entries = store
         .assembly_candidates(TENANT, &request().candidates)
         .expect("reads");
@@ -154,7 +154,11 @@ fn decided(store: &AgentLibraryStore) -> Assembly {
     assembly
 }
 
-fn commit_context(store: &AgentLibraryStore, key: &str, nonce: u8) -> AgentLibraryMutationContext {
+pub(crate) fn commit_context(
+    store: &AgentLibraryStore,
+    key: &str,
+    nonce: u8,
+) -> AgentLibraryMutationContext {
     mutation_context(store, TENANT, key, nonce, 0, "decision:commit")
 }
 
