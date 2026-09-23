@@ -20,6 +20,7 @@ pub mod retrieval;
 pub mod retrieval_adapter;
 pub mod retrieval_generation;
 pub mod retrieval_pointer;
+pub mod scorer;
 
 use serde::{Deserialize, Serialize};
 

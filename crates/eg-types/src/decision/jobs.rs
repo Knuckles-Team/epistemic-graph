@@ -167,6 +167,48 @@ pub struct FullLabelMetrics {
     pub set_size_total: u64,
 }
 
+/// One calibration class's share of a full-label evaluation (per domain).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct ClassCoverage {
+    pub class_key: String,
+    pub n_items: u64,
+    pub covered: u64,
+}
+
+/// The promotion protocol's measurements beyond [`FullLabelMetrics`]
+/// (EH-295): soft accuracy and score error, abstention and accuracy on what
+/// was answered, cost, stability, drift over recorded time, and per-class
+/// coverage. Every rate is an exact count; `soft_accuracy` and `score_mae`
+/// are means on `Q32`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct PromotionMetrics {
+    /// Mean probability mass on the acceptability set.
+    pub soft_accuracy: QuantisedValue,
+    /// Mean `|p_top - [top is acceptable]|`.
+    pub score_mae: QuantisedValue,
+    /// Items the act rule answered, how many of those were right, and how
+    /// many it abstained on (out of distribution or below its threshold).
+    pub answered: u64,
+    pub answered_hits: u64,
+    pub abstained: u64,
+    /// Multiply-accumulates the head spent over every item (the scorer
+    /// counts them; a linear head costs `options x features`).
+    pub macs_total: u64,
+    /// Items whose two independent reads were byte-identical.
+    pub stable_items: u64,
+    /// Coverage of the earlier and the later half by `recorded_at_ms`;
+    /// `None` when every item carries one time and drift is not measurable.
+    #[serde(default)]
+    pub early_coverage: Option<UnitRationalWire>,
+    #[serde(default)]
+    pub late_coverage: Option<UnitRationalWire>,
+    pub per_class: BoundedVec<ClassCoverage, 64>,
+}
+
 /// Why items were refused as labels, by reason.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -211,6 +253,10 @@ pub struct DecisionEvalReceipt {
     pub calibration: Option<CalibrationStatement>,
     #[serde(default)]
     pub metrics: Option<FullLabelMetrics>,
+    /// The promotion protocol's further measurements (full-label only).
+    /// Omitted when absent, so bandit receipts keep their bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub promotion: Option<Box<PromotionMetrics>>,
     pub exclusions: LabelExclusions,
     /// Bandit regime only: pooled per-option success rates at min support.
     #[serde(default)]

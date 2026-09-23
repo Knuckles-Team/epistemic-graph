@@ -236,7 +236,8 @@ pub(super) fn execute(
     run_on_matrix(&inputs, pinned, policy, matrix)
 }
 
-/// The recorded explanation of the explained option, for a linear head.
+/// The recorded explanation of the explained option, for a linear head
+/// (an `OptionAttention` head records none).
 pub(super) fn recorded_explanation(
     pinned: &Pinned,
     executed: &Executed,
@@ -254,6 +255,5 @@ pub(super) fn recorded_explanation(
         &matrix.candidate_ids[index],
         &reading.standardised[index],
     )
-    .map(Some)
     .map_err(|r| r.render())
 }

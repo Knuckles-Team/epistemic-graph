@@ -7,6 +7,10 @@ Two exports, one per label regime (DECIDE-LAYER-DESIGN §6.2):
   selectable candidates, its acceptability set every component of an
   acceptable assembly. The labels are ground truth by construction, so the
   source is ``synthetic_construction`` and the dataset says ``synthetic``.
+* :func:`export_gold_corpus` merges the gold sets of several seeds into one
+  full-label training corpus for the resident decision scorer (EH-302);
+  ``python -m epistemic_graph.testing.synthetic.decision_export OUT SEED...``
+  writes it as JSON for the offline ``decision_scorer_train`` example.
 * :func:`export_outcome_dataset` turns an :class:`OutcomeStream` into a
   BANDIT-LABEL dataset: one item per logged record, carrying the exact logging
   row as propensities and every planted defect mapped onto the field the
@@ -20,15 +24,20 @@ whose content digests the datasets pin.
 
 from __future__ import annotations
 
+import json
+import sys
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from ... import decision_stat as ds
 from . import vocabulary as vocab
 from .assembly import Candidate, GoldSet, PlanItem, Solved
+from .assembly_generate import generate_gold_set
 from .outcomes import OutcomeRecord, OutcomeStream
 
 Q32 = ds.Q32_ONE
+MAX_DATASET_ITEMS = 4_096
 ASSEMBLY_FEATURE_SCHEMA = ds.feature_schema_body(
     [
         ds.feature("coverage", ds.coverage_fraction("needs")),
@@ -131,6 +140,27 @@ def export_gold_dataset(gold: GoldSet) -> dict[str, Any]:
     return _dataset(ASSEMBLY_FEATURE_SCHEMA, ("coverage", "cost", "p95"), items)
 
 
+def export_gold_corpus(seeds: Sequence[int]) -> dict[str, Any]:
+    """One full-label corpus over the gold sets of ``seeds``, in seed order.
+
+    Item ids are prefixed with their seed so they stay unique, and each item
+    is recorded at its seed's index, so a promotion evaluation can measure
+    calibration drift across seeds. Truncated at the dataset bound.
+    """
+    items: list[dict[str, Any]] = []
+    for index, seed in enumerate(seeds):
+        for item in export_gold_dataset(generate_gold_set(seed))["items"]:
+            items.append(
+                {
+                    **item,
+                    "item_id": f"seed-{seed}-{item['item_id']}",
+                    "recorded_at_ms": index,
+                }
+            )
+    names = ("coverage", "cost", "p95")
+    return _dataset(ASSEMBLY_FEATURE_SCHEMA, names, items[:MAX_DATASET_ITEMS])
+
+
 def _evaluation(record: OutcomeRecord) -> dict[str, Any]:
     independent = record.independent_evaluator
     return {
@@ -179,3 +209,17 @@ def export_outcome_dataset(stream: OutcomeStream) -> dict[str, Any]:
     """The bandit-label dataset of every logged record, defects included."""
     items = [_logged_item(stream, record) for record in stream.records]
     return _dataset(OUTCOME_FEATURE_SCHEMA, ("option_index",), items)
+
+
+def main(argv: Sequence[str]) -> int:
+    """``OUT SEED...``: write the gold corpus of the seeds to ``OUT``."""
+    if len(argv) < 2:
+        sys.stderr.write("usage: decision_export OUT SEED [SEED ...]\n")
+        return 2
+    corpus = export_gold_corpus([int(seed) for seed in argv[1:]])
+    Path(argv[0]).write_text(json.dumps(corpus, separators=(",", ":")))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
