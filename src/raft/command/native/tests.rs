@@ -284,8 +284,11 @@ fn native_catalog_is_complete_unique_and_has_domain_representatives() {
     // `NodeInfoUpsert` moved behind the sealed native command envelope in
     // 7469acff; it is intentionally absent from the public method catalog.
     // 193892753 added the two replicated ControlLease writes (their commit
-    // deferred this count pin to landing), taking the catalog from 100 to 102.
-    assert_eq!(NATIVE_CONSENSUS_METHODS.len(), 102);
+    // deferred this count pin to landing), taking the catalog from 100 to 102;
+    // 102 -> 103: EH-346 `PolicyEvolutionStore`;
+    // 103 -> 107: the EH-348 work-market writes `GapUpsert`, `GapTransition`,
+    // `GapSettle`, `WorkOfferPut` -- all WorkItem-kernel writes.
+    assert_eq!(NATIVE_CONSENSUS_METHODS.len(), 107);
     for control_lease_write in ["IssueControlLease", "TransitionControlLease"] {
         assert!(
             unique.contains(control_lease_write),
