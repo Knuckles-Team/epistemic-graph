@@ -303,12 +303,18 @@ pub(super) async fn route_process_global_domains(
     let req_id = ctx.req_id;
     let caller = ctx.caller;
     let read_authority = &ctx.read_authority;
+    // The verified tenant carrier the process-global UDF + foreign-source catalogs key
+    // their entries by (EH-373/EH-374) — never a request field.
+    let carrier = read_authority
+        .as_ref()
+        .and_then(GraphReadAuthority::carrier);
     // WASM-sandboxed UDF surface (CONCEPT:EG-KG.query.rowset-execution, feature `wasm-udf`):
     // RegisterUdf compiles+caches, RunUdf runs sandboxed (fuel+memory+no host
     // caps) — both off-reactor. Process-global (not graph-scoped), so it takes
-    // `state` for the UdfRegistry. A method whose feature is off falls through.
+    // `state` for the tenant-scoped UdfCatalog, keyed by the VERIFIED carrier's
+    // tenant (EH-374). A method whose feature is off falls through.
     #[cfg(feature = "wasm-udf")]
-    let method = match handlers::wasm_udf::try_handle(state, req_id, method).await {
+    let method = match handlers::wasm_udf::try_handle(state, req_id, carrier, method).await {
         Ok(r) => return Ok(r),
         Err(m) => m,
     };
@@ -319,16 +325,7 @@ pub(super) async fn route_process_global_domains(
     // method whose feature is off falls through to the graph_ops not-available
     // catch-all.
     #[cfg(feature = "federation")]
-    let method = match handlers::federation::try_handle(
-        state,
-        req_id,
-        read_authority
-            .as_ref()
-            .and_then(GraphReadAuthority::carrier),
-        method,
-    )
-    .await
-    {
+    let method = match handlers::federation::try_handle(state, req_id, carrier, method).await {
         Ok(r) => return Ok(r),
         Err(m) => m,
     };

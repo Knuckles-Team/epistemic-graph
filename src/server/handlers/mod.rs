@@ -98,7 +98,7 @@ pub(crate) mod streaming;
 #[cfg(feature = "rdf")]
 pub(crate) mod rdf;
 // WASM-sandboxed UDF surface (CONCEPT:EG-KG.query.rowset-execution, feature `wasm-udf`). RegisterUdf/RunUdf
-// drive the process-global UdfRegistry on ServerState; a build without `wasm-udf` omits
+// drive the tenant-scoped UdfCatalog on ServerState (EH-374); a build without `wasm-udf` omits
 // the module and the variants fall to the graph_ops not-available catch-all.
 #[cfg(feature = "wasm-udf")]
 pub(crate) mod wasm_udf;

@@ -37,25 +37,7 @@ async fn register_in(
         name: "remote_docs".into(),
         source,
     };
-    let resp = dispatch_on_heap(
-        state,
-        request_in_tenant(id, "__commons__", None, tenant, method),
-    )
-    .await;
-    assert_ok(&resp);
-}
-
-async fn query_in(
-    state: &Arc<RwLock<ServerState>>,
-    id: u64,
-    tenant: &str,
-    method: Method,
-) -> crate::protocol::Response {
-    dispatch_on_heap(
-        state,
-        request_in_tenant(id, "__commons__", None, tenant, method),
-    )
-    .await
+    assert_ok(&dispatch_in_tenant(state, id, tenant, method).await);
 }
 
 fn named_scan_plan() -> Method {
@@ -108,23 +90,23 @@ async fn foreign_source_resolves_only_for_the_registering_tenant() {
     build_unified_fixture(&local).await;
     register_in(&local, 900, TENANT_A, federation_remote_spec(remote_addr)).await;
 
-    let a = query_in(&local, 901, TENANT_A, named_scan_plan()).await;
+    let a = dispatch_in_tenant(&local, 901, TENANT_A, named_scan_plan()).await;
     assert_ok(&a);
     assert_eq!(
         sorted_ids(&a),
         vec!["d2", "d3", "d4"],
         "local Docs joined with the remote set"
     );
-    let b = query_in(&local, 902, TENANT_B, named_scan_plan()).await;
+    let b = dispatch_in_tenant(&local, 902, TENANT_B, named_scan_plan()).await;
     assert_not_registered_for_caller(&b, "Named ForeignScan");
 
     let text = || Method::UnifiedQueryText {
         text: FOREIGN_UQL.into(),
     };
-    let a = query_in(&local, 903, TENANT_A, text()).await;
+    let a = dispatch_in_tenant(&local, 903, TENANT_A, text()).await;
     assert_ok(&a);
     assert_eq!(sorted_ids(&a), vec!["d2", "d3", "d4"]);
-    let b = query_in(&local, 904, TENANT_B, text()).await;
+    let b = dispatch_in_tenant(&local, 904, TENANT_B, text()).await;
     assert_not_registered_for_caller(&b, "UQL FOREIGN marker");
 }
 
@@ -152,14 +134,14 @@ async fn same_name_in_two_tenants_resolves_each_tenants_own_spec() {
     let text = || Method::UnifiedQueryText {
         text: FOREIGN_UQL.into(),
     };
-    let a = query_in(&local, 912, TENANT_A, text()).await;
+    let a = dispatch_in_tenant(&local, 912, TENANT_A, text()).await;
     assert_ok(&a);
     assert_eq!(
         sorted_ids(&a),
         vec!["d2", "d3", "d4"],
         "tenant B registering the same name must not overwrite tenant A's source"
     );
-    let b = query_in(&local, 913, TENANT_B, text()).await;
+    let b = dispatch_in_tenant(&local, 913, TENANT_B, text()).await;
     let err = b
         .error
         .expect("tenant B's own spec points at an unreachable endpoint");
@@ -184,9 +166,9 @@ async fn nl_query_foreign_leg_is_tenant_scoped() {
         text: FOREIGN_UQL.into(),
         graph: "__commons__".into(),
     };
-    let a = query_in(&local, 921, TENANT_A, nl()).await;
+    let a = dispatch_in_tenant(&local, 921, TENANT_A, nl()).await;
     assert_ok(&a);
     assert_eq!(sorted_ids(&a), vec!["d2", "d3", "d4"]);
-    let b = query_in(&local, 922, TENANT_B, nl()).await;
+    let b = dispatch_in_tenant(&local, 922, TENANT_B, nl()).await;
     assert_not_registered_for_caller(&b, "NlQuery");
 }

@@ -379,7 +379,11 @@ pub(crate) mod handlers;
 // Tenant-scoped foreign-source catalog (CONCEPT:EG-KG.query.query-federation, EH-373): the one
 // place a caller's verified tenant scope selects which registered sources a plan may resolve.
 #[cfg(feature = "federation")]
-pub(crate) mod foreign_catalog;
+pub mod foreign_catalog;
+// Tenant-scoped WASM UDF catalog (CONCEPT:EG-KG.query.rowset-execution, EH-374):
+// `RegisterUdf`/`RunUdf` resolve ids only within the caller's verified tenant.
+#[cfg(feature = "wasm-udf")]
+pub mod udf_catalog;
 pub mod registry_reaper;
 // MutationPlan + the single commit gateway (CONCEPT:EG-P0-2): consumes
 // `eg-capabilities`' MethodPolicy to drive authz + durable-commit + audit + CDC for
@@ -1189,6 +1193,18 @@ mod tests {
 
     fn request(id: u64, graph: &str, agent_id: Option<&str>, method: Method) -> Request {
         request_in_tenant(id, graph, agent_id, "tenant-shared", method)
+    }
+
+    /// Dispatch `method` on `__commons__` signed for the verified `tenant` (EH-373/EH-374
+    /// cross-tenant tests).
+    #[cfg(any(feature = "federation", feature = "wasm-udf"))]
+    async fn dispatch_in_tenant(
+        state: &Arc<RwLock<ServerState>>,
+        id: u64,
+        tenant: &str,
+        method: Method,
+    ) -> Response {
+        dispatch_on_heap(state, request_in_tenant(id, "__commons__", None, tenant, method)).await
     }
 
     /// [`request`] signed for an explicit verified `tenant` (EH-373 tenancy tests).
@@ -2463,6 +2479,9 @@ mod tests {
     // EH-373 foreign-source tenancy proofs through the full served dispatch chain.
     #[cfg(all(feature = "federation", feature = "nl-query"))]
     mod foreign_tenancy;
+    // EH-374 WASM UDF tenancy proofs through the full served dispatch chain.
+    #[cfg(feature = "wasm-udf")]
+    mod udf_tenancy;
 
     // ── Cypher query surface (CONCEPT:EG-KG.query.dep-free-behind) ─────────────────────────
 

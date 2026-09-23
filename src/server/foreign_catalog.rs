@@ -53,7 +53,7 @@ struct CatalogKey {
 
 /// Every tenant's registered foreign sources, partitioned by verified tenant scope.
 #[derive(Default)]
-pub(crate) struct ForeignSourceCatalog {
+pub struct ForeignSourceCatalog {
     entries: DashMap<CatalogKey, ForeignSourceSpec>,
 }
 
