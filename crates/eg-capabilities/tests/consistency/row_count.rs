@@ -36,7 +36,7 @@
 /// the domain row inventory so every supported feature combination checks the
 /// same coverage invariant.
 pub fn expected_method_policy_rows() -> usize {
-    429 + usize::from(cfg!(feature = "jobs"))
+    430 + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
         + usize::from(cfg!(feature = "knowledge-batch"))

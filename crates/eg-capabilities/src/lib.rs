@@ -508,7 +508,14 @@ fn connector_family_policy(method: &Method) -> Option<MethodPolicy> {
 /// `__commons__`, so they are graph-durable, audited and CDC-emitted exactly as
 /// `RegisterServer` is. Its reads are snapshot reads with no state transition.
 fn fleet_catalog_policy(op: &eg_types::fleet_catalog::FleetCatalogOp) -> MethodPolicy {
-    let mutates = op.is_mutation();
+    graph_translated_policy(op.is_mutation(), op.authz_action())
+}
+
+/// The shape shared by every op family whose writes self-translate into graph
+/// primitives (`CreateNodeIfAbsent`/`CompareAndSetNodeFields`): a write is
+/// graph-durable, audited and CDC-emitted exactly as the primitive it lowers
+/// to; a read is a snapshot with no state transition. Both are idempotent.
+fn graph_translated_policy(mutates: bool, authz_action: &'static str) -> MethodPolicy {
     MethodPolicy {
         mutates,
         durability_domain: if mutates {
@@ -516,7 +523,7 @@ fn fleet_catalog_policy(op: &eg_types::fleet_catalog::FleetCatalogOp) -> MethodP
         } else {
             DurabilityDomain::None
         },
-        authz_action: op.authz_action(),
+        authz_action,
         idempotent: true,
         audited: mutates,
         emits_cdc: mutates,
@@ -555,10 +562,22 @@ fn registry_family_policy(method: &Method) -> Option<MethodPolicy> {
     None
 }
 
+/// Policy evolution (EH-346/EH-347). Writes are graph writes: each op
+/// self-translates into ONE `CreateNodeIfAbsent` of an immutable record in the
+/// request graph, so it is graph-durable, audited and CDC-emitted; a repeat is
+/// a replay. `get` is a snapshot read. The op owns its authz action.
+fn policy_evolution_policy(method: &Method) -> Option<MethodPolicy> {
+    let Method::PolicyEvolution { op } = method else {
+        return None;
+    };
+    Some(graph_translated_policy(op.is_mutation(), op.authz_action()))
+}
+
 fn policy_for_method(method: &Method) -> MethodPolicy {
     if let Some(policy) = agent_family_policy(method)
         .or_else(|| connector_family_policy(method))
         .or_else(|| registry_family_policy(method))
+        .or_else(|| policy_evolution_policy(method))
     {
         return policy;
     }
