@@ -283,7 +283,10 @@ fn native_catalog_is_complete_unique_and_has_domain_representatives() {
         .collect::<std::collections::BTreeSet<_>>();
     // `NodeInfoUpsert` moved behind the sealed native command envelope in
     // 7469acff; it is intentionally absent from the public method catalog.
-    assert_eq!(NATIVE_CONSENSUS_METHODS.len(), 100);
+    // 100 -> 102: `IssueControlLease`/`TransitionControlLease` (graph-os EG-2);
+    // 102 -> 106: the EH-348 work-market writes `GapUpsert`, `GapTransition`,
+    // `GapSettle`, `WorkOfferPut` -- all WorkItem-kernel writes.
+    assert_eq!(NATIVE_CONSENSUS_METHODS.len(), 106);
     assert_eq!(unique.len(), NATIVE_CONSENSUS_METHODS.len());
     assert!(unique.iter().all(|name| !name.is_empty()));
 

@@ -23,15 +23,20 @@
 /// 419 -> 420: authoritative source checkpoint/status recovery.
 /// 420 -> 421: governed source-system `WriteBack` authority.
 /// 421 -> 422: typed, bounded live fleet `ListRegisteredServers` authority.
+/// 422 -> 429: the native WorkItem reads and control leases (EH-219, graph-os
+/// EG-2..EG-5) -- `GetWorkItem`, `ListWorkItems`, `GetWorkItemOutcome`, `IssueControlLease`,
+/// `TransitionControlLease`, `GetControlLease`, `ListControlLeases`.
+/// 429 -> 435: the EH-348 work market -- `GapUpsert`, `GapTransition`,
+/// `GapSettle`, `WorkOfferPut`, `GapGet`, `GapList`.
 ///
 /// This is a tripwire against an unnoticed protocol edit, not a ratchet;
 /// `scripts/method_policy_inventory.py`'s `EXPECTED_METHOD_POLICY_ROWS` is the
 /// same count seen from the other side and the two must agree
-/// (422 + 7 feature rows = 429). Keep the formula aligned with the cfg rows in
+/// (435 + 7 feature rows = 442). Keep the formula aligned with the cfg rows in
 /// the domain row inventory so every supported feature combination checks the
 /// same coverage invariant.
 pub fn expected_method_policy_rows() -> usize {
-    422 + usize::from(cfg!(feature = "jobs"))
+    435 + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
         + usize::from(cfg!(feature = "knowledge-batch"))

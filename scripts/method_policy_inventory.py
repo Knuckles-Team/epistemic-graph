@@ -69,7 +69,12 @@ class MethodPolicyRow:
 # `MutationOutbox`.
 # 425 -> 426: RF-ADR-009's served `SourceIngest` raw-record authority.
 # 426 -> 427: governed connector `WriteBack` authority.
-EXPECTED_METHOD_POLICY_ROWS = 429
+# 429 -> 436: native WorkItem reads + control leases (EH-219, graph-os EG-2..5):
+# `GetWorkItem`, `ListWorkItems`, `GetWorkItemOutcome`, `IssueControlLease`,
+# `TransitionControlLease`, `GetControlLease`, `ListControlLeases`.
+# 436 -> 442: the EH-348 work market -- `GapUpsert`, `GapTransition`,
+# `GapSettle`, `WorkOfferPut`, `GapGet`, `GapList`.
+EXPECTED_METHOD_POLICY_ROWS = 442
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",

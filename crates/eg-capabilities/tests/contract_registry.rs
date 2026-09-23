@@ -177,9 +177,15 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 426 -> 427: authoritative source checkpoint/status recovery.
     // 427 -> 428: governed source-system `WriteBack` authority.
     // 428 -> 429: typed, bounded live fleet `ListRegisteredServers` authority.
+    // 429 -> 436: native WorkItem reads + control leases (EH-219, graph-os
+    // EG-2..EG-5): `GetWorkItem`, `ListWorkItems`, `GetWorkItemOutcome`,
+    // `IssueControlLease`, `TransitionControlLease`, `GetControlLease`,
+    // `ListControlLeases`.
+    // 436 -> 442: the EH-348 work market -- `GapUpsert`, `GapTransition`,
+    // `GapSettle`, `WorkOfferPut`, `GapGet`, `GapList`.
     assert_eq!(
         variants.len(),
-        429,
+        442,
         "the wire method census changed; update this exact count deliberately"
     );
 }

@@ -118,9 +118,16 @@ def _native_method_catalog(source: str) -> dict[str, str]:
         len(names) == len(set(names)),
         "native method catalog contains a duplicate entry",
     )
+    # 100 since f17f47ab3 added the governed `GraphSchema => GraphState` record
+    # (the durable graph-schema authority). This is the catalog's declared
+    # cardinality, so it moves only with a reviewed catalog change.
+    # 100 -> 102: graph-os EG-2/EG-3 native records -- the tenant-bound
+    # `IssueControlLease` / `TransitionControlLease` control-lease rows.
+    # 102 -> 106: the EH-348 work-market writes `GapUpsert`, `GapTransition`,
+    # `GapSettle`, `WorkOfferPut` (WorkItem kernel).
     require(
-        len(entries) == 99,
-        f"native method catalog must contain 99 entries, observed {len(entries)}",
+        len(entries) == 106,
+        f"native method catalog must contain 106 entries, observed {len(entries)}",
     )
     require("RegisterServer" not in names, "RegisterServer must remain gateway-routed")
     require(
@@ -144,9 +151,11 @@ def _native_method_catalog(source: str) -> dict[str, str]:
     require(
         domain_counts
         == {
-            "GraphState": 22,
+            "GraphState": 23,
             "Transaction": 15,
-            "WorkItem": 18,
+            # +2 IssueControlLease, TransitionControlLease; +4 EH-348 GapUpsert,
+            # GapTransition, GapSettle, WorkOfferPut
+            "WorkItem": 24,
             "Blob": 6,
             "KeyValue": 3,
             "TimeSeries": 3,

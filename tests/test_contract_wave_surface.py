@@ -123,13 +123,15 @@ def test_the_agent_component_request_grows_a_content_branch() -> None:
 def test_the_receipt_counts_match_the_wave() -> None:
     for copy in ("contract/receipt.json", "epistemic_graph/contract/receipt.json"):
         receipt = _json(copy)
-        assert receipt["method_count"] == 429, copy
+        # +7 native WorkItem reads/control leases (EH-219, graph-os EG-2..5),
+        # +6 EH-348 work market; all schematized python-client methods.
+        assert receipt["method_count"] == 442, copy
         assert receipt["internal_only_methods"] == 26, copy
-        assert receipt["python_client_methods"] == 403, copy
+        assert receipt["python_client_methods"] == 416, copy
         classification = receipt["result_classification"]
-        assert classification["schematized"] == 416, copy
+        assert classification["schematized"] == 429, copy
         assert classification["unclassified"] == 0, copy
-        assert sum(classification.values()) == 429, copy
+        assert sum(classification.values()) == 442, copy
 
 
 def test_the_receipt_declares_every_new_format_identity() -> None:
