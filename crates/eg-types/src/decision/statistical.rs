@@ -8,6 +8,7 @@
 
 pub mod body;
 pub mod dataset;
+pub mod declared;
 pub mod errors;
 pub mod features;
 pub mod head;
@@ -95,6 +96,11 @@ pub enum CandidateSource {
     Graph {
         graph: String,
         plan: Box<crate::wire::Plan>,
+    },
+    /// The caller's own options, each fact a claim the caller makes
+    /// ([`declared`]). Visible to the declaring principal only.
+    Declared {
+        options: BoundedVec<declared::DeclaredOption, 64>,
     },
 }
 
