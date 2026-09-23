@@ -37,8 +37,14 @@ fn terminology_only(ont: DlOntology) -> DlOntology {
         same_as: Vec::new(),
         different_from: Vec::new(),
         individuals: BTreeSet::new(),
-        domains: ont.domains,
-        ranges: ont.ranges,
+        // Domain and range stay with the full-ABox check where schema enters (their
+        // role absorption only fires on edges and roughly doubled this restore-time
+        // check); the EL/RL pass over every triple still lifts them to `∃p.⊤ ⊑ D` and
+        // range-refined fillers. Omitting axioms from the tableau cannot add an
+        // entailment, so this scoping is sound.
+        domains: Vec::new(),
+        ranges: Vec::new(),
+        disjoint_groups: ont.disjoint_groups,
     }
 }
 

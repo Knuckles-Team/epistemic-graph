@@ -15,7 +15,7 @@
 //! served core ontology that exhausted a 2 MiB thread stack during schema
 //! composition, and with a larger stack the search did not finish.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use super::{Completion, Dl, DlOntology};
 
@@ -34,6 +34,8 @@ pub(super) struct Tbox {
     /// Role-absorbed `rdfs:range` (`⊤ ⊑ ∀p.R`): `range[p]` is added to the target of
     /// every `p`-edge (or sub-role edge).
     range: HashMap<String, Vec<Dl>>,
+    /// `owl:AllDisjointClasses` groups of named classes (see `DlOntology::disjoint_groups`).
+    groups: Vec<BTreeSet<Dl>>,
 }
 
 /// The outer shape of a concept, as absorption sees it. One exhaustive match over
@@ -90,6 +92,7 @@ pub(super) fn build_tbox(ont: &DlOntology) -> Tbox {
             .or_default()
             .push(class.clone());
     }
+    tbox.groups = ont.disjoint_groups.clone();
     for (c, d) in &ont.gcis {
         match head(c) {
             Head::Atom(class) => tbox
@@ -104,6 +107,15 @@ pub(super) fn build_tbox(ont: &DlOntology) -> Tbox {
         }
     }
     tbox
+}
+
+impl Tbox {
+    /// Does `label` hold two members of one `owl:AllDisjointClasses` group?
+    pub(super) fn violates_a_disjoint_group(&self, label: &BTreeSet<Dl>) -> bool {
+        self.groups
+            .iter()
+            .any(|group| group.iter().filter(|c| label.contains(*c)).nth(1).is_some())
+    }
 }
 
 /// Role absorption (EH-363). `∃p.⊤ ⊑ D` and `⊤ ⊑ ∀p.R` are deterministic in the
