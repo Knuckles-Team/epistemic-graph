@@ -575,6 +575,17 @@ impl EmbeddedEngine {
         eg_query::exec_cypher(&snap, cypher)
     }
 
+    /// Build or refresh the maintained ANN generation of every registered pgvector
+    /// index (RF-019). Embedded mode runs no background worker, so call this after
+    /// bulk writes; until a generation is live, a nearest-neighbour read takes the
+    /// bounded exact path (and says so in the index status).
+    #[cfg(feature = "query")]
+    pub fn refresh_ann_indexes(&self) -> Result<Vec<eg_query::AnnRefreshOutcome>, String> {
+        self.inner
+            .tables
+            .refresh_ann_generations(eg_query::AnnRefreshPolicy::Immediate)
+    }
+
     /// Execute a SQL statement SQLite-style, in-process, WITHOUT a server
     /// (CONCEPT:EG-KG.storage.namespaced-kv-surface / EG-018). This is the embedded equivalence to SQLite: open a
     /// file → `CREATE TABLE` / `INSERT` / `SELECT` over arbitrary user tables, durably,

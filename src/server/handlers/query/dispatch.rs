@@ -488,9 +488,10 @@ async fn handle_sql_with_lease(
     let cancel_for_task = cancel.clone();
     let authority = authority.clone();
     let resp = match compute_off_lock(req_id, move || {
-        let authorized = crate::server::sql_catalog_acl::authorized_read_store(
+        let authorized = crate::server::sql_catalog_acl::authorized_read_store_for_query(
             &authority,
             std::path::Path::new(&persist_dir),
+            &query,
         )?;
         eg_query::exec_sql_typed_with_tables_cancellable(
             &snap,

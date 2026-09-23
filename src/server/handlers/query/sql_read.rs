@@ -119,8 +119,11 @@ async fn handle_sql_read(scope: SqlReadScope<'_>, query: String) -> Response {
     let authority = authority.clone();
     let persist_dir = persist_dir.to_path_buf();
     let resp = match compute_off_lock(req_id, move || {
-        let authorized =
-            crate::server::sql_catalog_acl::authorized_read_store(&authority, &persist_dir)?;
+        let authorized = crate::server::sql_catalog_acl::authorized_read_store_for_query(
+            &authority,
+            &persist_dir,
+            &query,
+        )?;
         eg_query::exec_sql_typed_with_tables_cancellable(
             &snap,
             authorized.store(),

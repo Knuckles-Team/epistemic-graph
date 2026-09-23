@@ -48,6 +48,12 @@
 /// eg-ann HNSW/IVF index over a vector column and return the true nearest-k, replacing
 /// the EG-115 brute-force `vector_l2()` scan when a matching EG-116 index is registered.
 mod ann;
+/// The row-level shape a maintained ANN pushdown must honour (`WHERE`, `OFFSET`,
+/// row-ranked projection) — RF-019.
+mod ann_filter;
+/// The ANN pushdown decision: user tables narrow through the maintained ANN
+/// authority, `nodes` through its batch slice — RF-019.
+mod ann_pushdown;
 mod catalog;
 mod classify;
 /// `eg_embed(text)` — the server-side text→vector SQL scalar function (design
@@ -99,6 +105,9 @@ mod spill;
 mod tablefuncs;
 mod udfs;
 
+pub(crate) use ann::{isqrt, metric_to_ann};
+pub use ann_filter::{AnnDeclineReason, AnnQueryShape};
+pub use ann_pushdown::{user_ann_decision, UserAnnDecision, UserAnnPushdown};
 pub use classify::{
     classify, infer_param_sites, json_pred_from_expr, mongo_match_to_preds, returning_columns,
     schema_probe_sql, AlterTableAction, AlterTablePlan, ColumnDef, CopyFormat, CopyPlan,
