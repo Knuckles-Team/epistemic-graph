@@ -4,7 +4,7 @@ use crate::physical::incarnation::{
     require_persisted_root, StoreIdentityDigest, STORAGE_KERNEL_SCHEMA_VERSION,
 };
 use crate::physical::root::{
-    reject_prototype_names, validate_handle_write, PhysicalStore, StoreHandle,
+    reject_prototype_names, validate_handle_write, PhysicalStore, StoreHandle, ValidatedWrite,
 };
 use crate::tables::{SCOPE_BINDINGS, STORE_ROOT, VERSIONS};
 use eg_types::MutationScopeIdentity;
@@ -133,11 +133,11 @@ pub(crate) fn retire_scope_in(
 /// The store authority (persisted root, owner manifest, declared census) is
 /// NOT re-proved here: `begin_write` proved it once for this transaction and
 /// nothing can change it before commit (EH-390, see
-/// [`crate::physical::write_authority`]). Every caller holds a transaction
-/// from `begin_write` -- the two capability constructors and `verify_scope`.
+/// [`crate::physical::write_authority`]). The [`ValidatedWrite`] parameter is
+/// the proof: only `begin_write` constructs one.
 pub(crate) fn binding_for_write(
     store: &PhysicalStore,
-    wtx: &WriteTransaction,
+    wtx: &ValidatedWrite,
     identity: &MutationScopeIdentity,
 ) -> Result<ScopeBinding, String> {
     store.validations().scope_binding_checked();
