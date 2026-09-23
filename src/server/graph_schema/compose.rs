@@ -1,7 +1,7 @@
 //! Deterministic composition and validation of keyed graph schema sources.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use eg_rdf::oxrdf::{BlankNode, Graph, NamedOrBlankNode, Term, Triple};
 
@@ -31,21 +31,30 @@ const OWL_DECLARATION_OBJECTS: &[&str] = &[
     "http://www.w3.org/2002/07/owl#Ontology",
 ];
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) struct ComposedSchema {
     pub(crate) shapes: Graph,
     pub(crate) ontology: Vec<Triple>,
+    /// Whether the full-ABox tableau already accepted `ontology`.
+    pub(crate) abox_consistent: parking_lot::Mutex<bool>,
 }
 
-pub(crate) fn validate_and_compose(sources: &GraphSchemaSources) -> Result<ComposedSchema, String> {
+/// The validated composition of `sources`, compiled at most once per content
+/// identity (`composed_digest`, see [`super::compiled`]) and shared by every graph
+/// that composes the same schema.
+pub(crate) fn validate_and_compose(
+    sources: &GraphSchemaSources,
+) -> Result<Arc<ComposedSchema>, String> {
     sources.validate()?;
     if sources.dynamic.is_empty() {
-        static IMMUTABLE_CORE: OnceLock<Result<ComposedSchema, String>> = OnceLock::new();
+        static IMMUTABLE_CORE: OnceLock<Result<Arc<ComposedSchema>, String>> = OnceLock::new();
         return IMMUTABLE_CORE
-            .get_or_init(|| compose_validated_sources(sources))
+            .get_or_init(|| compose_validated_sources(sources).map(Arc::new))
             .clone();
     }
-    compose_validated_sources(sources)
+    super::compiled::compiled_schemas().get_or_compile(sources.composed_digest(), || {
+        compose_validated_sources(sources)
+    })
 }
 
 /// Search steps (deterministic rule rounds and explored branches, see
@@ -64,22 +73,19 @@ const SCHEMA_ENTRY_ABOX_BUDGET: eg_rdf::owl::DerivationBudget =
 /// attach and ConnectorPack projection — but not on restore, which replays schema that
 /// already passed here and checks the terminology only. Bounded by
 /// [`SCHEMA_ENTRY_ABOX_BUDGET`]: an ABox the tableau cannot decide within it is refused
-/// with `VALIDATION_BUDGET_EXCEEDED`, never admitted undecided.
+/// with `VALIDATION_BUDGET_EXCEEDED`, never admitted undecided. An accepted
+/// verdict is remembered on the shared compiled entry.
 pub(crate) fn validate_entering_schema(
     sources: &GraphSchemaSources,
-) -> Result<ComposedSchema, String> {
+) -> Result<Arc<ComposedSchema>, String> {
     let composed = validate_and_compose(sources)?;
-    match eg_rdf::tableau::abox_consistency_within(&composed.ontology, SCHEMA_ENTRY_ABOX_BUDGET) {
-        Ok(true) => Ok(composed),
-        Ok(false) => Err(
-            "ONTOLOGY_INCONSISTENT: the composed schema's individual assertions have no model"
-                .to_string(),
-        ),
-        Err(exhausted) => Err(exhausted.to_string()),
-    }
+    composed.require_abox_consistency(SCHEMA_ENTRY_ABOX_BUDGET)?;
+    Ok(composed)
 }
 
-fn compose_validated_sources(sources: &GraphSchemaSources) -> Result<ComposedSchema, String> {
+pub(super) fn compose_validated_sources(
+    sources: &GraphSchemaSources,
+) -> Result<ComposedSchema, String> {
     let shapes = compose_documents(sources.shapes(), true)?;
     let ontology = compose_documents(sources.ontologies(), false)?;
     validate_named_shape_ownership(&shapes)?;
@@ -115,6 +121,7 @@ fn compose_validated_sources(sources: &GraphSchemaSources) -> Result<ComposedSch
     Ok(ComposedSchema {
         shapes: shape_graph,
         ontology,
+        abox_consistent: parking_lot::Mutex::new(false),
     })
 }
 

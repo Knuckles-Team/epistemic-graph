@@ -68,7 +68,7 @@ fn load_shacl_shapes(core: &GraphCore, shapes: Option<&str>) -> Result<LoadedSha
                 return Err("no committed GraphSchema SHACL sources".to_string());
             }
             Ok(LoadedShaclShapes {
-                graph: composed.shapes,
+                graph: composed.shapes.clone(),
                 schema_digests,
                 composed_digest: Some(composed_digest),
             })
