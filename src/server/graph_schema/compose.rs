@@ -660,8 +660,9 @@ ex:parent a owl:AsymmetricProperty .
         // 880 migrated triples less the two list-cell triples of `:Incident`, which
         // was removed from the Person/Organization/Server/Event disjointness because
         // it is a subclass of `:Event` (EH-356), plus the 8 triples declaring BFO
-        // realizable entity and disposition, the category of `:Skill`.
-        assert_eq!(triples.len(), 886);
+        // realizable entity and disposition, the category of `:Skill`, plus BFO's
+        // `Continuant owl:disjointWith Occurrent` (operator ruling, EH-363).
+        assert_eq!(triples.len(), 887);
         for required in [
             "http://knuckles.team/kg#Concept",
             "http://knuckles.team/kg#Evidence",
@@ -689,7 +690,8 @@ ex:parent a owl:AsymmetricProperty .
         // module-local domain/range of 12 other shared properties (and the double domain
         // of infrastructure's :runsOn) moved onto 24 module-local sub-properties. Then
         // +8: BFO realizable entity and disposition, declared for `:Skill`.
-        assert_eq!(composed.ontology.len(), 12_697);
+        // +1: BFO `Continuant owl:disjointWith Occurrent`.
+        assert_eq!(composed.ontology.len(), 12_698);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -721,7 +723,7 @@ ex:parent a owl:AsymmetricProperty .
         // authority triples change.
         assert_eq!(ontology_subjects.len(), 30);
         assert_eq!(imports, 59);
-        assert_eq!(semantic_axioms, 12_542);
+        assert_eq!(semantic_axioms, 12_543);
 
         let count_type = |object: &str| {
             composed
