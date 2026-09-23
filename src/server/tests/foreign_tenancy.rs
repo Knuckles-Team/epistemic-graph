@@ -181,3 +181,73 @@ async fn nl_query_foreign_leg_is_owner_scoped() {
     let b = dispatch_as(&local, 922, OTHER_B, nl()).await;
     assert_not_registered_for_caller(&b, "NlQuery");
 }
+
+/// EH-378: principal B uses principal A's source only through the explicit,
+/// engine-provisioned share role, by its qualified name; revoking the role stops use.
+/// The granted success is result-cached, so the post-revocation refusal also proves the
+/// cache key follows the grant.
+#[tokio::test]
+async fn shared_source_needs_an_explicit_grant() {
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let (_remote, remote_addr) = spawn_federation_remote().await;
+    let local = multi_tenant_state().await;
+    build_unified_fixture(&local).await;
+    register_in(&local, 940, OWNER_A, federation_remote_spec(remote_addr)).await;
+    let qualified = crate::server::foreign_share::shared_name(OWNER_A, "remote_docs");
+    let text = || Method::UnifiedQueryText {
+        text: format!("MATCH (:Doc) |> FOREIGN \"{qualified}\" |> LIMIT 10"),
+    };
+    let not_found =
+        format!("no foreign source registered under name '{qualified}' (registered: [])");
+    let assert_refused = |resp: &crate::protocol::Response, stage: &str| {
+        let err = resp
+            .error
+            .as_deref()
+            .unwrap_or_else(|| panic!("{stage}: must be refused"));
+        assert!(
+            err.contains(&not_found),
+            "{stage}: exact not-found, got: {err}"
+        );
+        assert!(!err.contains("ACCESS_DENIED") && !err.contains("does not match graph tenant"));
+    };
+    let set_other_roles = |roles: Vec<String>| {
+        let local = local.clone();
+        async move {
+            let mut s = local.write().await;
+            let mut identity = s.isolation.get_identity(OTHER_B).expect("worker2 exists");
+            identity.roles = roles;
+            s.isolation
+                .try_register_agent(identity)
+                .expect("update worker2 roles");
+        }
+    };
+    let original = local
+        .read()
+        .await
+        .isolation
+        .get_identity(OTHER_B)
+        .expect("worker2 exists")
+        .roles;
+
+    assert_refused(&dispatch_as(&local, 941, OTHER_B, text()).await, "no grant");
+
+    let mut granted = original.clone();
+    granted.push(crate::server::foreign_share::share_role(
+        OWNER_A,
+        "remote_docs",
+    ));
+    set_other_roles(granted).await;
+    let used = dispatch_as(&local, 942, OTHER_B, text()).await;
+    assert_ok(&used);
+    assert_eq!(
+        sorted_ids(&used),
+        vec!["d2", "d3", "d4"],
+        "grantee uses the source"
+    );
+
+    set_other_roles(original).await;
+    assert_refused(
+        &dispatch_as(&local, 943, OTHER_B, text()).await,
+        "after revoke",
+    );
+}

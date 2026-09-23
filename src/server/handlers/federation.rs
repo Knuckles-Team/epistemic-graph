@@ -38,8 +38,17 @@ pub(crate) async fn try_handle(
                         .to_string(),
                 ));
             };
-            let catalog = state.read().await.foreign_sources.clone();
-            catalog.register(owner, name.clone(), source);
+            // EH-378: provision the source's share role (assigned to nobody) under the
+            // same write lock as the registration, so a registered source always has one.
+            let mut s = state.write().await;
+            if let Err(error) = crate::server::foreign_share::provision_share_role(
+                &mut s.isolation,
+                owner.agent_id(),
+                &name,
+            ) {
+                return Ok(Response::err(req_id, error));
+            }
+            s.foreign_sources.register(owner, name.clone(), source);
             Ok(Response::ok(
                 req_id,
                 ResultPayload::scalar::<eg_types::result_contract::cluster::RegisterForeignSource>(
