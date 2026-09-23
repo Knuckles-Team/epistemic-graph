@@ -3,9 +3,10 @@
 //! The whole request runs in ONE row-store snapshot. The live generation only
 //! proposes candidates: the visibility predicate runs inside the graph walk,
 //! every candidate is re-read and re-scored on its current vector, rows added
-//! since the build are scored exactly, and the answer is the exact order over
-//! that union. With no servable generation the request takes a bounded exact
-//! scan and says why.
+//! or changed since the build (the high-water scan and the changed-row log) are
+//! scored exactly, and the answer is the exact order over that union, each row
+//! once. With no servable generation the request takes a bounded exact scan and
+//! says why.
 
 use std::cell::{Cell as Flag, RefCell};
 use std::collections::BTreeMap;
@@ -159,6 +160,9 @@ impl Probe<'_> {
         if delta.extent == ScanExtent::Truncated {
             return Ok(Maintained::Fallback(AnnFallbackReason::DeltaOverflow));
         }
+        let Some(changed) = self.score_changed(generation, &mut rows)? else {
+            return Ok(Maintained::Fallback(AnnFallbackReason::DeltaOverflow));
+        };
         let walk = self.walk(generation)?;
         if walk.over_budget {
             return Ok(Maintained::Fallback(AnnFallbackReason::ProbeBudget));
@@ -169,9 +173,31 @@ impl Probe<'_> {
             path: AnnServingPath::MaintainedIndex {
                 generation: generation.generation,
             },
-            examined: delta.examined + walk.examined,
+            examined: delta.examined + changed + walk.examined,
             epoch: self.reader.epoch(),
         }))
+    }
+
+    /// Score, exactly, every admitted row the changed-row log names as changed
+    /// after `generation`'s build: an updated row is ranked on its new vector
+    /// even when the generation indexed only its old one. `None` when more rows
+    /// changed than one probe scores exactly.
+    fn score_changed(
+        &self,
+        generation: &AnnGeneration,
+        out: &mut Vec<Scored>,
+    ) -> Result<Option<usize>, String> {
+        let changed = self
+            .reader
+            .changed_since(generation.built_epoch, self.limits.delta_rows)?;
+        if !changed.complete {
+            return Ok(None);
+        }
+        for rowid in &changed.rowids {
+            let row = self.reader.visible_row(*rowid, self.request.prefilter)?;
+            out.extend(row.and_then(|cells| self.score(*rowid, cells)));
+        }
+        Ok(Some(changed.rowids.len()))
     }
 
     /// The filtered graph walk: each proposed row is read, checked and scored
@@ -293,13 +319,16 @@ impl Probe<'_> {
     }
 }
 
-/// Sort by `(distance, row id)` — a total, deterministic order — and keep `k`.
+/// Sort by `(distance, row id)` — a total, deterministic order — keep each row
+/// once, and keep `k`. A row scored twice in one snapshot (changed AND proposed
+/// by the walk) scores identically, so its copies are adjacent.
 fn compact(rows: &mut Vec<Scored>, k: usize) {
     rows.sort_by(|a, b| {
         a.distance
             .total_cmp(&b.distance)
             .then(a.rowid.cmp(&b.rowid))
     });
+    rows.dedup_by_key(|row| row.rowid);
     rows.truncate(k);
 }
 
