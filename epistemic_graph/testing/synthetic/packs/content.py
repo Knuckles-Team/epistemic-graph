@@ -206,3 +206,16 @@ def manifest(connector: str) -> EntrySpec:
         media_type=JSON,
         body=canonical_json({"connector": connector, "synthetic": True}),
     )
+
+
+def skill_file(skill_entry: EntrySpec, path: str, body: bytes) -> EntrySpec:
+    """One supporting file of ``skill_entry`` (D11): ``<skill>/<path>``."""
+    name = f"{skill_entry.name}/{path}"
+    return EntrySpec(
+        kind="skill_file",
+        uri=f"skill-file://{name}",
+        name=name,
+        media_type="application/octet-stream",
+        body=body,
+        references=(PackRef(uri=skill_entry.uri, kind="skill"),),
+    )

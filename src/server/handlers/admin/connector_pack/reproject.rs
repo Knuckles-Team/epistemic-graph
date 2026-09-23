@@ -53,35 +53,39 @@ async fn serve_with_substrates(
             Ok(prepared) => prepared,
             Err(error) => return Response::err(req_id, error),
         };
-    let documents = match materialize_current_projection(state, &plan).await {
-        Ok(documents) => documents,
-        Err(error) => {
-            return Response::err(
-                req_id,
-                record_projection_failure(&store, &context, &plan, &error),
-            );
-        }
-    };
-    let committed = match commit_schema_projection(state, req_id, verified, &plan, documents).await
-    {
-        Ok(committed) => committed,
-        Err(error) => {
-            return Response::err(
-                req_id,
-                record_projection_failure(&store, &context, &plan, &error),
-            );
-        }
-    };
-    let receipt = match finish_projection(&store, context, &plan, committed) {
-        Ok(receipt) => receipt,
-        Err(error) => return Response::err(req_id, error),
-    };
-    Response::ok(
-        req_id,
-        ResultPayload::of_ref::<eg_types::result_contract::storage::ConnectorPackReproject>(
-            &receipt,
+    match project_head(state, req_id, verified, &store, context, &plan).await {
+        Ok(receipt) => Response::ok(
+            req_id,
+            ResultPayload::of_ref::<eg_types::result_contract::storage::ConnectorPackReproject>(
+                &receipt,
+            ),
         ),
-    )
+        Err(error) => Response::err(req_id, error),
+    }
+}
+
+/// Project `plan`'s head into its graph and flip the head visible, or record
+/// the projection as failed. Shared by the admin `Reproject` and the
+/// projection worker (PB1): both always project the CURRENT head, so a stale
+/// worker can never roll a newer projection back.
+#[cfg(all(feature = "redb", feature = "blob", feature = "shacl"))]
+pub(crate) async fn project_head(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    verified: &VerifiedRequestContext,
+    store: &crate::server::persistence::agent_library::AgentLibraryStore,
+    context: eg_types::agent_library::AgentLibraryMutationContext,
+    plan: &ConnectorPackProjectionPlan,
+) -> Result<eg_types::connector_pack::PackImportReceipt, String> {
+    let documents = match materialize_current_projection(state, plan).await {
+        Ok(documents) => documents,
+        Err(error) => return Err(record_projection_failure(store, &context, plan, &error)),
+    };
+    let committed = match commit_schema_projection(state, req_id, verified, plan, documents).await {
+        Ok(committed) => committed,
+        Err(error) => return Err(record_projection_failure(store, &context, plan, &error)),
+    };
+    finish_projection(store, context, plan, committed)
 }
 
 #[cfg(all(feature = "redb", feature = "blob", feature = "shacl"))]
@@ -174,7 +178,7 @@ fn finish_projection(
             graph,
             graph_version,
         } if graph == &expected_graph && *graph_version == expected_graph_version => Ok(receipt),
-        PackProjectionState::Failed { code } => {
+        PackProjectionState::Failed { code, .. } => {
             Err(format!("PACK_PROJECTION_PREVIOUSLY_FAILED: {code}"))
         }
         _ => {
@@ -191,10 +195,11 @@ fn record_projection_failure(
     error: &str,
 ) -> String {
     let code = projection_error_code(error);
+    let detail = Some(projection_failure_detail(error));
     match store.commit_connector_pack_projection(
         context.clone(),
         plan,
-        PackProjectionState::Failed { code },
+        PackProjectionState::Failed { code, detail },
     ) {
         Ok(_) => error.to_string(),
         Err(persistence) => format!(
@@ -272,6 +277,22 @@ fn push_schema_document(
 }
 
 #[cfg(all(feature = "redb", feature = "blob", feature = "shacl"))]
+/// The failure's own message, bounded and free of control characters, so the
+/// head says why it is dark rather than only which class of failure it was.
+fn projection_failure_detail(error: &str) -> String {
+    let mut detail = String::new();
+    for character in error.chars() {
+        let character = if character.is_control() { ' ' } else { character };
+        if detail.len() + character.len_utf8()
+            > eg_types::connector_pack::MAX_PROJECTION_FAILURE_DETAIL_BYTES
+        {
+            break;
+        }
+        detail.push(character);
+    }
+    detail
+}
+
 fn projection_error_code(error: &str) -> String {
     let code = error.split_once(':').map_or(error, |(code, _)| code).trim();
     if code.is_empty()

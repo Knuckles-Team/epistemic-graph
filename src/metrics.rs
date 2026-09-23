@@ -41,7 +41,7 @@ mod imp {
     const MAX_GRAPH_LABELS: usize = 128;
     const OVERFLOW_LABEL: &str = "__overflow__";
 
-    fn counter_vec(name: &str, help: &str, labels: &[&str]) -> IntCounterVec {
+    pub(super) fn counter_vec(name: &str, help: &str, labels: &[&str]) -> IntCounterVec {
         let m = IntCounterVec::new(Opts::new(name, help), labels).expect("valid metric");
         REGISTRY
             .register(Box::new(m.clone()))
@@ -49,7 +49,7 @@ mod imp {
         m
     }
 
-    fn gauge_vec(name: &str, help: &str, labels: &[&str]) -> IntGaugeVec {
+    pub(super) fn gauge_vec(name: &str, help: &str, labels: &[&str]) -> IntGaugeVec {
         let m = IntGaugeVec::new(Opts::new(name, help), labels).expect("valid metric");
         REGISTRY
             .register(Box::new(m.clone()))
@@ -806,6 +806,10 @@ mod imp {
 
 #[cfg(feature = "metrics")]
 pub use imp::*;
+
+// X10 outbox consumer metrics, kept in their own file (this one is at its size cap).
+mod outbox;
+pub use outbox::{outbox_dead_lettered, set_outbox_head};
 
 // ── No-op shims (feature `metrics` disabled) ─────────────────────────────
 // Call sites stay free of #[cfg] guards; the optimizer erases these.

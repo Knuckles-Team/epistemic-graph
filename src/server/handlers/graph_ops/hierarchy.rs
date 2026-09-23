@@ -1,5 +1,6 @@
 use super::*;
 
+use super::subgraph::decoded_edge_properties;
 use super::terminal::GraphOpsContext;
 use eg_types::compute_result::algorithms::{
     ClusterExpansion, ClusterHierarchySummary, ClusterLevelView, ClusterMemberEdge,

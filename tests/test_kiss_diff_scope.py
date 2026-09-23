@@ -33,7 +33,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 
-from kiss_diff_scope import (  # noqa: E402
+from kiss_diff_scope import (
     attributable_violations,
     function_spans,
     parse_report,

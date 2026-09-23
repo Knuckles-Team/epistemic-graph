@@ -5,26 +5,21 @@ use std::collections::BTreeMap;
 use eg_types::agent_component::{AgentComponentEntry, AgentComponentMutationKind};
 use eg_types::connector_pack::{
     PackDisposition, PackDispositionCounts, PackHeadRef, PackHeadView, PackImportReceipt,
-    PackImportRecord, PackImportResult, CONNECTOR_PACK_IMPORT_TOPIC,
+    PackImportRecord, PackImportResult, PackProjectionState, CONNECTOR_PACK_IMPORT_TOPIC,
     CONNECTOR_PACK_RESULT_SCHEMA_ID,
 };
-use eg_types::mutation::MutationResult;
 use eg_types::mutation_batch::{
     DurabilityDomain, MutationOperation, MutationOutboxIntent, MutationSurface,
 };
 use eg_types::protocol::Method;
 use redb::ReadableTable;
 
+use super::admitted::{PackOwnerWrite, PackWriteEffects, PackWriteIdentity, PackWriteStaged};
 use super::{ConnectorPackBodyHolderRow, ConnectorPackHeadRow, ConnectorPackMemberRow};
 use crate::server::persistence::agent_component::{component_tables, ComponentLayer};
-use crate::server::persistence::agent_library::{
-    admitted_context, agent_library_operation_identity, owner_batch_receipt, resolve_nonce_first,
-    validate_context, AgentLibraryStore,
-};
+use crate::server::persistence::agent_library::{validate_context, AgentLibraryStore};
 use crate::server::persistence::agent_revision::{
-    apply_owner_rows, apply_revision_rows, finish_committed_ledger, finish_replayed,
-    policy_admitted_context, recorded_receipt, revision_key, revision_operations,
-    revision_outbox_headers, stage_batch, within_write, RevisionLayer,
+    apply_revision_rows, revision_key, revision_operations, revision_outbox_headers, RevisionLayer,
 };
 
 pub(crate) struct ConnectorPackComponentCommit {
@@ -56,81 +51,28 @@ impl AgentLibraryStore {
         plan: ConnectorPackCommitPlan,
     ) -> Result<PackImportResult, String> {
         validate_plan(self, &plan)?;
-        let owner = self.scope_handle(&plan.context.tenant_id)?;
-        let txn = self.mutations.open_write(&owner)?;
-        let replay_context = admitted_context(&plan.context, "connector-pack:import")?;
-        let nonce = resolve_nonce_first(&self.mutations, &txn, &replay_context)?;
-        let operation = agent_library_operation_identity(
-            &owner,
-            &replay_context,
-            "connector-pack-import",
-            plan.record.connector.as_str(),
-            plan.expected_head
+        let effects = pack_effects(&plan, &plan.context)?;
+        let pack_digest = plan.record.pack_digest.to_hex();
+        let identity = PackWriteIdentity {
+            purpose: "connector-pack:import",
+            kind: "connector-pack-import",
+            slug: "connector-pack",
+            subject: plan.record.connector.as_str(),
+            revision: plan
+                .expected_head
                 .as_ref()
                 .map_or(0, |head| head.binding_revision),
-            Some(&plan.record.pack_digest.to_hex()),
-        )?;
-        let replay = self.mutations.resolve_replay(&txn, &operation, &nonce)?;
-        if let Some(receipt) = recorded_receipt(replay, "connector pack")? {
-            let result = decode_replayed_result(&receipt)?;
-            return finish_replayed(&self.mutations, txn, &operation, &nonce, result, receipt);
-        }
-        let (txn, committed) = within_write(txn, |txn| {
-            let (operations, outbox) = pack_effects(&plan, &replay_context)?;
-            let batch_context = policy_admitted_context(&replay_context, &operations)?;
-            let (batch_id, staged) = stage_batch(
-                self,
-                txn,
-                &owner,
-                &batch_context,
-                (&operation, &nonce),
-                "connector pack",
-                |version, batch_id| {
-                    crate::server::persistence::agent_library::native_lifecycle_batch(
-                        &owner,
-                        &batch_context,
-                        batch_id,
-                        version,
-                        operations,
-                        outbox,
-                    )
-                },
-            )?;
-            let receipt = import_receipt(&plan, batch_id, staged.committed_version)?;
-            let result = PackImportResult::Imported {
-                receipt: Box::new(receipt.clone()),
-            };
-            let mutation_result = crate::server::persistence::agent_row::domain_result(
-                &result,
-                CONNECTOR_PACK_RESULT_SCHEMA_ID,
-                "connector pack",
-            )?;
-            let result_bytes =
-                eg_storage::encode_bounded(&mutation_result, "connector pack domain result")?;
-            let authority_receipt = owner_batch_receipt(
-                &operation,
-                &nonce,
-                &staged.batch,
-                "connector-pack",
-                mutation_result,
-                staged.committed_version,
-                replay_context.created_at_ms,
-            )?;
-            apply_owner_rows(txn, &owner, &staged.batch, |write| {
-                apply_pack_rows(write, &plan, &receipt)
-            })?;
-            finish_committed_ledger(
-                &self.mutations,
-                txn,
-                (&staged, &result_bytes),
-                replay_context.created_at_ms,
-                (&operation, &nonce, &authority_receipt),
-                "connector pack",
-            )?;
-            Ok((staged.batch, result))
-        })?;
-        self.mutations.commit(txn, &committed.0)?;
-        Ok(committed.1)
+            discriminator: Some(&pack_digest),
+            result_schema: CONNECTOR_PACK_RESULT_SCHEMA_ID,
+            noun: "connector pack",
+        };
+        self.commit_pack_write(&plan.context, identity, effects, |write, staged| {
+            let receipt = import_receipt(&plan, staged)?;
+            apply_pack_rows(write, &plan, &receipt)?;
+            Ok(PackImportResult::Imported {
+                receipt: Box::new(receipt),
+            })
+        })
     }
 }
 
@@ -202,22 +144,11 @@ fn validate_plan(store: &AgentLibraryStore, plan: &ConnectorPackCommitPlan) -> R
 fn pack_effects(
     plan: &ConnectorPackCommitPlan,
     context: &eg_types::agent_library::AgentLibraryMutationContext,
-) -> Result<(Vec<MutationOperation>, Vec<MutationOutboxIntent>), String> {
-    let mut operations = Vec::with_capacity(plan.components.len() + 1);
-    let mut outbox = Vec::with_capacity(plan.components.len() + 1);
-    for component in &plan.components {
-        operations.extend(revision_operations::<ComponentLayer>(
-            component.kind,
-            &component.entry,
-        ));
-        let event = ComponentLayer::encode_outbox_event(component.kind, &component.entry, context)?;
-        outbox.push(MutationOutboxIntent {
-            topic: ComponentLayer::TOPIC.to_string(),
-            key: revision_key(&ComponentLayer::revision_definition(&component.entry)),
-            payload: event,
-            headers: revision_outbox_headers::<ComponentLayer>(&component.entry),
-        });
-    }
+) -> Result<PackWriteEffects, String> {
+    let PackWriteEffects {
+        mut operations,
+        mut outbox,
+    } = component_effects(&plan.components, context)?;
     operations.push(MutationOperation {
         ordinal: 0,
         surface: MutationSurface::Lifecycle,
@@ -227,10 +158,7 @@ fn pack_effects(
             query: plan.record.pack_digest.to_hex(),
         },
     });
-    for (ordinal, operation) in operations.iter_mut().enumerate() {
-        operation.ordinal = u32::try_from(ordinal)
-            .map_err(|_| "connector pack operation count exceeds resource limits")?;
-    }
+    renumber(&mut operations)?;
     let payload = eg_storage::encode_bounded(&plan.record, "connector pack import record")?;
     outbox.push(MutationOutboxIntent {
         topic: CONNECTOR_PACK_IMPORT_TOPIC.to_string(),
@@ -254,13 +182,47 @@ fn pack_effects(
             ),
         ]),
     });
-    Ok((operations, outbox))
+    Ok(PackWriteEffects { operations, outbox })
+}
+
+/// The component revisions a pack write commits, as operations plus one
+/// `eg.agent-component.revision.v1` intent each -- exactly what a direct
+/// publish of each revision would have emitted.
+pub(super) fn component_effects(
+    components: &[ConnectorPackComponentCommit],
+    context: &eg_types::agent_library::AgentLibraryMutationContext,
+) -> Result<PackWriteEffects, String> {
+    let mut operations = Vec::with_capacity(components.len() + 1);
+    let mut outbox = Vec::with_capacity(components.len() + 1);
+    for component in components {
+        operations.extend(revision_operations::<ComponentLayer>(
+            component.kind,
+            &component.entry,
+        ));
+        let event = ComponentLayer::encode_outbox_event(component.kind, &component.entry, context)?;
+        outbox.push(MutationOutboxIntent {
+            topic: ComponentLayer::TOPIC.to_string(),
+            key: revision_key(&ComponentLayer::revision_definition(&component.entry)),
+            payload: event,
+            headers: revision_outbox_headers::<ComponentLayer>(&component.entry),
+        });
+    }
+    renumber(&mut operations)?;
+    Ok(PackWriteEffects { operations, outbox })
+}
+
+/// Give every operation its batch ordinal.
+pub(super) fn renumber(operations: &mut [MutationOperation]) -> Result<(), String> {
+    for (ordinal, operation) in operations.iter_mut().enumerate() {
+        operation.ordinal = u32::try_from(ordinal)
+            .map_err(|_| "connector pack operation count exceeds resource limits")?;
+    }
+    Ok(())
 }
 
 fn import_receipt(
     plan: &ConnectorPackCommitPlan,
-    batch_id: String,
-    committed_version: u64,
+    staged: &PackWriteStaged,
 ) -> Result<PackImportReceipt, String> {
     let mut counts = PackDispositionCounts::default();
     for entry in plan.record.entries.iter() {
@@ -281,8 +243,8 @@ fn import_receipt(
         catalog: plan.record.catalog.clone(),
         previous_pack_digest: plan.record.previous_pack_digest,
         record_id: plan.record.record_id.clone(),
-        batch_id,
-        committed_version,
+        batch_id: staged.batch_id.clone(),
+        committed_version: staged.committed_version,
         counts,
         warnings: plan.record.warnings.clone(),
         projection: plan.record.projection.clone(),
@@ -290,59 +252,75 @@ fn import_receipt(
 }
 
 fn apply_pack_rows(
-    write: &eg_transaction::AdmittedOwnerWrite<'_, eg_storage::AgentLibraryOwner>,
+    write: &PackOwnerWrite<'_>,
     plan: &ConnectorPackCommitPlan,
     receipt: &PackImportReceipt,
 ) -> Result<(), String> {
     let visible_record_id = compare_head(write, plan)?;
-    apply_components(write, plan)?;
-    apply_members(write, plan)?;
-    apply_holders(write, plan)?;
+    super::pins::resolve_pack_pins_in_write(write, &plan.context.tenant_id, &plan.components)?;
+    apply_catalog_rows(
+        write,
+        &PackCatalogRows {
+            context: &plan.context,
+            connector: plan.record.connector.as_str(),
+            components: &plan.components,
+            members: &plan.members,
+            holders: &plan.holders,
+        },
+    )?;
     apply_import_record(write, plan)?;
     apply_head(write, plan, receipt, visible_record_id)
 }
 
-fn apply_components(
-    write: &eg_transaction::AdmittedOwnerWrite<'_, eg_storage::AgentLibraryOwner>,
-    plan: &ConnectorPackCommitPlan,
+/// The catalog rows one pack write names: component revisions, member rows
+/// and the body holders that keep each written revision's body alive.
+pub(super) struct PackCatalogRows<'a> {
+    pub(super) context: &'a eg_types::agent_library::AgentLibraryMutationContext,
+    pub(super) connector: &'a str,
+    pub(super) components: &'a [ConnectorPackComponentCommit],
+    pub(super) members: &'a [ConnectorPackMemberRow],
+    pub(super) holders: &'a [ConnectorPackHolderCommit],
+}
+
+/// Write component revisions (each under its own revision CAS), member rows
+/// and body holders. A holder that already exists must be byte-identical:
+/// holders are retained history, never rewritten.
+pub(super) fn apply_catalog_rows(
+    write: &PackOwnerWrite<'_>,
+    rows: &PackCatalogRows<'_>,
 ) -> Result<(), String> {
-    for component in &plan.components {
+    for component in rows.components {
         let bytes = eg_storage::encode_bounded(&component.entry, "agent component revision")?;
         apply_revision_rows::<ComponentLayer>(
             write,
             component_tables(),
-            &plan.context,
+            rows.context,
             component.expected_revision,
             &component.entry,
             &bytes,
         )?;
     }
-    Ok(())
-}
-
-fn apply_members(
-    write: &eg_transaction::AdmittedOwnerWrite<'_, eg_storage::AgentLibraryOwner>,
-    plan: &ConnectorPackCommitPlan,
-) -> Result<(), String> {
-    let tenant = plan.record.tenant_id.as_str();
-    let connector = plan.record.connector.as_str();
+    let tenant = rows.context.tenant_id.as_str();
     let mut members = write.open_table(eg_storage::CONNECTOR_PACK_MEMBERS)?;
-    for member in &plan.members {
+    for member in rows.members {
         let bytes = eg_storage::encode_bounded(member, "connector pack member")?;
         members
-            .insert((tenant, connector, member.uri.as_str()), bytes.as_slice())
+            .insert(
+                (tenant, rows.connector, member.uri.as_str()),
+                bytes.as_slice(),
+            )
             .map_err(|error| error.to_string())?;
     }
-    Ok(())
+    apply_holders(write, tenant, rows.holders)
 }
 
 fn apply_holders(
-    write: &eg_transaction::AdmittedOwnerWrite<'_, eg_storage::AgentLibraryOwner>,
-    plan: &ConnectorPackCommitPlan,
+    write: &PackOwnerWrite<'_>,
+    tenant: &str,
+    holders_to_write: &[ConnectorPackHolderCommit],
 ) -> Result<(), String> {
-    let tenant = plan.record.tenant_id.as_str();
     let mut holders = write.open_table(eg_storage::CONNECTOR_PACK_BODY_HOLDERS)?;
-    for holder in &plan.holders {
+    for holder in holders_to_write {
         let body = holder.body_sha256.to_hex();
         let key = (
             tenant,
@@ -355,23 +333,25 @@ fn apply_holders(
             .get(key)
             .map_err(|error| error.to_string())?
             .map(|existing| existing.value().to_vec());
-        if let Some(existing) = existing {
-            if existing != bytes {
+        match existing {
+            Some(existing) if existing != bytes => {
                 return Err(
                     "connector pack body holder conflicts with retained history".to_string()
                 );
             }
-        } else {
-            holders
-                .insert(key, bytes.as_slice())
-                .map_err(|error| error.to_string())?;
+            Some(_) => {}
+            None => {
+                holders
+                    .insert(key, bytes.as_slice())
+                    .map_err(|error| error.to_string())?;
+            }
         }
     }
     Ok(())
 }
 
 fn apply_import_record(
-    write: &eg_transaction::AdmittedOwnerWrite<'_, eg_storage::AgentLibraryOwner>,
+    write: &PackOwnerWrite<'_>,
     plan: &ConnectorPackCommitPlan,
 ) -> Result<(), String> {
     let tenant = plan.record.tenant_id.as_str();
@@ -395,7 +375,7 @@ fn apply_import_record(
 }
 
 fn apply_head(
-    write: &eg_transaction::AdmittedOwnerWrite<'_, eg_storage::AgentLibraryOwner>,
+    write: &PackOwnerWrite<'_>,
     plan: &ConnectorPackCommitPlan,
     receipt: &PackImportReceipt,
     visible_record_id: Option<String>,
@@ -411,8 +391,14 @@ fn apply_head(
             server_package_version: plan.record.server.package_version.clone(),
             record_id: plan.record.record_id.clone(),
             // The prior GraphSchema source remains served until this head's
-            // projection completes its exact-head visibility CAS.
-            visible_record_id,
+            // projection completes its exact-head visibility CAS. A pack with
+            // nothing to project is visible the moment it commits.
+            visible_record_id: match plan.record.projection {
+                PackProjectionState::None => Some(plan.record.record_id.clone()),
+                PackProjectionState::Pending
+                | PackProjectionState::Applied { .. }
+                | PackProjectionState::Failed { .. } => visible_record_id,
+            },
             committed_at_ms: plan.record.committed_at_ms,
         },
         receipt: receipt.clone(),
@@ -426,7 +412,7 @@ fn apply_head(
 }
 
 fn compare_head(
-    write: &eg_transaction::AdmittedOwnerWrite<'_, eg_storage::AgentLibraryOwner>,
+    write: &PackOwnerWrite<'_>,
     plan: &ConnectorPackCommitPlan,
 ) -> Result<Option<String>, String> {
     let heads = write.open_table(eg_storage::CONNECTOR_PACK_HEADS)?;
@@ -451,20 +437,4 @@ fn compare_head(
         return Err("PACK_HEAD_CONFLICT: connector pack head changed".to_string());
     }
     Ok(actual.and_then(|row| row.head.visible_record_id))
-}
-
-fn decode_replayed_result(
-    receipt: &eg_types::mutation::MutationReceipt,
-) -> Result<PackImportResult, String> {
-    receipt.validate()?;
-    let MutationResult::DomainResult {
-        schema_id, payload, ..
-    } = &receipt.result
-    else {
-        return Err("CORRUPT_MUTATION_LEDGER: connector pack replay has no result".to_string());
-    };
-    if schema_id.as_str() != CONNECTOR_PACK_RESULT_SCHEMA_ID {
-        return Err("CORRUPT_MUTATION_LEDGER: connector pack result schema differs".to_string());
-    }
-    crate::server::persistence::agent_row::decode(payload.as_slice(), "connector pack result")
 }

@@ -409,5 +409,6 @@ METHOD_IDS = frozenset(
         "TxnMaterializeBelief",
         "Commit",
         "Rollback",
+        "MutationOutbox",
     }
 )

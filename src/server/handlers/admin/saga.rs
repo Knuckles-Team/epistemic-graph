@@ -44,6 +44,7 @@ enum AdminSagaResultContract {
     Bool,
     Count,
     Text,
+    GraphQlResponse,
     SparqlRecoveryOutcome,
     ShardReshardReport,
     RebalanceExecution,
@@ -57,7 +58,12 @@ enum AdminSagaResultContract {
 #[cfg(feature = "redb")]
 impl AdminSagaResultContract {
     fn for_method(method: &Method) -> Result<Self, String> {
-        if let Some(contract) = Self::for_core_method(method) {
+        #[cfg(feature = "graphql")]
+        let graphql_contract =
+            matches!(method, Method::GraphQl { .. }).then_some(Self::GraphQlResponse);
+        #[cfg(not(feature = "graphql"))]
+        let graphql_contract = None;
+        if let Some(contract) = graphql_contract.or_else(|| Self::for_core_method(method)) {
             return Ok(contract);
         }
         if let Some(contract) = Self::for_knowledge_method(method) {
@@ -174,6 +180,9 @@ impl AdminSagaResultContract {
             Self::Text => matches!(result, ResultPayload::String(_))
                 .then_some(())
                 .ok_or_else(|| "admin saga replay has the wrong result type".to_string()),
+            Self::GraphQlResponse => matches!(result, ResultPayload::Raw(_))
+                .then_some(())
+                .ok_or_else(|| "admin saga replay has the wrong GraphQL result type".to_string()),
             Self::SparqlRecoveryOutcome => validate_sparql_recovery_outcome(result),
             Self::ShardReshardReport => validate_admin_json::<
                 eg_types::result_contract::cluster::ShardReshardReport,
@@ -204,6 +213,7 @@ impl AdminSagaResultContract {
             Self::Bool => "bool",
             Self::Count => "count",
             Self::Text => "text",
+            Self::GraphQlResponse => "graphql-response-v1",
             Self::ShardReshardReport => "shard-reshard-report-v1",
             Self::RebalanceExecution => "rebalance-execution-v1",
             Self::RestoreReceipt => "restore-receipt-v1",
@@ -216,7 +226,9 @@ impl AdminSagaResultContract {
     }
 
     fn for_public_discriminator(discriminator: &str) -> Result<Self, String> {
-        Self::for_public_scalar_discriminator(discriminator)
+        (discriminator == "graphql-response-v1")
+            .then_some(Self::GraphQlResponse)
+            .or_else(|| Self::for_public_scalar_discriminator(discriminator))
             .or_else(|| Self::for_public_structured_discriminator(discriminator))
             .ok_or_else(|| {
                 format!(

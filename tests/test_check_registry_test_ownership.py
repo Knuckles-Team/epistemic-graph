@@ -25,7 +25,7 @@ import yaml
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
 
-from check_registry_test_ownership import (  # noqa: E402
+from check_registry_test_ownership import (
     is_owned,
     parse_claimed_paths,
     unowned_test_files,

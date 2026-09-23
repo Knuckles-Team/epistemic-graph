@@ -118,9 +118,12 @@ def _native_method_catalog(source: str) -> dict[str, str]:
         len(names) == len(set(names)),
         "native method catalog contains a duplicate entry",
     )
+    # 100 since f17f47ab3 added the governed `GraphSchema => GraphState` record
+    # (the durable graph-schema authority). This is the catalog's declared
+    # cardinality, so it moves only with a reviewed catalog change.
     require(
-        len(entries) == 99,
-        f"native method catalog must contain 99 entries, observed {len(entries)}",
+        len(entries) == 100,
+        f"native method catalog must contain 100 entries, observed {len(entries)}",
     )
     require("RegisterServer" not in names, "RegisterServer must remain gateway-routed")
     require(
@@ -144,7 +147,7 @@ def _native_method_catalog(source: str) -> dict[str, str]:
     require(
         domain_counts
         == {
-            "GraphState": 22,
+            "GraphState": 23,
             "Transaction": 15,
             "WorkItem": 18,
             "Blob": 6,
@@ -1385,7 +1388,8 @@ def _check_m1_row_delta_versions(contract: str, row_delta_producer: str) -> None
         and 'const LEGACY_ROW_DELTA_ALGORITHM: &str = "sha256-row-delta-v2";'
         in row_delta_producer
         and "const ROW_DELTA_VERSION: u16 = 3;" in row_delta_producer,
-        "row-delta producer constant/version must identify current schema-source and legacy readers",
+        "row-delta producer constant/version must identify current "
+        "schema-source and legacy readers",
     )
     _check_retired_row_delta_versions(contract, row_delta_producer)
 

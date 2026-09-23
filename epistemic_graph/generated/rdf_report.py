@@ -93,6 +93,7 @@ class ShaclValidationResult(BaseModel):
     source_shape: str
     value: str | None = None
 
+
 DatalogReasoningResult.model_rebuild()
 
 OwlExplainResult.model_rebuild()

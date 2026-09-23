@@ -7,7 +7,7 @@
 //! which is why they are separate functions rather than one body.
 
 use std::sync::Arc;
-#[cfg(all(feature = "redb", feature = "blob"))]
+#[cfg(feature = "redb")]
 use std::{hash::Hash, sync::OnceLock};
 
 use tokio::sync::RwLock;
@@ -22,6 +22,8 @@ pub(crate) mod admin;
 mod import;
 pub(crate) mod reconcile;
 pub(crate) mod reproject;
+#[cfg(all(test, feature = "redb", feature = "blob"))]
+mod tests;
 
 /// Route one connector-pack operation to the handler that owns it.
 pub(crate) async fn handle_connector_pack(
@@ -117,51 +119,113 @@ async fn serve_import(
     }
     #[cfg(all(feature = "redb", feature = "blob"))]
     {
-        let _tenant_pack_guard = tenant_pack_lock(&request.context.tenant_id).await;
-        match preflight_import(state, verified, &request).await {
-            Ok(Preflight::Unchanged(result)) => Response::ok(
+        let _tenant_pack_guard = tenant_pack_lock(verified.tenant()).await;
+        let request = match bind_import_context(state, req_id, verified, request).await {
+            Ok(request) => request,
+            Err(error) => return Response::err(req_id, error),
+        };
+        reconcile::reconcile_if_due(state, req_id, verified, &request.context).await;
+        let pack_digest = request.index.pack_digest;
+        let outcome = match preflight_import(state, verified, &request).await {
+            Ok(Preflight::Unchanged(result)) => Ok(result),
+            Ok(Preflight::Ready {
+                store,
+                blob,
+                archive,
+            }) => import::validate_and_commit(store, blob, verified, *request, archive).await,
+            Err(error) => Err(error),
+        };
+        match outcome.or_else(|error| rejection_for(pack_digest, error)) {
+            Ok(result) => Response::ok(
                 req_id,
                 ResultPayload::of_ref::<eg_types::result_contract::storage::ConnectorPackImport>(
                     &result,
                 ),
             ),
-            Ok(Preflight::Ready {
-                store,
-                blob,
-                archive,
-            }) => {
-                match import::validate_and_commit(store, blob, verified, *request, archive).await {
-                    Ok(result) => Response::ok(
-                        req_id,
-                        ResultPayload::of_ref::<
-                            eg_types::result_contract::storage::ConnectorPackImport,
-                        >(&result),
-                    ),
-                    Err(error) => Response::err(req_id, error),
-                }
-            }
             Err(error) => Response::err(req_id, error),
         }
     }
 }
 
+/// A refusal a validation rule names is a `Rejected` RESULT carrying that
+/// violation, wherever the rule happened to be checked (preflight, archive
+/// read, planning): a caller branches on violations, never on where they were
+/// found. Every other error -- a head conflict, an idempotency clash, a missing
+/// body -- stays an error response, because it says retry or look elsewhere.
+#[cfg(all(feature = "redb", feature = "blob"))]
+fn rejection_for(
+    pack_digest: eg_types::contract::Digest256,
+    error: String,
+) -> Result<eg_types::connector_pack::PackImportResult, String> {
+    let (code, detail) = error.split_once(':').unwrap_or((error.as_str(), ""));
+    let Ok(code) = serde_json::from_value::<eg_types::connector_pack::PackViolationCode>(
+        serde_json::Value::String(code.trim().to_string()),
+    ) else {
+        return Err(error);
+    };
+    let violation = eg_types::connector_pack::PackViolation {
+        code,
+        uri: None,
+        detail: detail.trim().chars().take(1024).collect(),
+    };
+    Ok(eg_types::connector_pack::PackImportResult::Rejected {
+        pack_digest: Some(pack_digest),
+        violations: eg_types::contract::BoundedVec::new(vec![violation])?,
+        budget_exhausted: false,
+    })
+}
+
 /// A bounded striped lock table serializes one tenant's head-read/body-copy/
 /// catalog-CAS sequence without retaining attacker-controlled tenant strings.
-#[cfg(all(feature = "redb", feature = "blob"))]
+///
+/// Every pack write takes it -- import, bind, unbind, retire and the body
+/// reconciler -- so no two of them interleave between a planning snapshot and
+/// the commit that relies on it.
+#[cfg(feature = "redb")]
 async fn tenant_pack_lock(tenant_id: &str) -> tokio::sync::OwnedMutexGuard<()> {
-    use std::hash::Hasher;
-
-    const STRIPES: usize = 64;
     static LOCKS: OnceLock<Vec<Arc<tokio::sync::Mutex<()>>>> = OnceLock::new();
     let locks = LOCKS.get_or_init(|| {
-        (0..STRIPES)
+        (0..PACK_STRIPES)
             .map(|_| Arc::new(tokio::sync::Mutex::new(())))
             .collect()
     });
+    locks[tenant_stripe(tenant_id)].clone().lock_owned().await
+}
+
+/// How many stripes the per-tenant pack state is spread over.
+#[cfg(feature = "redb")]
+const PACK_STRIPES: usize = 64;
+
+/// The stripe one tenant's pack lock and reconcile clock live in.
+#[cfg(feature = "redb")]
+fn tenant_stripe(tenant_id: &str) -> usize {
+    use std::hash::Hasher;
+
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     tenant_id.hash(&mut hasher);
-    let index = (hasher.finish() as usize) % STRIPES;
-    locks[index].clone().lock_owned().await
+    (hasher.finish() as usize) % PACK_STRIPES
+}
+
+/// Replace the caller's mutation context with the verified one: principal,
+/// actor scope, attempt nonce, policy and time are the engine's to stamp, never
+/// the request body's.
+#[cfg(all(feature = "redb", feature = "blob"))]
+async fn bind_import_context(
+    state: &Arc<RwLock<ServerState>>,
+    req_id: u64,
+    verified: &VerifiedRequestContext,
+    mut request: Box<eg_types::connector_pack::ConnectorPackImportRequest>,
+) -> Result<Box<eg_types::connector_pack::ConnectorPackImportRequest>, String> {
+    let store = agent_library_store(state).await?;
+    request.context = crate::server::handlers::admin::agent::bind_agent_library_context(
+        &store,
+        req_id,
+        verified,
+        request.context.clone(),
+        "connector-pack:import",
+        true,
+    )?;
+    Ok(request)
 }
 
 #[cfg(all(feature = "redb", feature = "blob"))]
@@ -222,6 +286,7 @@ fn validate_import_identity(
                 .to_string(),
         );
     }
+    eg_types::connector_pack::validate_connector(&request.index.connector)?;
     let computed = eg_types::connector_pack::digest::pack_digest(&request.index)?;
     if computed != request.index.pack_digest {
         return Err("PACK_DIGEST_MISMATCH: connector pack digest is not canonical".to_string());
@@ -231,6 +296,10 @@ fn validate_import_identity(
     }
     if request.index.archive.length > eg_types::connector_pack::MAX_PACK_ARCHIVE_BYTES {
         return Err("PACK_TOO_LARGE: connector pack archive exceeds the served bound".to_string());
+    }
+    let encoded = eg_storage::encode_bounded(&request.index, "connector pack index")?;
+    if encoded.len() > eg_types::connector_pack::MAX_PACK_INDEX_BYTES {
+        return Err("PACK_TOO_LARGE: connector pack index exceeds the served bound".to_string());
     }
     Ok(())
 }

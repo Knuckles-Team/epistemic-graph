@@ -11,7 +11,7 @@ use std::sync::{Arc, OnceLock};
 
 use eg_types::contract::Digest256;
 
-use super::IntegrityPolicyV2;
+use super::LegacyIntegrityPolicy;
 
 /// Closed upper bound for one binary's immutable catalog.  The current catalog
 /// contains the aggregate document, foundation, 28 domain TBoxes, and the core
@@ -464,7 +464,7 @@ fn pack_record_sequence(record_id: &str) -> Option<(&str, u64)> {
 }
 
 pub fn lift_v2_integrity_policy(
-    policy: Option<IntegrityPolicyV2>,
+    policy: Option<LegacyIntegrityPolicy>,
 ) -> Result<Arc<GraphSchemaSources>, String> {
     let mut dynamic = BTreeMap::new();
     if let Some(policy) = policy {
@@ -1058,7 +1058,7 @@ mod tests {
         let expected = [
             (
                 "a2a",
-                "db8625b47000ea604a589074c9c3047ade06f5a965ea54bfa90dbd06b6a9b73c",
+                "cb29dbc911f8cdac78e4206fe914927342b9abc8ff9fe21d640498434f193898",
             ),
             (
                 "action",
@@ -1070,7 +1070,7 @@ mod tests {
             ),
             (
                 "capability",
-                "5ba669042ea3f9298e79b9c47101f726f1592d0c72411c98ab134b575f634972",
+                "81c5518d2679e96848327df81c879ce08644cdcb5fbf806f2835c2a276b05011",
             ),
             (
                 "argumentation",
@@ -1078,7 +1078,7 @@ mod tests {
             ),
             (
                 "calendar",
-                "edd7a9f1250ec68177849dfc99c6b2929f5644d821b89f2faabb4647340805fb",
+                "c1c17692f1cedd26fb4a4cdab4ee3db655c570d7448f5123f8ad4efafe36e6d0",
             ),
             (
                 "catalog",
@@ -1086,7 +1086,7 @@ mod tests {
             ),
             (
                 "company",
-                "c0565099b7afc506b7974c08be23f5c682898460d601cc5d1f5e31520fdfef7d",
+                "77b0c36d8818fbab307b201acfcceb339289090e44f420834960b346af48a1a9",
             ),
             (
                 "company_infra",
@@ -1098,11 +1098,11 @@ mod tests {
             ),
             (
                 "foundation",
-                "3577b40611053d1df6c516e8d2a28b645b8f3a232a0038ead7e7836e0f7595ec",
+                "84a95483e9f8aa21f913e0c5361fdde88785fbbaaf5285929c27ce51d1275d6f",
             ),
             (
                 "documentation",
-                "39e2fafc6fe88ca477502ca78be6441abd30e9244ba8e5992b16a2f6e79b7c86",
+                "24e5e1224a9c46b6dd61b3acda6b2102e75a577bbcec8b116d2908cf23bd1c14",
             ),
             (
                 "energy_geopolitics",
@@ -1110,7 +1110,7 @@ mod tests {
             ),
             (
                 "enterprise",
-                "760d754db49890573d005121cb8617eea23dc49e7bb1e85933dc34af8942222e",
+                "7ec8ca794b81774227d8a660c1cd2cafd25230921d3b0eb89ee2690b2fd67a27",
             ),
             (
                 "governance-shapes",
@@ -1126,7 +1126,7 @@ mod tests {
             ),
             (
                 "hr",
-                "b6a3c268d7a80a12ee0a055d31fdee3c55f50530f18b2ae78458150bf4eef221",
+                "6eb8eb2231b041b9bb58aa9c131c41349c4326f869725ac63cb6799899836b3f",
             ),
             (
                 "identity",
@@ -1134,11 +1134,11 @@ mod tests {
             ),
             (
                 "infrastructure",
-                "d60b853d6f272b55d05708f2ffe358859c9eb5ecaadd96178f6acfb18ca57076",
+                "6b9b33602e125b03fbc884b9d1764f15c41e3c82c909f2c6bf0e1a869fd4186c",
             ),
             (
                 "medical",
-                "2c2bb7e5a30f6efad697cb793343798ae42554aab107b42dbd88a5e76b6350cc",
+                "e143acf6c6189f36c092a1fc1715e56b13a2e82d9ce6be36c54fb2475ef9b61d",
             ),
             (
                 "native_source_connector",
@@ -1146,11 +1146,11 @@ mod tests {
             ),
             (
                 "orchestration",
-                "ea93ad168b8a6b14bac211ec2a59f2fc53a33a3056e5982c794ea7eccdaaff3b",
+                "ea7640cb3dab3ec392f7d0e928b96043035fded71163f573cb1a7064aa9e338a",
             ),
             (
                 "personal",
-                "27d8a095361a2f65bc2ee99ae32a149a2bc615aed67518284078b8ad7334c34d",
+                "55ba0a0b4173d123d59e594fe8a8ca84716bd7a320407cbbed247c4ca30dfabe",
             ),
             (
                 "process_intelligence",
@@ -1158,15 +1158,15 @@ mod tests {
             ),
             (
                 "sdd",
-                "8604de791d2a65517e4d11387aaeece9f47a8e8361b96fb17e7709aab929afb1",
+                "1763e32c22024ad0a4716872955ac972853e4b79631bac4925bb65e260af40df",
             ),
             (
                 "sdlc_lifecycle",
-                "e827ec559d1a86a7c007eaf8dbe362531f0c9164380b0d426cabbc50398ff9aa",
+                "7c4853f87756dae7b9dfceb49a6e8cef4c12e234e3ebcf5776dd0c7dfa8ec568",
             ),
             (
                 "software",
-                "500322d880a84ab736dfb68a01daf2c1c1901fa89beade541b6b320f1b5349fb",
+                "0f9945da89dce3c4ee657028edc67003e4a52a419807d50904323afd9c25aa66",
             ),
             (
                 "system",
@@ -1174,7 +1174,7 @@ mod tests {
             ),
             (
                 "trm",
-                "bbd832cfe283a552eaeaec49fc04bbf644279a64521203e9d730dfcd262f170d",
+                "2e5d9cffcfc8e8915470641e85766f3ce775919539f22c57746d5a5e29d6c55d",
             ),
             (
                 "worldview",

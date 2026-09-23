@@ -210,7 +210,8 @@ $($variants)*
         /// propagates it — `eg:confidence` annotations × the per-node confidence ×
         /// Ebbinghaus decay). Only entailments with `confidence ≥ min_confidence` are
         /// returned. `0.0` keeps everything (and a HARD ontology yields all `1.0`).
-        #[serde(default)]
+        // Required on the wire (current-only): the threshold is a caller
+        // decision, never a server-synthesized default for an omitted field.
         min_confidence: f64,
     },
 
@@ -235,7 +236,7 @@ $($variants)*
         #[serde(default)]
         class_base: String,
         /// Confidence threshold τ in `[0,1]` (see `OwlReason::min_confidence`).
-        #[serde(default)]
+        // Required on the wire (current-only), exactly as on `OwlReason`.
         min_confidence: f64,
     },
 

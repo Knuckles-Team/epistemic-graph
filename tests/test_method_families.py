@@ -190,6 +190,12 @@ _UNCONDITIONAL_WRITES_AT_BASE = (
         "KgDelegate",
         "SubmitWorkItems",
         "MintWorkItemClaimCapability",
+        # Declared writes (mutates=true in eg-capabilities) that joined the
+        # unconditional tail after the family refactor, not family members:
+        # DecisionCommit and GraphSchema (a4804f87c), SourceIngest (dcc5d53c0).
+        "DecisionCommit",
+        "GraphSchema",
+        "SourceIngest",
     }
 )
 

@@ -71,7 +71,7 @@ const WRITE_DOOR: [(&str, &str); 23] = [
     ("outbox_ack", "outbox_ack"),
     ("outbox_release", "outbox_release"),
     ("subscribe_stage_consumer", "outbox_subscribe"),
-    ("claim_stage_leases", "outbox_claim"),
+    ("claim_stage_class", "outbox_claim"),
     ("ack_stage_lease", "outbox_ack"),
     ("release_stage_lease", "outbox_release"),
 ];

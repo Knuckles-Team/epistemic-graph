@@ -23,7 +23,7 @@ pub const GRAPH_SNAPSHOT_SCHEMA_VERSION: u16 = 3;
 /// read-old/write-current migration decoders.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct IntegrityPolicyV2 {
+pub struct LegacyIntegrityPolicy {
     pub shapes_ttl: String,
 }
 
@@ -62,9 +62,9 @@ struct GraphSnapshotCurrent {
 /// snapshots can only encode the current keyed authority.
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-struct GraphSnapshotV2 {
+struct LegacyGraphSnapshot {
     schema_version: u16,
-    integrity_policy: Option<IntegrityPolicyV2>,
+    integrity_policy: Option<LegacyIntegrityPolicy>,
     nodes: Vec<(String, Arc<Vec<u8>>)>,
     edges: Vec<(String, String, Arc<Vec<u8>>)>,
     ledger: Vec<String>,
@@ -82,9 +82,9 @@ mod schema_migration_tests {
 
     #[test]
     fn legacy_v2_snapshot_lifts_policy_into_operator_source() {
-        let legacy = GraphSnapshotV2 {
+        let legacy = LegacyGraphSnapshot {
             schema_version: 2,
-            integrity_policy: Some(IntegrityPolicyV2 {
+            integrity_policy: Some(LegacyIntegrityPolicy {
                 shapes_ttl: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
             }),
             nodes: vec![("n".to_string(), Arc::new(vec![1, 2, 3]))],
@@ -156,9 +156,9 @@ mod schema_migration_tests {
 
     #[test]
     fn oversized_v2_policy_is_a_typed_decode_error_not_a_panic() {
-        let legacy = GraphSnapshotV2 {
+        let legacy = LegacyGraphSnapshot {
             schema_version: 2,
-            integrity_policy: Some(IntegrityPolicyV2 {
+            integrity_policy: Some(LegacyIntegrityPolicy {
                 shapes_ttl: "x".repeat(eg_types::graph_schema::MAX_SCHEMA_DOCUMENT_BYTES + 1),
             }),
             nodes: Vec::new(),
@@ -175,7 +175,7 @@ mod schema_migration_tests {
 #[serde(untagged)]
 enum GraphSnapshotWire {
     Current(GraphSnapshotCurrent),
-    V2(GraphSnapshotV2),
+    V2(LegacyGraphSnapshot),
 }
 
 impl<'de> serde::Deserialize<'de> for GraphSnapshot {

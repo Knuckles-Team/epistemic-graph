@@ -6942,7 +6942,7 @@ class ReasoningClient:
                     }
                 ),
             )
-        ).payload
+        ).model_dump(mode="json")
 
 
 class LedgerClient:
@@ -12317,7 +12317,7 @@ class RdfClient:
             await _gen.reasoning.send_shacl_validate(
                 self._client, {"shapes": shapes, "data_graph": data_graph}
             )
-        ).payload
+        ).model_dump(mode="json")
 
     async def icv_configure(
         self,
@@ -12497,7 +12497,7 @@ class RdfClient:
                     "min_confidence": float(min_confidence),
                 },
             )
-        ).payload
+        ).model_dump(mode="json")
 
     async def owl_reason_distributed(
         self,
@@ -12528,7 +12528,7 @@ class RdfClient:
                     "min_confidence": float(min_confidence),
                 },
             )
-        ).payload
+        ).model_dump(mode="json")
 
     async def explain(
         self,
@@ -12573,7 +12573,7 @@ class RdfClient:
                     "sup": sup,
                 },
             )
-        ).payload
+        ).model_dump(mode="json")
 
     async def sparql_virtual(
         self,

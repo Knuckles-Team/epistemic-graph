@@ -880,20 +880,20 @@ struct GraphMetaRecordCurrent {
 
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-struct GraphMetaRecordV2 {
+struct LegacyGraphMetaRecordWithPolicy {
     schema_version: u16,
     name: String,
     graph_type: GraphType,
     incarnation_id: String,
     #[serde(deserialize_with = "deserialize_required_option")]
-    integrity_policy: Option<crate::graph::IntegrityPolicyV2>,
+    integrity_policy: Option<crate::graph::LegacyIntegrityPolicy>,
 }
 
 #[derive(serde::Deserialize)]
 #[serde(untagged)]
 enum GraphMetaRecordWire {
     Current(GraphMetaRecordCurrent),
-    V2(GraphMetaRecordV2),
+    V2(LegacyGraphMetaRecordWithPolicy),
 }
 
 impl<'de> serde::Deserialize<'de> for GraphMetaRecord {
@@ -1205,12 +1205,12 @@ mod graph_meta_migration_tests {
     }
 
     fn v2_blob(name: &str, gtype: GraphType, incarnation_id: &str) -> Vec<u8> {
-        rmp_serde::to_vec_named(&GraphMetaRecordV2 {
+        rmp_serde::to_vec_named(&LegacyGraphMetaRecordWithPolicy {
             schema_version: 2,
             name: name.to_string(),
             graph_type: gtype,
             incarnation_id: incarnation_id.to_string(),
-            integrity_policy: Some(crate::graph::IntegrityPolicyV2 {
+            integrity_policy: Some(crate::graph::LegacyIntegrityPolicy {
                 shapes_ttl: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
             }),
         })
@@ -1285,12 +1285,12 @@ mod graph_meta_migration_tests {
     #[test]
     fn a_v2_row_lifts_its_integrity_policy_into_the_operator_source() {
         const V2_META_GOLDEN: &str = "85ae736368656d615f76657273696f6e02a46e616d65a167aa67726170685f74797065a6476c6f62616cae696e6361726e6174696f6e5f6964a6696e632d7632b0696e746567726974795f706f6c69637981aa7368617065735f74746cd92b407072656669782073683a203c687474703a2f2f7777772e77332e6f72672f6e732f736861636c233e202e";
-        let legacy = GraphMetaRecordV2 {
+        let legacy = LegacyGraphMetaRecordWithPolicy {
             schema_version: 2,
             name: "g".to_string(),
             graph_type: GraphType::Global,
             incarnation_id: "inc-v2".to_string(),
-            integrity_policy: Some(crate::graph::IntegrityPolicyV2 {
+            integrity_policy: Some(crate::graph::LegacyIntegrityPolicy {
                 shapes_ttl: "@prefix sh: <http://www.w3.org/ns/shacl#> .".to_string(),
             }),
         };

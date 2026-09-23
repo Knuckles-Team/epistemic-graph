@@ -187,9 +187,32 @@ mod dispatch_reachability_tests {
         request
     }
 
-    /// Every declared surface is REACHABLE: dispatch routes it to a handler
-    /// that refuses by name, rather than answering "unknown method" or
-    /// "not available in this build".
+    /// Contract-wave surfaces whose real handler has landed (wave rule R6):
+    /// they stay in the shared sample set, which also pins their wire shape,
+    /// but must now answer WITHOUT the stub refusal (they may still refuse
+    /// the sample on its merits, e.g. a tenant mismatch). Every label here
+    /// has a real dispatch arm and no `contract_wave_stub!` declaration.
+    const SERVED: &[&str] = &[
+        "GraphSchemaList",
+        "AgentComponent.content",
+        "ConnectorPack.bind",
+        "ConnectorPack.import",
+        "ConnectorPack.reconcile_bodies",
+        "ConnectorPack.reproject",
+        "ConnectorPack.retire",
+        "ConnectorPack.status",
+        "ConnectorPack.unbind",
+        "GraphSchema.attach",
+        "GraphSchema.attach_pack",
+        "GraphSchema.detach",
+        "MutationOutbox.dead_letters",
+        "MutationOutbox.rewind",
+        "MutationOutbox.status",
+    ];
+
+    /// Every declared surface is REACHABLE: dispatch routes a pending one to a
+    /// handler that refuses by name, rather than answering "unknown method" or
+    /// "not available in this build", and a promoted one to its real handler.
     #[tokio::test]
     async fn every_declared_surface_reaches_its_stub() {
         let state = Arc::new(RwLock::new(ServerState::new_for_test(
@@ -198,12 +221,15 @@ mod dispatch_reachability_tests {
         )));
         for (surface, method) in contract_wave_samples() {
             let response = dispatch_test_on_heap(&state, signed(surface, method)).await;
-            let error = response
+            let stubbed = response
                 .error
-                .unwrap_or_else(|| panic!("{surface} answered a result before its handler landed"));
-            assert!(
-                error.contains(METHOD_NOT_YET_SERVED),
-                "{surface} must reach its contract-wave stub, got {error}"
+                .as_deref()
+                .is_some_and(|error| error.contains(METHOD_NOT_YET_SERVED));
+            assert_eq!(
+                stubbed,
+                !SERVED.contains(&surface),
+                "{surface}: stub refusal must match its promotion state, got {:?}",
+                response.error
             );
         }
     }

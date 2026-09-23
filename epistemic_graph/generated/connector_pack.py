@@ -217,6 +217,7 @@ class PackAnnotations(BaseModel):
     required_scopes: BoundedVec_string_64 | None = None
     requires_capabilities: BoundedVec_string_64 | None = None
     sdk_contract_pin: str | None = None
+    tool_mode: PackToolMode | None = None
 
 
 class PackArchiveRef(BaseModel):
@@ -263,6 +264,7 @@ class PackEntryKind(str, Enum):
     MODEL_PROFILE = "model_profile"
     A2A_CARD = "a2a_card"
     MANIFEST = "manifest"
+    SKILL_FILE = "skill_file"
 
 
 class PackHeadRef(BaseModel):
@@ -384,6 +386,7 @@ class PackProjectionStateFailed(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     code: str
+    detail: str | None = None
     projection: Literal["failed"]
 
 
@@ -409,6 +412,11 @@ class PackSection(BaseModel):
     length: Annotated[int, Field(ge=0)]
     offset: Annotated[int, Field(ge=0)]
     sha256: Digest256
+
+
+class PackToolMode(str, Enum):
+    CONDENSED = "condensed"
+    VERBOSE = "verbose"
 
 
 class PackViolation(BaseModel):

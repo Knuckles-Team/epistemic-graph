@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+import pytest
+
 from epistemic_graph.generated import reasoning
 from epistemic_graph.generated.reasoning import (
     DatalogReasoningResult,
@@ -12,6 +14,9 @@ from epistemic_graph.generated.reasoning import (
     ProofNodeWire,
     ShaclValidationReport,
 )
+
+# Static generated-client contract checks against a fake transport; no engine.
+pytestmark = pytest.mark.no_engine
 
 
 class _Client:

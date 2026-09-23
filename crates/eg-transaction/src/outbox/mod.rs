@@ -63,6 +63,7 @@ mod rewind;
 mod rows;
 mod status;
 mod stream;
+mod views;
 
 #[cfg(test)]
 pub(crate) use rows::{decode_row, encode_row};
@@ -78,6 +79,10 @@ pub(crate) use index::{backfill, index_outbox_row, mark_index_ready_in_write};
 pub(crate) use rewind::rewind;
 pub use rewind::{OutboxRewindOutcome, OutboxRewindTarget};
 pub(crate) use stream::subscribe;
+pub use views::{
+    consumer_status, operate_outbox, outbox_position, read_outbox_view, OutboxView,
+    OutboxViewAnswer, OutboxWrite, OutboxWriteReply,
+};
 
 use eg_storage::{OwnerDomain, ScopedRead};
 use eg_types::{MutationOutboxLease, MutationProjectionCursor};
@@ -306,6 +311,18 @@ impl OutboxClaimBudget {
 
     pub fn now_ms(&self) -> u64 {
         self.now_ms
+    }
+
+    /// Re-stamp the sweep clock before claiming on the next scope.
+    ///
+    /// A lease runs `lease_ms` from the clock the claim was stamped with. A
+    /// sweep that crosses several scopes on one creation-time clock hands the
+    /// later scopes leases that are already partly spent -- on a busy node,
+    /// already expired -- so their acknowledgements fail as stale. The limit
+    /// and the consecutive/tenant accounting are the sweep's and carry over;
+    /// only the clock moves, and never backwards.
+    pub fn restamp(&mut self, now_ms: u64) {
+        self.now_ms = self.now_ms.max(now_ms);
     }
 
     /// Rows still available to this sweep.

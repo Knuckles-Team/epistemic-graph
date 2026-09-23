@@ -228,6 +228,7 @@ def _check_protocol(protocol: str, wire: str) -> None:
         "CausalEstimate": ("mode",),
         "BeginTxn": ("graph", "isolation"),
         "OwlReason": ("min_confidence",),
+        "OwlReasonDistributed": ("min_confidence",),
         "IcvConfigure": ("graph", "mode", "shapes"),
     }
     for name in (

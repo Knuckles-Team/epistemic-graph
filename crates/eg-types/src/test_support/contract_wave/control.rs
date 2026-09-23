@@ -4,7 +4,8 @@
 use crate::agent_component::AgentComponentContentRequest;
 use crate::graph_schema::GraphSchemaOp;
 use crate::mutation_outbox::{
-    MutationOutboxOp, NativeOutboxStore, OutboxPositionView, OutboxTarget, RewindTarget,
+    MutationOutboxOp, NativeOutboxScope, NativeOutboxStore, OutboxPositionView, OutboxTarget,
+    RewindTarget,
 };
 
 use super::pack::connector;
@@ -52,15 +53,26 @@ pub fn every_outbox_target() -> Vec<OutboxTarget> {
     let mut targets = vec![OutboxTarget::Graph {
         graph: "__commons__".to_string(),
     }];
-    for store in [
-        NativeOutboxStore::AgentLibrary,
-        NativeOutboxStore::SemanticIndex,
-        NativeOutboxStore::Jobs,
-        NativeOutboxStore::SqlCatalog,
+    for (store, scope) in [
+        (NativeOutboxStore::AgentLibrary, NativeOutboxScope::Tenant),
+        (
+            NativeOutboxStore::SemanticIndex,
+            NativeOutboxScope::SemanticBinding {
+                binding_id: "binding-a".to_string(),
+            },
+        ),
+        (NativeOutboxStore::Jobs, NativeOutboxScope::Tenant),
+        (
+            NativeOutboxStore::SqlCatalog,
+            NativeOutboxScope::SqlResource {
+                resource: "orders".to_string(),
+            },
+        ),
     ] {
         targets.push(OutboxTarget::NativeStore {
             store,
             tenant_id: "tenant-a".to_string(),
+            scope,
         });
     }
     targets
@@ -84,6 +96,7 @@ pub fn outbox_ops() -> Vec<(&'static str, MutationOutboxOp)> {
                 target: OutboxTarget::NativeStore {
                     store: NativeOutboxStore::AgentLibrary,
                     tenant_id: "tenant-a".to_string(),
+                    scope: NativeOutboxScope::Tenant,
                 },
                 consumer: "consumer-a".to_string(),
                 after: Some(position()),
@@ -96,6 +109,7 @@ pub fn outbox_ops() -> Vec<(&'static str, MutationOutboxOp)> {
                 target: OutboxTarget::NativeStore {
                     store: NativeOutboxStore::Jobs,
                     tenant_id: "tenant-a".to_string(),
+                    scope: NativeOutboxScope::Tenant,
                 },
                 consumer: "consumer-a".to_string(),
                 to: RewindTarget::At {

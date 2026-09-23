@@ -178,6 +178,24 @@ pub(crate) fn open_semantic_service(
     Ok(service)
 }
 
+/// The semantic owner of an EXISTING binding, for operator reads: unlike
+/// [`open_semantic_service`] it never creates an owner file for a binding
+/// that was never admitted.
+pub(crate) fn existing_semantic_service(
+    persist_dir: &std::path::Path,
+    tenant: &str,
+    binding_id: &str,
+) -> Result<Arc<SemanticIndexService>, String> {
+    let dir = persist_dir
+        .join("semantic-index")
+        .join(sanitize_owner_segment(tenant))
+        .join(sanitize_owner_segment(binding_id));
+    if !dir.is_dir() {
+        return Err("OUTBOX_OWNER_UNKNOWN: no semantic binding with that id".to_string());
+    }
+    open_semantic_service(persist_dir, tenant, binding_id)
+}
+
 /// One path segment per identity: a readable but lossy prefix, then the full
 /// SHA-256 of the exact bytes.
 ///
@@ -724,12 +742,8 @@ impl SemanticIndexServerAdapter {
             })?;
         self.authorize_binding_worker(&binding, &authority)
             .map_err(|error| Response::err(req_id, error))?;
-        if lease.consumer != authority.agent_id() {
-            return Err(Response::err(
-                req_id,
-                "ACCESS_DENIED: semantic lease owner does not match verified carrier",
-            ));
-        }
+        crate::server::handlers::semantic_index::own_lease(&lease, &authority)
+            .map_err(|error| Response::err(req_id, error))?;
         let service = Arc::clone(&self.service);
         compute_off_lock(req_id, move || {
             service.replay_completed_sql_source_stage(&lease, &expected_intent, now_ms)
@@ -1721,7 +1735,19 @@ mod sql_source_read_tests {
             Some(retained_tombstone),
             "restart and replay retain one exact tombstone manifest"
         );
-        let status = service.stage_status(worker.agent_id(), 12).unwrap();
+        // Each queue class is its own consumer (`<worker>#<class>`); S1 and
+        // S2 run in different classes, so the worker's totals are the sum.
+        let per_class: Vec<_> = eg_core::compute::semantic_ann_codes::SEMANTIC_QUEUE_CLASSES
+            .iter()
+            .map(|class| {
+                let consumer =
+                    eg_core::compute::semantic_ann_codes::stage_consumer(worker.agent_id(), *class);
+                service.stage_status(&consumer, 12).unwrap()
+            })
+            .collect();
+        let total = |field: fn(&eg_transaction::OutboxStatus) -> u64| -> u64 {
+            per_class.iter().map(field).sum()
+        };
         // Three resolved rows, not two: the present source's S1, the S2 it
         // derived (retired as a dead letter), and the deletion's S1. A
         // semantic `RejectedDeadLetter` is still an ACK of its outbox row --
@@ -1729,15 +1755,15 @@ mod sql_source_read_tests {
         // -- so it counts as delivered here, and `dead_lettered` stays zero
         // because that counter belongs to the outbox's own retry-exhaustion
         // path, not to a semantic rejection.
-        assert_eq!(status.delivered, 3);
-        assert_eq!(status.dead_lettered, 0);
-        assert_eq!(status.inflight, 0);
+        assert_eq!(total(|status| status.delivered), 3);
+        assert_eq!(total(|status| status.dead_lettered), 0);
+        assert_eq!(total(|status| u64::from(status.inflight)), 0);
         // ONE pending row, not zero: completing the tombstone S1 derived its
         // own S2 GraphProjection intent, exactly as the present source's S1
         // did. A zero here would be asserting that a completed S1 is a dead
         // end, which is the assumption this whole fixture was built on and
         // which the outbox order gap refuted.
-        assert_eq!(status.pending, 1);
+        assert_eq!(total(|status| status.pending), 1);
     }
 }
 
@@ -1987,13 +2013,11 @@ mod dispatch_pipeline_tests {
             )
             .await,
         );
+        // X10-T2: the Medium consumer never even leases the Fast S1 -- it is
+        // on another topic -- so no wrong-class release can spend its retries.
         assert!(
             medium_first.entries.is_empty(),
             "S1 is a Fast row and must not be handed to a Medium consumer"
-        );
-        assert_eq!(
-            medium_first.released_other_class, 1,
-            "the wrong-class row must be released back, not held for its lease"
         );
 
         // ---- queue class, leg two: the Fast worker gets exactly the S1 -----

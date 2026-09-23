@@ -54,9 +54,7 @@ Cross-domain: personal schedule ↔ infrastructure.""" ;
     rdfs:range xsd:dateTime .
 
 :eventLocation a owl:DatatypeProperty ;
-    rdfs:label "event location" ;
-    rdfs:domain :CalendarEvent ;
-    rdfs:range xsd:string .
+    rdfs:label "event location" .
 
 :eventStart a owl:DatatypeProperty ;
     rdfs:label "event start" ;
@@ -156,3 +154,10 @@ Distinct from professional :Task (Jira/Plane). BFO:GDC.""" ;
 Google Calendar). BFO:Process via Event. Aligned to schema:Event.""" ;
     rdfs:seeAlso schema:Event ;
     rdfs:subClassOf :Event .
+
+:personalEventLocation a owl:DatatypeProperty ;
+    rdfs:label "eventLocation (personal)" ;
+    rdfs:comment "The personal module's meaning of the shared kg:eventLocation: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :eventLocation ;
+    rdfs:domain :CalendarEvent ;
+    rdfs:range xsd:string .

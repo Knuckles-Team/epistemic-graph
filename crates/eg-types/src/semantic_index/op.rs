@@ -103,11 +103,6 @@ pub struct SemanticStageLeasePage {
     /// Whether the selection scan stopped at its page bound, so an immediate
     /// second claim may find more.
     pub more_available: bool,
-    /// How many claimed rows belonged to another queue class and were released
-    /// back unexecuted. A persistently non-zero value means this consumer is
-    /// competing with the wrong tier, which is an operational fact worth
-    /// surfacing rather than silently absorbing.
-    pub released_other_class: u32,
 }
 
 /// Operations over one durable semantic binding and its S1-S6 stage queue.
@@ -212,9 +207,9 @@ pub enum SemanticIndexOp {
         tenant_id: String,
         binding_id: String,
         consumer: String,
-        /// The tier this worker serves. Rows whose stage belongs to another
-        /// class are released back unexecuted rather than handed to a worker
-        /// that cannot do them -- tier selection is the whole point of a
+        /// The tier this worker serves. Each class is its own topic and its
+        /// own consumer (`<worker>#<class>`), so a claim can only ever lease
+        /// rows of this class -- tier selection is the whole point of a
         /// tiered queue, so it has to be expressible on the wire.
         queue_class: SemanticQueueClass,
         /// At most [`MAX_SEMANTIC_STAGE_CLAIM_LIMIT`].
@@ -230,11 +225,13 @@ pub enum SemanticIndexOp {
         consumer: String,
         lease: Box<MutationOutboxLease>,
     },
-    /// The bounded queue's per-consumer liveness, capacity and in-flight count.
+    /// The bounded queue's per-consumer liveness, capacity and in-flight count,
+    /// for this worker's consumer of one queue class.
     StageStatus {
         tenant_id: String,
         binding_id: String,
         consumer: String,
+        queue_class: SemanticQueueClass,
     },
     /// Persist one terminal entity-scoped transition with its artifact, publish
     /// the successor intent when the predecessor proof is complete, and

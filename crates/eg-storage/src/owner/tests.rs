@@ -137,7 +137,12 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
     // owner write, so `shared` stays the two CAS tables: service 127 = 124 + 3.
     // 129 -> 130: the SQL provider checkpoint head row. It is DomainService,
     // not another ledger, so service 128 = 127 + 1; `shared` is unchanged.
-    assert_eq!((names.len(), service, shared), (130, 128, 2));
+    // 130 -> 139: the Agent Library's five connector-pack tables (heads,
+    // members, imports, body holders, bindings) and four governed write-back
+    // tables (change sets, idempotency, receipts, receipt heads). All nine are
+    // `DomainService` rows of the Agent Library's admitted owner write, so
+    // service 137 = 128 + 9 and `shared` is still the two CAS tables.
+    assert_eq!((names.len(), service, shared), (139, 137, 2));
 }
 
 #[test]
@@ -794,7 +799,9 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     // cursor high-water mark (`cas_holders`, `cas_retention`, `cas_counters`).
     // 147 -> 148: the SQL provider checkpoint table this lane adds. Every
     // registered mutation table must refuse plain recovery, including it.
-    assert_eq!(names.len(), 148);
+    // 148 -> 157: the Agent Library's five connector-pack and four governed
+    // write-back tables; each is a durable mutation table like its siblings.
+    assert_eq!(names.len(), 157);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();

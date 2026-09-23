@@ -53,9 +53,7 @@
 :dependsOn a owl:ObjectProperty,
         owl:TransitiveProperty ;
     rdfs:label "depends on" ;
-    rdfs:comment "Transitive dependency between symbols / modules." ;
-    rdfs:domain :Code ;
-    rdfs:range :Code .
+    rdfs:comment "Transitive dependency between symbols / modules. The shared kg:dependsOn's domain and range are owned by the core foundation (kg:partOf and kg:memberOf are sub-properties of it); a software-local rdfs:domain/rdfs:range here would make every part and every member a :Code." .
 
 :groundsTo a owl:ObjectProperty ;
     rdfs:label "grounds to" ;
@@ -119,9 +117,7 @@
 
 :produced a owl:ObjectProperty ;
     rdfs:label "produced" ;
-    rdfs:comment "A WorkspaceAction produced a WorkspaceObservation." ;
-    rdfs:domain :WorkspaceAction ;
-    rdfs:range :WorkspaceObservation .
+    rdfs:comment "A WorkspaceAction produced a WorkspaceObservation." .
 
 :provisions a owl:ObjectProperty ;
     rdfs:label "provisions" ;
@@ -240,3 +236,10 @@
 :Code a owl:Class ;
     rdfs:label "Code" ;
     rdfs:comment "An application code symbol: function, class, or method." .
+
+:softwareProduced a owl:ObjectProperty ;
+    rdfs:label "produced (software)" ;
+    rdfs:comment "The software module's meaning of the shared kg:produced: it carries this module's domain and range so that the shared property carries none (a module must not constrain a shared property)." ;
+    rdfs:subPropertyOf :produced ;
+    rdfs:domain :WorkspaceAction ;
+    rdfs:range :WorkspaceObservation .

@@ -61,7 +61,7 @@ pub use schema_sources::{
     SchemaSourceOrigin, CORE_SOURCE_PREFIX, MAX_CORE_SCHEMA_SOURCES, MAX_SCHEMA_DOCUMENT_TRIPLES,
     MAX_TOTAL_DYNAMIC_SCHEMA_BYTES, OPERATOR_SOURCE_ID,
 };
-pub use snapshot::{GraphSnapshot, IntegrityPolicyV2, GRAPH_SNAPSHOT_SCHEMA_VERSION};
+pub use snapshot::{GraphSnapshot, LegacyIntegrityPolicy, GRAPH_SNAPSHOT_SCHEMA_VERSION};
 pub use view::GraphView;
 #[cfg(feature = "result-cache")]
 pub use view::ProjectionScope;

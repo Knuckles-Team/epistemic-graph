@@ -5,22 +5,22 @@
     {
       "name": "entry_digest/tool",
       "domain": "eg/connector-pack-entry/v1",
-      "sha256": "d828af787121d199b44c0f7e26fd40b0bb6da907fc561c805ad3df2e397ee1f3"
+      "sha256": "aaacf0961d4918123a28efd97af6fd295393e31769a6598dcf7f70f32486e83b"
     },
     {
       "name": "entry_digest/server",
       "domain": "eg/connector-pack-entry/v1",
-      "sha256": "8e144ba10d0c55e06ec5d4c20a368f46beead8755f4f077fdcbb743238f516a3"
+      "sha256": "be337c60eeea7477fe2970931c3de4ada4d30a301aa10bb6aa8d2b49827f4e6d"
     },
     {
       "name": "annotations_digest/full",
-      "domain": "eg/connector-pack-annotations/v1",
-      "sha256": "b904fe27afbca03ff78c3103c87ed00f01a724560f409ff678998434ecb7c0a9"
+      "domain": "eg/connector-pack-annotations/v2",
+      "sha256": "2184e78879af1f369b47adac45d9b847eb9c0f9f3f1f87fe53df73140eb0fe82"
     },
     {
       "name": "annotations_digest/empty",
-      "domain": "eg/connector-pack-annotations/v1",
-      "sha256": "8ac9e8397ff58e844d5d62a347049a23c8781f8e32e98d07320bacc506f479c2"
+      "domain": "eg/connector-pack-annotations/v2",
+      "sha256": "0df97c2f617f661b8c75e150998cc346613a374329f484701a7ab813a6fde073"
     },
     {
       "name": "model_facts_digest/tri_state",
@@ -40,7 +40,7 @@
     {
       "name": "pack_digest/one_entry_per_kind",
       "domain": "eg/connector-pack/v2",
-      "sha256": "3e21399b01fe66413838c292bb583c87889c552eb00da1a62fa618c6ac5961a6"
+      "sha256": "e2a2c3e1d6de237975c8d1f71bcf338860e86b9b9d576ef585d4baf0ddafc5e5"
     },
     {
       "name": "component_id/escaped",

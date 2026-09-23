@@ -117,6 +117,18 @@ def g12_foreign(spec: PackSpec) -> MalformedPack:
     )
 
 
+def g12_tool_mode_on_prompt(spec: PackSpec) -> MalformedPack:
+    prompt = first(spec, "prompt")
+    annotations = prompt.annotations.model_copy(update={"tool_mode": "condensed"})
+    return case(
+        "G12",
+        "tool_mode_on_prompt",
+        "a tool mode declared on an entry that is not a tool",
+        edited(spec, "prompt", annotations=annotations),
+        ("INVALID_ANNOTATION",),
+    )
+
+
 def g12_model_facts(spec: PackSpec) -> MalformedPack:
     profile = first(spec, "model_profile")
     model = profile.annotations.model
@@ -353,6 +365,7 @@ SEMANTIC_MUTATIONS: tuple[Mutation, ...] = (
     g12_currency,
     g12_foreign,
     g12_model_facts,
+    g12_tool_mode_on_prompt,
     *TURTLE_MUTATIONS,
     g15_scoped_blank_nodes,
     g15_duplicate_shape,

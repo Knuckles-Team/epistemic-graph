@@ -293,7 +293,7 @@ pub(crate) fn apply_pack_source(
     )?;
     let source_id = format!("pack:{}", connector.as_str());
     let changed = sources.attach_dynamic(source_id, source)?;
-    compose::validate_and_compose(&sources)?;
+    compose::validate_entering_schema(&sources)?;
     if changed {
         core.install_schema_sources(Arc::new(sources.clone()));
     }
@@ -354,7 +354,9 @@ fn compose_pack_documents(
                     document.uri
                 )
             })?;
-            rendered.insert(triple.to_string());
+            // `Triple`'s Display is the N-Triples statement WITHOUT its terminating
+            // ` .`; the projection is re-parsed as Turtle, so every line needs it.
+            rendered.insert(format!("{triple} ."));
         }
     }
     let mut body = rendered.into_iter().collect::<Vec<_>>().join("\n");
@@ -426,7 +428,11 @@ fn apply(
         GraphSchemaOp::Detach { source_id, .. } => sources.detach_dynamic(source_id),
         GraphSchemaOp::AttachPack { .. } => unreachable!("attach-pack has its own route"),
     };
-    compose::validate_and_compose(&sources)?;
+    if matches!(op, GraphSchemaOp::Attach { .. }) {
+        compose::validate_entering_schema(&sources)?;
+    } else {
+        compose::validate_and_compose(&sources)?;
+    }
     let composed_digest = sources.composed_digest().to_hex();
     if changed {
         core.install_schema_sources(Arc::new(sources));
@@ -565,17 +571,21 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(
-            core_ids,
-            std::collections::BTreeSet::from([
-                "core:archimate@1",
-                "core:capability@1",
-                "core:catalog@1",
-                "core:enterprise@1",
-                "core:foundation@1",
-                "core:governance-shapes@1",
-            ])
-        );
+        // The listing reports exactly the immutable core catalog: all 31 core
+        // artifacts (30 ontologies and the governance shapes).
+        let catalog = core.schema_sources();
+        let catalog_ids: std::collections::BTreeSet<_> =
+            catalog.core.keys().map(String::as_str).collect();
+        assert_eq!(core_ids, catalog_ids);
+        assert_eq!(core_ids.len(), 31);
+        for anchor in [
+            "core:catalog@1",
+            "core:foundation@1",
+            "core:governance-shapes@1",
+            "core:software@1",
+        ] {
+            assert!(core_ids.contains(anchor), "missing {anchor}");
+        }
         assert!(initial
             .core_sources
             .iter()
@@ -606,6 +616,39 @@ mod tests {
 
         apply(&core, "g", &attach("admin:local", ontology)).unwrap();
         assert!(core.schema_sources().dynamic.contains_key("admin:local"));
+    }
+
+    /// EH-355 ruling (c): the full-ABox tableau runs where schema ENTERS. An attached
+    /// individual in two disjoint classes passes the terminology-scoped composition
+    /// that restore uses, and is refused at attach with nothing published.
+    #[test]
+    fn attach_refuses_an_abox_contradiction_the_terminology_scope_admits() {
+        let core = GraphCore::new();
+        let before = core.schema_sources();
+        let ontology = "@prefix owl: <http://www.w3.org/2002/07/owl#> . \
+            @prefix ex: <http://example/> . \
+            ex:A a owl:Class ; owl:disjointWith ex:B . ex:B a owl:Class . \
+            ex:x a ex:A, ex:B .";
+        let mut candidate = (*before).clone();
+        candidate
+            .attach_dynamic(
+                "admin:contradiction".to_string(),
+                crate::graph::GraphSchemaSource::new(
+                    crate::graph::SchemaSourceOrigin::Admin {
+                        name: "contradiction".to_string(),
+                    },
+                    None,
+                    Some(Arc::from(ontology)),
+                    0,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        compose::validate_and_compose(&candidate).unwrap();
+
+        let error = apply(&core, "g", &attach("admin:contradiction", ontology)).unwrap_err();
+        assert!(error.starts_with("ONTOLOGY_INCONSISTENT"), "{error}");
+        assert_eq!(core.schema_sources(), before);
     }
 
     #[test]

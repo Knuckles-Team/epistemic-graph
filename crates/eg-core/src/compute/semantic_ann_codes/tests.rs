@@ -1525,7 +1525,7 @@ fn complete_reconciliation_tombstone_replaces_completed_prior_revision() {
         .batch
         .outbox
         .iter()
-        .find(|event| event.topic == super::SEMANTIC_STAGE_INTENT_TOPIC)
+        .find(|event| super::is_stage_intent_topic(&event.topic))
         .unwrap();
     assert_eq!(
         event
@@ -2332,7 +2332,7 @@ fn refresh_with_s1_moves_head_and_replays_after_the_head_changed() {
         .batch
         .outbox
         .iter()
-        .any(|event| event.topic == super::SEMANTIC_STAGE_INTENT_TOPIC));
+        .any(|event| super::is_stage_intent_topic(&event.topic)));
     drop(read);
 
     let replay = codes

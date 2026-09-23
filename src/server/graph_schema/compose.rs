@@ -48,6 +48,37 @@ pub(crate) fn validate_and_compose(sources: &GraphSchemaSources) -> Result<Compo
     compose_validated_sources(sources)
 }
 
+/// Search steps (deterministic rule rounds and explored branches, see
+/// `eg_rdf::tableau::is_consistent_within`) the full-ABox tableau may spend where schema
+/// ENTERS a graph. Measured 2026-09-22 on the build host: the shipped core corpus
+/// (1 384 individuals, 3 521 role assertions) is decided within 10⁶ steps and not
+/// within 10⁵; this allows ten times the corpus for the attached documents.
+const SCHEMA_ENTRY_ABOX_STEPS: u64 = 10_000_000;
+
+/// [`SCHEMA_ENTRY_ABOX_STEPS`] as a budget; beyond it the attach fails closed.
+const SCHEMA_ENTRY_ABOX_BUDGET: eg_rdf::owl::DerivationBudget =
+    eg_rdf::owl::DerivationBudget::new(SCHEMA_ENTRY_ABOX_STEPS);
+
+/// [`validate_and_compose`] plus the full-ABox tableau consistency check (EH-355
+/// operator ruling, option (c)): run where schema ENTERS a graph — `GraphSchema`
+/// attach and ConnectorPack projection — but not on restore, which replays schema that
+/// already passed here and checks the terminology only. Bounded by
+/// [`SCHEMA_ENTRY_ABOX_BUDGET`]: an ABox the tableau cannot decide within it is refused
+/// with `VALIDATION_BUDGET_EXCEEDED`, never admitted undecided.
+pub(crate) fn validate_entering_schema(
+    sources: &GraphSchemaSources,
+) -> Result<ComposedSchema, String> {
+    let composed = validate_and_compose(sources)?;
+    match eg_rdf::tableau::abox_consistency_within(&composed.ontology, SCHEMA_ENTRY_ABOX_BUDGET) {
+        Ok(true) => Ok(composed),
+        Ok(false) => Err(
+            "ONTOLOGY_INCONSISTENT: the composed schema's individual assertions have no model"
+                .to_string(),
+        ),
+        Err(exhausted) => Err(exhausted.to_string()),
+    }
+}
+
 fn compose_validated_sources(sources: &GraphSchemaSources) -> Result<ComposedSchema, String> {
     let shapes = compose_documents(sources.shapes(), true)?;
     let ontology = compose_documents(sources.ontologies(), false)?;
@@ -61,7 +92,13 @@ fn compose_validated_sources(sources: &GraphSchemaSources) -> Result<ComposedSch
         shape_graph.insert(triple);
     }
     let ontology: Vec<Triple> = ontology.into_iter().map(|(_, triple)| triple).collect();
-    let classification = eg_rdf::tableau::reason_dl(&ontology);
+    // TERMINOLOGY scope (EH-355, operator ruling (c)): this composition runs on every
+    // restore and read, and decides whether the composed SCHEMA is coherent — the
+    // unsatisfiable classes it reports below. The EL/RL completion still sees every
+    // triple, but it classifies classes, not individuals; the individual assertions are
+    // decided by the full-ABox tableau where schema enters a graph
+    // ([`validate_entering_schema`]), not again on each restore.
+    let classification = eg_rdf::tableau::reason_dl_terminology(&ontology);
     if !classification.consistent {
         let nothing = "<http://www.w3.org/2002/07/owl#Nothing>";
         let unsatisfiable: Vec<&str> = classification
@@ -394,9 +431,16 @@ mod tests {
             .attach_dynamic("admin:right".to_string(), admin("right", Some(right), None))
             .unwrap();
         let composed = validate_and_compose(&sources).unwrap();
+        // Only the two attached documents' `[ … ]` nodes: the composed shapes also hold
+        // the core governance shapes, whose own blank nodes are not under test.
+        let attached = ["http://example/A", "http://example/B"];
         let blanks: BTreeSet<String> = composed
             .shapes
             .iter()
+            .filter(|triple| {
+                matches!(triple.subject, eg_rdf::oxrdf::NamedOrBlankNodeRef::NamedNode(node)
+                    if attached.contains(&node.as_str()))
+            })
             .filter_map(|triple| match &triple.object {
                 eg_rdf::oxrdf::TermRef::BlankNode(node) => Some(node.as_str().to_string()),
                 _ => None,
@@ -613,7 +657,11 @@ ex:parent a owl:AsymmetricProperty .
     fn core_foundation_contains_the_complete_migrated_root_axiom_body() {
         let foundation = include_str!("../../../crates/eg-core/ontology/core-foundation-v1.ttl");
         let triples = eg_rdf::mapping::parse_turtle(foundation).unwrap();
-        assert_eq!(triples.len(), 880);
+        // 880 migrated triples less the two list-cell triples of `:Incident`, which
+        // was removed from the Person/Organization/Server/Event disjointness because
+        // it is a subclass of `:Event` (EH-356), plus the 8 triples declaring BFO
+        // realizable entity and disposition, the category of `:Skill`.
+        assert_eq!(triples.len(), 886);
         for required in [
             "http://knuckles.team/kg#Concept",
             "http://knuckles.team/kg#Evidence",
@@ -633,7 +681,15 @@ ex:parent a owl:AsymmetricProperty .
     #[test]
     fn complete_core_corpus_pins_the_approved_authority_migration_delta() {
         let composed = validate_and_compose(&GraphSchemaSources::default()).unwrap();
-        assert_eq!(composed.ontology.len(), 12_600);
+        // 12,600 as migrated, less the 10 triples EH-356 removed to make the corpus
+        // coherent: module-local domain/range on the shared kg:derivedFrom (sdd,
+        // capability) and kg:dependsOn (software) — 6; module-local BFO recategorisation
+        // of the core :Skill (a2a) and :LegalEntity (company) — 2; `:Incident` in the
+        // AllDisjointClasses list of its own superclass `:Event` — 2. Then +99: the
+        // module-local domain/range of 12 other shared properties (and the double domain
+        // of infrastructure's :runsOn) moved onto 24 module-local sub-properties. Then
+        // +8: BFO realizable entity and disposition, declared for `:Skill`.
+        assert_eq!(composed.ontology.len(), 12_697);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -665,7 +721,7 @@ ex:parent a owl:AsymmetricProperty .
         // authority triples change.
         assert_eq!(ontology_subjects.len(), 30);
         assert_eq!(imports, 59);
-        assert_eq!(semantic_axioms, 12_445);
+        assert_eq!(semantic_axioms, 12_542);
 
         let count_type = |object: &str| {
             composed
@@ -716,6 +772,72 @@ ex:parent a owl:AsymmetricProperty .
                 .count(),
             379
         );
+    }
+
+    /// EH-356: the shipped corpus must be coherent under the EL/RL reasoner itself —
+    /// consistent, with no unsatisfiable named class — not only under whichever engine
+    /// the compose gate routes to. The EL/RL completion once derived
+    /// `BFO:Entity ⊑ kg:Code` from this corpus (an unsound range rule) and collapsed the
+    /// root class, and the corpus itself carried five genuinely unsatisfiable classes.
+    #[test]
+    fn shipped_core_corpus_is_coherent_under_the_el_rl_reasoner() {
+        let composed = validate_and_compose(&GraphSchemaSources::default()).unwrap();
+        let classification = eg_rdf::owl::Reasoner::from_triples(&composed.ontology).classify();
+        assert!(
+            classification.unsatisfiable.is_empty(),
+            "unsatisfiable named classes: {:?}",
+            classification.unsatisfiable
+        );
+        assert!(classification.consistent);
+        let entity = "<http://purl.obolibrary.org/obo/BFO_0000001>";
+        assert_eq!(
+            classification.subsumers[entity],
+            BTreeSet::from([
+                entity.to_string(),
+                "<http://www.w3.org/2002/07/owl#Thing>".to_string()
+            ]),
+            "the BFO root must subsume nothing but itself and owl:Thing"
+        );
+        // Operator ruling 2026-09-22: a skill is a capacity its bearer can realize — a
+        // BFO disposition (a specifically dependent continuant), not an independent
+        // continuant and not an information artifact.
+        let skill = &classification.subsumers["<http://knuckles.team/kg#Skill>"];
+        let bfo = |id: &str| format!("<http://purl.obolibrary.org/obo/BFO_{id}>");
+        assert!(
+            skill.contains(&bfo("0000016")),
+            "Skill ⊑ disposition: {skill:?}"
+        );
+        assert!(skill.contains(&bfo("0000020")));
+        assert!(!skill.contains(&bfo("0000004")));
+        assert!(!skill.contains(&bfo("0000031")));
+    }
+
+    /// A module must not constrain a shared property: OWL intersects every
+    /// `rdfs:domain`/`rdfs:range` a property carries, so two modules' different
+    /// meanings of one property type every edge as both (EH-356 found
+    /// `derivedFrom`/`dependsOn`; twelve more were moved to module-local
+    /// sub-properties). Each property's domain and range come from ONE core document.
+    #[test]
+    fn no_property_is_constrained_by_two_core_modules() {
+        const DOMAIN: &str = "http://www.w3.org/2000/01/rdf-schema#domain";
+        const RANGE: &str = "http://www.w3.org/2000/01/rdf-schema#range";
+        let sources = GraphSchemaSources::default();
+        let mut constrained_by: BTreeMap<String, BTreeSet<&str>> = BTreeMap::new();
+        for (source_id, document) in sources.ontologies() {
+            for triple in eg_rdf::mapping::parse_turtle(document).unwrap() {
+                if matches!(triple.predicate.as_str(), DOMAIN | RANGE) {
+                    constrained_by
+                        .entry(triple.subject.to_string())
+                        .or_default()
+                        .insert(source_id);
+                }
+            }
+        }
+        let shared: Vec<_> = constrained_by
+            .iter()
+            .filter(|(_, modules)| modules.len() > 1)
+            .collect();
+        assert!(shared.is_empty(), "{shared:?}");
     }
 
     #[test]

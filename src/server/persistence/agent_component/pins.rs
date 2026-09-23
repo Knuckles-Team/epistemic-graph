@@ -9,6 +9,10 @@ use super::{
     MAX_COMPONENT_PIN_RESOLUTION_ROWS, MAX_RESOLVED_COMPONENT_PINS,
 };
 
+/// The connector-pack heads, read to gate new pins on pack visibility.
+type PackHeadTable<'a> =
+    eg_storage::OwnerReadTable<'a, (&'static str, &'static str), &'static [u8]>;
+
 pub(super) fn resolve_component_pins_in_write(
     write: &eg_transaction::AdmittedMutation<'_, eg_storage::AgentLibraryOwner>,
     tenant_id: &str,
@@ -18,11 +22,39 @@ pub(super) fn resolve_component_pins_in_write(
     let distinct = distinct_component_pins(subject, pins)?;
     let heads = write.open_read_table(eg_storage::AGENT_COMPONENT_HEADS)?;
     let revisions = write.open_read_table(eg_storage::AGENT_COMPONENT_REVISIONS)?;
+    let pack_heads = write.open_read_table(eg_storage::CONNECTOR_PACK_HEADS)?;
     let mut rows = 0usize;
     for pin in distinct {
+        require_visible_pack_component(&pack_heads, tenant_id, subject, pin.0)?;
         resolve_component_pin(&heads, &revisions, tenant_id, subject, pin, &mut rows)?;
     }
     Ok(())
+}
+
+/// A NEW pin on a pack component needs its connector's projection applied
+/// (PB1 readiness gate); pins already recorded keep resolving.
+fn require_visible_pack_component(
+    pack_heads: &PackHeadTable<'_>,
+    tenant_id: &str,
+    subject: &str,
+    component_id: &str,
+) -> Result<(), String> {
+    use super::super::connector_pack::visibility::{
+        pack_component_visible, PACK_REVISION_NOT_VISIBLE,
+    };
+
+    let visible = pack_component_visible(component_id, |connector| {
+        Ok(pack_heads
+            .get((tenant_id, connector))?
+            .map(|row| row.value().to_vec()))
+    })?;
+    if visible {
+        return Ok(());
+    }
+    Err(format!(
+        "{PACK_REVISION_NOT_VISIBLE}: {subject} pins component '{component_id}', whose \
+         connector pack projection has not applied yet"
+    ))
 }
 
 fn distinct_component_pins<'a>(
@@ -72,10 +104,21 @@ fn resolve_component_pin(
         .get((tenant_id, component_id, head_revision))?
         .ok_or_else(|| "agent component head points to a missing revision".to_string())?;
     let head = decode_revision::<ComponentLayer>(head.value())?;
-    if head.lifecycle == AgentLibraryLifecycle::Retired {
-        return Err(format!(
-            "{subject} pins component '{component_id}', which is retired"
-        ));
+    match head.lifecycle {
+        AgentLibraryLifecycle::Published => {}
+        AgentLibraryLifecycle::Retired => {
+            return Err(format!(
+                "{subject} pins component '{component_id}', which is retired"
+            ));
+        }
+        // Withdrawn from its connector's current pack: still resolvable for
+        // records that already pin it, never eligible for a new one (D6).
+        AgentLibraryLifecycle::Withdrawn => {
+            return Err(format!(
+                "COMPONENT_WITHDRAWN: {subject} pins component '{component_id}', which is \
+                 withdrawn from its connector pack"
+            ));
+        }
     }
     // The HEAD first: the overwhelmingly common pin is the current revision,
     // and hitting it turns the whole resolution into one read. The fallback
