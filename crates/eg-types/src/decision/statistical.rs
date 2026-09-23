@@ -14,6 +14,7 @@ pub mod features;
 pub mod head;
 pub mod keyed;
 pub mod log;
+pub mod log_view;
 pub mod nl;
 pub mod outcome;
 

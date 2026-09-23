@@ -100,6 +100,7 @@ def test_every_log_op_matches_the_contract() -> None:
         dc.resolve_op("tenant-a", "decision:abc", "r-1", "plan-deep"),
         dc.resolve_op("tenant-a", "decision:abc", "r-2", "plan-deep", producer="llm"),
         dc.aggregate_op("tenant-a", (0, 10), "au.retrieval.plan"),
+        dc.query_op("tenant-a", "SELECT count(*) FROM decisions"),
     ]
     for op in ops:
         assert valid(DEFS["DecisionLogOp"], op), op
