@@ -1,0 +1,468 @@
+//! Render the hoisted definitions as `models.py`, formatter-stable by construction.
+//!
+//! Every emitted line fits the 88-column limit without the formatter's help: a field
+//! whose annotation is too long first tries the parenthesized form the formatter
+//! itself would produce for a flat union, and otherwise gets a named alias; an alias
+//! whose right-hand side is too long is split the way the formatter splits it
+//! (one union member per line, an exploded `Annotated[...]` with magic trailing
+//! commas, a one-item `list[...]`). Classes come first in name order; aliases follow
+//! in dependency order, because an alias is evaluated when the module is imported.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
+
+use serde_json::{Map, Value};
+
+use super::super::dto::{
+    canonical_digest_spec, dto_python_type, pascal_case, push_dto_definition, push_dto_imports,
+    push_string_enum, push_type_alias, push_union_alias, ref_name, string_literal_variants,
+    tagged_variants, variant_tag, JSON_VALUE_TYPES, SCOPED_PATCH_DIGEST_SPECS,
+};
+use super::super::names::field_identifier;
+use super::super::{optional, HEADER};
+use super::hoist::fresh_name;
+
+const WIDTH: usize = 88;
+const MODEL_CONFIG: &str =
+    "    model_config = ConfigDict(extra=\"forbid\", frozen=True, defer_build=True)\n";
+
+/// One rendered top-level statement.
+struct Block {
+    alias: bool,
+    text: String,
+}
+
+/// The renderer's state: the definitions, and aliases minted to keep lines short.
+struct Renderer<'a> {
+    definitions: &'a Map<String, Value>,
+    minted: BTreeMap<String, Value>,
+}
+
+/// The complete `models.py`.
+pub(in super::super) fn models_module(definitions: &Map<String, Value>) -> String {
+    let mut renderer = Renderer {
+        definitions,
+        minted: BTreeMap::new(),
+    };
+    let mut blocks: BTreeMap<String, Vec<Block>> = BTreeMap::new();
+    for (name, node) in definitions {
+        blocks.insert(name.clone(), renderer.definition(name, node));
+    }
+    renderer.render_minted(&mut blocks);
+    let body = ordered_body(&blocks);
+    let mut out = String::from(HEADER);
+    out.push_str("\"\"\"Generated nested engine-contract models (EH-192).\"\"\"\n");
+    out.push_str("\nfrom __future__ import annotations\n\n");
+    push_dto_imports(&mut out, &body);
+    out.push_str(&body);
+    out
+}
+
+impl Renderer<'_> {
+    fn definition(&mut self, name: &str, node: &Value) -> Vec<Block> {
+        if JSON_VALUE_TYPES.contains(&name) {
+            return vec![alias_block(format!("\n\n{name} = Any\n"))];
+        }
+        if has_digest_methods(name) {
+            let mut text = String::new();
+            push_dto_definition(&mut text, name, node);
+            // A digest subclass of a referenced base must follow every class.
+            let alias = ref_name(node).is_some();
+            return vec![Block { alias, text }];
+        }
+        if let Some(values) = enum_values(node) {
+            let mut text = String::new();
+            push_string_enum(&mut text, name, values);
+            return vec![class_block(text)];
+        }
+        if let Some((tag, variants)) = tagged_variants(node) {
+            return vec![class_block(self.tagged_union(name, tag, &variants))];
+        }
+        if is_object(node) {
+            return vec![class_block(self.object_class(name, node))];
+        }
+        vec![alias_block(self.alias(name, node))]
+    }
+
+    fn render_minted(&mut self, blocks: &mut BTreeMap<String, Vec<Block>>) {
+        let mut done = BTreeSet::new();
+        while let Some((name, node)) = self
+            .minted
+            .iter()
+            .find(|(name, _)| !done.contains(*name))
+            .map(|(name, node)| (name.clone(), node.clone()))
+        {
+            done.insert(name.clone());
+            let text = self.alias(&name, &node);
+            blocks.insert(name, vec![alias_block(text)]);
+        }
+    }
+
+    fn tagged_union(&mut self, name: &str, tag: &str, variants: &[&Value]) -> String {
+        let mut text = String::new();
+        let mut names = Vec::new();
+        for variant in variants {
+            let value = variant_tag(variant, tag).expect("tagged variant has a tag");
+            let class = format!("{name}{}", pascal_case(value));
+            text.push_str(&self.object_class(&class, variant));
+            names.push(class);
+        }
+        let (discriminator, _) = field_identifier(tag);
+        push_union_alias(&mut text, name, &discriminator, &names);
+        text
+    }
+
+    fn object_class(&mut self, name: &str, node: &Value) -> String {
+        let mut text = format!("\n\nclass {name}(BaseModel):\n{MODEL_CONFIG}\n");
+        let required: Vec<&str> = node
+            .get("required")
+            .and_then(Value::as_array)
+            .map(|values| values.iter().filter_map(Value::as_str).collect())
+            .unwrap_or_default();
+        let properties = node.get("properties").and_then(Value::as_object);
+        match properties {
+            Some(properties) if !properties.is_empty() => {
+                for (field, schema) in properties {
+                    let required = required.contains(&field.as_str());
+                    text.push_str(&self.field(name, field, schema, required));
+                }
+            }
+            _ => text.push_str("    pass\n"),
+        }
+        text
+    }
+
+    /// One field, in the first form that fits: flat, a parenthesized flat union, or
+    /// an alias minted for the annotation.
+    fn field(&mut self, owner: &str, wire: &str, schema: &Value, required: bool) -> String {
+        let (identifier, aliased) = field_identifier(wire);
+        let default = field_default(wire, required, aliased);
+        let mut annotation = dto_python_type(schema);
+        for _ in 0..2 {
+            let declared = if required {
+                annotation.clone()
+            } else {
+                optional(&annotation)
+            };
+            let line = format!("    {identifier}: {declared}{default}");
+            if width(&line) <= WIDTH {
+                return format!("{line}\n");
+            }
+            if is_flat_union(&declared) && width(&declared) + 8 <= WIDTH {
+                return format!("    {identifier}: (\n        {declared}\n    ){default}\n");
+            }
+            annotation = self.mint(&format!("{owner}{}", pascal_case(wire)), schema);
+        }
+        panic!("{owner}.{wire}: no field form fits the formatter's line limit");
+    }
+
+    /// A named alias for `schema`, rendered after the definitions.
+    fn mint(&mut self, base: &str, schema: &Value) -> String {
+        let name = fresh_name(base, |candidate| {
+            self.definitions.contains_key(candidate) || self.minted.contains_key(candidate)
+        });
+        self.minted.insert(name.clone(), schema.clone());
+        name
+    }
+
+    /// `Name = annotation`, split the way the formatter splits it when too long.
+    fn alias(&mut self, name: &str, node: &Value) -> String {
+        // `dto_python_type` has no tuple form; tuples are always laid out here.
+        if let Some(items) = tuple_items(node) {
+            return self.tuple_alias(name, node, items);
+        }
+        let annotation = dto_python_type(node);
+        if width(name) + width(&annotation) + 3 <= WIDTH {
+            return format!("\n\n{name} = {annotation}\n");
+        }
+        if let Some(members) = union_members(node) {
+            return self.union_alias(name, &members);
+        }
+        if let Some(item) = single_item(node) {
+            let item = self.mint(&format!("{name}Item"), item);
+            return bracket_alias(name, "list[", &item);
+        }
+        if let Some(value) = map_value(node) {
+            let value = self.mint(&format!("{name}Value"), value);
+            return bracket_alias(name, "dict[str, ", &value);
+        }
+        let mut text = String::new();
+        push_type_alias(&mut text, name, &annotation);
+        text
+    }
+
+    /// A fixed-width tuple: every item that is not a bare name gets its own alias
+    /// (`{Name}Item{i}`), and the length bounds explode with magic trailing commas.
+    fn tuple_alias(&mut self, name: &str, node: &Value, items: &[Value]) -> String {
+        let mut rendered = Vec::new();
+        for (index, item) in items.iter().enumerate() {
+            let annotation = dto_python_type(item);
+            let bare = annotation
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_');
+            rendered.push(if bare {
+                annotation
+            } else {
+                self.mint(&format!("{name}Item{index}"), item)
+            });
+        }
+        tuple_alias_text(name, &rendered, &length_constraints(node))
+    }
+
+    fn union_alias(&mut self, name: &str, members: &[Value]) -> String {
+        let mut rendered: Vec<String> = Vec::new();
+        for (index, member) in members.iter().enumerate() {
+            let mut annotation = dto_python_type(member);
+            if width(&annotation) + 6 > WIDTH {
+                annotation = self.mint(&format!("{name}Member{index}"), member);
+            }
+            if !rendered.contains(&annotation) {
+                rendered.push(annotation);
+            }
+        }
+        let flat = rendered.join(" | ");
+        if width(&flat) + 4 <= WIDTH {
+            return format!("\n\n{name} = (\n    {flat}\n)\n");
+        }
+        let mut text = format!("\n\n{name} = (\n");
+        for (index, member) in rendered.iter().enumerate() {
+            let prefix = if index == 0 { "" } else { "| " };
+            let _ = writeln!(text, "    {prefix}{member}");
+        }
+        text.push_str(")\n");
+        text
+    }
+}
+
+/// `Name = list[Item]` / `Name = dict[str, Value]`; when too long, the formatter
+/// breaks inside the brackets (a single `list` item stays on one indented line; a
+/// `dict` gets one argument per line and a magic trailing comma).
+fn bracket_alias(name: &str, open: &str, inner: &str) -> String {
+    let flat = format!("{name} = {open}{inner}]");
+    if width(&flat) <= WIDTH {
+        return format!("\n\n{flat}\n");
+    }
+    match open.split_once(", ") {
+        None => format!("\n\n{name} = {open}\n    {inner}\n]\n"),
+        Some((head, key)) => format!("\n\n{name} = {head}\n    {key},\n    {inner},\n]\n"),
+    }
+}
+
+/// Line width as the generator's own line-limit test counts it (bytes, which is
+/// never less than the formatter's character count).
+fn width(text: &str) -> usize {
+    text.len()
+}
+
+fn is_object(node: &Value) -> bool {
+    node.get("type").and_then(Value::as_str) == Some("object") && node.get("properties").is_some()
+}
+
+/// The value schema of a `dict[str, V]` map.
+fn map_value(node: &Value) -> Option<&Value> {
+    let is_map = node.get("type").and_then(Value::as_str) == Some("object");
+    let value = node
+        .get("additionalProperties")
+        .filter(|value| value.is_object())?;
+    (is_map && node.get("properties").is_none()).then_some(value)
+}
+
+fn field_default(wire: &str, required: bool, aliased: bool) -> String {
+    match (aliased, required) {
+        (true, true) => format!(" = Field(..., alias={wire:?})"),
+        (true, false) => format!(" = Field(None, alias={wire:?})"),
+        (false, true) => String::new(),
+        (false, false) => " = None".to_string(),
+    }
+}
+
+/// A top-level union of bare names: the formatter parenthesizes it as a whole.
+fn is_flat_union(annotation: &str) -> bool {
+    annotation.contains(" | ") && !annotation.contains('[')
+}
+
+/// The member schemas of an unnamed union: `anyOf`/`oneOf`, or a nullable
+/// `"type": [T, "null"]` split the way `dto_python_type` splits it.
+fn union_members(node: &Value) -> Option<Vec<Value>> {
+    if ref_name(node).is_some() {
+        return None;
+    }
+    if let Some(members) = node
+        .get("anyOf")
+        .or_else(|| node.get("oneOf"))
+        .and_then(Value::as_array)
+    {
+        return Some(members.clone());
+    }
+    let types = node.get("type").and_then(Value::as_array)?;
+    Some(
+        types
+            .iter()
+            .map(|wire_type| {
+                if wire_type.as_str() == Some("null") {
+                    return serde_json::json!({ "type": "null" });
+                }
+                let mut member = node.clone();
+                member["type"] = wire_type.clone();
+                member
+            })
+            .collect(),
+    )
+}
+
+/// `Name = [Annotated[]tuple[...][, Field(...)]]`, flat when it fits; otherwise
+/// exploded with magic trailing commas (which the formatter keeps), the tuple items
+/// one per line when the tuple alone does not fit its indented line.
+fn tuple_alias_text(name: &str, items: &[String], constraints: &[String]) -> String {
+    let base = format!("tuple[{}]", items.join(", "));
+    let annotated = !constraints.is_empty();
+    let flat = if annotated {
+        format!("Annotated[{base}, Field({})]", constraints.join(", "))
+    } else {
+        base.clone()
+    };
+    if width(name) + width(&flat) + 3 <= WIDTH {
+        return format!("\n\n{name} = {flat}\n");
+    }
+    let indent = if annotated { "    " } else { "" };
+    let mut text = format!("\n\n{name} = ");
+    if annotated {
+        text.push_str("Annotated[\n    ");
+    }
+    if annotated && width(&base) + 5 <= WIDTH {
+        text.push_str(&base);
+        text.push_str(",\n");
+    } else {
+        text.push_str("tuple[\n");
+        for item in items {
+            let _ = writeln!(text, "{indent}    {item},");
+        }
+        let _ = writeln!(text, "{indent}]{}", if annotated { "," } else { "" });
+    }
+    if annotated {
+        text.push_str("    Field(\n");
+        for constraint in constraints {
+            let _ = writeln!(text, "        {constraint},");
+        }
+        text.push_str("    ),\n]\n");
+    }
+    text
+}
+
+/// The item schemas of a fixed-width array (a Rust tuple).
+fn tuple_items(node: &Value) -> Option<&Vec<Value>> {
+    let is_array = node.get("type").and_then(Value::as_str) == Some("array");
+    let items = node.get("prefixItems").and_then(Value::as_array)?;
+    (is_array && !items.is_empty()).then_some(items)
+}
+
+/// `min_length`/`max_length` constraints of an array, in `dto_python_type`'s order.
+fn length_constraints(node: &Value) -> Vec<String> {
+    [("minItems", "min_length"), ("maxItems", "max_length")]
+        .into_iter()
+        .filter_map(|(schema, python)| {
+            let bound = node.get(schema).and_then(Value::as_u64)?;
+            Some(format!("{python}={bound}"))
+        })
+        .collect()
+}
+
+/// The item schema of an unconstrained array.
+fn single_item(node: &Value) -> Option<&Value> {
+    let is_array = node.get("type").and_then(Value::as_str) == Some("array");
+    let item = node.get("items").filter(|item| item.is_object())?;
+    (is_array && node.get("minItems").is_none() && node.get("maxItems").is_none()).then_some(item)
+}
+
+fn enum_values(node: &Value) -> Option<Vec<&str>> {
+    if let Some(values) = node.get("enum").and_then(Value::as_array) {
+        return Some(values.iter().filter_map(Value::as_str).collect());
+    }
+    string_literal_variants(node)
+}
+
+fn has_digest_methods(name: &str) -> bool {
+    canonical_digest_spec(name).is_some()
+        || SCOPED_PATCH_DIGEST_SPECS
+            .iter()
+            .any(|spec| spec.model == name)
+}
+
+fn class_block(text: String) -> Block {
+    Block { alias: false, text }
+}
+
+fn alias_block(text: String) -> Block {
+    Block { alias: true, text }
+}
+
+/// Classes (and tagged unions) in name order, then aliases so that every alias an
+/// alias names is already defined.
+fn ordered_body(blocks: &BTreeMap<String, Vec<Block>>) -> String {
+    let mut body = String::new();
+    let mut aliases: BTreeMap<&str, &str> = BTreeMap::new();
+    for (name, rendered) in blocks {
+        for block in rendered {
+            if block.alias {
+                aliases.insert(name.as_str(), block.text.as_str());
+            } else {
+                body.push_str(&block.text);
+            }
+        }
+    }
+    let mut emitted = BTreeSet::new();
+    for name in aliases.keys() {
+        emit_alias(name, &aliases, &mut emitted, &mut body);
+    }
+    body
+}
+
+fn emit_alias<'a>(
+    name: &'a str,
+    aliases: &BTreeMap<&'a str, &'a str>,
+    emitted: &mut BTreeSet<&'a str>,
+    body: &mut String,
+) {
+    if !emitted.insert(name) {
+        return;
+    }
+    let text = aliases[name];
+    let right_hand_side = text.split_once(" = ").map_or("", |(_, rhs)| rhs);
+    for dependency in identifiers(right_hand_side) {
+        if let Some((key, _)) = aliases.get_key_value(dependency) {
+            emit_alias(key, aliases, emitted, body);
+        }
+    }
+    body.push_str(text);
+}
+
+/// The identifiers of a Python expression, skipping string literals.
+fn identifiers(expression: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut start = None;
+    let mut quoted = false;
+    let mut escaped = false;
+    for (index, character) in expression.char_indices() {
+        if quoted && character == '\\' && !escaped {
+            escaped = true;
+            continue;
+        }
+        if character == '"' && !escaped {
+            quoted = !quoted;
+        }
+        escaped = false;
+        let part = !quoted && (character.is_ascii_alphanumeric() || character == '_');
+        match (part, start) {
+            (true, None) => start = Some(index),
+            (false, Some(begin)) => {
+                out.push(&expression[begin..index]);
+                start = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(begin) = start {
+        out.push(&expression[begin..]);
+    }
+    out
+}

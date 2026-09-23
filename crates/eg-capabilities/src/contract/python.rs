@@ -19,6 +19,8 @@ use crate::{ConsumerProfile, MethodDescriptor};
 
 mod digest;
 mod dto;
+mod models;
+mod names;
 mod package;
 mod runtime;
 
@@ -26,6 +28,10 @@ use digest::digest_module;
 #[cfg(test)]
 use dto::CANONICAL_DIGEST_SPECS;
 use dto::{dto_module, dto_python_type, DtoSurface, DTO_SURFACES, SHARED_DTO_RESULT_MODELS};
+use models::{
+    models_module, push_decode, push_lazy_request_validation, push_request_resolver,
+    push_type_checking_block, ModelSpace,
+};
 use package::package_contract_module;
 use runtime::runtime_module;
 
@@ -116,6 +122,7 @@ fn snake_case(id: &str) -> String {
 
 /// The generated result checkers, in the order `_runtime` defines them.
 const RESULT_CHECKERS: &[&str] = &[
+    "decode_result",
     "expect_bool",
     "expect_count",
     "expect_edgelist",
@@ -123,6 +130,7 @@ const RESULT_CHECKERS: &[&str] = &[
     "expect_ids",
     "expect_nodelist",
     "expect_string",
+    "models",
 ];
 
 /// `(Python annotation, runtime checker)` for a scalar encoding the client models.
@@ -336,7 +344,12 @@ fn push_model(out: &mut String, id: &str, fields: &[(String, String, bool)]) {
     }
 }
 
-fn push_send(out: &mut String, d: &MethodDescriptor, declared: Option<&Declared>) {
+fn push_send(
+    out: &mut String,
+    d: &MethodDescriptor,
+    declared: Option<&Declared>,
+    request_model: Option<&str>,
+) {
     let id = d.id.as_str();
     let name = snake_case(id);
     let scalar = modelled_scalar(declared);
@@ -364,7 +377,10 @@ fn push_send(out: &mut String, d: &MethodDescriptor, declared: Option<&Declared>
     push_result_schema(out, d.domain, id, declared.is_some());
     push_error_bullets(out, d.error_set);
     let _ = writeln!(out, "    \"\"\"");
-    push_send_request_validation(out, id, typed_request);
+    match request_model {
+        Some(model) => push_lazy_request_validation(out, model),
+        None => push_send_request_validation(out, id, typed_request),
+    }
     let _ = writeln!(out, "    payload = await client._send(");
     let _ = writeln!(out, "        \"{id}\",");
     out.push_str(
@@ -511,15 +527,26 @@ fn domain_module(
     descriptors: &[MethodDescriptor],
     schemas: &serde_json::Value,
     catalog: &Catalog,
+    space: &ModelSpace,
 ) -> String {
-    let body = domain_body(descriptors, schemas, catalog);
+    let (body, lazy) = domain_body(descriptors, schemas, catalog, space);
     let mut out = String::from(HEADER);
     let _ = writeln!(
         out,
         "\"\"\"Generated {domain} engine-contract client surface.\"\"\""
     );
-    out.push_str("\nfrom __future__ import annotations\n\nfrom typing import Any\n\n");
+    let typing = if body.contains("TYPE_CHECKING") || !lazy.is_empty() || body.contains("_models.")
+    {
+        "TYPE_CHECKING, Any"
+    } else {
+        "Any"
+    };
+    let _ = write!(
+        out,
+        "\nfrom __future__ import annotations\n\nfrom typing import {typing}\n\n"
+    );
     push_domain_imports(&mut out, descriptors, &body);
+    push_type_checking_block(&mut out, &lazy, &body);
     let import_end = out.trim_end_matches('\n').len();
     out.truncate(import_end);
     out.push('\n');
@@ -527,20 +554,33 @@ fn domain_module(
     out
 }
 
-fn domain_body(
-    descriptors: &[MethodDescriptor],
+fn domain_body<'a>(
+    descriptors: &'a [MethodDescriptor],
     schemas: &serde_json::Value,
     catalog: &Catalog,
-) -> String {
+    space: &'a ModelSpace,
+) -> (String, Vec<&'a str>) {
     let mut body = String::new();
+    let mut lazy = Vec::new();
     let empty = serde_json::json!({});
     for d in descriptors {
         let id = d.id.as_str();
         let subschema = schemas.get(id).unwrap_or(&empty);
+        // A typed-direct sender names its request class in its own signature, so
+        // that class stays eager.
+        let request_model = space
+            .request_model(id)
+            .filter(|_| typed_direct_request(id).is_none());
+        match request_model {
+            Some(_) => lazy.push(id),
+            None => {
+                body.push_str("\n\n");
+                push_model(&mut body, id, &request_fields(id, subschema));
+            }
+        }
         body.push_str("\n\n");
-        push_model(&mut body, id, &request_fields(id, subschema));
-        body.push_str("\n\n");
-        push_send(&mut body, d, catalog.methods.get(id));
+        push_send(&mut body, d, catalog.methods.get(id), request_model);
+        push_typed_decode(&mut body, id, catalog.methods.get(id), space);
         for adapter in TYPED_OPERATION_ADAPTERS
             .iter()
             .filter(|adapter| adapter.method == id)
@@ -548,13 +588,25 @@ fn domain_body(
             push_typed_operation_adapter(&mut body, adapter);
         }
     }
-    body
+    push_request_resolver(&mut body, &lazy);
+    (body, lazy)
+}
+
+/// `decode_{method}` for a result the send returns as an `OpaqueResult` but the
+/// contract schematizes (EH-192).
+fn push_typed_decode(out: &mut String, id: &str, declared: Option<&Declared>, space: &ModelSpace) {
+    if dto_result_model(id).is_some() || modelled_scalar(declared).is_some() {
+        return;
+    }
+    if let Some(model) = space.result_model(id) {
+        push_decode(out, id, &snake_case(id), model);
+    }
 }
 
 fn push_domain_imports(out: &mut String, descriptors: &[MethodDescriptor], body: &str) {
     // `Field` is imported only where an aliased keyword field actually uses it: an
     // unused import is a ruff F401 on every other module.
-    out.push_str(pydantic_import(body));
+    out.push_str(&pydantic_import(body));
     let mut imports: Vec<&str> = Vec::new();
     if body.contains("OpaqueResult(") {
         imports.push("OpaqueResult");
@@ -589,17 +641,23 @@ fn push_domain_imports(out: &mut String, descriptors: &[MethodDescriptor], body:
     }
 }
 
-fn pydantic_import(body: &str) -> &'static str {
-    let type_adapter = body.contains("TypeAdapter(");
-    if body.contains(" = Field(") && type_adapter {
-        "from pydantic import BaseModel, ConfigDict, Field, TypeAdapter\n\n"
-    } else if body.contains(" = Field(") {
-        "from pydantic import BaseModel, ConfigDict, Field\n\n"
-    } else if type_adapter {
-        "from pydantic import BaseModel, ConfigDict, TypeAdapter\n\n"
-    } else {
-        "from pydantic import BaseModel, ConfigDict\n\n"
+/// The pydantic names a domain module's body uses, and nothing else: a module whose
+/// requests all resolve lazily defines no model and imports no pydantic name.
+fn pydantic_import(body: &str) -> String {
+    let used: Vec<&str> = [
+        ("BaseModel", "(BaseModel)"),
+        ("ConfigDict", "ConfigDict("),
+        ("Field", " = Field("),
+        ("TypeAdapter", "TypeAdapter("),
+    ]
+    .into_iter()
+    .filter(|(_, marker)| body.contains(marker))
+    .map(|(name, _)| name)
+    .collect();
+    if used.is_empty() {
+        return String::new();
     }
+    format!("from pydantic import {}\n\n", used.join(", "))
 }
 
 fn push_surface_import(
@@ -773,7 +831,13 @@ pub(super) fn artifacts(catalog: &Catalog) -> Vec<Artifact> {
     let (by_domain, published, sends) = python_inventory();
     let mut out = base_artifacts(&published);
     let mut modules: Vec<String> = by_domain.keys().cloned().collect();
-    push_domain_artifacts(&mut out, &by_domain, &schemas, catalog);
+    let space = ModelSpace::build(&document, catalog);
+    out.push(Artifact {
+        path: "epistemic_graph/generated/models.py".to_string(),
+        bytes: normalize(models_module(&space.definitions)),
+    });
+    // Not added to the package's eager imports: `models` loads on first use.
+    push_domain_artifacts(&mut out, &by_domain, &schemas, catalog, &space);
     push_dto_artifacts(&mut out, &mut modules, &document, catalog);
     push_package_artifacts(&mut out, &mut modules, &sends);
     out
@@ -831,11 +895,12 @@ fn push_domain_artifacts(
     by_domain: &BTreeMap<String, Vec<MethodDescriptor>>,
     schemas: &serde_json::Value,
     catalog: &Catalog,
+    space: &ModelSpace,
 ) {
     for (domain, descriptors) in by_domain {
         out.push(Artifact {
             path: format!("epistemic_graph/generated/{domain}.py"),
-            bytes: normalize(domain_module(domain, descriptors, schemas, catalog)),
+            bytes: normalize(domain_module(domain, descriptors, schemas, catalog, space)),
         });
     }
 }
