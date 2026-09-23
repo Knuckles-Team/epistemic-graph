@@ -12,6 +12,7 @@ these have **zero** release-build impact. Each is registered `harness = false` i
 | `eg096_massive_scale_bench` | **EG-KG.compute.massive-scale-benchmark** | default (feature-light) | in-process node/edge write throughput, graph query latency, exact flat top-k, IVF-PQ and native HNSW kNN latency |
 | `write_coalescer_bench` | EG-KG.txn.write-path-benchmarks | `--features server` | `__commons__` write-lock contention curve vs the batch window |
 | `redb_group_commit_bench` | EG-024 | `--features full` | durable group-commit ops-per-fsync vs the linger knob |
+| `redb_write_latency_bench` | EH-290 | `--features full` | per-write durable latency p50/p95/p99 by `commit_phase` span, swept over graph size, beside raw-redb Immediate/None floors (plain `main`, not criterion) |
 
 ## EG-KG.compute.massive-scale-benchmark — massive-scale core harness
 

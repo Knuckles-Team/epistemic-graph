@@ -318,7 +318,8 @@ mod imp {
         static ref COMMIT_OPS_PHASE: HistogramVec = histogram_vec(
             "epistemic_graph_commit_ops_phase_seconds",
             "Wall-clock duration of one commit_ops drain, decomposed by phase \
-             (acquire_txn|apply_writes|ledger_finish|durability_commit)",
+             (commit_ops|acquire_txn|bind_graphs|admit_group|apply_writes|\
+             lane_link_validation|ledger_finish|durability_commit)",
             &["phase"],
             DURATION_BUCKETS.to_vec(),
         );

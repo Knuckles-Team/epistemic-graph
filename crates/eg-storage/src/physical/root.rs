@@ -60,6 +60,17 @@ const RETIRED_PROTOTYPE_TABLES: &[&str] = &[
 /// anything else, because there is nothing else to select.
 pub(crate) const WRITE_DURABILITY: redb::Durability = redb::Durability::Immediate;
 
+/// Commit one kernel write transaction at [`WRITE_DURABILITY`].
+///
+/// The one place a mutation capability ends its redb transaction durably, so
+/// the `redb_commit` phase span (EH-290: the `Durability::Immediate` fsync plus
+/// redb's own page flush) is measured identically for a sole writer and for a
+/// scope group.
+pub(crate) fn commit_durably(transaction: WriteTransaction) -> Result<(), String> {
+    let _phase = tracing::debug_span!("commit_phase", phase = "redb_commit").entered();
+    transaction.commit().map_err(|error| error.to_string())
+}
+
 /// Non-serializable proof that a store root was derived from and matched the
 /// exact physical database.
 #[derive(Debug, Clone)]
@@ -108,7 +119,32 @@ impl PhysicalStore {
         if self.options.is_read_only() {
             return Err("store was opened read-only".to_string());
         }
-        self.validate_physical_root()?;
+        tracing::debug_span!("commit_phase", phase = "root_validation")
+            .in_scope(|| self.validate_physical_root())?;
+        let transaction = self.begin_durable_write()?;
+        tracing::debug_span!("commit_phase", phase = "write_authority_validation")
+            .in_scope(|| self.validate_write_authority(&transaction))?;
+        Ok(transaction)
+    }
+
+    /// Revalidate the persisted root, the owner manifest and the declared
+    /// table census INSIDE a freshly opened write transaction.
+    fn validate_write_authority(&self, transaction: &WriteTransaction) -> Result<(), String> {
+        validate_handle_write(&self.handle, transaction)?;
+        let manifest = &self.owner_manifest;
+        let persisted =
+            validate_manifest_write(transaction, &manifest.physical_identity, manifest.layout)?;
+        if persisted != *manifest {
+            return Err("cached owner manifest differs from persisted write authority".to_string());
+        }
+        validate_declared_tables_write(transaction, manifest.layout)
+    }
+
+    /// Take redb's single write lock and pin the transaction's durability.
+    /// Its own `redb_begin_write` phase is the lock wait EH-290 separates from
+    /// the authority checks around it.
+    fn begin_durable_write(&self) -> Result<WriteTransaction, String> {
+        let _phase = tracing::debug_span!("commit_phase", phase = "redb_begin_write").entered();
         let mut transaction = self
             .database
             .begin_write()
@@ -116,14 +152,6 @@ impl PhysicalStore {
         transaction
             .set_durability(WRITE_DURABILITY)
             .map_err(|error| error.to_string())?;
-        validate_handle_write(&self.handle, &transaction)?;
-        let manifest = &self.owner_manifest;
-        let persisted =
-            validate_manifest_write(&transaction, &manifest.physical_identity, manifest.layout)?;
-        if persisted != *manifest {
-            return Err("cached owner manifest differs from persisted write authority".to_string());
-        }
-        validate_declared_tables_write(&transaction, manifest.layout)?;
         Ok(transaction)
     }
 
