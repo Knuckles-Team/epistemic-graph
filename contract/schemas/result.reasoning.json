@@ -429,6 +429,17 @@
         },
         "predicate": {
           "type": "string"
+        },
+        "proof": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RuleProofNode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The fact's proof tree when the request asked to `explain`; `None` otherwise."
         }
       },
       "required": [
@@ -436,6 +447,45 @@
         "args",
         "confidence",
         "derived"
+      ],
+      "type": "object"
+    },
+    "RuleProofNode": {
+      "description": "One node of a rule-derivation proof tree (EH-197) — the rule-side twin of the OWL\nreasoner's `ProofNodeWire`. `rule == \"asserted\"` marks a leaf: a fact whose\nconfidence is its own assertion. Any other `rule` names the rule that fired over\n`premises` (each a full sub-proof, in rule-body order) to give `confidence`.\n`truncated` marks a node whose premises were cut by the proof's depth or size\nbudget, or because the premise is already being proved higher up the same branch.",
+      "properties": {
+        "args": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "confidence": {
+          "format": "double",
+          "type": "number"
+        },
+        "predicate": {
+          "type": "string"
+        },
+        "premises": {
+          "items": {
+            "$ref": "#/$defs/RuleProofNode"
+          },
+          "type": "array"
+        },
+        "rule": {
+          "type": "string"
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "predicate",
+        "args",
+        "rule",
+        "confidence",
+        "premises",
+        "truncated"
       ],
       "type": "object"
     },
@@ -740,9 +790,39 @@
       ],
       "type": "object"
     },
+    "SparqlObjectKind": {
+      "description": "Whether a SPARQL witness term is a resource or a literal.",
+      "enum": [
+        "resource",
+        "literal"
+      ],
+      "type": "string"
+    },
+    "SparqlProofCoverage": {
+      "description": "Whether a SPARQL row proof certifies the row.",
+      "oneOf": [
+        {
+          "const": "complete",
+          "description": "Every required triple pattern is instantiated by a listed triple of the graph,\nand the binding satisfies every required-scope FILTER.",
+          "type": "string"
+        },
+        {
+          "const": "partial",
+          "description": "The query uses algebra a witness does not certify (property paths, UNION,\nMINUS, aggregates, GRAPH, SERVICE, its own FROM dataset, a non-SELECT form), or\nthe witness search hit its step budget. The listed triples, if any, exist but\ndo not by themselves prove the row.",
+          "type": "string"
+        }
+      ]
+    },
     "SparqlResult": {
       "description": "Materialized result of a `Method::Sparql` SELECT (CONCEPT:EG-KG.ontology.concept-11). Returned via\n`ResultPayload::raw`. `vars` is the projected variable order; each row is aligned\nto `vars` with `None` for an unbound (OPTIONAL) variable. Lives in eg-types (the\nwire-DTO crate) so the protocol can embed it; the evaluator lives in eg-rdf.",
       "properties": {
+        "proofs": {
+          "description": "One witness proof per row, in row order, when the request asked to `explain`\n(EH-197); empty otherwise.",
+          "items": {
+            "$ref": "#/$defs/SparqlRowProof"
+          },
+          "type": "array"
+        },
         "rows": {
           "items": {
             "items": {
@@ -764,7 +844,58 @@
       },
       "required": [
         "vars",
-        "rows"
+        "rows",
+        "proofs"
+      ],
+      "type": "object"
+    },
+    "SparqlRowProof": {
+      "description": "The proof of one SPARQL SELECT row (EH-197): the ground triples that instantiate\nthe query's patterns under the row's bindings.",
+      "properties": {
+        "coverage": {
+          "$ref": "#/$defs/SparqlProofCoverage"
+        },
+        "row": {
+          "description": "Index of the row in the result's `rows`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "witnesses": {
+          "items": {
+            "$ref": "#/$defs/SparqlWitnessTriple"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "row",
+        "witnesses",
+        "coverage"
+      ],
+      "type": "object"
+    },
+    "SparqlWitnessTriple": {
+      "description": "One ground triple of the queried graph that a SPARQL row's witness uses (EH-197).\nSubject and a resource object are in the evaluator's `<iri>` / `_:b` form; the\npredicate is a bare IRI; a literal object is its lexical value.",
+      "properties": {
+        "object": {
+          "type": "string"
+        },
+        "object_kind": {
+          "$ref": "#/$defs/SparqlObjectKind"
+        },
+        "predicate": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "subject",
+        "predicate",
+        "object",
+        "object_kind"
       ],
       "type": "object"
     }

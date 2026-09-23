@@ -115,6 +115,7 @@ fn decide_blocking(
     let reader = LogReader {
         tenant_id: ctx.tenant_id.to_string(),
         principal: principal.clone(),
+        retention: super::stat_retention::Retention::none(),
     };
     fill_outcome_rates(
         ctx.store,
@@ -205,6 +206,29 @@ fn premise(
     }
 }
 
+/// One CLAIM premise per rule-derived class (EH-200): a derivation over a
+/// publisher's declared facts is only as strong as those facts.
+fn derived_premises<'a>(sealing: &'a Sealing) -> impl Iterator<Item = PremiseRef> + 'a {
+    sealing.candidates.entries.iter().flat_map(move |entry| {
+        let classes = sealing
+            .candidates
+            .derived
+            .by_component
+            .get(&entry.component_id);
+        classes.into_iter().flatten().map(move |(class, rule)| {
+            premise(
+                &entry.component_id,
+                &format!("derived:{class} by {rule}"),
+                PremiseClass::Claim,
+                PremiseProvenance::Publisher {
+                    component_id: entry.component_id.clone(),
+                    definition_digest: entry.definition_digest.clone(),
+                },
+            )
+        })
+    })
+}
+
 fn premises(sealing: &Sealing, nl: Option<&NlBinding>) -> Vec<PremiseRef> {
     let schema = &sealing.request.feature_schema;
     let mut out = vec![
@@ -242,6 +266,7 @@ fn premises(sealing: &Sealing, nl: Option<&NlBinding>) -> Vec<PremiseRef> {
             },
         ));
     }
+    out.extend(derived_premises(sealing));
     if let Some(NlBinding {
         source:
             NlChoiceSource::LlmProposal {
@@ -309,6 +334,7 @@ fn seal(
         policy: sealing.request.policy.clone(),
         policy_digest: sealing.policy.digest.clone(),
         params: sealing.request.params.clone(),
+        classification_rules: sealing.candidates.derived.rules.clone(),
         feature_matrix: feature_matrix(&sealing.candidates.views, sealing.pinned, executed)?,
         shortlist: ShortlistProvenance {
             ann_recall_mode: None,

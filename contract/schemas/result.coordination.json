@@ -1904,6 +1904,32 @@
       ],
       "type": "object"
     },
+    "DecisionLogCompacted": {
+      "additionalProperties": false,
+      "description": "What one compaction call did.",
+      "properties": {
+        "compacted": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "more": {
+          "description": "True when the per-call bound stopped the pass; call again.",
+          "type": "boolean"
+        },
+        "retired": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "compacted",
+        "retired",
+        "more"
+      ],
+      "type": "object"
+    },
     "DecisionLogEntry": {
       "additionalProperties": false,
       "description": "A committed record with its log metadata.",
@@ -1915,6 +1941,12 @@
         },
         "committed_by": {
           "type": "string"
+        },
+        "inputs": {
+          "$ref": "#/$defs/EntryInputs",
+          "default": {
+            "inputs": "inline"
+          }
         },
         "record": {
           "$ref": "#/$defs/StatisticalDecisionRecord"
@@ -1937,6 +1969,51 @@
         "visibility"
       ],
       "type": "object"
+    },
+    "DecisionLogVerification": {
+      "description": "The outcome of verifying one logged record.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The inputs (restored from CAS when compacted) reproduce the record\ndigest and the decision replays.",
+          "properties": {
+            "record_digest": {
+              "type": "string"
+            },
+            "verification": {
+              "const": "verified",
+              "type": "string"
+            }
+          },
+          "required": [
+            "verification",
+            "record_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`INPUTS_RETIRED`: the inputs were dropped under retention. The digest is\nstill the attested one; nothing can be re-derived.",
+          "properties": {
+            "blob_sha256": {
+              "type": "string"
+            },
+            "record_digest": {
+              "type": "string"
+            },
+            "verification": {
+              "const": "inputs_retired",
+              "type": "string"
+            }
+          },
+          "required": [
+            "verification",
+            "record_digest",
+            "blob_sha256"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "DecisionOutcomeEvaluation": {
       "additionalProperties": false,
@@ -3353,6 +3430,79 @@
       ],
       "type": "string"
     },
+    "EntryInputs": {
+      "description": "Where a logged record's bulky inputs are (EH-060). The record digest is\nnever recomputed: a compacted record's matrix is replaced by a blob pin,\nand verification restores it from CAS before checking the digest.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The record carries its inputs inline.",
+          "properties": {
+            "inputs": {
+              "const": "inline",
+              "type": "string"
+            }
+          },
+          "required": [
+            "inputs"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The matrix moved to Blob CAS; the entry pins it.",
+          "properties": {
+            "blob": {
+              "$ref": "#/$defs/InputsBlob"
+            },
+            "compacted_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "inputs": {
+              "const": "compacted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "inputs",
+            "blob",
+            "compacted_at_ms"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The blob was released under the policy's `drop_blob_after`; the record\ndigest stays attested, its inputs are gone.",
+          "properties": {
+            "blob": {
+              "$ref": "#/$defs/InputsBlob"
+            },
+            "compacted_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "inputs": {
+              "const": "retired",
+              "type": "string"
+            },
+            "retired_at_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "inputs",
+            "blob",
+            "compacted_at_ms",
+            "retired_at_ms"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "EvidenceClass": {
       "description": "The weakest class of evidence the conclusion rests on.",
       "enum": [
@@ -3724,6 +3874,34 @@
           "type": "string"
         }
       ]
+    },
+    "InputsBlob": {
+      "additionalProperties": false,
+      "description": "Where a compacted record's feature matrix lives: one engine-owned Blob\nCAS body, pinned by its content digest.",
+      "properties": {
+        "holder_id": {
+          "type": "string"
+        },
+        "length": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "manifest_digest": {
+          "type": "string"
+        },
+        "sha256": {
+          "description": "`sha256:<hex>` of the canonical JSON of the original inline matrix.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sha256",
+        "manifest_digest",
+        "holder_id",
+        "length"
+      ],
+      "type": "object"
     },
     "JobAlgoVersion": {
       "additionalProperties": false,
@@ -6961,6 +7139,14 @@
       "additionalProperties": false,
       "description": "The input set of one statistical decision.",
       "properties": {
+        "classification_rules": {
+          "default": null,
+          "description": "Identity of the rules (names, thresholds, ontology digest) the\ncandidates' derived classes came from (EH-200); a record replays only\nunder the same identity. `None` when no class was derived.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "exploration": {
           "anyOf": [
             {
@@ -8280,6 +8466,13 @@
             "$ref": "#/$defs/DecisionLogCommitted"
           }
         },
+        "compact": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/DecisionLogCompacted"
+          }
+        },
         "evaluate": {
           "dynamic": null,
           "encoding": "Raw",
@@ -8299,6 +8492,13 @@
                 "type": "null"
               }
             ]
+          }
+        },
+        "verify": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/DecisionLogVerification"
           }
         }
       },

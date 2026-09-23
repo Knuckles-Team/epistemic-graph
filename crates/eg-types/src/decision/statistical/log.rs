@@ -23,6 +23,7 @@ use super::super::record::EvidenceClass;
 use super::dataset::OutcomeFidelity;
 use super::StatisticalDecisionRecord;
 use crate::contract::BoundedVec;
+use crate::decision::request::DecisionPolicyRef;
 
 /// Format identity of a decision-log body.
 pub const DECISION_LOG_SCHEMA_VERSION: u16 = 1;
@@ -57,6 +58,43 @@ pub struct DecisionOutcomeEvaluation {
     pub success: Option<bool>,
 }
 
+/// Where a compacted record's feature matrix lives: one engine-owned Blob
+/// CAS body, pinned by its content digest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct InputsBlob {
+    /// `sha256:<hex>` of the canonical JSON of the original inline matrix.
+    pub sha256: String,
+    pub manifest_digest: String,
+    pub holder_id: String,
+    pub length: u64,
+}
+
+/// Where a logged record's bulky inputs are (EH-060). The record digest is
+/// never recomputed: a compacted record's matrix is replaced by a blob pin,
+/// and verification restores it from CAS before checking the digest.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(tag = "inputs", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum EntryInputs {
+    /// The record carries its inputs inline.
+    #[default]
+    Inline,
+    /// The matrix moved to Blob CAS; the entry pins it.
+    Compacted {
+        blob: InputsBlob,
+        compacted_at_ms: u64,
+    },
+    /// The blob was released under the policy's `drop_blob_after`; the record
+    /// digest stays attested, its inputs are gone.
+    Retired {
+        blob: InputsBlob,
+        compacted_at_ms: u64,
+        retired_at_ms: u64,
+    },
+}
+
 /// A committed record with its log metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -67,6 +105,38 @@ pub struct DecisionLogEntry {
     pub committed_by: String,
     pub committed_at_ms: u64,
     pub visibility: RecordVisibility,
+    #[serde(default)]
+    pub inputs: EntryInputs,
+}
+
+/// Most entries one compaction call touches.
+pub const MAX_COMPACT_PER_CALL: u32 = 256;
+
+/// What one compaction call did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct DecisionLogCompacted {
+    pub compacted: u32,
+    pub retired: u32,
+    /// True when the per-call bound stopped the pass; call again.
+    pub more: bool,
+}
+
+/// The outcome of verifying one logged record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "verification", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum DecisionLogVerification {
+    /// The inputs (restored from CAS when compacted) reproduce the record
+    /// digest and the decision replays.
+    Verified { record_digest: String },
+    /// `INPUTS_RETIRED`: the inputs were dropped under retention. The digest is
+    /// still the attested one; nothing can be re-derived.
+    InputsRetired {
+        record_digest: String,
+        blob_sha256: String,
+    },
 }
 
 /// A stored evaluation and who recorded it.
@@ -171,12 +241,28 @@ pub enum DecisionLogOp {
     },
     /// Read the outcome aggregate.
     Aggregate { request: OutcomeAggregateRequest },
+    /// Apply the policy's retention to at most `limit` entries: compact the
+    /// ones older than `compact_after_ms`, retire blobs older than
+    /// `drop_blob_after_ms`. Idempotent.
+    Compact {
+        tenant_id: String,
+        policy: DecisionPolicyRef,
+        limit: u32,
+    },
+    /// Re-verify one logged record against its (possibly compacted) inputs.
+    Verify {
+        tenant_id: String,
+        record_id: String,
+    },
 }
 
 impl DecisionLogOp {
     /// Whether this operation commits durable state; the one classifier.
     pub fn is_mutation(&self) -> bool {
-        matches!(self, Self::Commit { .. } | Self::Evaluate { .. })
+        matches!(
+            self,
+            Self::Commit { .. } | Self::Evaluate { .. } | Self::Compact { .. }
+        )
     }
 
     /// The authorization action this operation needs.
@@ -184,7 +270,10 @@ impl DecisionLogOp {
         match self {
             Self::Commit { .. } => "agent:decision-write",
             Self::Evaluate { .. } => "agent:decision-evaluate",
-            Self::Get { .. } | Self::Aggregate { .. } => "agent:decision-read",
+            Self::Compact { .. } => "admin:decision-log",
+            Self::Get { .. } | Self::Aggregate { .. } | Self::Verify { .. } => {
+                "agent:decision-read"
+            }
         }
     }
 
@@ -192,7 +281,10 @@ impl DecisionLogOp {
     pub fn tenant_id(&self) -> &str {
         match self {
             Self::Commit { record } => &record.tenant_id,
-            Self::Evaluate { tenant_id, .. } | Self::Get { tenant_id, .. } => tenant_id,
+            Self::Evaluate { tenant_id, .. }
+            | Self::Get { tenant_id, .. }
+            | Self::Compact { tenant_id, .. }
+            | Self::Verify { tenant_id, .. } => tenant_id,
             Self::Aggregate { request } => &request.tenant_id,
         }
     }

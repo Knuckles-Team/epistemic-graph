@@ -8742,11 +8742,19 @@
             "dynamic": null,
             "encoding": "Raw"
           },
+          "compact": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
           "evaluate": {
             "dynamic": null,
             "encoding": "Raw"
           },
           "get": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "verify": {
             "dynamic": null,
             "encoding": "Raw"
           }

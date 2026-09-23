@@ -23,7 +23,7 @@ use eg_types::decision::statistical::dataset::{
 };
 use eg_types::decision::statistical::features::{FeatureKind, FeatureSchemaBody};
 use eg_types::decision::statistical::log::{
-    DecisionLogCommitted, DecisionLogEntry, DecisionLogOp, DecisionOutcomeEvaluation,
+    DecisionLogCommitted, DecisionLogEntry, DecisionLogOp, DecisionOutcomeEvaluation, EntryInputs,
     OutcomeAggregate, OutcomeAggregateRequest, RecordVisibility, StoredEvaluation,
     DECISION_LOG_SCHEMA_VERSION,
 };
@@ -34,6 +34,7 @@ use eg_types::decision::{CandidateSourceRecord, QuantScaleTag, RecordWindow};
 
 use super::stat_executor::ExecutionContext;
 use super::stat_replay::replay;
+use super::stat_retention::{compact, full_record, verify, Retention};
 use super::stat_support::{default_statistical_policy, pinned_entry, refusal};
 use super::telemetry;
 use crate::protocol::{Response, ResultPayload};
@@ -45,19 +46,35 @@ use crate::server::persistence::decision_jobs::{
 use crate::server::state::ServerState;
 
 /// Most log rows one read walks before refusing as unbounded.
-const MAX_LOG_ROWS: usize = 100_000;
+pub(super) const MAX_LOG_ROWS: usize = 100_000;
 
 /// Who is reading or writing the log.
 pub(super) struct LogReader {
     pub(super) tenant_id: String,
     pub(super) principal: String,
+    /// How compacted inputs are restored when a read needs them.
+    pub(super) retention: Retention,
 }
 
 impl LogReader {
+    /// A reader that needs no compacted inputs (aggregates, visibility).
     pub(super) fn of(verified: &VerifiedRequestContext) -> Self {
         Self {
             tenant_id: verified.tenant().to_string(),
             principal: verified.principal_persistence_id(),
+            retention: Retention::none(),
+        }
+    }
+
+    /// A reader that restores compacted inputs from the served Blob CAS.
+    pub(super) async fn served(
+        state: &Arc<RwLock<ServerState>>,
+        verified: &VerifiedRequestContext,
+    ) -> Self {
+        let retention = Retention::of(&*state.read().await, verified);
+        Self {
+            retention,
+            ..Self::of(verified)
         }
     }
 
@@ -89,7 +106,7 @@ fn visible_entries(
         .collect()
 }
 
-fn visible_entry(
+pub(super) fn visible_entry(
     store: &AgentLibraryStore,
     reader: &LogReader,
     record_id: &str,
@@ -146,7 +163,7 @@ fn commit(
     };
     if let Some(bytes) = ctx.store.decision_artifact(ctx.tenant_id, &key)? {
         let existing: DecisionLogEntry = decode_artifact(&bytes, "decision log entry")?;
-        if *existing.record == logged {
+        if existing.record.record_digest == logged.record_digest {
             return Ok(committed(true));
         }
         return Err(refusal(
@@ -160,6 +177,7 @@ fn commit(
         record: Box::new(logged.clone()),
         committed_by: reader.principal.clone(),
         committed_at_ms: ctx.now_ms,
+        inputs: EntryInputs::Inline,
     };
     ctx.store
         .put_decision_artifacts(ctx.tenant_id, &[(key, encode_artifact(&entry)?)])?;
@@ -264,8 +282,11 @@ pub(super) fn aggregate_log(
     })
 }
 
-fn logged_item(entry: &DecisionLogEntry, stored: &StoredEvaluation) -> Option<LabelledItem> {
-    let record = &entry.record;
+fn logged_item(
+    entry: &DecisionLogEntry,
+    record: &StatisticalDecisionRecord,
+    stored: &StoredEvaluation,
+) -> Option<LabelledItem> {
     let FeatureMatrixRef::Inline {
         candidate_ids,
         values,
@@ -330,12 +351,14 @@ pub(super) fn logged_dataset(
         else {
             continue;
         };
-        if let FeatureMatrixRef::Inline { feature_names, .. } = &entry.record.inputs.feature_matrix
-        {
+        let Some(record) = full_record(&reader.retention, &reader.tenant_id, &entry)? else {
+            continue;
+        };
+        if let FeatureMatrixRef::Inline { feature_names, .. } = &record.inputs.feature_matrix {
             names = feature_names.iter().cloned().collect();
         }
-        synthetic |= entry.record.synthetic_evidence;
-        items.extend(logged_item(&entry, stored));
+        synthetic |= record.synthetic_evidence;
+        items.extend(logged_item(&entry, &record, stored));
     }
     if items.is_empty() {
         return Err(refusal(
@@ -360,7 +383,8 @@ fn dispatch(
     op: DecisionLogOp,
 ) -> Result<ResultPayload, String> {
     use eg_types::result_contract::coordination::{
-        DecisionLogAggregate, DecisionLogCommit, DecisionLogEvaluate, DecisionLogGet,
+        DecisionLogAggregate, DecisionLogCommit, DecisionLogCompact, DecisionLogEvaluate,
+        DecisionLogGet, DecisionLogVerify,
     };
     match op {
         DecisionLogOp::Commit { record } => {
@@ -375,6 +399,15 @@ fn dispatch(
         DecisionLogOp::Aggregate { request } => {
             ResultPayload::of::<DecisionLogAggregate>(aggregate_log(ctx.store, reader, &request)?)
         }
+        DecisionLogOp::Compact { policy, limit, .. } => ResultPayload::of::<DecisionLogCompact>(
+            compact(ctx, &reader.retention, &policy, limit)?,
+        ),
+        DecisionLogOp::Verify { record_id, .. } => ResultPayload::of::<DecisionLogVerify>(verify(
+            ctx,
+            reader,
+            &reader.retention,
+            &record_id,
+        )?),
     }
 }
 
@@ -392,7 +425,7 @@ async fn serve(
         let mut guard = state.write().await;
         (guard.ensure_agent_library()?, guard.auth_secret.clone())
     };
-    let reader = LogReader::of(verified);
+    let reader = LogReader::served(state, verified).await;
     let now_ms = crate::server::dispatch::authoritative_now_ms();
     let started = Instant::now();
     let result = tokio::task::spawn_blocking(move || {

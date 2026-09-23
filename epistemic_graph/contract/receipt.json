@@ -38,7 +38,7 @@
     "epistemic_graph/generated/messaging.py": "a14c93fc32c0544b0bbac539d7d0dee4f2d65fa4db9199e82b91bcdcf02f3db4",
     "epistemic_graph/generated/query.py": "38994cc7f500f809313c9491d6e23d6f1643900f686e2993678158ae18f321a3",
     "epistemic_graph/generated/rdf_report.py": "8025614a9bb3abcce9b28efe2db743ed9742c002e4120931f55d16ea3085d817",
-    "epistemic_graph/generated/reasoning.py": "a52e3a65883fd479151db5a5bb5597d67cb180ca383d74f40edb62ff17643b13",
+    "epistemic_graph/generated/reasoning.py": "c7ee2be9af041608de73eb5a2b2b8899b2cbdf76d60e8bf1cafd66193fba7cd8",
     "epistemic_graph/generated/security.py": "7a3720962fd1f226da2c5ebcc0a4fbab747f18cd0ec31e3aa95b44e5ec3d0ab9",
     "epistemic_graph/generated/server_registry.py": "558c5520b4a3161861985d668e72b93d435f019deb8915c13bd74f89cfb92ee6",
     "epistemic_graph/generated/solve.py": "8ed5b17a6a7e9485205b11daff778458515afb83315b8f632aca5208c5d714e5",

@@ -27,7 +27,7 @@ use eg_types::decision::statistical::features::{
     FeatureKind, FeatureSchemaBody, FeatureSpec, MissingValue, FEATURE_SCHEMA_VERSION,
 };
 use eg_types::decision::statistical::log::{
-    DecisionLogCommitted, DecisionLogEntry, DecisionLogOp, DecisionOutcomeEvaluation,
+    DecisionLogCommitted, DecisionLogEntry, DecisionLogOp, DecisionOutcomeEvaluation, EntryInputs,
     OutcomeAggregate, OutcomeAggregateRequest, StoredEvaluation,
 };
 use eg_types::decision::statistical::FeatureMatrixRef;
@@ -67,6 +67,15 @@ impl Harness {
         let dir = tempfile::tempdir().unwrap();
         let mut server = ServerState::new_for_test("decide-stat-test-secret", isolation);
         server.persist_dir = Some(dir.path().to_string_lossy().into_owned());
+        #[cfg(feature = "blob")]
+        {
+            let cas =
+                crate::server::blob::store::RedbChunkStore::open(dir.path().to_str().unwrap())
+                    .unwrap();
+            server.blob = Some(Arc::new(crate::server::blob::BlobCursors::new(Arc::new(
+                cas,
+            ))));
+        }
         let state = Arc::new(RwLock::new(server));
         let store = state.write().await.ensure_agent_library().unwrap();
         Self {
@@ -497,128 +506,12 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
     );
 
     decision_log_round_trip(&h, record.clone()).await;
+    #[cfg(feature = "blob")]
+    retention_compacts_and_verifies(&h, record).await;
+    // The compacted record still trains: its inputs are restored from CAS.
     fit_from_the_engine_log(&h, &schema_pin, record).await;
-}
-
-/// Engine-log fitting: a bandit fit reads its labels from the decision log
-/// (committed record + independent evaluation), admitted only because the
-/// pinned policy approves the committing principal.
-async fn fit_from_the_engine_log(
-    h: &Harness,
-    schema_pin: &ComponentDependency,
-    record: &StatisticalDecisionRecord,
-) {
-    let mut policy = super::stat_support::default_policy_for_tests();
-    let mut statistical = super::stat_support::default_statistical_policy();
-    statistical.approved_commit_principals =
-        BoundedVec::new(vec![record.caller_principal.clone()]).unwrap();
-    policy.statistical = Some(statistical);
-    let policy_pin = h.publish_policy("policy-log-fit", &policy);
-    let request = DecisionFitRequest {
-        tenant_id: TENANT.to_string(),
-        idempotency_key: "fit-from-log".to_string(),
-        head_kind: HeadKind::WeightedFeatures,
-        feature_schema: schema_pin.clone(),
-        policy: DecisionPolicyRef::Pinned {
-            component: policy_pin,
-        },
-        label_regime: LabelRegime::BanditLabel,
-        window: window(),
-        optimiser: OptimiserSpec {
-            max_iterations: 20,
-            tolerance: QuantisedValue {
-                scale: QuantScaleTag::Q32,
-                value: 1 << 12,
-            },
-            seed: 0,
-        },
-        source: DatasetSource::Logged {
-            question_id: record.question.question_id.clone(),
-        },
-    };
-    let op = DecisionFitOp::Submit {
-        request: Box::new(request),
-    };
-    let job: DecisionJobRecord =
-        decode(super::jobs::handle_decision_fit(&h.state, 12, &verified(), op).await).unwrap();
-    let DecisionJobOutput::Fit {
-        draft, exclusions, ..
-    } = succeeded(&job).clone()
-    else {
-        panic!("fit output")
-    };
-    assert_eq!(
-        draft.n_training, 1,
-        "the one logged, independently evaluated success trains"
-    );
-    assert_eq!(exclusions.unapproved_principal, 0);
-}
-
-async fn log_op(h: &Harness, who: &str, op: DecisionLogOp) -> crate::protocol::Response {
-    let verified = VerifiedRequestContext::verified_for_test_in_tenant(who, TENANT);
-    super::log::handle_decision_log(&h.state, 9, &verified, op).await
-}
-
-/// DL-5/DL-5b: an acted-on record is logged only after verify-replay, only by
-/// the principal that decided, and joins independent evaluations; the
-/// aggregate reports nothing below `min_support`.
-async fn decision_log_round_trip(h: &Harness, record: StatisticalDecisionRecord) {
-    let mut tampered = record.clone();
-    tampered.logging_propensities = BoundedVec::default();
-    tampered.record_digest = eg_types::decision::digest::statistical_record_digest(&tampered);
-    let commit = |r: StatisticalDecisionRecord| DecisionLogOp::Commit {
-        record: Box::new(r),
-    };
-    let refused = decode::<DecisionLogCommitted>(log_op(h, "decider", commit(tampered)).await);
-    assert!(refused.unwrap_err().starts_with("DECISION_REPLAY_MISMATCH"));
-    let stranger =
-        decode::<DecisionLogCommitted>(log_op(h, "stranger", commit(record.clone())).await);
-    assert!(stranger.unwrap_err().starts_with("ACCESS_DENIED"));
-
-    let committed: DecisionLogCommitted =
-        decode(log_op(h, "decider", commit(record.clone())).await).unwrap();
-    assert!(!committed.replayed);
-    let again: DecisionLogCommitted =
-        decode(log_op(h, "decider", commit(record.clone())).await).unwrap();
-    assert!(again.replayed, "a repeat commit is an idempotent replay");
-
-    let evaluation = DecisionOutcomeEvaluation {
-        record_id: record.record_id.clone(),
-        evaluation_id: "evaluation-1".to_string(),
-        class: EvidenceClass::Observation,
-        selected_agent: "agent-a".to_string(),
-        lease_holder: "worker-a".to_string(),
-        fidelity: OutcomeFidelity::ToolCalls,
-        success: Some(true),
-    };
-    let op = DecisionLogOp::Evaluate {
-        tenant_id: TENANT.to_string(),
-        evaluation,
-    };
-    let stored: StoredEvaluation = decode(log_op(h, "evaluator", op).await).unwrap();
-    assert_ne!(stored.producer, record.caller_principal);
-
-    let get = DecisionLogOp::Get {
-        tenant_id: TENANT.to_string(),
-        record_id: record.record_id.clone(),
-    };
-    let entry: Option<DecisionLogEntry> = decode(log_op(h, "evaluator", get).await).unwrap();
-    assert!(
-        entry.is_some(),
-        "a library-sourced record is tenant-visible"
-    );
-
-    let request = OutcomeAggregateRequest {
-        tenant_id: TENANT.to_string(),
-        question_id: None,
-        window: window(),
-    };
-    let aggregate: OutcomeAggregate =
-        decode(log_op(h, "evaluator", DecisionLogOp::Aggregate { request }).await).unwrap();
-    assert!(
-        aggregate.rows.is_empty(),
-        "one evaluation is below min_support and is not reported"
-    );
+    #[cfg(feature = "blob")]
+    retention_retires(&h, record).await;
 }
 
 #[tokio::test]
@@ -831,3 +724,10 @@ async fn graph_candidates_are_read_through_acl_rls_and_a_select_only_plan() {
     );
     assert!(denied.unwrap_err().starts_with("ACCESS_DENIED"));
 }
+
+mod log_tests;
+use log_tests::{decision_log_round_trip, fit_from_the_engine_log};
+#[cfg(feature = "blob")]
+use log_tests::{retention_compacts_and_verifies, retention_retires};
+
+mod classes_tests;
