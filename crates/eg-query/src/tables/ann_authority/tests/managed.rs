@@ -180,3 +180,35 @@ fn live_generation(store: &TableStore, index: &AnnIndexPlan) -> AnnGeneration {
         .unwrap();
     AnnGeneration::build(9, index.method, index.metric, source)
 }
+
+#[test]
+fn drop_index_is_a_typed_sql_statement_over_the_same_fenced_drop() {
+    let store = docs_without_index(10);
+    let index = hnsw_l2();
+    store.create_ann_index(&index).unwrap();
+    refresh(&store);
+    let classified = crate::classify("DROP INDEX IF EXISTS docs_emb;").unwrap();
+    assert!(matches!(
+        classified,
+        crate::StatementKind::DropAnnIndex { ref name, if_exists: true } if name == "docs_emb"
+    ));
+    assert_eq!(
+        store.ann_index_table("docs_emb").unwrap().as_deref(),
+        Some("docs")
+    );
+    let mut txn = crate::TableTxn::new();
+    txn.push(crate::TxnOp::IndexCatalog(
+        crate::IndexCatalogTxnOp::DropAnnIndex {
+            table: "docs".to_string(),
+            name: "docs_emb".to_string(),
+        },
+    ));
+
+    store.commit_txn(&txn).unwrap();
+
+    assert!(store.list_ann_indexes().unwrap().is_empty());
+    let key = TableStore::ann_index_key(&index);
+    assert!(store.live_ann_generation(&key).unwrap().is_none());
+    let again = store.commit_txn(&txn).unwrap_err();
+    assert!(again.contains("does not exist"), "{again}");
+}
