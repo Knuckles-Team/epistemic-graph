@@ -121,6 +121,16 @@ $($variants)*
     MutationOutbox {
         op: Box<crate::mutation_outbox::MutationOutboxOp>,
     },
+
+    // ── User-managed edge-native indexes (EH-351 / EH-352) ─────────────────
+    /// Create, refresh, drop or list the edge indexes of the request graph.
+    EdgeIndex {
+        op: Box<crate::managed_index::EdgeIndexOp>,
+    },
+    /// Search one edge index of the request graph; edges come back as edges.
+    EdgeSearch {
+        request: Box<crate::managed_index::EdgeSearchRequest>,
+    },
         ]);
     };
 }
