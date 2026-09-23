@@ -73,6 +73,9 @@ pub mod epistemic_operations;
 // exactly generator-clean; see the module doc comment for the full finding.
 pub mod epistemic_operations_ext;
 pub mod epistemic_operations_manifest;
+// EH-194 — typed `Claim`/`Evidence` graph nodes: the one owner of the shape every
+// epistemic writer stores and every reader decodes. Pure serde, unconditional.
+pub mod epistemic_node;
 pub mod ingestion_wire;
 // CONCEPT:INT-P2-1 — the durable analytics-job plane's wire op (`JobOp`), gated
 // `jobs`. Lives here (not in `eg-jobs`, which sits ABOVE eg-core in the DAG) for the
