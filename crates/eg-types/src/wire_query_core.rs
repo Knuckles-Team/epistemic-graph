@@ -219,14 +219,15 @@ pub enum Op {
     /// SHACL focus node, against the ONE named `shape` of the `shapes` graph over the
     /// request graph's RDF projection, and keep the rows `keep` names. The UQL
     /// `VALIDATE SHAPE <shape> USING "<turtle>" [KEEP CONFORMING|VIOLATING]` stage lowers
-    /// here. A shape that is not declared in `shapes`, or a row whose id is not an RDF
-    /// term, is an error — never a vacuous pass. Gated by `owl-plan`, like the other
+    /// here. A shape that is not declared in the shapes graph, or a row whose id is not
+    /// an RDF term, is an error — never a vacuous pass. Gated by `owl-plan`, like the other
     /// semantic plan ops.
     #[cfg(feature = "owl-plan")]
     ValidateShape {
         /// The shape IRI (canonical `<iri>` or bare).
         shape: String,
-        /// The shapes graph as a Turtle document (non-empty).
+        /// The shapes graph as a Turtle document; empty ⇒ the queried graph's
+        /// composed GraphSchema shapes (bound by the served query path).
         shapes: String,
         /// Which rows survive.
         keep: ShapeKeep,

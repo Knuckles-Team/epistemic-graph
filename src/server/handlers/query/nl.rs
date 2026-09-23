@@ -155,6 +155,8 @@ pub(crate) async fn handle_nl_query(
         #[cfg(feature = "geo")]
         let served_spatial =
             crate::server::secondary_indexes::ServedSpatialIndex::new(core_for_ctx.clone());
+        #[cfg(all(feature = "shacl", feature = "owl-plan"))]
+        let served_shapes = crate::server::handlers::rdf::ServedShapes::new(&core_for_ctx);
         let semantic_guard = core_for_ctx.semantic_store.read();
         run_unified(
             plan,
@@ -167,6 +169,8 @@ pub(crate) async fn handle_nl_query(
                 spatial: Some(&served_spatial),
                 #[cfg(feature = "federation")]
                 foreign: Some(&*foreign_sources),
+                #[cfg(all(feature = "shacl", feature = "owl-plan"))]
+                shapes: Some(&served_shapes),
                 #[cfg(not(any(feature = "text", feature = "geo")))]
                 _marker: std::marker::PhantomData,
             },

@@ -194,6 +194,8 @@ pub(super) fn gather_plan_rows(
     // pushes down into the graph's MAINTAINED persistent spatial index, same as the text leg.
     #[cfg(feature = "geo")]
     let served_spatial = crate::server::secondary_indexes::ServedSpatialIndex::new(core.clone());
+    #[cfg(all(feature = "shacl", feature = "owl-plan"))]
+    let served_shapes = crate::server::handlers::rdf::ServedShapes::new(&core);
     // CONCEPT:EG-KG.mining.tsdb-typed-absent — resolve the SAME verified tenant/namespace scope
     // the served `UnifiedQuery` path resolves (`query::served_tsdb_scope`, single source of
     // truth), THEN require the live store to actually be bound before falling through to the
@@ -232,6 +234,8 @@ pub(super) fn gather_plan_rows(
             // mining source is a follow-up.
             #[cfg(feature = "federation")]
             foreign: None,
+            #[cfg(all(feature = "shacl", feature = "owl-plan"))]
+            shapes: Some(&served_shapes),
             #[cfg(not(any(feature = "text", feature = "geo")))]
             _marker: std::marker::PhantomData,
         },
