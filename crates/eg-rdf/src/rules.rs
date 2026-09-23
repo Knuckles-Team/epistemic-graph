@@ -81,6 +81,8 @@ use serde::{Deserialize, Serialize};
 use crate::owl::Ontology;
 
 mod builtins;
+// EH-200 — rule-derived classification over agent-component metadata.
+pub mod capability;
 mod engine;
 mod owl_rules;
 mod proof;
