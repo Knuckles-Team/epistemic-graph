@@ -41,6 +41,10 @@ use crate::mapping::cell_lexical;
 
 mod bool_builtins;
 use bool_builtins::{eval_bool_str_relation, term_type_test};
+// EH-197 — witness proofs for SELECT rows (child module: it reuses the private
+// pattern matcher and join rather than re-implementing them).
+mod proof;
+pub use proof::{execute_explained, MAX_WITNESS_STEPS};
 
 /// One solution: variable name → bound term (in our node-id / literal lexical form).
 pub type Solution = HashMap<String, Binding>;

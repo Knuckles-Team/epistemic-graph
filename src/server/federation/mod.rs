@@ -429,6 +429,7 @@ fn build_local_method(query: &str, lang: &str, graph: &str) -> crate::protocol::
             query: query.to_string(),
             base_iri: String::new(),
             type_convention: String::new(),
+            explain: false,
         },
         #[cfg(feature = "query")]
         "sql" => crate::protocol::Method::Sql {

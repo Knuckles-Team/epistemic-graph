@@ -139,6 +139,12 @@ $($variants)*
         /// `base_iri`; empty / `"raw"` ⇒ verbatim. Only meaningful with `base_iri`.
         #[serde(default)]
         type_convention: String,
+        /// When true, the result carries one witness proof per row
+        /// (`SparqlResult::proofs`, EH-197): the ground triples that instantiate the
+        /// query's patterns under that row. Opt-in, because the witness search scans
+        /// the graph once per triple pattern.
+        #[serde(default)]
+        explain: bool,
     },
 
     /// OBDA / R2RML VIRTUAL GRAPH query (CONCEPT:EG-KG.query.r2rml-virtual-graph /
@@ -291,6 +297,12 @@ $($variants)*
         /// When true, return only the DERIVED facts (omit the asserted base).
         #[serde(default)]
         derived_only: bool,
+        /// When true, every returned fact carries its proof tree (`RuleFact::proof`,
+        /// EH-197): the rule and premises that set its confidence, down to asserted
+        /// leaves. Opt-in, like `OwlExplain` beside `OwlReason`, because a proof per
+        /// fact multiplies the response size.
+        #[serde(default)]
+        explain: bool,
     },
 
 
