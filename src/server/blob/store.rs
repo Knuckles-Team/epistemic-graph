@@ -54,7 +54,6 @@ use std::sync::Arc;
 
 use super::engine_bodies::{EngineBody, StoredEngineBody};
 
-pub(crate) mod format;
 mod gc;
 mod holders;
 mod killpoint;
@@ -370,7 +369,8 @@ pub struct RedbChunkStore {
 /// declared census plus the ledger, so CAS rows land in the SAME transaction as the
 /// ledger's idempotency/OCC/outbox rows, which is what `commit_native_batch` needs
 /// for atomicity. An existing file of the previous blob layout is refused by name
-/// first, read-only (see [`format`]).
+/// inside the open, read-only, by the storage kernel's lineage registry
+/// (`eg_storage::BLOB_BEFORE_HOLDERS`).
 ///
 /// The handle runs under [`blob_open_options`]: a capped redb page cache. The
 /// kernel migration first opened this file with redb's 1 GiB default because
@@ -383,7 +383,6 @@ fn open_store(persist_dir: &str, chunks: ChunkAuthority) -> Result<RedbChunkStor
     let physical = PhysicalStoreIdentity::new(BLOB_PHYSICAL_STORE)?;
     let options = blob_open_options()?;
     let kernel = if path.exists() {
-        format::refuse_predecessor(&path)?;
         StorageKernel::open_owner_with::<BlobOwner>(&path, physical, None, options)
     } else {
         StorageKernel::create_owner_with::<BlobOwner>(&path, physical, None, options)

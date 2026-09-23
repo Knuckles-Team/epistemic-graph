@@ -9,11 +9,11 @@ pub(crate) mod graph_shard;
 pub(crate) mod handle;
 pub(crate) mod identity;
 pub(crate) mod layout;
+pub(crate) mod lineage;
 pub(crate) mod manifest_io;
 pub(crate) mod persisted_layout;
 pub(crate) mod registry;
 pub(crate) mod row_key;
-pub(crate) mod sql_checkpoint_upgrade;
 pub(crate) mod table_api;
 
 pub(crate) use manifest_io::{

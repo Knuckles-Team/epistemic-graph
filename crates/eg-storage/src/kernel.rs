@@ -285,6 +285,34 @@ impl StorageKernel {
         bind_serving_scope_in(&self.store, grant, initial_version)
     }
 
+    /// The owner handle of an ALREADY-BOUND scope, without writing anything.
+    ///
+    /// `bind_serving_scope` opens a write transaction even when it only
+    /// re-enters an existing binding; a read-only caller (an operator view)
+    /// must not write, so it resolves the handle here instead. `Ok(None)` when
+    /// the scope was never bound on this file.
+    pub fn resolve_bound_scope<D: OwnerDomain>(
+        &self,
+        grant: AuthenticatedScopeGrant<D>,
+    ) -> Result<Option<OwnedStoreHandle<D>>, String> {
+        let manifest = current_owner_manifest(&self.store)?;
+        if manifest.layout != D::LAYOUT
+            || manifest.authority_digest(self.store.incarnation()) != *grant.authority_digest()
+            || !manifest.layout.accepts(grant.identity())
+        {
+            return Err("authenticated serving grant does not match this store".to_string());
+        }
+        if !self.scope_binding_exists(grant.identity())? {
+            return Ok(None);
+        }
+        let (identity, principal, authority_digest) = grant.into_parts();
+        Ok(Some(OwnedStoreHandle::new(
+            identity,
+            principal,
+            authority_digest,
+        )))
+    }
+
     /// Issue one scoped read over this owner file.
     pub fn read_scope<D: OwnerDomain>(
         &self,
@@ -629,6 +657,9 @@ pub(crate) fn open_physical_with(
     options: StoreOpenOptions,
 ) -> Result<PhysicalStore, String> {
     physical_identity.validate()?;
+    // A declared predecessor is refused by name on a read-only open, before
+    // redb's writable open could repair (and so rewrite) the file.
+    crate::owner::lineage::refuse_lineage_file(path, layout)?;
     let database = options.open_database(path)?;
     let (incarnation, physical_path) = StoreIncarnation::derive(path)?;
     let rtx = database.begin_read().map_err(|error| error.to_string())?;
