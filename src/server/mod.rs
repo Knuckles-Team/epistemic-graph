@@ -1193,7 +1193,8 @@ mod tests {
 
     fn request(id: u64, graph: &str, agent_id: Option<&str>, method: Method) -> Request {
         static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        let claims = test_claims(agent_id.unwrap_or("system"));
+        let effective_agent = agent_id.unwrap_or("system");
+        let claims = test_claims(effective_agent);
         // The idempotency key must identify the OPERATION, not just the request
         // id. `request(1, ...)` is called 21 times across this module with
         // different methods, and keying on `id` alone gave every one of them
