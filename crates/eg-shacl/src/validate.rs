@@ -32,6 +32,9 @@ use crate::shapes::{
 use crate::sparql::{self, PreBindings};
 use crate::vocab;
 
+mod focus;
+pub use focus::validate_nodes;
+
 /// Validate a data graph against a shapes graph (CONCEPT:EG-KG.ontology.concept-6). `Err`
 /// iff a `sh:sparql` constraint's query cannot be evaluated (see the module docs).
 pub fn validate(shapes_graph: &Graph, data_graph: &Graph) -> Result<ValidationReport, String> {

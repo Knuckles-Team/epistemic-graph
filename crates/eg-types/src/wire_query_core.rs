@@ -113,6 +113,18 @@ pub enum TimeAxis {
     Transaction,
 }
 
+/// Which rows a `VALIDATE SHAPE` stage keeps (EH-196).
+#[cfg(feature = "owl-plan")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum ShapeKeep {
+    /// Rows whose node has no validation result against the shape.
+    Conforming,
+    /// Rows whose node has at least one validation result against the shape.
+    Violating,
+}
+
 /// One cross-modal operator. A [`Plan`] is an ordered list of these — a pipeline
 /// where each op `(RowSet) -> RowSet`. This increment binds SQL + graph + vector
 /// (`Scan | Filter | Traverse | Rank | Limit`); reasoning/blob ops are later
@@ -202,6 +214,22 @@ pub enum Op {
         query: String,
         /// The projected variable whose (resource) bindings become the RowSet ids.
         var: String,
+    },
+    /// FILTER (semantic, SHACL — EH-196) — validate every row's node, as an explicit
+    /// SHACL focus node, against the ONE named `shape` of the `shapes` graph over the
+    /// request graph's RDF projection, and keep the rows `keep` names. The UQL
+    /// `VALIDATE SHAPE <shape> USING "<turtle>" [KEEP CONFORMING|VIOLATING]` stage lowers
+    /// here. A shape that is not declared in `shapes`, or a row whose id is not an RDF
+    /// term, is an error — never a vacuous pass. Gated by `owl-plan`, like the other
+    /// semantic plan ops.
+    #[cfg(feature = "owl-plan")]
+    ValidateShape {
+        /// The shape IRI (canonical `<iri>` or bare).
+        shape: String,
+        /// The shapes graph as a Turtle document (non-empty).
+        shapes: String,
+        /// Which rows survive.
+        keep: ShapeKeep,
     },
     /// UDF (WASM) — transform the current `RowSet` through a registered, SANDBOXED
     /// WebAssembly user function (CONCEPT:EG-KG.query.rowset-execution). The executor serializes the input

@@ -211,7 +211,9 @@ pub use parsing::{from_rdfxml, parse_rdfxml};
 pub use serialization::to_jsonld;
 #[cfg(feature = "rdf-xml")]
 pub use serialization::to_rdfxml;
-pub use serialization::{export_triples, to_nquads, to_ntriples, to_trig, to_turtle};
+pub use serialization::{
+    export_triples, export_view_triples, is_rdf_term, to_nquads, to_ntriples, to_trig, to_turtle,
+};
 
 /// Extract the lexical value of a node property cell.
 ///
