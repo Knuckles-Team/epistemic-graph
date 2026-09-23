@@ -1,10 +1,10 @@
 """What the generated contract must say about the 2.27.x contract wave.
 
-The original wave declared ten methods before any were served. ConnectorPack
-and the GraphSchema read/write surface have now graduated with durable handlers
-and generated clients; the remaining refusal-only methods must stay internal.
-Every request and result body remains schematized and digest identities remain
-reproducible.
+The original wave declared ten methods before any were served. ConnectorPack,
+the GraphSchema read/write surface, AgentAssemble, DecisionCommit and Solve
+have now graduated with durable handlers and generated clients; the remaining
+refusal-only methods must stay internal. Every request and result body remains
+schematized and digest identities remain reproducible.
 """
 
 from __future__ import annotations
@@ -31,7 +31,14 @@ WAVE_METHODS = (
     "MutationOutbox",
 )
 
-PUBLIC_WAVE_METHODS = {"ConnectorPack", "GraphSchema", "GraphSchemaList"}
+PUBLIC_WAVE_METHODS = {
+    "AgentAssemble",
+    "ConnectorPack",
+    "DecisionCommit",
+    "GraphSchema",
+    "GraphSchemaList",
+    "Solve",
+}
 INTERNAL_WAVE_METHODS = tuple(
     name for name in WAVE_METHODS if name not in PUBLIC_WAVE_METHODS
 )
@@ -124,8 +131,8 @@ def test_the_receipt_counts_match_the_wave() -> None:
     for copy in ("contract/receipt.json", "epistemic_graph/contract/receipt.json"):
         receipt = _json(copy)
         assert receipt["method_count"] == 429, copy
-        assert receipt["internal_only_methods"] == 26, copy
-        assert receipt["python_client_methods"] == 403, copy
+        assert receipt["internal_only_methods"] == 23, copy
+        assert receipt["python_client_methods"] == 406, copy
         classification = receipt["result_classification"]
         assert classification["schematized"] == 416, copy
         assert classification["unclassified"] == 0, copy

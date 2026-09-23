@@ -47,7 +47,6 @@ class AgentComponentDraft(BaseModel):
     kind: AgentComponentKind
     policy_digest: str
     provenance: ComponentProvenance
-    provides: list[str] | None = None
     purpose_id: str
     required_capabilities: list[str] | None = None
     requires: list[ComponentDependency] | None = None
@@ -77,7 +76,6 @@ class AgentComponentEntry(BaseModel):
     lifecycle: AgentLibraryLifecycle
     policy_digest: str
     provenance: ComponentProvenance
-    provides: list[str] | None = None
     purpose_id: str
     required_capabilities: list[str] | None = None
     requires: list[ComponentDependency] | None = None

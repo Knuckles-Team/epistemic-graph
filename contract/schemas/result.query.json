@@ -289,14 +289,6 @@
           "$ref": "#/$defs/ComponentProvenance",
           "description": "Where this component came from. See [`ComponentProvenance`]."
         },
-        "provides": {
-          "default": [],
-          "description": "Capability names this component satisfies. The matching half of\n`requires` for selection: an optimizer looks for a component that\nPROVIDES what a role needs.",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
         "purpose_id": {
           "type": "string"
         },
@@ -3098,6 +3090,13 @@
         "$ref": "#/$defs/StatisticalDecisionRecord"
       },
       "maxItems": 256,
+      "type": "array"
+    },
+    "BoundedVec_TemplateFacts_8": {
+      "items": {
+        "$ref": "#/$defs/TemplateFacts"
+      },
+      "maxItems": 8,
       "type": "array"
     },
     "BoundedVec_TypedParam_64": {
@@ -6249,6 +6248,11 @@
         },
         "solver": {
           "$ref": "#/$defs/SolverIdentity"
+        },
+        "templates": {
+          "$ref": "#/$defs/BoundedVec_TemplateFacts_8",
+          "default": [],
+          "description": "The graph templates the request named, read at their pinned revisions.\nEmpty asks for a one-agent graph."
         }
       },
       "required": [
@@ -27755,36 +27759,6 @@
       },
       "type": "object"
     },
-    "ModelSpec2": {
-      "additionalProperties": false,
-      "description": "A complete 0-1 integer programme: binary variables, labelled constraints and\na lexicographic objective whose first level is the most significant.",
-      "properties": {
-        "constraints": {
-          "items": {
-            "$ref": "#/$defs/ConstraintSpec"
-          },
-          "type": "array"
-        },
-        "objective": {
-          "items": {
-            "$ref": "#/$defs/ObjectiveLevelSpec"
-          },
-          "type": "array"
-        },
-        "variables": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "variables",
-        "constraints",
-        "objective"
-      ],
-      "type": "object"
-    },
     "MultimodalAssetRef": {
       "additionalProperties": false,
       "properties": {
@@ -30636,6 +30610,24 @@
           "required": [
             "provenance",
             "evaluation_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The request itself: a requirement the caller stated in `field`.",
+          "properties": {
+            "field": {
+              "type": "string"
+            },
+            "provenance": {
+              "const": "request",
+              "type": "string"
+            }
+          },
+          "required": [
+            "provenance",
+            "field"
           ],
           "type": "object"
         }
@@ -35847,6 +35839,36 @@
       ],
       "type": "object"
     },
+    "SolveModelSpec": {
+      "additionalProperties": false,
+      "description": "A complete 0-1 integer programme: binary variables, labelled constraints and\na lexicographic objective whose first level is the most significant.",
+      "properties": {
+        "constraints": {
+          "items": {
+            "$ref": "#/$defs/ConstraintSpec"
+          },
+          "type": "array"
+        },
+        "objective": {
+          "items": {
+            "$ref": "#/$defs/ObjectiveLevelSpec"
+          },
+          "type": "array"
+        },
+        "variables": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "variables",
+        "constraints",
+        "objective"
+      ],
+      "type": "object"
+    },
     "SolveRequest": {
       "additionalProperties": false,
       "description": "One bounded 0-1 integer programme to solve.",
@@ -35864,7 +35886,7 @@
           "description": "Absent means the engine's default budget, leaf limit and denominator."
         },
         "model": {
-          "$ref": "#/$defs/ModelSpec2"
+          "$ref": "#/$defs/SolveModelSpec"
         }
       },
       "required": [
@@ -37636,6 +37658,33 @@
       ],
       "type": "string"
     },
+    "TemplateFacts": {
+      "additionalProperties": false,
+      "description": "One operator-published graph template an assembly may fill, pinned to the\nexact revision it was read at. Its `Agent` nodes are the slots.",
+      "properties": {
+        "definition_digest": {
+          "type": "string"
+        },
+        "entry_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "graph_id": {
+          "type": "string"
+        },
+        "shape": {
+          "$ref": "#/$defs/AgentGraphShape"
+        }
+      },
+      "required": [
+        "graph_id",
+        "entry_revision",
+        "definition_digest",
+        "shape"
+      ],
+      "type": "object"
+    },
     "TemplateInstanceRef": {
       "additionalProperties": false,
       "description": "Where an instantiated agent came from.",
@@ -38465,6 +38514,34 @@
           "required": [
             "violation",
             "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A latency ceiling is in force and the component declares no p95. An\nundeclared latency is never read as zero.",
+          "properties": {
+            "violation": {
+              "const": "unknown_latency_under_budget",
+              "type": "string"
+            }
+          },
+          "required": [
+            "violation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Forcing this component into the assembly leaves no feasible answer.",
+          "properties": {
+            "violation": {
+              "const": "infeasible_when_forced",
+              "type": "string"
+            }
+          },
+          "required": [
+            "violation"
           ],
           "type": "object"
         }

@@ -14,6 +14,10 @@ from ._runtime import (
     OpaqueResult,
     expect_float,
 )
+from .solve import (
+    SolveRequest,
+    SolveResult,
+)
 
 
 class TopologicalSortRequest(BaseModel):
@@ -7095,3 +7099,54 @@ async def send_mine_community(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("MineCommunity", payload)
+
+
+class SolveRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        Solve
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/Solve
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: SolveRequest
+
+
+async def send_solve(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> SolveResult:
+    """Send one engine-contract request.
+
+    Method:
+        Solve
+    Authorization:
+        compute:solve
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.compute.json
+        #/methods/Solve
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    SolveRequest.model_validate(params or {})
+    payload = await client._send(
+        "Solve",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return SolveResult.model_validate(payload)

@@ -21,6 +21,55 @@ pub(super) struct DtoSurface {
 }
 
 pub(super) const DTO_SURFACES: &[DtoSurface] = &[
+    // The Decide layer's served surfaces opt in to nested models (DECIDE-LAYER-
+    // DESIGN §4.9): only these result markers change; every other method's
+    // generated code is byte-identical.
+    DtoSurface {
+        method: "AgentAssemble",
+        module: "decision",
+        result_domain: "storage",
+        roots: &["AssemblyRequest", "AssemblyResult", "DecisionRecord"],
+        result_model: Some("AssemblyResult"),
+        required: true,
+        constants: &[
+            (
+                "DECISION_RECORD_SCHEMA_VERSION",
+                eg_types::decision::DECISION_RECORD_SCHEMA_VERSION as u64,
+            ),
+            (
+                "ASSEMBLY_RESULT_SCHEMA_VERSION",
+                eg_types::decision::ASSEMBLY_RESULT_SCHEMA_VERSION as u64,
+            ),
+            (
+                "MAX_DECISION_RECORD_BYTES",
+                eg_types::decision::MAX_DECISION_RECORD_BYTES as u64,
+            ),
+        ],
+    },
+    DtoSurface {
+        method: "DecisionCommit",
+        module: "decision_commit",
+        result_domain: "storage",
+        roots: &["DecisionCommitRequest", "DecisionCommitResult"],
+        result_model: Some("DecisionCommitResult"),
+        required: true,
+        constants: &[(
+            "DECISION_COMMIT_RESULT_SCHEMA_VERSION",
+            eg_types::decision::DECISION_COMMIT_RESULT_SCHEMA_VERSION as u64,
+        )],
+    },
+    DtoSurface {
+        method: "Solve",
+        module: "solve",
+        result_domain: "compute",
+        roots: &["SolveRequest", "SolveResult"],
+        result_model: Some("SolveResult"),
+        required: true,
+        constants: &[(
+            "SOLVE_RESULT_SCHEMA_VERSION",
+            eg_types::solve::SOLVE_RESULT_SCHEMA_VERSION as u64,
+        )],
+    },
     DtoSurface {
         method: "ListRegisteredServers",
         module: "server_registry",
@@ -560,11 +609,26 @@ fn push_dto_fields(out: &mut String, node: &serde_json::Value) {
     };
     for (name, schema) in properties {
         let annotation = dto_python_type(schema);
-        if required.contains(&name.as_str()) {
-            let _ = writeln!(out, "    {name}: {annotation}");
-        } else {
-            let _ = writeln!(out, "    {name}: {} = None", optional(&annotation));
-        }
+        let required = required.contains(&name.as_str());
+        let _ = writeln!(out, "{}", dto_field_line(name, &annotation, required));
+    }
+}
+
+/// One model field. A wire key that is a Python keyword (an agent-graph edge's
+/// `from`) is declared under a trailing-underscore name bound to the real key
+/// by a pydantic alias, exactly as the request models already do.
+fn dto_field_line(name: &str, annotation: &str, required: bool) -> String {
+    let declared = match required {
+        true => annotation.to_string(),
+        false => optional(annotation),
+    };
+    if super::is_python_keyword(name) {
+        let default = if required { "..." } else { "None" };
+        return format!("    {name}_: {declared} = Field({default}, alias=\"{name}\")");
+    }
+    match required {
+        true => format!("    {name}: {declared}"),
+        false => format!("    {name}: {declared} = None"),
     }
 }
 
