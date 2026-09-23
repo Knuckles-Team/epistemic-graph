@@ -104,11 +104,12 @@ mod tests {
 
     #[test]
     fn the_granted_principal_is_the_principal_the_worker_signs_as() {
-        let signer = crate::server::auth::VerifiedRequestContext::authenticated_fixed_service_actor(
-            super::super::worker::CONSUMER,
-            &["kg:write"],
-        )
-        .unwrap();
+        let signer =
+            crate::server::auth::VerifiedRequestContext::authenticated_fixed_service_actor(
+                super::super::worker::CONSUMER,
+                &["kg:write"],
+            )
+            .unwrap();
         assert_eq!(signer.agent_id(), PROJECTION_ACTOR);
     }
 
@@ -117,7 +118,10 @@ mod tests {
         let mut isolation = IsolationLayer::new();
         assert!(isolation.identity_bootstrap_pending());
         let error = ensure(&mut isolation, "pack__aaaa").unwrap_err();
-        assert!(error.starts_with("PACK_PROJECTION_POLICY_UNBOOTSTRAPPED"), "{error}");
+        assert!(
+            error.starts_with("PACK_PROJECTION_POLICY_UNBOOTSTRAPPED"),
+            "{error}"
+        );
         assert!(isolation.identity_bootstrap_pending());
     }
 }

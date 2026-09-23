@@ -33,7 +33,12 @@ pub fn spawn(state: Arc<RwLock<ServerState>>) {
     drop(state);
 }
 
-#[cfg(all(feature = "redb", feature = "blob", feature = "shacl", feature = "security"))]
+#[cfg(all(
+    feature = "redb",
+    feature = "blob",
+    feature = "shacl",
+    feature = "security"
+))]
 mod grant;
 
 #[cfg(all(feature = "redb", feature = "blob", feature = "shacl"))]
