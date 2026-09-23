@@ -5,9 +5,10 @@ use eg_numeric::decision::admission::{admit, Regime};
 use eg_numeric::decision::evaluate::{evaluate, EvalSpec};
 use eg_numeric::decision::exploration::ExplorationPermit;
 use eg_numeric::decision::features::FeatureMatrix;
-use eg_numeric::decision::head_eval::{calibration_statement, read_head, HeadReading};
+use eg_numeric::decision::head_eval::{calibration_statement, read_head, Evaluated, HeadReading};
 use eg_numeric::decision::ladder::{decide, LadderInputs};
-use eg_numeric::decision::scorer::fixed::ONE;
+use eg_numeric::decision::scorer::fixed::{to_f64, ONE};
+use eg_numeric::decision::scorer::forward::served_probabilities;
 use eg_types::contract::BoundedVec;
 use eg_types::decision::jobs::DecisionEvalReceipt;
 use eg_types::decision::statistical::dataset::{ItemLabel, LabelSource, LabelledDataset};
@@ -52,22 +53,15 @@ fn q32(value: i64) -> QuantisedValue {
     }
 }
 
-/// The head's top probability on `item`, as the exact Q32 integer it is.
-fn top_probability(head: &DecisionHeadBody, item: usize) -> i64 {
-    let HeadReading::InDistribution(reading) = read_head(head, &matrix(item)).expect("reads")
-    else {
-        panic!("item {item} is in distribution")
-    };
-    let p = reading.probabilities.expect("a listwise head");
-    let top = p.iter().copied().fold(0.0_f64, f64::max);
-    (top * ONE as f64) as i64
-}
-
 fn outcome(head: &DecisionHeadBody, item: usize) -> StatisticalOutcome {
     let HeadReading::InDistribution(reading) = read_head(head, &matrix(item)).expect("reads")
     else {
         panic!("item {item} is in distribution")
     };
+    ladder_outcome(head, &reading)
+}
+
+fn ladder_outcome(head: &DecisionHeadBody, reading: &Evaluated) -> StatisticalOutcome {
     let (ids, strict, stat, seed) = (
         option_ids(),
         policy(ColdStart::DeterministicOnly),
@@ -77,7 +71,7 @@ fn outcome(head: &DecisionHeadBody, item: usize) -> StatisticalOutcome {
     decide(&LadderInputs {
         candidate_ids: &ids,
         head: Some(head),
-        reading: Some(&reading),
+        reading: Some(reading),
         policy: &strict,
         statistical: &stat,
         permit: ExplorationPermit::Off,
@@ -137,24 +131,27 @@ fn an_abstention_is_returned_when_the_calibrated_coverage_bound_fails() {
     ));
 
     // A finite set that misses the top option: the bound fails for this state.
-    // A state whose top probability is exactly one is covered by every
-    // non-negative threshold, so take one below one (the act threshold is
-    // lowered to 1/2 only to widen the search) and set the conformal
-    // threshold one unit under `1 - p_top`: the top option falls out of the
-    // prediction set and the decision must abstain; at exactly `1 - p_top`
-    // it is back in the set and the same state acts.
+    // Build the state directly: three close logits read through the scorer's
+    // own served fixed-point softmax, so the top probability is below one.
+    // (The act threshold is lowered to 1/2 so that probability can act.) One
+    // unit under `1 - p_top` the top option falls out of the prediction set
+    // and the decision must abstain; at exactly `1 - p_top` it is back in the
+    // set and the same state acts.
     let mut wide = head.clone();
     wide.calibration.as_mut().expect("calibrated").act_threshold = Some(q32(ONE / 2));
-    let (item, top) = (0..200)
-        .map(|item| (item, top_probability(&wide, item)))
-        .find(|&(item, p)| {
-            p < ONE && matches!(outcome(&wide, item), StatisticalOutcome::Acted { .. })
-        })
-        .expect("some acting state has a top probability below one");
+    let logits = [2 * ONE, 0, -ONE];
+    let served = served_probabilities(&logits, ONE);
+    let top = served[0];
+    assert!(top > ONE / 2 && top < ONE, "a close state: p_top = {top}");
+    let reading = Evaluated {
+        standardised: vec![Vec::new(); OPTIONS],
+        logits: logits.iter().map(|&z| to_f64(z)).collect(),
+        probabilities: Some(served.iter().map(|&p| to_f64(p)).collect()),
+    };
     let with_threshold = |raw: i64| {
         let mut body = wide.clone();
         body.calibration.as_mut().expect("calibrated").set_threshold = q32(raw);
-        outcome(&body, item)
+        ladder_outcome(&body, &reading)
     };
     assert!(matches!(
         with_threshold(ONE - top - 1),
