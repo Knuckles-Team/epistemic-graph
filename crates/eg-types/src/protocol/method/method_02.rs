@@ -112,10 +112,23 @@ $($variants)*
     /// load, NO persistence. The ingest path previously bulk-loaded ~160k edges
     /// into a throwaway tenant just to run this, then deleted the tenant; passing
     /// the edges directly removes that whole round-trip + the tenant sprawl.
+    ///
+    /// EH-314: `edges` carries an explicit per-edge WEIGHT — the resolver
+    /// confidence a caller already computes (0.95 scoped down to 0.60 unique,
+    /// EH-284) — and `quality` selects Modularity vs CPM (EH-283). This
+    /// stateless path is the one actually taken in production, unlike its
+    /// persisted-topology sibling `CommunityDetection` (which derives weight
+    /// from `edge_properties` via `algorithms::community::resolver_confidence_weight`),
+    /// so it needed its own weight/quality slot to make EH-283/EH-284 reachable
+    /// at all. A caller sending `1.0` for every edge and omitting `quality`
+    /// gets the byte-identical pre-EH-314 result: uniform-weight Modularity
+    /// Leiden over the same topology.
     CommunityDetectEphemeral {
         node_ids: Vec<String>,
-        edges: Vec<(String, String)>,
+        edges: Vec<(String, String, f64)>,
         resolution: f64,
+        #[serde(default)]
+        quality: CommunityQualityFunction,
     },
 
     GraphColoring,

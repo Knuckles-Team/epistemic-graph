@@ -1,5 +1,29 @@
 use super::*;
 
+/// Quality (objective) function `CommunityDetectEphemeral` optimizes (EH-314) —
+/// the wire mirror of `eg_compute::graph_algos::QualityFunction`, kept as its
+/// own type here rather than reused directly so `eg-types` never depends on
+/// `eg-compute`; the server handler maps one to the other
+/// (`src/server/handlers/graph_ops/algorithms.rs`), the same split
+/// `CommunityAlgorithm`/`to_community_algo` already use for `MineCommunity`.
+/// `Modularity` (the pre-EH-314 behaviour) has a well-known resolution limit
+/// on large graphs; `Cpm` (Constant Potts Model) removes it — see EG's own
+/// `QualityFunction` doc for the exact math. Defaulting to `Modularity` is
+/// what keeps a caller that sends no `quality` byte-identical to the
+/// pre-EH-314 kernel.
+///
+/// Not gated behind `mining`/`ml-pipeline` (unlike this file's other wire
+/// enums) — `CommunityDetectEphemeral` is a base compute method, always
+/// compiled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum CommunityQualityFunction {
+    #[default]
+    Modularity,
+    Cpm,
+}
+
 /// Which classifier `MineClassifyFit` fits (CONCEPT:EG-KG.mining.naive-bayes).
 #[cfg(feature = "mining")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]

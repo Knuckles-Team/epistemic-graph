@@ -10,6 +10,7 @@ use crate::graph::{GraphCore, GraphView};
 #[cfg(test)]
 mod community_tests {
     use super::*;
+    use crate::graph_algos::QualityFunction;
 
     fn p() -> Vec<u8> {
         rmp_serde::to_vec_named(&serde_json::json!({"type": "Code"})).unwrap()
@@ -549,6 +550,173 @@ mod community_tests {
         for _ in 0..10 {
             assert_eq!(community_detection(&g, 1.0), first);
         }
+    }
+
+    /// EH-314: a caller sending weight `1.0` on every edge and the default
+    /// quality function must get the BYTE-IDENTICAL partition the pre-EH-314
+    /// ephemeral path produced — uniform-weight `community_detection` over the
+    /// same topology. This is the "default path stays byte-identical" proof
+    /// the ledger requires before the widened wire method can land.
+    #[test]
+    fn weighted_default_path_matches_pre_eh314_unweighted_topology_result() {
+        let nodes: Vec<String> = (0..8).map(|i| format!("n{i}")).collect();
+        let node_refs: Vec<&str> = nodes.iter().map(|s| s.as_str()).collect();
+        let edge_pairs = [
+            ("n0", "n1"),
+            ("n1", "n2"),
+            ("n2", "n0"),
+            ("n4", "n5"),
+            ("n5", "n6"),
+            ("n6", "n4"),
+            ("n2", "n4"),
+        ];
+        let topology_result = community_detection(&build(&node_refs, &edge_pairs), 1.0);
+
+        let weighted_edges: Vec<(String, String, f64)> = edge_pairs
+            .iter()
+            .map(|(s, t)| (s.to_string(), t.to_string(), 1.0))
+            .collect();
+        let weighted_result = community_detection_weighted(
+            nodes,
+            weighted_edges,
+            1.0,
+            QualityFunction::default(),
+        );
+
+        assert_eq!(
+            topology_result, weighted_result,
+            "uniform weight 1.0 + default quality must reproduce the pre-EH-314 result exactly"
+        );
+    }
+
+    /// EH-314/EH-284: a `scoped` resolver confidence (0.95) must bind a
+    /// community harder than a `unique` guess (0.60) — the exact ledger
+    /// example. Two triangles joined by one `c`-`x` bridge: at a LOW
+    /// (`unique`-tier) bridge weight, `c` and `x` land in DIFFERENT
+    /// communities (the bridge is too weak to beat modularity's cost of
+    /// merging two already-dense cliques); raised to a HIGH (well above
+    /// `scoped`-tier) weight on the SAME topology, `c` and `x` land in the
+    /// SAME community. This proves the wire method's new weight slot
+    /// actually reaches the kernel, not just that it is accepted and
+    /// ignored — checked by same-community membership of the bridge's own
+    /// endpoints (not by the exact overall partition shape, which a
+    /// disproportionately heavy single edge is free to reshape in ways
+    /// beyond "everyone merges", e.g. isolating the bridge pair itself).
+    #[test]
+    fn higher_confidence_edge_binds_communities_harder_than_lower_confidence() {
+        let nodes: Vec<String> = ["a", "b", "c", "x", "y", "z"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let triangle_edges = [
+            ("a", "b"),
+            ("b", "c"),
+            ("c", "a"),
+            ("x", "y"),
+            ("y", "z"),
+            ("z", "x"),
+        ];
+
+        let edges_for = |bridge_weight: f64| -> Vec<(String, String, f64)> {
+            let mut edges: Vec<(String, String, f64)> = triangle_edges
+                .iter()
+                .map(|(s, t)| (s.to_string(), t.to_string(), 1.0))
+                .collect();
+            edges.push(("c".to_string(), "x".to_string(), bridge_weight));
+            edges
+        };
+        let same_community = |communities: &[Vec<String>], a: &str, b: &str| -> bool {
+            communities
+                .iter()
+                .any(|c| c.iter().any(|n| n == a) && c.iter().any(|n| n == b))
+        };
+
+        let separated = community_detection_weighted(
+            nodes.clone(),
+            edges_for(0.60),
+            1.0,
+            QualityFunction::Modularity,
+        );
+        assert!(
+            !same_community(&separated, "c", "x"),
+            "a unique-tier (0.60) bridge must not out-bind two dense triangles: {separated:?}"
+        );
+
+        let merged = community_detection_weighted(
+            nodes,
+            edges_for(50.0),
+            1.0,
+            QualityFunction::Modularity,
+        );
+        assert!(
+            same_community(&merged, "c", "x"),
+            "a heavily-weighted bridge must bind its own endpoints into one community — \
+             proving edge weight reaches the kernel: {merged:?}"
+        );
+    }
+
+    /// EH-283/EH-314: the `quality` selector really reaches the kernel — CPM
+    /// on the ephemeral path must agree EXACTLY with calling `leiden` directly
+    /// with `QualityFunction::Cpm` on the identical adjacency, proving
+    /// faithful passthrough rather than a reimplementation.
+    #[test]
+    fn quality_function_selector_reaches_the_kernel() {
+        let nodes: Vec<String> = (0..6).map(|i| format!("n{i}")).collect();
+        let edges: Vec<(String, String, f64)> = [
+            ("n0", "n1"),
+            ("n1", "n2"),
+            ("n2", "n0"),
+            ("n3", "n4"),
+            ("n4", "n5"),
+            ("n5", "n3"),
+        ]
+        .iter()
+        .map(|(s, t)| (s.to_string(), t.to_string(), 1.0))
+        .collect();
+
+        let via_ephemeral =
+            community_detection_weighted(nodes.clone(), edges.clone(), 1.0, QualityFunction::Cpm);
+
+        let index: HashMap<&str, usize> =
+            nodes.iter().enumerate().map(|(i, n)| (n.as_str(), i)).collect();
+        let mut adjacency: Vec<Vec<(String, f64)>> = vec![Vec::new(); nodes.len()];
+        for (s, t, w) in &edges {
+            adjacency[index[s.as_str()]].push((t.clone(), *w));
+        }
+        let graph = crate::graph_algos::AdjacencyGraph::from_adjacency(
+            nodes.into_iter().zip(adjacency),
+        );
+        let direct = crate::graph_algos::leiden(
+            &graph,
+            &crate::graph_algos::LeidenConfig {
+                resolution: 1.0,
+                quality: QualityFunction::Cpm,
+                budget: std::time::Duration::from_secs(15),
+                ..crate::graph_algos::LeidenConfig::default()
+            },
+        )
+        .communities;
+
+        assert_eq!(
+            via_ephemeral, direct,
+            "CommunityDetectEphemeral's CPM path must match calling the kernel directly"
+        );
+    }
+
+    /// EH-314: a `node_ids` entry that never appears in any edge is preserved
+    /// as its own isolated community, matching `community_detection`'s own
+    /// preserved-isolated-node contract.
+    #[test]
+    fn weighted_path_preserves_isolated_nodes() {
+        let nodes = vec!["a".to_string(), "b".to_string(), "isolated".to_string()];
+        let edges = vec![("a".to_string(), "b".to_string(), 1.0)];
+        let communities =
+            community_detection_weighted(nodes, edges, 1.0, QualityFunction::default());
+        let total: usize = communities.iter().map(|c| c.len()).sum();
+        assert_eq!(total, 3, "isolated node must still be assigned a community");
+        assert!(communities
+            .iter()
+            .any(|c| c.len() == 1 && c[0] == "isolated"));
     }
 
     #[test]
