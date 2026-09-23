@@ -37,6 +37,20 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_PATH = REPO_ROOT / "scripts" / "ci_gate_replica.py"
 
+
+# The release-critical cargo selections run in three parallel jobs. Guards
+# below that used to look inside `gates` alone look across all three.
+GATES_JOBS = ("gates", "gates-facade", "gates-variants")
+
+
+def _gates_steps(doc) -> list[dict]:
+    return [step for job in GATES_JOBS for step in doc["jobs"][job]["steps"]]
+
+
+def _gates_rows(plan) -> list[dict]:
+    return [row for row in plan if row["job"] in GATES_JOBS]
+
+
 # Static tests of a Python script that parses YAML/TOML and shells out to
 # `bash -c` for its OWN (mocked-away, in these tests) subprocess calls --
 # never touches the compiled engine. Without this marker every test here
@@ -149,7 +163,7 @@ def test_gates_job_runs_real_prerequisite_backed_vacuity_sweep_tests():
     """
     m = _load_module()
     doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
-    steps = doc["jobs"]["gates"]["steps"]
+    steps = _gates_steps(doc)
     names = [step.get("name") for step in steps]
     required = (
         "Provision pinned sqlite3 CLI (differential sqlite tests)",
@@ -159,17 +173,24 @@ def test_gates_job_runs_real_prerequisite_backed_vacuity_sweep_tests():
         "Test (Whisper real-model transcription and cancellation)",
     )
     assert all(name in names for name in required)
-    assert (
-        names.index(required[0]) < names.index(required[1]) < names.index(required[2])
-    )
-    assert names.index(required[3]) < names.index(required[4])
+    # Every job that runs an sqlite3-backed test provisions the CLI first, and
+    # the Whisper fixture precedes its test, within the job that runs it.
+    for job in GATES_JOBS:
+        job_names = [step.get("name") for step in doc["jobs"][job]["steps"]]
+        for consumer in (required[1], required[2]):
+            if consumer in job_names:
+                assert required[0] in job_names
+                assert job_names.index(required[0]) < job_names.index(consumer)
+        if required[4] in job_names:
+            assert required[3] in job_names
+            assert job_names.index(required[3]) < job_names.index(required[4])
     selected = [step for step in steps if step.get("name") in required]
     assert all(
         "if" not in step and "continue-on-error" not in step for step in selected
     )
 
     plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["release.yml"], doc)
-    rows = {row["name"]: row for row in plan if row["job"] == "gates"}
+    rows = {row["name"]: row for row in _gates_rows(plan)}
     assert rows[required[0]]["mode"] == "RUN"
     assert rows[required[1]]["mode"] == "RUN"
     assert rows[required[2]]["mode"] == "RUN"
@@ -204,9 +225,9 @@ def test_gates_job_runs_the_raft_cluster_feature_layer_tests():
     """
     m = _load_module()
     doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
-    steps = {step.get("name"): step for step in doc["jobs"]["gates"]["steps"]}
+    steps = {step.get("name"): step for step in _gates_steps(doc)}
     plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["release.yml"], doc)
-    rows = {row["name"]: row for row in plan if row["job"] == "gates"}
+    rows = {row["name"]: row for row in _gates_rows(plan)}
     for name, command in RAFT_CLUSTER_GATES.items():
         assert name in steps, f"missing gates step: {name!r}"
         assert "if" not in steps[name] and "continue-on-error" not in steps[name]
@@ -341,7 +362,7 @@ def test_advisory_checks_cannot_delay_the_release_path_and_obsolete_runs_cancel(
         "github.event_name == 'workflow_dispatch'"
     )
     assert set(build["needs"]) == {
-        "gates",
+        *GATES_JOBS,
         "security",
         "lint-and-architecture",
         "tts-piper-inference",
@@ -455,12 +476,13 @@ def test_advisory_benchmarks_job_is_now_covered():
         reason="benchmarks carries its own continue-on-error: true and must "
         "report blocking=False per-row",
     )
-    _assert_uniform_blocking(
-        _run_rows_for_job(plan, "gates"),
-        expected=True,
-        reason="gates has no continue-on-error and must report "
-        "blocking=True per-row (release.yml itself is blocking=True)",
-    )
+    for job in GATES_JOBS:
+        _assert_uniform_blocking(
+            _run_rows_for_job(plan, job),
+            expected=True,
+            reason=f"{job} has no continue-on-error and must report "
+            "blocking=True per-row (release.yml itself is blocking=True)",
+        )
 
 
 def test_reusable_workflow_call_job_is_reported_not_silently_dropped():

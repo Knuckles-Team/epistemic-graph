@@ -56,7 +56,14 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
         # Optional feature builds and benchmarks remain executable, but their
         # literal `continue-on-error: true` is reflected per row by the planner.
         executable_jobs=frozenset(
-            {"gates", "lint-and-architecture", "feature-matrix", "benchmarks"}
+            {
+                "gates",
+                "gates-facade",
+                "gates-variants",
+                "lint-and-architecture",
+                "feature-matrix",
+                "benchmarks",
+            }
         ),
         job_skip_reasons={
             "security": (
