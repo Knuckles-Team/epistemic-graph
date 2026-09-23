@@ -416,12 +416,15 @@ pub(crate) async fn ensure_internal_global_graph(
         b"eg/internal-graph-lifecycle/v1",
         &[idempotency_key.as_bytes(), graph_name.as_bytes()],
     )?;
-    let response = router::create_graph(
-        state,
+    let request = router::GraphLifecycleRequest::verified(
         req_id,
         Some(verified.agent_id().to_string()),
-        verified.attempt_nonce(),
+        verified,
         format!("internal-create:{}", create_identity.to_hex()),
+    )?;
+    let response = router::create_graph(
+        state,
+        request,
         graph_name.to_string(),
         crate::protocol::GraphType::Global,
     )
