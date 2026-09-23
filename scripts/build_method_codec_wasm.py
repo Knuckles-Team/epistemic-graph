@@ -12,6 +12,11 @@ each client directory (Go's ``//go:embed`` cannot reach outside its module).
 to the fresh module, so a wire change in eg-types cannot ride past a stale
 client codec. Needs the pinned toolchain's ``wasm32-unknown-unknown`` target
 (``rustup target add wasm32-unknown-unknown``).
+
+No post-link optimizer (binaryen ``wasm-opt``) runs: none of the build hosts
+carries a pinned binaryen, and an unpinned one would make the committed bytes
+depend on whichever version a host happens to have. Size comes from the
+``method-codec`` profile alone.
 """
 
 from __future__ import annotations
