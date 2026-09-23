@@ -24826,6 +24826,11 @@
                   "description": "Projection base namespace IRI. Empty ⇒ identity projection.",
                   "type": "string"
                 },
+                "explain": {
+                  "default": false,
+                  "description": "When true, the result carries one witness proof per row\n(`SparqlResult::proofs`, EH-197): the ground triples that instantiate the\nquery's patterns under that row. Opt-in, because the witness search scans\nthe graph once per triple pattern.",
+                  "type": "boolean"
+                },
                 "query": {
                   "type": "string"
                 },
@@ -25043,6 +25048,11 @@
                 "derived_only": {
                   "default": false,
                   "description": "When true, return only the DERIVED facts (omit the asserted base).",
+                  "type": "boolean"
+                },
+                "explain": {
+                  "default": false,
+                  "description": "When true, every returned fact carries its proof tree (`RuleFact::proof`,\nEH-197): the rule and premises that set its confidence, down to asserted\nleaves. Opt-in, like `OwlExplain` beside `OwlReason`, because a proof per\nfact multiplies the response size.",
                   "type": "boolean"
                 },
                 "min_confidence": {
@@ -28935,6 +28945,38 @@
           },
           "required": [
             "SparqlBgp"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "FILTER (semantic, SHACL — EH-196) — validate every row's node, as an explicit\nSHACL focus node, against the ONE named `shape` of the `shapes` graph over the\nrequest graph's RDF projection, and keep the rows `keep` names. The UQL\n`VALIDATE SHAPE <shape> USING \"<turtle>\" [KEEP CONFORMING|VIOLATING]` stage lowers\nhere. A shape that is not declared in `shapes`, or a row whose id is not an RDF\nterm, is an error — never a vacuous pass. Gated by `owl-plan`, like the other\nsemantic plan ops.",
+          "properties": {
+            "ValidateShape": {
+              "properties": {
+                "keep": {
+                  "$ref": "#/$defs/ShapeKeep",
+                  "description": "Which rows survive."
+                },
+                "shape": {
+                  "description": "The shape IRI (canonical `<iri>` or bare).",
+                  "type": "string"
+                },
+                "shapes": {
+                  "description": "The shapes graph as a Turtle document (non-empty).",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "shape",
+                "shapes",
+                "keep"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "ValidateShape"
           ],
           "type": "object"
         },
@@ -35956,6 +35998,21 @@
     "Sha256Digest": {
       "description": "A SHA-256 digest, serialised as 64 lower-case hex characters.",
       "type": "string"
+    },
+    "ShapeKeep": {
+      "description": "Which rows a `VALIDATE SHAPE` stage keeps (EH-196).",
+      "oneOf": [
+        {
+          "const": "conforming",
+          "description": "Rows whose node has no validation result against the shape.",
+          "type": "string"
+        },
+        {
+          "const": "violating",
+          "description": "Rows whose node has at least one validation result against the shape.",
+          "type": "string"
+        }
+      ]
     },
     "ShortlistProvenance": {
       "additionalProperties": false,

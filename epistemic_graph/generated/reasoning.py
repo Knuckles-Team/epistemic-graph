@@ -157,6 +157,7 @@ class SparqlRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     base_iri: str | None = None
+    explain: bool | None = None
     query: str
     type_convention: str | None = None
 
