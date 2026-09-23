@@ -8,6 +8,8 @@
 mod admission;
 #[path = "decision/common.rs"]
 mod common;
+#[path = "decision/drift.rs"]
+mod drift;
 #[path = "decision/features.rs"]
 mod features;
 #[path = "decision/fit_eval.rs"]
