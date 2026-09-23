@@ -210,3 +210,45 @@ async fn a_logged_abstention_takes_a_resolution_of_its_resolver_class() {
         "an abstention executed nothing an outcome could evaluate"
     );
 }
+
+/// EH-039: cost-aware routing reads observed L5 cost; with no L5 accounting
+/// store no option carries it, and the decision abstains NAMING the missing
+/// fact instead of reading it as zero.
+#[tokio::test]
+async fn cost_routing_without_l5_accounting_abstains_naming_the_fact() {
+    let h = Harness::new().await;
+    let schema = FeatureSchemaBody {
+        schema_version: FEATURE_SCHEMA_VERSION,
+        features: BoundedVec::new(vec![FeatureSpec {
+            name: "l5.observed_cost".to_string(),
+            kind: FeatureKind::Number {
+                key: "l5.observed_cost".to_string(),
+            },
+            missing: MissingValue::Abstain,
+        }])
+        .unwrap(),
+    };
+    let schema_pin = h
+        .publish(
+            "schema-cost",
+            AgentComponentKind::FeatureSchema,
+            "cost routing features",
+            Some(&schema),
+            None,
+        )
+        .unwrap();
+    let options = vec![declared("model-a", 1 << 32), declared("model-b", 1 << 33)];
+    let batch = decide(&h, declared_request(&schema_pin, options))
+        .await
+        .unwrap();
+    let StatisticalOutcome::Abstained { reasons } = &batch.records.as_slice()[0].outcome else {
+        panic!("abstained")
+    };
+    assert_eq!(
+        reasons.as_slice(),
+        [eg_types::decision::AbstainReason::UnknownFact {
+            component_id: "model-a".to_string(),
+            field: "l5.observed_cost".to_string(),
+        }]
+    );
+}
