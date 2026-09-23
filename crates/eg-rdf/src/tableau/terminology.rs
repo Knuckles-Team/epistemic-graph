@@ -37,6 +37,8 @@ fn terminology_only(ont: DlOntology) -> DlOntology {
         same_as: Vec::new(),
         different_from: Vec::new(),
         individuals: BTreeSet::new(),
+        domains: ont.domains,
+        ranges: ont.ranges,
     }
 }
 

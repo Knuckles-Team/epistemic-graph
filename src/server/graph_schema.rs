@@ -651,6 +651,66 @@ mod tests {
         assert_eq!(core.schema_sources(), before);
     }
 
+    /// EH-363: the entry check sees the core's n-ary disjointness (`AllDisjointClasses`)
+    /// and BFO's `Continuant ⊥ Occurrent`. Each individual below sits in two disjoint
+    /// core classes: GDC and IC (a taxon typed as an organism), Person and Event, and a
+    /// specifically dependent continuant that is also a temporal region.
+    #[test]
+    fn attach_refuses_an_individual_in_two_disjoint_core_classes() {
+        let bfo = "@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> . \
+            @prefix kg: <http://knuckles.team/kg#> . @prefix ex: <http://example/> . ";
+        for (name, individual) in [
+            ("taxon", "ex:vulpes a bfo:0000031, bfo:0000004 ."),
+            ("agent", "ex:ada a kg:Person, kg:Event ."),
+            ("bfo", "ex:moment a bfo:0000020, bfo:0000008 ."),
+        ] {
+            let core = GraphCore::new();
+            let before = core.schema_sources();
+            let source = format!("admin:{name}");
+            let error =
+                apply(&core, "g", &attach(&source, &format!("{bfo}{individual}"))).unwrap_err();
+            assert!(
+                error.starts_with("ONTOLOGY_INCONSISTENT"),
+                "{name}: {error}"
+            );
+            assert_eq!(core.schema_sources(), before);
+        }
+    }
+
+    /// EH-363: the entry check honours `rdfs:domain`/`rdfs:range`. `kg:memberOf` has
+    /// domain and range BFO:IndependentContinuant, and `kg:createdBy` range IC; a
+    /// process at either end contradicts Continuant ⊥ Occurrent (the shape of "a
+    /// process PARTICIPATED_IN an event" once participation is continuant-only).
+    #[test]
+    fn attach_refuses_a_process_at_a_continuant_only_end_of_an_edge() {
+        let prefixes = "@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> . \
+            @prefix kg: <http://knuckles.team/kg#> . @prefix ex: <http://example/> . ";
+        for (name, data) in [
+            (
+                "domain",
+                "ex:run a bfo:0000015 . ex:run kg:memberOf ex:team .",
+            ),
+            (
+                "range",
+                "ex:doc kg:createdBy ex:job . ex:job a bfo:0000015 .",
+            ),
+        ] {
+            let core = GraphCore::new();
+            let before = core.schema_sources();
+            let source = format!("admin:{name}");
+            let error =
+                apply(&core, "g", &attach(&source, &format!("{prefixes}{data}"))).unwrap_err();
+            assert!(
+                error.starts_with("ONTOLOGY_INCONSISTENT"),
+                "{name}: {error}"
+            );
+            assert_eq!(core.schema_sources(), before);
+        }
+        let core = GraphCore::new();
+        let fine = format!("{prefixes}ex:ada a kg:Person . ex:ada kg:memberOf ex:team .");
+        apply(&core, "g", &attach("admin:fine", &fine)).unwrap();
+    }
+
     #[test]
     fn invalid_attach_and_stale_cas_publish_nothing() {
         let core = GraphCore::new();
