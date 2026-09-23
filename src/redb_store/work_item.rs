@@ -74,7 +74,7 @@ mod test_shard;
 pub(crate) use cancel::*;
 pub(crate) use claim::*;
 pub(crate) use commit::*;
-pub(crate) use control_lease::{apply_control_lease_rows, read_control_lease};
+pub(crate) use control_lease::{apply_control_lease_rows, list_control_leases, read_control_lease};
 pub(crate) use dispatch::*;
 pub(crate) use lease::*;
 pub(crate) use policy_record::apply_policy_record_rows;

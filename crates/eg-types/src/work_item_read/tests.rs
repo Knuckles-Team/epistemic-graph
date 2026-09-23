@@ -34,7 +34,7 @@ fn list(limit: u32, cursor: Option<String>, kind: Option<&str>) -> WorkItemListR
 /// bounds before each row, consume, close.
 fn page(rows: &[(String, Map<String, Value>)], request: &WorkItemListRequest) -> WorkItemPage {
     let resume_after = request.resume_after().expect("cursor decodes");
-    let mut scan = WorkItemPageScan::new(request);
+    let mut scan = crate::keyset_page::KeysetScan::new(request);
     for (id, props) in rows {
         if resume_after.as_deref() >= Some(id.as_str()) {
             continue;
@@ -44,7 +44,7 @@ fn page(rows: &[(String, Map<String, Value>)], request: &WorkItemListRequest) ->
         }
         scan.consume(id, 100, props).expect("row projects");
     }
-    scan.finish()
+    scan.finish().into()
 }
 
 fn mixed_rows() -> Vec<(String, Map<String, Value>)> {
@@ -161,7 +161,7 @@ fn a_cursor_is_bound_to_the_tenant_it_was_minted_for() {
 
 #[test]
 fn the_scan_bound_closes_an_empty_page_with_a_cursor() {
-    let rows: Vec<(String, Map<String, Value>)> = (0..MAX_WORK_ITEM_LIST_SCAN + 1)
+    let rows: Vec<(String, Map<String, Value>)> = (0..crate::keyset_page::MAX_KEYSET_PAGE_SCAN + 1)
         .map(|index| (format!("n-{index:05}"), row("tenant-b", "au.task", "ready")))
         .collect();
     let first = page(&rows, &list(100, None, None));
@@ -207,7 +207,7 @@ fn a_metadata_match_selects_exact_top_level_pairs_and_is_bounded() {
 
     request.metadata_match = Some(Map::new());
     assert!(request.validate().is_err());
-    let too_many: Map<String, Value> = (0..=MAX_WORK_ITEM_METADATA_MATCH_KEYS)
+    let too_many: Map<String, Value> = (0..=crate::keyset_page::MAX_PAIR_FILTER_KEYS)
         .map(|index| (format!("k{index}"), json!(index)))
         .collect();
     request.metadata_match = Some(too_many);
