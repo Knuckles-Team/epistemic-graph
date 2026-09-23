@@ -230,7 +230,7 @@ fn registered_native_shape_policy(core: &GraphCore) -> Option<()> {
 fn compiled_policy(core: &GraphCore) -> Result<IcvPolicy, String> {
     let sources = core.schema_sources();
     let composed = crate::server::graph_schema::compose::validate_and_compose(&sources)?;
-    Ok(IcvPolicy::new(composed.shapes))
+    Ok(IcvPolicy::new(composed.shapes.clone()))
 }
 
 #[cfg(test)]
@@ -524,5 +524,66 @@ ex:PersonShape a sh:NodeShape ;
         let after = staged_copy(&before);
 
         assert!(check_native_write_gated(true, "graph", &before, &after).is_ok());
+    }
+
+    /// EH-382 bench (revives the eg-core-verify A11 measurement, where every write
+    /// recomposed: 1.55 s against 2.66 ms for a cache-hit clone). After the first
+    /// compile of an attached schema, the per-write policy is served from the
+    /// compiled cache, so a write costs a digest and a shapes clone, not a
+    /// parse + K1–K7 + EL⁺/RL classification.
+    #[test]
+    fn per_write_policy_cost_after_the_first_compile_is_a_cache_hit() {
+        use std::time::{Duration, Instant};
+
+        let classes: String = (0..60)
+            .map(|index| format!("ex:Class{index} a owl:Class ; rdfs:subClassOf ex:Root .\n"))
+            .collect();
+        let properties: String = (0..30)
+            .map(|index| {
+                format!(
+                    "ex:prop{index} a owl:ObjectProperty ; rdfs:domain ex:Class{index} ; rdfs:range ex:Root .\n"
+                )
+            })
+            .collect();
+        let ontology = format!(
+            "@prefix ex: <http://example/eh382-bench/> . \
+             @prefix owl: <http://www.w3.org/2002/07/owl#> . \
+             @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> . \
+             ex:Root a owl:Class .\n{classes}{properties}"
+        );
+        let core = GraphCore::new();
+        let mut sources = (*core.schema_sources()).clone();
+        let origin = SchemaSourceOrigin::Admin {
+            name: "bench".to_string(),
+        };
+        let source = GraphSchemaSource::new(origin, None, Some(Arc::from(ontology)), 0).unwrap();
+        sources
+            .attach_dynamic("admin:bench".to_string(), source)
+            .unwrap();
+        core.install_schema_sources(Arc::new(sources));
+
+        let started = Instant::now();
+        compiled_policy(&core).unwrap();
+        let first_compile = started.elapsed();
+        let mut per_write: Vec<Duration> = (0..31)
+            .map(|_| {
+                let started = Instant::now();
+                compiled_policy(&core).unwrap();
+                started.elapsed()
+            })
+            .collect();
+        per_write.sort_unstable();
+        let median = per_write[per_write.len() / 2];
+        eprintln!(
+            "EH-382 bench: first_compile={first_compile:?} per_write_median={median:?} \
+             per_write_max={:?} ratio={:.1}x (60 classes, 30 properties, one dynamic source)",
+            per_write[per_write.len() - 1],
+            first_compile.as_nanos() as f64 / median.as_nanos().max(1) as f64
+        );
+        assert!(
+            median * 50 < first_compile,
+            "a cached write must cost a small fraction of a compile: \
+             first_compile={first_compile:?} per_write_median={median:?}"
+        );
     }
 }
