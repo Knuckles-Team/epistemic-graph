@@ -65,6 +65,7 @@ use std::collections::BTreeMap;
 
 use eg_core::graph::GraphCore;
 use eg_quantum_core::result::{Formalism, Proposal, QuantumResult};
+use eg_types::epistemic_node::{Claim, Evidence};
 use eg_types::protocol::Method;
 
 use crate::run::MaxCutRun;
@@ -73,6 +74,9 @@ use crate::subgraph::CandidateSubgraph;
 /// `validation_state` seeded on every fresh QAOA-committed `:Claim`/`:Evidence` —
 /// same convention as `eg-jobs::claim::CLAIM_VALIDATION_STATE`.
 pub const CLAIM_VALIDATION_STATE: &str = "unvalidated";
+
+/// The derivation family every QAOA Max-Cut claim and its evidence carry.
+const MAXCUT_FAMILY: &str = "quantum.qaoa.maxcut";
 
 /// A QAOA Max-Cut result, ALWAYS in PROPOSAL form. The ONLY public constructor
 /// ([`MaxCutProposal::from_run`]) takes ownership of a [`MaxCutRun`] and calls
@@ -152,6 +156,69 @@ pub struct ProposalWritePlan {
 pub enum ProposeError {
     #[error("failed to serialize proposal properties: {0}")]
     Serialize(String),
+    /// The typed `:Claim`/`:Evidence` node refused the proposal's values (EH-194).
+    #[error("proposal claim is not a valid epistemic node: {0}")]
+    InvalidClaim(#[from] eg_types::epistemic_node::EpistemicNodeError),
+}
+
+/// The ids and score one Max-Cut proposal's claim + evidence are written under.
+struct ProposalClaim<'a> {
+    proposal: &'a MaxCutProposal,
+    claim_id: &'a str,
+    evidence_id: &'a str,
+    job_id: &'a str,
+    circuit_hash: &'a str,
+    confidence: f64,
+}
+
+/// The typed `:Claim` + `:Evidence` property objects for one proposal (EH-194).
+fn proposal_claim_nodes(
+    claim: ProposalClaim<'_>,
+) -> Result<(serde_json::Value, serde_json::Value), ProposeError> {
+    let proposal = claim.proposal;
+    let result = proposal.quantum_result();
+    let partition: Vec<serde_json::Value> = proposal
+        .node_ids
+        .iter()
+        .zip(proposal.partition.iter())
+        .map(|(id, side)| serde_json::json!({ "node_id": id, "partition": u8::from(*side) }))
+        .collect();
+    let claim_props = Claim::new(
+        MAXCUT_FAMILY,
+        claim.claim_id,
+        claim.confidence,
+        CLAIM_VALIDATION_STATE,
+    )
+    .with_invalidation_deps([claim.evidence_id])
+    .with_attributes(serde_json::json!({
+        // The domain-level exactness flag this crate actually enforces: a QAOA
+        // Max-Cut partition claim is ALWAYS `exact: false`, unconditionally — never
+        // read from `result.is_exact()`. This is what keeps a noiseless-simulator
+        // QAOA run from silently qualifying as a hard fact even though its
+        // UNDERLYING QuantumResult's own flag says `true`.
+        "exact": false,
+        "partition": partition,
+        "cut_value": proposal.cut_value,
+        "mean_sampled_cut_value": proposal.mean_sampled_cut_value,
+        "approx_ratio": proposal.approx_ratio,
+        "job_id": claim.job_id,
+        "circuit_hash": claim.circuit_hash,
+    }))?
+    .to_properties()?;
+    let evidence_props = Evidence::new(
+        MAXCUT_FAMILY,
+        claim.claim_id,
+        format!("quantum:{}:{}", result.backend_id.0, claim.circuit_hash),
+        claim.confidence,
+        CLAIM_VALIDATION_STATE,
+    )
+    .with_attributes(serde_json::json!({
+        "backend_id": result.backend_id.0,
+        "shots": result.shots,
+        "seed": result.seed,
+    }))?
+    .to_properties()?;
+    Ok((claim_props, evidence_props))
 }
 
 /// Lower `proposal` to its canonical `Method` write-set. Pure/deterministic: same
@@ -202,43 +269,14 @@ pub fn plan_maxcut_proposal(proposal: &MaxCutProposal) -> Result<ProposalWritePl
         "peak_memory_bytes": result.peak_memory_bytes,
     });
 
-    let claim_props = serde_json::json!({
-        "type": "Claim",
-        "family": "quantum.qaoa.maxcut",
-        "about": claim_id,
-        "confidence": confidence,
-        "validation_state": CLAIM_VALIDATION_STATE,
-        // The domain-level exactness flag this crate actually enforces: a QAOA
-        // Max-Cut partition claim is ALWAYS `exact: false`, unconditionally — never
-        // read from `result.is_exact()`. This is what keeps a noiseless-simulator
-        // QAOA run from silently qualifying as a hard fact even though its
-        // UNDERLYING QuantumResult's own flag says `true`.
-        "exact": false,
-        "partition": proposal
-            .node_ids
-            .iter()
-            .zip(proposal.partition.iter())
-            .map(|(id, side)| serde_json::json!({ "node_id": id, "partition": if *side { 1 } else { 0 } }))
-            .collect::<Vec<_>>(),
-        "cut_value": proposal.cut_value,
-        "mean_sampled_cut_value": proposal.mean_sampled_cut_value,
-        "approx_ratio": proposal.approx_ratio,
-        "job_id": job_id,
-        "circuit_hash": circuit_hash,
-        "invalidation_deps": [evidence_id.as_str()],
-    });
-
-    let evidence_props = serde_json::json!({
-        "type": "Evidence",
-        "family": "quantum.qaoa.maxcut",
-        "about": claim_id,
-        "provenance": format!("quantum:{}:{}", result.backend_id.0, circuit_hash),
-        "confidence": confidence,
-        "validation_state": CLAIM_VALIDATION_STATE,
-        "backend_id": result.backend_id.0,
-        "shots": result.shots,
-        "seed": result.seed,
-    });
+    let (claim_props, evidence_props) = proposal_claim_nodes(ProposalClaim {
+        proposal,
+        claim_id: &claim_id,
+        evidence_id: &evidence_id,
+        job_id: &job_id,
+        circuit_hash: &circuit_hash,
+        confidence,
+    })?;
 
     let supports = rmp_serde::to_vec_named(&serde_json::json!({ "relationship": "SUPPORTS" }))
         .map_err(|e| ProposeError::Serialize(e.to_string()))?;
