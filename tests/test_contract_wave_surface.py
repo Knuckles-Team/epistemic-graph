@@ -130,8 +130,8 @@ def test_the_receipt_counts_match_the_wave() -> None:
     for copy in ("contract/receipt.json", "epistemic_graph/contract/receipt.json"):
         receipt = _json(copy)
         assert receipt["method_count"] == 429, copy
-        assert receipt["internal_only_methods"] == 26, copy
-        assert receipt["python_client_methods"] == 403, copy
+        assert receipt["internal_only_methods"] == 25, copy
+        assert receipt["python_client_methods"] == 404, copy
         classification = receipt["result_classification"]
         assert classification["schematized"] == 416, copy
         assert classification["unclassified"] == 0, copy
