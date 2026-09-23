@@ -25,7 +25,14 @@ struct IdempotencyBinding {
 }
 
 impl AgentLibraryStore {
-    fn maintain_write_back<F>(&self, tenant_id: &str, event: &str, apply: F) -> Result<(), String>
+    /// One admitted maintenance write in `tenant_id`'s own scope of this owner.
+    /// Also the fleet catalog's write door (EH-345): same owner, same kernel.
+    pub(super) fn maintain_write_back<F>(
+        &self,
+        tenant_id: &str,
+        event: &str,
+        apply: F,
+    ) -> Result<(), String>
     where
         F: FnOnce(&AdmittedOwnerWrite<'_, AgentLibraryOwner>) -> Result<(), String>,
     {

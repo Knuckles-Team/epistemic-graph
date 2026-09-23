@@ -60,7 +60,6 @@ fn discovery(server: &str, connector: &str, visibility: FleetVisibility) -> Visi
             meta: RecordMeta {
                 tenant_id: "tenant-a".to_string(),
                 revision: 1,
-                content_digest: "c".to_string(),
                 written_at_ms: 5,
             },
             body: DiscoveryBody {

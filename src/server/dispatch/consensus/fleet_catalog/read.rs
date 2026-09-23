@@ -1,9 +1,9 @@
-//! Fleet catalog reads: one consistent view of the `__commons__` records, then
-//! the connector-pack components those records make visible.
+//! Fleet catalog reads: the caller's tenant-scoped records from the Agent
+//! Library owner, the registry's desired state from `__commons__`, and the
+//! connector-pack components those records make visible.
 
 use std::collections::BTreeMap;
 
-use eg_types::agent_component::AgentComponentEntry;
 use eg_types::contract::{BoundedVec, Digest256};
 use eg_types::fleet_catalog::{
     FleetCatalogKind, FleetCatalogListRequest, FleetCatalogLookup, FleetCatalogLookupRequest,
@@ -21,13 +21,13 @@ use super::project::{
 };
 use super::records::{
     decode_record, discovery_record_id, skill_type_override, DiscoveryBody, OverrideBody, Viewer,
-    DISCOVERY_NODE_TYPE, OVERRIDE_NODE_TYPE,
 };
 use super::*;
+use crate::server::persistence::agent_library::AgentLibraryStore;
+use crate::server::persistence::fleet_records::FleetRecordFamily;
 
-/// The `__commons__` half of one read, taken under the registry graph's lock so
-/// observations, overrides and registrations are one committed image.
-struct CommonsView {
+/// Everything one read joins, taken before any row is built.
+struct FleetView {
     commons_revision: u64,
     observed_at_ms: u64,
     discoveries: Vec<VisibleDiscovery>,
@@ -35,7 +35,7 @@ struct CommonsView {
     desired: BTreeMap<String, ServerDesiredState>,
 }
 
-impl CommonsView {
+impl FleetView {
     fn inputs(&self) -> ProjectionInputs<'_> {
         ProjectionInputs {
             desired: &self.desired,
@@ -44,53 +44,61 @@ impl CommonsView {
     }
 }
 
-/// Every observation the viewer may see, in node-id order.
+/// Every observation of the caller's tenant it may see, in record-id order.
+/// The store answers only the tenant's own rows; the viewer adds the
+/// principal/grant half the store cannot decide.
 fn visible_discoveries(
-    core: &crate::graph::GraphCore,
+    store: &AgentLibraryStore,
     viewer: &Viewer<'_>,
-) -> Vec<VisibleDiscovery> {
-    core.get_nodes_by_label(DISCOVERY_NODE_TYPE, 0)
-        .into_iter()
-        .filter_map(|(_, properties)| {
-            decode_record::<DiscoveryBody>(DISCOVERY_NODE_TYPE, &properties)
-        })
+) -> Result<Vec<VisibleDiscovery>, String> {
+    let rows = store.fleet_records(
+        viewer.tenant_id,
+        FleetRecordFamily::Discovery,
+        MAX_FLEET_SNAPSHOT_ROWS,
+    )?;
+    Ok(rows
+        .iter()
+        .filter_map(|(_, row)| decode_record::<DiscoveryBody>(viewer.tenant_id, row))
         .filter_map(|record| {
             viewer
                 .sees(&record)
                 .map(|visibility| VisibleDiscovery { record, visibility })
         })
-        .collect()
+        .collect())
 }
 
 /// The tenant's live skill-type overrides, by component id.
 fn live_skill_overrides(
-    core: &crate::graph::GraphCore,
+    store: &AgentLibraryStore,
     tenant_id: &str,
-) -> BTreeMap<String, (SkillType, u64)> {
-    core.get_nodes_by_label(OVERRIDE_NODE_TYPE, 0)
-        .into_iter()
-        .filter_map(|(_, properties)| {
-            decode_record::<OverrideBody>(OVERRIDE_NODE_TYPE, &properties)
-        })
-        .filter(|record| record.meta.tenant_id == tenant_id)
+) -> Result<BTreeMap<String, (SkillType, u64)>, String> {
+    let rows = store.fleet_records(
+        tenant_id,
+        FleetRecordFamily::Override,
+        MAX_FLEET_SNAPSHOT_ROWS,
+    )?;
+    Ok(rows
+        .iter()
+        .filter_map(|(_, row)| decode_record::<OverrideBody>(tenant_id, row))
         .filter_map(|record| {
             skill_type_override(&record).map(|value| (record.body.component_id.clone(), value))
         })
-        .collect()
+        .collect())
 }
 
-async fn load_commons(
+/// The registry half: each live, caller-visible server's desired state, read
+/// through the same graph ACL and row-level projection as `ListRegisteredServers`.
+async fn registry_desired(
     state: &Arc<RwLock<ServerState>>,
     verified: &VerifiedRequestContext,
-    grants: &[Digest256],
-) -> Result<CommonsView, String> {
+) -> Result<(u64, u64, BTreeMap<String, ServerDesiredState>), String> {
     let _registry_guard = crate::server::mutation_batch::lock_graph(REGISTRY_GRAPH).await;
     let (core, authority) = {
         let current = timed_read(state).await;
         let entry = current
             .registry
             .get(REGISTRY_GRAPH)
-            .ok_or("fleet catalog authority is unavailable")?;
+            .ok_or("fleet catalog registry authority is unavailable")?;
         check_graph_access(
             &current.isolation,
             Some(verified.agent_id()),
@@ -103,105 +111,53 @@ async fn load_commons(
         (entry.core.clone(), authority)
     };
     let observed_at_ms = authoritative_now_ms();
+    let desired = live_desired_states(&core, observed_at_ms, |node_id, properties| {
+        authority.can_see_node(properties, core.is_schema_node(node_id))
+    });
+    Ok((core.version(), observed_at_ms, desired))
+}
+
+async fn load_view(
+    state: &Arc<RwLock<ServerState>>,
+    store: &AgentLibraryStore,
+    verified: &VerifiedRequestContext,
+    grants: &[Digest256],
+) -> Result<FleetView, String> {
+    let (commons_revision, observed_at_ms, desired) = registry_desired(state, verified).await?;
     let principal = verified.principal_persistence_id();
     let viewer = Viewer {
         tenant_id: verified.tenant(),
         principal: &principal,
         grants,
     };
-    Ok(CommonsView {
-        commons_revision: core.version(),
+    Ok(FleetView {
+        commons_revision,
         observed_at_ms,
-        discoveries: visible_discoveries(&core, &viewer),
-        skill_overrides: live_skill_overrides(&core, verified.tenant()),
-        desired: live_desired_states(&core, observed_at_ms, |node_id, properties| {
-            authority.can_see_node(properties, core.is_schema_node(node_id))
-        }),
+        discoveries: visible_discoveries(store, &viewer)?,
+        skill_overrides: live_skill_overrides(store, verified.tenant())?,
+        desired,
     })
 }
 
-/// Where connector-pack components are read from. The owner is `redb`-backed;
-/// a build without it serves observations only and says so by name.
-#[cfg(feature = "redb")]
-type ComponentStore = Arc<crate::server::persistence::agent_library::AgentLibraryStore>;
-/// Uninhabited without `redb`: `component_store` refuses first, so the member
-/// reads below can never be reached with one.
-#[cfg(not(feature = "redb"))]
-type ComponentStore = std::convert::Infallible;
-
-#[cfg(not(feature = "redb"))]
-const COMPONENTS_UNAVAILABLE: &str =
-    "fleet catalog content is not available in this build (requires the `redb` feature)";
-
-#[cfg(feature = "redb")]
-async fn component_store(state: &Arc<RwLock<ServerState>>) -> Result<ComponentStore, String> {
-    state.write().await.ensure_agent_library()
-}
-
-#[cfg(not(feature = "redb"))]
-async fn component_store(_state: &Arc<RwLock<ServerState>>) -> Result<ComponentStore, String> {
-    Err(COMPONENTS_UNAVAILABLE.to_string())
-}
-
-#[cfg(feature = "redb")]
-fn member_heads(
-    store: &ComponentStore,
-    tenant_id: &str,
-    prefix: &str,
-) -> Result<Vec<AgentComponentEntry>, String> {
-    store.component_heads_with_prefix(tenant_id, prefix, MAX_FLEET_SNAPSHOT_ROWS)
-}
-
-#[cfg(not(feature = "redb"))]
-fn member_heads(
-    store: &ComponentStore,
-    _tenant_id: &str,
-    _prefix: &str,
-) -> Result<Vec<AgentComponentEntry>, String> {
-    match *store {}
-}
-
-#[cfg(feature = "redb")]
-fn member_head(
-    store: &ComponentStore,
-    tenant_id: &str,
-    component_id: &str,
-) -> Result<Option<AgentComponentEntry>, String> {
-    store.current_component(tenant_id, component_id)
-}
-
-#[cfg(not(feature = "redb"))]
-fn member_head(
-    store: &ComponentStore,
-    _tenant_id: &str,
-    _component_id: &str,
-) -> Result<Option<AgentComponentEntry>, String> {
-    match *store {}
-}
-
 /// Every visible member of `kind`, through each connector's widest binding.
-async fn content_rows(
-    state: &Arc<RwLock<ServerState>>,
+fn content_rows(
+    store: &AgentLibraryStore,
     tenant_id: &str,
-    view: &CommonsView,
+    view: &FleetView,
     kind: FleetCatalogKind,
 ) -> Result<Vec<FleetCatalogRow>, String> {
-    let bindings = connector_bindings(&view.discoveries);
-    if bindings.is_empty() {
-        return Ok(Vec::new());
-    }
-    let store = component_store(state).await?;
     let inputs = view.inputs();
     let mut rows = Vec::new();
-    for binding in &bindings {
+    for binding in connector_bindings(&view.discoveries) {
         let Some(prefix) = member_prefix(&binding.connector, kind) else {
             continue;
         };
-        let heads = member_heads(&store, tenant_id, &prefix)?;
+        let heads =
+            store.component_heads_with_prefix(tenant_id, &prefix, MAX_FLEET_SNAPSHOT_ROWS)?;
         rows.extend(
             heads
                 .iter()
-                .filter_map(|entry| component_row(kind, entry, binding, &inputs)),
+                .filter_map(|entry| component_row(kind, entry, &binding, &inputs)),
         );
         if rows.len() > MAX_FLEET_SNAPSHOT_ROWS {
             return Err(format!(
@@ -215,25 +171,38 @@ async fn content_rows(
 
 async fn list_page(
     state: &Arc<RwLock<ServerState>>,
+    store: &AgentLibraryStore,
     verified: &VerifiedRequestContext,
     request: &FleetCatalogListRequest,
 ) -> Result<FleetCatalogPage, String> {
-    let view = load_commons(state, verified, request.grant_digests.as_slice()).await?;
+    let view = load_view(state, store, verified, request.grant_digests.as_slice()).await?;
     let rows = if request.kind == FleetCatalogKind::Discoveries {
         view.discoveries.iter().map(discovery_row).collect()
     } else {
-        content_rows(state, verified.tenant(), &view, request.kind).await?
+        content_rows(store, verified.tenant(), &view, request.kind)?
     };
     let rows = filtered_snapshot(rows, request.query.as_deref())?;
     page(rows, request, view.commons_revision, view.observed_at_ms)
 }
 
-/// Resolve one lookup id against the view, or `None` when it names nothing the
-/// caller may see.
+/// The observation a lookup id names, if the caller may see it.
+fn lookup_discovery(view: &FleetView, id: &str) -> Option<FleetCatalogRow> {
+    view.discoveries
+        .iter()
+        .find(|discovery| {
+            discovery_record_id(
+                &discovery.record.body.server_name,
+                &discovery.record.body.scope,
+            ) == id
+        })
+        .map(discovery_row)
+}
+
+/// Resolve one lookup id, or `None` when it names nothing the caller may see.
 fn lookup_one(
-    store: &ComponentStore,
+    store: &AgentLibraryStore,
     tenant_id: &str,
-    view: &CommonsView,
+    view: &FleetView,
     bindings: &[ConnectorBinding],
     id: &str,
 ) -> Result<Option<FleetCatalogRow>, String> {
@@ -249,47 +218,25 @@ fn lookup_one(
     else {
         return Ok(None);
     };
-    Ok(member_head(store, tenant_id, id)?
+    Ok(store
+        .current_component(tenant_id, id)?
         .and_then(|entry| component_row(kind, &entry, binding, &view.inputs())))
-}
-
-/// Whether `id` names a pack member of a connector some visible observation
-/// binds -- the only case a lookup has to open the component owner for.
-fn names_bound_member(bindings: &[ConnectorBinding], id: &str) -> bool {
-    let Some((connector, _)) = parse_member_id(id) else {
-        return false;
-    };
-    bindings
-        .iter()
-        .any(|binding| binding.connector == connector)
 }
 
 async fn lookup_rows(
     state: &Arc<RwLock<ServerState>>,
+    store: &AgentLibraryStore,
     verified: &VerifiedRequestContext,
     request: &FleetCatalogLookupRequest,
 ) -> Result<FleetCatalogLookup, String> {
-    let view = load_commons(state, verified, request.grant_digests.as_slice()).await?;
+    let view = load_view(state, store, verified, request.grant_digests.as_slice()).await?;
     let bindings = connector_bindings(&view.discoveries);
-    let needs_components = request
-        .ids
-        .iter()
-        .any(|id| names_bound_member(&bindings, id));
-    let store = if needs_components {
-        Some(component_store(state).await?)
-    } else {
-        None
-    };
     let mut rows: Vec<FleetCatalogRow> = Vec::new();
     for id in request.ids.iter() {
         if rows.iter().any(|row| row.key().1 == id) {
             continue;
         }
-        let found = match &store {
-            Some(store) => lookup_one(store, verified.tenant(), &view, &bindings, id)?,
-            None => lookup_discovery(&view, id),
-        };
-        rows.extend(found);
+        rows.extend(lookup_one(store, verified.tenant(), &view, &bindings, id)?);
     }
     Ok(FleetCatalogLookup {
         schema_version: FLEET_CATALOG_SCHEMA_VERSION,
@@ -299,34 +246,22 @@ async fn lookup_rows(
     })
 }
 
-/// The observation half of a lookup, for a request that names no visible
-/// component and so never opens the component owner.
-fn lookup_discovery(view: &CommonsView, id: &str) -> Option<FleetCatalogRow> {
-    view.discoveries
-        .iter()
-        .find(|discovery| {
-            discovery_record_id(
-                &discovery.record.body.server_name,
-                &discovery.record.body.scope,
-            ) == id
-        })
-        .map(discovery_row)
-}
-
 pub(super) async fn list(
     state: &Arc<RwLock<ServerState>>,
+    store: &AgentLibraryStore,
     req_id: u64,
     verified: &VerifiedRequestContext,
     request: FleetCatalogListRequest,
 ) -> Response {
-    respond::<FleetCatalogList>(req_id, list_page(state, verified, &request).await)
+    respond::<FleetCatalogList>(req_id, list_page(state, store, verified, &request).await)
 }
 
 pub(super) async fn lookup(
     state: &Arc<RwLock<ServerState>>,
+    store: &AgentLibraryStore,
     req_id: u64,
     verified: &VerifiedRequestContext,
     request: FleetCatalogLookupRequest,
 ) -> Response {
-    respond::<FleetCatalogLookupRows>(req_id, lookup_rows(state, verified, &request).await)
+    respond::<FleetCatalogLookupRows>(req_id, lookup_rows(state, store, verified, &request).await)
 }

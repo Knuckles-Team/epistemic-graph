@@ -130,6 +130,7 @@ fn registration_state(value: &serde_json::Value) -> Option<(ServerTransport, Ser
 /// The fleet catalog projection reads a component's `enabled` through this --
 /// the SAME typed decode and lease filter `ListRegisteredServers` answers from,
 /// never a second reading of `:Server` rows.
+#[cfg(feature = "redb")]
 pub(super) fn live_desired_states<F>(
     core: &crate::graph::GraphCore,
     observed_at_ms: u64,
@@ -521,10 +522,17 @@ mod list_registered_servers_tests {
             registration_state(&serde_json::json!({"transport": "carrier-pigeon"})),
             None
         );
+    }
+
+    #[cfg(feature = "redb")]
+    #[test]
+    fn desired_states_come_from_the_same_typed_live_snapshot() {
         let core = crate::graph::GraphCore::new();
         core.add_node("srv:alpha".to_string(), row("alpha", 100_000));
+        core.add_node("srv:expired".to_string(), row("expired", 10));
         let desired = live_desired_states(&core, 50_000, |_, _| true);
         assert_eq!(desired.get("alpha"), Some(&ServerDesiredState::Disabled));
+        assert_eq!(desired.get("expired"), None);
     }
 
     #[test]

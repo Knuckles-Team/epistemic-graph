@@ -537,6 +537,7 @@ const METHOD_NAME_RESOLVERS: &[fn(&Method) -> Option<&'static str>] = &[
     cluster_admin_method_name,
     native_local_only_method_name,
     write_back_method_name,
+    fleet_catalog_method_name,
 ];
 
 /// Extract a `Method` variant's name as a `&'static str`, covering exactly
@@ -635,6 +636,7 @@ pub const LOCAL_ONLY_METHODS: &[&str] = &[
     "AgentLibrary",
     "AgentTemplate",
     "ConnectorPack",
+    "FleetCatalog",
     "WriteBack",
     "DecisionCommit",
     "DecisionEval",
@@ -672,6 +674,12 @@ fn write_back_method_name(m: &Method) -> Option<&'static str> {
         Method::WriteBack { .. } => Some("WriteBack"),
         _ => None,
     }
+}
+
+/// The fleet catalog (EH-345) writes the tenant-scoped Agent Library owner,
+/// which has process-local ordering only, exactly like `ConnectorPack`.
+fn fleet_catalog_method_name(m: &Method) -> Option<&'static str> {
+    matches!(m, Method::FleetCatalog { .. }).then_some("FleetCatalog")
 }
 
 /// The typed clustered-mode refusal for [`LOCAL_ONLY_METHODS`].
@@ -808,13 +816,7 @@ fn cluster_mutation_route_admin(method: &Method) -> Option<ClusterMutationRoute>
     // raft-replicated). Same shape as `PlacementAdmin` immediately above: this generic
     // layer does nothing extra for the method NAMED `RegisterServer` because its own
     // mechanism (the translation) already lands the mutation on an already-safe path.
-    // `FleetCatalog` (EH-345) writes the same way: its handler self-translates
-    // each write into a `CreateNodeIfAbsent`/`CompareAndSetNodeFields` against
-    // `__commons__` through `dispatch_graph_op`.
-    if matches!(
-        method,
-        Method::RegisterServer { .. } | Method::FleetCatalog { .. }
-    ) {
+    if matches!(method, Method::RegisterServer { .. }) {
         return Some(ClusterMutationRoute::VolatileControl);
     }
     None

@@ -503,29 +503,17 @@ fn connector_family_policy(method: &Method) -> Option<MethodPolicy> {
     None
 }
 
-/// The fleet catalog's policy. Its writes ARE registry writes: they
-/// self-translate into `CreateNodeIfAbsent`/`CompareAndSetNodeFields` against
-/// `__commons__`, so they are graph-durable, audited and CDC-emitted exactly as
-/// `RegisterServer` is. Its reads are snapshot reads with no state transition.
+/// The fleet catalog's policy: a native owner surface like `ConnectorPack`.
+/// Its records live in the tenant-scoped Agent Library owner, so writes are
+/// `ControlRedb` maintenance batches and reads are snapshots; the op carries
+/// the read/write split and the authz action.
 fn fleet_catalog_policy(op: &eg_types::fleet_catalog::FleetCatalogOp) -> MethodPolicy {
-    let mutates = op.is_mutation();
-    MethodPolicy {
-        mutates,
-        durability_domain: if mutates {
-            DurabilityDomain::GraphRedb
-        } else {
-            DurabilityDomain::None
-        },
-        authz_action: op.authz_action(),
-        idempotent: true,
-        audited: mutates,
-        emits_cdc: mutates,
-        txn_participation: if mutates {
-            TxnParticipation::Atomic
-        } else {
-            TxnParticipation::Snapshot
-        },
-    }
+    native_owner_policy(
+        op.is_mutation(),
+        DurabilityDomain::ControlRedb,
+        op.authz_action(),
+        TxnParticipation::Atomic,
+    )
 }
 
 /// The control family: the remaining runtime-conditional surfaces.

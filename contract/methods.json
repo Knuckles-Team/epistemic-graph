@@ -714,17 +714,16 @@
         "READ_ONLY"
       ],
       "format_identities": [
-        "STORAGE_KERNEL_SCHEMA_VERSION",
-        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
-        "GRAPH_META_SCHEMA_VERSION"
+        "RBAC_SCOPE_INCARNATION",
+        "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
       ],
       "id": "FleetCatalog",
-      "note": "EH-345 fleet catalog, runtime-conditional: list/lookup are tenant- and principal-projected snapshot reads forced to __commons__ that join discovery records and operator overrides with connector-pack AgentComponents; record_discovery/set_override/clear_override self-translate into CreateNodeIfAbsent/CompareAndSetNodeFields against __commons__ (overrides need admin:fleet-catalog)",
+      "note": "EH-345 fleet catalog, runtime-conditional: list/lookup are tenant- and principal-scoped snapshot reads joining the tenant's discovery/override records (agent_library.redb, beside the components) with the __commons__ registry and connector-pack AgentComponents; record_discovery/set_override/clear_override commit one tenant-scoped ControlRedb maintenance batch in the same owner (overrides need admin:fleet-catalog); local-only authority, refused in clustered mode",
       "policy": {
-        "audited": true,
+        "audited": false,
         "authz_action": "registry:write",
-        "durability_domain": "GraphRedb",
-        "emits_cdc": true,
+        "durability_domain": "ControlRedb",
+        "emits_cdc": false,
         "idempotent": true,
         "mutates": true,
         "txn_participation": "Atomic"

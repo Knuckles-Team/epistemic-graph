@@ -286,18 +286,8 @@ pub(super) async fn dispatch_fleet_catalog_methods(
         ..
     } = ctx;
     ControlFlow::Break(
-        dispatch_boxed(async {
-            let req_agent_id = req.agent_id.clone();
-            handle_fleet_catalog(
-                state,
-                req.id,
-                req_agent_id.as_deref(),
-                verified_context,
-                *op,
-            )
-            .await
-        })
-        .await,
+        dispatch_boxed(async { handle_fleet_catalog(state, req.id, verified_context, *op).await })
+            .await,
     )
 }
 

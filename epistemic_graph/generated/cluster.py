@@ -933,7 +933,7 @@ async def send_fleet_catalog(
     Authorization:
         registry:write
     Durability:
-        GraphRedb
+        ControlRedb
     Replay:
         OperationIdentity
     Result:

@@ -67,9 +67,12 @@ pub mod agent_row;
 pub mod agent_template;
 #[cfg(feature = "redb")]
 pub mod connector_pack;
-// EH-345: the fleet catalog's one read over the AgentComponent owner.
+// EH-345: the fleet catalog's read over the AgentComponent owner, and its own
+// tenant-scoped discovery/override records in the same owner.
 #[cfg(feature = "redb")]
 pub mod fleet_components;
+#[cfg(feature = "redb")]
+pub mod fleet_records;
 #[cfg(feature = "redb")]
 pub mod write_back;
 
