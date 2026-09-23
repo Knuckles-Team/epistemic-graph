@@ -53,6 +53,10 @@ impl AnnSourceRows {
     }
 }
 
+/// One row's id and its current vector (`None` for a deleted row or one
+/// without a vector).
+pub(crate) type RowVector = (u64, Option<Vec<f32>>);
+
 /// The rows of one table changed after a generation's build, read with their
 /// current vectors from ONE snapshot: what an incremental refresh folds into
 /// the next generation instead of rebuilding it.
@@ -61,7 +65,7 @@ pub(crate) struct AnnChangedRows {
     pub(crate) epoch: u64,
     /// `(row id, current vector)`; `None` for a deleted row or one without a
     /// vector.
-    pub(crate) rows: Vec<(u64, Option<Vec<f32>>)>,
+    pub(crate) rows: Vec<RowVector>,
     /// `false` when more rows changed than the bound admitted.
     pub(crate) complete: bool,
 }
@@ -98,10 +102,7 @@ impl AnnRowReader<'_> {
 
     /// The current vector of each of `rowids` (`None` for a deleted row or one
     /// without a vector), unfiltered: the maintenance worker's view.
-    pub(crate) fn current_vectors(
-        &self,
-        rowids: &[u64],
-    ) -> Result<Vec<(u64, Option<Vec<f32>>)>, String> {
+    pub(crate) fn current_vectors(&self, rowids: &[u64]) -> Result<Vec<RowVector>, String> {
         rowids
             .iter()
             .map(|rowid| {
@@ -246,7 +247,7 @@ impl TableStore {
         table: &str,
         column: &str,
         rowids: &[u64],
-    ) -> Result<Vec<(u64, Option<Vec<f32>>)>, String> {
+    ) -> Result<Vec<RowVector>, String> {
         self.with_ann_reader(table, column, |reader| reader.current_vectors(rowids))
     }
 
