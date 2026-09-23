@@ -19,7 +19,7 @@ use eg_numeric::decision::evaluate::{evaluate, EvalSpec};
 use eg_numeric::decision::fit::{fit, FitSpec};
 use eg_types::agent_component::AgentComponentKind;
 use eg_types::decision::digest::digest_text;
-use eg_types::decision::jobs::{DecisionEvalReceipt, LabelRegime};
+use eg_types::decision::jobs::{DatasetSource, DecisionEvalReceipt, LabelRegime};
 use eg_types::decision::statistical::body::{canonical_body_bytes, content_digest_of};
 use eg_types::decision::statistical::dataset::LabelledDataset;
 use eg_types::decision::statistical::features::FeatureSchemaBody;
@@ -31,6 +31,7 @@ use eg_types::decision::{
     DECISION_JOB_SCHEMA_VERSION,
 };
 
+use super::stat_log::{logged_dataset, LogReader};
 use super::stat_support::{pinned_body, refusal, resolve_policy, ResolvedPolicy};
 use super::telemetry;
 use crate::protocol::{Response, ResultPayload};
@@ -143,10 +144,10 @@ fn rules<'a>(
     }
 }
 
-fn fit_regime(request: &DecisionFitRequest) -> Result<Regime, String> {
+fn fit_regime(request: &DecisionFitRequest, dataset: &LabelledDataset) -> Result<Regime, String> {
     match &request.label_regime {
         LabelRegime::FullLabel { gold_set_digest } => {
-            if *gold_set_digest != dataset_digest(&request.dataset)? {
+            if !is_inline(&request.source) || *gold_set_digest != dataset_digest(dataset)? {
                 return Err(refusal(
                     StatisticalErrorCode::DatasetInvalid,
                     "gold_set_digest does not pin this dataset",
@@ -163,8 +164,28 @@ type ArtifactRows = Vec<(String, Vec<u8>)>;
 /// What a job run yields: its output and the artifact rows it commits.
 type JobRun = Result<(DecisionJobOutput, ArtifactRows), String>;
 
+fn is_inline(source: &DatasetSource) -> bool {
+    matches!(source, DatasetSource::Inline { .. })
+}
+
+/// The labelled items a job reads: the submitted dataset, or the decision
+/// log's executed and evaluated records of one question the caller may read.
+fn resolve_dataset(
+    store: &AgentLibraryStore,
+    reader: &LogReader,
+    source: &DatasetSource,
+    schema_digest: &str,
+) -> Result<LabelledDataset, String> {
+    match source {
+        DatasetSource::Inline { dataset } => Ok(dataset.as_ref().clone()),
+        DatasetSource::Logged { question_id } => {
+            logged_dataset(store, reader, question_id, schema_digest)
+        }
+    }
+}
+
 /// Everything a fit produces: the job output and the draft row.
-fn run_fit(store: &AgentLibraryStore, request: &DecisionFitRequest) -> JobRun {
+fn run_fit(store: &AgentLibraryStore, reader: &LogReader, request: &DecisionFitRequest) -> JobRun {
     let (schema, schema_digest) = pinned_body::<FeatureSchemaBody>(
         store,
         &request.tenant_id,
@@ -172,14 +193,12 @@ fn run_fit(store: &AgentLibraryStore, request: &DecisionFitRequest) -> JobRun {
         AgentComponentKind::FeatureSchema,
         StatisticalErrorCode::FeatureSchemaInvalid,
     )?;
-    checked_dataset(&request.dataset, &schema_digest, &schema)?;
+    let dataset = resolve_dataset(store, reader, &request.source, &schema_digest)?;
+    checked_dataset(&dataset, &schema_digest, &schema)?;
     let policy = resolve_policy(store, &request.tenant_id, &request.policy)?;
-    let regime = fit_regime(request)?;
-    let approved = request.approved_commit_principals.as_slice();
-    let admitted = admit(
-        &request.dataset,
-        &rules(regime, request.window, &policy, approved),
-    );
+    let regime = fit_regime(request, &dataset)?;
+    let approved = policy.statistical.approved_commit_principals.as_slice();
+    let admitted = admit(&dataset, &rules(regime, request.window, &policy, approved));
     let spec = FitSpec {
         head_kind: request.head_kind,
         regime,
@@ -187,7 +206,7 @@ fn run_fit(store: &AgentLibraryStore, request: &DecisionFitRequest) -> JobRun {
         feature_schema_digest: &schema_digest,
         statistical: &policy.statistical,
     };
-    let head = fit(&request.dataset, &admitted.items, &spec).map_err(|r| r.render())?;
+    let head = fit(&dataset, &admitted.items, &spec).map_err(|r| r.render())?;
     let bytes = canonical_body_bytes(&head)?;
     let sha = content_digest_of(&bytes);
     let row = (draft_key(&sha), encode_artifact(&head)?);
@@ -245,9 +264,10 @@ fn candidate_head(
         .map_err(|detail| refusal(StatisticalErrorCode::HeadInvalid, detail))
 }
 
-fn eval_regime(request: &DecisionEvalRequest) -> Result<Regime, String> {
+fn eval_regime(request: &DecisionEvalRequest, dataset: &LabelledDataset) -> Result<Regime, String> {
+    let inline = is_inline(&request.source);
     match &request.gold_set_digest {
-        Some(digest) if *digest != dataset_digest(&request.dataset)? => Err(refusal(
+        Some(digest) if !inline || *digest != dataset_digest(dataset)? => Err(refusal(
             StatisticalErrorCode::DatasetInvalid,
             "gold_set_digest does not pin this dataset",
         )),
@@ -258,27 +278,25 @@ fn eval_regime(request: &DecisionEvalRequest) -> Result<Regime, String> {
 
 fn run_eval(
     store: &AgentLibraryStore,
+    reader: &LogReader,
     request: &DecisionEvalRequest,
 ) -> Result<(DecisionEvalReceipt, ArtifactRows), String> {
     let head = candidate_head(store, &request.tenant_id, &request.candidate)?;
-    if request.dataset.feature_schema_digest != head.feature_schema_digest {
+    let dataset = resolve_dataset(store, reader, &request.source, &head.feature_schema_digest)?;
+    if dataset.feature_schema_digest != head.feature_schema_digest {
         return Err(refusal(
             StatisticalErrorCode::DatasetInvalid,
             "the dataset and the head read different feature schemas",
         ));
     }
-    request
-        .dataset
+    dataset
         .clone()
         .checked()
         .map_err(|detail| refusal(StatisticalErrorCode::DatasetInvalid, detail))?;
     let policy = resolve_policy(store, &request.tenant_id, &request.policy)?;
-    let regime = eval_regime(request)?;
-    let approved = request.approved_commit_principals.as_slice();
-    let admitted = admit(
-        &request.dataset,
-        &rules(regime, request.window, &policy, approved),
-    );
+    let regime = eval_regime(request, &dataset)?;
+    let approved = policy.statistical.approved_commit_principals.as_slice();
+    let admitted = admit(&dataset, &rules(regime, request.window, &policy, approved));
     let head_digest = content_digest_of(&canonical_body_bytes(&head)?);
     let spec = EvalSpec {
         regime,
@@ -287,14 +305,8 @@ fn run_eval(
         head_digest: &head_digest,
         policy_digest: &policy.digest,
     };
-    let receipt = evaluate(
-        &head,
-        &request.dataset,
-        &admitted.items,
-        admitted.exclusions,
-        &spec,
-    )
-    .map_err(|r| r.render())?;
+    let receipt = evaluate(&head, &dataset, &admitted.items, admitted.exclusions, &spec)
+        .map_err(|r| r.render())?;
     let row = (
         receipt_key(&receipt.receipt_digest),
         encode_artifact(&receipt)?,
@@ -374,6 +386,7 @@ async fn blocking<T: Send + 'static>(
 
 async fn serve_fit(
     state: &Arc<RwLock<ServerState>>,
+    reader: LogReader,
     op: DecisionFitOp,
 ) -> Result<ResultPayload, String> {
     use eg_types::result_contract::coordination::{DecisionFitStatus, DecisionFitSubmit};
@@ -388,7 +401,8 @@ async fn serve_fit(
                 now_ms,
             );
             let job =
-                blocking(move || submit_job(&store, &id, || run_fit(&store, &request))).await?;
+                blocking(move || submit_job(&store, &id, || run_fit(&store, &reader, &request)))
+                    .await?;
             ResultPayload::of::<DecisionFitSubmit>(job)
         }
         DecisionFitOp::Status { request } => ResultPayload::of::<DecisionFitStatus>(stored_job(
@@ -401,6 +415,7 @@ async fn serve_fit(
 
 async fn serve_eval(
     state: &Arc<RwLock<ServerState>>,
+    reader: LogReader,
     op: DecisionEvalOp,
 ) -> Result<ResultPayload, String> {
     use eg_types::result_contract::coordination::{DecisionEvalStatus, DecisionEvalSubmit};
@@ -416,7 +431,7 @@ async fn serve_eval(
             );
             let job = blocking(move || {
                 submit_job(&store, &id, || {
-                    run_eval(&store, &request).map(|(receipt, rows)| {
+                    run_eval(&store, &reader, &request).map(|(receipt, rows)| {
                         (
                             DecisionJobOutput::Eval {
                                 receipt: Box::new(receipt),
@@ -469,7 +484,9 @@ pub(super) async fn handle_fit(
     respond(
         req_id,
         "DecisionFit",
-        serve_fit(state, op).instrument(span).await,
+        serve_fit(state, LogReader::of(verified), op)
+            .instrument(span)
+            .await,
     )
 }
 
@@ -487,6 +504,8 @@ pub(super) async fn handle_eval(
     respond(
         req_id,
         "DecisionEval",
-        serve_eval(state, op).instrument(span).await,
+        serve_eval(state, LogReader::of(verified), op)
+            .instrument(span)
+            .await,
     )
 }

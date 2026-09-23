@@ -93,6 +93,12 @@ async fn dispatch_decision_methods(
             })
             .await
         }
+        Method::DecisionLog { op } => {
+            dispatch_boxed(async {
+                handlers::decide::handle_decision_log(state, req.id, verified_context, *op).await
+            })
+            .await
+        }
         Method::Solve { request } => {
             dispatch_boxed(async { handlers::solve::handle_solve(req.id, *request).await }).await
         }

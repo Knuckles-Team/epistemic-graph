@@ -5840,6 +5840,11 @@
           "$ref": "#/$defs/UnitRationalWire",
           "description": "Miscoverage level of the prediction set."
         },
+        "approved_commit_principals": {
+          "$ref": "#/$defs/BoundedVec_string_64",
+          "default": [],
+          "description": "Commit principals whose logged outcomes may train or evaluate a head\n(§4.3 log poisoning). Empty admits no bandit record at all."
+        },
         "audit_sample": {
           "$ref": "#/$defs/UnitRationalWire",
           "description": "Share of decisions sampled into the audit stream."

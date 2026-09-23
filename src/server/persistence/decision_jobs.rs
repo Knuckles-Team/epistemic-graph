@@ -22,6 +22,16 @@ pub fn receipt_key(receipt_digest: &str) -> String {
     format!("receipt:{receipt_digest}")
 }
 
+/// Key of a committed statistical decision record.
+pub fn record_key(record_id: &str) -> String {
+    format!("record:{record_id}")
+}
+
+/// Key of one outcome evaluation of a committed record.
+pub fn evaluation_key(record_id: &str, evaluation_id: &str) -> String {
+    format!("evaluation:{record_id}:{evaluation_id}")
+}
+
 /// Key of a fit draft.
 pub fn draft_key(draft_sha256: &str) -> String {
     format!("draft:{draft_sha256}")
@@ -67,6 +77,36 @@ impl AgentLibraryStore {
         self.maintain_control_rows(tenant_id, "decision_artifacts", |owner| {
             put_absent(owner, tenant_id, rows)
         })
+    }
+
+    /// Every decision artifact of `tenant_id` whose key starts with `prefix`,
+    /// in key order. Refuses rather than truncates past `limit`.
+    pub fn decision_artifacts_with_prefix(
+        &self,
+        tenant_id: &str,
+        prefix: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, Vec<u8>)>, String> {
+        let read = self.read()?;
+        let table = read.open_owner_table(DECISION_ARTIFACTS)?;
+        let mut out = Vec::new();
+        for row in table
+            .range((tenant_id, prefix)..)
+            .map_err(|error| error.to_string())?
+        {
+            let (key, value) = row.map_err(|error| error.to_string())?;
+            let (row_tenant, row_key) = key.value();
+            if row_tenant != tenant_id || !row_key.starts_with(prefix) {
+                break;
+            }
+            if out.len() == limit {
+                return Err(format!(
+                    "DECISION_LOG_TOO_LARGE: more than {limit} rows under {prefix}"
+                ));
+            }
+            out.push((row_key.to_string(), value.value().to_vec()));
+        }
+        Ok(out)
     }
 
     /// Read one decision artifact of `tenant_id`.

@@ -1935,6 +1935,7 @@ mod tests {
         ("DecisionCommit", "native MutationBatch in agent_library.redb: one DecisionRecord component revision, receipt and outbox in one WTX after re-derivation and catalog compare-and-set; local-only authority"),
         ("DecisionFit", "native MutationBatch in agent_library.redb: the terminal decision job row and its draft head body in one control-owner WTX; local-only authority"),
         ("DecisionEval", "native MutationBatch in agent_library.redb: the terminal evaluation job row and its receipt in one control-owner WTX; local-only authority"),
+        ("DecisionLog", "native MutationBatch in agent_library.redb: one verify-replayed statistical record or one outcome evaluation per control-owner WTX; local-only authority"),
         ("MutationOutbox", "owner-local outbox ledger rewind: bounded eg-transaction transactions with a durable control cursor; local-only authority"),
         ("ClaimWorkItem", "dedicated engine-native MutationBatch lease transition in mutation_batch.rs/redb_store.rs"),
         ("KgDelegate", "authenticated Agent Library admission lowers to the native WorkItem command-log transaction"),
