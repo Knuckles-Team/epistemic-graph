@@ -5,16 +5,17 @@ use super::batch::MetadataMutation;
 use super::reconciliation::compare_source_revision;
 use super::record::{decode, encode, encode_valid, row};
 use super::{
-    ensure, kernel_error, refused, semantic_contract_error, SemanticCodeError, SemanticCodeStore,
-    SemanticMutationReceipt, SEMANTIC_STAGE_INTENT_TOPIC, SEMANTIC_STAGE_RECEIPT_TOPIC,
+    ensure, is_stage_intent_topic, kernel_error, refused, semantic_contract_error, stage_consumer,
+    stage_consumer_parts, stage_intent_topic, SemanticCodeError, SemanticCodeStore,
+    SemanticMutationReceipt, SEMANTIC_QUEUE_CLASSES, SEMANTIC_STAGE_RECEIPT_TOPIC,
 };
 use eg_storage::{SemanticIndexOwner, SEMANTIC_SOURCE_PROGRESS};
 use eg_transaction::{AdmittedMutation, OutboxClaimBudget, OutboxClaimOutcome};
 use eg_types::mutation_batch::{MutationOutboxIntent, MutationOutboxLease};
 use eg_types::semantic_index::{
-    SemanticBindingState, SemanticDigest, SemanticIndexMutation, SemanticSourceProgress,
-    SemanticStage, SemanticStageIntent, SemanticStageIntentDraft, SemanticStageOutcome,
-    SemanticStagePredecessor, SemanticStageScope, SemanticStageTransition,
+    SemanticBindingState, SemanticDigest, SemanticIndexMutation, SemanticQueueClass,
+    SemanticSourceProgress, SemanticStage, SemanticStageIntent, SemanticStageIntentDraft,
+    SemanticStageOutcome, SemanticStagePredecessor, SemanticStageScope, SemanticStageTransition,
 };
 use eg_types::MutationScopeIdentity;
 use std::cmp::Ordering;
@@ -129,27 +130,52 @@ impl SemanticCodeStore {
             "semantic stage lease names another binding",
         )?;
         ensure_canonical_intent_event(&lease.record.intent, &intent)?;
+        ensure_class_route(lease, &intent)?;
         self.ensure_building_binding_for(&intent)?;
         Ok(intent)
     }
 
-    /// Install the one durable subscription used by semantic executors.  The
-    /// outbox remains the shared queue; this method only declares the topic on
-    /// this owner scope and is idempotent for the same consumer/topic pair.
-    pub(crate) fn subscribe_stage_consumer(&self, consumer: &str) -> Result<(), SemanticCodeError> {
-        self.door
-            .outbox_subscribe(consumer, SEMANTIC_STAGE_INTENT_TOPIC)
-            .map_err(kernel_error)
+    /// Install one worker's durable subscriptions: one consumer per queue
+    /// class (`<worker>#<class>`), each on its own class topic. Idempotent for
+    /// the same worker.
+    pub(crate) fn subscribe_stage_consumer(&self, worker: &str) -> Result<(), SemanticCodeError> {
+        for class in SEMANTIC_QUEUE_CLASSES {
+            self.door
+                .outbox_subscribe(&stage_consumer(worker, class), stage_intent_topic(class))
+                .map_err(kernel_error)?;
+        }
+        Ok(())
     }
 
-    /// Bounded, non-blocking claim port for the existing durable outbox.  A
-    /// scheduler owns the budget and tenant order; this adapter never loops or
-    /// creates an in-memory queue.
+    /// Claim every class for one worker, fastest class first, under one
+    /// budget. A class that defers does not stop the others.
     pub(crate) fn claim_stage_leases(
         &self,
-        consumer: &str,
+        worker: &str,
         budget: &mut OutboxClaimBudget,
     ) -> Result<OutboxClaimOutcome, SemanticCodeError> {
+        let mut merged: Option<OutboxClaimOutcome> = None;
+        for class in SEMANTIC_QUEUE_CLASSES {
+            let outcome = self.claim_stage_class(worker, class, budget)?;
+            merged = Some(match merged {
+                None => outcome,
+                Some(all) => merge_claims(all, outcome),
+            });
+        }
+        merged.ok_or_else(|| refused("semantic stage claim names no queue class"))
+    }
+
+    /// Bounded, non-blocking claim of ONE class's consumer for a worker. A
+    /// scheduler owns the budget and tenant order; this adapter never loops or
+    /// creates an in-memory queue.
+    pub(crate) fn claim_stage_class(
+        &self,
+        worker: &str,
+        class: SemanticQueueClass,
+        budget: &mut OutboxClaimBudget,
+    ) -> Result<OutboxClaimOutcome, SemanticCodeError> {
+        let consumer = stage_consumer(worker, class);
+        let consumer = consumer.as_str();
         ensure(
             !consumer.trim().is_empty() && budget.limit() <= 256,
             "semantic stage claim is empty or exceeds the bounded consumer budget",
@@ -165,6 +191,23 @@ impl SemanticCodeStore {
         self.door
             .outbox_claim(consumer, budget)
             .map_err(kernel_error)
+    }
+
+    /// The operator view of this binding's stage outbox.
+    pub(crate) fn outbox_operator_view(
+        &self,
+        view: &eg_transaction::OutboxView,
+        now_ms: u64,
+    ) -> Result<eg_transaction::OutboxViewAnswer, SemanticCodeError> {
+        self.door.operator_view(view, now_ms).map_err(kernel_error)
+    }
+
+    /// An operator write on this binding's stage outbox.
+    pub(crate) fn outbox_operator_write(
+        &self,
+        write: eg_transaction::OutboxWrite,
+    ) -> Result<eg_transaction::OutboxWriteReply, SemanticCodeError> {
+        self.door.operator_write(write).map_err(kernel_error)
     }
 
     pub(crate) fn stage_status(
@@ -251,7 +294,7 @@ impl SemanticCodeStore {
             SemanticCodeError::Refused(format!("invalid semantic lease record: {error}"))
         })?;
         ensure(
-            !consumer.trim().is_empty() && lease.consumer == consumer,
+            !consumer.trim().is_empty() && lease_belongs_to(&lease.consumer, consumer),
             "semantic stage lease consumer does not match",
         )?;
         // EH-315: this used to be one `ensure` over three ANDed conditions
@@ -352,9 +395,41 @@ fn ensure_stage_topic_owner(
     message: &str,
 ) -> Result<(), SemanticCodeError> {
     ensure(
-        lease.record.identity == *owner && lease.record.intent.topic == SEMANTIC_STAGE_INTENT_TOPIC,
+        lease.record.identity == *owner && is_stage_intent_topic(&lease.record.intent.topic),
         message,
     )
+}
+
+/// A lease is presented either under its exact class consumer or by the
+/// worker that consumer belongs to.
+fn lease_belongs_to(lease_consumer: &str, presented: &str) -> bool {
+    lease_consumer == presented
+        || stage_consumer_parts(lease_consumer).is_some_and(|(worker, _)| worker == presented)
+}
+
+/// A leased intent travels on its own class's topic, to that class's consumer.
+fn ensure_class_route(
+    lease: &MutationOutboxLease,
+    intent: &SemanticStageIntent,
+) -> Result<(), SemanticCodeError> {
+    let class = intent.stage.queue_class();
+    ensure(
+        lease.record.intent.topic == stage_intent_topic(class)
+            && stage_consumer_parts(&lease.consumer).is_some_and(|(_, leased)| leased == class),
+        "semantic stage lease is routed to another queue class",
+    )
+}
+
+/// One claim outcome over several class consumers: every lease and every
+/// dead-lettered position, deferred only when every class deferred.
+fn merge_claims(mut all: OutboxClaimOutcome, next: OutboxClaimOutcome) -> OutboxClaimOutcome {
+    all.claims.extend(next.claims);
+    all.dead_lettered.extend(next.dead_lettered);
+    all.more_available |= next.more_available;
+    if next.deferred.is_none() || !all.claims.is_empty() {
+        all.deferred = None;
+    }
+    all
 }
 
 /// A leased event must carry exactly the key and headers its canonical intent
@@ -422,7 +497,7 @@ pub(super) fn stage_intent_outbox(
     intent: &SemanticStageIntent,
 ) -> Result<MutationOutboxIntent, SemanticCodeError> {
     Ok(MutationOutboxIntent {
-        topic: SEMANTIC_STAGE_INTENT_TOPIC.to_string(),
+        topic: stage_intent_topic(intent.stage.queue_class()).to_string(),
         key: stage_intent_key(intent),
         payload: encode(intent)?,
         headers: intent_headers(intent)

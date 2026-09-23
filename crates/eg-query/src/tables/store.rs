@@ -56,6 +56,7 @@ use serde_json::Value;
 mod authority;
 #[cfg(any(test, feature = "dev-scope-grant"))]
 pub mod dev_scope_grant;
+mod outbox;
 mod row_insert;
 mod source_batch;
 

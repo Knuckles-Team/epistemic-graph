@@ -48,10 +48,11 @@ pub use group::{AdmittedGroup, CurrentIntent, ScopedIntent};
 pub use kernel::MutationKernel;
 pub use maintenance::MaintenanceBatch;
 pub use outbox::{
-    max_delivery_attempts, outbox_cursor, outbox_status, queue_capacity, OutboxClaimBudget,
-    OutboxClaimCursor, OutboxClaimOutcome, OutboxConsumerState, OutboxDeadLetterPage,
-    OutboxDeferral, OutboxDelivery, OutboxHead, OutboxPosition, OutboxRejectReason,
-    OutboxRewindOutcome, OutboxRewindTarget, OutboxStatus,
+    consumer_status, max_delivery_attempts, operate_outbox, outbox_cursor, outbox_position,
+    outbox_status, queue_capacity, read_outbox_view, OutboxClaimBudget, OutboxClaimCursor,
+    OutboxClaimOutcome, OutboxConsumerState, OutboxDeadLetterPage, OutboxDeferral, OutboxDelivery,
+    OutboxHead, OutboxPosition, OutboxRejectReason, OutboxRewindOutcome, OutboxRewindTarget,
+    OutboxStatus, OutboxView, OutboxViewAnswer, OutboxWrite, OutboxWriteReply,
 };
 pub use participant::{
     decode_record, decode_record_key, encode_record, encode_record_key, is_sealed_payload,
