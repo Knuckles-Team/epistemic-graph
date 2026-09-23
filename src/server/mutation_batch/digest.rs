@@ -202,7 +202,10 @@ fn control_lease_idempotency_key(method: &Method) -> Result<String, String> {
         Method::PolicyEvolutionStore { request } => {
             Ok(format!("policy-record:{}", request.record_id))
         }
-        _ => Err("WorkItem identity requires a WorkItem operation".to_string()),
+        // EH-348 work-market writes share the terminal identity rule too.
+        other => eg_types::work_market::market_write_scope(other)
+            .map(|(_, key)| key.to_string())
+            .ok_or_else(|| "WorkItem identity requires a WorkItem operation".to_string()),
     }
 }
 

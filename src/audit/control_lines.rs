@@ -387,8 +387,23 @@ fn control_lease_audit_line(method: &Method) -> Option<String> {
             "POLICY_EVOLUTION_STORE|{}|{}",
             request.tenant_id, request.record_id
         )),
-        _ => None,
+        other => work_market_audit_line(other),
     }
+}
+
+/// EH-348 work-market writes, reached through `control_lease_audit_line`'s
+/// fall-through. Identity and the operation only -- never evidence, statement
+/// or pricing bodies.
+fn work_market_audit_line(method: &Method) -> Option<String> {
+    let operation = match method {
+        Method::GapUpsert { .. } => "GAP_UPSERT",
+        Method::GapTransition { .. } => "GAP_TRANSITION",
+        Method::GapSettle { .. } => "GAP_SETTLE",
+        Method::WorkOfferPut { .. } => "WORK_OFFER_PUT",
+        _ => return None,
+    };
+    let (tenant, key) = eg_types::work_market::market_write_scope(method)?;
+    Some(format!("{operation}|{tenant}|{key}"))
 }
 
 pub(super) fn resource_audit_line(method: &Method) -> Option<String> {

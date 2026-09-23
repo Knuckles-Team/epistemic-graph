@@ -4,8 +4,9 @@
 //!
 //! * a `ControlLease` row (graph-os EG-2) -- its grant, timing and lifecycle.
 //!   A generic writer could otherwise re-activate a revoked lease, extend its
-//!   expiry, or plant a forged one -- and an `ActionApproval` row (graph-os
-//!   EG-5), which is filed and decided only as an `action.approval` lease;
+//!   expiry, or plant a forged one -- an `ActionApproval` row (graph-os
+//!   EG-5), which is filed and decided only as an `action.approval` lease, and
+//!   a canonical `Gap` row (EH-348), written only by the work-market methods;
 //! * the kernel-owned fields of a WorkItem row -- `row_revision` (the `version`
 //!   the typed reads project) and the provenance references a terminal commit
 //!   binds (`outcome_ref`, `outcome_digest`, `trace_ref`, `tool_call_refs`,
@@ -27,14 +28,17 @@ type NodeRows<'a> = ScopedOwnerTableMut<'a, (&'static str, &'static str), &'stat
 type NodeMap = serde_json::Map<String, serde_json::Value>;
 
 const LEASE_AUTHORITY: &str =
-    "native control-lease authority required for a ControlLease or ActionApproval row";
+    "native record authority required for a ControlLease, ActionApproval or Gap row";
 
 /// Node labels whose rows only a native authority writes: `ControlLease`
-/// (graph-os EG-2) and `ActionApproval` (graph-os EG-5 -- approvals are filed
-/// and decided as `action.approval` control leases, never as generic nodes).
+/// (graph-os EG-2), `ActionApproval` (graph-os EG-5 -- approvals are filed
+/// and decided as `action.approval` control leases, never as generic nodes)
+/// and `Gap` (EH-348 -- the canonical Gap is upserted, transitioned, settled
+/// and priced only by the work-market methods, which keep it paired with its
+/// WorkItem).
 /// Matched on every field EG's label index reads (`type`, `node_type`,
 /// `label`, `labels[]`), so no spelling of the label slips past.
-const NATIVE_ONLY_LABELS: [&str; 2] = ["ControlLease", "ActionApproval"];
+const NATIVE_ONLY_LABELS: [&str; 3] = ["ControlLease", "ActionApproval", "Gap"];
 const NATIVE_KEY_AUTHORITY: &str =
     "native WorkItem authority required for a kernel-owned row field";
 
@@ -239,6 +243,12 @@ mod tests {
             ),
         };
         assert!(check(&temp.shard, "approved", approved).is_err());
+
+        let gap = Method::AddNode {
+            node_id: "gap:failure:x".into(),
+            properties_msgpack: msgpack(serde_json::json!({"type": "Gap", "status": "resolved"})),
+        };
+        assert!(check(&temp.shard, "gap", gap).is_err());
 
         let ordinary = Method::AddNode {
             node_id: "plain".into(),
