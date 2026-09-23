@@ -69,7 +69,7 @@ pub(super) fn connector_bindings(discoveries: &[VisibleDiscovery]) -> Vec<Connec
         )
     };
     let mut ordered: Vec<&VisibleDiscovery> = discoveries.iter().collect();
-    ordered.sort_by(|left, right| rank(left).cmp(&rank(right)));
+    ordered.sort_by_key(|left| rank(left));
     let mut bound: BTreeMap<&str, ConnectorBinding> = BTreeMap::new();
     for discovery in ordered {
         bound

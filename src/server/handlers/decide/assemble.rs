@@ -80,7 +80,7 @@ async fn assemble_for(
         record: assembly.record,
         graph: assembly.graph,
         agents: eg_types::contract::BoundedVec::new(assembly.agents)
-            .map_err(|error| format!("{error}"))?,
+            .map_err(|error| error.to_string())?,
         model: assembly.model,
     })
 }

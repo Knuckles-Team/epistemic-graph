@@ -217,10 +217,9 @@ async fn route_native_typed_ops(
         Err(method) => method,
     };
     #[cfg(feature = "redb")]
-    let method = match refuse_foreign_control_lease_writes(ctx, method) {
-        Ok(response) => return Ok(response),
-        Err(method) => method,
-    };
+    if let Some(refused) = refuse_foreign_control_lease_writes(ctx, &method) {
+        return Ok(refused);
+    }
     route_native_resource_ops(ctx, method).await
 }
 
@@ -293,14 +292,14 @@ async fn route_work_item_reads(
 
 /// graph-os EG-2: a control-lease write names its tenant in the body, and that
 /// tenant must be the VERIFIED carrier tenant -- no aggregate or `kg:admin`
-/// exception. A matching write falls through (`Err`) to the WorkItem handler,
+/// exception. A matching write falls through (`None`) to the WorkItem handler,
 /// which commits it through the shared durable WorkItem kernel.
 #[cfg(feature = "redb")]
 fn refuse_foreign_control_lease_writes(
     ctx: GraphOpRouting<'_>,
-    method: Method,
-) -> Result<Response, Method> {
-    let named = match &method {
+    method: &Method,
+) -> Option<Response> {
+    let named = match method {
         Method::IssueControlLease { request } => Some(request.tenant.as_str()),
         Method::TransitionControlLease { request } => Some(request.tenant.as_str()),
         _ => None,
@@ -309,13 +308,10 @@ fn refuse_foreign_control_lease_writes(
         handlers::work_item_read::require_carrier_tenant(tenant, ctx.verified_context.tenant())
             .err()
     });
-    match denied {
-        Some(denied) => {
-            crate::metrics::access_denied();
-            Ok(Response::err(ctx.req_id, denied))
-        }
-        None => Err(method),
-    }
+    denied.map(|denied| {
+        crate::metrics::access_denied();
+        Response::err(ctx.req_id, denied)
+    })
 }
 
 /// RF-ADR-009 source ingestion is graph-scoped and therefore reaches this

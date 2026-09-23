@@ -247,10 +247,10 @@ impl Viewer<'_> {
 
 /// A live skill-type override: the value and the revision that set it.
 pub(super) fn skill_type_override(record: &StoredRecord<OverrideBody>) -> Option<(SkillType, u64)> {
-    match record.body.value {
-        Some(FleetOverride::SkillType { skill_type }) => Some((skill_type, record.meta.revision)),
-        None => None,
-    }
+    record
+        .body
+        .value
+        .map(|FleetOverride::SkillType { skill_type }| (skill_type, record.meta.revision))
 }
 
 #[cfg(test)]
