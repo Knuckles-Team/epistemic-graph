@@ -300,12 +300,47 @@ fn request_field(
     name: &str,
     node: &serde_json::Value,
 ) -> (String, String, bool) {
-    let annotation = if DTO_SURFACES.iter().any(|surface| surface.method == id) {
-        dto_python_type(node)
-    } else {
-        python_type(node)
+    let annotation = match DTO_SURFACES.iter().find(|surface| surface.method == id) {
+        Some(surface) => envelope_safe_annotation(id, surface, dto_python_type(node)),
+        None => python_type(node),
     };
     (name.to_string(), annotation, required.contains(&name))
+}
+
+/// The request envelope class is `{id}Request`. When the method's DTO module
+/// has a root of that same name (`Solve` wraps `eg_types::solve::SolveRequest`,
+/// `DecisionCommit` wraps `DecisionCommitRequest`), a bare annotation would
+/// resolve to the envelope itself -- a self-referential model. Such a field is
+/// typed through the DTO module instead (`_solve.SolveRequest`), which
+/// [`push_domain_imports`] binds as `from . import solve as _solve`.
+fn envelope_safe_annotation(id: &str, surface: &DtoSurface, annotation: String) -> String {
+    let envelope = format!("{id}Request");
+    if !surface.roots.contains(&envelope.as_str()) {
+        return annotation;
+    }
+    qualify_identifier(
+        &annotation,
+        &envelope,
+        &format!("_{}.{envelope}", surface.module),
+    )
+}
+
+/// Replace every whole-identifier occurrence of `name` in a Python annotation.
+/// Dotted names are one token, so an already-qualified name is left alone.
+fn qualify_identifier(text: &str, name: &str, qualified: &str) -> String {
+    let mut out = String::with_capacity(text.len() + qualified.len());
+    let mut token = String::new();
+    for ch in text.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' {
+            token.push(ch);
+            continue;
+        }
+        out.push_str(if token == name { qualified } else { &token });
+        token.clear();
+        out.push(ch);
+    }
+    out.push_str(if token == name { qualified } else { &token });
+    out
 }
 
 /// Python keywords a wire field name may collide with. A model field is then emitted
@@ -616,7 +651,17 @@ fn push_domain_imports(out: &mut String, descriptors: &[MethodDescriptor], body:
     // Always the exploded, magic-trailing-comma form: the one-line form exceeds the
     // formatter's width once a module uses several checkers, and a formatter that
     // rewrites generated output would fight `--check` forever.
+    let mut surfaces: Vec<_> = DTO_SURFACES.iter().collect();
+    surfaces.sort_unstable_by_key(|surface| surface.module);
+    // isort puts the package-relative module imports (`from . import x as _x`)
+    // before every `from .module import ...` statement.
     let mut emitted_local_import = false;
+    for surface in &surfaces {
+        if body.contains(&format!("_{}.", surface.module)) {
+            let _ = writeln!(out, "from . import {0} as _{0}", surface.module);
+            emitted_local_import = true;
+        }
+    }
     if !imports.is_empty() {
         out.push_str("from ._runtime import (\n");
         for name in &imports {
@@ -625,8 +670,6 @@ fn push_domain_imports(out: &mut String, descriptors: &[MethodDescriptor], body:
         out.push_str(")\n");
         emitted_local_import = true;
     }
-    let mut surfaces: Vec<_> = DTO_SURFACES.iter().collect();
-    surfaces.sort_unstable_by_key(|surface| surface.module);
     for surface in surfaces {
         let before = out.len();
         push_surface_import(out, descriptors, body, surface);
@@ -666,6 +709,10 @@ fn push_surface_import(
         .roots
         .iter()
         .filter(|root| body.contains(**root))
+        // A root the module defines itself (the request envelope) is reached
+        // through the qualified module import instead; importing it would
+        // shadow the envelope (ruff F811).
+        .filter(|root| !body.contains(&format!("class {root}(")))
         .copied()
         .collect();
     for adapter in TYPED_OPERATION_ADAPTERS

@@ -665,16 +665,19 @@ fn source_ingestion_digest_marker_matches_rust_contract_constants() {
 /// case-insensitive order within a statement, and a public re-export the module
 /// never references emitted as an explicit `Name as Name`, one statement each
 /// (a plain import would be an unused-import F401).
+/// One generated artifact's text.
+fn generated_module(catalog: &Catalog, path: &str) -> String {
+    artifacts(catalog)
+        .into_iter()
+        .find(|artifact| artifact.path == path)
+        .map(|artifact| String::from_utf8(artifact.bytes).expect("UTF-8"))
+        .unwrap_or_else(|| panic!("{path} is generated"))
+}
+
 #[test]
 fn generated_imports_are_in_isort_form_with_explicit_reexports() {
     let catalog = Catalog::collect();
-    let module = |path: &str| {
-        artifacts(&catalog)
-            .into_iter()
-            .find(|artifact| artifact.path == path)
-            .map(|artifact| String::from_utf8(artifact.bytes).expect("UTF-8"))
-            .unwrap_or_else(|| panic!("{path} is generated"))
-    };
+    let module = |path: &str| generated_module(&catalog, path);
     let reasoning = module("epistemic_graph/generated/reasoning.py");
     let reexport = "from .rdf_report import OwlPropertyFact as OwlPropertyFact\n";
     assert!(reasoning.contains(&format!(")\n{reexport}")));
@@ -693,4 +696,41 @@ fn generated_imports_are_in_isort_form_with_explicit_reexports() {
     assert!(ingestion.contains(
         "    SourceIngestionReceipt,\n    SourceIngestionRequest,\n    SourceIngestStatus,\n"
     ));
+}
+
+/// A request envelope `{Method}Request` that wraps a DTO root of the same name
+/// (`Solve` -> `SolveRequest`, `DecisionCommit` -> `DecisionCommitRequest`)
+/// types its field through the DTO module. Importing the root by name would
+/// shadow the envelope (ruff F811) and make it a self-referential model.
+#[test]
+fn a_request_envelope_never_shadows_its_dto_root() {
+    let catalog = Catalog::collect();
+    let module = |path: &str| generated_module(&catalog, path);
+    for (path, dto, root) in [
+        (
+            "epistemic_graph/generated/compute.py",
+            "solve",
+            "SolveRequest",
+        ),
+        (
+            "epistemic_graph/generated/storage.py",
+            "decision_commit",
+            "DecisionCommitRequest",
+        ),
+    ] {
+        let source = module(path);
+        assert!(
+            source.contains(&format!("from . import {dto} as _{dto}\n")),
+            "{path}"
+        );
+        assert!(
+            source.contains(&format!("class {root}(BaseModel):")),
+            "{path}"
+        );
+        assert!(
+            source.contains(&format!("    request: _{dto}.{root}\n")),
+            "{path}"
+        );
+        assert!(!source.contains(&format!("    {root},\n")), "{path}");
+    }
 }
