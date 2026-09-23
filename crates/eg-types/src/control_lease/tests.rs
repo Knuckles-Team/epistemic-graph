@@ -103,3 +103,56 @@ fn only_the_declared_edges_are_legal() {
         }
     }
 }
+
+#[test]
+fn a_lease_listing_selects_the_tenants_leases_by_kind_status_and_grant() {
+    use crate::keyset_page::{KeysetListing, KeysetScan};
+    let mut approval = issue();
+    approval.kind = "action.approval".into();
+    approval
+        .grant
+        .insert("request_digest".into(), serde_json::json!("d-1"));
+    let rows = [
+        ("a-1", approval.row()),
+        ("b-1", issue().row()),
+        (
+            "c-1",
+            IssueControlLeaseRequest {
+                tenant: "tenant-b".into(),
+                ..approval.clone()
+            }
+            .row(),
+        ),
+    ];
+    let request = ListControlLeasesRequest {
+        tenant: "tenant-a".into(),
+        kind: Some("action.approval".into()),
+        status: Some(ControlLeaseStatus::Active),
+        grant_match: serde_json::json!({"request_digest": "d-1"})
+            .as_object()
+            .cloned(),
+        cursor: None,
+        limit: 10,
+    };
+    request.validate().unwrap();
+    let mut scan = KeysetScan::new(&request);
+    for (id, row) in &rows {
+        assert!(scan.admits_another_row());
+        scan.consume(id, 10, row).unwrap();
+    }
+    let page = scan.finish();
+    let ids: Vec<&str> = page
+        .items
+        .iter()
+        .map(|lease| lease.lease_id.as_str())
+        .collect();
+    assert_eq!(ids, ["a-1"]);
+    assert_eq!(page.next_cursor, None);
+    assert_eq!(request.limit(), 10);
+    assert!(ListControlLeasesRequest {
+        limit: 0,
+        ..request
+    }
+    .validate()
+    .is_err());
+}

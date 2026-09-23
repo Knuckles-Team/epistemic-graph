@@ -186,6 +186,7 @@ METHOD_IDS = frozenset(
         "GetWorkItemOutcome",
         "IssueControlLease",
         "TransitionControlLease",
+        "ListControlLeases",
         "GetControlLease",
         "ReserveWorkItemResources",
         "ReleaseWorkItemResources",

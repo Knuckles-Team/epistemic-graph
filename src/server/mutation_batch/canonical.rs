@@ -636,6 +636,7 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::ListWorkItems { .. }
         | Method::GetWorkItemOutcome { .. }
         | Method::GetControlLease { .. }
+        | Method::ListControlLeases { .. }
         | Method::MutationOutbox { .. } => default_mutation_domain(surface),
         // `DecisionFit`/`DecisionEval` are NOT surface-keyed: both commit a native
         // MutationBatch in jobs.redb -- the same job-plane store `AnalyticsJob`

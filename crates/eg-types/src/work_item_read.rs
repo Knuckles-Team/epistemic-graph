@@ -24,16 +24,12 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::keyset_page::{matches_pairs, validate_pair_filter, KeysetListing, KeysetPage};
 use crate::native_control::MAX_SUBMIT_REF_BYTES;
 use crate::tenant_cursor::CursorFamily;
 
 /// Most WorkItems one `ListWorkItems` page may return.
 pub const MAX_WORK_ITEM_LIST_LIMIT: u32 = 100;
-/// Most node rows one page may examine. Rows of other node types count: they
-/// are what makes an empty-but-resumable page possible.
-pub const MAX_WORK_ITEM_LIST_SCAN: usize = 1_024;
-/// Most stored row bytes one page may examine (the response-size bound).
-pub const MAX_WORK_ITEM_LIST_BYTES: usize = 4 * 1024 * 1024;
 /// Longest opaque cursor a caller may hand back.
 pub const MAX_WORK_ITEM_LIST_CURSOR_BYTES: usize = 16 * 1024;
 /// The row property the native WorkItem writer bumps on every row write. The
@@ -55,9 +51,6 @@ pub const NATIVE_WORK_ITEM_ROW_KEYS: [&str; 5] = [
     WORK_ITEM_TRACE_REF,
     WORK_ITEM_TOOL_CALL_REFS,
 ];
-
-/// Most metadata keys one `ListWorkItems` `metadata_match` may name.
-pub const MAX_WORK_ITEM_METADATA_MATCH_KEYS: usize = 8;
 
 /// `SubmitWorkItem`'s own bound on a WorkItem id, reused for the tenant.
 const MAX_WORK_ITEM_ID_BYTES: usize = 512;
@@ -262,7 +255,7 @@ impl WorkItemListRequest {
         if let Some(kind) = &self.kind {
             bounded("kind", kind, MAX_SUBMIT_REF_BYTES)?;
         }
-        self.validate_metadata_match()?;
+        validate_pair_filter("ListWorkItems metadata_match", self.metadata_match.as_ref())?;
         if self.limit == 0 || self.limit > MAX_WORK_ITEM_LIST_LIMIT {
             return Err(format!(
                 "ListWorkItems limit must be 1..={MAX_WORK_ITEM_LIST_LIMIT}"
@@ -271,29 +264,10 @@ impl WorkItemListRequest {
         Ok(())
     }
 
-    fn validate_metadata_match(&self) -> Result<(), String> {
-        let Some(wanted) = &self.metadata_match else {
-            return Ok(());
-        };
-        if wanted.is_empty() || wanted.len() > MAX_WORK_ITEM_METADATA_MATCH_KEYS {
-            return Err(format!(
-                "ListWorkItems metadata_match must name 1..={MAX_WORK_ITEM_METADATA_MATCH_KEYS} keys"
-            ));
-        }
-        wanted
-            .keys()
-            .try_for_each(|key| bounded("metadata_match key", key, MAX_WORK_ITEM_ID_BYTES))
-    }
-
     /// Whether one visible item passes the kind and metadata filters.
     pub fn admits(&self, view: &WorkItemView) -> bool {
         let kind_ok = self.kind.as_deref().is_none_or(|kind| view.kind == kind);
-        let metadata_ok = self.metadata_match.as_ref().is_none_or(|wanted| {
-            wanted
-                .iter()
-                .all(|(key, value)| view.metadata.get(key) == Some(value))
-        });
-        kind_ok && metadata_ok
+        kind_ok && matches_pairs(self.metadata_match.as_ref(), &view.metadata)
     }
 
     /// The row key a cursor resumes strictly after, refused by name when it
@@ -317,68 +291,33 @@ fn bounded(field: &str, value: &str, max_bytes: usize) -> Result<(), String> {
     Ok(())
 }
 
-/// One `ListWorkItems` page under construction, fed rows in key order.
-///
-/// Every bound is checked BEFORE a row is consumed, never after, so the
-/// cursor always resumes strictly after a row the caller has already been
-/// shown (or skipped as not theirs).
-pub struct WorkItemPageScan<'r> {
-    request: &'r WorkItemListRequest,
-    items: Vec<WorkItemView>,
-    scanned: usize,
-    bytes: usize,
-    last_consumed: Option<String>,
-    truncated: bool,
+impl KeysetListing for WorkItemListRequest {
+    type Item = WorkItemView;
+    const CURSOR: CursorFamily = WORK_ITEM_LIST_CURSOR;
+
+    fn tenant(&self) -> &str {
+        &self.tenant
+    }
+
+    fn limit(&self) -> usize {
+        self.limit as usize
+    }
+
+    fn select(
+        &self,
+        row_id: &str,
+        row: &Map<String, Value>,
+    ) -> Result<Option<WorkItemView>, String> {
+        let view = WorkItemView::from_tenant_row(row_id, row, &self.tenant)?;
+        Ok(view.filter(|view| self.admits(view)))
+    }
 }
 
-impl<'r> WorkItemPageScan<'r> {
-    pub fn new(request: &'r WorkItemListRequest) -> Self {
+impl From<KeysetPage<WorkItemView>> for WorkItemPage {
+    fn from(page: KeysetPage<WorkItemView>) -> Self {
         Self {
-            request,
-            items: Vec::new(),
-            scanned: 0,
-            bytes: 0,
-            last_consumed: None,
-            truncated: false,
-        }
-    }
-
-    /// Whether the page may examine one more row. `false` closes the page:
-    /// the caller stops scanning and the page will carry a cursor.
-    pub fn admits_another_row(&mut self) -> bool {
-        let full = self.items.len() >= self.request.limit as usize
-            || self.scanned >= MAX_WORK_ITEM_LIST_SCAN
-            || (self.scanned > 0 && self.bytes >= MAX_WORK_ITEM_LIST_BYTES);
-        self.truncated |= full;
-        !full
-    }
-
-    /// Consume one examined row of `row_bytes` stored bytes.
-    pub fn consume(
-        &mut self,
-        row_id: &str,
-        row_bytes: usize,
-        row: &Map<String, Value>,
-    ) -> Result<(), String> {
-        self.scanned += 1;
-        self.bytes = self.bytes.saturating_add(row_bytes);
-        let view = WorkItemView::from_tenant_row(row_id, row, &self.request.tenant)?;
-        if let Some(view) = view.filter(|view| self.request.admits(view)) {
-            self.items.push(view);
-        }
-        self.last_consumed = Some(row_id.to_string());
-        Ok(())
-    }
-
-    /// Close the page, minting a cursor when a bound stopped it early.
-    pub fn finish(self) -> WorkItemPage {
-        let next_cursor = self
-            .last_consumed
-            .filter(|_| self.truncated)
-            .map(|row_id| WORK_ITEM_LIST_CURSOR.encode(&self.request.tenant, &row_id));
-        WorkItemPage {
-            items: self.items,
-            next_cursor,
+            items: page.items,
+            next_cursor: page.next_cursor,
         }
     }
 }

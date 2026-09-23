@@ -160,3 +160,53 @@ fn a_single_use_lease_is_consumed_once_and_can_still_be_revoked() {
         (ControlLeaseStatus::Revoked, 3)
     );
 }
+
+#[test]
+fn the_pending_approval_queue_lists_only_the_tenants_active_approvals() {
+    use eg_types::control_lease::ListControlLeasesRequest;
+    let temp = open("lease-list");
+    let mut approval = issue("action_approval:1", "tenant-a");
+    approval.kind = "action.approval".into();
+    issued(&temp.shard, "a1", approval.clone());
+    issued(
+        &temp.shard,
+        "a2",
+        IssueControlLeaseRequest {
+            lease_id: "action_approval:2".into(),
+            idempotency_key: "issue:a2".into(),
+            ..approval.clone()
+        },
+    );
+    issued(&temp.shard, "b1", issue("browserlease_1", "tenant-a"));
+    issued(
+        &temp.shard,
+        "c1",
+        IssueControlLeaseRequest {
+            tenant: "tenant-b".into(),
+            lease_id: "action_approval:3".into(),
+            ..approval
+        },
+    );
+    transitioned(
+        &temp.shard,
+        "deny",
+        end("action_approval:2", 1, ControlLeaseTarget::Revoked),
+    );
+
+    let request = ListControlLeasesRequest {
+        tenant: "tenant-a".into(),
+        kind: Some("action.approval".into()),
+        status: Some(ControlLeaseStatus::Active),
+        grant_match: None,
+        cursor: None,
+        limit: 10,
+    };
+    let page = list_control_leases(&temp.shard, GRAPH, &request, DurableCrypto::none()).unwrap();
+    let ids: Vec<&str> = page
+        .leases
+        .iter()
+        .map(|lease| lease.lease_id.as_str())
+        .collect();
+    assert_eq!(ids, ["action_approval:1"]);
+    assert_eq!(page.next_cursor, None);
+}

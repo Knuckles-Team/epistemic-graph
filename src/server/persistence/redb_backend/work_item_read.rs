@@ -5,7 +5,7 @@
 //! the redb authority holds native WorkItem rows, and the handler reaches it
 //! through `PersistenceBackend::as_redb`, failing closed on any other backend.
 
-use eg_types::control_lease::ControlLeaseView;
+use eg_types::control_lease::{ControlLeasePage, ControlLeaseView, ListControlLeasesRequest};
 use eg_types::work_item_read::{
     WorkItemListRequest, WorkItemOutcomeView, WorkItemPage, WorkItemView,
 };
@@ -19,6 +19,14 @@ type TenantPointRead<T> = for<'a> fn(
     &str,
     &str,
     &str,
+    crate::redb_store::DurableCrypto<'a>,
+) -> Result<T, String>;
+
+/// A snapshot listing keyed by `(graph, request)`.
+type TenantListRead<Q, T> = for<'a> fn(
+    &'a crate::redb_store::Shard,
+    &str,
+    &Q,
     crate::redb_store::DurableCrypto<'a>,
 ) -> Result<T, String>;
 
@@ -76,15 +84,35 @@ impl RedbBackend {
             .await
     }
 
+    /// `ListControlLeases`: one bounded, tenant-bound page.
+    pub(crate) async fn list_control_leases(
+        &self,
+        graph_fname: &str,
+        request: ListControlLeasesRequest,
+    ) -> Result<ControlLeasePage, String> {
+        let read: TenantListRead<_, _> = crate::redb_store::work_item::list_control_leases;
+        self.tenant_list_read(graph_fname, request, read).await
+    }
+
     /// `ListWorkItems`: one bounded, tenant-bound page.
     pub(crate) async fn list_work_items(
         &self,
         graph_fname: &str,
         request: WorkItemListRequest,
     ) -> Result<WorkItemPage, String> {
+        let read: TenantListRead<_, _> = crate::redb_store::work_item::list_work_items;
+        self.tenant_list_read(graph_fname, request, read).await
+    }
+
+    async fn tenant_list_read<Q: Send + 'static, T: Send + 'static>(
+        &self,
+        graph_fname: &str,
+        request: Q,
+        read: TenantListRead<Q, T>,
+    ) -> Result<T, String> {
         let graph = graph_fname.to_owned();
         self.read_snapshot(graph_fname, move |shard, crypto| {
-            crate::redb_store::work_item::list_work_items(shard, &graph, &request, crypto)
+            read(shard, &graph, &request, crypto)
         })
         .await
     }

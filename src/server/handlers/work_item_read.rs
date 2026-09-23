@@ -34,6 +34,8 @@ pub(crate) enum WorkItemRead {
         tenant: String,
         work_item_id: String,
     },
+    /// graph-os EG-5: one page of control leases.
+    ControlLeases(eg_types::control_lease::ListControlLeasesRequest),
     /// graph-os EG-2: one native control lease.
     ControlLease {
         tenant: String,
@@ -46,6 +48,7 @@ impl WorkItemRead {
         match self {
             Self::Get { tenant, .. } | Self::Outcome { tenant, .. } => tenant,
             Self::List(request) => &request.tenant,
+            Self::ControlLeases(request) => &request.tenant,
             Self::ControlLease { tenant, .. } => tenant,
         }
     }
@@ -59,7 +62,9 @@ pub(crate) async fn answer(
     persistence: &Option<Arc<dyn PersistenceBackend>>,
     read: WorkItemRead,
 ) -> Response {
-    if let Err(denied) = require_carrier_tenant(read.tenant(), verified_tenant) {
+    if let Err(denied) =
+        super::native_write_authority::require_carrier_tenant(read.tenant(), verified_tenant)
+    {
         crate::metrics::access_denied();
         return Response::err(req_id, denied);
     }
@@ -70,22 +75,13 @@ pub(crate) async fn answer(
     }
 }
 
-/// The request's tenant is a correlation, not an authority claim: it must be
-/// the tenant the verified carrier names.
-pub(crate) fn require_carrier_tenant(requested: &str, verified: &str) -> Result<(), String> {
-    if verified.is_empty() || requested != verified {
-        return Err("ACCESS_DENIED: request tenant must match verified request tenant".into());
-    }
-    Ok(())
-}
-
 async fn serve_native(
     graph: &str,
     persistence: &Option<Arc<dyn PersistenceBackend>>,
     read: WorkItemRead,
 ) -> Result<ResultPayload, String> {
     use eg_types::result_contract::coordination::{
-        GetControlLease, GetWorkItem, GetWorkItemOutcome, ListWorkItems,
+        GetControlLease, GetWorkItem, GetWorkItemOutcome, ListControlLeases, ListWorkItems,
     };
     let backend = persistence
         .as_ref()
@@ -111,6 +107,9 @@ async fn serve_native(
                 .read_work_item_outcome(graph, &tenant, &work_item_id)
                 .await?,
         ),
+        WorkItemRead::ControlLeases(request) => ResultPayload::of::<ListControlLeases>(
+            backend.list_control_leases(graph, request).await?,
+        ),
         WorkItemRead::ControlLease { tenant, lease_id } => ResultPayload::of::<GetControlLease>(
             backend
                 .read_control_lease(graph, &tenant, &lease_id)
@@ -120,19 +119,3 @@ async fn serve_native(
 }
 
 const NATIVE_UNAVAILABLE: &str = "native WorkItem reads require the redb persistence backend";
-
-#[cfg(test)]
-mod tests {
-    use super::require_carrier_tenant;
-
-    #[test]
-    fn only_the_verified_tenant_may_read_its_work_items() {
-        require_carrier_tenant("tenant-a", "tenant-a").unwrap();
-        let denied = require_carrier_tenant("tenant-b", "tenant-a").unwrap_err();
-        assert!(denied.starts_with("ACCESS_DENIED:"), "{denied}");
-        assert!(
-            require_carrier_tenant("", "").is_err(),
-            "an unverified tenant reads nothing"
-        );
-    }
-}

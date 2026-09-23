@@ -216,8 +216,7 @@ async fn route_native_typed_ops(
         Ok(response) => return Ok(response),
         Err(method) => method,
     };
-    #[cfg(feature = "redb")]
-    let method = match refuse_foreign_control_lease_writes(ctx, method) {
+    let method = match refuse_foreign_native_writes(ctx, method) {
         Ok(response) => return Ok(response),
         Err(method) => method,
     };
@@ -263,6 +262,9 @@ async fn route_work_item_reads(
             tenant,
             work_item_id,
         },
+        Method::ListControlLeases { request } => {
+            handlers::work_item_read::WorkItemRead::ControlLeases(request)
+        }
         Method::GetControlLease { tenant, lease_id } => {
             handlers::work_item_read::WorkItemRead::ControlLease { tenant, lease_id }
         }
@@ -291,30 +293,33 @@ async fn route_work_item_reads(
     .await)
 }
 
-/// graph-os EG-2: a control-lease write names its tenant in the body, and that
-/// tenant must be the VERIFIED carrier tenant -- no aggregate or `kg:admin`
-/// exception. A matching write falls through (`Err`) to the WorkItem handler,
-/// which commits it through the shared durable WorkItem kernel.
-#[cfg(feature = "redb")]
-fn refuse_foreign_control_lease_writes(
+/// Every WorkItem-kernel write binds its body tenant to the verified carrier
+/// tenant, and `fleet.` broker streams take writes only from the fleet event
+/// authority (`handlers::native_write_authority`). Replicated state-machine
+/// applies were checked when proposed. A permitted write falls through (`Err`).
+fn refuse_foreign_native_writes(
     ctx: GraphOpRouting<'_>,
     method: Method,
 ) -> Result<Response, Method> {
-    let named = match &method {
-        Method::IssueControlLease { request } => Some(request.tenant.as_str()),
-        Method::TransitionControlLease { request } => Some(request.tenant.as_str()),
-        _ => None,
+    use handlers::native_write_authority::{
+        refuse_foreign_native_write, FleetAuthority, FLEET_EVENT_ACTION,
     };
-    let denied = named.and_then(|tenant| {
-        handlers::work_item_read::require_carrier_tenant(tenant, ctx.verified_context.tenant())
-            .err()
-    });
-    match denied {
-        Some(denied) => {
+    if ctx.state_machine_authorized {
+        return Err(method);
+    }
+    let verified = ctx.verified_context;
+    let fleet_authority =
+        if verified.allows_action(FLEET_EVENT_ACTION) || verified.allows_action("kg:admin") {
+            FleetAuthority::Held
+        } else {
+            FleetAuthority::Absent
+        };
+    match refuse_foreign_native_write(&method, verified.tenant(), fleet_authority) {
+        Ok(()) => Err(method),
+        Err(denied) => {
             crate::metrics::access_denied();
             Ok(Response::err(ctx.req_id, denied))
         }
-        None => Err(method),
     }
 }
 

@@ -1347,6 +1347,57 @@ async def send_transition_control_lease(
     return OpaqueResult("TransitionControlLease", payload)
 
 
+class ListControlLeasesRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        ListControlLeases
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/ListControlLeases
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    request: Any
+
+
+async def send_list_control_leases(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        ListControlLeases
+    Authorization:
+        lease:read
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/ListControlLeases
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    ListControlLeasesRequest.model_validate(params or {})
+    payload = await client._send(
+        "ListControlLeases",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("ListControlLeases", payload)
+
+
 class GetControlLeaseRequest(BaseModel):
     """Validate one engine-contract request body.
 

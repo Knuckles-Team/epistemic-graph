@@ -4835,6 +4835,41 @@ class ControlLeaseClient:
             return None
         return _control_lease_view(value)
 
+    async def list(
+        self,
+        *,
+        tenant: str,
+        kind: str | None = None,
+        status: Literal["active", "consumed", "revoked", "expired"] | None = None,
+        grant_match: dict[str, Any] | None = None,
+        cursor: str | None = None,
+        limit: int = 100,
+    ) -> dict[str, Any]:
+        """Return one bounded page ``{"leases": [...], "next_cursor": ...}`` of
+        ``tenant``'s control leases, optionally of one ``kind``/``status`` and
+        whose grant holds every ``grant_match`` pair exactly (1..=8 keys) --
+        e.g. the pending ``action.approval`` queue. A page may be empty and
+        still carry ``next_cursor``: loop until it is ``None``."""
+        request: dict[str, Any] = {
+            "tenant": _string("ListControlLeases.tenant", tenant),
+            "kind": kind,
+            "status": status,
+            "grant_match": None if grant_match is None else dict(grant_match),
+            "cursor": cursor,
+            "limit": _integer("ListControlLeases.limit", limit, minimum=1, maximum=100),
+        }
+        value = (
+            await _gen.coordination.send_list_control_leases(
+                self._client, {"request": request}
+            )
+        ).payload
+        if not isinstance(value, dict) or not isinstance(value.get("leases"), list):
+            raise RuntimeError("ListControlLeases returned a malformed page")
+        return {
+            "leases": [_control_lease_view(lease) for lease in value["leases"]],
+            "next_cursor": value.get("next_cursor"),
+        }
+
     async def transition(
         self,
         *,

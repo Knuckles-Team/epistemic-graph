@@ -201,6 +201,7 @@
 | `GetWorkItemOutcome` | false | None | `work:read` | true | false | false | Snapshot | tenant-bound terminal WorkItem plus the provenance its native commit bound; the OutcomeEvaluation receipt is digest-verified |
 | `IssueControlLease` | true | GraphRedb | `lease:write` | true | true | false | Atomic | tenant-bound immutable grant record in the WorkItem MutationBatch; an existing id is a collision, never an overwrite |
 | `TransitionControlLease` | true | GraphRedb | `lease:write` | true | true | false | Atomic | one-way active to revoked/expired, CAS on the read revision |
+| `ListControlLeases` | false | None | `lease:read` | true | false | false | Snapshot | bounded tenant-bound control-lease page filtered by kind/status/grant pairs |
 | `GetControlLease` | false | None | `lease:read` | true | false | false | Snapshot | tenant-bound native control-lease view |
 | `ReserveWorkItemResources` | true | GraphRedb | `resource:reserve` | true | true | false | Atomic | controller-only atomic host admission and WorkItem fence validation |
 | `ReleaseWorkItemResources` | true | GraphRedb | `resource:reserve` | true | true | false | Atomic | controller-only lifecycle release with retained tombstone |

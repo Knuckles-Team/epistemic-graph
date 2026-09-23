@@ -88,6 +88,7 @@ pub(super) fn append_native_work_item_ops(ops: &mut Vec<&'static str>, available
             "IssueControlLease",
             "TransitionControlLease",
             "GetControlLease",
+            "ListControlLeases",
         ]);
     }
 }
@@ -450,6 +451,7 @@ mod native_resource_capability_tests {
                 "IssueControlLease",
                 "TransitionControlLease",
                 "GetControlLease",
+                "ListControlLeases",
             ] {
                 assert_eq!(ops.contains(&op), available, "{op} when {available}");
             }

@@ -5781,6 +5781,24 @@
       ],
       "type": "object"
     },
+    "ControlLeaseStatus": {
+      "description": "Where a control lease is in its one-way lifecycle.",
+      "oneOf": [
+        {
+          "enum": [
+            "active",
+            "revoked",
+            "expired"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "consumed",
+          "description": "A single-use grant that has been spent; still live until it is\nrevoked or expires.",
+          "type": "string"
+        }
+      ]
+    },
     "ControlLeaseTarget": {
       "description": "The state a transition moves a lease to.",
       "enum": [
@@ -11579,6 +11597,60 @@
         "average"
       ],
       "type": "string"
+    },
+    "ListControlLeasesRequest": {
+      "additionalProperties": false,
+      "description": "`ListControlLeases`: one bounded page of `tenant`'s control leases, e.g. the\npending `action.approval` leases (graph-os EG-5). Pages by the same\nthree-bound keyset rule as `ListWorkItems`; the cursor is tenant-bound.",
+      "properties": {
+        "cursor": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "grant_match": {
+          "additionalProperties": true,
+          "default": null,
+          "description": "Keep only leases whose grant holds every one of these top-level pairs\nexactly (at most 8 keys).",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "kind": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "limit": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ControlLeaseStatus"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tenant": {
+          "description": "Must equal the verified request tenant.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenant",
+        "limit"
+      ],
+      "type": "object"
     },
     "LogicalName": {
       "description": "Validated graph or native-resource name with no filesystem semantics.",
@@ -27923,6 +27995,33 @@
               "required": [
                 "tenant",
                 "lease_id"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "One bounded page of `request.tenant`'s control leases, filtered by\nkind, status and exact grant pairs (graph-os EG-5: the pending\n`action.approval` queue). `null`-free: an empty page may still carry a\ncursor.",
+          "properties": {
+            "method": {
+              "const": "ListControlLeases",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "request": {
+                  "$ref": "#/$defs/ListControlLeasesRequest"
+                }
+              },
+              "required": [
+                "request"
               ],
               "type": "object"
             }

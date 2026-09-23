@@ -14,7 +14,9 @@ pub use resources::*;
 pub use statechart::*;
 pub use work_items::*;
 
-use crate::control_lease::{ControlLeaseIssued, ControlLeaseTransition, ControlLeaseView};
+use crate::control_lease::{
+    ControlLeaseIssued, ControlLeasePage, ControlLeaseTransition, ControlLeaseView,
+};
 use crate::decision::DecisionJobRecord;
 use crate::delegation::KgDelegateResult;
 use crate::epistemic_operations::{
@@ -63,6 +65,7 @@ method_results! {
     IssueControlLease(IssueControlLease) => Json<ControlLeaseIssued>;
     TransitionControlLease(TransitionControlLease) => Json<ControlLeaseTransition>;
     GetControlLease(GetControlLease) => Raw<Option<ControlLeaseView>>;
+    ListControlLeases(ListControlLeases) => Raw<ControlLeasePage>;
     ReserveWorkItemResources(ReserveWorkItemResources) => Raw<ResourceReservationResult>;
     ReleaseWorkItemResources(ReleaseWorkItemResources) => Raw<ResourceReservationResult>;
     ReclaimWorkItemResources(ReclaimWorkItemResources) => Raw<ResourceReservationResult>;

@@ -4,7 +4,8 @@
 //!
 //! * a `ControlLease` row (graph-os EG-2) -- its grant, timing and lifecycle.
 //!   A generic writer could otherwise re-activate a revoked lease, extend its
-//!   expiry, or plant a forged one;
+//!   expiry, or plant a forged one -- and an `ActionApproval` row (graph-os
+//!   EG-5), which is filed and decided only as an `action.approval` lease;
 //! * the kernel-owned fields of a WorkItem row -- `row_revision` (the `version`
 //!   the typed reads project) and the provenance references a terminal commit
 //!   binds (`outcome_ref`, `outcome_digest`, `trace_ref`, `tool_call_refs`,
@@ -14,7 +15,6 @@
 //! the generic row applier, so every generic node write -- single, batched or
 //! create-if-absent -- is checked in the same durable transaction it commits in.
 
-use eg_types::control_lease::is_control_lease_row;
 use eg_types::work_item_read::NATIVE_WORK_ITEM_ROW_KEYS;
 
 use super::*;
@@ -22,7 +22,15 @@ use super::*;
 type NodeRows<'a> = ScopedOwnerTableMut<'a, (&'static str, &'static str), &'static [u8]>;
 type NodeMap = serde_json::Map<String, serde_json::Value>;
 
-const LEASE_AUTHORITY: &str = "native control-lease authority required for a ControlLease row";
+const LEASE_AUTHORITY: &str =
+    "native control-lease authority required for a ControlLease or ActionApproval row";
+
+/// Node labels whose rows only a native authority writes: `ControlLease`
+/// (graph-os EG-2) and `ActionApproval` (graph-os EG-5 -- approvals are filed
+/// and decided as `action.approval` control leases, never as generic nodes).
+/// Matched on every field EG's label index reads (`type`, `node_type`,
+/// `label`, `labels[]`), so no spelling of the label slips past.
+const NATIVE_ONLY_LABELS: [&str; 2] = ["ControlLease", "ActionApproval"];
 const NATIVE_KEY_AUTHORITY: &str =
     "native WorkItem authority required for a kernel-owned row field";
 
@@ -74,7 +82,7 @@ impl RowGuard<'_, '_> {
         let Ok(incoming) = decode_durable::<NodeMap>(incoming) else {
             return Ok(());
         };
-        if is_control_lease_row(&incoming) {
+        if carries_native_only_label(&incoming) {
             return Err(LEASE_AUTHORITY.to_string());
         }
         let native_row = stored.as_ref().is_some_and(is_work_item_row);
@@ -118,10 +126,26 @@ impl RowGuard<'_, '_> {
 }
 
 fn refuse_stored_lease(stored: Option<&NodeMap>) -> Result<(), String> {
-    if stored.is_some_and(is_control_lease_row) {
+    if stored.is_some_and(carries_native_only_label) {
         return Err(LEASE_AUTHORITY.to_string());
     }
     Ok(())
+}
+
+/// Whether a row carries a label only a native authority may write.
+fn carries_native_only_label(row: &NodeMap) -> bool {
+    let scalar = ["type", "node_type", "label"]
+        .iter()
+        .filter_map(|key| row.get(*key).and_then(serde_json::Value::as_str));
+    let listed = row
+        .get("labels")
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str);
+    scalar
+        .chain(listed)
+        .any(|label| NATIVE_ONLY_LABELS.contains(&label))
 }
 
 fn is_work_item_row(row: &NodeMap) -> bool {
@@ -190,6 +214,19 @@ mod tests {
             updates_msgpack: msgpack(serde_json::json!({"outcome_ref": "forged"})),
         };
         assert!(check(&temp.shard, "repoint", repoint).is_err());
+
+        let approval = Method::AddNode {
+            node_id: "action_approval:1".into(),
+            properties_msgpack: msgpack(serde_json::json!({"labels": ["ActionApproval"]})),
+        };
+        assert!(check(&temp.shard, "approval", approval).is_err());
+        let approved = Method::CreateNodeIfAbsent {
+            node_id: "action_approval:2".into(),
+            properties_msgpack: msgpack(
+                serde_json::json!({"node_type": "ActionApproval", "status": "approved"}),
+            ),
+        };
+        assert!(check(&temp.shard, "approved", approved).is_err());
 
         let ordinary = Method::AddNode {
             node_id: "plain".into(),
