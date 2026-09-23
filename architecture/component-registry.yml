@@ -3840,6 +3840,7 @@ components:
       - "tests/test_blob_cursor_lifecycle.py"
       - "tests/test_bounded_test_runner_contract.py"
       - "tests/test_build_backend.py"
+      - "tests/test_cargo_test_rescue.py"
       - "tests/test_cep_standing_queries.py"
       - "tests/test_certify_exact_multimodal_assert_page.py"
       - "tests/test_check_complexity_staged.py"

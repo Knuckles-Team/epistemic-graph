@@ -41,6 +41,9 @@ SCRIPT_PATH = REPO_ROOT / "scripts" / "ci_gate_replica.py"
 # The release-critical cargo selections run in three parallel jobs. Guards
 # below that used to look inside `gates` alone look across all three.
 GATES_JOBS = ("gates", "gates-facade", "gates-variants")
+# Every `cargo test` step runs through the EH-376 signal rescue (per-test
+# verdicts when a test binary dies on a signal); see scripts/cargo_test_rescue.py.
+RESCUE = "python3 scripts/cargo_test_rescue.py "
 
 
 def _gates_steps(doc) -> list[dict]:
@@ -198,21 +201,24 @@ def test_gates_job_runs_real_prerequisite_backed_vacuity_sweep_tests():
     assert rows[required[4]]["mode"] == "RUN"
     assert all(rows[name]["blocking"] is True for name in required)
     assert rows[required[1]]["detail"] == (
-        "cargo test --locked -p eg-sqlite-format --test differential --no-fail-fast"
+        f"{RESCUE}cargo test --locked -p eg-sqlite-format --test differential "
+        "--no-fail-fast"
     )
     assert rows[required[4]]["detail"] == (
-        "cargo test --locked -p eg-asr-whisper --test real_transcription --no-fail-fast"
+        f"{RESCUE}cargo test --locked -p eg-asr-whisper --test real_transcription "
+        "--no-fail-fast"
     )
 
 
 RAFT_CLUSTER_GATES = {
     "Test (raft cluster — consensus, placement, and multi-group unit tests)": (
-        "cargo test --locked -p epistemic-graph --features cluster,harness,calvin "
-        "--lib --no-fail-fast -- raft::"
+        f"{RESCUE}cargo test --locked -p epistemic-graph "
+        "--features cluster,harness,calvin --lib --no-fail-fast -- raft::"
     ),
     "Test (raft cluster — ack-lost commit retry reconciliation)": (
-        "cargo test --locked -p epistemic-graph --features cluster,harness,calvin "
-        "--test txn_reconcile_ack_lost_retry --no-fail-fast"
+        f"{RESCUE}cargo test --locked -p epistemic-graph "
+        "--features cluster,harness,calvin --test txn_reconcile_ack_lost_retry "
+        "--no-fail-fast"
     ),
 }
 
@@ -240,7 +246,7 @@ CAPABILITY_GATE_NAME = "Test (canonical capability policy and generated ledger)"
 # `contract` = `canonical-ledger` + `contract-schema`: it also compiles and runs
 # `tests/contract_generated.rs`, which requires both, so it is the complete profile.
 CAPABILITY_GATE_COMMAND = (
-    "cargo test --locked -p eg-capabilities --features contract --no-fail-fast"
+    f"{RESCUE}cargo test --locked -p eg-capabilities --features contract --no-fail-fast"
 )
 
 
@@ -308,7 +314,7 @@ def test_capability_gate_contract_rejects_a_single_selected_target(selected_targ
     doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
     _set_capability_gate_command(
         doc,
-        f"cargo test --locked -p eg-capabilities --features contract "
+        f"{RESCUE}cargo test --locked -p eg-capabilities --features contract "
         f"--test {selected_target} --no-fail-fast",
     )
     with pytest.raises(AssertionError):
