@@ -6,12 +6,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
 from ._runtime import (
     OpaqueResult,
+    decode_result,
     expect_bool,
     expect_count,
     expect_edgelist,
@@ -19,23 +20,61 @@ from ._runtime import (
     expect_ids,
     expect_nodelist,
     expect_string,
+    models,
 )
 
+if TYPE_CHECKING:
+    from . import models as _models
 
-class AddNodeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        AddNode
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/AddNode
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_id: str
-    properties_msgpack: bytes
+    AddNodeRequest = _models.MethodAddNodeParams
+    CreateNodeIfAbsentRequest = _models.MethodCreateNodeIfAbsentParams
+    RemoveNodeRequest = _models.MethodRemoveNodeParams
+    HasNodeRequest = _models.MethodHasNodeParams
+    GetNodesByLabelRequest = _models.MethodGetNodesByLabelParams
+    GetNodePropertiesRequest = _models.MethodGetNodePropertiesParams
+    CompareAndSetNodeFieldsRequest = _models.MethodCompareAndSetNodeFieldsParams
+    CreateSummaryNodeRequest = _models.MethodCreateSummaryNodeParams
+    ConsolidateRequest = _models.MethodConsolidateParams
+    ReinforceRequest = _models.MethodReinforceParams
+    DecayNodeRequest = _models.MethodDecayNodeParams
+    DecayMemoriesRequest = _models.MethodDecayMemoriesParams
+    EvictBelowRequest = _models.MethodEvictBelowParams
+    MaintainRequest = _models.MethodMaintainParams
+    SummaryChildrenRequest = _models.MethodSummaryChildrenParams
+    SummariesAtLevelRequest = _models.MethodSummariesAtLevelParams
+    StartTrajectoryRequest = _models.MethodStartTrajectoryParams
+    AppendStepRequest = _models.MethodAppendStepParams
+    DiscountedReturnRequest = _models.MethodDiscountedReturnParams
+    BestTrajectoryRequest = _models.MethodBestTrajectoryParams
+    GetNodePropertiesBatchRequest = _models.MethodGetNodePropertiesBatchParams
+    HasNodesBatchRequest = _models.MethodHasNodesBatchParams
+    AddEdgeRequest = _models.MethodAddEdgeParams
+    RemoveEdgeRequest = _models.MethodRemoveEdgeParams
+    InvalidateEdgeRequest = _models.MethodInvalidateEdgeParams
+    SupersedeEdgeRequest = _models.MethodSupersedeEdgeParams
+    HasEdgeRequest = _models.MethodHasEdgeParams
+    GetEdgesPageRequest = _models.MethodGetEdgesPageParams
+    GetEdgePropertiesRequest = _models.MethodGetEdgePropertiesParams
+    GetEdgePropertiesBatchRequest = _models.MethodGetEdgePropertiesBatchParams
+    InDegreeRequest = _models.MethodInDegreeParams
+    OutDegreeRequest = _models.MethodOutDegreeParams
+    GetPredecessorsRequest = _models.MethodGetPredecessorsParams
+    GetSuccessorsRequest = _models.MethodGetSuccessorsParams
+    GetNeighborsRequest = _models.MethodGetNeighborsParams
+    GetNeighborsBatchRequest = _models.MethodGetNeighborsBatchParams
+    UnionGetNodePropertiesRequest = _models.MethodUnionGetNodePropertiesParams
+    UnionGetNodesByLabelRequest = _models.MethodUnionGetNodesByLabelParams
+    UnionGetNeighborsRequest = _models.MethodUnionGetNeighborsParams
+    PruneByLifecycleRequest = _models.MethodPruneByLifecycleParams
+    EvictLRURequest = _models.MethodEvictLRUParams
+    DecaySweepRequest = _models.MethodDecaySweepParams
+    TouchNodesRequest = _models.MethodTouchNodesParams
+    GetSubgraphRequest = _models.MethodGetSubgraphParams
+    DiffAgainstRequest = _models.MethodDiffAgainstParams
+    ReconcileRequest = _models.MethodReconcileParams
+    ApplyMutationRequest = _models.MethodApplyMutationParams
+    AddTriplesRequest = _models.MethodAddTriplesParams
+    RemoveTriplesRequest = _models.MethodRemoveTriplesParams
 
 
 async def send_add_node(
@@ -68,7 +107,7 @@ async def send_add_node(
         - REDIRECTED
         - READ_ONLY
     """
-    AddNodeRequest.model_validate(params or {})
+    models().MethodAddNodeParams.model_validate(params or {})
     payload = await client._send(
         "AddNode",
         params,
@@ -76,22 +115,6 @@ async def send_add_node(
         idempotency_key=idempotency_key,
     )
     return expect_string("AddNode", payload)
-
-
-class CreateNodeIfAbsentRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CreateNodeIfAbsent
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CreateNodeIfAbsent
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_id: str
-    properties_msgpack: bytes
 
 
 async def send_create_node_if_absent(
@@ -124,7 +147,7 @@ async def send_create_node_if_absent(
         - REDIRECTED
         - READ_ONLY
     """
-    CreateNodeIfAbsentRequest.model_validate(params or {})
+    models().MethodCreateNodeIfAbsentParams.model_validate(params or {})
     payload = await client._send(
         "CreateNodeIfAbsent",
         params,
@@ -132,21 +155,6 @@ async def send_create_node_if_absent(
         idempotency_key=idempotency_key,
     )
     return expect_bool("CreateNodeIfAbsent", payload)
-
-
-class RemoveNodeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        RemoveNode
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/RemoveNode
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_id: str
 
 
 async def send_remove_node(
@@ -179,7 +187,7 @@ async def send_remove_node(
         - REDIRECTED
         - READ_ONLY
     """
-    RemoveNodeRequest.model_validate(params or {})
+    models().MethodRemoveNodeParams.model_validate(params or {})
     payload = await client._send(
         "RemoveNode",
         params,
@@ -187,21 +195,6 @@ async def send_remove_node(
         idempotency_key=idempotency_key,
     )
     return expect_string("RemoveNode", payload)
-
-
-class HasNodeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        HasNode
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/HasNode
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_id: str
 
 
 async def send_has_node(
@@ -230,7 +223,7 @@ async def send_has_node(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    HasNodeRequest.model_validate(params or {})
+    models().MethodHasNodeParams.model_validate(params or {})
     payload = await client._send(
         "HasNode",
         params,
@@ -291,23 +284,6 @@ async def send_get_nodes(
     return expect_nodelist("GetNodes", payload)
 
 
-class GetNodesByLabelRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetNodesByLabel
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetNodesByLabel
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    after: str | None = None
-    label: str
-    limit: int
-
-
 async def send_get_nodes_by_label(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -334,7 +310,7 @@ async def send_get_nodes_by_label(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetNodesByLabelRequest.model_validate(params or {})
+    models().MethodGetNodesByLabelParams.model_validate(params or {})
     payload = await client._send(
         "GetNodesByLabel",
         params,
@@ -342,21 +318,6 @@ async def send_get_nodes_by_label(
         idempotency_key=idempotency_key,
     )
     return expect_nodelist("GetNodesByLabel", payload)
-
-
-class GetNodePropertiesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetNodeProperties
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetNodeProperties
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_id: str
 
 
 async def send_get_node_properties(
@@ -386,7 +347,7 @@ async def send_get_node_properties(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetNodePropertiesRequest.model_validate(params or {})
+    models().MethodGetNodePropertiesParams.model_validate(params or {})
     payload = await client._send(
         "GetNodeProperties",
         params,
@@ -394,23 +355,6 @@ async def send_get_node_properties(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("GetNodeProperties", payload)
-
-
-class CompareAndSetNodeFieldsRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CompareAndSetNodeFields
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CompareAndSetNodeFields
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    conditions_msgpack: bytes
-    node_id: str
-    updates_msgpack: bytes
 
 
 async def send_compare_and_set_node_fields(
@@ -443,7 +387,7 @@ async def send_compare_and_set_node_fields(
         - REDIRECTED
         - READ_ONLY
     """
-    CompareAndSetNodeFieldsRequest.model_validate(params or {})
+    models().MethodCompareAndSetNodeFieldsParams.model_validate(params or {})
     payload = await client._send(
         "CompareAndSetNodeFields",
         params,
@@ -451,23 +395,6 @@ async def send_compare_and_set_node_fields(
         idempotency_key=idempotency_key,
     )
     return expect_bool("CompareAndSetNodeFields", payload)
-
-
-class CreateSummaryNodeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CreateSummaryNode
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CreateSummaryNode
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    child_ids: list[str]
-    level: int
-    props_msgpack: bytes
 
 
 async def send_create_summary_node(
@@ -500,7 +427,7 @@ async def send_create_summary_node(
         - REDIRECTED
         - READ_ONLY
     """
-    CreateSummaryNodeRequest.model_validate(params or {})
+    models().MethodCreateSummaryNodeParams.model_validate(params or {})
     payload = await client._send(
         "CreateSummaryNode",
         params,
@@ -508,22 +435,6 @@ async def send_create_summary_node(
         idempotency_key=idempotency_key,
     )
     return expect_string("CreateSummaryNode", payload)
-
-
-class ConsolidateRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        Consolidate
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/Consolidate
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    episodic_ids: list[str]
-    semantic_props_msgpack: bytes
 
 
 async def send_consolidate(
@@ -556,7 +467,7 @@ async def send_consolidate(
         - REDIRECTED
         - READ_ONLY
     """
-    ConsolidateRequest.model_validate(params or {})
+    models().MethodConsolidateParams.model_validate(params or {})
     payload = await client._send(
         "Consolidate",
         params,
@@ -564,23 +475,6 @@ async def send_consolidate(
         idempotency_key=idempotency_key,
     )
     return expect_string("Consolidate", payload)
-
-
-class ReinforceRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        Reinforce
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/Reinforce
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_id: str
-    now_ms: int
-    weight: float
 
 
 async def send_reinforce(
@@ -613,7 +507,7 @@ async def send_reinforce(
         - REDIRECTED
         - READ_ONLY
     """
-    ReinforceRequest.model_validate(params or {})
+    models().MethodReinforceParams.model_validate(params or {})
     payload = await client._send(
         "Reinforce",
         params,
@@ -621,23 +515,6 @@ async def send_reinforce(
         idempotency_key=idempotency_key,
     )
     return expect_bool("Reinforce", payload)
-
-
-class DecayNodeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DecayNode
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DecayNode
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    half_life_ms: int
-    node_id: str
-    now_ms: int
 
 
 async def send_decay_node(
@@ -670,7 +547,7 @@ async def send_decay_node(
         - REDIRECTED
         - READ_ONLY
     """
-    DecayNodeRequest.model_validate(params or {})
+    models().MethodDecayNodeParams.model_validate(params or {})
     payload = await client._send(
         "DecayNode",
         params,
@@ -678,23 +555,6 @@ async def send_decay_node(
         idempotency_key=idempotency_key,
     )
     return expect_bool("DecayNode", payload)
-
-
-class DecayMemoriesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DecayMemories
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DecayMemories
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    half_life_ms: int
-    ids: list[str]
-    now_ms: int
 
 
 async def send_decay_memories(
@@ -727,7 +587,7 @@ async def send_decay_memories(
         - REDIRECTED
         - READ_ONLY
     """
-    DecayMemoriesRequest.model_validate(params or {})
+    models().MethodDecayMemoriesParams.model_validate(params or {})
     payload = await client._send(
         "DecayMemories",
         params,
@@ -735,23 +595,6 @@ async def send_decay_memories(
         idempotency_key=idempotency_key,
     )
     return expect_count("DecayMemories", payload)
-
-
-class EvictBelowRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        EvictBelow
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/EvictBelow
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    delete: bool
-    ids: list[str]
-    threshold: float
 
 
 async def send_evict_below(
@@ -784,7 +627,7 @@ async def send_evict_below(
         - REDIRECTED
         - READ_ONLY
     """
-    EvictBelowRequest.model_validate(params or {})
+    models().MethodEvictBelowParams.model_validate(params or {})
     payload = await client._send(
         "EvictBelow",
         params,
@@ -792,25 +635,6 @@ async def send_evict_below(
         idempotency_key=idempotency_key,
     )
     return expect_ids("EvictBelow", payload)
-
-
-class MaintainRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        Maintain
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/Maintain
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    delete: bool
-    evict_threshold: float
-    half_life_ms: int
-    ids: list[str]
-    now_ms: int
 
 
 async def send_maintain(
@@ -843,7 +667,7 @@ async def send_maintain(
         - REDIRECTED
         - READ_ONLY
     """
-    MaintainRequest.model_validate(params or {})
+    models().MethodMaintainParams.model_validate(params or {})
     payload = await client._send(
         "Maintain",
         params,
@@ -853,19 +677,9 @@ async def send_maintain(
     return OpaqueResult("Maintain", payload)
 
 
-class SummaryChildrenRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        SummaryChildren
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/SummaryChildren
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_id: str
+def decode_maintain(result: OpaqueResult) -> _models.MaintainResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("Maintain", models().MaintainResult, result)
 
 
 async def send_summary_children(
@@ -894,7 +708,7 @@ async def send_summary_children(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    SummaryChildrenRequest.model_validate(params or {})
+    models().MethodSummaryChildrenParams.model_validate(params or {})
     payload = await client._send(
         "SummaryChildren",
         params,
@@ -902,21 +716,6 @@ async def send_summary_children(
         idempotency_key=idempotency_key,
     )
     return expect_ids("SummaryChildren", payload)
-
-
-class SummariesAtLevelRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        SummariesAtLevel
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/SummariesAtLevel
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    level: int
 
 
 async def send_summaries_at_level(
@@ -945,7 +744,7 @@ async def send_summaries_at_level(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    SummariesAtLevelRequest.model_validate(params or {})
+    models().MethodSummariesAtLevelParams.model_validate(params or {})
     payload = await client._send(
         "SummariesAtLevel",
         params,
@@ -953,21 +752,6 @@ async def send_summaries_at_level(
         idempotency_key=idempotency_key,
     )
     return expect_ids("SummariesAtLevel", payload)
-
-
-class StartTrajectoryRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        StartTrajectory
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/StartTrajectory
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    props_msgpack: bytes
 
 
 async def send_start_trajectory(
@@ -1000,7 +784,7 @@ async def send_start_trajectory(
         - REDIRECTED
         - READ_ONLY
     """
-    StartTrajectoryRequest.model_validate(params or {})
+    models().MethodStartTrajectoryParams.model_validate(params or {})
     payload = await client._send(
         "StartTrajectory",
         params,
@@ -1008,26 +792,6 @@ async def send_start_trajectory(
         idempotency_key=idempotency_key,
     )
     return expect_string("StartTrajectory", payload)
-
-
-class AppendStepRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        AppendStep
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/AppendStep
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    action_msgpack: bytes
-    next_state_ref: str | None = None
-    reward: float
-    state_ref: str | None = None
-    t: int
-    traj_id: str
 
 
 async def send_append_step(
@@ -1060,7 +824,7 @@ async def send_append_step(
         - REDIRECTED
         - READ_ONLY
     """
-    AppendStepRequest.model_validate(params or {})
+    models().MethodAppendStepParams.model_validate(params or {})
     payload = await client._send(
         "AppendStep",
         params,
@@ -1070,20 +834,9 @@ async def send_append_step(
     return OpaqueResult("AppendStep", payload)
 
 
-class DiscountedReturnRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DiscountedReturn
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DiscountedReturn
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    gamma: float
-    traj_id: str
+def decode_append_step(result: OpaqueResult) -> _models.AppendStepResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("AppendStep", models().AppendStepResult, result)
 
 
 async def send_discounted_return(
@@ -1112,7 +865,7 @@ async def send_discounted_return(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    DiscountedReturnRequest.model_validate(params or {})
+    models().MethodDiscountedReturnParams.model_validate(params or {})
     payload = await client._send(
         "DiscountedReturn",
         params,
@@ -1120,22 +873,6 @@ async def send_discounted_return(
         idempotency_key=idempotency_key,
     )
     return expect_float("DiscountedReturn", payload)
-
-
-class BestTrajectoryRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        BestTrajectory
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/BestTrajectory
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    gamma: float
-    traj_ids: list[str]
 
 
 async def send_best_trajectory(
@@ -1164,7 +901,7 @@ async def send_best_trajectory(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    BestTrajectoryRequest.model_validate(params or {})
+    models().MethodBestTrajectoryParams.model_validate(params or {})
     payload = await client._send(
         "BestTrajectory",
         params,
@@ -1174,19 +911,9 @@ async def send_best_trajectory(
     return OpaqueResult("BestTrajectory", payload)
 
 
-class GetNodePropertiesBatchRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetNodePropertiesBatch
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetNodePropertiesBatch
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_ids: list[str]
+def decode_best_trajectory(result: OpaqueResult) -> _models.BestTrajectoryResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("BestTrajectory", models().BestTrajectoryResult, result)
 
 
 async def send_get_node_properties_batch(
@@ -1215,7 +942,7 @@ async def send_get_node_properties_batch(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetNodePropertiesBatchRequest.model_validate(params or {})
+    models().MethodGetNodePropertiesBatchParams.model_validate(params or {})
     payload = await client._send(
         "GetNodePropertiesBatch",
         params,
@@ -1225,19 +952,13 @@ async def send_get_node_properties_batch(
     return OpaqueResult("GetNodePropertiesBatch", payload)
 
 
-class HasNodesBatchRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        HasNodesBatch
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/HasNodesBatch
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_ids: list[str]
+def decode_get_node_properties_batch(
+    result: OpaqueResult,
+) -> _models.GetNodePropertiesBatchResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "GetNodePropertiesBatch", models().GetNodePropertiesBatchResult, result
+    )
 
 
 async def send_has_nodes_batch(
@@ -1266,7 +987,7 @@ async def send_has_nodes_batch(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    HasNodesBatchRequest.model_validate(params or {})
+    models().MethodHasNodesBatchParams.model_validate(params or {})
     payload = await client._send(
         "HasNodesBatch",
         params,
@@ -1274,6 +995,11 @@ async def send_has_nodes_batch(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("HasNodesBatch", payload)
+
+
+def decode_has_nodes_batch(result: OpaqueResult) -> _models.HasNodesBatchResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("HasNodesBatch", models().HasNodesBatchResult, result)
 
 
 class NodeCountRequest(BaseModel):
@@ -1378,23 +1104,6 @@ async def send_node_ids(
     return expect_ids("NodeIds", payload)
 
 
-class AddEdgeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        AddEdge
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/AddEdge
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    properties_msgpack: bytes
-    source_id: str
-    target_id: str
-
-
 async def send_add_edge(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -1425,7 +1134,7 @@ async def send_add_edge(
         - REDIRECTED
         - READ_ONLY
     """
-    AddEdgeRequest.model_validate(params or {})
+    models().MethodAddEdgeParams.model_validate(params or {})
     payload = await client._send(
         "AddEdge",
         params,
@@ -1433,22 +1142,6 @@ async def send_add_edge(
         idempotency_key=idempotency_key,
     )
     return expect_string("AddEdge", payload)
-
-
-class RemoveEdgeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        RemoveEdge
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/RemoveEdge
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    source_id: str
-    target_id: str
 
 
 async def send_remove_edge(
@@ -1481,7 +1174,7 @@ async def send_remove_edge(
         - REDIRECTED
         - READ_ONLY
     """
-    RemoveEdgeRequest.model_validate(params or {})
+    models().MethodRemoveEdgeParams.model_validate(params or {})
     payload = await client._send(
         "RemoveEdge",
         params,
@@ -1489,25 +1182,6 @@ async def send_remove_edge(
         idempotency_key=idempotency_key,
     )
     return expect_string("RemoveEdge", payload)
-
-
-class InvalidateEdgeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        InvalidateEdge
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/InvalidateEdge
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    invalid_at: int
-    relationship: str
-    source_id: str
-    target_id: str
-    tx_now: int
 
 
 async def send_invalidate_edge(
@@ -1540,7 +1214,7 @@ async def send_invalidate_edge(
         - REDIRECTED
         - READ_ONLY
     """
-    InvalidateEdgeRequest.model_validate(params or {})
+    models().MethodInvalidateEdgeParams.model_validate(params or {})
     payload = await client._send(
         "InvalidateEdge",
         params,
@@ -1548,28 +1222,6 @@ async def send_invalidate_edge(
         idempotency_key=idempotency_key,
     )
     return expect_count("InvalidateEdge", payload)
-
-
-class SupersedeEdgeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        SupersedeEdge
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/SupersedeEdge
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    prior_relationship: str
-    prior_source: str
-    prior_target: str
-    properties_msgpack: bytes
-    source_id: str
-    target_id: str
-    tx_now: int
-    valid_at: int
 
 
 async def send_supersede_edge(
@@ -1602,7 +1254,7 @@ async def send_supersede_edge(
         - REDIRECTED
         - READ_ONLY
     """
-    SupersedeEdgeRequest.model_validate(params or {})
+    models().MethodSupersedeEdgeParams.model_validate(params or {})
     payload = await client._send(
         "SupersedeEdge",
         params,
@@ -1610,22 +1262,6 @@ async def send_supersede_edge(
         idempotency_key=idempotency_key,
     )
     return expect_string("SupersedeEdge", payload)
-
-
-class HasEdgeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        HasEdge
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/HasEdge
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    source_id: str
-    target_id: str
 
 
 async def send_has_edge(
@@ -1654,7 +1290,7 @@ async def send_has_edge(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    HasEdgeRequest.model_validate(params or {})
+    models().MethodHasEdgeParams.model_validate(params or {})
     payload = await client._send(
         "HasEdge",
         params,
@@ -1715,22 +1351,6 @@ async def send_get_edges(
     return expect_edgelist("GetEdges", payload)
 
 
-class GetEdgesPageRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetEdgesPage
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetEdgesPage
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    after: list[Any] | None = None
-    limit: int
-
-
 async def send_get_edges_page(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -1757,7 +1377,7 @@ async def send_get_edges_page(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetEdgesPageRequest.model_validate(params or {})
+    models().MethodGetEdgesPageParams.model_validate(params or {})
     payload = await client._send(
         "GetEdgesPage",
         params,
@@ -1765,6 +1385,11 @@ async def send_get_edges_page(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("GetEdgesPage", payload)
+
+
+def decode_get_edges_page(result: OpaqueResult) -> _models.GetEdgesPageResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("GetEdgesPage", models().GetEdgesPageResult, result)
 
 
 class ClearGraphRequest(BaseModel):
@@ -1822,22 +1447,6 @@ async def send_clear_graph(
     return expect_string("ClearGraph", payload)
 
 
-class GetEdgePropertiesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetEdgeProperties
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetEdgeProperties
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    source_id: str
-    target_id: str
-
-
 async def send_get_edge_properties(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -1865,7 +1474,7 @@ async def send_get_edge_properties(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetEdgePropertiesRequest.model_validate(params or {})
+    models().MethodGetEdgePropertiesParams.model_validate(params or {})
     payload = await client._send(
         "GetEdgeProperties",
         params,
@@ -1873,21 +1482,6 @@ async def send_get_edge_properties(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("GetEdgeProperties", payload)
-
-
-class GetEdgePropertiesBatchRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetEdgePropertiesBatch
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetEdgePropertiesBatch
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    edges: list[list[Any]]
 
 
 async def send_get_edge_properties_batch(
@@ -1916,7 +1510,7 @@ async def send_get_edge_properties_batch(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetEdgePropertiesBatchRequest.model_validate(params or {})
+    models().MethodGetEdgePropertiesBatchParams.model_validate(params or {})
     payload = await client._send(
         "GetEdgePropertiesBatch",
         params,
@@ -1924,6 +1518,15 @@ async def send_get_edge_properties_batch(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("GetEdgePropertiesBatch", payload)
+
+
+def decode_get_edge_properties_batch(
+    result: OpaqueResult,
+) -> _models.GetEdgePropertiesBatchResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "GetEdgePropertiesBatch", models().GetEdgePropertiesBatchResult, result
+    )
 
 
 class EdgeCountRequest(BaseModel):
@@ -1977,21 +1580,6 @@ async def send_edge_count(
     return expect_count("EdgeCount", payload)
 
 
-class InDegreeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        InDegree
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/InDegree
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_id: str
-
-
 async def send_in_degree(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -2018,7 +1606,7 @@ async def send_in_degree(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    InDegreeRequest.model_validate(params or {})
+    models().MethodInDegreeParams.model_validate(params or {})
     payload = await client._send(
         "InDegree",
         params,
@@ -2026,21 +1614,6 @@ async def send_in_degree(
         idempotency_key=idempotency_key,
     )
     return expect_count("InDegree", payload)
-
-
-class OutDegreeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        OutDegree
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/OutDegree
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_id: str
 
 
 async def send_out_degree(
@@ -2069,7 +1642,7 @@ async def send_out_degree(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    OutDegreeRequest.model_validate(params or {})
+    models().MethodOutDegreeParams.model_validate(params or {})
     payload = await client._send(
         "OutDegree",
         params,
@@ -2077,21 +1650,6 @@ async def send_out_degree(
         idempotency_key=idempotency_key,
     )
     return expect_count("OutDegree", payload)
-
-
-class GetPredecessorsRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetPredecessors
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetPredecessors
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_id: str
 
 
 async def send_get_predecessors(
@@ -2120,7 +1678,7 @@ async def send_get_predecessors(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetPredecessorsRequest.model_validate(params or {})
+    models().MethodGetPredecessorsParams.model_validate(params or {})
     payload = await client._send(
         "GetPredecessors",
         params,
@@ -2128,21 +1686,6 @@ async def send_get_predecessors(
         idempotency_key=idempotency_key,
     )
     return expect_ids("GetPredecessors", payload)
-
-
-class GetSuccessorsRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetSuccessors
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetSuccessors
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_id: str
 
 
 async def send_get_successors(
@@ -2171,7 +1714,7 @@ async def send_get_successors(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetSuccessorsRequest.model_validate(params or {})
+    models().MethodGetSuccessorsParams.model_validate(params or {})
     payload = await client._send(
         "GetSuccessors",
         params,
@@ -2179,21 +1722,6 @@ async def send_get_successors(
         idempotency_key=idempotency_key,
     )
     return expect_ids("GetSuccessors", payload)
-
-
-class GetNeighborsRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetNeighbors
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetNeighbors
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_id: str
 
 
 async def send_get_neighbors(
@@ -2222,7 +1750,7 @@ async def send_get_neighbors(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetNeighborsRequest.model_validate(params or {})
+    models().MethodGetNeighborsParams.model_validate(params or {})
     payload = await client._send(
         "GetNeighbors",
         params,
@@ -2230,21 +1758,6 @@ async def send_get_neighbors(
         idempotency_key=idempotency_key,
     )
     return expect_ids("GetNeighbors", payload)
-
-
-class GetNeighborsBatchRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetNeighborsBatch
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetNeighborsBatch
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_ids: list[str]
 
 
 async def send_get_neighbors_batch(
@@ -2273,7 +1786,7 @@ async def send_get_neighbors_batch(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetNeighborsBatchRequest.model_validate(params or {})
+    models().MethodGetNeighborsBatchParams.model_validate(params or {})
     payload = await client._send(
         "GetNeighborsBatch",
         params,
@@ -2283,20 +1796,9 @@ async def send_get_neighbors_batch(
     return OpaqueResult("GetNeighborsBatch", payload)
 
 
-class UnionGetNodePropertiesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        UnionGetNodeProperties
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/UnionGetNodeProperties
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graphs: list[str]
-    node_id: str
+def decode_get_neighbors_batch(result: OpaqueResult) -> _models.GetNeighborsBatchResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("GetNeighborsBatch", models().GetNeighborsBatchResult, result)
 
 
 async def send_union_get_node_properties(
@@ -2326,7 +1828,7 @@ async def send_union_get_node_properties(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    UnionGetNodePropertiesRequest.model_validate(params or {})
+    models().MethodUnionGetNodePropertiesParams.model_validate(params or {})
     payload = await client._send(
         "UnionGetNodeProperties",
         params,
@@ -2334,23 +1836,6 @@ async def send_union_get_node_properties(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("UnionGetNodeProperties", payload)
-
-
-class UnionGetNodesByLabelRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        UnionGetNodesByLabel
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/UnionGetNodesByLabel
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graphs: list[str]
-    label: str
-    limit: int
 
 
 async def send_union_get_nodes_by_label(
@@ -2379,7 +1864,7 @@ async def send_union_get_nodes_by_label(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    UnionGetNodesByLabelRequest.model_validate(params or {})
+    models().MethodUnionGetNodesByLabelParams.model_validate(params or {})
     payload = await client._send(
         "UnionGetNodesByLabel",
         params,
@@ -2387,22 +1872,6 @@ async def send_union_get_nodes_by_label(
         idempotency_key=idempotency_key,
     )
     return expect_nodelist("UnionGetNodesByLabel", payload)
-
-
-class UnionGetNeighborsRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        UnionGetNeighbors
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/UnionGetNeighbors
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graphs: list[str]
-    node_id: str
 
 
 async def send_union_get_neighbors(
@@ -2431,7 +1900,7 @@ async def send_union_get_neighbors(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    UnionGetNeighborsRequest.model_validate(params or {})
+    models().MethodUnionGetNeighborsParams.model_validate(params or {})
     payload = await client._send(
         "UnionGetNeighbors",
         params,
@@ -2439,22 +1908,6 @@ async def send_union_get_neighbors(
         idempotency_key=idempotency_key,
     )
     return expect_ids("UnionGetNeighbors", payload)
-
-
-class PruneByLifecycleRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        PruneByLifecycle
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/PruneByLifecycle
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    max_age_secs: int
-    min_score: float
 
 
 async def send_prune_by_lifecycle(
@@ -2487,7 +1940,7 @@ async def send_prune_by_lifecycle(
         - REDIRECTED
         - READ_ONLY
     """
-    PruneByLifecycleRequest.model_validate(params or {})
+    models().MethodPruneByLifecycleParams.model_validate(params or {})
     payload = await client._send(
         "PruneByLifecycle",
         params,
@@ -2495,6 +1948,11 @@ async def send_prune_by_lifecycle(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("PruneByLifecycle", payload)
+
+
+def decode_prune_by_lifecycle(result: OpaqueResult) -> _models.PruneStats:
+    """Validate this method's result against its contract model."""
+    return decode_result("PruneByLifecycle", models().PruneStats, result)
 
 
 class MetricsRequest(BaseModel):
@@ -2548,19 +2006,9 @@ async def send_metrics(
     return OpaqueResult("Metrics", payload)
 
 
-class EvictLRURequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        EvictLRU
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/EvictLRU
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    max_nodes: int
+def decode_metrics(result: OpaqueResult) -> _models.GraphMetrics:
+    """Validate this method's result against its contract model."""
+    return decode_result("Metrics", models().GraphMetrics, result)
 
 
 async def send_evict_l_r_u(
@@ -2593,7 +2041,7 @@ async def send_evict_l_r_u(
         - REDIRECTED
         - READ_ONLY
     """
-    EvictLRURequest.model_validate(params or {})
+    models().MethodEvictLRUParams.model_validate(params or {})
     payload = await client._send(
         "EvictLRU",
         params,
@@ -2601,23 +2049,6 @@ async def send_evict_l_r_u(
         idempotency_key=idempotency_key,
     )
     return expect_count("EvictLRU", payload)
-
-
-class DecaySweepRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DecaySweep
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DecaySweep
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    floor: float
-    half_life_secs: float
-    prune: bool
 
 
 async def send_decay_sweep(
@@ -2650,7 +2081,7 @@ async def send_decay_sweep(
         - REDIRECTED
         - READ_ONLY
     """
-    DecaySweepRequest.model_validate(params or {})
+    models().MethodDecaySweepParams.model_validate(params or {})
     payload = await client._send(
         "DecaySweep",
         params,
@@ -2660,19 +2091,9 @@ async def send_decay_sweep(
     return OpaqueResult("DecaySweep", payload)
 
 
-class TouchNodesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TouchNodes
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TouchNodes
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_ids: list[str]
+def decode_decay_sweep(result: OpaqueResult) -> _models.DecayStats:
+    """Validate this method's result against its contract model."""
+    return decode_result("DecaySweep", models().DecayStats, result)
 
 
 async def send_touch_nodes(
@@ -2705,7 +2126,7 @@ async def send_touch_nodes(
         - REDIRECTED
         - READ_ONLY
     """
-    TouchNodesRequest.model_validate(params or {})
+    models().MethodTouchNodesParams.model_validate(params or {})
     payload = await client._send(
         "TouchNodes",
         params,
@@ -2713,21 +2134,6 @@ async def send_touch_nodes(
         idempotency_key=idempotency_key,
     )
     return expect_count("TouchNodes", payload)
-
-
-class GetSubgraphRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetSubgraph
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetSubgraph
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_ids: list[str]
 
 
 async def send_get_subgraph(
@@ -2756,7 +2162,7 @@ async def send_get_subgraph(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetSubgraphRequest.model_validate(params or {})
+    models().MethodGetSubgraphParams.model_validate(params or {})
     payload = await client._send(
         "GetSubgraph",
         params,
@@ -2764,6 +2170,11 @@ async def send_get_subgraph(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("GetSubgraph", payload)
+
+
+def decode_get_subgraph(result: OpaqueResult) -> _models.SubgraphResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("GetSubgraph", models().SubgraphResult, result)
 
 
 class ForkRequest(BaseModel):
@@ -2818,21 +2229,6 @@ async def send_fork(
     return OpaqueResult("Fork", payload)
 
 
-class DiffAgainstRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DiffAgainst
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DiffAgainst
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    other_graph: str
-
-
 async def send_diff_against(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -2859,7 +2255,7 @@ async def send_diff_against(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    DiffAgainstRequest.model_validate(params or {})
+    models().MethodDiffAgainstParams.model_validate(params or {})
     payload = await client._send(
         "DiffAgainst",
         params,
@@ -2869,20 +2265,9 @@ async def send_diff_against(
     return OpaqueResult("DiffAgainst", payload)
 
 
-class ReconcileRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        Reconcile
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/Reconcile
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graph_name: str
-    msgpack: bytes
+def decode_diff_against(result: OpaqueResult) -> _models.GraphDiff:
+    """Validate this method's result against its contract model."""
+    return decode_result("DiffAgainst", models().GraphDiff, result)
 
 
 async def send_reconcile(
@@ -2915,7 +2300,7 @@ async def send_reconcile(
         - REDIRECTED
         - READ_ONLY
     """
-    ReconcileRequest.model_validate(params or {})
+    models().MethodReconcileParams.model_validate(params or {})
     payload = await client._send(
         "Reconcile",
         params,
@@ -2923,22 +2308,6 @@ async def send_reconcile(
         idempotency_key=idempotency_key,
     )
     return expect_string("Reconcile", payload)
-
-
-class ApplyMutationRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ApplyMutation
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ApplyMutation
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    event_type: str
-    query: str
 
 
 async def send_apply_mutation(
@@ -2971,7 +2340,7 @@ async def send_apply_mutation(
         - REDIRECTED
         - READ_ONLY
     """
-    ApplyMutationRequest.model_validate(params or {})
+    models().MethodApplyMutationParams.model_validate(params or {})
     payload = await client._send(
         "ApplyMutation",
         params,
@@ -2981,20 +2350,9 @@ async def send_apply_mutation(
     return OpaqueResult("ApplyMutation", payload)
 
 
-class AddTriplesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        AddTriples
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/AddTriples
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    ntriples: str | None = None
-    turtle: str | None = None
+def decode_apply_mutation(result: OpaqueResult) -> _models.SparqlUpdateReport:
+    """Validate this method's result against its contract model."""
+    return decode_result("ApplyMutation", models().SparqlUpdateReport, result)
 
 
 async def send_add_triples(
@@ -3027,7 +2385,7 @@ async def send_add_triples(
         - REDIRECTED
         - READ_ONLY
     """
-    AddTriplesRequest.model_validate(params or {})
+    models().MethodAddTriplesParams.model_validate(params or {})
     payload = await client._send(
         "AddTriples",
         params,
@@ -3037,20 +2395,9 @@ async def send_add_triples(
     return OpaqueResult("AddTriples", payload)
 
 
-class RemoveTriplesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        RemoveTriples
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/RemoveTriples
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    ntriples: str | None = None
-    turtle: str | None = None
+def decode_add_triples(result: OpaqueResult) -> _models.LoadReport:
+    """Validate this method's result against its contract model."""
+    return decode_result("AddTriples", models().LoadReport, result)
 
 
 async def send_remove_triples(
@@ -3083,7 +2430,7 @@ async def send_remove_triples(
         - REDIRECTED
         - READ_ONLY
     """
-    RemoveTriplesRequest.model_validate(params or {})
+    models().MethodRemoveTriplesParams.model_validate(params or {})
     payload = await client._send(
         "RemoveTriples",
         params,
@@ -3146,3 +2493,67 @@ async def send_drop_named_graph(
         idempotency_key=idempotency_key,
     )
     return expect_string("DropNamedGraph", payload)
+
+
+# Methods whose `{Id}Request` resolves to `models.Method{Id}Params` (EH-192).
+_REQUEST_METHODS = frozenset(
+    {
+        "AddNode",
+        "CreateNodeIfAbsent",
+        "RemoveNode",
+        "HasNode",
+        "GetNodesByLabel",
+        "GetNodeProperties",
+        "CompareAndSetNodeFields",
+        "CreateSummaryNode",
+        "Consolidate",
+        "Reinforce",
+        "DecayNode",
+        "DecayMemories",
+        "EvictBelow",
+        "Maintain",
+        "SummaryChildren",
+        "SummariesAtLevel",
+        "StartTrajectory",
+        "AppendStep",
+        "DiscountedReturn",
+        "BestTrajectory",
+        "GetNodePropertiesBatch",
+        "HasNodesBatch",
+        "AddEdge",
+        "RemoveEdge",
+        "InvalidateEdge",
+        "SupersedeEdge",
+        "HasEdge",
+        "GetEdgesPage",
+        "GetEdgeProperties",
+        "GetEdgePropertiesBatch",
+        "InDegree",
+        "OutDegree",
+        "GetPredecessors",
+        "GetSuccessors",
+        "GetNeighbors",
+        "GetNeighborsBatch",
+        "UnionGetNodeProperties",
+        "UnionGetNodesByLabel",
+        "UnionGetNeighbors",
+        "PruneByLifecycle",
+        "EvictLRU",
+        "DecaySweep",
+        "TouchNodes",
+        "GetSubgraph",
+        "DiffAgainst",
+        "Reconcile",
+        "ApplyMutation",
+        "AddTriples",
+        "RemoveTriples",
+    }
+)
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve a ``{Id}Request`` name to its generated model on first use."""
+    method = name.removesuffix("Request")
+    if name == method or method not in _REQUEST_METHODS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(models(), f"Method{method}Params")

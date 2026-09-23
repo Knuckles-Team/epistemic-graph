@@ -6,15 +6,17 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import BaseModel, ConfigDict, TypeAdapter
 
 from ._runtime import (
     OpaqueResult,
+    decode_result,
     expect_bool,
     expect_count,
     expect_string,
+    models,
 )
 from .agent_component import (
     AgentComponentContentRequest,
@@ -35,6 +37,35 @@ from .connector_pack import (
 from .write_back import (
     WriteBackOp,
 )
+
+if TYPE_CHECKING:
+    from . import models as _models
+
+    FromMsgpackRequest = _models.MethodFromMsgpackParams
+    ApplyLedgerRequest = _models.MethodApplyLedgerParams
+    BackupRequest = _models.MethodBackupParams
+    RestoreRequest = _models.MethodRestoreParams
+    AgentLibraryRequest = _models.MethodAgentLibraryParams
+    AgentGraphRequest = _models.MethodAgentGraphParams
+    AgentTemplateRequest = _models.MethodAgentTemplateParams
+    TsAppendRequest = _models.MethodTsAppendParams
+    TsRangeRequest = _models.MethodTsRangeParams
+    TsAsofJoinRequest = _models.MethodTsAsofJoinParams
+    TsWindowRequest = _models.MethodTsWindowParams
+    TsGapFillRequest = _models.MethodTsGapFillParams
+    TsEvictRequest = _models.MethodTsEvictParams
+    TsDeleteSeriesRequest = _models.MethodTsDeleteSeriesParams
+    BlobBeginRequest = _models.MethodBlobBeginParams
+    BlobChunkPutRequest = _models.MethodBlobChunkPutParams
+    BlobCommitRequest = _models.MethodBlobCommitParams
+    BlobFetchBeginRequest = _models.MethodBlobFetchBeginParams
+    BlobChunkGetRequest = _models.MethodBlobChunkGetParams
+    BlobFetchEndRequest = _models.MethodBlobFetchEndParams
+    BlobRefRequest = _models.MethodBlobRefParams
+    BlobUnrefRequest = _models.MethodBlobUnrefParams
+    SqlSourceBatchRequest = _models.MethodSqlSourceBatchParams
+    ImportSqliteFileRequest = _models.MethodImportSqliteFileParams
+    ExportSqliteFileRequest = _models.MethodExportSqliteFileParams
 
 
 class ToMsgpackRequest(BaseModel):
@@ -88,19 +119,9 @@ async def send_to_msgpack(
     return OpaqueResult("ToMsgpack", payload)
 
 
-class FromMsgpackRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FromMsgpack
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FromMsgpack
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    msgpack: bytes
+def decode_to_msgpack(result: OpaqueResult) -> _models.ToMsgpackResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ToMsgpack", models().ToMsgpackResult, result)
 
 
 async def send_from_msgpack(
@@ -133,7 +154,7 @@ async def send_from_msgpack(
         - REDIRECTED
         - READ_ONLY
     """
-    FromMsgpackRequest.model_validate(params or {})
+    models().MethodFromMsgpackParams.model_validate(params or {})
     payload = await client._send(
         "FromMsgpack",
         params,
@@ -198,21 +219,6 @@ async def send_clear_ledger(
     return expect_string("ClearLedger", payload)
 
 
-class ApplyLedgerRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ApplyLedger
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ApplyLedger
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    transactions: list[str]
-
-
 async def send_apply_ledger(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -243,7 +249,7 @@ async def send_apply_ledger(
         - REDIRECTED
         - READ_ONLY
     """
-    ApplyLedgerRequest.model_validate(params or {})
+    models().MethodApplyLedgerParams.model_validate(params or {})
     payload = await client._send(
         "ApplyLedger",
         params,
@@ -251,22 +257,6 @@ async def send_apply_ledger(
         idempotency_key=idempotency_key,
     )
     return expect_string("ApplyLedger", payload)
-
-
-class BackupRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        Backup
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/Backup
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    destination: str
-    label: str | None = None
 
 
 async def send_backup(
@@ -295,7 +285,7 @@ async def send_backup(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    BackupRequest.model_validate(params or {})
+    models().MethodBackupParams.model_validate(params or {})
     payload = await client._send(
         "Backup",
         params,
@@ -305,20 +295,9 @@ async def send_backup(
     return OpaqueResult("Backup", payload)
 
 
-class RestoreRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        Restore
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/Restore
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    source: str
-    target_shards: int
+def decode_backup(result: OpaqueResult) -> _models.BackupReceipt:
+    """Validate this method's result against its contract model."""
+    return decode_result("Backup", models().BackupReceipt, result)
 
 
 async def send_restore(
@@ -351,7 +330,7 @@ async def send_restore(
         - REDIRECTED
         - READ_ONLY
     """
-    RestoreRequest.model_validate(params or {})
+    models().MethodRestoreParams.model_validate(params or {})
     payload = await client._send(
         "Restore",
         params,
@@ -361,19 +340,9 @@ async def send_restore(
     return OpaqueResult("Restore", payload)
 
 
-class AgentLibraryRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        AgentLibrary
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/AgentLibrary
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    op: Any
+def decode_restore(result: OpaqueResult) -> _models.RestoreReceipt:
+    """Validate this method's result against its contract model."""
+    return decode_result("Restore", models().RestoreReceipt, result)
 
 
 async def send_agent_library(
@@ -406,7 +375,7 @@ async def send_agent_library(
         - REDIRECTED
         - READ_ONLY
     """
-    AgentLibraryRequest.model_validate(params or {})
+    models().MethodAgentLibraryParams.model_validate(params or {})
     payload = await client._send(
         "AgentLibrary",
         params,
@@ -414,21 +383,6 @@ async def send_agent_library(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("AgentLibrary", payload)
-
-
-class AgentGraphRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        AgentGraph
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/AgentGraph
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    op: Any
 
 
 async def send_agent_graph(
@@ -461,7 +415,7 @@ async def send_agent_graph(
         - REDIRECTED
         - READ_ONLY
     """
-    AgentGraphRequest.model_validate(params or {})
+    models().MethodAgentGraphParams.model_validate(params or {})
     payload = await client._send(
         "AgentGraph",
         params,
@@ -603,21 +557,6 @@ async def send_agent_component_current(
     return TypeAdapter(AgentComponentEntry | None).validate_python(payload)
 
 
-class AgentTemplateRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        AgentTemplate
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/AgentTemplate
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    op: Any
-
-
 async def send_agent_template(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -648,7 +587,7 @@ async def send_agent_template(
         - REDIRECTED
         - READ_ONLY
     """
-    AgentTemplateRequest.model_validate(params or {})
+    models().MethodAgentTemplateParams.model_validate(params or {})
     payload = await client._send(
         "AgentTemplate",
         params,
@@ -816,25 +755,6 @@ async def send_write_back(
     return OpaqueResult("WriteBack", payload)
 
 
-class TsAppendRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TsAppend
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TsAppend
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    bucket_ns: int
-    field_names: list[str] | None = None
-    n_fields: int
-    points_msgpack: bytes
-    series_id: str
-
-
 async def send_ts_append(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -865,7 +785,7 @@ async def send_ts_append(
         - REDIRECTED
         - READ_ONLY
     """
-    TsAppendRequest.model_validate(params or {})
+    models().MethodTsAppendParams.model_validate(params or {})
     payload = await client._send(
         "TsAppend",
         params,
@@ -873,23 +793,6 @@ async def send_ts_append(
         idempotency_key=idempotency_key,
     )
     return expect_count("TsAppend", payload)
-
-
-class TsRangeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TsRange
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TsRange
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    from_: int = Field(..., alias="from")
-    series_id: str
-    to: int
 
 
 async def send_ts_range(
@@ -918,7 +821,7 @@ async def send_ts_range(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    TsRangeRequest.model_validate(params or {})
+    models().MethodTsRangeParams.model_validate(params or {})
     payload = await client._send(
         "TsRange",
         params,
@@ -928,21 +831,9 @@ async def send_ts_range(
     return OpaqueResult("TsRange", payload)
 
 
-class TsAsofJoinRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TsAsofJoin
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TsAsofJoin
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    left_ts_msgpack: bytes
-    series_id: str
-    tolerance: int | None = None
+def decode_ts_range(result: OpaqueResult) -> _models.TsRangeResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("TsRange", models().TsRangeResult, result)
 
 
 async def send_ts_asof_join(
@@ -971,7 +862,7 @@ async def send_ts_asof_join(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    TsAsofJoinRequest.model_validate(params or {})
+    models().MethodTsAsofJoinParams.model_validate(params or {})
     payload = await client._send(
         "TsAsofJoin",
         params,
@@ -981,23 +872,9 @@ async def send_ts_asof_join(
     return OpaqueResult("TsAsofJoin", payload)
 
 
-class TsWindowRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TsWindow
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TsWindow
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    agg: str
-    from_: int = Field(..., alias="from")
-    series_id: str
-    to: int
-    width: int
+def decode_ts_asof_join(result: OpaqueResult) -> _models.TsAsofJoinResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("TsAsofJoin", models().TsAsofJoinResult, result)
 
 
 async def send_ts_window(
@@ -1026,7 +903,7 @@ async def send_ts_window(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    TsWindowRequest.model_validate(params or {})
+    models().MethodTsWindowParams.model_validate(params or {})
     payload = await client._send(
         "TsWindow",
         params,
@@ -1036,22 +913,9 @@ async def send_ts_window(
     return OpaqueResult("TsWindow", payload)
 
 
-class TsGapFillRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TsGapFill
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TsGapFill
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    from_: int = Field(..., alias="from")
-    series_id: str
-    step: int
-    to: int
+def decode_ts_window(result: OpaqueResult) -> _models.TsWindowResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("TsWindow", models().TsWindowResult, result)
 
 
 async def send_ts_gap_fill(
@@ -1080,7 +944,7 @@ async def send_ts_gap_fill(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    TsGapFillRequest.model_validate(params or {})
+    models().MethodTsGapFillParams.model_validate(params or {})
     payload = await client._send(
         "TsGapFill",
         params,
@@ -1090,20 +954,9 @@ async def send_ts_gap_fill(
     return OpaqueResult("TsGapFill", payload)
 
 
-class TsEvictRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TsEvict
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TsEvict
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    cutoff: int
-    series_id: str
+def decode_ts_gap_fill(result: OpaqueResult) -> _models.TsGapFillResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("TsGapFill", models().TsGapFillResult, result)
 
 
 async def send_ts_evict(
@@ -1136,7 +989,7 @@ async def send_ts_evict(
         - REDIRECTED
         - READ_ONLY
     """
-    TsEvictRequest.model_validate(params or {})
+    models().MethodTsEvictParams.model_validate(params or {})
     payload = await client._send(
         "TsEvict",
         params,
@@ -1144,21 +997,6 @@ async def send_ts_evict(
         idempotency_key=idempotency_key,
     )
     return expect_count("TsEvict", payload)
-
-
-class TsDeleteSeriesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TsDeleteSeries
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TsDeleteSeries
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    series_id: str
 
 
 async def send_ts_delete_series(
@@ -1191,7 +1029,7 @@ async def send_ts_delete_series(
         - REDIRECTED
         - READ_ONLY
     """
-    TsDeleteSeriesRequest.model_validate(params or {})
+    models().MethodTsDeleteSeriesParams.model_validate(params or {})
     payload = await client._send(
         "TsDeleteSeries",
         params,
@@ -1252,19 +1090,9 @@ async def send_ts_list_series(
     return OpaqueResult("TsListSeries", payload)
 
 
-class BlobBeginRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        BlobBegin
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/BlobBegin
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    chunk_size: int | None = None
+def decode_ts_list_series(result: OpaqueResult) -> _models.TsListSeriesResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("TsListSeries", models().TsListSeriesResult, result)
 
 
 async def send_blob_begin(
@@ -1297,7 +1125,7 @@ async def send_blob_begin(
         - REDIRECTED
         - READ_ONLY
     """
-    BlobBeginRequest.model_validate(params or {})
+    models().MethodBlobBeginParams.model_validate(params or {})
     payload = await client._send(
         "BlobBegin",
         params,
@@ -1305,22 +1133,6 @@ async def send_blob_begin(
         idempotency_key=idempotency_key,
     )
     return expect_count("BlobBegin", payload)
-
-
-class BlobChunkPutRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        BlobChunkPut
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/BlobChunkPut
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    cursor: int
-    data: bytes
 
 
 async def send_blob_chunk_put(
@@ -1353,7 +1165,7 @@ async def send_blob_chunk_put(
         - REDIRECTED
         - READ_ONLY
     """
-    BlobChunkPutRequest.model_validate(params or {})
+    models().MethodBlobChunkPutParams.model_validate(params or {})
     payload = await client._send(
         "BlobChunkPut",
         params,
@@ -1361,21 +1173,6 @@ async def send_blob_chunk_put(
         idempotency_key=idempotency_key,
     )
     return expect_count("BlobChunkPut", payload)
-
-
-class BlobCommitRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        BlobCommit
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/BlobCommit
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    cursor: int
 
 
 async def send_blob_commit(
@@ -1408,7 +1205,7 @@ async def send_blob_commit(
         - REDIRECTED
         - READ_ONLY
     """
-    BlobCommitRequest.model_validate(params or {})
+    models().MethodBlobCommitParams.model_validate(params or {})
     payload = await client._send(
         "BlobCommit",
         params,
@@ -1416,21 +1213,6 @@ async def send_blob_commit(
         idempotency_key=idempotency_key,
     )
     return expect_string("BlobCommit", payload)
-
-
-class BlobFetchBeginRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        BlobFetchBegin
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/BlobFetchBegin
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    digest: str
 
 
 async def send_blob_fetch_begin(
@@ -1459,7 +1241,7 @@ async def send_blob_fetch_begin(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    BlobFetchBeginRequest.model_validate(params or {})
+    models().MethodBlobFetchBeginParams.model_validate(params or {})
     payload = await client._send(
         "BlobFetchBegin",
         params,
@@ -1469,20 +1251,9 @@ async def send_blob_fetch_begin(
     return OpaqueResult("BlobFetchBegin", payload)
 
 
-class BlobChunkGetRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        BlobChunkGet
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/BlobChunkGet
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    cursor: int
-    idx: int
+def decode_blob_fetch_begin(result: OpaqueResult) -> _models.BlobFetchBeginResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("BlobFetchBegin", models().BlobFetchBeginResult, result)
 
 
 async def send_blob_chunk_get(
@@ -1512,7 +1283,7 @@ async def send_blob_chunk_get(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    BlobChunkGetRequest.model_validate(params or {})
+    models().MethodBlobChunkGetParams.model_validate(params or {})
     payload = await client._send(
         "BlobChunkGet",
         params,
@@ -1520,21 +1291,6 @@ async def send_blob_chunk_get(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("BlobChunkGet", payload)
-
-
-class BlobFetchEndRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        BlobFetchEnd
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/BlobFetchEnd
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    cursor: int
 
 
 async def send_blob_fetch_end(
@@ -1563,7 +1319,7 @@ async def send_blob_fetch_end(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    BlobFetchEndRequest.model_validate(params or {})
+    models().MethodBlobFetchEndParams.model_validate(params or {})
     payload = await client._send(
         "BlobFetchEnd",
         params,
@@ -1571,21 +1327,6 @@ async def send_blob_fetch_end(
         idempotency_key=idempotency_key,
     )
     return expect_bool("BlobFetchEnd", payload)
-
-
-class BlobRefRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        BlobRef
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/BlobRef
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    digest: str
 
 
 async def send_blob_ref(
@@ -1618,7 +1359,7 @@ async def send_blob_ref(
         - REDIRECTED
         - READ_ONLY
     """
-    BlobRefRequest.model_validate(params or {})
+    models().MethodBlobRefParams.model_validate(params or {})
     payload = await client._send(
         "BlobRef",
         params,
@@ -1626,21 +1367,6 @@ async def send_blob_ref(
         idempotency_key=idempotency_key,
     )
     return expect_count("BlobRef", payload)
-
-
-class BlobUnrefRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        BlobUnref
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/BlobUnref
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    digest: str
 
 
 async def send_blob_unref(
@@ -1673,7 +1399,7 @@ async def send_blob_unref(
         - REDIRECTED
         - READ_ONLY
     """
-    BlobUnrefRequest.model_validate(params or {})
+    models().MethodBlobUnrefParams.model_validate(params or {})
     payload = await client._send(
         "BlobUnref",
         params,
@@ -1738,19 +1464,9 @@ async def send_blob_gc(
     return OpaqueResult("BlobGc", payload)
 
 
-class SqlSourceBatchRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        SqlSourceBatch
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/SqlSourceBatch
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    batch: Any
+def decode_blob_gc(result: OpaqueResult) -> _models.BlobGcResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("BlobGc", models().BlobGcResult, result)
 
 
 async def send_sql_source_batch(
@@ -1783,7 +1499,7 @@ async def send_sql_source_batch(
         - REDIRECTED
         - READ_ONLY
     """
-    SqlSourceBatchRequest.model_validate(params or {})
+    models().MethodSqlSourceBatchParams.model_validate(params or {})
     payload = await client._send(
         "SqlSourceBatch",
         params,
@@ -1793,19 +1509,9 @@ async def send_sql_source_batch(
     return OpaqueResult("SqlSourceBatch", payload)
 
 
-class ImportSqliteFileRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ImportSqliteFile
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ImportSqliteFile
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    path: str
+def decode_sql_source_batch(result: OpaqueResult) -> _models.SqlSourceBatchResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("SqlSourceBatch", models().SqlSourceBatchResult, result)
 
 
 async def send_import_sqlite_file(
@@ -1838,7 +1544,7 @@ async def send_import_sqlite_file(
         - REDIRECTED
         - READ_ONLY
     """
-    ImportSqliteFileRequest.model_validate(params or {})
+    models().MethodImportSqliteFileParams.model_validate(params or {})
     payload = await client._send(
         "ImportSqliteFile",
         params,
@@ -1848,20 +1554,9 @@ async def send_import_sqlite_file(
     return OpaqueResult("ImportSqliteFile", payload)
 
 
-class ExportSqliteFileRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ExportSqliteFile
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ExportSqliteFile
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    path: str
-    tables: list[str] | None = None
+def decode_import_sqlite_file(result: OpaqueResult) -> _models.SqliteImportReport:
+    """Validate this method's result against its contract model."""
+    return decode_result("ImportSqliteFile", models().SqliteImportReport, result)
 
 
 async def send_export_sqlite_file(
@@ -1890,7 +1585,7 @@ async def send_export_sqlite_file(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ExportSqliteFileRequest.model_validate(params or {})
+    models().MethodExportSqliteFileParams.model_validate(params or {})
     payload = await client._send(
         "ExportSqliteFile",
         params,
@@ -1898,3 +1593,48 @@ async def send_export_sqlite_file(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("ExportSqliteFile", payload)
+
+
+def decode_export_sqlite_file(result: OpaqueResult) -> _models.SqliteExportReport:
+    """Validate this method's result against its contract model."""
+    return decode_result("ExportSqliteFile", models().SqliteExportReport, result)
+
+
+# Methods whose `{Id}Request` resolves to `models.Method{Id}Params` (EH-192).
+_REQUEST_METHODS = frozenset(
+    {
+        "FromMsgpack",
+        "ApplyLedger",
+        "Backup",
+        "Restore",
+        "AgentLibrary",
+        "AgentGraph",
+        "AgentTemplate",
+        "TsAppend",
+        "TsRange",
+        "TsAsofJoin",
+        "TsWindow",
+        "TsGapFill",
+        "TsEvict",
+        "TsDeleteSeries",
+        "BlobBegin",
+        "BlobChunkPut",
+        "BlobCommit",
+        "BlobFetchBegin",
+        "BlobChunkGet",
+        "BlobFetchEnd",
+        "BlobRef",
+        "BlobUnref",
+        "SqlSourceBatch",
+        "ImportSqliteFile",
+        "ExportSqliteFile",
+    }
+)
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve a ``{Id}Request`` name to its generated model on first use."""
+    method = name.removesuffix("Request")
+    if name == method or method not in _REQUEST_METHODS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(models(), f"Method{method}Params")

@@ -6,13 +6,15 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
 from ._runtime import (
     OpaqueResult,
+    decode_result,
     expect_string,
+    models,
 )
 from .index_repository import (
     IndexResult,
@@ -22,6 +24,21 @@ from .source_ingestion import (
     SourceIngestionRequest,
     SourceIngestStatus,
 )
+
+if TYPE_CHECKING:
+    from . import models as _models
+
+    ServedModalityRequest = _models.MethodServedModalityParams
+    ParseFileRequest = _models.MethodParseFileParams
+    ParseFilesRequest = _models.MethodParseFilesParams
+    ObserveScreenRequest = _models.MethodObserveScreenParams
+    AddEmbeddingRequest = _models.MethodAddEmbeddingParams
+    SemanticIndexRequest = _models.MethodSemanticIndexParams
+    SemanticSearchRequest = _models.MethodSemanticSearchParams
+    DiscoverRequest = _models.MethodDiscoverParams
+    QuantumRequest = _models.MethodQuantumParams
+    AsrRequest = _models.MethodAsrParams
+    VizRequest = _models.MethodVizParams
 
 
 class SourceIngestRequest(BaseModel):
@@ -132,21 +149,6 @@ async def send_source_ingest_status(
     return SourceIngestStatus.model_validate(payload)
 
 
-class ServedModalityRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ServedModality
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ServedModality
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    op: Any
-
-
 async def send_served_modality(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -177,7 +179,7 @@ async def send_served_modality(
         - REDIRECTED
         - READ_ONLY
     """
-    ServedModalityRequest.model_validate(params or {})
+    models().MethodServedModalityParams.model_validate(params or {})
     payload = await client._send(
         "ServedModality",
         params,
@@ -185,22 +187,6 @@ async def send_served_modality(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("ServedModality", payload)
-
-
-class ParseFileRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ParseFile
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ParseFile
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    file_path: str
-    source: bytes
 
 
 async def send_parse_file(
@@ -229,7 +215,7 @@ async def send_parse_file(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ParseFileRequest.model_validate(params or {})
+    models().MethodParseFileParams.model_validate(params or {})
     payload = await client._send(
         "ParseFile",
         params,
@@ -239,19 +225,9 @@ async def send_parse_file(
     return OpaqueResult("ParseFile", payload)
 
 
-class ParseFilesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ParseFiles
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ParseFiles
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    files_msgpack: bytes
+def decode_parse_file(result: OpaqueResult) -> _models.ParseResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ParseFile", models().ParseResult, result)
 
 
 async def send_parse_files(
@@ -280,7 +256,7 @@ async def send_parse_files(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ParseFilesRequest.model_validate(params or {})
+    models().MethodParseFilesParams.model_validate(params or {})
     payload = await client._send(
         "ParseFiles",
         params,
@@ -288,6 +264,11 @@ async def send_parse_files(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("ParseFiles", payload)
+
+
+def decode_parse_files(result: OpaqueResult) -> _models.ParseFilesResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ParseFiles", models().ParseFilesResult, result)
 
 
 class IndexRepositoryRequest(BaseModel):
@@ -341,21 +322,6 @@ async def send_index_repository(
     return IndexResult.model_validate(payload)
 
 
-class ObserveScreenRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ObserveScreen
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ObserveScreen
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    obs_msgpack: bytes
-
-
 async def send_observe_screen(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -382,7 +348,7 @@ async def send_observe_screen(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ObserveScreenRequest.model_validate(params or {})
+    models().MethodObserveScreenParams.model_validate(params or {})
     payload = await client._send(
         "ObserveScreen",
         params,
@@ -392,20 +358,9 @@ async def send_observe_screen(
     return OpaqueResult("ObserveScreen", payload)
 
 
-class AddEmbeddingRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        AddEmbedding
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/AddEmbedding
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    embedding: list[float]
-    node_id: str
+def decode_observe_screen(result: OpaqueResult) -> _models.ScreenObservationResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ObserveScreen", models().ScreenObservationResult, result)
 
 
 async def send_add_embedding(
@@ -438,7 +393,7 @@ async def send_add_embedding(
         - REDIRECTED
         - READ_ONLY
     """
-    AddEmbeddingRequest.model_validate(params or {})
+    models().MethodAddEmbeddingParams.model_validate(params or {})
     payload = await client._send(
         "AddEmbedding",
         params,
@@ -446,21 +401,6 @@ async def send_add_embedding(
         idempotency_key=idempotency_key,
     )
     return expect_string("AddEmbedding", payload)
-
-
-class SemanticIndexRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        SemanticIndex
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/SemanticIndex
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    op: Any
 
 
 async def send_semantic_index(
@@ -493,7 +433,7 @@ async def send_semantic_index(
         - REDIRECTED
         - READ_ONLY
     """
-    SemanticIndexRequest.model_validate(params or {})
+    models().MethodSemanticIndexParams.model_validate(params or {})
     payload = await client._send(
         "SemanticIndex",
         params,
@@ -501,22 +441,6 @@ async def send_semantic_index(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("SemanticIndex", payload)
-
-
-class SemanticSearchRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        SemanticSearch
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/SemanticSearch
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    n_results: int
-    query_embedding: list[float]
 
 
 async def send_semantic_search(
@@ -545,7 +469,7 @@ async def send_semantic_search(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    SemanticSearchRequest.model_validate(params or {})
+    models().MethodSemanticSearchParams.model_validate(params or {})
     payload = await client._send(
         "SemanticSearch",
         params,
@@ -555,21 +479,9 @@ async def send_semantic_search(
     return OpaqueResult("SemanticSearch", payload)
 
 
-class DiscoverRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        Discover
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/Discover
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    k: int
-    keywords: list[str]
-    query_embedding: list[float]
+def decode_semantic_search(result: OpaqueResult) -> _models.SemanticSearchResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("SemanticSearch", models().SemanticSearchResult, result)
 
 
 async def send_discover(
@@ -598,7 +510,7 @@ async def send_discover(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    DiscoverRequest.model_validate(params or {})
+    models().MethodDiscoverParams.model_validate(params or {})
     payload = await client._send(
         "Discover",
         params,
@@ -608,19 +520,9 @@ async def send_discover(
     return OpaqueResult("Discover", payload)
 
 
-class QuantumRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        Quantum
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/Quantum
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    op: Any
+def decode_discover(result: OpaqueResult) -> _models.DiscoverResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("Discover", models().DiscoverResult, result)
 
 
 async def send_quantum(
@@ -649,7 +551,7 @@ async def send_quantum(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    QuantumRequest.model_validate(params or {})
+    models().MethodQuantumParams.model_validate(params or {})
     payload = await client._send(
         "Quantum",
         params,
@@ -657,21 +559,6 @@ async def send_quantum(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("Quantum", payload)
-
-
-class AsrRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        Asr
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/Asr
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    op: Any
 
 
 async def send_asr(
@@ -700,7 +587,7 @@ async def send_asr(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    AsrRequest.model_validate(params or {})
+    models().MethodAsrParams.model_validate(params or {})
     payload = await client._send(
         "Asr",
         params,
@@ -708,21 +595,6 @@ async def send_asr(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("Asr", payload)
-
-
-class VizRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        Viz
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/Viz
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    op: Any
 
 
 async def send_viz(
@@ -751,7 +623,7 @@ async def send_viz(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    VizRequest.model_validate(params or {})
+    models().MethodVizParams.model_validate(params or {})
     payload = await client._send(
         "Viz",
         params,
@@ -759,3 +631,29 @@ async def send_viz(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("Viz", payload)
+
+
+# Methods whose `{Id}Request` resolves to `models.Method{Id}Params` (EH-192).
+_REQUEST_METHODS = frozenset(
+    {
+        "ServedModality",
+        "ParseFile",
+        "ParseFiles",
+        "ObserveScreen",
+        "AddEmbedding",
+        "SemanticIndex",
+        "SemanticSearch",
+        "Discover",
+        "Quantum",
+        "Asr",
+        "Viz",
+    }
+)
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve a ``{Id}Request`` name to its generated model on first use."""
+    method = name.removesuffix("Request")
+    if name == method or method not in _REQUEST_METHODS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(models(), f"Method{method}Params")

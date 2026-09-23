@@ -12,7 +12,11 @@ so a caller can never mistake it for a value the client validated.
 
 from __future__ import annotations
 
+import functools
+from types import ModuleType
 from typing import Any, NamedTuple
+
+from pydantic import TypeAdapter, ValidationError
 
 from ._ids import METHOD_IDS
 
@@ -38,6 +42,34 @@ def _violation(method: str, claimed: str, payload: Any) -> ContractViolation:
         f"{method}: contract claims ResultPayload::{claimed}, engine returned "
         f"{type(payload).__name__}"
     )
+
+
+def decode_result(method: str, annotation: Any, result: OpaqueResult) -> Any:
+    """Validate an OpaqueResult against the model the contract declares for it."""
+    if result.method != method:
+        raise ValueError(f"a {result.method} result passed to the {method} decoder")
+    try:
+        return _adapter(annotation).validate_python(result.payload)
+    except ValidationError as error:
+        raise ContractViolation(
+            f"{method}: the engine result does not match its contract model"
+        ) from error
+
+
+@functools.cache
+def _adapter(annotation: Any) -> TypeAdapter[Any]:
+    return TypeAdapter(annotation)
+
+
+def models() -> ModuleType:
+    """The generated models module, imported on first use rather than at import.
+
+    ``models.py`` holds every contract model; loading it costs far more than a
+    domain module, so a domain module reaches it only through this accessor.
+    """
+    from . import models as loaded
+
+    return loaded
 
 
 def expect_bool(method: str, payload: Any) -> bool:

@@ -6,14 +6,154 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
 from ._runtime import (
     OpaqueResult,
+    decode_result,
     expect_float,
+    models,
 )
+
+if TYPE_CHECKING:
+    from . import models as _models
+
+    GetShortestPathRequest = _models.MethodGetShortestPathParams
+    GetBlastRadiusRequest = _models.MethodGetBlastRadiusParams
+    DegreeCentralityRequest = _models.MethodDegreeCentralityParams
+    PageRankRequest = _models.MethodPageRankParams
+    PersonalizedPageRankRequest = _models.MethodPersonalizedPageRankParams
+    CommunityDetectionRequest = _models.MethodCommunityDetectionParams
+    CommunityDetectEphemeralRequest = _models.MethodCommunityDetectEphemeralParams
+    ComputeSimilarityEdgesRequest = _models.MethodComputeSimilarityEdgesParams
+    ResolveCandidatesRequest = _models.MethodResolveCandidatesParams
+    ClusterHierarchyRefreshRequest = _models.MethodClusterHierarchyRefreshParams
+    ClusterHierarchyClustersRequest = _models.MethodClusterHierarchyClustersParams
+    ClusterHierarchyExpandRequest = _models.MethodClusterHierarchyExpandParams
+    Vf2SubgraphMatchRequest = _models.MethodVf2SubgraphMatchParams
+    MatchOntologyTermsRequest = _models.MethodMatchOntologyTermsParams
+    BatchL2NormalizeRequest = _models.MethodBatchL2NormalizeParams
+    FinanceOptimizePortfolioRequest = _models.MethodFinanceOptimizePortfolioParams
+    FinanceRiskParityRequest = _models.MethodFinanceRiskParityParams
+    FinanceBlackLittermanRequest = _models.MethodFinanceBlackLittermanParams
+    FinanceEfficientFrontierRequest = _models.MethodFinanceEfficientFrontierParams
+    DsLinearRegressionRequest = _models.MethodDsLinearRegressionParams
+    DsKMeansRequest = _models.MethodDsKMeansParams
+    DsPcaRequest = _models.MethodDsPcaParams
+    DsComputeStatsRequest = _models.MethodDsComputeStatsParams
+    DsTrainTestSplitRequest = _models.MethodDsTrainTestSplitParams
+    DsFitEstimatorRequest = _models.MethodDsFitEstimatorParams
+    DsPredictEstimatorRequest = _models.MethodDsPredictEstimatorParams
+    DsSoftmaxRequest = _models.MethodDsSoftmaxParams
+    DsLogSoftmaxRequest = _models.MethodDsLogSoftmaxParams
+    DsCrossEntropyRequest = _models.MethodDsCrossEntropyParams
+    DsDpoLossRequest = _models.MethodDsDpoLossParams
+    DsGrpoSurrogateRequest = _models.MethodDsGrpoSurrogateParams
+    DsKlDivergenceRequest = _models.MethodDsKlDivergenceParams
+    DsAdamStepRequest = _models.MethodDsAdamStepParams
+    DsSgdStepRequest = _models.MethodDsSgdStepParams
+    FinanceVarRequest = _models.MethodFinanceVarParams
+    FinanceCvarRequest = _models.MethodFinanceCvarParams
+    FinanceMaxDrawdownRequest = _models.MethodFinanceMaxDrawdownParams
+    FinanceDrawdownSeriesRequest = _models.MethodFinanceDrawdownSeriesParams
+    FinanceDownsideDeviationRequest = _models.MethodFinanceDownsideDeviationParams
+    FinanceRiskMetricsRequest = _models.MethodFinanceRiskMetricsParams
+    FinanceMonteCarloVarRequest = _models.MethodFinanceMonteCarloVarParams
+    FinanceStressTestRequest = _models.MethodFinanceStressTestParams
+    FinanceDetectRegimesRequest = _models.MethodFinanceDetectRegimesParams
+    FinanceRollingZscoreRequest = _models.MethodFinanceRollingZscoreParams
+    FinanceEwmaRequest = _models.MethodFinanceEwmaParams
+    FinanceSignalDecayRequest = _models.MethodFinanceSignalDecayParams
+    FinanceCombineAlphasRequest = _models.MethodFinanceCombineAlphasParams
+    FinanceCrossSectionalRankRequest = _models.MethodFinanceCrossSectionalRankParams
+    FinanceMomentumRequest = _models.MethodFinanceMomentumParams
+    FinanceMeanReversionRequest = _models.MethodFinanceMeanReversionParams
+    FinanceInformationCoefficientRequest = (
+        _models.MethodFinanceInformationCoefficientParams
+    )
+    FinanceTwapRequest = _models.MethodFinanceTwapParams
+    FinanceVwapRequest = _models.MethodFinanceVwapParams
+    FinanceMarketImpactRequest = _models.MethodFinanceMarketImpactParams
+    FinancePairsTradingRequest = _models.MethodFinancePairsTradingParams
+    FinanceMatchOrdersRequest = _models.MethodFinanceMatchOrdersParams
+    FinanceAvellanedaStoikovRequest = _models.MethodFinanceAvellanedaStoikovParams
+    FinanceGltQuotesRequest = _models.MethodFinanceGltQuotesParams
+    FinanceLogitQuotesRequest = _models.MethodFinanceLogitQuotesParams
+    FinanceGlostenMilgromSpreadRequest = _models.MethodFinanceGlostenMilgromSpreadParams
+    FinanceExpectedPnlRateRequest = _models.MethodFinanceExpectedPnlRateParams
+    FinanceBreakevenAlphaRequest = _models.MethodFinanceBreakevenAlphaParams
+    FinanceOfiSeriesRequest = _models.MethodFinanceOfiSeriesParams
+    FinanceMicropriceSeriesRequest = _models.MethodFinanceMicropriceSeriesParams
+    FinanceVpinPmRequest = _models.MethodFinanceVpinPmParams
+    FinanceHawkesMleRequest = _models.MethodFinanceHawkesMleParams
+    FinanceHardimanBouchaudRequest = _models.MethodFinanceHardimanBouchaudParams
+    FinanceKyleLambdaRequest = _models.MethodFinanceKyleLambdaParams
+    FinanceSurveillanceRiskRequest = _models.MethodFinanceSurveillanceRiskParams
+    FinanceKellyFractionRequest = _models.MethodFinanceKellyFractionParams
+    FinanceBayesianKellyRequest = _models.MethodFinanceBayesianKellyParams
+    FinancePosteriorCredibleIntervalRequest = (
+        _models.MethodFinancePosteriorCredibleIntervalParams
+    )
+    FinancePurgedCpcvRequest = _models.MethodFinancePurgedCpcvParams
+    FinanceDeflatedSharpeRequest = _models.MethodFinanceDeflatedSharpeParams
+    FinanceProbabilityBacktestOverfitRequest = (
+        _models.MethodFinanceProbabilityBacktestOverfitParams
+    )
+    FinanceDieboldMarianoRequest = _models.MethodFinanceDieboldMarianoParams
+    FinanceForensicReportRequest = _models.MethodFinanceForensicReportParams
+    FinanceKalmanFilter1dRequest = _models.MethodFinanceKalmanFilter1dParams
+    FinanceKalmanBetaRequest = _models.MethodFinanceKalmanBetaParams
+    FinanceKalmanVolatilityRequest = _models.MethodFinanceKalmanVolatilityParams
+    FinanceAdfTestRequest = _models.MethodFinanceAdfTestParams
+    FinanceOuCalibrateRequest = _models.MethodFinanceOuCalibrateParams
+    FinanceOuOptimalThresholdsRequest = _models.MethodFinanceOuOptimalThresholdsParams
+    FinanceMarkovTransitionMatrixRequest = (
+        _models.MethodFinanceMarkovTransitionMatrixParams
+    )
+    FinanceOrderBookImbalanceRequest = _models.MethodFinanceOrderBookImbalanceParams
+    FinanceQueueImbalanceRequest = _models.MethodFinanceQueueImbalanceParams
+    FinanceRealizedVolTickRequest = _models.MethodFinanceRealizedVolTickParams
+    FinanceSpreadReversionRequest = _models.MethodFinanceSpreadReversionParams
+    FinanceInformationRatioRequest = _models.MethodFinanceInformationRatioParams
+    FinanceEffectiveIndependentNRequest = (
+        _models.MethodFinanceEffectiveIndependentNParams
+    )
+    FinanceAlphaCombinationEngineRequest = (
+        _models.MethodFinanceAlphaCombinationEngineParams
+    )
+    FinanceBrierScoreRequest = _models.MethodFinanceBrierScoreParams
+    FinanceConvergenceGateRequest = _models.MethodFinanceConvergenceGateParams
+    FinanceEmpiricalKellyRequest = _models.MethodFinanceEmpiricalKellyParams
+    FinanceSabrImpliedVolRequest = _models.MethodFinanceSabrImpliedVolParams
+    FinanceSabrSmileRequest = _models.MethodFinanceSabrSmileParams
+    FinanceSabrCalibrateRequest = _models.MethodFinanceSabrCalibrateParams
+    MineAssociateRequest = _models.MethodMineAssociateParams
+    MineClusterRequest = _models.MethodMineClusterParams
+    MineAnomalyRequest = _models.MethodMineAnomalyParams
+    MineClassifyFitRequest = _models.MethodMineClassifyFitParams
+    MineClassifyPredictRequest = _models.MethodMineClassifyPredictParams
+    MineReduceRequest = _models.MethodMineReduceParams
+    GraphLearnFitRequest = _models.MethodGraphLearnFitParams
+    GraphLearnPredictRequest = _models.MethodGraphLearnPredictParams
+    MiningPipelineTrainRequest = _models.MethodMiningPipelineTrainParams
+    MiningPipelineServeRequest = _models.MethodMiningPipelineServeParams
+    MiningPipelinePredictRequest = _models.MethodMiningPipelinePredictParams
+    MiningPipelineEvaluateRequest = _models.MethodMiningPipelineEvaluateParams
+    MiningPipelineCompareRequest = _models.MethodMiningPipelineCompareParams
+    MineSequenceRequest = _models.MethodMineSequenceParams
+    MineForecastRequest = _models.MethodMineForecastParams
+    MineTextRequest = _models.MethodMineTextParams
+    MineSubgraphRequest = _models.MethodMineSubgraphParams
+    MineEntityResolveRequest = _models.MethodMineEntityResolveParams
+    MineCausalImpactRequest = _models.MethodMineCausalImpactParams
+    MineProcessRequest = _models.MethodMineProcessParams
+    MineRootCauseRequest = _models.MethodMineRootCauseParams
+    MineRiskPropagationRequest = _models.MethodMineRiskPropagationParams
+    MineOntologyGapRequest = _models.MethodMineOntologyGapParams
+    MineRetrievalQualityRequest = _models.MethodMineRetrievalQualityParams
+    MineCommunityRequest = _models.MethodMineCommunityParams
 
 
 class TopologicalSortRequest(BaseModel):
@@ -67,6 +207,11 @@ async def send_topological_sort(
     return OpaqueResult("TopologicalSort", payload)
 
 
+def decode_topological_sort(result: OpaqueResult) -> _models.TopologicalSortResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("TopologicalSort", models().TopologicalSortResult, result)
+
+
 class FindCycleRequest(BaseModel):
     """Validate one engine-contract request body.
 
@@ -118,20 +263,9 @@ async def send_find_cycle(
     return OpaqueResult("FindCycle", payload)
 
 
-class GetShortestPathRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetShortestPath
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetShortestPath
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    source_id: str
-    target_id: str
+def decode_find_cycle(result: OpaqueResult) -> _models.FindCycleResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("FindCycle", models().FindCycleResult, result)
 
 
 async def send_get_shortest_path(
@@ -160,7 +294,7 @@ async def send_get_shortest_path(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetShortestPathRequest.model_validate(params or {})
+    models().MethodGetShortestPathParams.model_validate(params or {})
     payload = await client._send(
         "GetShortestPath",
         params,
@@ -170,20 +304,9 @@ async def send_get_shortest_path(
     return OpaqueResult("GetShortestPath", payload)
 
 
-class GetBlastRadiusRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetBlastRadius
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetBlastRadius
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    max_depth: int
-    node_id: str
+def decode_get_shortest_path(result: OpaqueResult) -> _models.GetShortestPathResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("GetShortestPath", models().GetShortestPathResult, result)
 
 
 async def send_get_blast_radius(
@@ -212,7 +335,7 @@ async def send_get_blast_radius(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetBlastRadiusRequest.model_validate(params or {})
+    models().MethodGetBlastRadiusParams.model_validate(params or {})
     payload = await client._send(
         "GetBlastRadius",
         params,
@@ -222,19 +345,9 @@ async def send_get_blast_radius(
     return OpaqueResult("GetBlastRadius", payload)
 
 
-class DegreeCentralityRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DegreeCentrality
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DegreeCentrality
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_id: str
+def decode_get_blast_radius(result: OpaqueResult) -> _models.GetBlastRadiusResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("GetBlastRadius", models().GetBlastRadiusResult, result)
 
 
 async def send_degree_centrality(
@@ -263,7 +376,7 @@ async def send_degree_centrality(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    DegreeCentralityRequest.model_validate(params or {})
+    models().MethodDegreeCentralityParams.model_validate(params or {})
     payload = await client._send(
         "DegreeCentrality",
         params,
@@ -324,6 +437,15 @@ async def send_degree_centrality_all(
     return OpaqueResult("DegreeCentralityAll", payload)
 
 
+def decode_degree_centrality_all(
+    result: OpaqueResult,
+) -> _models.DegreeCentralityAllResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "DegreeCentralityAll", models().DegreeCentralityAllResult, result
+    )
+
+
 class BetweennessCentralityRequest(BaseModel):
     """Validate one engine-contract request body.
 
@@ -375,20 +497,13 @@ async def send_betweenness_centrality(
     return OpaqueResult("BetweennessCentrality", payload)
 
 
-class PageRankRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        PageRank
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/PageRank
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    damping: float
-    iterations: int
+def decode_betweenness_centrality(
+    result: OpaqueResult,
+) -> _models.BetweennessCentralityResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "BetweennessCentrality", models().BetweennessCentralityResult, result
+    )
 
 
 async def send_page_rank(
@@ -417,7 +532,7 @@ async def send_page_rank(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    PageRankRequest.model_validate(params or {})
+    models().MethodPageRankParams.model_validate(params or {})
     payload = await client._send(
         "PageRank",
         params,
@@ -427,21 +542,9 @@ async def send_page_rank(
     return OpaqueResult("PageRank", payload)
 
 
-class PersonalizedPageRankRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        PersonalizedPageRank
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/PersonalizedPageRank
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    damping: float
-    iterations: int
-    seed_nodes: list[list[Any]]
+def decode_page_rank(result: OpaqueResult) -> _models.PageRankResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("PageRank", models().PageRankResult, result)
 
 
 async def send_personalized_page_rank(
@@ -470,7 +573,7 @@ async def send_personalized_page_rank(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    PersonalizedPageRankRequest.model_validate(params or {})
+    models().MethodPersonalizedPageRankParams.model_validate(params or {})
     payload = await client._send(
         "PersonalizedPageRank",
         params,
@@ -478,6 +581,15 @@ async def send_personalized_page_rank(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("PersonalizedPageRank", payload)
+
+
+def decode_personalized_page_rank(
+    result: OpaqueResult,
+) -> _models.PersonalizedPageRankResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "PersonalizedPageRank", models().PersonalizedPageRankResult, result
+    )
 
 
 class ConnectedComponentsRequest(BaseModel):
@@ -531,6 +643,15 @@ async def send_connected_components(
     return OpaqueResult("ConnectedComponents", payload)
 
 
+def decode_connected_components(
+    result: OpaqueResult,
+) -> _models.ConnectedComponentsResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "ConnectedComponents", models().ConnectedComponentsResult, result
+    )
+
+
 class StronglyConnectedComponentsRequest(BaseModel):
     """Validate one engine-contract request body.
 
@@ -580,6 +701,17 @@ async def send_strongly_connected_components(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("StronglyConnectedComponents", payload)
+
+
+def decode_strongly_connected_components(
+    result: OpaqueResult,
+) -> _models.StronglyConnectedComponentsResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "StronglyConnectedComponents",
+        models().StronglyConnectedComponentsResult,
+        result,
+    )
 
 
 class MinimumSpanningTreeRequest(BaseModel):
@@ -633,19 +765,13 @@ async def send_minimum_spanning_tree(
     return OpaqueResult("MinimumSpanningTree", payload)
 
 
-class CommunityDetectionRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CommunityDetection
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CommunityDetection
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    resolution: float
+def decode_minimum_spanning_tree(
+    result: OpaqueResult,
+) -> _models.MinimumSpanningTreeResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "MinimumSpanningTree", models().MinimumSpanningTreeResult, result
+    )
 
 
 async def send_community_detection(
@@ -674,7 +800,7 @@ async def send_community_detection(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    CommunityDetectionRequest.model_validate(params or {})
+    models().MethodCommunityDetectionParams.model_validate(params or {})
     payload = await client._send(
         "CommunityDetection",
         params,
@@ -684,21 +810,13 @@ async def send_community_detection(
     return OpaqueResult("CommunityDetection", payload)
 
 
-class CommunityDetectEphemeralRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CommunityDetectEphemeral
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CommunityDetectEphemeral
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    edges: list[list[Any]]
-    node_ids: list[str]
-    resolution: float
+def decode_community_detection(
+    result: OpaqueResult,
+) -> _models.CommunityDetectionResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "CommunityDetection", models().CommunityDetectionResult, result
+    )
 
 
 async def send_community_detect_ephemeral(
@@ -727,7 +845,7 @@ async def send_community_detect_ephemeral(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    CommunityDetectEphemeralRequest.model_validate(params or {})
+    models().MethodCommunityDetectEphemeralParams.model_validate(params or {})
     payload = await client._send(
         "CommunityDetectEphemeral",
         params,
@@ -735,6 +853,15 @@ async def send_community_detect_ephemeral(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("CommunityDetectEphemeral", payload)
+
+
+def decode_community_detect_ephemeral(
+    result: OpaqueResult,
+) -> _models.CommunityDetectEphemeralResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "CommunityDetectEphemeral", models().CommunityDetectEphemeralResult, result
+    )
 
 
 class GraphColoringRequest(BaseModel):
@@ -788,19 +915,9 @@ async def send_graph_coloring(
     return OpaqueResult("GraphColoring", payload)
 
 
-class ComputeSimilarityEdgesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ComputeSimilarityEdges
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ComputeSimilarityEdges
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    threshold: float
+def decode_graph_coloring(result: OpaqueResult) -> _models.GraphColoringResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("GraphColoring", models().GraphColoringResult, result)
 
 
 async def send_compute_similarity_edges(
@@ -829,7 +946,7 @@ async def send_compute_similarity_edges(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ComputeSimilarityEdgesRequest.model_validate(params or {})
+    models().MethodComputeSimilarityEdgesParams.model_validate(params or {})
     payload = await client._send(
         "ComputeSimilarityEdges",
         params,
@@ -839,21 +956,13 @@ async def send_compute_similarity_edges(
     return OpaqueResult("ComputeSimilarityEdges", payload)
 
 
-class ResolveCandidatesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ResolveCandidates
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ResolveCandidates
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    merge_threshold: float
-    node_type: str | None = None
-    sim_threshold: float
+def decode_compute_similarity_edges(
+    result: OpaqueResult,
+) -> _models.ComputeSimilarityEdgesResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "ComputeSimilarityEdges", models().ComputeSimilarityEdgesResult, result
+    )
 
 
 async def send_resolve_candidates(
@@ -882,7 +991,7 @@ async def send_resolve_candidates(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ResolveCandidatesRequest.model_validate(params or {})
+    models().MethodResolveCandidatesParams.model_validate(params or {})
     payload = await client._send(
         "ResolveCandidates",
         params,
@@ -892,21 +1001,9 @@ async def send_resolve_candidates(
     return OpaqueResult("ResolveCandidates", payload)
 
 
-class ClusterHierarchyRefreshRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ClusterHierarchyRefresh
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ClusterHierarchyRefresh
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    label: str | None = None
-    resolution: float | None = None
-    seed: int | None = None
+def decode_resolve_candidates(result: OpaqueResult) -> _models.ResolveCandidatesResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ResolveCandidates", models().ResolveCandidatesResult, result)
 
 
 async def send_cluster_hierarchy_refresh(
@@ -935,7 +1032,7 @@ async def send_cluster_hierarchy_refresh(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ClusterHierarchyRefreshRequest.model_validate(params or {})
+    models().MethodClusterHierarchyRefreshParams.model_validate(params or {})
     payload = await client._send(
         "ClusterHierarchyRefresh",
         params,
@@ -945,20 +1042,13 @@ async def send_cluster_hierarchy_refresh(
     return OpaqueResult("ClusterHierarchyRefresh", payload)
 
 
-class ClusterHierarchyClustersRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ClusterHierarchyClusters
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ClusterHierarchyClusters
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    level: int
-    parent_cluster_id: str | None = None
+def decode_cluster_hierarchy_refresh(
+    result: OpaqueResult,
+) -> _models.ClusterHierarchySummary:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "ClusterHierarchyRefresh", models().ClusterHierarchySummary, result
+    )
 
 
 async def send_cluster_hierarchy_clusters(
@@ -987,7 +1077,7 @@ async def send_cluster_hierarchy_clusters(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ClusterHierarchyClustersRequest.model_validate(params or {})
+    models().MethodClusterHierarchyClustersParams.model_validate(params or {})
     payload = await client._send(
         "ClusterHierarchyClusters",
         params,
@@ -997,19 +1087,9 @@ async def send_cluster_hierarchy_clusters(
     return OpaqueResult("ClusterHierarchyClusters", payload)
 
 
-class ClusterHierarchyExpandRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ClusterHierarchyExpand
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ClusterHierarchyExpand
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    cluster_id: str
+def decode_cluster_hierarchy_clusters(result: OpaqueResult) -> _models.ClusterLevelView:
+    """Validate this method's result against its contract model."""
+    return decode_result("ClusterHierarchyClusters", models().ClusterLevelView, result)
 
 
 async def send_cluster_hierarchy_expand(
@@ -1038,7 +1118,7 @@ async def send_cluster_hierarchy_expand(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ClusterHierarchyExpandRequest.model_validate(params or {})
+    models().MethodClusterHierarchyExpandParams.model_validate(params or {})
     payload = await client._send(
         "ClusterHierarchyExpand",
         params,
@@ -1048,21 +1128,9 @@ async def send_cluster_hierarchy_expand(
     return OpaqueResult("ClusterHierarchyExpand", payload)
 
 
-class Vf2SubgraphMatchRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        Vf2SubgraphMatch
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/Vf2SubgraphMatch
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    max_results: int | None = None
-    max_steps: int | None = None
-    pattern_graph_name: str
+def decode_cluster_hierarchy_expand(result: OpaqueResult) -> _models.ClusterExpansion:
+    """Validate this method's result against its contract model."""
+    return decode_result("ClusterHierarchyExpand", models().ClusterExpansion, result)
 
 
 async def send_vf2_subgraph_match(
@@ -1091,7 +1159,7 @@ async def send_vf2_subgraph_match(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    Vf2SubgraphMatchRequest.model_validate(params or {})
+    models().MethodVf2SubgraphMatchParams.model_validate(params or {})
     payload = await client._send(
         "Vf2SubgraphMatch",
         params,
@@ -1101,19 +1169,9 @@ async def send_vf2_subgraph_match(
     return OpaqueResult("Vf2SubgraphMatch", payload)
 
 
-class MatchOntologyTermsRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MatchOntologyTerms
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MatchOntologyTerms
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    query: str
+def decode_vf2_subgraph_match(result: OpaqueResult) -> _models.Vf2MatchResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("Vf2SubgraphMatch", models().Vf2MatchResult, result)
 
 
 async def send_match_ontology_terms(
@@ -1142,7 +1200,7 @@ async def send_match_ontology_terms(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    MatchOntologyTermsRequest.model_validate(params or {})
+    models().MethodMatchOntologyTermsParams.model_validate(params or {})
     payload = await client._send(
         "MatchOntologyTerms",
         params,
@@ -1152,19 +1210,13 @@ async def send_match_ontology_terms(
     return OpaqueResult("MatchOntologyTerms", payload)
 
 
-class BatchL2NormalizeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        BatchL2Normalize
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/BatchL2Normalize
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    vectors: list[list[float]]
+def decode_match_ontology_terms(
+    result: OpaqueResult,
+) -> _models.MatchOntologyTermsResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "MatchOntologyTerms", models().MatchOntologyTermsResult, result
+    )
 
 
 async def send_batch_l2_normalize(
@@ -1193,7 +1245,7 @@ async def send_batch_l2_normalize(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    BatchL2NormalizeRequest.model_validate(params or {})
+    models().MethodBatchL2NormalizeParams.model_validate(params or {})
     payload = await client._send(
         "BatchL2Normalize",
         params,
@@ -1203,23 +1255,9 @@ async def send_batch_l2_normalize(
     return OpaqueResult("BatchL2Normalize", payload)
 
 
-class FinanceOptimizePortfolioRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceOptimizePortfolio
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceOptimizePortfolio
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    cov_matrix: list[list[float]]
-    expected_returns: list[float]
-    max_weight: float | None = None
-    min_weight: float | None = None
-    risk_free_rate: float
+def decode_batch_l2_normalize(result: OpaqueResult) -> _models.BatchL2NormalizeResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("BatchL2Normalize", models().BatchL2NormalizeResult, result)
 
 
 async def send_finance_optimize_portfolio(
@@ -1248,7 +1286,7 @@ async def send_finance_optimize_portfolio(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceOptimizePortfolioRequest.model_validate(params or {})
+    models().MethodFinanceOptimizePortfolioParams.model_validate(params or {})
     payload = await client._send(
         "FinanceOptimizePortfolio",
         params,
@@ -1258,19 +1296,13 @@ async def send_finance_optimize_portfolio(
     return OpaqueResult("FinanceOptimizePortfolio", payload)
 
 
-class FinanceRiskParityRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceRiskParity
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceRiskParity
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    cov_matrix: list[list[float]]
+def decode_finance_optimize_portfolio(
+    result: OpaqueResult,
+) -> _models.OptimizationResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "FinanceOptimizePortfolio", models().OptimizationResult, result
+    )
 
 
 async def send_finance_risk_parity(
@@ -1299,7 +1331,7 @@ async def send_finance_risk_parity(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceRiskParityRequest.model_validate(params or {})
+    models().MethodFinanceRiskParityParams.model_validate(params or {})
     payload = await client._send(
         "FinanceRiskParity",
         params,
@@ -1309,24 +1341,9 @@ async def send_finance_risk_parity(
     return OpaqueResult("FinanceRiskParity", payload)
 
 
-class FinanceBlackLittermanRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceBlackLitterman
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceBlackLitterman
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    cov_matrix: list[list[float]]
-    market_weights: list[float]
-    pick_matrix: list[list[float]]
-    risk_aversion: float
-    tau: float
-    views: list[float]
+def decode_finance_risk_parity(result: OpaqueResult) -> _models.OptimizationResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceRiskParity", models().OptimizationResult, result)
 
 
 async def send_finance_black_litterman(
@@ -1355,7 +1372,7 @@ async def send_finance_black_litterman(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceBlackLittermanRequest.model_validate(params or {})
+    models().MethodFinanceBlackLittermanParams.model_validate(params or {})
     payload = await client._send(
         "FinanceBlackLitterman",
         params,
@@ -1365,21 +1382,9 @@ async def send_finance_black_litterman(
     return OpaqueResult("FinanceBlackLitterman", payload)
 
 
-class FinanceEfficientFrontierRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceEfficientFrontier
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceEfficientFrontier
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    cov_matrix: list[list[float]]
-    expected_returns: list[float]
-    target_return: float
+def decode_finance_black_litterman(result: OpaqueResult) -> _models.OptimizationResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceBlackLitterman", models().OptimizationResult, result)
 
 
 async def send_finance_efficient_frontier(
@@ -1408,7 +1413,7 @@ async def send_finance_efficient_frontier(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceEfficientFrontierRequest.model_validate(params or {})
+    models().MethodFinanceEfficientFrontierParams.model_validate(params or {})
     payload = await client._send(
         "FinanceEfficientFrontier",
         params,
@@ -1418,20 +1423,13 @@ async def send_finance_efficient_frontier(
     return OpaqueResult("FinanceEfficientFrontier", payload)
 
 
-class DsLinearRegressionRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DsLinearRegression
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DsLinearRegression
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    x: list[list[float]]
-    y: list[float]
+def decode_finance_efficient_frontier(
+    result: OpaqueResult,
+) -> _models.OptimizationResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "FinanceEfficientFrontier", models().OptimizationResult, result
+    )
 
 
 async def send_ds_linear_regression(
@@ -1460,7 +1458,7 @@ async def send_ds_linear_regression(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    DsLinearRegressionRequest.model_validate(params or {})
+    models().MethodDsLinearRegressionParams.model_validate(params or {})
     payload = await client._send(
         "DsLinearRegression",
         params,
@@ -1470,21 +1468,9 @@ async def send_ds_linear_regression(
     return OpaqueResult("DsLinearRegression", payload)
 
 
-class DsKMeansRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DsKMeans
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DsKMeans
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    data: list[list[float]]
-    k: int
-    max_iter: int
+def decode_ds_linear_regression(result: OpaqueResult) -> _models.RegressionResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("DsLinearRegression", models().RegressionResult, result)
 
 
 async def send_ds_k_means(
@@ -1513,7 +1499,7 @@ async def send_ds_k_means(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    DsKMeansRequest.model_validate(params or {})
+    models().MethodDsKMeansParams.model_validate(params or {})
     payload = await client._send(
         "DsKMeans",
         params,
@@ -1523,20 +1509,9 @@ async def send_ds_k_means(
     return OpaqueResult("DsKMeans", payload)
 
 
-class DsPcaRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DsPca
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DsPca
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    data: list[list[float]]
-    n_components: int
+def decode_ds_k_means(result: OpaqueResult) -> _models.KMeansResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("DsKMeans", models().KMeansResult, result)
 
 
 async def send_ds_pca(
@@ -1565,7 +1540,7 @@ async def send_ds_pca(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    DsPcaRequest.model_validate(params or {})
+    models().MethodDsPcaParams.model_validate(params or {})
     payload = await client._send(
         "DsPca",
         params,
@@ -1575,19 +1550,9 @@ async def send_ds_pca(
     return OpaqueResult("DsPca", payload)
 
 
-class DsComputeStatsRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DsComputeStats
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DsComputeStats
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    data: list[list[float]]
+def decode_ds_pca(result: OpaqueResult) -> _models.PCAResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("DsPca", models().PCAResult, result)
 
 
 async def send_ds_compute_stats(
@@ -1616,7 +1581,7 @@ async def send_ds_compute_stats(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    DsComputeStatsRequest.model_validate(params or {})
+    models().MethodDsComputeStatsParams.model_validate(params or {})
     payload = await client._send(
         "DsComputeStats",
         params,
@@ -1626,23 +1591,9 @@ async def send_ds_compute_stats(
     return OpaqueResult("DsComputeStats", payload)
 
 
-class DsTrainTestSplitRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DsTrainTestSplit
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DsTrainTestSplit
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    data: list[list[float]]
-    labels: list[float]
-    seed: int
-    shuffle: bool
-    test_ratio: float
+def decode_ds_compute_stats(result: OpaqueResult) -> _models.DatasetStats:
+    """Validate this method's result against its contract model."""
+    return decode_result("DsComputeStats", models().DatasetStats, result)
 
 
 async def send_ds_train_test_split(
@@ -1671,7 +1622,7 @@ async def send_ds_train_test_split(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    DsTrainTestSplitRequest.model_validate(params or {})
+    models().MethodDsTrainTestSplitParams.model_validate(params or {})
     payload = await client._send(
         "DsTrainTestSplit",
         params,
@@ -1681,22 +1632,9 @@ async def send_ds_train_test_split(
     return OpaqueResult("DsTrainTestSplit", payload)
 
 
-class DsFitEstimatorRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DsFitEstimator
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DsFitEstimator
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    estimator: str
-    params: Any | None = None
-    x: list[list[float]]
-    y: list[float]
+def decode_ds_train_test_split(result: OpaqueResult) -> _models.TrainTestSplitResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("DsTrainTestSplit", models().TrainTestSplitResult, result)
 
 
 async def send_ds_fit_estimator(
@@ -1725,7 +1663,7 @@ async def send_ds_fit_estimator(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    DsFitEstimatorRequest.model_validate(params or {})
+    models().MethodDsFitEstimatorParams.model_validate(params or {})
     payload = await client._send(
         "DsFitEstimator",
         params,
@@ -1735,20 +1673,9 @@ async def send_ds_fit_estimator(
     return OpaqueResult("DsFitEstimator", payload)
 
 
-class DsPredictEstimatorRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DsPredictEstimator
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DsPredictEstimator
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    model: Any
-    x: list[list[float]]
+def decode_ds_fit_estimator(result: OpaqueResult) -> _models.FittedModel:
+    """Validate this method's result against its contract model."""
+    return decode_result("DsFitEstimator", models().FittedModel, result)
 
 
 async def send_ds_predict_estimator(
@@ -1777,7 +1704,7 @@ async def send_ds_predict_estimator(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    DsPredictEstimatorRequest.model_validate(params or {})
+    models().MethodDsPredictEstimatorParams.model_validate(params or {})
     payload = await client._send(
         "DsPredictEstimator",
         params,
@@ -1787,20 +1714,13 @@ async def send_ds_predict_estimator(
     return OpaqueResult("DsPredictEstimator", payload)
 
 
-class DsSoftmaxRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DsSoftmax
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DsSoftmax
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    logits: list[float]
-    temperature: float
+def decode_ds_predict_estimator(
+    result: OpaqueResult,
+) -> _models.DsPredictEstimatorResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "DsPredictEstimator", models().DsPredictEstimatorResult, result
+    )
 
 
 async def send_ds_softmax(
@@ -1829,7 +1749,7 @@ async def send_ds_softmax(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    DsSoftmaxRequest.model_validate(params or {})
+    models().MethodDsSoftmaxParams.model_validate(params or {})
     payload = await client._send(
         "DsSoftmax",
         params,
@@ -1839,19 +1759,9 @@ async def send_ds_softmax(
     return OpaqueResult("DsSoftmax", payload)
 
 
-class DsLogSoftmaxRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DsLogSoftmax
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DsLogSoftmax
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    logits: list[float]
+def decode_ds_softmax(result: OpaqueResult) -> _models.DsSoftmaxResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("DsSoftmax", models().DsSoftmaxResult, result)
 
 
 async def send_ds_log_softmax(
@@ -1880,7 +1790,7 @@ async def send_ds_log_softmax(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    DsLogSoftmaxRequest.model_validate(params or {})
+    models().MethodDsLogSoftmaxParams.model_validate(params or {})
     payload = await client._send(
         "DsLogSoftmax",
         params,
@@ -1890,20 +1800,9 @@ async def send_ds_log_softmax(
     return OpaqueResult("DsLogSoftmax", payload)
 
 
-class DsCrossEntropyRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DsCrossEntropy
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DsCrossEntropy
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    labels: list[int]
-    logits: list[list[float]]
+def decode_ds_log_softmax(result: OpaqueResult) -> _models.DsLogSoftmaxResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("DsLogSoftmax", models().DsLogSoftmaxResult, result)
 
 
 async def send_ds_cross_entropy(
@@ -1932,7 +1831,7 @@ async def send_ds_cross_entropy(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    DsCrossEntropyRequest.model_validate(params or {})
+    models().MethodDsCrossEntropyParams.model_validate(params or {})
     payload = await client._send(
         "DsCrossEntropy",
         params,
@@ -1942,23 +1841,9 @@ async def send_ds_cross_entropy(
     return OpaqueResult("DsCrossEntropy", payload)
 
 
-class DsDpoLossRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DsDpoLoss
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DsDpoLoss
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    beta: float
-    policy_chosen: list[float]
-    policy_rejected: list[float]
-    ref_chosen: list[float]
-    ref_rejected: list[float]
+def decode_ds_cross_entropy(result: OpaqueResult) -> _models.CrossEntropyResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("DsCrossEntropy", models().CrossEntropyResult, result)
 
 
 async def send_ds_dpo_loss(
@@ -1987,7 +1872,7 @@ async def send_ds_dpo_loss(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    DsDpoLossRequest.model_validate(params or {})
+    models().MethodDsDpoLossParams.model_validate(params or {})
     payload = await client._send(
         "DsDpoLoss",
         params,
@@ -1997,22 +1882,9 @@ async def send_ds_dpo_loss(
     return OpaqueResult("DsDpoLoss", payload)
 
 
-class DsGrpoSurrogateRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DsGrpoSurrogate
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DsGrpoSurrogate
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    advantage: list[float]
-    clip_eps: float
-    logprob: list[float]
-    old_logprob: list[float]
+def decode_ds_dpo_loss(result: OpaqueResult) -> _models.DpoResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("DsDpoLoss", models().DpoResult, result)
 
 
 async def send_ds_grpo_surrogate(
@@ -2041,7 +1913,7 @@ async def send_ds_grpo_surrogate(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    DsGrpoSurrogateRequest.model_validate(params or {})
+    models().MethodDsGrpoSurrogateParams.model_validate(params or {})
     payload = await client._send(
         "DsGrpoSurrogate",
         params,
@@ -2051,20 +1923,9 @@ async def send_ds_grpo_surrogate(
     return OpaqueResult("DsGrpoSurrogate", payload)
 
 
-class DsKlDivergenceRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DsKlDivergence
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DsKlDivergence
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    logprob: list[float]
-    ref_logprob: list[float]
+def decode_ds_grpo_surrogate(result: OpaqueResult) -> _models.GrpoResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("DsGrpoSurrogate", models().GrpoResult, result)
 
 
 async def send_ds_kl_divergence(
@@ -2093,7 +1954,7 @@ async def send_ds_kl_divergence(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    DsKlDivergenceRequest.model_validate(params or {})
+    models().MethodDsKlDivergenceParams.model_validate(params or {})
     payload = await client._send(
         "DsKlDivergence",
         params,
@@ -2101,29 +1962,6 @@ async def send_ds_kl_divergence(
         idempotency_key=idempotency_key,
     )
     return expect_float("DsKlDivergence", payload)
-
-
-class DsAdamStepRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DsAdamStep
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DsAdamStep
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    beta1: float
-    beta2: float
-    eps: float
-    grads: list[float]
-    lr: float
-    m: list[float]
-    params: list[float]
-    t: int
-    v: list[float]
 
 
 async def send_ds_adam_step(
@@ -2152,7 +1990,7 @@ async def send_ds_adam_step(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    DsAdamStepRequest.model_validate(params or {})
+    models().MethodDsAdamStepParams.model_validate(params or {})
     payload = await client._send(
         "DsAdamStep",
         params,
@@ -2162,21 +2000,9 @@ async def send_ds_adam_step(
     return OpaqueResult("DsAdamStep", payload)
 
 
-class DsSgdStepRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DsSgdStep
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DsSgdStep
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    grads: list[float]
-    lr: float
-    params: list[float]
+def decode_ds_adam_step(result: OpaqueResult) -> _models.AdamResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("DsAdamStep", models().AdamResult, result)
 
 
 async def send_ds_sgd_step(
@@ -2205,7 +2031,7 @@ async def send_ds_sgd_step(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    DsSgdStepRequest.model_validate(params or {})
+    models().MethodDsSgdStepParams.model_validate(params or {})
     payload = await client._send(
         "DsSgdStep",
         params,
@@ -2215,20 +2041,9 @@ async def send_ds_sgd_step(
     return OpaqueResult("DsSgdStep", payload)
 
 
-class FinanceVarRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceVar
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceVar
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    confidence: float
-    returns: list[float]
+def decode_ds_sgd_step(result: OpaqueResult) -> _models.DsSgdStepResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("DsSgdStep", models().DsSgdStepResult, result)
 
 
 async def send_finance_var(
@@ -2257,7 +2072,7 @@ async def send_finance_var(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceVarRequest.model_validate(params or {})
+    models().MethodFinanceVarParams.model_validate(params or {})
     payload = await client._send(
         "FinanceVar",
         params,
@@ -2265,22 +2080,6 @@ async def send_finance_var(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceVar", payload)
-
-
-class FinanceCvarRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceCvar
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceCvar
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    confidence: float
-    returns: list[float]
 
 
 async def send_finance_cvar(
@@ -2309,7 +2108,7 @@ async def send_finance_cvar(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceCvarRequest.model_validate(params or {})
+    models().MethodFinanceCvarParams.model_validate(params or {})
     payload = await client._send(
         "FinanceCvar",
         params,
@@ -2317,21 +2116,6 @@ async def send_finance_cvar(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceCvar", payload)
-
-
-class FinanceMaxDrawdownRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceMaxDrawdown
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceMaxDrawdown
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    returns: list[float]
 
 
 async def send_finance_max_drawdown(
@@ -2360,7 +2144,7 @@ async def send_finance_max_drawdown(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceMaxDrawdownRequest.model_validate(params or {})
+    models().MethodFinanceMaxDrawdownParams.model_validate(params or {})
     payload = await client._send(
         "FinanceMaxDrawdown",
         params,
@@ -2368,21 +2152,6 @@ async def send_finance_max_drawdown(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceMaxDrawdown", payload)
-
-
-class FinanceDrawdownSeriesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceDrawdownSeries
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceDrawdownSeries
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    returns: list[float]
 
 
 async def send_finance_drawdown_series(
@@ -2411,7 +2180,7 @@ async def send_finance_drawdown_series(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceDrawdownSeriesRequest.model_validate(params or {})
+    models().MethodFinanceDrawdownSeriesParams.model_validate(params or {})
     payload = await client._send(
         "FinanceDrawdownSeries",
         params,
@@ -2421,20 +2190,13 @@ async def send_finance_drawdown_series(
     return OpaqueResult("FinanceDrawdownSeries", payload)
 
 
-class FinanceDownsideDeviationRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceDownsideDeviation
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceDownsideDeviation
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    returns: list[float]
-    target: float
+def decode_finance_drawdown_series(
+    result: OpaqueResult,
+) -> _models.FinanceDrawdownSeriesResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "FinanceDrawdownSeries", models().FinanceDrawdownSeriesResult, result
+    )
 
 
 async def send_finance_downside_deviation(
@@ -2463,7 +2225,7 @@ async def send_finance_downside_deviation(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceDownsideDeviationRequest.model_validate(params or {})
+    models().MethodFinanceDownsideDeviationParams.model_validate(params or {})
     payload = await client._send(
         "FinanceDownsideDeviation",
         params,
@@ -2471,22 +2233,6 @@ async def send_finance_downside_deviation(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceDownsideDeviation", payload)
-
-
-class FinanceRiskMetricsRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceRiskMetrics
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceRiskMetrics
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    returns: list[float]
-    risk_free_rate: float
 
 
 async def send_finance_risk_metrics(
@@ -2515,7 +2261,7 @@ async def send_finance_risk_metrics(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceRiskMetricsRequest.model_validate(params or {})
+    models().MethodFinanceRiskMetricsParams.model_validate(params or {})
     payload = await client._send(
         "FinanceRiskMetrics",
         params,
@@ -2525,22 +2271,9 @@ async def send_finance_risk_metrics(
     return OpaqueResult("FinanceRiskMetrics", payload)
 
 
-class FinanceMonteCarloVarRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceMonteCarloVar
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceMonteCarloVar
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    confidence: float
-    mean: float
-    n_simulations: int
-    std_dev: float
+def decode_finance_risk_metrics(result: OpaqueResult) -> _models.RiskMetrics:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceRiskMetrics", models().RiskMetrics, result)
 
 
 async def send_finance_monte_carlo_var(
@@ -2569,7 +2302,7 @@ async def send_finance_monte_carlo_var(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceMonteCarloVarRequest.model_validate(params or {})
+    models().MethodFinanceMonteCarloVarParams.model_validate(params or {})
     payload = await client._send(
         "FinanceMonteCarloVar",
         params,
@@ -2577,24 +2310,6 @@ async def send_finance_monte_carlo_var(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceMonteCarloVar", payload)
-
-
-class FinanceStressTestRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceStressTest
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceStressTest
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    cov_matrix: list[list[float]]
-    expected_returns: list[float]
-    shock_factors: list[float]
-    weights: list[float]
 
 
 async def send_finance_stress_test(
@@ -2623,7 +2338,7 @@ async def send_finance_stress_test(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceStressTestRequest.model_validate(params or {})
+    models().MethodFinanceStressTestParams.model_validate(params or {})
     payload = await client._send(
         "FinanceStressTest",
         params,
@@ -2633,22 +2348,9 @@ async def send_finance_stress_test(
     return OpaqueResult("FinanceStressTest", payload)
 
 
-class FinanceDetectRegimesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceDetectRegimes
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceDetectRegimes
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    max_iter: int
-    n_states: int
-    observations: list[float]
-    tol: float
+def decode_finance_stress_test(result: OpaqueResult) -> _models.FinanceStressTestResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceStressTest", models().FinanceStressTestResult, result)
 
 
 async def send_finance_detect_regimes(
@@ -2677,7 +2379,7 @@ async def send_finance_detect_regimes(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceDetectRegimesRequest.model_validate(params or {})
+    models().MethodFinanceDetectRegimesParams.model_validate(params or {})
     payload = await client._send(
         "FinanceDetectRegimes",
         params,
@@ -2687,20 +2389,9 @@ async def send_finance_detect_regimes(
     return OpaqueResult("FinanceDetectRegimes", payload)
 
 
-class FinanceRollingZscoreRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceRollingZscore
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceRollingZscore
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    values: list[float]
-    window: int
+def decode_finance_detect_regimes(result: OpaqueResult) -> _models.RegimeResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceDetectRegimes", models().RegimeResult, result)
 
 
 async def send_finance_rolling_zscore(
@@ -2729,7 +2420,7 @@ async def send_finance_rolling_zscore(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceRollingZscoreRequest.model_validate(params or {})
+    models().MethodFinanceRollingZscoreParams.model_validate(params or {})
     payload = await client._send(
         "FinanceRollingZscore",
         params,
@@ -2739,20 +2430,13 @@ async def send_finance_rolling_zscore(
     return OpaqueResult("FinanceRollingZscore", payload)
 
 
-class FinanceEwmaRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceEwma
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceEwma
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    span: int
-    values: list[float]
+def decode_finance_rolling_zscore(
+    result: OpaqueResult,
+) -> _models.FinanceRollingZscoreResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "FinanceRollingZscore", models().FinanceRollingZscoreResult, result
+    )
 
 
 async def send_finance_ewma(
@@ -2781,7 +2465,7 @@ async def send_finance_ewma(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceEwmaRequest.model_validate(params or {})
+    models().MethodFinanceEwmaParams.model_validate(params or {})
     payload = await client._send(
         "FinanceEwma",
         params,
@@ -2791,20 +2475,9 @@ async def send_finance_ewma(
     return OpaqueResult("FinanceEwma", payload)
 
 
-class FinanceSignalDecayRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceSignalDecay
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceSignalDecay
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    half_life: float
-    signal: list[float]
+def decode_finance_ewma(result: OpaqueResult) -> _models.FinanceEwmaResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceEwma", models().FinanceEwmaResult, result)
 
 
 async def send_finance_signal_decay(
@@ -2833,7 +2506,7 @@ async def send_finance_signal_decay(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceSignalDecayRequest.model_validate(params or {})
+    models().MethodFinanceSignalDecayParams.model_validate(params or {})
     payload = await client._send(
         "FinanceSignalDecay",
         params,
@@ -2843,20 +2516,13 @@ async def send_finance_signal_decay(
     return OpaqueResult("FinanceSignalDecay", payload)
 
 
-class FinanceCombineAlphasRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceCombineAlphas
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceCombineAlphas
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    signals: list[list[float]]
-    weights: list[float]
+def decode_finance_signal_decay(
+    result: OpaqueResult,
+) -> _models.FinanceSignalDecayResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "FinanceSignalDecay", models().FinanceSignalDecayResult, result
+    )
 
 
 async def send_finance_combine_alphas(
@@ -2885,7 +2551,7 @@ async def send_finance_combine_alphas(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceCombineAlphasRequest.model_validate(params or {})
+    models().MethodFinanceCombineAlphasParams.model_validate(params or {})
     payload = await client._send(
         "FinanceCombineAlphas",
         params,
@@ -2895,19 +2561,13 @@ async def send_finance_combine_alphas(
     return OpaqueResult("FinanceCombineAlphas", payload)
 
 
-class FinanceCrossSectionalRankRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceCrossSectionalRank
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceCrossSectionalRank
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    cross_section: list[list[float]]
+def decode_finance_combine_alphas(
+    result: OpaqueResult,
+) -> _models.FinanceCombineAlphasResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "FinanceCombineAlphas", models().FinanceCombineAlphasResult, result
+    )
 
 
 async def send_finance_cross_sectional_rank(
@@ -2936,7 +2596,7 @@ async def send_finance_cross_sectional_rank(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceCrossSectionalRankRequest.model_validate(params or {})
+    models().MethodFinanceCrossSectionalRankParams.model_validate(params or {})
     payload = await client._send(
         "FinanceCrossSectionalRank",
         params,
@@ -2946,20 +2606,13 @@ async def send_finance_cross_sectional_rank(
     return OpaqueResult("FinanceCrossSectionalRank", payload)
 
 
-class FinanceMomentumRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceMomentum
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceMomentum
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    lookback: int
-    prices: list[float]
+def decode_finance_cross_sectional_rank(
+    result: OpaqueResult,
+) -> _models.FinanceCrossSectionalRankResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "FinanceCrossSectionalRank", models().FinanceCrossSectionalRankResult, result
+    )
 
 
 async def send_finance_momentum(
@@ -2988,7 +2641,7 @@ async def send_finance_momentum(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceMomentumRequest.model_validate(params or {})
+    models().MethodFinanceMomentumParams.model_validate(params or {})
     payload = await client._send(
         "FinanceMomentum",
         params,
@@ -2998,20 +2651,9 @@ async def send_finance_momentum(
     return OpaqueResult("FinanceMomentum", payload)
 
 
-class FinanceMeanReversionRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceMeanReversion
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceMeanReversion
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    values: list[float]
-    window: int
+def decode_finance_momentum(result: OpaqueResult) -> _models.FinanceMomentumResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceMomentum", models().FinanceMomentumResult, result)
 
 
 async def send_finance_mean_reversion(
@@ -3040,7 +2682,7 @@ async def send_finance_mean_reversion(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceMeanReversionRequest.model_validate(params or {})
+    models().MethodFinanceMeanReversionParams.model_validate(params or {})
     payload = await client._send(
         "FinanceMeanReversion",
         params,
@@ -3050,20 +2692,13 @@ async def send_finance_mean_reversion(
     return OpaqueResult("FinanceMeanReversion", payload)
 
 
-class FinanceInformationCoefficientRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceInformationCoefficient
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceInformationCoefficient
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    forward_returns: list[float]
-    signal: list[float]
+def decode_finance_mean_reversion(
+    result: OpaqueResult,
+) -> _models.FinanceMeanReversionResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "FinanceMeanReversion", models().FinanceMeanReversionResult, result
+    )
 
 
 async def send_finance_information_coefficient(
@@ -3092,7 +2727,7 @@ async def send_finance_information_coefficient(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceInformationCoefficientRequest.model_validate(params or {})
+    models().MethodFinanceInformationCoefficientParams.model_validate(params or {})
     payload = await client._send(
         "FinanceInformationCoefficient",
         params,
@@ -3100,24 +2735,6 @@ async def send_finance_information_coefficient(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceInformationCoefficient", payload)
-
-
-class FinanceTwapRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceTwap
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceTwap
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    interval_secs: int
-    n_slices: int
-    start_time: int
-    total_quantity: float
 
 
 async def send_finance_twap(
@@ -3146,7 +2763,7 @@ async def send_finance_twap(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceTwapRequest.model_validate(params or {})
+    models().MethodFinanceTwapParams.model_validate(params or {})
     payload = await client._send(
         "FinanceTwap",
         params,
@@ -3156,22 +2773,9 @@ async def send_finance_twap(
     return OpaqueResult("FinanceTwap", payload)
 
 
-class FinanceVwapRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceVwap
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceVwap
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    interval_secs: int
-    start_time: int
-    total_quantity: float
-    volume_profile: list[float]
+def decode_finance_twap(result: OpaqueResult) -> _models.FinanceTwapResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceTwap", models().FinanceTwapResult, result)
 
 
 async def send_finance_vwap(
@@ -3200,7 +2804,7 @@ async def send_finance_vwap(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceVwapRequest.model_validate(params or {})
+    models().MethodFinanceVwapParams.model_validate(params or {})
     payload = await client._send(
         "FinanceVwap",
         params,
@@ -3210,22 +2814,9 @@ async def send_finance_vwap(
     return OpaqueResult("FinanceVwap", payload)
 
 
-class FinanceMarketImpactRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceMarketImpact
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceMarketImpact
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    average_daily_volume: float
-    daily_volatility: float
-    impact_coefficient: float
-    order_quantity: float
+def decode_finance_vwap(result: OpaqueResult) -> _models.FinanceVwapResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceVwap", models().FinanceVwapResult, result)
 
 
 async def send_finance_market_impact(
@@ -3254,7 +2845,7 @@ async def send_finance_market_impact(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceMarketImpactRequest.model_validate(params or {})
+    models().MethodFinanceMarketImpactParams.model_validate(params or {})
     payload = await client._send(
         "FinanceMarketImpact",
         params,
@@ -3262,23 +2853,6 @@ async def send_finance_market_impact(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceMarketImpact", payload)
-
-
-class FinancePairsTradingRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinancePairsTrading
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinancePairsTrading
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    lookback: int
-    prices_a: list[float]
-    prices_b: list[float]
 
 
 async def send_finance_pairs_trading(
@@ -3307,7 +2881,7 @@ async def send_finance_pairs_trading(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinancePairsTradingRequest.model_validate(params or {})
+    models().MethodFinancePairsTradingParams.model_validate(params or {})
     payload = await client._send(
         "FinancePairsTrading",
         params,
@@ -3317,19 +2891,13 @@ async def send_finance_pairs_trading(
     return OpaqueResult("FinancePairsTrading", payload)
 
 
-class FinanceMatchOrdersRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceMatchOrders
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceMatchOrders
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    orders: list[Any]
+def decode_finance_pairs_trading(
+    result: OpaqueResult,
+) -> _models.FinancePairsTradingResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "FinancePairsTrading", models().FinancePairsTradingResult, result
+    )
 
 
 async def send_finance_match_orders(
@@ -3358,7 +2926,7 @@ async def send_finance_match_orders(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceMatchOrdersRequest.model_validate(params or {})
+    models().MethodFinanceMatchOrdersParams.model_validate(params or {})
     payload = await client._send(
         "FinanceMatchOrders",
         params,
@@ -3368,24 +2936,13 @@ async def send_finance_match_orders(
     return OpaqueResult("FinanceMatchOrders", payload)
 
 
-class FinanceAvellanedaStoikovRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceAvellanedaStoikov
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceAvellanedaStoikov
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    gamma: float
-    inventory: float
-    kappa: float
-    mid: float
-    sigma: float
-    tau: float
+def decode_finance_match_orders(
+    result: OpaqueResult,
+) -> _models.FinanceMatchOrdersResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "FinanceMatchOrders", models().FinanceMatchOrdersResult, result
+    )
 
 
 async def send_finance_avellaneda_stoikov(
@@ -3414,7 +2971,7 @@ async def send_finance_avellaneda_stoikov(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceAvellanedaStoikovRequest.model_validate(params or {})
+    models().MethodFinanceAvellanedaStoikovParams.model_validate(params or {})
     payload = await client._send(
         "FinanceAvellanedaStoikov",
         params,
@@ -3424,24 +2981,9 @@ async def send_finance_avellaneda_stoikov(
     return OpaqueResult("FinanceAvellanedaStoikov", payload)
 
 
-class FinanceGltQuotesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceGltQuotes
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceGltQuotes
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    a: float
-    gamma: float
-    inventory: float
-    kappa: float
-    mid: float
-    sigma: float
+def decode_finance_avellaneda_stoikov(result: OpaqueResult) -> _models.Quote:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceAvellanedaStoikov", models().Quote, result)
 
 
 async def send_finance_glt_quotes(
@@ -3470,7 +3012,7 @@ async def send_finance_glt_quotes(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceGltQuotesRequest.model_validate(params or {})
+    models().MethodFinanceGltQuotesParams.model_validate(params or {})
     payload = await client._send(
         "FinanceGltQuotes",
         params,
@@ -3480,25 +3022,9 @@ async def send_finance_glt_quotes(
     return OpaqueResult("FinanceGltQuotes", payload)
 
 
-class FinanceLogitQuotesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceLogitQuotes
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceLogitQuotes
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    boundary_m: float
-    gamma: float
-    inventory: float
-    kappa: float
-    p_mid: float
-    sigma: float
-    tau: float
+def decode_finance_glt_quotes(result: OpaqueResult) -> _models.Quote:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceGltQuotes", models().Quote, result)
 
 
 async def send_finance_logit_quotes(
@@ -3527,7 +3053,7 @@ async def send_finance_logit_quotes(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceLogitQuotesRequest.model_validate(params or {})
+    models().MethodFinanceLogitQuotesParams.model_validate(params or {})
     payload = await client._send(
         "FinanceLogitQuotes",
         params,
@@ -3537,20 +3063,9 @@ async def send_finance_logit_quotes(
     return OpaqueResult("FinanceLogitQuotes", payload)
 
 
-class FinanceGlostenMilgromSpreadRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceGlostenMilgromSpread
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceGlostenMilgromSpread
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    alpha: float
-    p: float
+def decode_finance_logit_quotes(result: OpaqueResult) -> _models.Quote:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceLogitQuotes", models().Quote, result)
 
 
 async def send_finance_glosten_milgrom_spread(
@@ -3579,7 +3094,7 @@ async def send_finance_glosten_milgrom_spread(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceGlostenMilgromSpreadRequest.model_validate(params or {})
+    models().MethodFinanceGlostenMilgromSpreadParams.model_validate(params or {})
     payload = await client._send(
         "FinanceGlostenMilgromSpread",
         params,
@@ -3587,27 +3102,6 @@ async def send_finance_glosten_milgrom_spread(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceGlostenMilgromSpread", payload)
-
-
-class FinanceExpectedPnlRateRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceExpectedPnlRate
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceExpectedPnlRate
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    a: float
-    alpha: float
-    delta: float
-    kappa: float
-    p: float
-    v_h: float
-    v_l: float
 
 
 async def send_finance_expected_pnl_rate(
@@ -3636,7 +3130,7 @@ async def send_finance_expected_pnl_rate(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceExpectedPnlRateRequest.model_validate(params or {})
+    models().MethodFinanceExpectedPnlRateParams.model_validate(params or {})
     payload = await client._send(
         "FinanceExpectedPnlRate",
         params,
@@ -3644,24 +3138,6 @@ async def send_finance_expected_pnl_rate(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceExpectedPnlRate", payload)
-
-
-class FinanceBreakevenAlphaRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceBreakevenAlpha
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceBreakevenAlpha
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    delta: float
-    p: float
-    v_h: float
-    v_l: float
 
 
 async def send_finance_breakeven_alpha(
@@ -3690,7 +3166,7 @@ async def send_finance_breakeven_alpha(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceBreakevenAlphaRequest.model_validate(params or {})
+    models().MethodFinanceBreakevenAlphaParams.model_validate(params or {})
     payload = await client._send(
         "FinanceBreakevenAlpha",
         params,
@@ -3698,26 +3174,6 @@ async def send_finance_breakeven_alpha(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceBreakevenAlpha", payload)
-
-
-class FinanceOfiSeriesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceOfiSeries
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceOfiSeries
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    ask_px: list[float]
-    ask_sz: list[float]
-    bid_px: list[float]
-    bid_sz: list[float]
-    ts: list[float]
-    window_secs: float
 
 
 async def send_finance_ofi_series(
@@ -3746,7 +3202,7 @@ async def send_finance_ofi_series(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceOfiSeriesRequest.model_validate(params or {})
+    models().MethodFinanceOfiSeriesParams.model_validate(params or {})
     payload = await client._send(
         "FinanceOfiSeries",
         params,
@@ -3756,22 +3212,9 @@ async def send_finance_ofi_series(
     return OpaqueResult("FinanceOfiSeries", payload)
 
 
-class FinanceMicropriceSeriesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceMicropriceSeries
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceMicropriceSeries
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    ask_px: list[float]
-    ask_sz: list[float]
-    bid_px: list[float]
-    bid_sz: list[float]
+def decode_finance_ofi_series(result: OpaqueResult) -> _models.FinanceOfiSeriesResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceOfiSeries", models().FinanceOfiSeriesResult, result)
 
 
 async def send_finance_microprice_series(
@@ -3800,7 +3243,7 @@ async def send_finance_microprice_series(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceMicropriceSeriesRequest.model_validate(params or {})
+    models().MethodFinanceMicropriceSeriesParams.model_validate(params or {})
     payload = await client._send(
         "FinanceMicropriceSeries",
         params,
@@ -3810,21 +3253,13 @@ async def send_finance_microprice_series(
     return OpaqueResult("FinanceMicropriceSeries", payload)
 
 
-class FinanceVpinPmRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceVpinPm
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceVpinPm
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    buy_vol: list[float]
-    p_mean: list[float]
-    sell_vol: list[float]
+def decode_finance_microprice_series(
+    result: OpaqueResult,
+) -> _models.FinanceMicropriceSeriesResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "FinanceMicropriceSeries", models().FinanceMicropriceSeriesResult, result
+    )
 
 
 async def send_finance_vpin_pm(
@@ -3853,7 +3288,7 @@ async def send_finance_vpin_pm(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceVpinPmRequest.model_validate(params or {})
+    models().MethodFinanceVpinPmParams.model_validate(params or {})
     payload = await client._send(
         "FinanceVpinPm",
         params,
@@ -3861,23 +3296,6 @@ async def send_finance_vpin_pm(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceVpinPm", payload)
-
-
-class FinanceHawkesMleRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceHawkesMle
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceHawkesMle
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    max_iter: int
-    t_horizon: float
-    times: list[float]
 
 
 async def send_finance_hawkes_mle(
@@ -3906,7 +3324,7 @@ async def send_finance_hawkes_mle(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceHawkesMleRequest.model_validate(params or {})
+    models().MethodFinanceHawkesMleParams.model_validate(params or {})
     payload = await client._send(
         "FinanceHawkesMle",
         params,
@@ -3916,21 +3334,9 @@ async def send_finance_hawkes_mle(
     return OpaqueResult("FinanceHawkesMle", payload)
 
 
-class FinanceHardimanBouchaudRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceHardimanBouchaud
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceHardimanBouchaud
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    n_windows: int
-    t_horizon: float
-    times: list[float]
+def decode_finance_hawkes_mle(result: OpaqueResult) -> _models.HawkesFit:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceHawkesMle", models().HawkesFit, result)
 
 
 async def send_finance_hardiman_bouchaud(
@@ -3959,7 +3365,7 @@ async def send_finance_hardiman_bouchaud(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceHardimanBouchaudRequest.model_validate(params or {})
+    models().MethodFinanceHardimanBouchaudParams.model_validate(params or {})
     payload = await client._send(
         "FinanceHardimanBouchaud",
         params,
@@ -3967,22 +3373,6 @@ async def send_finance_hardiman_bouchaud(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceHardimanBouchaud", payload)
-
-
-class FinanceKyleLambdaRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceKyleLambda
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceKyleLambda
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    price_changes: list[float]
-    signed_order_flow: list[float]
 
 
 async def send_finance_kyle_lambda(
@@ -4011,7 +3401,7 @@ async def send_finance_kyle_lambda(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceKyleLambdaRequest.model_validate(params or {})
+    models().MethodFinanceKyleLambdaParams.model_validate(params or {})
     payload = await client._send(
         "FinanceKyleLambda",
         params,
@@ -4019,26 +3409,6 @@ async def send_finance_kyle_lambda(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceKyleLambda", payload)
-
-
-class FinanceSurveillanceRiskRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceSurveillanceRisk
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceSurveillanceRisk
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    baseline_sigma: float
-    buy_vol: list[float]
-    p_mean: list[float]
-    price_changes: list[float]
-    sell_vol: list[float]
-    signed_flow: list[float]
 
 
 async def send_finance_surveillance_risk(
@@ -4067,7 +3437,7 @@ async def send_finance_surveillance_risk(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceSurveillanceRiskRequest.model_validate(params or {})
+    models().MethodFinanceSurveillanceRiskParams.model_validate(params or {})
     payload = await client._send(
         "FinanceSurveillanceRisk",
         params,
@@ -4077,21 +3447,9 @@ async def send_finance_surveillance_risk(
     return OpaqueResult("FinanceSurveillanceRisk", payload)
 
 
-class FinanceKellyFractionRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceKellyFraction
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceKellyFraction
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    c: float
-    fraction: float
-    q: float
+def decode_finance_surveillance_risk(result: OpaqueResult) -> _models.SurveillanceRisk:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceSurveillanceRisk", models().SurveillanceRisk, result)
 
 
 async def send_finance_kelly_fraction(
@@ -4120,7 +3478,7 @@ async def send_finance_kelly_fraction(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceKellyFractionRequest.model_validate(params or {})
+    models().MethodFinanceKellyFractionParams.model_validate(params or {})
     payload = await client._send(
         "FinanceKellyFraction",
         params,
@@ -4128,24 +3486,6 @@ async def send_finance_kelly_fraction(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceKellyFraction", payload)
-
-
-class FinanceBayesianKellyRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceBayesianKelly
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceBayesianKelly
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    alpha: float
-    beta: float
-    c: float
-    n_quadrature: int
 
 
 async def send_finance_bayesian_kelly(
@@ -4174,7 +3514,7 @@ async def send_finance_bayesian_kelly(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceBayesianKellyRequest.model_validate(params or {})
+    models().MethodFinanceBayesianKellyParams.model_validate(params or {})
     payload = await client._send(
         "FinanceBayesianKelly",
         params,
@@ -4182,23 +3522,6 @@ async def send_finance_bayesian_kelly(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceBayesianKelly", payload)
-
-
-class FinancePosteriorCredibleIntervalRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinancePosteriorCredibleInterval
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinancePosteriorCredibleInterval
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    alpha: float
-    beta: float
-    level: float
 
 
 async def send_finance_posterior_credible_interval(
@@ -4227,7 +3550,7 @@ async def send_finance_posterior_credible_interval(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinancePosteriorCredibleIntervalRequest.model_validate(params or {})
+    models().MethodFinancePosteriorCredibleIntervalParams.model_validate(params or {})
     payload = await client._send(
         "FinancePosteriorCredibleInterval",
         params,
@@ -4237,23 +3560,13 @@ async def send_finance_posterior_credible_interval(
     return OpaqueResult("FinancePosteriorCredibleInterval", payload)
 
 
-class FinancePurgedCpcvRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinancePurgedCpcv
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinancePurgedCpcv
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    embargo: int
-    n_groups: int
-    n_samples: int
-    n_test_groups: int
-    purge_window: int
+def decode_finance_posterior_credible_interval(
+    result: OpaqueResult,
+) -> _models.PosteriorCredibleInterval:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "FinancePosteriorCredibleInterval", models().PosteriorCredibleInterval, result
+    )
 
 
 async def send_finance_purged_cpcv(
@@ -4282,7 +3595,7 @@ async def send_finance_purged_cpcv(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinancePurgedCpcvRequest.model_validate(params or {})
+    models().MethodFinancePurgedCpcvParams.model_validate(params or {})
     payload = await client._send(
         "FinancePurgedCpcv",
         params,
@@ -4292,21 +3605,9 @@ async def send_finance_purged_cpcv(
     return OpaqueResult("FinancePurgedCpcv", payload)
 
 
-class FinanceDeflatedSharpeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceDeflatedSharpe
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceDeflatedSharpe
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    n_trials: int
-    observed_sr: float
-    sr_returns: list[float]
+def decode_finance_purged_cpcv(result: OpaqueResult) -> _models.FinancePurgedCpcvResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinancePurgedCpcv", models().FinancePurgedCpcvResult, result)
 
 
 async def send_finance_deflated_sharpe(
@@ -4335,7 +3636,7 @@ async def send_finance_deflated_sharpe(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceDeflatedSharpeRequest.model_validate(params or {})
+    models().MethodFinanceDeflatedSharpeParams.model_validate(params or {})
     payload = await client._send(
         "FinanceDeflatedSharpe",
         params,
@@ -4343,22 +3644,6 @@ async def send_finance_deflated_sharpe(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceDeflatedSharpe", payload)
-
-
-class FinanceProbabilityBacktestOverfitRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceProbabilityBacktestOverfit
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceProbabilityBacktestOverfit
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    insample: list[list[float]]
-    oos: list[list[float]]
 
 
 async def send_finance_probability_backtest_overfit(
@@ -4387,7 +3672,7 @@ async def send_finance_probability_backtest_overfit(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceProbabilityBacktestOverfitRequest.model_validate(params or {})
+    models().MethodFinanceProbabilityBacktestOverfitParams.model_validate(params or {})
     payload = await client._send(
         "FinanceProbabilityBacktestOverfit",
         params,
@@ -4395,23 +3680,6 @@ async def send_finance_probability_backtest_overfit(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceProbabilityBacktestOverfit", payload)
-
-
-class FinanceDieboldMarianoRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceDieboldMariano
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceDieboldMariano
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    h: int
-    losses_a: list[float]
-    losses_b: list[float]
 
 
 async def send_finance_diebold_mariano(
@@ -4440,7 +3708,7 @@ async def send_finance_diebold_mariano(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceDieboldMarianoRequest.model_validate(params or {})
+    models().MethodFinanceDieboldMarianoParams.model_validate(params or {})
     payload = await client._send(
         "FinanceDieboldMariano",
         params,
@@ -4450,20 +3718,9 @@ async def send_finance_diebold_mariano(
     return OpaqueResult("FinanceDieboldMariano", payload)
 
 
-class FinanceForensicReportRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceForensicReport
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceForensicReport
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    prior_year: Any
-    this_year: Any
+def decode_finance_diebold_mariano(result: OpaqueResult) -> _models.DieboldMariano:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceDieboldMariano", models().DieboldMariano, result)
 
 
 async def send_finance_forensic_report(
@@ -4492,7 +3749,7 @@ async def send_finance_forensic_report(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceForensicReportRequest.model_validate(params or {})
+    models().MethodFinanceForensicReportParams.model_validate(params or {})
     payload = await client._send(
         "FinanceForensicReport",
         params,
@@ -4502,25 +3759,9 @@ async def send_finance_forensic_report(
     return OpaqueResult("FinanceForensicReport", payload)
 
 
-class FinanceKalmanFilter1dRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceKalmanFilter1d
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceKalmanFilter1d
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    f: float
-    h: float
-    observations: list[float]
-    p0: float
-    q: float
-    r: float
-    x0: float
+def decode_finance_forensic_report(result: OpaqueResult) -> _models.ForensicReport:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceForensicReport", models().ForensicReport, result)
 
 
 async def send_finance_kalman_filter1d(
@@ -4549,7 +3790,7 @@ async def send_finance_kalman_filter1d(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceKalmanFilter1dRequest.model_validate(params or {})
+    models().MethodFinanceKalmanFilter1dParams.model_validate(params or {})
     payload = await client._send(
         "FinanceKalmanFilter1d",
         params,
@@ -4559,24 +3800,9 @@ async def send_finance_kalman_filter1d(
     return OpaqueResult("FinanceKalmanFilter1d", payload)
 
 
-class FinanceKalmanBetaRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceKalmanBeta
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceKalmanBeta
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    asset_returns: list[float]
-    beta0: float
-    market_returns: list[float]
-    p0: float
-    q: float
-    r: float
+def decode_finance_kalman_filter1d(result: OpaqueResult) -> _models.KalmanState:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceKalmanFilter1d", models().KalmanState, result)
 
 
 async def send_finance_kalman_beta(
@@ -4605,7 +3831,7 @@ async def send_finance_kalman_beta(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceKalmanBetaRequest.model_validate(params or {})
+    models().MethodFinanceKalmanBetaParams.model_validate(params or {})
     payload = await client._send(
         "FinanceKalmanBeta",
         params,
@@ -4615,24 +3841,9 @@ async def send_finance_kalman_beta(
     return OpaqueResult("FinanceKalmanBeta", payload)
 
 
-class FinanceKalmanVolatilityRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceKalmanVolatility
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceKalmanVolatility
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    annualization: float
-    log_var0: float | None = None
-    p0: float
-    q: float
-    r: float
-    returns: list[float]
+def decode_finance_kalman_beta(result: OpaqueResult) -> _models.KalmanState:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceKalmanBeta", models().KalmanState, result)
 
 
 async def send_finance_kalman_volatility(
@@ -4661,7 +3872,7 @@ async def send_finance_kalman_volatility(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceKalmanVolatilityRequest.model_validate(params or {})
+    models().MethodFinanceKalmanVolatilityParams.model_validate(params or {})
     payload = await client._send(
         "FinanceKalmanVolatility",
         params,
@@ -4671,20 +3882,13 @@ async def send_finance_kalman_volatility(
     return OpaqueResult("FinanceKalmanVolatility", payload)
 
 
-class FinanceAdfTestRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceAdfTest
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceAdfTest
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    max_lag: int
-    series: list[float]
+def decode_finance_kalman_volatility(
+    result: OpaqueResult,
+) -> _models.FinanceKalmanVolatilityResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "FinanceKalmanVolatility", models().FinanceKalmanVolatilityResult, result
+    )
 
 
 async def send_finance_adf_test(
@@ -4713,7 +3917,7 @@ async def send_finance_adf_test(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceAdfTestRequest.model_validate(params or {})
+    models().MethodFinanceAdfTestParams.model_validate(params or {})
     payload = await client._send(
         "FinanceAdfTest",
         params,
@@ -4723,20 +3927,9 @@ async def send_finance_adf_test(
     return OpaqueResult("FinanceAdfTest", payload)
 
 
-class FinanceOuCalibrateRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceOuCalibrate
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceOuCalibrate
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    dt: float
-    spread: list[float]
+def decode_finance_adf_test(result: OpaqueResult) -> _models.AdfResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceAdfTest", models().AdfResult, result)
 
 
 async def send_finance_ou_calibrate(
@@ -4765,7 +3958,7 @@ async def send_finance_ou_calibrate(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceOuCalibrateRequest.model_validate(params or {})
+    models().MethodFinanceOuCalibrateParams.model_validate(params or {})
     payload = await client._send(
         "FinanceOuCalibrate",
         params,
@@ -4775,23 +3968,9 @@ async def send_finance_ou_calibrate(
     return OpaqueResult("FinanceOuCalibrate", payload)
 
 
-class FinanceOuOptimalThresholdsRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceOuOptimalThresholds
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceOuOptimalThresholds
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    cost: float
-    mu: float
-    sigma: float
-    sigma_eq: float
-    theta: float
+def decode_finance_ou_calibrate(result: OpaqueResult) -> _models.OuParams:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceOuCalibrate", models().OuParams, result)
 
 
 async def send_finance_ou_optimal_thresholds(
@@ -4820,7 +3999,7 @@ async def send_finance_ou_optimal_thresholds(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceOuOptimalThresholdsRequest.model_validate(params or {})
+    models().MethodFinanceOuOptimalThresholdsParams.model_validate(params or {})
     payload = await client._send(
         "FinanceOuOptimalThresholds",
         params,
@@ -4830,20 +4009,9 @@ async def send_finance_ou_optimal_thresholds(
     return OpaqueResult("FinanceOuOptimalThresholds", payload)
 
 
-class FinanceMarkovTransitionMatrixRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceMarkovTransitionMatrix
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceMarkovTransitionMatrix
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    n_states: int
-    states: list[int]
+def decode_finance_ou_optimal_thresholds(result: OpaqueResult) -> _models.OuThresholds:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceOuOptimalThresholds", models().OuThresholds, result)
 
 
 async def send_finance_markov_transition_matrix(
@@ -4872,7 +4040,7 @@ async def send_finance_markov_transition_matrix(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceMarkovTransitionMatrixRequest.model_validate(params or {})
+    models().MethodFinanceMarkovTransitionMatrixParams.model_validate(params or {})
     payload = await client._send(
         "FinanceMarkovTransitionMatrix",
         params,
@@ -4882,20 +4050,15 @@ async def send_finance_markov_transition_matrix(
     return OpaqueResult("FinanceMarkovTransitionMatrix", payload)
 
 
-class FinanceOrderBookImbalanceRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceOrderBookImbalance
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceOrderBookImbalance
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    v_ask: list[float]
-    v_bid: list[float]
+def decode_finance_markov_transition_matrix(
+    result: OpaqueResult,
+) -> _models.FinanceMarkovTransitionMatrixResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "FinanceMarkovTransitionMatrix",
+        models().FinanceMarkovTransitionMatrixResult,
+        result,
+    )
 
 
 async def send_finance_order_book_imbalance(
@@ -4924,7 +4087,7 @@ async def send_finance_order_book_imbalance(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceOrderBookImbalanceRequest.model_validate(params or {})
+    models().MethodFinanceOrderBookImbalanceParams.model_validate(params or {})
     payload = await client._send(
         "FinanceOrderBookImbalance",
         params,
@@ -4934,22 +4097,13 @@ async def send_finance_order_book_imbalance(
     return OpaqueResult("FinanceOrderBookImbalance", payload)
 
 
-class FinanceQueueImbalanceRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceQueueImbalance
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceQueueImbalance
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    ask_q: list[float]
-    ask_rate: list[float]
-    bid_q: list[float]
-    bid_rate: list[float]
+def decode_finance_order_book_imbalance(
+    result: OpaqueResult,
+) -> _models.FinanceOrderBookImbalanceResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "FinanceOrderBookImbalance", models().FinanceOrderBookImbalanceResult, result
+    )
 
 
 async def send_finance_queue_imbalance(
@@ -4978,7 +4132,7 @@ async def send_finance_queue_imbalance(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceQueueImbalanceRequest.model_validate(params or {})
+    models().MethodFinanceQueueImbalanceParams.model_validate(params or {})
     payload = await client._send(
         "FinanceQueueImbalance",
         params,
@@ -4988,20 +4142,9 @@ async def send_finance_queue_imbalance(
     return OpaqueResult("FinanceQueueImbalance", payload)
 
 
-class FinanceRealizedVolTickRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceRealizedVolTick
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceRealizedVolTick
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    mid: list[float]
-    window: int
+def decode_finance_queue_imbalance(result: OpaqueResult) -> _models.QueueSignal:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceQueueImbalance", models().QueueSignal, result)
 
 
 async def send_finance_realized_vol_tick(
@@ -5030,7 +4173,7 @@ async def send_finance_realized_vol_tick(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceRealizedVolTickRequest.model_validate(params or {})
+    models().MethodFinanceRealizedVolTickParams.model_validate(params or {})
     payload = await client._send(
         "FinanceRealizedVolTick",
         params,
@@ -5040,21 +4183,13 @@ async def send_finance_realized_vol_tick(
     return OpaqueResult("FinanceRealizedVolTick", payload)
 
 
-class FinanceSpreadReversionRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceSpreadReversion
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceSpreadReversion
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    ask_px: list[float]
-    bid_px: list[float]
-    window: int
+def decode_finance_realized_vol_tick(
+    result: OpaqueResult,
+) -> _models.FinanceRealizedVolTickResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "FinanceRealizedVolTick", models().FinanceRealizedVolTickResult, result
+    )
 
 
 async def send_finance_spread_reversion(
@@ -5083,7 +4218,7 @@ async def send_finance_spread_reversion(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceSpreadReversionRequest.model_validate(params or {})
+    models().MethodFinanceSpreadReversionParams.model_validate(params or {})
     payload = await client._send(
         "FinanceSpreadReversion",
         params,
@@ -5093,20 +4228,9 @@ async def send_finance_spread_reversion(
     return OpaqueResult("FinanceSpreadReversion", payload)
 
 
-class FinanceInformationRatioRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceInformationRatio
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceInformationRatio
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    ic: float
-    n_independent: float
+def decode_finance_spread_reversion(result: OpaqueResult) -> _models.SpreadReversion:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceSpreadReversion", models().SpreadReversion, result)
 
 
 async def send_finance_information_ratio(
@@ -5135,7 +4259,7 @@ async def send_finance_information_ratio(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceInformationRatioRequest.model_validate(params or {})
+    models().MethodFinanceInformationRatioParams.model_validate(params or {})
     payload = await client._send(
         "FinanceInformationRatio",
         params,
@@ -5143,21 +4267,6 @@ async def send_finance_information_ratio(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceInformationRatio", payload)
-
-
-class FinanceEffectiveIndependentNRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceEffectiveIndependentN
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceEffectiveIndependentN
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    returns_matrix: list[list[float]]
 
 
 async def send_finance_effective_independent_n(
@@ -5186,7 +4295,7 @@ async def send_finance_effective_independent_n(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceEffectiveIndependentNRequest.model_validate(params or {})
+    models().MethodFinanceEffectiveIndependentNParams.model_validate(params or {})
     payload = await client._send(
         "FinanceEffectiveIndependentN",
         params,
@@ -5194,22 +4303,6 @@ async def send_finance_effective_independent_n(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceEffectiveIndependentN", payload)
-
-
-class FinanceAlphaCombinationEngineRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceAlphaCombinationEngine
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceAlphaCombinationEngine
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    lookback: int
-    returns_matrix: list[list[float]]
 
 
 async def send_finance_alpha_combination_engine(
@@ -5238,7 +4331,7 @@ async def send_finance_alpha_combination_engine(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceAlphaCombinationEngineRequest.model_validate(params or {})
+    models().MethodFinanceAlphaCombinationEngineParams.model_validate(params or {})
     payload = await client._send(
         "FinanceAlphaCombinationEngine",
         params,
@@ -5248,20 +4341,15 @@ async def send_finance_alpha_combination_engine(
     return OpaqueResult("FinanceAlphaCombinationEngine", payload)
 
 
-class FinanceBrierScoreRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceBrierScore
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceBrierScore
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    forecasts: list[float]
-    outcomes: list[float]
+def decode_finance_alpha_combination_engine(
+    result: OpaqueResult,
+) -> _models.FinanceAlphaCombinationEngineResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "FinanceAlphaCombinationEngine",
+        models().FinanceAlphaCombinationEngineResult,
+        result,
+    )
 
 
 async def send_finance_brier_score(
@@ -5290,7 +4378,7 @@ async def send_finance_brier_score(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceBrierScoreRequest.model_validate(params or {})
+    models().MethodFinanceBrierScoreParams.model_validate(params or {})
     payload = await client._send(
         "FinanceBrierScore",
         params,
@@ -5298,23 +4386,6 @@ async def send_finance_brier_score(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceBrierScore", payload)
-
-
-class FinanceConvergenceGateRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceConvergenceGate
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceConvergenceGate
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    min_agree: int
-    strengths: list[float]
-    strong_threshold: float
 
 
 async def send_finance_convergence_gate(
@@ -5343,7 +4414,7 @@ async def send_finance_convergence_gate(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceConvergenceGateRequest.model_validate(params or {})
+    models().MethodFinanceConvergenceGateParams.model_validate(params or {})
     payload = await client._send(
         "FinanceConvergenceGate",
         params,
@@ -5353,23 +4424,9 @@ async def send_finance_convergence_gate(
     return OpaqueResult("FinanceConvergenceGate", payload)
 
 
-class FinanceEmpiricalKellyRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceEmpiricalKelly
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceEmpiricalKelly
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    b: float
-    historical_returns: list[float]
-    n_simulations: int
-    p: float
-    seed: int
+def decode_finance_convergence_gate(result: OpaqueResult) -> _models.ConvergenceGate:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceConvergenceGate", models().ConvergenceGate, result)
 
 
 async def send_finance_empirical_kelly(
@@ -5398,7 +4455,7 @@ async def send_finance_empirical_kelly(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceEmpiricalKellyRequest.model_validate(params or {})
+    models().MethodFinanceEmpiricalKellyParams.model_validate(params or {})
     payload = await client._send(
         "FinanceEmpiricalKelly",
         params,
@@ -5406,27 +4463,6 @@ async def send_finance_empirical_kelly(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceEmpiricalKelly", payload)
-
-
-class FinanceSabrImpliedVolRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceSabrImpliedVol
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceSabrImpliedVol
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    alpha: float
-    beta: float
-    f: float
-    k: float
-    nu: float
-    rho: float
-    t: float
 
 
 async def send_finance_sabr_implied_vol(
@@ -5455,7 +4491,7 @@ async def send_finance_sabr_implied_vol(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceSabrImpliedVolRequest.model_validate(params or {})
+    models().MethodFinanceSabrImpliedVolParams.model_validate(params or {})
     payload = await client._send(
         "FinanceSabrImpliedVol",
         params,
@@ -5463,27 +4499,6 @@ async def send_finance_sabr_implied_vol(
         idempotency_key=idempotency_key,
     )
     return expect_float("FinanceSabrImpliedVol", payload)
-
-
-class FinanceSabrSmileRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceSabrSmile
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceSabrSmile
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    alpha: float
-    beta: float
-    f: float
-    nu: float
-    rho: float
-    strikes: list[float]
-    t: float
 
 
 async def send_finance_sabr_smile(
@@ -5512,7 +4527,7 @@ async def send_finance_sabr_smile(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceSabrSmileRequest.model_validate(params or {})
+    models().MethodFinanceSabrSmileParams.model_validate(params or {})
     payload = await client._send(
         "FinanceSabrSmile",
         params,
@@ -5522,23 +4537,9 @@ async def send_finance_sabr_smile(
     return OpaqueResult("FinanceSabrSmile", payload)
 
 
-class FinanceSabrCalibrateRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinanceSabrCalibrate
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinanceSabrCalibrate
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    beta: float
-    f: float
-    market_vols: list[float]
-    strikes: list[float]
-    t: float
+def decode_finance_sabr_smile(result: OpaqueResult) -> _models.FinanceSabrSmileResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceSabrSmile", models().FinanceSabrSmileResult, result)
 
 
 async def send_finance_sabr_calibrate(
@@ -5567,7 +4568,7 @@ async def send_finance_sabr_calibrate(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FinanceSabrCalibrateRequest.model_validate(params or {})
+    models().MethodFinanceSabrCalibrateParams.model_validate(params or {})
     payload = await client._send(
         "FinanceSabrCalibrate",
         params,
@@ -5577,25 +4578,9 @@ async def send_finance_sabr_calibrate(
     return OpaqueResult("FinanceSabrCalibrate", payload)
 
 
-class MineAssociateRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MineAssociate
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MineAssociate
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    algorithm: Any | None = None
-    as_claim: bool | None = None
-    min_confidence: float | None = None
-    min_support: float | None = None
-    source: Any | None = None
-    transactions: list[list[str]] | None = None
-    writeback: bool | None = None
+def decode_finance_sabr_calibrate(result: OpaqueResult) -> _models.SabrFit:
+    """Validate this method's result against its contract model."""
+    return decode_result("FinanceSabrCalibrate", models().SabrFit, result)
 
 
 async def send_mine_associate(
@@ -5628,7 +4613,7 @@ async def send_mine_associate(
         - REDIRECTED
         - READ_ONLY
     """
-    MineAssociateRequest.model_validate(params or {})
+    models().MethodMineAssociateParams.model_validate(params or {})
     payload = await client._send(
         "MineAssociate",
         params,
@@ -5638,30 +4623,9 @@ async def send_mine_associate(
     return OpaqueResult("MineAssociate", payload)
 
 
-class MineClusterRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MineCluster
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MineCluster
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    algorithm: Any | None = None
-    as_claim: bool | None = None
-    eps: float | None = None
-    features: list[list[float]] | None = None
-    k: int | None = None
-    linkage: Any | None = None
-    max_iter: int | None = None
-    min_pts: int | None = None
-    plan: Any | None = None
-    seed: int | None = None
-    source: Any | None = None
-    writeback: bool | None = None
+def decode_mine_associate(result: OpaqueResult) -> _models.AssociationMiningResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("MineAssociate", models().AssociationMiningResult, result)
 
 
 async def send_mine_cluster(
@@ -5694,7 +4658,7 @@ async def send_mine_cluster(
         - REDIRECTED
         - READ_ONLY
     """
-    MineClusterRequest.model_validate(params or {})
+    models().MethodMineClusterParams.model_validate(params or {})
     payload = await client._send(
         "MineCluster",
         params,
@@ -5704,33 +4668,9 @@ async def send_mine_cluster(
     return OpaqueResult("MineCluster", payload)
 
 
-class MineAnomalyRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MineAnomaly
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MineAnomaly
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    algorithm: Any | None = None
-    as_claim: bool | None = None
-    features: list[list[float]] | None = None
-    gamma: float | None = None
-    k: int | None = None
-    kernel: Any | None = None
-    n_trees: int | None = None
-    nu: float | None = None
-    plan: Any | None = None
-    sample_size: int | None = None
-    seed: int | None = None
-    source: Any | None = None
-    threshold: float | None = None
-    values: list[float] | None = None
-    writeback: bool | None = None
+def decode_mine_cluster(result: OpaqueResult) -> _models.ClusterMiningResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("MineCluster", models().ClusterMiningResult, result)
 
 
 async def send_mine_anomaly(
@@ -5763,7 +4703,7 @@ async def send_mine_anomaly(
         - REDIRECTED
         - READ_ONLY
     """
-    MineAnomalyRequest.model_validate(params or {})
+    models().MethodMineAnomalyParams.model_validate(params or {})
     payload = await client._send(
         "MineAnomaly",
         params,
@@ -5773,29 +4713,9 @@ async def send_mine_anomaly(
     return OpaqueResult("MineAnomaly", payload)
 
 
-class MineClassifyFitRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MineClassifyFit
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MineClassifyFit
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    algorithm: Any | None = None
-    alpha: float | None = None
-    c: float | None = None
-    epochs: int | None = None
-    k: int | None = None
-    l2: float | None = None
-    lr: float | None = None
-    plan: Any | None = None
-    source: Any | None = None
-    x: list[list[float]] | None = None
-    y: list[int] | None = None
+def decode_mine_anomaly(result: OpaqueResult) -> _models.AnomalyMiningResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("MineAnomaly", models().AnomalyMiningResult, result)
 
 
 async def send_mine_classify_fit(
@@ -5824,7 +4744,7 @@ async def send_mine_classify_fit(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    MineClassifyFitRequest.model_validate(params or {})
+    models().MethodMineClassifyFitParams.model_validate(params or {})
     payload = await client._send(
         "MineClassifyFit",
         params,
@@ -5834,24 +4754,9 @@ async def send_mine_classify_fit(
     return OpaqueResult("MineClassifyFit", payload)
 
 
-class MineClassifyPredictRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MineClassifyPredict
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MineClassifyPredict
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    as_claim: bool | None = None
-    model: Any
-    plan: Any | None = None
-    source: Any | None = None
-    writeback: bool | None = None
-    x: list[list[float]] | None = None
+def decode_mine_classify_fit(result: OpaqueResult) -> _models.ClassifierFitResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("MineClassifyFit", models().ClassifierFitResult, result)
 
 
 async def send_mine_classify_predict(
@@ -5884,7 +4789,7 @@ async def send_mine_classify_predict(
         - REDIRECTED
         - READ_ONLY
     """
-    MineClassifyPredictRequest.model_validate(params or {})
+    models().MethodMineClassifyPredictParams.model_validate(params or {})
     payload = await client._send(
         "MineClassifyPredict",
         params,
@@ -5894,32 +4799,13 @@ async def send_mine_classify_predict(
     return OpaqueResult("MineClassifyPredict", payload)
 
 
-class MineReduceRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MineReduce
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MineReduce
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    algorithm: Any | None = None
-    as_claim: bool | None = None
-    epochs: int | None = None
-    labels: list[int] | None = None
-    lr: float | None = None
-    min_dist: float | None = None
-    n_components: int | None = None
-    n_neighbors: int | None = None
-    perplexity: float | None = None
-    plan: Any | None = None
-    seed: int | None = None
-    source: Any | None = None
-    writeback: bool | None = None
-    x: list[list[float]] | None = None
+def decode_mine_classify_predict(
+    result: OpaqueResult,
+) -> _models.ClassificationMiningResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "MineClassifyPredict", models().ClassificationMiningResult, result
+    )
 
 
 async def send_mine_reduce(
@@ -5952,7 +4838,7 @@ async def send_mine_reduce(
         - REDIRECTED
         - READ_ONLY
     """
-    MineReduceRequest.model_validate(params or {})
+    models().MethodMineReduceParams.model_validate(params or {})
     payload = await client._send(
         "MineReduce",
         params,
@@ -5962,21 +4848,9 @@ async def send_mine_reduce(
     return OpaqueResult("MineReduce", payload)
 
 
-class GraphLearnFitRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GraphLearnFit
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GraphLearnFit
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    params: Any | None = None
-    source: Any
-    writeback: bool | None = None
+def decode_mine_reduce(result: OpaqueResult) -> _models.ReductionMiningResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("MineReduce", models().ReductionMiningResult, result)
 
 
 async def send_graph_learn_fit(
@@ -6009,7 +4883,7 @@ async def send_graph_learn_fit(
         - REDIRECTED
         - READ_ONLY
     """
-    GraphLearnFitRequest.model_validate(params or {})
+    models().MethodGraphLearnFitParams.model_validate(params or {})
     payload = await client._send(
         "GraphLearnFit",
         params,
@@ -6019,23 +4893,9 @@ async def send_graph_learn_fit(
     return OpaqueResult("GraphLearnFit", payload)
 
 
-class GraphLearnPredictRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GraphLearnPredict
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GraphLearnPredict
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    candidate_pairs: list[list[Any]] | None = None
-    model: Any
-    source: Any
-    top_k: int | None = None
-    writeback: bool | None = None
+def decode_graph_learn_fit(result: OpaqueResult) -> _models.LinkPredictorFit:
+    """Validate this method's result against its contract model."""
+    return decode_result("GraphLearnFit", models().LinkPredictorFit, result)
 
 
 async def send_graph_learn_predict(
@@ -6068,7 +4928,7 @@ async def send_graph_learn_predict(
         - REDIRECTED
         - READ_ONLY
     """
-    GraphLearnPredictRequest.model_validate(params or {})
+    models().MethodGraphLearnPredictParams.model_validate(params or {})
     payload = await client._send(
         "GraphLearnPredict",
         params,
@@ -6078,24 +4938,9 @@ async def send_graph_learn_predict(
     return OpaqueResult("GraphLearnPredict", payload)
 
 
-class MiningPipelineTrainRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MiningPipelineTrain
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MiningPipelineTrain
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
-    source: Any | None = None
-    spec: Any
-    writeback: bool | None = None
-    x: list[list[float]] | None = None
-    y: list[int] | None = None
+def decode_graph_learn_predict(result: OpaqueResult) -> _models.LinkPrediction:
+    """Validate this method's result against its contract model."""
+    return decode_result("GraphLearnPredict", models().LinkPrediction, result)
 
 
 async def send_mining_pipeline_train(
@@ -6128,7 +4973,7 @@ async def send_mining_pipeline_train(
         - REDIRECTED
         - READ_ONLY
     """
-    MiningPipelineTrainRequest.model_validate(params or {})
+    models().MethodMiningPipelineTrainParams.model_validate(params or {})
     payload = await client._send(
         "MiningPipelineTrain",
         params,
@@ -6138,20 +4983,9 @@ async def send_mining_pipeline_train(
     return OpaqueResult("MiningPipelineTrain", payload)
 
 
-class MiningPipelineServeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MiningPipelineServe
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MiningPipelineServe
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
-    version: int
+def decode_mining_pipeline_train(result: OpaqueResult) -> _models.PipelineTrainResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("MiningPipelineTrain", models().PipelineTrainResult, result)
 
 
 async def send_mining_pipeline_serve(
@@ -6184,7 +5018,7 @@ async def send_mining_pipeline_serve(
         - REDIRECTED
         - READ_ONLY
     """
-    MiningPipelineServeRequest.model_validate(params or {})
+    models().MethodMiningPipelineServeParams.model_validate(params or {})
     payload = await client._send(
         "MiningPipelineServe",
         params,
@@ -6194,23 +5028,9 @@ async def send_mining_pipeline_serve(
     return OpaqueResult("MiningPipelineServe", payload)
 
 
-class MiningPipelinePredictRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MiningPipelinePredict
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MiningPipelinePredict
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
-    source: Any | None = None
-    version: int | None = None
-    writeback: bool | None = None
-    x: list[list[float]] | None = None
+def decode_mining_pipeline_serve(result: OpaqueResult) -> _models.PipelineServeResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("MiningPipelineServe", models().PipelineServeResult, result)
 
 
 async def send_mining_pipeline_predict(
@@ -6243,7 +5063,7 @@ async def send_mining_pipeline_predict(
         - REDIRECTED
         - READ_ONLY
     """
-    MiningPipelinePredictRequest.model_validate(params or {})
+    models().MethodMiningPipelinePredictParams.model_validate(params or {})
     payload = await client._send(
         "MiningPipelinePredict",
         params,
@@ -6253,23 +5073,9 @@ async def send_mining_pipeline_predict(
     return OpaqueResult("MiningPipelinePredict", payload)
 
 
-class MiningPipelineEvaluateRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MiningPipelineEvaluate
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MiningPipelineEvaluate
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
-    source: Any | None = None
-    version: int | None = None
-    x: list[list[float]] | None = None
-    y: list[int] | None = None
+def decode_mining_pipeline_predict(result: OpaqueResult) -> _models.PipelinePrediction:
+    """Validate this method's result against its contract model."""
+    return decode_result("MiningPipelinePredict", models().PipelinePrediction, result)
 
 
 async def send_mining_pipeline_evaluate(
@@ -6298,7 +5104,7 @@ async def send_mining_pipeline_evaluate(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    MiningPipelineEvaluateRequest.model_validate(params or {})
+    models().MethodMiningPipelineEvaluateParams.model_validate(params or {})
     payload = await client._send(
         "MiningPipelineEvaluate",
         params,
@@ -6308,21 +5114,9 @@ async def send_mining_pipeline_evaluate(
     return OpaqueResult("MiningPipelineEvaluate", payload)
 
 
-class MiningPipelineCompareRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MiningPipelineCompare
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MiningPipelineCompare
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
-    version_a: int
-    version_b: int
+def decode_mining_pipeline_evaluate(result: OpaqueResult) -> _models.PipelineEvaluation:
+    """Validate this method's result against its contract model."""
+    return decode_result("MiningPipelineEvaluate", models().PipelineEvaluation, result)
 
 
 async def send_mining_pipeline_compare(
@@ -6351,7 +5145,7 @@ async def send_mining_pipeline_compare(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    MiningPipelineCompareRequest.model_validate(params or {})
+    models().MethodMiningPipelineCompareParams.model_validate(params or {})
     payload = await client._send(
         "MiningPipelineCompare",
         params,
@@ -6361,24 +5155,9 @@ async def send_mining_pipeline_compare(
     return OpaqueResult("MiningPipelineCompare", payload)
 
 
-class MineSequenceRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MineSequence
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MineSequence
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    algorithm: Any | None = None
-    as_claim: bool | None = None
-    min_support: float | None = None
-    sequences: list[list[str]] | None = None
-    source: Any | None = None
-    writeback: bool | None = None
+def decode_mining_pipeline_compare(result: OpaqueResult) -> _models.PipelineComparison:
+    """Validate this method's result against its contract model."""
+    return decode_result("MiningPipelineCompare", models().PipelineComparison, result)
 
 
 async def send_mine_sequence(
@@ -6411,7 +5190,7 @@ async def send_mine_sequence(
         - REDIRECTED
         - READ_ONLY
     """
-    MineSequenceRequest.model_validate(params or {})
+    models().MethodMineSequenceParams.model_validate(params or {})
     payload = await client._send(
         "MineSequence",
         params,
@@ -6421,32 +5200,9 @@ async def send_mine_sequence(
     return OpaqueResult("MineSequence", payload)
 
 
-class MineForecastRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MineForecast
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MineForecast
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    algorithm: Any | None = None
-    alpha: float | None = None
-    as_claim: bool | None = None
-    beta: float | None = None
-    confidence: float | None = None
-    d: int | None = None
-    gamma: float | None = None
-    horizon: int | None = None
-    p: int | None = None
-    period: int | None = None
-    q: int | None = None
-    series_id: str | None = None
-    values: list[float] | None = None
-    writeback: bool | None = None
+def decode_mine_sequence(result: OpaqueResult) -> _models.SequenceMiningResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("MineSequence", models().SequenceMiningResult, result)
 
 
 async def send_mine_forecast(
@@ -6479,7 +5235,7 @@ async def send_mine_forecast(
         - REDIRECTED
         - READ_ONLY
     """
-    MineForecastRequest.model_validate(params or {})
+    models().MethodMineForecastParams.model_validate(params or {})
     payload = await client._send(
         "MineForecast",
         params,
@@ -6489,29 +5245,9 @@ async def send_mine_forecast(
     return OpaqueResult("MineForecast", payload)
 
 
-class MineTextRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MineText
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MineText
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    algorithm: Any | None = None
-    alpha: float | None = None
-    as_claim: bool | None = None
-    beta: float | None = None
-    docs: list[list[str]] | None = None
-    iterations: int | None = None
-    k: int | None = None
-    seed: int | None = None
-    source: Any | None = None
-    top_n: int | None = None
-    writeback: bool | None = None
+def decode_mine_forecast(result: OpaqueResult) -> _models.ForecastMiningResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("MineForecast", models().ForecastMiningResult, result)
 
 
 async def send_mine_text(
@@ -6544,7 +5280,7 @@ async def send_mine_text(
         - REDIRECTED
         - READ_ONLY
     """
-    MineTextRequest.model_validate(params or {})
+    models().MethodMineTextParams.model_validate(params or {})
     payload = await client._send(
         "MineText",
         params,
@@ -6554,24 +5290,9 @@ async def send_mine_text(
     return OpaqueResult("MineText", payload)
 
 
-class MineSubgraphRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MineSubgraph
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MineSubgraph
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    algorithm: Any | None = None
-    as_claim: bool | None = None
-    label: str | None = None
-    max_edges: int | None = None
-    min_support: float | None = None
-    writeback: bool | None = None
+def decode_mine_text(result: OpaqueResult) -> _models.TextMiningResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("MineText", models().TextMiningResult, result)
 
 
 async def send_mine_subgraph(
@@ -6604,7 +5325,7 @@ async def send_mine_subgraph(
         - REDIRECTED
         - READ_ONLY
     """
-    MineSubgraphRequest.model_validate(params or {})
+    models().MethodMineSubgraphParams.model_validate(params or {})
     payload = await client._send(
         "MineSubgraph",
         params,
@@ -6614,27 +5335,9 @@ async def send_mine_subgraph(
     return OpaqueResult("MineSubgraph", payload)
 
 
-class MineEntityResolveRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MineEntityResolve
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MineEntityResolve
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    as_claim: bool | None = None
-    block_keys: list[str] | None = None
-    bucket_precision: int | None = None
-    ids: list[str] | None = None
-    records: list[list[str]] | None = None
-    source: Any | None = None
-    threshold: float | None = None
-    vectors: list[list[float]] | None = None
-    writeback: bool | None = None
+def decode_mine_subgraph(result: OpaqueResult) -> _models.SubgraphMiningResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("MineSubgraph", models().SubgraphMiningResult, result)
 
 
 async def send_mine_entity_resolve(
@@ -6667,7 +5370,7 @@ async def send_mine_entity_resolve(
         - REDIRECTED
         - READ_ONLY
     """
-    MineEntityResolveRequest.model_validate(params or {})
+    models().MethodMineEntityResolveParams.model_validate(params or {})
     payload = await client._send(
         "MineEntityResolve",
         params,
@@ -6677,24 +5380,13 @@ async def send_mine_entity_resolve(
     return OpaqueResult("MineEntityResolve", payload)
 
 
-class MineCausalImpactRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MineCausalImpact
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MineCausalImpact
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    as_claim: bool | None = None
-    control: list[float] | None = None
-    intervention_index: int | None = None
-    series: list[float] | None = None
-    series_id: str | None = None
-    writeback: bool | None = None
+def decode_mine_entity_resolve(
+    result: OpaqueResult,
+) -> _models.EntityResolutionMiningResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "MineEntityResolve", models().EntityResolutionMiningResult, result
+    )
 
 
 async def send_mine_causal_impact(
@@ -6727,7 +5419,7 @@ async def send_mine_causal_impact(
         - REDIRECTED
         - READ_ONLY
     """
-    MineCausalImpactRequest.model_validate(params or {})
+    models().MethodMineCausalImpactParams.model_validate(params or {})
     payload = await client._send(
         "MineCausalImpact",
         params,
@@ -6737,22 +5429,9 @@ async def send_mine_causal_impact(
     return OpaqueResult("MineCausalImpact", payload)
 
 
-class MineProcessRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MineProcess
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MineProcess
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    as_claim: bool | None = None
-    process_id: str | None = None
-    traces: list[list[str]] | None = None
-    writeback: bool | None = None
+def decode_mine_causal_impact(result: OpaqueResult) -> _models.CausalImpactMiningResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("MineCausalImpact", models().CausalImpactMiningResult, result)
 
 
 async def send_mine_process(
@@ -6785,7 +5464,7 @@ async def send_mine_process(
         - REDIRECTED
         - READ_ONLY
     """
-    MineProcessRequest.model_validate(params or {})
+    models().MethodMineProcessParams.model_validate(params or {})
     payload = await client._send(
         "MineProcess",
         params,
@@ -6795,26 +5474,9 @@ async def send_mine_process(
     return OpaqueResult("MineProcess", payload)
 
 
-class MineRootCauseRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MineRootCause
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MineRootCause
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    as_claim: bool | None = None
-    decay: float | None = None
-    edges: list[list[Any]] | None = None
-    max_hops: int | None = None
-    nodes: list[str] | None = None
-    scores: list[float] | None = None
-    symptom: str | None = None
-    writeback: bool | None = None
+def decode_mine_process(result: OpaqueResult) -> _models.ProcessMiningResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("MineProcess", models().ProcessMiningResult, result)
 
 
 async def send_mine_root_cause(
@@ -6847,7 +5509,7 @@ async def send_mine_root_cause(
         - REDIRECTED
         - READ_ONLY
     """
-    MineRootCauseRequest.model_validate(params or {})
+    models().MethodMineRootCauseParams.model_validate(params or {})
     payload = await client._send(
         "MineRootCause",
         params,
@@ -6857,26 +5519,9 @@ async def send_mine_root_cause(
     return OpaqueResult("MineRootCause", payload)
 
 
-class MineRiskPropagationRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MineRiskPropagation
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MineRiskPropagation
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    as_claim: bool | None = None
-    damping: float | None = None
-    edges: list[list[Any]] | None = None
-    max_iterations: int | None = None
-    nodes: list[str] | None = None
-    seed: list[float] | None = None
-    tolerance: float | None = None
-    writeback: bool | None = None
+def decode_mine_root_cause(result: OpaqueResult) -> _models.RootCauseMiningResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("MineRootCause", models().RootCauseMiningResult, result)
 
 
 async def send_mine_risk_propagation(
@@ -6909,7 +5554,7 @@ async def send_mine_risk_propagation(
         - REDIRECTED
         - READ_ONLY
     """
-    MineRiskPropagationRequest.model_validate(params or {})
+    models().MethodMineRiskPropagationParams.model_validate(params or {})
     payload = await client._send(
         "MineRiskPropagation",
         params,
@@ -6919,21 +5564,13 @@ async def send_mine_risk_propagation(
     return OpaqueResult("MineRiskPropagation", payload)
 
 
-class MineOntologyGapRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MineOntologyGap
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MineOntologyGap
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    as_claim: bool | None = None
-    label: str | None = None
-    writeback: bool | None = None
+def decode_mine_risk_propagation(
+    result: OpaqueResult,
+) -> _models.RiskPropagationMiningResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "MineRiskPropagation", models().RiskPropagationMiningResult, result
+    )
 
 
 async def send_mine_ontology_gap(
@@ -6966,7 +5603,7 @@ async def send_mine_ontology_gap(
         - REDIRECTED
         - READ_ONLY
     """
-    MineOntologyGapRequest.model_validate(params or {})
+    models().MethodMineOntologyGapParams.model_validate(params or {})
     payload = await client._send(
         "MineOntologyGap",
         params,
@@ -6976,23 +5613,9 @@ async def send_mine_ontology_gap(
     return OpaqueResult("MineOntologyGap", payload)
 
 
-class MineRetrievalQualityRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MineRetrievalQuality
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MineRetrievalQuality
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    as_claim: bool | None = None
-    k: int | None = None
-    query_id: str | None = None
-    traces: list[Any] | None = None
-    writeback: bool | None = None
+def decode_mine_ontology_gap(result: OpaqueResult) -> _models.OntologyGapMiningResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("MineOntologyGap", models().OntologyGapMiningResult, result)
 
 
 async def send_mine_retrieval_quality(
@@ -7025,7 +5648,7 @@ async def send_mine_retrieval_quality(
         - REDIRECTED
         - READ_ONLY
     """
-    MineRetrievalQualityRequest.model_validate(params or {})
+    models().MethodMineRetrievalQualityParams.model_validate(params or {})
     payload = await client._send(
         "MineRetrievalQuality",
         params,
@@ -7035,26 +5658,13 @@ async def send_mine_retrieval_quality(
     return OpaqueResult("MineRetrievalQuality", payload)
 
 
-class MineCommunityRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MineCommunity
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MineCommunity
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    algorithm: Any | None = None
-    as_claim: bool | None = None
-    label: str | None = None
-    max_iterations: int | None = None
-    resolution: float | None = None
-    seed: int | None = None
-    weighted: bool | None = None
-    writeback: bool | None = None
+def decode_mine_retrieval_quality(
+    result: OpaqueResult,
+) -> _models.RetrievalQualityMiningResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "MineRetrievalQuality", models().RetrievalQualityMiningResult, result
+    )
 
 
 async def send_mine_community(
@@ -7087,7 +5697,7 @@ async def send_mine_community(
         - REDIRECTED
         - READ_ONLY
     """
-    MineCommunityRequest.model_validate(params or {})
+    models().MethodMineCommunityParams.model_validate(params or {})
     payload = await client._send(
         "MineCommunity",
         params,
@@ -7095,3 +5705,145 @@ async def send_mine_community(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("MineCommunity", payload)
+
+
+def decode_mine_community(result: OpaqueResult) -> _models.CommunityMiningResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("MineCommunity", models().CommunityMiningResult, result)
+
+
+# Methods whose `{Id}Request` resolves to `models.Method{Id}Params` (EH-192).
+_REQUEST_METHODS = frozenset(
+    {
+        "GetShortestPath",
+        "GetBlastRadius",
+        "DegreeCentrality",
+        "PageRank",
+        "PersonalizedPageRank",
+        "CommunityDetection",
+        "CommunityDetectEphemeral",
+        "ComputeSimilarityEdges",
+        "ResolveCandidates",
+        "ClusterHierarchyRefresh",
+        "ClusterHierarchyClusters",
+        "ClusterHierarchyExpand",
+        "Vf2SubgraphMatch",
+        "MatchOntologyTerms",
+        "BatchL2Normalize",
+        "FinanceOptimizePortfolio",
+        "FinanceRiskParity",
+        "FinanceBlackLitterman",
+        "FinanceEfficientFrontier",
+        "DsLinearRegression",
+        "DsKMeans",
+        "DsPca",
+        "DsComputeStats",
+        "DsTrainTestSplit",
+        "DsFitEstimator",
+        "DsPredictEstimator",
+        "DsSoftmax",
+        "DsLogSoftmax",
+        "DsCrossEntropy",
+        "DsDpoLoss",
+        "DsGrpoSurrogate",
+        "DsKlDivergence",
+        "DsAdamStep",
+        "DsSgdStep",
+        "FinanceVar",
+        "FinanceCvar",
+        "FinanceMaxDrawdown",
+        "FinanceDrawdownSeries",
+        "FinanceDownsideDeviation",
+        "FinanceRiskMetrics",
+        "FinanceMonteCarloVar",
+        "FinanceStressTest",
+        "FinanceDetectRegimes",
+        "FinanceRollingZscore",
+        "FinanceEwma",
+        "FinanceSignalDecay",
+        "FinanceCombineAlphas",
+        "FinanceCrossSectionalRank",
+        "FinanceMomentum",
+        "FinanceMeanReversion",
+        "FinanceInformationCoefficient",
+        "FinanceTwap",
+        "FinanceVwap",
+        "FinanceMarketImpact",
+        "FinancePairsTrading",
+        "FinanceMatchOrders",
+        "FinanceAvellanedaStoikov",
+        "FinanceGltQuotes",
+        "FinanceLogitQuotes",
+        "FinanceGlostenMilgromSpread",
+        "FinanceExpectedPnlRate",
+        "FinanceBreakevenAlpha",
+        "FinanceOfiSeries",
+        "FinanceMicropriceSeries",
+        "FinanceVpinPm",
+        "FinanceHawkesMle",
+        "FinanceHardimanBouchaud",
+        "FinanceKyleLambda",
+        "FinanceSurveillanceRisk",
+        "FinanceKellyFraction",
+        "FinanceBayesianKelly",
+        "FinancePosteriorCredibleInterval",
+        "FinancePurgedCpcv",
+        "FinanceDeflatedSharpe",
+        "FinanceProbabilityBacktestOverfit",
+        "FinanceDieboldMariano",
+        "FinanceForensicReport",
+        "FinanceKalmanFilter1d",
+        "FinanceKalmanBeta",
+        "FinanceKalmanVolatility",
+        "FinanceAdfTest",
+        "FinanceOuCalibrate",
+        "FinanceOuOptimalThresholds",
+        "FinanceMarkovTransitionMatrix",
+        "FinanceOrderBookImbalance",
+        "FinanceQueueImbalance",
+        "FinanceRealizedVolTick",
+        "FinanceSpreadReversion",
+        "FinanceInformationRatio",
+        "FinanceEffectiveIndependentN",
+        "FinanceAlphaCombinationEngine",
+        "FinanceBrierScore",
+        "FinanceConvergenceGate",
+        "FinanceEmpiricalKelly",
+        "FinanceSabrImpliedVol",
+        "FinanceSabrSmile",
+        "FinanceSabrCalibrate",
+        "MineAssociate",
+        "MineCluster",
+        "MineAnomaly",
+        "MineClassifyFit",
+        "MineClassifyPredict",
+        "MineReduce",
+        "GraphLearnFit",
+        "GraphLearnPredict",
+        "MiningPipelineTrain",
+        "MiningPipelineServe",
+        "MiningPipelinePredict",
+        "MiningPipelineEvaluate",
+        "MiningPipelineCompare",
+        "MineSequence",
+        "MineForecast",
+        "MineText",
+        "MineSubgraph",
+        "MineEntityResolve",
+        "MineCausalImpact",
+        "MineProcess",
+        "MineRootCause",
+        "MineRiskPropagation",
+        "MineOntologyGap",
+        "MineRetrievalQuality",
+        "MineCommunity",
+    }
+)
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve a ``{Id}Request`` name to its generated model on first use."""
+    method = name.removesuffix("Request")
+    if name == method or method not in _REQUEST_METHODS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(models(), f"Method{method}Params")
