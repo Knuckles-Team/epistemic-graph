@@ -174,7 +174,7 @@ pub fn pinned_layout_digest(layout: OwnerLayout) -> &'static str {
         OwnerLayout::SemanticIndex => {
             "3008d8726d15a864daf6c723004152fc61bb40bc8de0fea486dfdaace0c985d8"
         }
-        OwnerLayout::Sql => "2d562fabc75b19e9c36309b1bda7fcc9a050c68acbec876fc069d3b506d93e1e",
+        OwnerLayout::Sql => "abae4905ed8ea379c808cc9be3aec978300049a9ae0d405df487ea31d714f555",
         OwnerLayout::PathIndex => {
             "c79d89a41ad97d55cf35238ca8706db8c958923624de068a430c3bca72656df9"
         }

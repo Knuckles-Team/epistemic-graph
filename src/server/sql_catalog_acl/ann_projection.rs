@@ -9,12 +9,19 @@
 //! and only those rows enter the projection. A row whose visibility identity is
 //! unresolved (a NULL or absent discriminator) is admitted by nothing, exactly as
 //! in [`AuthorizedTable::select`] (the CX-022 fail-closed invariant).
+//!
+//! The projection also carries the managed-index status rows the caller may see
+//! (EH-352), so `information_schema.eg_index_status` is answered under the same
+//! ACL as the tables: only indexes of tables the caller may `SELECT`.
 
 use std::path::Path;
 
-use eg_query::{Cell, UserAnnDecision, UserAnnPushdown};
+use eg_query::{Cell, TableStore, UserAnnDecision, UserAnnPushdown};
 
-use super::{project_read_store, AuthorizedReadStore, AuthorizedTable};
+use super::{
+    open_authorized_table, project_read_store, selectable_tables, AuthorizedReadStore,
+    AuthorizedTable, SqlPrivilege,
+};
 use crate::server::access::CarrierAuthority;
 use crate::server::sql_tables;
 
@@ -38,7 +45,39 @@ pub(crate) fn authorized_read_store_for_query(
         }
         UserAnnDecision::NotApplicable => None,
     };
-    project_read_store(authority, persist_dir, narrowing.as_ref())
+    let projection = project_read_store(authority, persist_dir, narrowing.as_ref())?;
+    adopt_index_status(authority, persist_dir, &tenant, projection.store())?;
+    Ok(projection)
+}
+
+/// Hand `projection` the tenant's managed-index status rows the caller may see:
+/// those of tables it may `SELECT`, with no row count for a table under
+/// row-level security (the count would include rows hidden from the caller).
+fn adopt_index_status(
+    authority: &CarrierAuthority,
+    persist_dir: &Path,
+    tenant: &TableStore,
+    projection: &TableStore,
+) -> Result<(), String> {
+    let selectable = selectable_tables(authority, persist_dir)?;
+    let mut visible = Vec::new();
+    for mut status in tenant.managed_index_status()? {
+        let relation = status.target.relation();
+        let Some(table) = selectable
+            .iter()
+            .find(|name| name.eq_ignore_ascii_case(relation))
+        else {
+            continue;
+        };
+        let authorized =
+            open_authorized_table(authority, persist_dir, table, SqlPrivilege::Select)?;
+        if authorized.rls_column.is_some() {
+            status.indexed = None;
+        }
+        visible.push(status);
+    }
+    projection.ann_authority().adopt_statuses(visible);
+    Ok(())
 }
 
 /// The rows of `table` the projection holds: the maintained nearest rows when
@@ -201,5 +240,70 @@ mod tests {
         let with_filter =
             "SELECT id FROM docs WHERE id = 'orphan' ORDER BY emb <-> '[1,1,1,1]' LIMIT 1";
         assert!(projected_ids(&dir, "alice", with_filter).is_empty());
+    }
+
+    /// `secrets`: alice's own indexed table, no grant, no row-level security.
+    fn tenant_secrets(dir: &Path) {
+        let alice = authority("alice");
+        let schema = TableSchema::new(
+            "secrets",
+            vec![
+                Column::new("id", ColumnType::Text, false, true),
+                Column::new("emb", ColumnType::Vector(Some(4)), true, false),
+            ],
+        );
+        create_owned_table(&alice, dir, &schema, false).unwrap();
+        open_authorized_table(&alice, dir, "secrets", SqlPrivilege::Insert)
+            .unwrap()
+            .insert(&["id".to_string(), "emb".to_string()], &[row("s1", 2.0)])
+            .unwrap();
+        let tenant = sql_tables::tenant_table_store(alice.tenant_scope(), dir).unwrap();
+        tenant
+            .put_ann_index(&AnnIndexPlan {
+                name: Some("secrets_emb".to_string()),
+                table: "secrets".to_string(),
+                column: "emb".to_string(),
+                method: AnnMethod::Hnsw,
+                metric: VectorMetric::L2,
+                if_not_exists: false,
+            })
+            .unwrap();
+        tenant
+            .refresh_ann_generations(AnnRefreshPolicy::Immediate)
+            .unwrap();
+    }
+
+    fn status_rows(dir: &Path, who: &str) -> Vec<Vec<Value>> {
+        let sql = "SELECT index_name, state, indexed FROM information_schema.eg_index_status \
+                   ORDER BY index_name";
+        let projection = authorized_read_store_for_query(&authority(who), dir, sql).unwrap();
+        let view = crate::graph::GraphView::default();
+        eg_query::exec_sql_typed_with_tables(&view, projection.store(), sql)
+            .unwrap()
+            .rows
+    }
+
+    /// EH-352: the status relation is answered under the table ACL — a caller
+    /// sees only the indexes of tables it may select, and no row count of a
+    /// table under row-level security.
+    #[test]
+    fn the_index_status_relation_shows_only_what_the_caller_may_select() {
+        let dir = test_persist_dir();
+        tenant_docs(&dir);
+        tenant_secrets(&dir);
+
+        assert_eq!(
+            status_rows(&dir, "bob"),
+            vec![vec![json!("docs_emb"), json!("active"), Value::Null]],
+            "bob may select docs only; its row count is RLS-withheld"
+        );
+        assert_eq!(
+            status_rows(&dir, "alice"),
+            vec![
+                vec![json!("docs_emb"), json!("active"), Value::Null],
+                vec![json!("secrets_emb"), json!("active"), json!(1)],
+            ]
+        );
+        assert!(status_rows(&dir, "mallory").is_empty());
     }
 }

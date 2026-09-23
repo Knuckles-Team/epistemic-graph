@@ -15,7 +15,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 | `kv` | `48b6464ad5960bd14fc0976119b689c0016be63e8cc8be72df4e7030ed593f9e` | none |
 | `blob` | `982e463fd13db3ec48fbdda77249ecaefed3b9174276c61ac7cd2eb206c47d6b` | `BLOB_FORMAT_UPGRADE_REQUIRED` |
 | `semantic_index` | `3008d8726d15a864daf6c723004152fc61bb40bc8de0fea486dfdaace0c985d8` | none |
-| `sql` | `2d562fabc75b19e9c36309b1bda7fcc9a050c68acbec876fc069d3b506d93e1e` | `SQL_FORMAT_UPGRADE_REQUIRED` |
+| `sql` | `abae4905ed8ea379c808cc9be3aec978300049a9ae0d405df487ea31d714f555` | `SQL_FORMAT_UPGRADE_REQUIRED` |
 | `path_index` | `c79d89a41ad97d55cf35238ca8706db8c958923624de068a430c3bca72656df9` | none |
 | `request_replay` | `ccb7051fef1a624274939944f7af9ee0f3ee03eee062794eeaf105d1c6117809` | none |
 | `viz_provenance` | `57e566cd7fae6e67c83778cb50423130b8c250c2ce58dd3e93f5b203151661d3` | none |
@@ -26,7 +26,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 | `graph_shard` | `25d465035cd1c285493e057e754e4a97f8757ffe19fb910392217fa7386de48c` | none |
 | `agent_library` | `89ccb41fa67be8de71397835b560ce88003b47507129306aa4baf83afc0673f1` | `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED` |
 
-## `BLOB_FORMAT_UPGRADE_REQUIRED`
+## `BLOB_FORMAT_UPGRADE_REQUIRED`: blob store from before holder-scoped references
 
 * Store file: `blob.redb`
 * Refused generation: blob store from before holder-scoped references
@@ -34,7 +34,7 @@ Every durable owner file records the digest of its exact table layout. A file wh
 * Owner tables of the refused generation: `cas_chunks`, `cas_blobs`, `cas_refcount`, `cas_uploads`
 * Removal step: stop the engine, move `blob.redb` aside (keep it until the restarted engine is confirmed healthy), and restart; a fresh store is created. Backup bundles taken before this release cannot restore this file.
 
-## `SQL_FORMAT_UPGRADE_REQUIRED`
+## `SQL_FORMAT_UPGRADE_REQUIRED`: SQL catalog store before durable source checkpoints
 
 * Store file: `sql.redb`
 * Refused generation: SQL catalog store before durable source checkpoints
@@ -42,7 +42,15 @@ Every durable owner file records the digest of its exact table layout. A file wh
 * Owner tables of the refused generation: `__sql_catalog__`, `__sql_functions__`, `__sql_ann_indexes__`, `__sql_secondary_indexes__`, `__sql_secondary_index_entries__`, `__sql_hypertables__`, `__sql_source_authority__`, `__sql_views__`, `__sql_extensions__`, `__sql_rows__`, `__sql_seq__`, `__sql_schema_catalog_versions__`, `__sql_schema_versions__`, `__sql_schema_migrations__`, `__sql_schema_migration_order__`, `__sql_schema_catalog_order__`, `__sql_property_graphs__`, `__sql_property_graph_seq__`
 * Removal step: stop the engine, move `sql.redb` aside (keep it until the restarted engine is confirmed healthy), and restart; a fresh store is created. Backup bundles taken before this release cannot restore this file.
 
-## `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED`
+## `SQL_FORMAT_UPGRADE_REQUIRED`: SQL catalog store before durable ANN index generations
+
+* Store file: `sql.redb`
+* Refused generation: SQL catalog store before durable ANN index generations
+* Data lost: its SQL catalog and rows are not migrated; re-ingest the sources
+* Owner tables of the refused generation: `__sql_catalog__`, `__sql_functions__`, `__sql_ann_indexes__`, `__sql_secondary_indexes__`, `__sql_secondary_index_entries__`, `__sql_hypertables__`, `__sql_source_authority__`, `__sql_views__`, `__sql_extensions__`, `__sql_rows__`, `__sql_seq__`, `__sql_schema_catalog_versions__`, `__sql_schema_versions__`, `__sql_schema_migrations__`, `__sql_schema_migration_order__`, `__sql_schema_catalog_order__`, `__sql_property_graphs__`, `__sql_property_graph_seq__`, `__sql_source_checkpoints__`
+* Removal step: stop the engine, move `sql.redb` aside (keep it until the restarted engine is confirmed healthy), and restart; a fresh store is created. Backup bundles taken before this release cannot restore this file.
+
+## `AGENT_LIBRARY_FORMAT_UPGRADE_REQUIRED`: Agent Library before connector packs and governed write-back
 
 * Store file: `agent_library.redb`
 * Refused generation: Agent Library before connector packs and governed write-back

@@ -28,6 +28,7 @@ use super::catalog::register_system_catalogs;
 use super::pgfamily::AnnIndexPlan;
 use super::providers::{infer_nodes, EdgesTableProvider, NodesTableProvider, SqlCache};
 use super::spill::CancellationToken;
+use super::store_catalog::{reads_index_status, StoreCatalog};
 use super::tablefuncs::{BetweennessFunc, GenerateSeriesFunc, PagerankFunc};
 use super::udfs::{
     base64_decode_udf, base64_encode_udf, bm25_match_udf, bm25_score_udf, bm25_snippet_udf,
@@ -37,7 +38,7 @@ use super::udfs::{
     sha1_udf, sha256_udf, time_bucket_udf, tsrange_udf, vector_cosine_udf, vector_ip_udf,
     vector_l2_udf,
 };
-use crate::tables::{PropertyGraphCatalogRecord, StoredFunction, TableSchema, TableStore};
+use crate::tables::{StoredFunction, TableSchema, TableStore};
 
 /// One user table's registration plan for `build_ctx` (CONCEPT:EG-KG.query.register-user-tables-alongside):
 /// [`materialize_user_tables`] chooses PER TABLE between the two variants below.
@@ -124,17 +125,7 @@ pub fn exec_sql(
     cancel: &CancellationToken,
 ) -> Result<QueryResult, String> {
     let nodes = infer_nodes(view)?;
-    run(
-        view,
-        nodes,
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        sql,
-        cancel,
-    )
+    run(view, nodes, StoreCatalog::default(), sql, cancel)
 }
 
 /// Run read-only `sql` over a set of pre-built in-memory Arrow tables — NO graph
@@ -275,17 +266,7 @@ pub fn exec_sql_typed_cancellable(
     cancel: &CancellationToken,
 ) -> Result<TypedQueryResult, String> {
     let nodes = infer_nodes(view)?;
-    run_typed(
-        view,
-        nodes,
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        sql,
-        cancel,
-    )
+    run_typed(view, nodes, StoreCatalog::default(), sql, cancel)
 }
 
 /// Run `sql` over `view` AND the user tables in `store` (CONCEPT:EG-KG.query.register-user-tables-alongside). Identical
@@ -355,9 +336,11 @@ pub fn exec_sql_typed_with_tables_cancellable(
     sql: &str,
     cancel: &CancellationToken,
 ) -> Result<TypedQueryResult, String> {
-    // CONCEPT:EG-KG.query.create-drop-function: the durable SQL stored functions, expanded into the query text
-    // (scalar → scalar subquery; table → parameterized-view subquery) before planning.
-    let functions = store.list_functions()?;
+    // The store's catalog objects: stored functions (CONCEPT:EG-KG.query.create-drop-function,
+    // expanded into the query text before planning), durable views, property graphs, the
+    // pgvector ANN registrations (CONCEPT:EG-KG.query.real-ann-top-k/EG-313) and the
+    // managed-index status rows (EH-352).
+    let catalog = StoreCatalog::read(store, store.index_scope())?;
     // CONCEPT:EG-KG.query.eg-validate-procedural-body: a bare top-level `SELECT plfn(args)` / `CALL plproc(args)` naming a
     // `LANGUAGE plpgsql` function runs the procedural interpreter instead of DataFusion.
     // Its embedded SQL (expression eval, `SELECT … INTO`) runs back through THIS read path
@@ -365,32 +348,15 @@ pub fn exec_sql_typed_with_tables_cancellable(
     // no nesting (we are not inside a reactor here; the handler calls us on `spawn_blocking`).
     // The recursive call reuses the SAME `cancel` token, so a cancelled outer request also
     // stops an in-flight plpgsql-embedded SELECT.
-    if functions.iter().any(|f| f.is_plpgsql()) {
+    if catalog.functions.iter().any(|f| f.is_plpgsql()) {
         let run_sql = |q: &str| exec_sql_typed_with_tables_cancellable(view, store, q, cancel);
-        if let Some(res) = super::plpgsql::try_exec_call(sql, &functions, &run_sql)? {
+        if let Some(res) = super::plpgsql::try_exec_call(sql, &catalog.functions, &run_sql)? {
             return Ok(res);
         }
     }
     let nodes = infer_nodes(view)?;
-    // CONCEPT:EG-KG.query.real-ann-top-k/EG-313: the durable pgvector ANN index registrations, consulted to
-    // push a matching `ORDER BY col <-> $1 LIMIT k` down to the maintained ANN authority.
-    let ann_indexes = store.list_ann_indexes()?;
     let user = materialize_user_tables(store)?;
-    let property_graphs = store.list_property_graph_records(store.index_scope())?;
-    // CONCEPT:EG-KG.query.durable-views: the durable views, registered as read-only named queries so a
-    // SELECT that references a view expands its stored SELECT during context build.
-    let views = store.list_views()?;
-    run_typed(
-        view,
-        nodes,
-        user,
-        views,
-        functions,
-        property_graphs,
-        ann_indexes,
-        sql,
-        cancel,
-    )
+    run_typed(view, nodes, user, catalog, sql, cancel)
 }
 
 /// Run `sql` over `view` reusing `cache`'s `(nodes, edges)` tables when they are
@@ -407,11 +373,7 @@ pub fn exec_sql_cached(
     run(
         view,
         tables.nodes,
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
+        StoreCatalog::default(),
         sql,
         &CancellationToken::new(),
     )
@@ -673,21 +635,20 @@ impl SqlContextCache {
         // A cached context never serves an ANN-covered query (the caller bypasses the
         // cache for those), so every user table here stays lazy.
         let user = materialize_user_tables(store)?;
-        let views = store.list_views()?;
-        let functions = store.list_functions()?;
-        let property_graphs = store.list_property_graph_records(&epoch.tenant)?;
+        let catalog = StoreCatalog::read(store, &epoch.tenant)?;
         let built = build_ctx(snap, nodes, user)?;
-        register_views(&built.ctx, &views, &functions).await?;
+        register_views(&built.ctx, &catalog.views, &catalog.functions).await?;
         register_system_catalogs(
             &built.ctx,
             &built.nodes_schema,
             &built.edges_schema,
             &built.user_relations,
-            &views,
-            &functions,
-            &property_graphs,
+            &catalog.views,
+            &catalog.functions,
+            &catalog.property_graphs,
         )
         .await?;
+        super::index_status::register(&built.ctx, &catalog.index_status)?;
         let built = Arc::new(built);
 
         let mut guard = self.contexts.lock().unwrap();
@@ -782,8 +743,10 @@ pub fn exec_sql_typed_with_tables_cached_cancellable(
     // A durable ANN index covering this exact query shape narrows `nodes`/a user
     // table to a query-specific top-k slice — per-query, never cacheable. Delegate
     // to the unchanged uncached path.
+    // So does the managed-index status relation: index state moves without a
+    // catalog write, so a cached context would serve it stale.
     let ann_indexes = store.list_ann_indexes()?;
-    if ann_pushdown_may_apply(sql, &ann_indexes) {
+    if ann_pushdown_may_apply(sql, &ann_indexes) || reads_index_status(sql) {
         return exec_sql_typed_with_tables_cancellable(view, store, sql, cancel);
     }
 
@@ -1008,10 +971,6 @@ fn narrow_user_table(pushdown: &AnnPushdown, user_tables: &mut [UserTable]) -> R
 
 /// Shared driver: register the two tables, the scalar/aggregate UDFs, and the
 /// graph table functions, then collect the query.
-// Property-graph catalog records sit beside the existing views/functions catalogs;
-// EG-313 adds `ann_indexes`, and L36 adds `cancel`, so the collect leg is REALLY cancellable, not just
-// spillable.
-#[allow(clippy::too_many_arguments)]
 fn run(
     view: &GraphView,
     nodes: (
@@ -1019,10 +978,7 @@ fn run(
         arrow::record_batch::RecordBatch,
     ),
     user_tables: Vec<UserTable>,
-    views: Vec<(String, String)>,
-    functions: Vec<StoredFunction>,
-    property_graphs: Vec<PropertyGraphCatalogRecord>,
-    ann_indexes: Vec<AnnIndexPlan>,
+    catalog: StoreCatalog,
     sql: &str,
     cancel: &CancellationToken,
 ) -> Result<QueryResult, String> {
@@ -1046,11 +1002,11 @@ fn run(
     // CONCEPT:EG-KG.query.create-drop-function — expand SQL stored-function calls into inline SQL (scalar subquery /
     // parameterized-view subquery) BEFORE the pgvector desugar + planning, so an inlined
     // body is itself desugared and planned. A no-op when there are no functions.
-    let sql = super::funcs::expand_functions(&sql, &functions)?;
+    let sql = super::funcs::expand_functions(&sql, &catalog.functions)?;
     // CONCEPT:EG-KG.query.real-pgvector-ann-top — real pgvector ANN top-k pushdown on the PRE-desugar SQL (the
     // `<->`/`<=>`/`<#>` operators are still intact for the planner). Narrows the target
     // batch to the true nearest-k via a real eg-ann index when one is registered.
-    apply_ann_pushdown(&sql, &ann_indexes, &mut nodes, &mut user_tables)?;
+    apply_ann_pushdown(&sql, &catalog.ann_indexes, &mut nodes, &mut user_tables)?;
     // CONCEPT:EG-KG.query.view-pgvector-operators — rewrite pgvector distance operators (`<->`/`<=>`/`<#>`) to the
     // registered `vector_*` UDF calls BEFORE DataFusion plans the SQL (it has no
     // operator for them). A no-op when none are present or the SQL doesn't parse.
@@ -1058,7 +1014,7 @@ fn run(
     rt.block_on(async move {
         let built = build_ctx(snap, nodes, user_tables)?;
         let ctx = built.ctx;
-        register_views(&ctx, &views, &functions).await?;
+        register_views(&ctx, &catalog.views, &catalog.functions).await?;
         // CONCEPT:EG-KG.query.route-create-view-create — synthesize `pg_catalog` + `information_schema` from the live
         // relations (nodes/edges/user tables), the now-registered views, and the stored
         // functions, so psql/ORMs can introspect the real schema.
@@ -1067,11 +1023,12 @@ fn run(
             &built.nodes_schema,
             &built.edges_schema,
             &built.user_relations,
-            &views,
-            &functions,
-            &property_graphs,
+            &catalog.views,
+            &catalog.functions,
+            &catalog.property_graphs,
         )
         .await?;
+        super::index_status::register(&ctx, &catalog.index_status)?;
         let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
         let batches = super::spill::collect_default(df, cancel).await?;
         batches_to_result(&batches)
@@ -1105,23 +1062,12 @@ pub fn exec_sql_arrow_cancellable(
     cancel: &CancellationToken,
 ) -> Result<(SchemaRef, Vec<arrow::record_batch::RecordBatch>), String> {
     let nodes = infer_nodes(view)?;
-    run_arrow(
-        view,
-        nodes,
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        Vec::new(),
-        sql,
-        cancel,
-    )
+    run_arrow(view, nodes, StoreCatalog::default(), sql, cancel)
 }
 
 /// Shared driver identical to [`run`]/[`run_typed`] up through the DataFusion collect,
 /// but returns the RAW `RecordBatch`es (plus their shared schema) instead of decoding
 /// them into rows — see [`exec_sql_arrow`] above.
-#[allow(clippy::too_many_arguments)]
 fn run_arrow(
     view: &GraphView,
     nodes: (
@@ -1129,10 +1075,7 @@ fn run_arrow(
         arrow::record_batch::RecordBatch,
     ),
     user_tables: Vec<UserTable>,
-    views: Vec<(String, String)>,
-    functions: Vec<StoredFunction>,
-    property_graphs: Vec<PropertyGraphCatalogRecord>,
-    ann_indexes: Vec<AnnIndexPlan>,
+    catalog: StoreCatalog,
     sql: &str,
     cancel: &CancellationToken,
 ) -> Result<(SchemaRef, Vec<arrow::record_batch::RecordBatch>), String> {
@@ -1146,23 +1089,24 @@ fn run_arrow(
         .map_err(|e| format!("runtime build: {e}"))?;
 
     let sql = super::catalog::strip_pg_catalog_fn_qualifier(sql);
-    let sql = super::funcs::expand_functions(&sql, &functions)?;
-    apply_ann_pushdown(&sql, &ann_indexes, &mut nodes, &mut user_tables)?;
+    let sql = super::funcs::expand_functions(&sql, &catalog.functions)?;
+    apply_ann_pushdown(&sql, &catalog.ann_indexes, &mut nodes, &mut user_tables)?;
     let sql = super::classify::desugar_vector_ops(&sql);
     rt.block_on(async move {
         let built = build_ctx(snap, nodes, user_tables)?;
         let ctx = built.ctx;
-        register_views(&ctx, &views, &functions).await?;
+        register_views(&ctx, &catalog.views, &catalog.functions).await?;
         register_system_catalogs(
             &ctx,
             &built.nodes_schema,
             &built.edges_schema,
             &built.user_relations,
-            &views,
-            &functions,
-            &property_graphs,
+            &catalog.views,
+            &catalog.functions,
+            &catalog.property_graphs,
         )
         .await?;
+        super::index_status::register(&ctx, &catalog.index_status)?;
         let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
         let batches = super::spill::collect_default(df, cancel).await?;
         let schema = batches
@@ -1211,9 +1155,6 @@ async fn register_views(
 /// Same driver as [`run`] but returns a [`TypedQueryResult`] (column types from
 /// the Arrow schema + JSON cells). Shares the providers/UDFs/runtime verbatim so
 /// the pgwire read path is the SAME engine path as `Method::Sql`.
-// Property-graph catalog records sit beside the existing views/functions catalogs;
-// EG-313 adds `ann_indexes`, and L36 adds `cancel` — see `run`'s doc.
-#[allow(clippy::too_many_arguments)]
 fn run_typed(
     view: &GraphView,
     nodes: (
@@ -1221,10 +1162,7 @@ fn run_typed(
         arrow::record_batch::RecordBatch,
     ),
     user_tables: Vec<UserTable>,
-    views: Vec<(String, String)>,
-    functions: Vec<StoredFunction>,
-    property_graphs: Vec<PropertyGraphCatalogRecord>,
-    ann_indexes: Vec<AnnIndexPlan>,
+    catalog: StoreCatalog,
     sql: &str,
     cancel: &CancellationToken,
 ) -> Result<TypedQueryResult, String> {
@@ -1240,26 +1178,27 @@ fn run_typed(
     // CONCEPT:EG-KG.query.route-create-view-create — see `run`: strip `pg_catalog.` off catalog function calls first.
     let sql = super::catalog::strip_pg_catalog_fn_qualifier(sql);
     // CONCEPT:EG-KG.query.create-drop-function — see `run`: expand SQL stored-function calls before desugar/planning.
-    let sql = super::funcs::expand_functions(&sql, &functions)?;
+    let sql = super::funcs::expand_functions(&sql, &catalog.functions)?;
     // CONCEPT:EG-KG.query.real-pgvector-ann-top — see `run`: real pgvector ANN top-k pushdown on the pre-desugar SQL.
-    apply_ann_pushdown(&sql, &ann_indexes, &mut nodes, &mut user_tables)?;
+    apply_ann_pushdown(&sql, &catalog.ann_indexes, &mut nodes, &mut user_tables)?;
     // CONCEPT:EG-KG.query.view-pgvector-operators — see `run`: desugar the pgvector operators before planning.
     let sql = super::classify::desugar_vector_ops(&sql);
     rt.block_on(async move {
         let built = build_ctx(snap, nodes, user_tables)?;
         let ctx = built.ctx;
-        register_views(&ctx, &views, &functions).await?;
+        register_views(&ctx, &catalog.views, &catalog.functions).await?;
         // CONCEPT:EG-KG.query.route-create-view-create — synthesize `pg_catalog` + `information_schema` (see `run`).
         register_system_catalogs(
             &ctx,
             &built.nodes_schema,
             &built.edges_schema,
             &built.user_relations,
-            &views,
-            &functions,
-            &property_graphs,
+            &catalog.views,
+            &catalog.functions,
+            &catalog.property_graphs,
         )
         .await?;
+        super::index_status::register(&ctx, &catalog.index_status)?;
         let df = ctx.sql(&sql).await.map_err(|e| format!("sql: {e}"))?;
         let batches = super::spill::collect_default(df, cancel).await?;
         batches_to_typed(&batches)
