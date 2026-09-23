@@ -15,6 +15,7 @@ pub mod keyed;
 pub mod log;
 pub mod nl;
 pub mod outcome;
+pub mod scorer;
 
 use serde::{Deserialize, Serialize};
 

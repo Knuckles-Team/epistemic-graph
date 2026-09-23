@@ -143,6 +143,7 @@ pub fn every_statistical_outcome() -> Vec<StatisticalOutcome> {
 /// Every calibration statement shape.
 pub fn every_calibration() -> Vec<CalibrationStatement> {
     [
+        CalibrationMethod::Conformal,
         CalibrationMethod::Temperature,
         CalibrationMethod::Vector,
         CalibrationMethod::Dirichlet,

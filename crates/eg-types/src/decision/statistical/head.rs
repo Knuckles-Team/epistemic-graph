@@ -1,18 +1,21 @@
 //! The body of a fitted decision head (EH-027).
 //!
-//! Two shapes, one body: `WeightedFeatures` is an advisory linear score that
-//! never acts, and `ListwiseLogistic` is a linear logit per option turned into
-//! a distribution over the candidate set by a softmax. Both are linear in the
-//! standardised features, so a recorded explanation (weight x value per
-//! feature) is exact for the logit -- and only for the logit.
+//! Three shapes, one body: `WeightedFeatures` is an advisory linear score that
+//! never acts, `ListwiseLogistic` is a linear logit per option turned into a
+//! distribution over the candidate set by a softmax, and `OptionAttention` adds
+//! the resident scorer's option-attention term (see [`super::scorer`]) to that
+//! linear logit. Only the two linear shapes carry a recorded explanation
+//! (weight x value per feature), which is exact for their logit -- and only
+//! for the logit.
 //!
-//! Every number is fixed-point on the `Pico` scale: a head replays to the same
-//! bits on every release target because nothing in it is a float.
+//! Every number is fixed-point: a head replays to the same bits on every
+//! release target because nothing in it is a float.
 
 use serde::{Deserialize, Serialize};
 
 use super::super::numeric::{QuantisedValue, UnitRationalWire};
 use super::outcome::RiskStatement;
+use super::scorer::OptionAttentionParams;
 use crate::contract::BoundedVec;
 
 /// Which head shape a fit produces.
@@ -24,6 +27,20 @@ pub enum HeadKind {
     WeightedFeatures,
     /// A listwise logistic model over the candidate set.
     ListwiseLogistic,
+    /// The resident option-attention scorer: the listwise logistic logit plus
+    /// an attention term over the embedded option set, in fixed point.
+    OptionAttention,
+}
+
+impl HeadKind {
+    /// Whether the head produces a distribution over the candidate set (and
+    /// so may be calibrated and may act).
+    pub fn is_listwise(self) -> bool {
+        match self {
+            Self::WeightedFeatures => false,
+            Self::ListwiseLogistic | Self::OptionAttention => true,
+        }
+    }
 }
 
 /// Format identity of a decision head body.
@@ -97,6 +114,11 @@ pub struct DecisionHeadBody {
     pub training_records_digest: String,
     pub n_training: u64,
     pub synthetic: bool,
+    /// The option-attention parameters; present exactly for an
+    /// `OptionAttention` head. Omitted when absent, so the bytes (and the
+    /// content digest) of every linear head are unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scorer: Option<Box<OptionAttentionParams>>,
 }
 
 impl DecisionHeadBody {
@@ -122,6 +144,20 @@ impl DecisionHeadBody {
         if self.regime == FittedRegime::BanditLabel && self.calibration.is_some() {
             return Err("a bandit-label head makes no coverage claim".to_string());
         }
+        self.check_scorer()?;
         Ok(self)
+    }
+
+    fn check_scorer(&self) -> Result<(), String> {
+        match (self.kind, self.scorer.as_deref()) {
+            (HeadKind::OptionAttention, Some(scorer)) => scorer.check(self.weights.len()),
+            (HeadKind::OptionAttention, None) => {
+                Err("an OptionAttention head carries its scorer parameters".to_string())
+            }
+            (HeadKind::WeightedFeatures | HeadKind::ListwiseLogistic, Some(_)) => {
+                Err("only an OptionAttention head carries scorer parameters".to_string())
+            }
+            (HeadKind::WeightedFeatures | HeadKind::ListwiseLogistic, None) => Ok(()),
+        }
     }
 }

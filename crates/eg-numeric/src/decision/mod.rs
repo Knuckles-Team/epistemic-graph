@@ -10,6 +10,8 @@
 //! Module DAG (acyclic, depth <= 3): `quant`/`refusal` are leaves; `bm25`,
 //! `candidate`, `exploration` and `admission` sit on them; `features` and
 //! `head_eval` read those; `ladder`, `fit`, `evaluate` and `nl` are the tops.
+//! `targets` is a leaf; the resident scorer (`scorer`) sits under
+//! `head_eval` and `fit`, and `promotion` under `evaluate`.
 //!
 //! Nothing here reads a clock, a hash map's iteration order, or a thread pool:
 //! reductions are serial over sorted keys, ties break by option order (the
@@ -29,7 +31,10 @@ mod fit_calibrate;
 pub mod head_eval;
 pub mod ladder;
 pub mod nl;
+pub mod promotion;
 pub mod quant;
 pub mod refusal;
+pub mod scorer;
+mod targets;
 
 pub use refusal::{Refusal, RefusalResult};

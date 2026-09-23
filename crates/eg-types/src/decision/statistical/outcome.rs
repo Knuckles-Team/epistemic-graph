@@ -37,6 +37,11 @@ pub struct RiskStatement {
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
 pub enum CalibrationMethod {
+    /// Split-conformal acceptability sets (and a Learn-then-Test act
+    /// threshold) over temperature-scaled probabilities: the calibration rung
+    /// whenever its coverage claim is non-trivial (EH-293).
+    Conformal,
+    /// Temperature scaling alone: the fallback when no conformal claim holds.
     Temperature,
     Vector,
     Dirichlet,

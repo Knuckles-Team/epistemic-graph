@@ -1,19 +1,30 @@
-//! Reading a decision head over a feature matrix (EH-027).
+//! Reading a decision head over a feature matrix (EH-027, EH-291).
 //!
 //! Standardise, check each value against the range the head was fitted on
 //! (drift: out-of-distribution abstains, §6.3), take one linear logit per
 //! option, and -- for a listwise head -- turn the logits into a distribution
 //! with a softmax at the calibrated inverse temperature. Every reduction is a
-//! serial loop in feature order.
+//! serial loop in feature order. An `OptionAttention` head is read by the
+//! resident scorer instead ([`super::scorer::forward`]), in fixed point; its
+//! outputs are exact dyadic values, so everything downstream compares them
+//! exactly.
+//!
+//! The act rule and the calibration statement are answered here, once, for
+//! the ladder and for the promotion evaluation alike.
 
 use eg_types::contract::BoundedVec;
-use eg_types::decision::statistical::head::{DecisionHeadBody, HeadKind};
-use eg_types::decision::statistical::{LinearExplanation, StatisticalErrorCode};
+use eg_types::decision::statistical::head::{DecisionHeadBody, HeadCalibration, HeadKind};
+use eg_types::decision::statistical::{
+    CalibrationMethod, CalibrationStatement, LinearExplanation, StatisticalErrorCode,
+};
 use eg_types::decision::QuantScaleTag;
 
 use super::features::FeatureMatrix;
 use super::quant::{q32, raw_value, value_of};
 use super::refusal::{Refusal, RefusalResult};
+use super::scorer::fixed::to_f64;
+use super::scorer::forward::{macs, read as read_scorer, Scoring};
+use super::scorer::legal::LegalSet;
 use crate::detkernel::kernels::softmax;
 
 /// A head read over every candidate.
@@ -95,31 +106,76 @@ fn inverse_temperature(head: &DecisionHeadBody) -> f64 {
         .map_or(1.0, |c| value_of(c.inverse_temperature))
 }
 
-/// Read `head` over every candidate of `matrix`.
-pub fn read_head(head: &DecisionHeadBody, matrix: &FeatureMatrix) -> RefusalResult<HeadReading> {
+/// A head read over a list of rows: the reading, or the first
+/// out-of-distribution `(row, feature)`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RowsReading {
+    InDistribution(Evaluated),
+    OutOfDistribution { row: usize, feature: usize },
+}
+
+fn read_linear(head: &DecisionHeadBody, rows: &[&[i64]]) -> RefusalResult<RowsReading> {
     let weights = weights_of(head);
-    let mut standardised = Vec::with_capacity(matrix.candidate_ids.len());
-    for (index, id) in matrix.candidate_ids.iter().enumerate() {
-        match standardise_row(head, matrix.row(index)) {
-            Ok(row) => standardised.push(row),
-            Err(feature) => {
-                return Ok(HeadReading::OutOfDistribution {
-                    component_id: id.clone(),
-                    feature: matrix.feature_names[feature].clone(),
-                })
-            }
+    let mut standardised = Vec::with_capacity(rows.len());
+    for (row, values) in rows.iter().enumerate() {
+        match standardise_row(head, values) {
+            Ok(x) => standardised.push(x),
+            Err(feature) => return Ok(RowsReading::OutOfDistribution { row, feature }),
         }
     }
     let logits: Vec<f64> = standardised.iter().map(|x| logit(&weights, x)).collect();
-    let probabilities = match head.kind {
-        HeadKind::ListwiseLogistic => Some(scaled_softmax(&logits, inverse_temperature(head))?),
-        HeadKind::WeightedFeatures => None,
+    let probabilities = if head.kind.is_listwise() {
+        Some(scaled_softmax(&logits, inverse_temperature(head))?)
+    } else {
+        None
     };
-    Ok(HeadReading::InDistribution(Evaluated {
+    Ok(RowsReading::InDistribution(Evaluated {
         standardised,
         logits,
         probabilities,
     }))
+}
+
+fn evaluated_of(scoring: Scoring) -> Evaluated {
+    let working = |values: Vec<i64>| values.into_iter().map(to_f64).collect::<Vec<f64>>();
+    Evaluated {
+        standardised: scoring.standardised.into_iter().map(working).collect(),
+        logits: working(scoring.logits),
+        probabilities: Some(working(scoring.probabilities)),
+    }
+}
+
+fn read_attention(head: &DecisionHeadBody, rows: &[&[i64]]) -> RefusalResult<RowsReading> {
+    let legal = LegalSet::derive(rows.len(), &[]);
+    Ok(match read_scorer(head, rows, &legal)? {
+        Ok(scoring) => RowsReading::InDistribution(evaluated_of(scoring)),
+        Err(out) => RowsReading::OutOfDistribution {
+            row: out.option,
+            feature: out.feature,
+        },
+    })
+}
+
+/// Read `head` over `rows` (one `Q32` row per option, in option order).
+pub fn read_rows(head: &DecisionHeadBody, rows: &[&[i64]]) -> RefusalResult<RowsReading> {
+    match head.kind {
+        HeadKind::WeightedFeatures | HeadKind::ListwiseLogistic => read_linear(head, rows),
+        HeadKind::OptionAttention => read_attention(head, rows),
+    }
+}
+
+/// Read `head` over every candidate of `matrix`.
+pub fn read_head(head: &DecisionHeadBody, matrix: &FeatureMatrix) -> RefusalResult<HeadReading> {
+    let rows: Vec<&[i64]> = (0..matrix.candidate_ids.len())
+        .map(|i| matrix.row(i))
+        .collect();
+    Ok(match read_rows(head, &rows)? {
+        RowsReading::InDistribution(evaluated) => HeadReading::InDistribution(evaluated),
+        RowsReading::OutOfDistribution { row, feature } => HeadReading::OutOfDistribution {
+            component_id: matrix.candidate_ids[row].clone(),
+            feature: matrix.feature_names[feature].clone(),
+        },
+    })
 }
 
 /// Options whose nonconformity `1 - p` is within `threshold`, in option order.
@@ -140,8 +196,24 @@ pub fn top_index(values: &[f64]) -> Option<usize> {
     best
 }
 
-/// The exact per-feature logit contributions of one option.
+/// The exact per-feature logit contributions of one option -- for a linear
+/// head only. The scorer's attention term has no exact per-feature split,
+/// so an `OptionAttention` head records no explanation rather than a partial
+/// one labelled exact.
 pub fn explanation(
+    head: &DecisionHeadBody,
+    option_id: &str,
+    standardised: &[f64],
+) -> RefusalResult<Option<LinearExplanation>> {
+    match head.kind {
+        HeadKind::OptionAttention => Ok(None),
+        HeadKind::WeightedFeatures | HeadKind::ListwiseLogistic => {
+            linear_explanation(head, option_id, standardised).map(Some)
+        }
+    }
+}
+
+fn linear_explanation(
     head: &DecisionHeadBody,
     option_id: &str,
     standardised: &[f64],
@@ -157,4 +229,73 @@ pub fn explanation(
         contributions: BoundedVec::new(contributions)
             .map_err(|detail| Refusal::new(StatisticalErrorCode::HeadInvalid, detail))?,
     })
+}
+
+/// Whether the calibration makes a non-trivial conformal claim: a finite
+/// set threshold below one. Otherwise temperature scaling is all the head has
+/// (the fallback), it makes no coverage claim, and it may not act (EH-293).
+pub fn conformal_claim(calibration: &HeadCalibration) -> bool {
+    let threshold = value_of(calibration.set_threshold);
+    (0.0..1.0).contains(&threshold)
+}
+
+/// The calibration statement a head's calibration supports.
+pub fn calibration_statement(calibration: &HeadCalibration) -> CalibrationStatement {
+    let method = if conformal_claim(calibration) {
+        CalibrationMethod::Conformal
+    } else {
+        CalibrationMethod::Temperature
+    };
+    CalibrationStatement {
+        method,
+        alpha: Some(calibration.alpha),
+        coverage_lower: Some(calibration.coverage_lower),
+        coverage_upper: Some(calibration.coverage_upper),
+        n_calibration: calibration.n_calibration,
+        synthetic: calibration.synthetic,
+    }
+}
+
+/// What the act rule concludes about one distribution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActRule {
+    pub top: Option<usize>,
+    pub prediction_set: Vec<usize>,
+    pub acts: bool,
+}
+
+/// The act rule: act on the top option only when the calibration makes a
+/// conformal claim, the top probability reaches the certified threshold, and
+/// the top option is inside the conformal prediction set. A set that is
+/// empty or misses the top option means the calibrated coverage bound does
+/// not hold for this state, and the decision abstains.
+pub fn act_rule(probabilities: &[f64], calibration: &HeadCalibration) -> ActRule {
+    let top = top_index(probabilities);
+    let set = prediction_set(probabilities, value_of(calibration.set_threshold));
+    let acts = match (top, calibration.act_threshold.map(value_of)) {
+        (Some(t), Some(lambda)) => {
+            conformal_claim(calibration) && probabilities[t] >= lambda && set.contains(&t)
+        }
+        _ => false,
+    };
+    ActRule {
+        top,
+        prediction_set: set,
+        acts,
+    }
+}
+
+/// Multiply-accumulates one decision over `options` options costs: the
+/// scorer's count, or `options x features` for a linear head.
+pub fn cost_macs(head: &DecisionHeadBody, options: usize) -> u64 {
+    let features = head.weights.len();
+    match head.scorer.as_deref() {
+        Some(params) => macs(
+            features,
+            usize::from(params.width),
+            options,
+            options.min(usize::from(params.shortlist)),
+        ),
+        None => (options * features) as u64,
+    }
 }

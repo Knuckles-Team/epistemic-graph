@@ -1,6 +1,9 @@
-"""EH-055: the synthetic suite exports as labelled decision datasets."""
+"""EH-055 / EH-302: the synthetic suite exports as labelled decision datasets."""
 
 from __future__ import annotations
+
+import json
+from pathlib import Path
 
 import pytest
 
@@ -54,3 +57,17 @@ def test_every_planted_defect_reaches_the_field_the_engine_refuses_on() -> None:
         propensities = item["label"]["logging_propensities"]
         assert len(propensities) == len(item["candidate_ids"])
         assert item["label"]["executed"] in item["candidate_ids"]
+
+
+def test_the_gold_corpus_merges_seeds_with_unique_ids_and_seed_times(
+    tmp_path: Path,
+) -> None:
+    corpus = export.export_gold_corpus([0, 1])
+    ids = [item["item_id"] for item in corpus["items"]]
+    assert len(ids) == len(set(ids))
+    first = len(export.export_gold_dataset(generate_gold_set(0))["items"])
+    assert {item["recorded_at_ms"] for item in corpus["items"][:first]} == {0}
+    assert {item["recorded_at_ms"] for item in corpus["items"][first:]} == {1}
+    out = tmp_path / "corpus.json"
+    assert export.main([str(out), "0", "1"]) == 0
+    assert ds.dataset_digest(json.loads(out.read_text())) == ds.dataset_digest(corpus)

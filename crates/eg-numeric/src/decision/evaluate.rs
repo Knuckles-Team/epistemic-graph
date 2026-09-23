@@ -3,32 +3,31 @@
 //! The evaluation reads only admitted items. Full-label items yield top-1,
 //! log loss, Brier, expected calibration error, empirical coverage of the
 //! prediction set with a Clopper-Pearson interval, the act rate and an upper
-//! bound on the act risk. Bandit items yield off-policy estimates inside the
+//! bound on the act risk, plus the promotion protocol's further measurements
+//! ([`super::promotion`]). Bandit items yield off-policy estimates inside the
 //! logging support only ([`super::evaluate_bandit`]). Every promotion gate that
 //! fails is named in the receipt; the receipt passes exactly when none did.
 
 use eg_types::contract::BoundedVec;
 use eg_types::decision::digest::digest_text;
 use eg_types::decision::jobs::{
-    DecisionEvalReceipt, FullLabelMetrics, LabelExclusions, OpeEstimatorKind,
+    DecisionEvalReceipt, FullLabelMetrics, LabelExclusions, OpeEstimatorKind, PromotionMetrics,
 };
 use eg_types::decision::statistical::dataset::{ItemLabel, LabelledDataset, LabelledItem};
 use eg_types::decision::statistical::head::DecisionHeadBody;
-use eg_types::decision::statistical::{
-    CalibrationMethod, CalibrationStatement, StatisticalErrorCode,
-};
+use eg_types::decision::statistical::StatisticalErrorCode;
 use eg_types::decision::StatisticalPolicy;
 
 use super::admission::Regime;
 use super::evaluate_bandit::{bandit_gates, BanditReport};
 use super::head_eval::{
-    logit, prediction_set, scaled_softmax, standardise_row, top_index, weights_of,
+    act_rule, calibration_statement, cost_macs, read_rows, scaled_softmax, top_index, RowsReading,
 };
-use super::quant::{q32, raw_value, unit_wire, value_of};
+use super::promotion::{Observation, Protocol};
+use super::quant::{item_rows, q32, unit_wire, value_of};
 use super::refusal::{Refusal, RefusalResult};
 use crate::calibration::metrics::{reliability, BinCount};
 use crate::detkernel::math;
-use crate::detkernel::quantise::{quantise, QuantScale};
 use crate::risk::{clopper_pearson, BinomialCounts, IntervalSide};
 
 /// Domain of an evaluation receipt digest.
@@ -59,27 +58,25 @@ pub(crate) fn read_item(
     dataset: &LabelledDataset,
     item: &LabelledItem,
 ) -> RefusalResult<ItemReading> {
-    let width = dataset.feature_names.len();
-    let weights = weights_of(head);
-    let mut logits = Vec::with_capacity(item.candidate_ids.len());
-    for row in item.features.as_slice().chunks(width) {
-        let q: Vec<i64> = row
-            .iter()
-            .map(|&v| quantise(raw_value(v, dataset.scale), QuantScale::Q32))
-            .collect::<Result<_, _>>()?;
-        let Ok(x) = standardise_row(head, &q) else {
-            return Ok(ItemReading {
-                probabilities: None,
-            });
-        };
-        logits.push(logit(&weights, &x));
-    }
-    let beta = head
-        .calibration
-        .as_ref()
-        .map_or(1.0, |c| value_of(c.inverse_temperature));
+    let rows = item_rows(dataset, item)?;
+    let views: Vec<&[i64]> = rows.iter().map(Vec::as_slice).collect();
+    let RowsReading::InDistribution(evaluated) = read_rows(head, &views)? else {
+        return Ok(ItemReading {
+            probabilities: None,
+        });
+    };
+    let probabilities = match evaluated.probabilities {
+        Some(p) => p,
+        None => {
+            let beta = head
+                .calibration
+                .as_ref()
+                .map_or(1.0, |c| value_of(c.inverse_temperature));
+            scaled_softmax(&evaluated.logits, beta)?
+        }
+    };
     Ok(ItemReading {
-        probabilities: Some(scaled_softmax(&logits, beta)?),
+        probabilities: Some(probabilities),
     })
 }
 
@@ -107,7 +104,14 @@ fn acceptable_indices(item: &LabelledItem) -> Vec<usize> {
     }
 }
 
-fn tally_item(tally: &mut Tally, p: &[f64], good: &[usize], head: &DecisionHeadBody) {
+/// What the act rule and the prediction set concluded about one item.
+#[derive(Debug, Clone, Copy, Default)]
+struct Judged {
+    covered: bool,
+    answered: bool,
+}
+
+fn tally_item(tally: &mut Tally, p: &[f64], good: &[usize], head: &DecisionHeadBody) -> Judged {
     let top = top_index(p).unwrap_or(0);
     let hit = good.contains(&top);
     let mass: f64 = good.iter().map(|&i| p[i]).sum();
@@ -123,15 +127,19 @@ fn tally_item(tally: &mut Tally, p: &[f64], good: &[usize], head: &DecisionHeadB
     tally.confidences.push(p[top].clamp(0.0, 1.0));
     tally.correct.push(hit);
     let Some(calibration) = head.calibration.as_ref() else {
-        return;
+        return Judged::default();
     };
-    let set = prediction_set(p, value_of(calibration.set_threshold));
-    tally.covered += u64::from(set.iter().any(|i| good.contains(i)));
-    tally.set_total += set.len() as u64;
-    let lambda = calibration.act_threshold.map(value_of);
-    if lambda.is_some_and(|l| p[top] >= l) {
+    let rule = act_rule(p, calibration);
+    let covered = rule.prediction_set.iter().any(|i| good.contains(i));
+    tally.covered += u64::from(covered);
+    tally.set_total += rule.prediction_set.len() as u64;
+    if rule.acts {
         tally.acted += 1;
         tally.acted_wrong += u64::from(!hit);
+    }
+    Judged {
+        covered,
+        answered: rule.acts,
     }
 }
 
@@ -210,34 +218,43 @@ fn full_label_gates(
     failed
 }
 
+/// One full-label evaluation's outputs.
+type FullLabel = (FullLabelMetrics, PromotionMetrics, Vec<String>);
+
 fn full_label(
     head: &DecisionHeadBody,
     dataset: &LabelledDataset,
     items: &[&LabelledItem],
     statistical: &StatisticalPolicy,
-) -> RefusalResult<(FullLabelMetrics, Vec<String>)> {
+) -> RefusalResult<FullLabel> {
     let mut tally = Tally::default();
+    let mut protocol = Protocol::default();
     for item in items {
         tally.n += 1;
         let good = acceptable_indices(item);
-        if let Some(p) = read_item(head, dataset, item)?.probabilities {
-            tally_item(&mut tally, &p, &good, head);
-        }
+        let reading = read_item(head, dataset, item)?.probabilities;
+        let again = read_item(head, dataset, item)?.probabilities;
+        let judged = reading
+            .as_deref()
+            .map(|p| tally_item(&mut tally, p, &good, head))
+            .unwrap_or_default();
+        protocol.record(&Observation {
+            class_key: &item.class_key,
+            recorded_at_ms: item.recorded_at_ms,
+            probabilities: reading.as_deref(),
+            acceptable: &good,
+            covered: judged.covered,
+            answered: judged.answered,
+            macs: cost_macs(head, item.candidate_ids.len()),
+            stable: again == reading,
+        });
     }
     let m = metrics(&tally, statistical)?;
-    let gates = full_label_gates(&m, head, statistical);
-    Ok((m, gates))
-}
-
-fn calibration_statement(head: &DecisionHeadBody) -> Option<CalibrationStatement> {
-    head.calibration.as_ref().map(|c| CalibrationStatement {
-        method: CalibrationMethod::Temperature,
-        alpha: Some(c.alpha),
-        coverage_lower: Some(c.coverage_lower),
-        coverage_upper: Some(c.coverage_upper),
-        n_calibration: c.n_calibration,
-        synthetic: c.synthetic,
-    })
+    let mut gates = full_label_gates(&m, head, statistical);
+    let (promotion, failed) =
+        protocol.finish(m.top1_hits, head.calibration.is_some(), statistical)?;
+    gates.extend(failed);
+    Ok((m, promotion, gates))
 }
 
 fn bounded<T, const N: usize>(values: Vec<T>) -> RefusalResult<BoundedVec<T, N>> {
@@ -253,14 +270,19 @@ pub fn evaluate(
     exclusions: LabelExclusions,
     spec: &EvalSpec,
 ) -> RefusalResult<DecisionEvalReceipt> {
-    let (metrics_value, mut failed, report) = match spec.regime {
+    let (metrics_value, promotion, mut failed, report) = match spec.regime {
         Regime::FullLabel => {
-            let (m, gates) = full_label(head, dataset, items, spec.statistical)?;
-            (Some(m), gates, BanditReport::default())
+            let (m, promotion, gates) = full_label(head, dataset, items, spec.statistical)?;
+            (
+                Some(m),
+                Some(Box::new(promotion)),
+                gates,
+                BanditReport::default(),
+            )
         }
         Regime::BanditLabel => {
             let report = bandit_gates(head, dataset, items, spec)?;
-            (None, report.failed.clone(), report)
+            (None, None, report.failed.clone(), report)
         }
     };
     if items.is_empty() {
@@ -272,8 +294,9 @@ pub fn evaluate(
         policy_digest: spec.policy_digest.to_string(),
         n_records: items.len() as u64,
         estimates: bounded(report.estimates)?,
-        calibration: calibration_statement(head),
+        calibration: head.calibration.as_ref().map(calibration_statement),
         metrics: metrics_value,
+        promotion,
         exclusions,
         pooled: bounded(report.pooled)?,
         failed_gates: bounded(failed.clone())?,
