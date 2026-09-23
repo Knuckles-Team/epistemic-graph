@@ -67,6 +67,44 @@ $($variants)*
     ListControlLeases {
         request: crate::control_lease::ListControlLeasesRequest,
     },
+
+    // ── Work market (EH-348) ───────────────────────────────────────────────
+    /// Fold evidence into `request.tenant`'s ONE canonical Gap and ensure its
+    /// native WorkItem, atomically: a new Gap is created together with its
+    /// WorkItem or not at all; evidence the Gap has not seen reopens a closed
+    /// Gap as a new generation with a new WorkItem; evidence it has seen
+    /// changes nothing. See [`crate::work_market`].
+    GapUpsert {
+        request: crate::work_market::GapUpsertRequest,
+    },
+    /// Move a Gap along a legal lifecycle edge, compare-and-set on the
+    /// revision the caller read.
+    GapTransition {
+        request: crate::work_market::GapTransitionRequest,
+    },
+    /// Record the Gap's current WorkItem outcome, read by the engine from the
+    /// WorkItem row, as evidence on the Gap; a terminal outcome closes a live
+    /// Gap (succeeded -> resolved, otherwise deferred).
+    GapSettle {
+        request: crate::work_market::GapSettleRequest,
+    },
+    /// Record the versioned, derived pricing of a live Gap's current
+    /// WorkItem, compare-and-set on the offer version the caller read. The
+    /// engine computes the deterministic utility rate.
+    WorkOfferPut {
+        request: crate::work_market::WorkOfferPutRequest,
+    },
+    /// The caller's view of one Gap, or `null` when no Gap with this id is
+    /// visible to `tenant` (which must equal the verified tenant).
+    GapGet {
+        tenant: String,
+        gap_id: String,
+    },
+    /// One bounded page of `request.tenant`'s Gaps in row-key order,
+    /// optionally of one status and source. A listing, never a ranking.
+    GapList {
+        request: crate::work_market::GapListRequest,
+    },
         ]);
     };
 }

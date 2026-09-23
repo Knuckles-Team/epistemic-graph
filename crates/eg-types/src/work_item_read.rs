@@ -96,6 +96,14 @@ const STORED_STATUS: [(&str, WorkItemStatus); 8] = [
 ];
 
 impl WorkItemStatus {
+    /// The stored `status` text of this lifecycle state.
+    pub fn as_stored(self) -> &'static str {
+        STORED_STATUS
+            .iter()
+            .find(|(_, status)| *status == self)
+            .map_or("", |(text, _)| text)
+    }
+
     /// The lifecycle state a stored row's `status` names, if it names one.
     pub fn from_stored(stored: &str) -> Option<Self> {
         STORED_STATUS

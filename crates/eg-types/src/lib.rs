@@ -174,6 +174,10 @@ pub mod keyset_page;
 // graph-os EG-2 — native control leases: a tenant-bound, time-boxed grant with
 // a one-way active -> revoked|expired lifecycle (not a capacity admission).
 pub mod control_lease;
+// EH-348 — the graph-driven work market: the canonical `:Gap` paired with its
+// one native WorkItem, the versioned derived `WorkOffer`, and the deterministic
+// legal-offer ranking stage the `Decide` layer runs.
+pub mod work_market;
 // D-VZ-1 (lanes V4 "engine integration" / V6 "graph-native marks") — the native
 // visualization engine's wire op (`VizOp`), gated `viz`. Lives here (not in
 // `eg-viz-core`, which sits in a separate small leaf DAG, not below eg-types) for

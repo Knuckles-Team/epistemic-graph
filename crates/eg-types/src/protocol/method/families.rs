@@ -61,7 +61,11 @@ impl Method {
             | Self::DeferWorkItem { .. }
             | Self::CasWorkItemMetadata { .. }
             | Self::IssueControlLease { .. }
-            | Self::TransitionControlLease { .. } => MethodWriteFamily::WorkItemLease,
+            | Self::TransitionControlLease { .. }
+            | Self::GapUpsert { .. }
+            | Self::GapTransition { .. }
+            | Self::GapSettle { .. }
+            | Self::WorkOfferPut { .. } => MethodWriteFamily::WorkItemLease,
             Self::ReserveWorkItemResources { .. }
             | Self::ReleaseWorkItemResources { .. }
             | Self::ReclaimWorkItemResources { .. }
