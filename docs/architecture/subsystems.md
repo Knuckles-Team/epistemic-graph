@@ -7,48 +7,27 @@ a geometry are all rows in the one store, reached through the one dispatch shell
 one planner. This is the C4-container-level reference for those subsystems; for the deep engine internals
 see [the master-of-all engine](engine.md), and for the crate DAG see [the overview](../overview.md).
 
-```mermaid
-flowchart TB
-    subgraph Adapters["Wire adapters — EG-KG.compute.subsystems-reference WireProtocol / WireSession"]
-        A1["pgwire · sqlite · mysql · mssql"]
-        A2["bolt (Neo4j) · redis (RESP) · s3 (REST)"]
-        A3["amqp · mqtt · stomp (broker wires)"]
-        A4["obs listener: OTLP · _bulk · PromQL · traces"]
-    end
-    QOS["QoS/SLO scheduler (EG-320)"]
-    DISP["Dispatch + per-domain handlers"]
-    PLAN["Unified RowSet planner (eg-plan)"]
-    subgraph Subsystems["Cross-cutting subsystems"]
-        BROKER["Message broker (eg-core/broker) — +exactly-once"]
-        OBS["Observability (eg-tsdb + obs) — +OTel/remote-write egress"]
-        MEM["Agent-memory (eg-core) — +wire-Op surface"]
-        KVC["KV-cache tiering (eg-kvcache) — +zstd"]
-        LAKE["LTAP lakehouse (eg-lake): Parquet · Delta · Iceberg-REST · LSN as-of"]
-    end
-    subgraph Modality["Modality engines"]
-        GEO["GIS (eg-geo)"]
-        TENSOR["Tensor (eg-tensor)"]
-        STREAM["Event/CEP (eg-stream)"]
-        SHACL["SHACL/ShEx (eg-shacl/eg-shex)"]
-    end
-    CORE["GraphCore (eg-core) + redb-authoritative store + CDC hub"]
-    LREAD["Lakehouse readers (Databricks/Spark/Trino/DuckDB)"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Subsystem wiring</p>
 
-    A1 & A2 --> QOS --> DISP
-    A3 --> BROKER
-    A4 --> OBS
-    DISP --> PLAN --> CORE
-    DISP --> BROKER & MEM & KVC & LAKE
-    PLAN --> GEO & TENSOR & STREAM
-    OBS --> CORE
-    BROKER --> CORE
-    MEM --> CORE
-    KVC --> CORE
-    SHACL --> CORE
-    LAKE --> CORE
-    LAKE -->|"zero ETL"| LREAD
-    CORE --> STREAM
-```
+Wire adapters (EG-KG.compute.subsystems-reference `WireProtocol`/
+`WireSession`) split by traffic kind: `pgwire`/`sqlite`/`mysql`/`mssql` and
+`bolt`(Neo4j)/`redis`(RESP)/`s3`(REST) both go through the QoS/SLO scheduler
+(EG-320) into dispatch; `amqp`/`mqtt`/`stomp` broker wires go straight to
+the message broker; the obs listener (OTLP/`_bulk`/PromQL/traces) goes
+straight to observability.
+
+Dispatch routes to the unified RowSet planner (`eg-plan`), which feeds
+`GraphCore` (the redb-authoritative store + CDC hub) and the GIS/Tensor/
+Event-CEP modality engines. Dispatch also routes directly to the
+cross-cutting subsystems — message broker (exactly-once), agent-memory
+(wire-Op surface), KV-cache tiering (zstd), and the LTAP lakehouse
+(Parquet/Delta/Iceberg-REST/LSN as-of) — each of which, along with
+observability and SHACL/ShEx, feeds back into `GraphCore`. The lakehouse
+also serves external readers (Databricks/Spark/Trino/DuckDB) zero-ETL.
+`GraphCore` feeds the Event/CEP engine.
+
+</div>
 
 ---
 

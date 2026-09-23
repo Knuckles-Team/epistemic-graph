@@ -38,39 +38,23 @@ compiled in only makes it reachable, never makes it listen unasked.
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    subgraph Caller
-        RPC["Method::Viz (UDS/TCP, MessagePack)"]
-        Browser["Browser (GET /, GET /tile)"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Visualization call paths</p>
 
-    subgraph Engine["epistemic-graph engine"]
-        Handler["handlers::viz\n(RPC entry point)"]
-        Interactive["server::viz_interactive\n(loopback HTTP, feature viz-interactive)"]
-        EngineState["server::viz_engine::VizEngineState\n(V4 — one instance, shared)"]
-        Store["eg_viz_columnstore::ColumnStore\n(persistent, content-addressed chunks)"]
-        Cache["RenderCache\n(bounded LRU, keyed by render_cache_key)"]
-        Provenance["VizProvenanceStore\n(durable, viz_provenance.redb)"]
-        SelectTier["eg_viz_core::select_tier\n(ONE tier-selection rule)"]
-        Kernels["eg_viz_kernels\nM4 / LTTB (V2, AVX2)"]
-        Export["eg_viz_export\nPNG / SVG / PDF (V3a)"]
-    end
+Two callers reach the engine: `Method::Viz` over UDS/TCP MessagePack calls
+`handlers::viz` (the RPC entry point); the browser (`GET /`, `GET /tile`)
+calls `server::viz_interactive` (loopback HTTP, `feature viz-interactive`).
+Both handlers read from the single shared `server::viz_engine::
+VizEngineState` (V4), which itself is backed by `eg_viz_columnstore::
+ColumnStore` (persistent, content-addressed chunks), a bounded-LRU
+`RenderCache` (keyed by `render_cache_key`), and the durable
+`VizProvenanceStore` (`viz_provenance.redb`). Both handlers also call
+`eg_viz_core::select_tier` (the one tier-selection rule), which drives
+`eg_viz_kernels` (M4/LTTB, V2, AVX2); the interactive path consumes kernel
+output directly, while the RPC path routes it through `eg_viz_export`
+(PNG/SVG/PDF, V3a) before returning to the handler.
 
-    RPC --> Handler
-    Browser --> Interactive
-    Handler --> EngineState
-    Interactive --> EngineState
-    EngineState --> Store
-    EngineState --> Cache
-    EngineState --> Provenance
-    Handler --> SelectTier
-    Interactive --> SelectTier
-    SelectTier --> Kernels
-    Kernels --> Export
-    Export --> Handler
-    Kernels --> Interactive
-```
+</div>
 
 ## The LOD ladder
 
@@ -155,38 +139,25 @@ content-addressed, no rescan. Writing an **unrelated** dataset never touches
 this fingerprint; re-ingesting **byte-identical** data still fingerprints
 identically (a real cache hit a monotonic counter could never give).
 
-```mermaid
-sequenceDiagram
-    participant C as Caller
-    participant H as handlers::viz
-    participant S as ColumnStore (persistent)
-    participant K as render_cache_key
-    participant R as RenderCache
-    participant P as VizProvenanceStore
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Render request sequence</p>
 
-    C->>H: VizOp::Render { dataset: Some|None, spec, width_px, height_px, format }
-    alt dataset supplied
-        H->>S: ingest_columns (content-addressed, dedups identical bytes)
-    end
-    H->>S: content_fingerprint(dataset_ref)
-    S-->>H: fingerprint or None
-    alt fingerprint is None
-        H-->>C: explicit "unavailable" error (never a fabricated empty render)
-    else fingerprint present
-        H->>K: query_hash(spec, dataset_ref, fingerprint) + width/height/format/budget
-        K-->>H: cache_key
-        H->>R: get(cache_key)
-        alt cache hit
-            R-->>H: CachedRender (bytes, view_result)
-            H-->>C: response (cached: true) — zero recomputation
-        else cache miss
-            H->>S: resolve (select_tier -> M4/LTTB/density) + export
-            H->>R: put(cache_key, rendered)
-            H->>P: put_if_absent(provenance record)
-            H-->>C: response (cached: false)
-        end
-    end
-```
+The caller sends `VizOp::Render { dataset, spec, width_px, height_px,
+format }`. If a dataset is supplied, `handlers::viz` ingests its columns
+into the persistent `ColumnStore` (content-addressed, dedups identical
+bytes). The handler then asks the store for the dataset's
+`content_fingerprint`. If there is none, it returns an explicit
+"unavailable" error to the caller — never a fabricated empty render. If a
+fingerprint is present, the handler computes a `cache_key` via
+`render_cache_key::query_hash(spec, dataset_ref, fingerprint)` plus width/
+height/format/budget, and looks it up in `RenderCache`. On a cache hit, it
+returns the cached bytes and view result with `cached: true` — zero
+recomputation. On a miss, it resolves the render (`select_tier` →
+M4/LTTB/density) and exports it, stores the result in `RenderCache`,
+records the provenance (`put_if_absent`) in `VizProvenanceStore`, and
+returns the response with `cached: false`.
+
+</div>
 
 `render_cache_key` (`server::viz_engine`) folds `width_px`/`height_px`/
 `format`/`budget` into `query_hash` — those are NOT covered by `query_hash`

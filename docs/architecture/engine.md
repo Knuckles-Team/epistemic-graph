@@ -11,110 +11,74 @@ For the entry-level map see [the overview](../overview.md); for build compositio
 
 ## System context (C4 level 1)
 
-```mermaid
-flowchart TB
-    AGENT["AI agent fleet (agent-utilities, graph-os, MCP)"]
-    PSQL["psql / BI tools / ORMs"]
-    DBCLI["Neo4j / Redis / MySQL / MSSQL / SQLite drivers"]
-    MSG["AMQP / MQTT / STOMP pub-sub clients"]
-    OBSAG["Log / metric / trace agents (OTLP · Elastic _bulk · Prometheus · Grafana)"]
-    S3CLI["S3 clients (aws-cli / boto)"]
-    LLM["vLLM / LMCache KV-block clients"]
-    LAKE["Lakehouse engines (Databricks · Spark · Trino · DuckDB)"]
-    OTELC["External OTel collector / Prometheus (remote-write)"]
-    PEER["Peer epistemic-graph engines (federation / Raft / super-cluster)"]
-    EXT["External Postgres / MySQL / HTTP-JSON sources"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">System context (C4 level 1)</p>
 
-    ENGINE["epistemic-graph<br/>unified data · compute · messaging · observability · lakehouse engine<br/>(graph + vector + SQL + RDF/OWL + TSDB + BLOB + text + GIS + tensor + stream + broker + KV-cache + LTAP)"]
+`epistemic-graph` is a unified data, compute, messaging, observability, and
+lakehouse engine (graph + vector + SQL + RDF/OWL + TSDB + BLOB + text + GIS
++ tensor + stream + broker + KV-cache + LTAP). Inbound callers:
 
-    AGENT -->|"MessagePack / UDS / TCP, HMAC"| ENGINE
-    PSQL -->|"Postgres wire, SCRAM"| ENGINE
-    DBCLI -->|"Bolt · RESP · MySQL · TDS wire"| ENGINE
-    MSG -->|"broker wire protocols (exactly-once)"| ENGINE
-    OBSAG -->|"OTLP/HTTP · PromQL · federated _search"| ENGINE
-    S3CLI -->|"S3 REST, SigV4-lite, multipart"| ENGINE
-    LLM -->|"KV-block GET/PUT by token-hash"| ENGINE
-    ENGINE -->|"Parquet + Delta + Iceberg-REST, zero ETL (EG-KG.storage.lsn-as-snapshot-returns)"| LAKE
-    ENGINE -->|"OTLP export + Prometheus remote-write (EG-316)"| OTELC
-    ENGINE <-->|"Raft replication + cross-shard 2PC"| PEER
-    ENGINE -->|"ForeignScan federation"| EXT
-    ENGINE -->|"federated / super-cluster read"| PEER
-```
+| Caller | Protocol into the engine |
+|---|---|
+| AI agent fleet (agent-utilities, graph-os, MCP) | MessagePack / UDS / TCP, HMAC |
+| psql / BI tools / ORMs | Postgres wire, SCRAM |
+| Neo4j / Redis / MySQL / MSSQL / SQLite drivers | Bolt · RESP · MySQL · TDS wire |
+| AMQP / MQTT / STOMP pub-sub clients | broker wire protocols (exactly-once) |
+| Log/metric/trace agents (OTLP, Elastic `_bulk`, Prometheus, Grafana) | OTLP/HTTP · PromQL · federated `_search` |
+| S3 clients (aws-cli / boto) | S3 REST, SigV4-lite, multipart |
+| vLLM / LMCache KV-block clients | KV-block GET/PUT by token-hash |
+
+Outbound, the engine reaches: lakehouse engines (Databricks/Spark/Trino/
+DuckDB) via Parquet + Delta + Iceberg-REST, zero ETL
+(EG-KG.storage.lsn-as-snapshot-returns); an external OTel collector /
+Prometheus via OTLP export + remote-write (EG-316); peer
+`epistemic-graph` engines bidirectionally via Raft replication + cross-shard
+2PC, and also for federated/super-cluster reads; and external Postgres/
+MySQL/HTTP-JSON sources via `ForeignScan` federation.
+
+</div>
 
 ## Container view (C4 level 2)
 
-```mermaid
-flowchart TB
-    subgraph Process["epistemic-graph-server (one Rust process)"]
-        subgraph Wire["Wire adapters (EG-KG.compute.subsystems-reference WireProtocol / WireSession — one exec path)"]
-            NATIVE["native MessagePack (UDS/TCP, HMAC)"]
-            PGW["pgwire"]
-            SQLITEW["sqlite"]
-            MYSQLW["mysql"]
-            MSSQLW["mssql"]
-            BOLTW["bolt (Neo4j)"]
-            REDISW["redis (RESP)"]
-            S3W["s3 REST"]
-            BROKERW["amqp · mqtt · stomp"]
-            OBSW["obs listener: OTLP · _bulk · PromQL · traces · _search"]
-        end
-        TRANSPORT["Transport + admission control<br/>(framed MessagePack, HMAC, BUSY shedding)"]
-        QOS["QoS/SLO scheduler (EG-320):<br/>per-tenant/priority admission · deadline · backpressure"]
-        SECURITY["Security layer<br/>(RLS GraphView filter, audit chain, AEAD-at-rest, durable RBAC)"]
-        DISPATCH["Dispatch + per-domain handlers"]
-        PLANNER["Unified RowSet planner (eg-plan)"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Container view (C4 level 2) — one Rust process</p>
 
-        subgraph Cores["Storage and compute core"]
-            GRAPHCORE["GraphCore (eg-core): petgraph + ledger + result cache + index manager"]
-            ANN["Vector ANN: IVF-PQ + HNSW + exact/recall + cross-shard scatter (eg-ann)"]
-            QUERY["SQL + Cypher (eg-query / DataFusion)"]
-            RDFOWL["RDF / SPARQL / OWL / SHACL / ShEx (eg-rdf / eg-shacl / eg-shex)"]
-            TSDB["Time-series + VRL (eg-tsdb)"]
-            TEXT["Full-text (eg-text)"]
-            BLOBC["BLOB CAS (blob / blob-s3)"]
-            WASM["WASM UDF (eg-wasm)"]
-            GEO["GIS (eg-geo)"]
-            TENSOR["Tensor (eg-tensor)"]
-            STREAM["Event/CEP (eg-stream)"]
-        end
+**Wire adapters** (EG-KG.compute.subsystems-reference `WireProtocol`/
+`WireSession` — one exec path): native MessagePack (UDS/TCP, HMAC) enters
+through transport + admission control (framed, HMAC, BUSY shedding);
+`pgwire`/sqlite/mysql/mssql/bolt(Neo4j)/redis(RESP)/s3-REST all enter
+dispatch directly; `amqp`/`mqtt`/`stomp` enter the message broker directly;
+the obs listener (OTLP/`_bulk`/PromQL/traces/`_search`) enters observability
+directly.
 
-        subgraph Subsys["New cross-cutting subsystems"]
-            BROKER["Message broker (eg-core/broker):<br/>exchanges · queues · streams · DLQ · TTL · exactly-once"]
-            OBS["Observability: logs · PromQL (extended) metrics · traces · federated search · OTel/remote-write egress"]
-            MEM["Agent-memory: summary · consolidation · decay · scene · trajectory (wire-Op surface, EG-KG.memory.eg-batch-decay-caller)"]
-            KVC["KV-cache tiering (eg-kvcache): hot/warm(zstd)/cold + shared backend"]
-            LAKE["LTAP lakehouse (eg-lake): Parquet · Delta · Iceberg-REST · LSN as-of"]
-        end
+Native traffic flows transport → the QoS/SLO scheduler (EG-320: per-tenant/
+priority admission, deadline, backpressure) → the security layer (RLS
+GraphView filter, audit chain, AEAD-at-rest, durable RBAC) → dispatch, which
+routes either through the unified RowSet planner (`eg-plan`) or directly to
+`GraphCore`.
 
-        subgraph Durable["Durability and distribution"]
-            REDB[("redb authoritative store + canonical mutation applier")]
-            COAL["write coalescer (group commit)"]
-            RAFT["Multi-Raft groups + cross-shard 2PC"]
-            CDC["CDC hub: streaming / subscriptions / triggers"]
-        end
-    end
+**`GraphCore`** (`eg-core`: petgraph + ledger + result cache + index
+manager) is the hub for the storage/compute core: vector ANN
+(IVF-PQ + HNSW, `eg-ann`), SQL+Cypher (`eg-query`/DataFusion), RDF/SPARQL/
+OWL/SHACL/ShEx (`eg-rdf`/`eg-shacl`/`eg-shex`), time-series+VRL
+(`eg-tsdb`), full-text (`eg-text`), BLOB CAS, WASM UDF (`eg-wasm`), GIS
+(`eg-geo`), tensor (`eg-tensor`), and event/CEP (`eg-stream`).
 
-    NATIVE --> TRANSPORT
-    PGW & SQLITEW & MYSQLW & MSSQLW & BOLTW & REDISW & S3W --> DISPATCH
-    BROKERW --> BROKER
-    OBSW --> OBS
-    TRANSPORT --> QOS --> SECURITY --> DISPATCH
-    DISPATCH --> PLANNER --> GRAPHCORE
-    DISPATCH --> GRAPHCORE
-    GRAPHCORE --> ANN & QUERY & RDFOWL & TSDB & TEXT & BLOBC & WASM & GEO & TENSOR & STREAM
-    DISPATCH --> BROKER & OBS & MEM & KVC & LAKE
-    BROKER --> GRAPHCORE
-    MEM --> GRAPHCORE
-    OBS --> TSDB
-    OBS --> TEXT
-    KVC --> REDB
-    LAKE --> QUERY
-    LAKE --> BLOBC
-    GRAPHCORE --> COAL --> REDB
-    REDB <--> RAFT
-    GRAPHCORE --> CDC
-    CDC --> STREAM
-```
+Dispatch also routes to the cross-cutting subsystems: message broker
+(`eg-core/broker`: exchanges, queues, streams, DLQ, TTL, exactly-once),
+observability, agent-memory (summary/consolidation/decay/scene/trajectory,
+wire-Op surface), KV-cache tiering (hot/warm-zstd/cold), and the LTAP
+lakehouse (`eg-lake`). Of these: the broker and agent-memory both feed back
+into `GraphCore`; observability feeds time-series and full-text; KV-cache
+tiering feeds redb; the lakehouse feeds SQL+Cypher and BLOB CAS.
+
+**Durability and distribution:** `GraphCore` writes through the write
+coalescer (group commit) into the redb authoritative store (the canonical
+mutation applier), which replicates via multi-Raft groups + cross-shard
+2PC. `GraphCore` also feeds the CDC hub (streaming/subscriptions/triggers),
+which feeds the event/CEP engine.
+
+</div>
 
 ---
 
@@ -150,29 +114,20 @@ A single durable `WriteTransaction` lands a graph mutation **and** a vector upse
 reference atomically across modalities — either all commit in the one redb transaction or none do (a
 true rollback, no torn cross-modal write).
 
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant D as Dispatch
-    participant G as GraphCore
-    participant R as redb WriteTransaction
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Cross-modal write sequence</p>
 
-    C->>D: BeginTxn + TxnAddNode + TxnAddEmbedding + TxnBlobRef
-    D->>G: stage write-set (nothing applied yet)
-    C->>D: Commit
-    D->>G: take topo.write once (serialization point)
-    G->>R: open ONE WriteTransaction
-    R->>R: put node rows + vector codes + blob ref
-    alt all puts succeed
-        R-->>G: group-commit fsync OK
-        G-->>D: version bumped, applied
-        D-->>C: ack (durable)
-    else any modality fails
-        R-->>G: drop transaction (nothing landed)
-        G-->>D: rollback
-        D-->>C: error (no partial write)
-    end
-```
+The client sends `BeginTxn` + `TxnAddNode` + `TxnAddEmbedding` +
+`TxnBlobRef`; dispatch stages the write-set on `GraphCore` — nothing is
+applied yet. On `Commit`, dispatch takes `topo.write` once (the
+serialization point) and `GraphCore` opens **one** redb `WriteTransaction`,
+putting the node rows, vector codes, and blob ref together. If all puts
+succeed, redb group-commit fsyncs, `GraphCore` bumps the version and applies
+it, and dispatch acks durably to the client. If any modality fails, redb
+drops the whole transaction (nothing lands), `GraphCore` rolls back, and
+dispatch returns an error — no partial write.
+
+</div>
 
 The content-addressed BLOB substrate (CONCEPT:EG-KG.storage.blob-namespace) is the bytes tier under multimodal
 `:Media`/`:Blob` nodes: `begin / chunk / commit / fetch / ref / unref / gc` stream large binaries over
@@ -189,32 +144,18 @@ property graph** the rest of the engine uses, and serialized back out (Turtle / 
 oxrdf/oxttl). Multi-valued literals live in a reserved typed property inside the same authoritative
 node image and therefore share its transaction, ownership, backup, and recovery boundary.
 
-```mermaid
-flowchart LR
-    subgraph RDFworld["RDF / OWL world"]
-        TRIPLE["Triple: subject predicate object"]
-        AXIOM["OWL axioms (TBox)"]
-    end
-    subgraph PG["Property graph"]
-        NODE["Node (subject IRI)"]
-        EDGE["Edge (object-property predicate)"]
-        PROP["Property (literal predicate)"]
-        QUADS[("quads table — multi-valued literals")]
-    end
-    subgraph Surfaces["Query surfaces"]
-        SPARQLS["SPARQL 1.1 SELECT/ASK/CONSTRUCT/DESCRIBE + UPDATE + /sparql endpoint (spargebra to GraphView scans)"]
-        OWLR["OWL 2 EL+ / RL reasoner"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">RDF/OWL projected onto the property graph</p>
 
-    TRIPLE -->|"object is IRI"| EDGE
-    TRIPLE -->|"object is literal"| PROP
-    TRIPLE -->|"subject"| NODE
-    PROP -.->|"multi-valued"| QUADS
-    AXIOM --> OWLR
-    NODE --> SPARQLS
-    EDGE --> SPARQLS
-    OWLR -->|"classification, consistency, justifications"| Surfaces
-```
+A triple's subject becomes a node; when its object is an IRI, the triple
+becomes an edge (object-property predicate); when its object is a literal,
+it becomes a property, with multi-valued literals living in a `quads` side
+table. OWL axioms (TBox) feed the OWL 2 EL⁺/RL reasoner, which produces
+classification, consistency, and justifications for both query surfaces —
+SPARQL 1.1 (SELECT/ASK/CONSTRUCT/DESCRIBE + UPDATE + `/sparql`, `spargebra`
+to `GraphView` scans, fed by nodes and edges) and the reasoner itself.
+
+</div>
 
 The OWL 2 reasoner (CONCEPT:EG-KG.ontology.incremental-materialization/2.236) is pure-Rust — EL⁺ completion (the ELK/CEL core) unioned
 with OWL 2 RL property rules — and reaches entailments the RL-only reasoner cannot (e.g.
@@ -232,24 +173,20 @@ the engine multi-tenant-safe: **per-agent Row-Level Security**, **encryption-at-
 **hash-chained audit log**. The critical property: RLS filters the `GraphView` *before* any query
 surface sees it, so **no query language can exfiltrate a forbidden row**.
 
-```mermaid
-flowchart TB
-    REQ["Request (eg2 authority, query)"]
-    AUTH{"eg2 + deployment policy + replay valid?"}
-    SNAP["analysis_snapshot_versioned() under topo read lock"]
-    RLS["IsolationLayer.filter_view(caller): keep owner / grant / manager / System rows"]
-    CACHE{"result cache hit?<br/>key = (query-hash, version, rls_cache_hash)"}
-    SURF["Query surface: SQL / Cypher / SPARQL / GraphQL / UnifiedQuery"]
-    AUDIT["append to hash-chained audit log"]
-    RESP["filtered result"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">RLS request path</p>
 
-    REQ --> AUTH
-    AUTH -->|no| DENY["reject: auth failure"]
-    AUTH -->|yes| SNAP
-    SNAP --> RLS --> CACHE
-    CACHE -->|hit| RESP
-    CACHE -->|miss| SURF --> AUDIT --> RESP
-```
+A request (eg2 authority, query) is first checked: eg2 + deployment policy
++ replay validity. On failure it is rejected as an auth failure. On success,
+the engine takes `analysis_snapshot_versioned()` under the topo read lock,
+then `IsolationLayer.filter_view(caller)` keeps only owner/grant/manager/
+System rows. The filtered view is checked against the result cache (keyed
+by query-hash, version, and `rls_cache_hash`): a hit returns the filtered
+result directly; a miss runs the query surface (SQL/Cypher/SPARQL/GraphQL/
+UnifiedQuery), appends to the hash-chained audit log, and then returns the
+filtered result.
+
+</div>
 
 An empty durable identity store grants no graph access. Its only admitted mutation
 is the exact signer-backed `security:bootstrap` self-registration that creates the
@@ -270,24 +207,17 @@ included in the main build. From that one feed the engine drives CDC reads, incr
 LISTEN/NOTIFY-style watches + triggers, all over the **same one-Response-per-Request transport** (no
 side-channel socket).
 
-```mermaid
-flowchart LR
-    WRITE["Durable mutation (dispatch write side-effect)"]
-    LEDGER["per-graph change record (ledger)"]
-    HUB["CdcHub: ordered ring + Notify"]
-    CDC["CdcRead{from_seq} — tail by cursor"]
-    CQ["ContinuousQuery — incremental aggregate"]
-    WATCH["Watch{label,timeout} — long-poll, wakes on write"]
-    TRIG["Trigger{label,op,action} — fired log"]
-    COHERE["cross-replica cache invalidation"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">CDC fan-out</p>
 
-    WRITE --> LEDGER --> HUB
-    HUB --> CDC
-    HUB --> CQ
-    HUB --> WATCH
-    HUB --> TRIG
-    HUB --> COHERE
-```
+Every durable mutation (a dispatch write side-effect) becomes a per-graph
+change record in the ledger, which feeds the `CdcHub` (an ordered ring +
+`Notify`). The hub fans out to five consumers: `CdcRead{from_seq}` (tail by
+cursor), `ContinuousQuery` (incremental aggregate), `Watch{label,timeout}`
+(long-poll, wakes on write), `Trigger{label,op,action}` (fired log), and
+cross-replica cache invalidation.
+
+</div>
 
 A continuous query is seeded from the graph's current state at registration and updated by delta on
 each change, so it equals a full re-run. A `Watch` returns matching changes since the cursor or awaits
@@ -304,26 +234,17 @@ graph/vector/SQL ops in **one** plan — no Python round-trip. The `Op::ForeignS
 resolved executor; the UQL `FOREIGN "<name>"` clause is the lighter name marker resolved against the
 server-side `foreign_sources` registry.
 
-```mermaid
-flowchart LR
-    subgraph Plan["One UnifiedQuery plan"]
-        FS["ForeignScan{source}"]
-        JOIN["join on id (foreign ∩ local)"]
-        LOCAL["local Scan / Traverse / Rank"]
-        LIM["Limit"]
-    end
-    subgraph Foreign["Foreign source kinds (ForeignSourceSpec)"]
-        REMOTE["Remote epistemic-graph engine (same transport, HMAC)"]
-        HTTP["HTTP / JSON API (rustls ureq)"]
-        SQLSRC["External Postgres / MySQL (sqlx, runtime-tokio-rustls)"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Query federation plan</p>
 
-    FS --> REMOTE
-    FS --> HTTP
-    FS --> SQLSRC
-    FS --> JOIN
-    LOCAL --> JOIN --> LIM
-```
+Within one `UnifiedQuery` plan, `ForeignScan{source}` resolves against one
+of three foreign source kinds (`ForeignSourceSpec`): a remote
+epistemic-graph engine (same transport, HMAC), an HTTP/JSON API (rustls
+`ureq`), or an external Postgres/MySQL source (`sqlx`,
+`runtime-tokio-rustls`). The foreign scan's rows join on id with the
+local Scan/Traverse/Rank result, and the joined rows flow through `Limit`.
+
+</div>
 
 The HTTP/SQL clients are pure-Rust rustls stacks (no openssl) and are **in the one main build** —
 a minimal server build links no ureq/rustls/sqlx. Federation is in the one main build.
@@ -340,31 +261,18 @@ transaction boundary.
 
 ### Cross-shard 2PC (a transaction spanning groups)
 
-```mermaid
-sequenceDiagram
-    participant CO as CrossShardCoordinator
-    participant PA as Participant A (group 1)
-    participant PB as Participant B (group 2)
-    participant DB as durable redb (prepare / decision rows)
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Cross-shard 2PC sequence</p>
 
-    CO->>PA: PREPARE (staged slice)
-    PA->>DB: write xshard_prepare row
-    PA-->>CO: vote YES
-    CO->>PB: PREPARE (staged slice)
-    PB->>DB: write xshard_prepare row
-    PB-->>CO: vote YES
-    alt all voted YES
-        CO->>DB: write DECISION = commit (presumed-abort)
-        CO->>PA: COMMIT
-        CO->>PB: COMMIT
-        PA->>DB: apply + clear prepare
-        PB->>DB: apply + clear prepare
-    else any vote NO or timeout
-        CO->>DB: write DECISION = abort
-        CO->>PA: ABORT
-        CO->>PB: ABORT
-    end
-```
+The `CrossShardCoordinator` sends `PREPARE` (a staged slice) to each
+participant group; each writes an `xshard_prepare` row to durable redb and
+votes YES (or NO, or times out). If every participant voted YES, the
+coordinator writes `DECISION = commit` (presumed-abort) and sends `COMMIT`
+to each, and each applies and clears its prepare row. If any vote was NO or
+timed out, the coordinator writes `DECISION = abort` and sends `ABORT` to
+each instead.
+
+</div>
 
 In-doubt transactions survive a coordinator or participant crash and are resolved deterministically
 from the durable prepare/decision rows on boot (`recover_in_doubt`, run before serving). A single-group
@@ -377,22 +285,21 @@ named results as redb-backed materialized views reloaded on boot.
 Because one shared registry + one shared authoritative shard is keyed by graph name, a "move" is re-pointing
 ownership of future writes, not copying rows — so resharding is zero-downtime.
 
-```mermaid
-stateDiagram-v2
-    [*] --> Resident: CreateGraph (records owner)
-    Resident --> Hibernated: hibernate() drops RAM topology/props/vectors
-    Hibernated --> Resident: rehydrate_graph() from durable redb dump
-    Resident --> Resident: reshard_graph(A to B) quiesce, barrier, re-point router, resume
-    Resident --> Purged: DeleteGraph durably purges redb rows
-    Hibernated --> Purged: DeleteGraph durably purges redb rows
-    Purged --> [*]
-    note right of Purged
-        Tenant-delete durable purge (EG-KG.backend.tenant-delete-recreate-same):
-        nodes / edges / ledger / semantic / identity rows
-        removed under commit-before-ack, so a recreate of
-        the SAME tenant name starts from a clean slate.
-    end note
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Tenant lifecycle states</p>
+
+A graph starts **Resident** on `CreateGraph` (records the owner). From
+Resident, `hibernate()` drops in-RAM topology/props/vectors, moving to
+**Hibernated**; `rehydrate_graph()` reads back the durable redb dump to
+return to Resident. Resident can also self-transition via
+`reshard_graph(A to B)` (quiesce, barrier, re-point router, resume). From
+either Resident or Hibernated, `DeleteGraph` durably purges the redb rows,
+moving to **Purged** (terminal). Tenant-delete durable purge
+(EG-KG.backend.tenant-delete-recreate-same) removes nodes/edges/ledger/
+semantic/identity rows under commit-before-ack, so recreating the same
+tenant name starts from a clean slate.
+
+</div>
 
 Cold-tenant hibernation drops the in-RAM state while the durable redb rows + read-through seam stay
 intact (extended by the cold-tier object-store seam for whole-graph offload). The per-tenant memory

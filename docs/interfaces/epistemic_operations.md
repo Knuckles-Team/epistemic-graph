@@ -15,15 +15,15 @@ integrity and Rust field parity without compiling the binary.
 
 ## Engine projection
 
-```mermaid
-flowchart LR
-    Schema[Authoritative JSON Schemas] --> CrossGate[Cross-repository parity gate]
-    CrossGate --> Manifest[Generated engine manifest]
-    CrossGate --> DTO[eg-types serde DTOs]
-    Manifest --> EngineGate[Standalone source gate]
-    DTO --> EngineGate
-    DTO --> Consumers[server / jobs / query / connector consumers]
-```
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Schema-to-consumer pipeline</p>
+
+The authoritative JSON schemas feed a cross-repository parity gate, which
+produces both a generated engine manifest and the `eg-types` serde DTOs.
+The manifest and DTOs both feed a standalone source gate; the DTOs also
+feed the server/jobs/query/connector consumers directly.
+
+</div>
 
 The DTOs use `#[serde(deny_unknown_fields)]`. Catalog version `1` accepts only
 the current `RequestContext` schema version `"2"` and version `"1"` for the

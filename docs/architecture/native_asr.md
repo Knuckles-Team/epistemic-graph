@@ -52,50 +52,32 @@ summarizes; that module doc is authoritative.
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    subgraph py["Python callers"]
-        AT["audio-transcriber\nTranscriptionProvider seam\n(epistemic_graph/asr_provider.py)"]
-        AU["agent-utilities /\nother epistemic_graph.client callers"]
-    end
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Native ASR call path</p>
 
-    subgraph wire["epistemic_graph.client (MessagePack / UDS — no second transport)"]
-        C["client.asr.transcribe_file(...)"]
-    end
+Python callers — `audio-transcriber`'s `TranscriptionProvider` seam
+(`epistemic_graph/asr_provider.py`) and `agent-utilities`/other
+`epistemic_graph.client` callers — both call `client.asr.transcribe_file(...)`
+over the same MessagePack/UDS wire (no second transport), which sends an
+eg2 envelope to `dispatch.rs`'s `Method::Asr { op }` (self-routing, not
+graph-scoped, ahead of `dispatch_graph_op`). Dispatch hands off to
+`handlers/asr.rs` (`spawn_blocking`, maps `AsrOp` to JSON), which calls into
+the `eg-asr-whisper` crate — the only `whisper.cpp` dependency:
 
-    subgraph engine["epistemic-graph engine (facade, feature asr-whisper)"]
-        D["dispatch.rs\nMethod::Asr { op } — self-routes,\nNOT graph-scoped, ahead of\ndispatch_graph_op"]
-        H["handlers/asr.rs\nspawn_blocking, maps AsrOp -> JSON"]
-    end
+- `model.rs`'s `verify_model` (sha256 fail-closed, never downloads) and
+  `wav.rs`'s `decode_wav_16k_mono` (fail-closed on format/rate/truncation)
+  both feed `WhisperAsrProvider`.
+- `WhisperAsrProvider::transcribe_streaming` (bounded windows, `on_partial`
+  callback, `abort_callback` cancellation) constructs and checks each
+  segment against the frozen `eg-audio::asr` contract (GOC-33-W02:
+  `AsrSegment::validate`/`SegmentTiming::validate`/`Quality::validate` —
+  every produced segment is checked before acceptance), and calls into
+  `whisper-rs` → `whisper.cpp`/`ggml` (CPU, portable baseline) via
+  `ggml_graph_plan`/`whisper_full_with_state`, which returns segments,
+  timing, `no_speech_prob`, and token probabilities.
+- The handler returns JSON (text, segments, language) back through dispatch.
 
-    subgraph provider["eg-asr-whisper crate (the ONLY whisper.cpp dependency)"]
-        MV["model.rs\nverify_model: sha256 fail-closed,\nnever downloads"]
-        WV["wav.rs\ndecode_wav_16k_mono: fail-closed\non format/rate/truncation"]
-        WP["WhisperAsrProvider\ntranscribe_streaming: bounded windows,\non_partial callback, abort_callback\ncancellation"]
-    end
-
-    subgraph contract["eg-audio::asr (frozen contract, GOC-33-W02)"]
-        VAL["AsrSegment::validate / SegmentTiming::validate /\nQuality::validate — every produced segment\nis checked before acceptance"]
-    end
-
-    subgraph native["whisper-rs -> whisper.cpp/ggml (CPU, portable baseline)"]
-        WC["ggml_graph_plan / whisper_full_with_state"]
-    end
-
-    AT --> C
-    AU --> C
-    C -->|"eg2. envelope"| D
-    D --> H
-    H --> MV
-    H --> WV
-    H --> WP
-    MV --> WP
-    WV --> WP
-    WP -->|"constructs & checks"| VAL
-    WP --> WC
-    WC -->|"segments, timing, no_speech_prob,\ntoken probabilities"| WP
-    H -->|"JSON: text, segments, language"| D
-```
+</div>
 
 ## CPU portability (no x86_64 host in this fleet has AVX2)
 

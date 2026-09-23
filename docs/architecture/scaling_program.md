@@ -37,18 +37,18 @@ The program is three waves:
 | **M2** | HA cluster | Replicate the authoritative store across nodes (openraft 0.10 multi-Raft). |
 | **M3** | Horizontal / elastic scale | Distribute tenants across shards/nodes, reshard online, offload cold tenants. |
 
-```mermaid
-flowchart LR
-    M1["M1 — single-node durable throughput<br/>redb-authoritative · coalescer · group-commit · K-way writer · MVCC reads"]
-    RESP["Responsiveness layer<br/>reserved read lane · pipelining · pooled conns · parallel fan-out"]
-    M2["M2 — HA cluster<br/>openraft 0.10 multi-Raft · durable redb log"]
-    M3["M3 — horizontal scale<br/>tenant catalog · online reshard · rebalancer · cold offload · BLOB stream"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">Scaling milestones</p>
 
-    M1 --> RESP
-    M1 --> M2
-    M1 --> M3
-    M2 -.cross-node moves.-> M3
-```
+**M1** (single-node durable throughput: redb-authoritative, coalescer,
+group-commit, K-way writer, MVCC reads) is the foundation everything else
+builds on: it feeds the responsiveness layer (reserved read lane,
+pipelining, pooled connections, parallel fan-out), **M2** (HA cluster:
+openraft 0.10 multi-Raft, durable redb log), and **M3** (horizontal scale:
+tenant catalog, online reshard, rebalancer, cold offload, BLOB stream). M2
+and M3 also interact directly via cross-node moves.
+
+</div>
 
 ---
 
@@ -126,35 +126,33 @@ into "K writers, batched fsyncs, parallel cores":
 
 ### The M1 write path
 
-```mermaid
-flowchart LR
-    P["concurrent producers<br/>(per-graph Tokio tasks)"]
-    COAL["per-graph write coalescer<br/>(EG-KG.sharding.per-graph-write-coalescer) — ⌈N/batch⌉ topo.write()"]
-    SHARD["shard_for(name) = FNV-1a(name) % K<br/>(EG-KG.backend.sharded-k-way-durable)"]
-    W0["eg-redb-writer 0<br/>graph-0.redb"]
-    Wk["eg-redb-writer K-1<br/>graph-(K-1).redb"]
-    GC["group-commit fsync<br/>(EG-024 micro-linger folds awaiting writers)"]
-    ACK["ack (durable) — commit-before-ack (KG-2.187)"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">M1 write path</p>
 
-    P --> COAL --> SHARD
-    SHARD --> W0
-    SHARD --> Wk
-    W0 --> GC
-    Wk --> GC
-    GC --> ACK
-```
+Concurrent producers (per-graph Tokio tasks) feed the per-graph write
+coalescer (EG-KG.sharding.per-graph-write-coalescer, ⌈N/batch⌉
+`topo.write()`), which hands each graph to `shard_for(name) =
+FNV-1a(name) % K` (EG-KG.backend.sharded-k-way-durable) — routing to one of
+K `eg-redb-writer` instances (`graph-0.redb` … `graph-(K-1).redb`). Every
+writer's output goes through the same group-commit fsync (EG-024
+micro-linger folds awaiting writers), which acks durably —
+commit-before-ack (KG-2.187).
+
+</div>
 
 ### The M1 read path (never the writer)
 
-```mermaid
-flowchart LR
-    R["read / query"]
-    LANE{"reserved read lane<br/>(EG-KG.coordination.reserved-read-lane) if writes saturate admission"}
-    SNAP["MVCC snapshot:<br/>in-mem GraphCore snapshot (Cypher/SQL/GraphQL)<br/>OR redb begin_read() (read-through, EG-KG.storage.snapshot-read-off-writer)"]
-    RESULT["result — never a write lock, never a group-commit"]
+<div class="admonition architecture" markdown>
+<p class="admonition-title">M1 read path</p>
 
-    R --> LANE --> SNAP --> RESULT
-```
+A read/query, when writes have saturated admission, first tries the
+reserved read lane (EG-KG.coordination.reserved-read-lane). Either way it
+then takes an MVCC snapshot — an in-memory `GraphCore` snapshot for Cypher/
+SQL/GraphQL, or a redb `begin_read()` for read-through
+(EG-KG.storage.snapshot-read-off-writer) — and returns the result: never a
+write lock, never a group-commit.
+
+</div>
 
 ---
 
