@@ -712,7 +712,7 @@ async fn graph_candidates_are_read_through_acl_rls_and_a_select_only_plan() {
 }
 
 mod log_tests;
-use log_tests::{decision_log_round_trip, fit_from_the_engine_log};
+use log_tests::{decision_log_round_trip, fit_from_the_engine_log, log_op};
 #[cfg(feature = "blob")]
 use log_tests::{retention_compacts_and_verifies, retention_retires};
 
