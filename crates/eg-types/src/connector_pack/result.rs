@@ -105,8 +105,16 @@ pub enum PackProjectionState {
     },
     Failed {
         code: String,
+        /// Why, in the failing component's own words, bounded to
+        /// [`MAX_PROJECTION_FAILURE_DETAIL_BYTES`]: the code alone cannot tell
+        /// an operator which grant, body or schema is at fault.
+        #[serde(default)]
+        detail: Option<String>,
     },
 }
+
+/// The longest projection failure detail a head records.
+pub const MAX_PROJECTION_FAILURE_DETAIL_BYTES: usize = 1024;
 
 /// The durable receipt of one landed import.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

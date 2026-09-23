@@ -7,16 +7,14 @@ use std::sync::atomic::AtomicBool;
 use eg_types::agent_component::{
     AgentComponentKind, AgentComponentOp, AgentComponentSearchPage, AgentComponentSearchRequest,
 };
-use eg_types::connector_pack::{
-    ConnectorPackOp, ConnectorPackReprojectRequest, PackAnnotations, PackEntryKind,
-};
+use eg_types::connector_pack::{PackAnnotations, PackEntryKind};
 use eg_types::contract::ResourceId;
 use eg_types::mutation_outbox::{
     MutationOutboxOp, MutationOutboxStatusView, NativeOutboxScope, NativeOutboxStore,
     OutboxRewindReceipt, OutboxTarget, RewindTarget,
 };
 
-use super::{bind, build_pack, context, imported, ok, tool, Content, Served, ADMIN, TENANT};
+use super::{bind, build_pack, imported, ok, tool, Content, Served, ADMIN, TENANT};
 use crate::protocol::Method;
 use crate::server::connector_pack_projection::worker::{sweep, CONSUMER};
 
@@ -162,22 +160,14 @@ async fn a_pack_without_schema_is_visible_at_once_and_one_with_schema_after_proj
     let subscribed = AtomicBool::new(false);
     while sweep(&served.state, &subscribed).await.unwrap() {}
     if !searchable_ids(&served).await.contains(&tool_b) {
-        // The worker logs a failed projection and rejects its row; re-drive it
-        // through the admin surface so the failure names its cause here.
-        let reproject = served
-            .pack(
-                "reproject:schema-pack",
-                ConnectorPackOp::Reproject {
-                    request: ConnectorPackReprojectRequest {
-                        context: context("reproject:schema-pack"),
-                        connector: ResourceId::new(schema).unwrap(),
-                    },
-                },
-            )
-            .await;
+        // A failed projection is recorded on the head with its cause.
+        let store = served.state.write().await.ensure_agent_library().unwrap();
+        let status = store
+            .connector_pack_status(TENANT, &ResourceId::new(schema).unwrap())
+            .unwrap();
         panic!(
-            "the projection did not flip the head visible; reproject answered {:?}",
-            reproject.error
+            "the projection did not flip the head visible: {:?}",
+            status.projection
         );
     }
 }

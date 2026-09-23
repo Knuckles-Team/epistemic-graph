@@ -236,7 +236,11 @@ fn validate_projection_identity(
             graph,
             graph_version,
         } if reserved_projection_graph(graph) && *graph_version > 0 => Ok(()),
-        PackProjectionState::Failed { code } if valid_projection_code(code) => Ok(()),
+        PackProjectionState::Failed { code, detail }
+            if valid_projection_code(code) && detail.as_deref().is_none_or(valid_failure_detail) =>
+        {
+            Ok(())
+        }
         PackProjectionState::Applied { .. } => {
             Err("connector pack projection graph identity is invalid".into())
         }
@@ -255,6 +259,11 @@ fn valid_projection_code(code: &str) -> bool {
         && code
             .bytes()
             .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+}
+
+fn valid_failure_detail(detail: &str) -> bool {
+    detail.len() <= eg_types::connector_pack::MAX_PROJECTION_FAILURE_DETAIL_BYTES
+        && !detail.chars().any(char::is_control)
 }
 
 fn reserved_projection_graph(graph: &str) -> bool {
@@ -495,6 +504,7 @@ mod tests {
             &plan,
             &PackProjectionState::Failed {
                 code: "not a code".into(),
+                detail: None,
             }
         )
         .is_err());
@@ -667,12 +677,21 @@ mod tests {
                 &second_plan,
                 PackProjectionState::Failed {
                     code: "BODY_MISSING".into(),
+                    detail: Some("engine body is missing".into()),
                 },
             )
             .unwrap();
         let failed = store
             .connector_pack_status("tenant-a", &ResourceId::new("demo").unwrap())
             .unwrap();
+        // The failure is not swallowed: status names its code AND its cause.
+        assert_eq!(
+            failed.projection,
+            PackProjectionState::Failed {
+                code: "BODY_MISSING".into(),
+                detail: Some("engine body is missing".into()),
+            }
+        );
         assert_eq!(
             failed.head.unwrap().visible_record_id.as_deref(),
             Some(first_plan.record_id.as_str())
