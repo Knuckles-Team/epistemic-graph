@@ -133,6 +133,19 @@ mod dispatch_reachability_tests {
     use eg_types::test_support::contract_wave::contract_wave_samples;
 
     const SECRET: &str = "contract-wave-dispatch-secret";
+    /// Wave surfaces whose handlers have landed. Their reachability is proved
+    /// by their own served tests (`handlers::decide::stat_tests` for the four
+    /// statistical ones), which drive each to a real answer, not a refusal.
+    const SERVED_SURFACES: [&str; 8] = [
+        "Decide",
+        "DecisionFit",
+        "DecisionEval",
+        "DecisionLog",
+        "ConnectorPack",
+        "GraphSchema",
+        "GraphSchemaList",
+        "AgentComponent",
+    ];
     const CALLER: &str = "wave-admin";
     /// The tenant `auth::request_context_policy()` expects under `cfg(test)`.
     const TENANT: &str = "tenant-shared";
@@ -213,6 +226,9 @@ mod dispatch_reachability_tests {
             ServerState::test_isolation(CALLER),
         )));
         for (surface, method) in contract_wave_samples() {
+            if SERVED_SURFACES.contains(&surface.split('.').next().unwrap_or(surface)) {
+                continue;
+            }
             let response = dispatch_test_on_heap(&state, signed(surface, method)).await;
             let stubbed = response
                 .error

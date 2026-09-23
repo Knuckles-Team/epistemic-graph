@@ -169,12 +169,25 @@ fn column(
         FeatureKind::AgeSeconds => {
             integer_column(candidates.iter().map(|c| age_seconds(c, inputs.now_ms)))
         }
-        FeatureKind::Number { key } => Ok(candidates
-            .iter()
-            .map(|c| c.numbers.get(key).copied())
-            .collect()),
+        FeatureKind::Number { key } => Ok(number_column(candidates, key)),
+        FeatureKind::OutcomeRate { question_id } => {
+            Ok(number_column(candidates, &outcome_rate_key(question_id)))
+        }
         FeatureKind::TextBm25 { key, param } => text_column(candidates, inputs, key, param),
     }
+}
+
+fn number_column(candidates: &[CandidateView], key: &str) -> Vec<Option<i64>> {
+    candidates
+        .iter()
+        .map(|c| c.numbers.get(key).copied())
+        .collect()
+}
+
+/// The numeric fact key an `OutcomeRate` feature reads: the server fills it
+/// from the decision log's pooled rate before the matrix is computed.
+pub fn outcome_rate_key(question_id: &str) -> String {
+    format!("outcome.rate/{question_id}")
 }
 
 fn resolve(cell: Option<i64>, missing: MissingValue) -> Option<i64> {

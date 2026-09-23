@@ -6006,6 +6006,47 @@
       ],
       "type": "string"
     },
+    "DatasetSource": {
+      "description": "Where a job's labelled items come from.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A submitted dataset, pinned by digest (gold sets, exported suites).",
+          "properties": {
+            "dataset": {
+              "$ref": "#/$defs/LabelledDataset"
+            },
+            "source": {
+              "const": "inline",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "dataset"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The engine's own decision log: every committed, executed record of\n`question_id` the caller may read, with its independent evaluations.\nBandit labels only.",
+          "properties": {
+            "question_id": {
+              "type": "string"
+            },
+            "source": {
+              "const": "logged",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "question_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "DecideRequest": {
       "additionalProperties": false,
       "description": "One statistical decision request.\nNot `Eq`, for the same reason [`CandidateSource`] is not.",
@@ -6155,17 +6196,8 @@
       "additionalProperties": false,
       "description": "Evaluate a candidate head against recorded decisions.",
       "properties": {
-        "approved_commit_principals": {
-          "$ref": "#/$defs/BoundedVec_string_64",
-          "default": [],
-          "description": "Commit principals whose bandit records may be evaluated on."
-        },
         "candidate": {
           "$ref": "#/$defs/EvalCandidate"
-        },
-        "dataset": {
-          "$ref": "#/$defs/LabelledDataset",
-          "description": "The labelled items the candidate is evaluated on."
         },
         "estimators": {
           "$ref": "#/$defs/BoundedVec_OpeEstimatorKind_8"
@@ -6183,6 +6215,10 @@
         "policy": {
           "$ref": "#/$defs/DecisionPolicyRef"
         },
+        "source": {
+          "$ref": "#/$defs/DatasetSource",
+          "description": "Where the labelled items the candidate is evaluated on come from."
+        },
         "tenant_id": {
           "type": "string"
         },
@@ -6197,7 +6233,7 @@
         "policy",
         "estimators",
         "window",
-        "dataset"
+        "source"
       ],
       "type": "object"
     },
@@ -6246,15 +6282,6 @@
       "additionalProperties": false,
       "description": "Fit a decision head into a draft artifact.",
       "properties": {
-        "approved_commit_principals": {
-          "$ref": "#/$defs/BoundedVec_string_64",
-          "default": [],
-          "description": "Commit principals whose bandit records may train. Empty admits none."
-        },
-        "dataset": {
-          "$ref": "#/$defs/LabelledDataset",
-          "description": "The labelled items, pinned: a full-label regime's `gold_set_digest`\nmust equal this dataset's digest."
-        },
         "feature_schema": {
           "$ref": "#/$defs/ComponentDependency"
         },
@@ -6273,6 +6300,10 @@
         "policy": {
           "$ref": "#/$defs/DecisionPolicyRef"
         },
+        "source": {
+          "$ref": "#/$defs/DatasetSource",
+          "description": "Where the labelled items come from. A full-label regime's\n`gold_set_digest` must equal the inline dataset's digest."
+        },
         "tenant_id": {
           "type": "string"
         },
@@ -6289,7 +6320,7 @@
         "label_regime",
         "window",
         "optimiser",
-        "dataset"
+        "source"
       ],
       "type": "object"
     },
@@ -6348,6 +6379,91 @@
       ],
       "type": "object"
     },
+    "DecisionLogOp": {
+      "description": "One decision-log operation.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Make one statistical record durable, after verify-replay.",
+          "properties": {
+            "op": {
+              "const": "commit",
+              "type": "string"
+            },
+            "record": {
+              "$ref": "#/$defs/StatisticalDecisionRecord"
+            }
+          },
+          "required": [
+            "op",
+            "record"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Join one independent evaluation to a committed record.",
+          "properties": {
+            "evaluation": {
+              "$ref": "#/$defs/DecisionOutcomeEvaluation"
+            },
+            "op": {
+              "const": "evaluate",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "evaluation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Read one committed record.",
+          "properties": {
+            "op": {
+              "const": "get",
+              "type": "string"
+            },
+            "record_id": {
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "record_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Read the outcome aggregate.",
+          "properties": {
+            "op": {
+              "const": "aggregate",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/OutcomeAggregateRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "DecisionOutcome": {
       "description": "The conclusion of one assembly decision.",
       "oneOf": [
@@ -6396,6 +6512,48 @@
           "type": "object"
         }
       ]
+    },
+    "DecisionOutcomeEvaluation": {
+      "additionalProperties": false,
+      "description": "One independent evaluation of a committed record's executed option.",
+      "properties": {
+        "class": {
+          "$ref": "#/$defs/EvidenceClass"
+        },
+        "evaluation_id": {
+          "type": "string"
+        },
+        "fidelity": {
+          "$ref": "#/$defs/OutcomeFidelity"
+        },
+        "lease_holder": {
+          "type": "string"
+        },
+        "record_id": {
+          "type": "string"
+        },
+        "selected_agent": {
+          "description": "The agent the executed option ran as; the evaluator must not be it.",
+          "type": "string"
+        },
+        "success": {
+          "default": null,
+          "description": "`None`: censored, neither success nor failure.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "record_id",
+        "evaluation_id",
+        "class",
+        "selected_agent",
+        "lease_holder",
+        "fidelity"
+      ],
+      "type": "object"
     },
     "DecisionPolicy": {
       "additionalProperties": false,
@@ -27726,6 +27884,33 @@
         },
         {
           "additionalProperties": false,
+          "description": "The statistical decision log: commit an acted-on record after\nverify-replay, join independent outcome evaluations, and read the\noutcome aggregate the log answers.",
+          "properties": {
+            "method": {
+              "const": "DecisionLog",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "op": {
+                  "$ref": "#/$defs/DecisionLogOp"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "General bounded 0-1 integer programme with an independently verifiable\ncertificate. Pure compute: no store, no clock, no float.",
           "properties": {
             "method": {
@@ -29928,6 +30113,31 @@
           "type": "object"
         }
       ]
+    },
+    "OutcomeAggregateRequest": {
+      "additionalProperties": false,
+      "description": "Ask for the outcome aggregate.",
+      "properties": {
+        "question_id": {
+          "default": null,
+          "description": "`None` aggregates every question; rows then also carry the\ncross-question total per option.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "window": {
+          "$ref": "#/$defs/RecordWindow"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "window"
+      ],
+      "type": "object"
     },
     "OutcomeArtifactRef": {
       "additionalProperties": false,
@@ -37574,6 +37784,11 @@
         "inputs_digest": {
           "type": "string"
         },
+        "logging_propensities": {
+          "$ref": "#/$defs/BoundedVec_UnitRationalWire_64",
+          "default": [],
+          "description": "The executed policy's full distribution over the options, aligned with\nthe feature matrix's candidate order and conditional on an option being\nexecuted; empty when nothing was (advisory or abstained). Off-policy\nevaluation over the decision log reads it."
+        },
         "nl_binding": {
           "anyOf": [
             {
@@ -37673,6 +37888,15 @@
           ],
           "default": null
         },
+        "params": {
+          "$ref": "#/$defs/BoundedVec_TypedParam_64",
+          "default": [],
+          "description": "The typed parameters the features and the keyed seed read."
+        },
+        "policy": {
+          "$ref": "#/$defs/DecisionPolicyRef",
+          "description": "The policy the decision resolved, so a replay reads the same body."
+        },
         "policy_digest": {
           "type": "string"
         },
@@ -37682,6 +37906,7 @@
       },
       "required": [
         "feature_schema",
+        "policy",
         "policy_digest",
         "feature_matrix",
         "shortlist"
@@ -37792,6 +38017,11 @@
         "alpha": {
           "$ref": "#/$defs/UnitRationalWire",
           "description": "Miscoverage level of the prediction set."
+        },
+        "approved_commit_principals": {
+          "$ref": "#/$defs/BoundedVec_string_64",
+          "default": [],
+          "description": "Commit principals whose logged outcomes may train or evaluate a head\n(§4.3 log poisoning). Empty admits no bandit record at all."
         },
         "audit_sample": {
           "$ref": "#/$defs/UnitRationalWire",

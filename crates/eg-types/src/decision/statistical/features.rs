@@ -37,6 +37,11 @@ pub enum FeatureKind {
     /// A named numeric fact: a graph row's property (belief confidence,
     /// interval width, stored reliability).
     Number { key: String },
+    /// The pooled success rate of the option under `question_id`, read from
+    /// the decision log's outcome aggregate (§6.1 outcome statistics). Only
+    /// readable when the policy declares cross-principal features
+    /// tenant-public; absent below `min_support`.
+    OutcomeRate { question_id: String },
     /// Candidate-local BM25 of a named text field (`summary`, an NL template's
     /// `nl.utterances` / `nl.labels`, or a graph row's text property) against
     /// the named `text` parameter.

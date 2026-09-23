@@ -79,32 +79,8 @@ fn owner_domain(method: &Method) -> Option<DurabilityDomain> {
         }
         #[cfg(feature = "jobs")]
         Method::AnalyticsJob { .. } => DurabilityDomain::AnalyticsJob,
-        // RF-ADR-010's two admin decide-layer jobs are classified in
-        // `decide_layer_job_domain`, called from this arm's own fallthrough
-        // rather than added as a match arm here -- extracted, not inlined, so
-        // this match's own arm count (and complexity-staged's regression check
-        // on it) is unaffected by their addition. See that function's doc
-        // comment for why they share `AnalyticsJob`'s domain.
-        _ => return decide_layer_job_domain(method).or_else(|| service_owner_domain(method)),
+        _ => return service_owner_domain(method),
     })
-}
-
-/// `DecisionFit`/`DecisionEval` are wire-unconditional (S1's decide layer
-/// carries no feature gate at all), unlike `AnalyticsJob`'s own
-/// `#[cfg(feature = "jobs")]` gate in `owner_domain` above -- so they cannot
-/// join that arm directly. Both are explicitly documented as sharing its
-/// store: `DecisionFit`'s own doc comment says "runtime-conditional like
-/// AnalyticsJob: status is a read; submit commits a native MutationBatch in
-/// jobs.redb carrying the decision job row and its receipt" (`DecisionEval`'s
-/// says the same for the evaluation job row) -- the SAME job-plane redb
-/// `AnalyticsJob` owns, so they share its domain rather than falling to the
-/// surface-keyed default.
-fn decide_layer_job_domain(method: &Method) -> Option<DurabilityDomain> {
-    matches!(
-        method,
-        Method::DecisionFit { .. } | Method::DecisionEval { .. }
-    )
-    .then_some(DurabilityDomain::AnalyticsJob)
 }
 
 /// Control-plane, SQL, RDF and broker owners.
@@ -618,8 +594,9 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         //    transactions (a saga), not a graph or native `MutationBatch` WTX, and
         //    this classifier has no dedicated outbox domain to route it to. The
         //    package that lands `rewind`'s real dispatch arm must revisit this.
-        //  * `DecisionFit`/`DecisionEval` are NOT here: they write jobs.redb like
-        //    `AnalyticsJob` and are classified in `owner_domain` alongside it.
+        //  * `DecisionFit`/`DecisionEval` commit their job rows, receipts and
+        //    drafts through the Agent Library control owner exactly like
+        //    `WriteBack`, so they take the same surface-keyed default.
         | Method::AgentAssemble { .. }
         | Method::Decide { .. }
         | Method::DecisionCommit { .. }
@@ -628,14 +605,12 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         | Method::SourceIngest { .. }
         | Method::SourceIngestStatus { .. }
         | Method::WriteBack { .. }
+        | Method::DecisionFit { .. }
+        | Method::DecisionEval { .. }
+        | Method::DecisionLog { .. }
         | Method::GraphSchema { .. }
         | Method::GraphSchemaList
         | Method::MutationOutbox { .. } => default_mutation_domain(surface),
-        // `DecisionFit`/`DecisionEval` are NOT surface-keyed: both commit a native
-        // MutationBatch in jobs.redb -- the same job-plane store `AnalyticsJob`
-        // owns -- so they carry its domain. They cannot join that arm directly
-        // because `AnalyticsJob` is `#[cfg(feature = "jobs")]` gated while S1's
-        // decide layer is wire-unconditional, so the single authority for their
         Method::FinanceSabrImpliedVol { .. }
         | Method::CatalogAssign { .. }
         | Method::EvictBelow { .. }
@@ -720,11 +695,6 @@ fn remaining_default_domain(method: &Method, surface: MutationSurface) -> Durabi
         .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
         #[cfg(feature = "jobs")]
         Method::AnalyticsJob { .. } => owner_domain(method)
-            .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
-        // Claimed by owner_domain's decide_layer_job_domain delegate, same
-        // reasoning as AnalyticsJob just above (and wire-unconditional, so no
-        // cfg gate here either).
-        Method::DecisionFit { .. } | Method::DecisionEval { .. } => owner_domain(method)
             .unwrap_or_else(|| unreachable!("{method:?} is claimed by owner_domain")),
         // Wire-unconditional (`eg-capabilities` forces `eg-types/query` on
         // unconditionally); claimed by `service_owner_domain`'s now-unconditional

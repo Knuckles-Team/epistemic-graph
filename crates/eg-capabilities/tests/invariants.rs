@@ -417,6 +417,8 @@ fn contract_wave_op_policies_follow_their_ops() {
         "ConnectorPack.status",
         "DecisionFit.status",
         "DecisionEval.status",
+        "DecisionLog.get",
+        "DecisionLog.aggregate",
         "MutationOutbox.status",
         "MutationOutbox.dead_letters",
         "AgentComponent.content",

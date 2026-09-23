@@ -199,6 +199,7 @@ METHOD_IDS = frozenset(
         "AnalyticsJob",
         "DecisionFit",
         "DecisionEval",
+        "DecisionLog",
         "Statechart",
         "AddNode",
         "CreateNodeIfAbsent",
