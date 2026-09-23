@@ -8,6 +8,13 @@
       "maxItems": 32,
       "type": "array"
     },
+    "BoundedVec_GraphSchemaSourceView_64": {
+      "items": {
+        "$ref": "#/$defs/GraphSchemaSourceView"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
     "DatalogReasoningResult": {
       "description": "Result of `Method::RunDatalogReasoning`: every inferred triple, each a string map\n(`subject`, `predicate`, `object`, `inference_type`), and their count.",
       "properties": {
@@ -137,7 +144,7 @@
           "type": "string"
         },
         "core_sources": {
-          "$ref": "#/$defs/BoundedVec_GraphSchemaSourceView_32"
+          "$ref": "#/$defs/BoundedVec_GraphSchemaSourceView_64"
         },
         "dynamic_sources": {
           "$ref": "#/$defs/BoundedVec_GraphSchemaSourceView_32"

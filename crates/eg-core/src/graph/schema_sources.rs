@@ -15,9 +15,11 @@ use super::LegacyIntegrityPolicy;
 
 /// Closed upper bound for one binary's immutable catalog.  The current catalog
 /// contains the aggregate document, foundation, 28 domain TBoxes, and the core
-/// governance-shape slice.  It is deliberately independent of the dynamic
-/// 32-source tenant quota.
-pub const MAX_CORE_SCHEMA_SOURCES: usize = 32;
+/// governance-shape slice (31 artifacts); 64 leaves room to split the world model
+/// into its own modules (EH-364).  It is deliberately independent of the dynamic
+/// 32-source tenant quota, and equal to the wire bound
+/// `eg_types::graph_schema::MAX_CORE_GRAPH_SCHEMA_SOURCES`.
+pub const MAX_CORE_SCHEMA_SOURCES: usize = 64;
 pub const MAX_TOTAL_DYNAMIC_SCHEMA_BYTES: usize = 8 << 20;
 pub const MAX_SCHEMA_DOCUMENT_TRIPLES: usize = 100_000;
 pub const CORE_SOURCE_PREFIX: &str = "core:";
