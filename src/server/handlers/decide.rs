@@ -37,6 +37,8 @@ mod stat_replay;
 mod stat_resolve;
 #[cfg(feature = "decide")]
 mod stat_slate;
+#[cfg(all(feature = "decide", feature = "query"))]
+mod stat_view;
 #[cfg(feature = "decide")]
 mod stat_retention;
 #[cfg(feature = "decide")]
