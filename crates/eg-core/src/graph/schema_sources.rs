@@ -1098,7 +1098,7 @@ mod tests {
             ),
             (
                 "foundation",
-                "84a95483e9f8aa21f913e0c5361fdde88785fbbaaf5285929c27ce51d1275d6f",
+                "d0eddb4f5d35d6329313da76fb506bf35ec7f25106ee544affa9bccde1e94574",
             ),
             (
                 "documentation",

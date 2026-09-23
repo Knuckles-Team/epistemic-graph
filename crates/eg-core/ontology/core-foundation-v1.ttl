@@ -947,7 +947,8 @@ depends on its whole, so partOf is a sub-property of dependsOn.""" ;
 bfo:0000002 a owl:Class ;
     rdfs:label "Continuant" ;
     rdfs:comment "BFO:Continuant — entities that persist through time." ;
-    rdfs:subClassOf bfo:0000001 .
+    rdfs:subClassOf bfo:0000001 ;
+    owl:disjointWith bfo:0000003 .
 
 bfo:0000020 a owl:Class ;
     rdfs:label "Specifically Dependent Continuant" ;
