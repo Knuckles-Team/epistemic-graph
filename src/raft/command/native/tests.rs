@@ -283,7 +283,15 @@ fn native_catalog_is_complete_unique_and_has_domain_representatives() {
         .collect::<std::collections::BTreeSet<_>>();
     // `NodeInfoUpsert` moved behind the sealed native command envelope in
     // 7469acff; it is intentionally absent from the public method catalog.
-    assert_eq!(NATIVE_CONSENSUS_METHODS.len(), 100);
+    // 193892753 added the two replicated ControlLease writes (their commit
+    // deferred this count pin to landing), taking the catalog from 100 to 102.
+    assert_eq!(NATIVE_CONSENSUS_METHODS.len(), 102);
+    for control_lease_write in ["IssueControlLease", "TransitionControlLease"] {
+        assert!(
+            unique.contains(control_lease_write),
+            "{control_lease_write} must commit through native consensus"
+        );
+    }
     assert_eq!(unique.len(), NATIVE_CONSENSUS_METHODS.len());
     assert!(unique.iter().all(|name| !name.is_empty()));
 
