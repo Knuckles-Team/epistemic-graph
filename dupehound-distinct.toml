@@ -241,11 +241,11 @@ reason = """EH-264 review (file:line): src/server/mutation/plan.rs:213 (scene_tr
 [[pair]]
 left_file = "crates/eg-types/src/agent_component.rs"
 left_name = "create"
-left_digest = "sha256:55507782dc5ba053cbdb7ceddf7f33d6c3ed2c31e08737916d5950c6a415befc"
+left_digest = "sha256:ebdd758f15c7118c147756fcf69d2235eb147a1e58553e434586d2061015cb51"
 right_file = "crates/eg-types/src/agent_library.rs"
 right_name = "create"
 right_digest = "sha256:4ab4df459269c853857dabfc8ae2bb188a794d05bc1a70eccaef7231d18b1ec1"
-reviewed_on = "2026-09-19"
+reviewed_on = "2026-09-22"
 reason = """The RF-ADR-008 constructor shape, on the two record types whose fields the
 2.27.x contract wave grew enough to cross dupehound's similarity floor:
 draft.validate() -> revision==0 refusal -> update-before-create refusal ->
@@ -262,4 +262,8 @@ struct-literal builder for records that intentionally do not share a schema --
 inventing an abstraction whose only member concept is "the four bytes were
 similar," the same reasoning already accepted for this file's other
 RF-ADR-008-shaped pairs above. Flagged to the coordinator for review per the
-lane rule on new clone-gate registrations; not yet ruled on."""
+lane rule on new clone-gate registrations; not yet ruled on.
+Re-read 2026-09-22 (train 2): the only change is decide-assembly's EH-052
+deletion of the unread `provides` field from agent_component's struct literal
+(one line fewer); both bodies otherwise identical to the 2026-09-19 review, and
+the argument above is unchanged, so the left digest is re-pinned."""
