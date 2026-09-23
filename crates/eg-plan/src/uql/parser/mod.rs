@@ -49,6 +49,7 @@ mod modality;
 mod pred;
 pub(super) mod program;
 mod semantic;
+mod shape;
 
 /// How deep parentheses / `NOT` / `FUSE` branches may nest (stack-safety bound).
 pub(super) const MAX_DEPTH: usize = 64;
@@ -97,8 +98,9 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Every stage/source keyword → its parser. MATCH is handled by [`Self::stage`]
-    /// itself (it may lower to two ops).
+    /// Every stage/source keyword → its parser. MATCH (it may lower to two ops) and
+    /// `VALIDATE SHAPE` (the two-keyword lead `parser::shape` owns, so that every other
+    /// `VALIDATE …` still reaches the DecideText refusal) are handled by [`Self::stage`].
     pub(super) fn stage_table() -> [(&'static str, StageFn<'a>); 29] {
         [
             ("WHERE", Self::where_stage),
@@ -138,6 +140,10 @@ impl<'a> Parser<'a> {
         if self.peek_kw("MATCH") {
             self.bump();
             ops.extend(self.match_source()?);
+            return Ok(());
+        }
+        if let Some(op) = self.parse_shape_stage()? {
+            ops.push(op);
             return Ok(());
         }
         let table = Self::stage_table();

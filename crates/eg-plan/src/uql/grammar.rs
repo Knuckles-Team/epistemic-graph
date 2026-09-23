@@ -232,6 +232,16 @@ pub const PRODUCTIONS: &[Production] = &[
       "\"{\" [ \"KEY\" string ] [ \"WHERE\" cep_pred { \"AND\" cep_pred } ] \"}\"", "CepMatcherSpec", ""),
     p("cep_pred", Aux, &[], None,
       "name ( \"=\" json | \">\" signed_num | \"<\" signed_num | \"EXISTS\" )", "CepAttrPredSpec", ""),
+    p(
+        "validate_shape",
+        Stage,
+        &["VALIDATE"],
+        Some(Owl),
+        "\"VALIDATE\" \"SHAPE\" ( iri | string | name ) [ \"USING\" string ] \
+         [ \"KEEP\" ( \"CONFORMING\" | \"VIOLATING\" ) ]",
+        "ValidateShape{shape, shapes, keep} (no USING ⇒ the graph's GraphSchema shapes)",
+        "MATCH (:Person) |> VALIDATE SHAPE <http://ex/PersonShape> KEEP VIOLATING",
+    ),
     p("prob", Stage, &["PROB"], Some(Probabilistic),
       "\"PROB\" ( \"EXPECTATION\" | \"MARGINAL\" [ \"AT\" num ] [ \"LABEL\" string ] \
        | \"CONDITIONAL\" ( \"BERNOULLI\" num num | \"GAUSSIAN\" num_list \"VARIANCE\" num ) \

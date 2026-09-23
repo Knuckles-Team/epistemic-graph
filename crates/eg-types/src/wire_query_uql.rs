@@ -322,6 +322,12 @@ pub fn uql_op(op: &Op) -> Printed {
             uql_quote(query),
             uql_quote(var)
         )),
+        #[cfg(feature = "owl-plan")]
+        Op::ValidateShape {
+            shape,
+            shapes,
+            keep,
+        } => Ok(validate_shape(shape, shapes, *keep)),
         #[cfg(feature = "wasm-udf")]
         Op::Udf { id } => Ok(format!("UDF {}", uql_quote(id))),
         #[cfg(feature = "federation")]
@@ -469,16 +475,34 @@ fn fuse(branches: &[Vec<Op>], k: f32) -> Printed {
 
 #[cfg(feature = "owl-plan")]
 fn reason(target_class: &str, ontology: &str) -> Printed {
-    let class = if is_iri_token(target_class) {
-        target_class.to_string()
-    } else {
-        uql_quote(target_class)
-    };
+    let class = iri_or_string(target_class);
     Ok(if ontology.is_empty() {
         format!("REASON {class}")
     } else {
         format!("REASON {class} ONTOLOGY {}", uql_quote(ontology))
     })
+}
+
+#[cfg(feature = "owl-plan")]
+fn validate_shape(shape: &str, shapes: &str, keep: ShapeKeep) -> String {
+    let mut out = format!("VALIDATE SHAPE {}", iri_or_string(shape));
+    if !shapes.is_empty() {
+        out.push_str(&format!(" USING {}", uql_quote(shapes)));
+    }
+    if keep == ShapeKeep::Violating {
+        out.push_str(" KEEP VIOLATING");
+    }
+    out
+}
+
+/// An IRI token when `s` lexes as one, else a quoted string (both parse back to `s`).
+#[cfg(feature = "owl-plan")]
+fn iri_or_string(s: &str) -> String {
+    if is_iri_token(s) {
+        s.to_string()
+    } else {
+        uql_quote(s)
+    }
 }
 
 /// Would the UQL lexer read `s` back as ONE angle-bracketed IRI token?

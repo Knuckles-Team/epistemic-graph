@@ -170,6 +170,7 @@ TSSCAN ['cpu', 'mem'] FROM 0 TO 3600 |> WINDOW 60 s MEAN |> LIMIT 60
 | Clause | Op | Feature |
 |--------|-----|---------|
 | `REASON <http://ex/Device> [ONTOLOGY '<turtle>']` | `Reason{target_class, ontology}` | `owl` |
+| `VALIDATE SHAPE <http://ex/S> [USING '<turtle>'] [KEEP CONFORMING\|VIOLATING]` | `ValidateShape{shape, shapes, keep}` — SHACL conformance filter; without `USING`, the graph's GraphSchema shapes | `owl` |
 | `EVIDENCE FOR 'c1'`, `CONTRADICTS 'c1'`, `SUPPORTED BY 'c1'` | evidence graph | `epistemic` |
 | `BELIEF AS OF @t`, `SOURCE RELIABILITY 's1'`, `CONFIDENCE`, `EXPLAIN BELIEF 'c1'` | belief scoring | `epistemic` |
 

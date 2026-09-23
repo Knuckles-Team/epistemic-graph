@@ -47,7 +47,7 @@ fn dispatch_table_and_grammar_name_the_same_keywords() {
     let table: BTreeSet<&str> = Parser::stage_table()
         .iter()
         .map(|(kw, _)| *kw)
-        .chain(["MATCH"])
+        .chain(["MATCH", "VALIDATE"])
         .collect();
     let grammar: BTreeSet<&str> = grammar::stage_keywords().into_iter().collect();
     assert_eq!(table, grammar);

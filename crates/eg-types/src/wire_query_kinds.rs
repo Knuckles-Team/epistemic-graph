@@ -45,6 +45,7 @@ kinds! {
     #[cfg(feature = "text")] FuseRrf,
     #[cfg(feature = "owl-plan")] Reason,
     #[cfg(feature = "owl-plan")] SparqlBgp,
+    #[cfg(feature = "owl-plan")] ValidateShape,
     #[cfg(feature = "wasm-udf")] Udf,
     #[cfg(feature = "federation")] ForeignScan,
     AsOf, Window, WindowAgg, Foreign,
@@ -104,6 +105,8 @@ pub fn op_kind(op: &Op) -> OpKind {
         Op::Reason { .. } => OpKind::Reason,
         #[cfg(feature = "owl-plan")]
         Op::SparqlBgp { .. } => OpKind::SparqlBgp,
+        #[cfg(feature = "owl-plan")]
+        Op::ValidateShape { .. } => OpKind::ValidateShape,
         #[cfg(feature = "wasm-udf")]
         Op::Udf { .. } => OpKind::Udf,
         #[cfg(feature = "federation")]

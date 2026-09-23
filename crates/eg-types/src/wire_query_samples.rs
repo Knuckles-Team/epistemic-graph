@@ -67,6 +67,12 @@ pub fn uql_sample_op(kind: OpKind) -> Op {
             query: "SELECT ?x WHERE { ?x a <http://ex/T> }".into(),
             var: "x".into(),
         },
+        #[cfg(feature = "owl-plan")]
+        OpKind::ValidateShape => Op::ValidateShape {
+            shape: "Person Shape".into(),
+            shapes: "@prefix sh: <http://www.w3.org/ns/shacl#> .".into(),
+            keep: ShapeKeep::Violating,
+        },
         #[cfg(feature = "wasm-udf")]
         OpKind::Udf => Op::Udf {
             id: "score-v2".into(),
