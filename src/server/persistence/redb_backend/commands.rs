@@ -306,6 +306,14 @@ pub(crate) enum Cmd {
         now_ms: u64,
         done: oneshot::Sender<Result<MutationProjectionCursor, String>>,
     },
+    /// One delivery-side outbox write (a consumer reject or an operator
+    /// rewind) on the writer thread, so it is ordered with every claim and ack
+    /// of the same shard.
+    MutationOutboxWrite {
+        graph: String,
+        write: Box<crate::server::outbox_operator::OutboxWrite>,
+        done: oneshot::Sender<Result<crate::server::outbox_operator::OutboxWriteReply, String>>,
+    },
     Shutdown {
         reply: std::sync::mpsc::SyncSender<()>,
     },

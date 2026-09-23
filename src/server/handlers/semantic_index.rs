@@ -153,12 +153,15 @@ pub(super) fn stamp_draft_identity(
     draft.effective_actor_scope = authority.agent_id().to_string();
 }
 
-/// A lease may only be presented by the consumer it was issued to.
-pub(super) fn own_lease(
+/// A lease may only be presented by the worker whose class consumer it was
+/// issued to (`<worker>#<class>`).
+pub(crate) fn own_lease(
     lease: &eg_types::mutation_batch::MutationOutboxLease,
     authority: &CarrierAuthority,
 ) -> Result<(), String> {
-    if lease.consumer != authority.agent_id() {
+    let owner = eg_core::compute::semantic_ann_codes::stage_consumer_parts(&lease.consumer)
+        .map(|(worker, _)| worker);
+    if owner != Some(authority.agent_id()) {
         return Err(
             "ACCESS_DENIED: semantic lease owner does not match verified carrier".to_string(),
         );

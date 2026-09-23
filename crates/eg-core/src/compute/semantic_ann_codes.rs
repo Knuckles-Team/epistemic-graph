@@ -85,11 +85,14 @@ mod rows;
 mod serving;
 mod stage;
 mod tombstone;
+mod topics;
 
 #[cfg(test)]
 mod binding_lifecycle_tests;
 #[cfg(test)]
 mod lifecycle_refusal_tests;
+#[cfg(test)]
+mod reopen_tests;
 #[cfg(test)]
 mod revision_codec_tests;
 #[cfg(test)]
@@ -158,10 +161,11 @@ pub(crate) fn corrupt(message: &str) -> SemanticCodeError {
     SemanticCodeError::Corrupt(message.to_string())
 }
 
-/// The only outbox event that represents a stage claimable by the semantic
-/// consumer. Its payload is canonical `semantic-stage-intent/v1`; the key is
-/// the canonical digest of the complete intent identity.
-pub const SEMANTIC_STAGE_INTENT_TOPIC: &str = "engine.semantic-index.stage-intent.v1";
+/// The stage-intent topics, one per queue class (see [`topics`]).
+pub use topics::{
+    is_stage_intent_topic, stage_consumer, stage_consumer_parts, stage_intent_topic,
+    SEMANTIC_QUEUE_CLASSES,
+};
 
 pub const SEMANTIC_STAGE_RECEIPT_TOPIC: &str = "engine.semantic-index.stage-receipt.v1";
 
@@ -170,7 +174,7 @@ pub const SEMANTIC_BINDING_STATE_TOPIC: &str = "engine.semantic-index.binding-st
 pub const SEMANTIC_BINDING_DROPPED_TOPIC: &str = "engine.semantic-index.binding-dropped.v1";
 
 /// SQL commits emit a source fact first. EG resolves the matching binding and
-/// expands it into [`SEMANTIC_STAGE_INTENT_TOPIC`].
+/// expands it into the stage-intent topic of the S1 queue class.
 pub const SEMANTIC_SOURCE_DIRTY_TOPIC: &str = eg_types::semantic_index::SEMANTIC_SOURCE_DIRTY_TOPIC;
 
 pub const SEMANTIC_BINDING_CREATED_TOPIC: &str = "engine.semantic-index.binding-created.v1";

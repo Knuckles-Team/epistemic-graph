@@ -125,6 +125,24 @@ impl ServingDoor {
         self.mutations.outbox_release(&self.serving, lease)
     }
 
+    /// The operator view of this binding's stage outbox (X10).
+    pub(super) fn operator_view(
+        &self,
+        view: &eg_transaction::OutboxView,
+        now_ms: u64,
+    ) -> Result<eg_transaction::OutboxViewAnswer, String> {
+        let read = self.serving_read().map_err(|error| error.to_string())?;
+        eg_transaction::read_outbox_view(&self.mutations, &read, view, now_ms)
+    }
+
+    /// An operator rewind (or consumer reject) on this binding's outbox (X10).
+    pub(super) fn operator_write(
+        &self,
+        write: eg_transaction::OutboxWrite,
+    ) -> Result<eg_transaction::OutboxWriteReply, String> {
+        eg_transaction::operate_outbox(&self.mutations, &self.serving, write)
+    }
+
     /// Test seeding only: the storage kernel, for fixtures that read or write
     /// rows no production path does. Compiled out of every non-test build.
     #[cfg(test)]
@@ -469,8 +487,12 @@ pub(super) fn scope_identity(
     .map_err(SemanticCodeError::Kernel)
 }
 
-/// Authenticate one scope and bind it, bootstrapping the ledger. TWO committed
-/// write transactions -- which is exactly why no read path calls this.
+/// Authenticate one scope and bind it, bootstrapping the ledger -- TWO
+/// committed write transactions, paid only the first time a binding's owner
+/// file is opened. Re-entering a scope that is already bound resolves its
+/// handle read-only, so reopening an owner (for example for an operator's
+/// outbox read) never opens a write transaction; the ledger tables exist from
+/// the file's creation, so there is nothing to bootstrap again.
 fn bind_scope(
     kernel: &StorageKernel,
     mutations: &MutationKernel,
@@ -479,6 +501,18 @@ fn bind_scope(
     proof: &[u8],
     identity: eg_types::MutationScopeIdentity,
 ) -> Result<OwnedStoreHandle<SemanticIndexOwner>, SemanticCodeError> {
+    let existing = kernel
+        .authenticate_scope::<SemanticIndexOwner>(
+            verifier,
+            identity.clone(),
+            principal.to_string(),
+            proof,
+        )
+        .and_then(|grant| kernel.resolve_bound_scope(grant))
+        .map_err(kernel_error)?;
+    if let Some(owner) = existing {
+        return Ok(owner);
+    }
     let grant = kernel
         .authenticate_scope::<SemanticIndexOwner>(verifier, identity, principal.to_string(), proof)
         .map_err(kernel_error)?;

@@ -1,8 +1,9 @@
 """What the generated contract must say about the 2.27.x contract wave.
 
-The original wave declared ten methods before any were served. ConnectorPack
-and the GraphSchema read/write surface have now graduated with durable handlers
-and generated clients; the remaining refusal-only methods must stay internal.
+The original wave declared ten methods before any were served. ConnectorPack,
+the GraphSchema read/write surface and the MutationOutbox operator surface have
+now graduated with durable handlers and generated clients; the remaining
+refusal-only methods must stay internal.
 Every request and result body remains schematized and digest identities remain
 reproducible.
 """
@@ -31,7 +32,12 @@ WAVE_METHODS = (
     "MutationOutbox",
 )
 
-PUBLIC_WAVE_METHODS = {"ConnectorPack", "GraphSchema", "GraphSchemaList"}
+PUBLIC_WAVE_METHODS = {
+    "ConnectorPack",
+    "GraphSchema",
+    "GraphSchemaList",
+    "MutationOutbox",
+}
 INTERNAL_WAVE_METHODS = tuple(
     name for name in WAVE_METHODS if name not in PUBLIC_WAVE_METHODS
 )
