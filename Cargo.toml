@@ -1914,6 +1914,17 @@ path = "benches/redb_group_commit_bench.rs"
 harness = false
 required-features = ["full"]
 
+# Per-write redb latency decomposed by commit phase (EH-290): strictly sequential
+# awaited `record_durable` writes through the real shard-writer -> commit_ops ->
+# transaction-kernel -> redb path, swept across graph sizes, beside raw-redb
+# Immediate/None one-row floors on the same disk. Prints p50/p95/p99 end to end and
+# per `commit_phase` tracing span. `--features full` only; DEV-only.
+[[bench]]
+name = "redb_write_latency_bench"
+path = "benches/redb_write_latency_bench.rs"
+harness = false
+required-features = ["full"]
+
 # Massive-scale core micro-benchmark harness (CONCEPT:EG-096): in-process node/edge
 # write throughput, in-process query latency (single-hop + label lookup), and IVF-PQ
 # kNN search latency. Feature-LIGHT — builds under DEFAULT features (no server/redb),

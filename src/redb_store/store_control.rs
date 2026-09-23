@@ -280,6 +280,7 @@ pub(crate) fn commit_ops(
         .map(|(_, _, blob)| blob.len() as u64)
         .sum();
     let physical_before = shard.physical_file_len();
+    let total = CommitPhaseTimer::start("commit_ops");
     let result = commit_drained_ops(
         shard,
         ops,
@@ -290,6 +291,7 @@ pub(crate) fn commit_ops(
         #[cfg(feature = "security")]
         audit_tail,
     );
+    total.finish();
     if result.is_ok() {
         let physical_grown = shard.physical_file_len().saturating_sub(physical_before);
         crate::metrics::observe_commit_ops_bytes("logical", logical_bytes);
@@ -372,6 +374,9 @@ pub(crate) fn commit_drained_chunk(
     // group and opening the owner-row gate -- inside `admit_drain`,
     // `PhysicalStore::begin_write` opens the actual redb `WriteTransaction`.
     // `apply_writes` is encoding and inserting every row this chunk touches.
+    // Inside `acquire_txn`, `bind_graphs` is resolving (and, for a cold graph,
+    // binding) the member handles and `admit_group` is the kernel admission --
+    // the redb write lock plus every member's ledger begin.
     // See `CommitPhaseTimer`; `shard::commit_drain` covers the remaining two
     // phases (`ledger_finish`, `durability_commit`).
     //
@@ -379,8 +384,12 @@ pub(crate) fn commit_drained_chunk(
     // commits its own write and redb admits one writer, so it cannot happen
     // inside the group.
     let acquire_txn = CommitPhaseTimer::start("acquire_txn");
+    let bind_graphs = CommitPhaseTimer::start("bind_graphs");
     let members = shard.graph_members(graphs)?;
+    bind_graphs.finish();
+    let admit_group = CommitPhaseTimer::start("admit_group");
     let (group, batches) = shard.admit_drain(&members, drain_id)?;
+    admit_group.finish();
     let write = ShardWrite::open(shard, &group, &members, &batches)?;
     acquire_txn.finish();
     let apply_writes = CommitPhaseTimer::start("apply_writes");

@@ -259,6 +259,7 @@ pub(crate) fn validate_current_lane_links_in_wtx(
     graph: &str,
     crypto: DurableCrypto<'_>,
 ) -> Result<(), String> {
+    let timer = crate::redb_store::CommitPhaseTimer::start("lane_link_validation");
     let incoming_nodes = {
         let nodes = write.graph(graph)?.open_scoped_table(NODES)?;
         let mut incoming_nodes = Vec::new();
@@ -268,7 +269,9 @@ pub(crate) fn validate_current_lane_links_in_wtx(
         })?;
         incoming_nodes
     };
-    validate_lane_links_in_wtx(write, graph, &incoming_nodes, crypto)
+    let validated = validate_lane_links_in_wtx(write, graph, &incoming_nodes, crypto);
+    timer.finish();
+    validated
 }
 
 /// The WorkItem statuses that mean the lifecycle attempt has finished.
