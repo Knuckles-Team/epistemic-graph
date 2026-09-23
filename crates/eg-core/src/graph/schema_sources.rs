@@ -1106,7 +1106,7 @@ mod tests {
             ),
             (
                 "foundation",
-                "6d7fd3a3f789f0fa451633e1fac024f79f12cecad1fe97c59b4d7c02f4788d5a",
+                "8fa0ffd37eead55e8729489dd10cbf1c3ffc224a9e65138ca7b3ef4b59d1b8b3",
             ),
             (
                 "documentation",

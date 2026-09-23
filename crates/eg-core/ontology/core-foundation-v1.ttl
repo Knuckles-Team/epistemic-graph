@@ -770,9 +770,11 @@ Works for Person→Asset, Organization→System, Team→SoftwareProject, etc."""
 
 :participatedIn a owl:ObjectProperty ;
     rdfs:label "participated in" ;
-    rdfs:comment """Links any entity to an Event it participated in.
-Aligned to prov:wasAssociatedWith (inverse direction).""" ;
-    rdfs:domain bfo:0000001 ;
+    rdfs:comment """Links a continuant (a person, an organization, an agent, a
+document) to an Event it participated in. Aligned to prov:wasAssociatedWith
+(inverse direction). Only continuants participate (BFO/RO); a process that is a
+stage of another process is :subProcessOf it, not a participant.""" ;
+    rdfs:domain bfo:0000002 ;
     rdfs:range :Event ;
     rdfs:subPropertyOf :participatesIn .
 
@@ -833,9 +835,9 @@ that controls it.  Works for System→Policy, Organization→Regulation, etc."""
 
 :hadParticipant a owl:ObjectProperty ;
     rdfs:label "had participant" ;
-    rdfs:comment "Links an Event to an entity that participated. Inverse of participatedIn." ;
+    rdfs:comment "Links an Event to a continuant that participated. Inverse of participatedIn." ;
     rdfs:domain :Event ;
-    rdfs:range bfo:0000001 ;
+    rdfs:range bfo:0000002 ;
     owl:inverseOf :participatedIn ;
     rdfs:subPropertyOf :hasParticipant .
 
@@ -1000,6 +1002,23 @@ bfo:0000030 a owl:Class ;
     rdfs:domain bfo:0000015 ;
     rdfs:range bfo:0000002 ;
     skos:exactMatch obo:RO_0000057 .
+
+:subProcessOf a owl:ObjectProperty ;
+    rdfs:label "sub-process of" ;
+    rdfs:comment "A process is a temporal or functional part of a larger process — a stage, a step, an episode (BFO occurrent part of). Occurrent-to-occurrent composition uses this, never :participatedIn." ;
+    rdfs:subPropertyOf :partOf ;
+    rdfs:domain bfo:0000015 ;
+    rdfs:range bfo:0000015 ;
+    owl:inverseOf :hasSubProcess ;
+    skos:exactMatch obo:BFO_0000132 .
+
+:hasSubProcess a owl:ObjectProperty ;
+    rdfs:label "has sub-process" ;
+    rdfs:comment "A process has a smaller process as a part (BFO has occurrent part). Inverse of subProcessOf." ;
+    rdfs:subPropertyOf :hasPart ;
+    rdfs:domain bfo:0000015 ;
+    rdfs:range bfo:0000015 ;
+    skos:exactMatch obo:BFO_0000117 .
 
 :occursIn a owl:ObjectProperty ;
     rdfs:label "occurs in" ;

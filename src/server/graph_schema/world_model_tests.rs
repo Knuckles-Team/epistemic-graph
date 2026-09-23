@@ -7,7 +7,7 @@
 use std::collections::BTreeSet;
 use std::time::Instant;
 
-use eg_rdf::oxrdf::{NamedOrBlankNode, Term, Triple};
+use eg_rdf::oxrdf::{NamedNode, NamedOrBlankNode, Term, Triple};
 
 use super::compose::{scope_blank_nodes, validate_and_compose};
 use crate::graph::GraphSchemaSources;
@@ -318,4 +318,86 @@ fn no_core_class_specialises_a_reference_term_kind() {
             assert!(!specialises, "{source_id}: {triple}");
         }
     }
+}
+
+/// Continuant ⊥ Occurrent (operator ruling 2026-09-22; declared in core-foundation by
+/// eg-reasoning). Restated here so these tests hold on either side of that landing;
+/// the composed corpus dedupes the identical triple.
+const PROCESS_COMPOSITION: &str = r#"
+@prefix : <http://knuckles.team/kg#> .
+@prefix ex: <http://example.org/world#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+
+bfo:0000002 owl:disjointWith bfo:0000003 .
+ex:harvest a :Event .
+ex:threshing a bfo:0000015 ; :subProcessOf ex:harvest .
+ex:Stage rdfs:subClassOf bfo:0000015,
+    [ a owl:Restriction ; owl:onProperty :partOf ; owl:someValuesFrom bfo:0000015 ] .
+ex:ParticipatingProcess rdfs:subClassOf bfo:0000015,
+    [ a owl:Restriction ; owl:onProperty :participatedIn ; owl:someValuesFrom :Event ] .
+"#;
+const PROCESS_AS_PARTICIPANT: &str = "@prefix : <http://knuckles.team/kg#> . \
+     <http://example.org/world#threshing> :participatedIn <http://example.org/world#harvest> .";
+
+/// The foundation plus `documents`, each scoped apart.
+fn foundation_with(documents: &[&str]) -> Vec<Triple> {
+    let sources = GraphSchemaSources::default();
+    let foundation = sources
+        .ontologies()
+        .find(|(source_id, _)| *source_id == "core:foundation@1")
+        .map(|(_, document)| document)
+        .unwrap();
+    let mut triples = parse_scoped(foundation, "foundation");
+    for (index, document) in documents.iter().enumerate() {
+        triples.extend(parse_scoped(document, &format!("d{index}")));
+    }
+    triples
+}
+
+/// `triples` plus every class membership OWL 2 RL derives from them (domain, range,
+/// subclass, sub-property), asserted as `rdf:type` so the tableau decides them.
+fn with_derived_types(mut triples: Vec<Triple>) -> Vec<Triple> {
+    let ontology = eg_rdf::owl::parse_ontology(&triples);
+    let result = eg_rdf::rules::reason_triples(&triples, &ontology, &Default::default());
+    let iri = |key: &str| {
+        key.strip_prefix('<')
+            .and_then(|key| key.strip_suffix('>'))
+            .and_then(|key| NamedNode::new(key).ok())
+    };
+    for (class, args, _) in &result.derived {
+        let [individual] = args.as_slice() else {
+            continue;
+        };
+        if let (Some(subject), Some(class)) = (iri(individual), iri(class)) {
+            let rdf_type = NamedNode::new(RDF_TYPE).unwrap();
+            triples.push(Triple::new(subject, rdf_type, class));
+        }
+    }
+    triples
+}
+
+/// Occurrent-to-occurrent composition is `subProcessOf`/`partOf`; only continuants
+/// participate. A process that is part of an event is accepted; a process asserted to
+/// have participated in an event is refused once Continuant ⊥ Occurrent holds.
+#[test]
+fn a_sub_process_is_accepted_and_a_participating_process_is_refused() {
+    let composed = foundation_with(&[PROCESS_COMPOSITION]);
+    let classification = eg_rdf::owl::Reasoner::from_triples(&composed).classify();
+    let stage = "<http://example.org/world#Stage>";
+    assert!(!classification.unsatisfiable.contains(stage));
+    let participating = "<http://example.org/world#ParticipatingProcess>";
+    assert!(classification.unsatisfiable.contains(participating));
+
+    let accepted = with_derived_types(composed);
+    let dl = eg_rdf::tableau::parse_dl_ontology(&accepted);
+    assert!(eg_rdf::tableau::is_consistent(&dl));
+
+    let refused = with_derived_types(foundation_with(&[
+        PROCESS_COMPOSITION,
+        PROCESS_AS_PARTICIPANT,
+    ]));
+    let dl = eg_rdf::tableau::parse_dl_ontology(&refused);
+    assert!(!eg_rdf::tableau::is_consistent(&dl));
 }
