@@ -13,6 +13,7 @@ use crate::physical::binding::{
     binding_for_read, binding_for_write, ledger_scope_key, retire_scope_in,
 };
 use crate::physical::root::PhysicalStore;
+use crate::physical::write_authority::{BindingProof, TxnAuthority};
 use crate::recovery::evidence::{strict_snapshot_read, StrictRecoveryEvidence};
 use crate::scoped::{
     OwnerReadTable, ScopedOwnerTable, ScopedOwnerTableMut, ScopedTable, ScopedTableMut,
@@ -21,7 +22,6 @@ use crate::tables::LedgerRowScope;
 use eg_types::MutationScopeIdentity;
 use redb::{ReadOnlyTable, ReadTransaction, Table, TableDefinition, TableHandle, WriteTransaction};
 use std::marker::PhantomData;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 /// The three tables that ARE the file's physical identity. A capability never
@@ -85,8 +85,12 @@ pub struct PhysicalWriteCapability<'a, D: OwnerDomain> {
     /// refusal could still commit the rows it had already written. Poison is
     /// per TRANSACTION, not per capability, so one member's failure stops the
     /// whole group's commit: it is shared by every member and the group cannot
-    /// commit while it is set.
-    poison: Arc<AtomicBool>,
+    /// commit while it is set. The same shared state carries the transaction's
+    /// scope-binding epoch (EH-390).
+    txn: Arc<TxnAuthority>,
+    /// This capability's scope-binding proof, valid while the transaction's
+    /// binding epoch has not moved (EH-390).
+    binding: BindingProof,
     _domain: PhantomData<D>,
 }
 
@@ -99,7 +103,7 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
         Self::bind(
             store,
             WriteTxn::Sole(Box::new(transaction)),
-            Arc::new(AtomicBool::new(false)),
+            Arc::new(TxnAuthority::default()),
             owner,
         )
     }
@@ -113,10 +117,10 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
     pub(crate) fn open_member(
         store: &'a PhysicalStore,
         transaction: Arc<WriteTransaction>,
-        poison: Arc<AtomicBool>,
+        txn: Arc<TxnAuthority>,
         owner: &OwnedStoreHandle<D>,
     ) -> Result<Self, String> {
-        Self::bind(store, WriteTxn::Member(transaction), poison, owner)
+        Self::bind(store, WriteTxn::Member(transaction), txn, owner)
     }
 
     /// Prove the store's layout and incarnation-anchored authority, then bind
@@ -126,7 +130,7 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
     fn bind(
         store: &'a PhysicalStore,
         transaction: WriteTxn,
-        poison: Arc<AtomicBool>,
+        txn: Arc<TxnAuthority>,
         owner: &OwnedStoreHandle<D>,
     ) -> Result<Self, String> {
         let manifest = store.manifest();
@@ -135,13 +139,15 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
         {
             return Err("owner write capability does not match this store".to_string());
         }
+        let epoch = txn.binding_epoch();
         binding_for_write(store, transaction.get(), owner.identity())?;
         Ok(Self {
             transaction,
             store,
             identity: owner.identity().clone(),
             principal: owner.principal().to_string(),
-            poison,
+            txn,
+            binding: BindingProof::proven_at(epoch),
             _domain: PhantomData,
         })
     }
@@ -165,7 +171,7 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
     /// Called on every failed operation of a surface that has no admission
     /// window of its own, so a swallowed error cannot be followed by a commit.
     pub(crate) fn poison(&self) {
-        self.poison.store(true, Ordering::SeqCst);
+        self.txn.poison();
     }
 
     /// Poison this transaction when a shared-service operation fails.
@@ -181,7 +187,7 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
     }
 
     fn refuse_if_poisoned(&self) -> Result<(), String> {
-        if self.poison.load(Ordering::SeqCst) {
+        if self.txn.is_poisoned() {
             return Err("write transaction is poisoned by a failed operation".to_string());
         }
         Ok(())
@@ -364,7 +370,12 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
     /// asks for retirement inside the same transaction. Like
     /// [`Self::purge_scoped_rows`], the scope comes from the capability and is
     /// not an argument.
+    ///
+    /// A binding write inside the transaction advances its binding epoch, so
+    /// every cached binding proof on it is re-read on next use and a retired
+    /// scope is refused (EH-390).
     pub fn retire_scope_binding(&self) -> Result<(), String> {
+        self.txn.binding_changed();
         retire_scope_in(self.store, self.transaction.get(), &self.identity)
     }
 
@@ -390,18 +401,28 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
         &self.principal
     }
 
-    /// Reprove that `identity` is **this capability's own** scope and is still
-    /// bound to this store under the current manifest and declared table
-    /// census, inside this write transaction.
+    /// Prove that `identity` is **this capability's own** scope and is still
+    /// bound to this store inside this write transaction, whose manifest and
+    /// declared table census `begin_write` already proved.
     ///
     /// Boundness alone is not enough: every scope served by one physical file
     /// is bound to it, so a boundness-only check would let a capability for one
     /// tenant act on another.
+    ///
+    /// The binding is read at most once per transaction binding epoch: the
+    /// store authority it rests on was proved once at `begin_write`, and only
+    /// an in-transaction binding write can change the answer (EH-390).
     pub fn verify_scope(&self, identity: &MutationScopeIdentity) -> Result<(), String> {
         if identity != &self.identity {
             return Err("mutation capability does not serve this scope".to_string());
         }
-        binding_for_write(self.store, self.transaction.get(), identity).map(|_| ())
+        let epoch = self.txn.binding_epoch();
+        if self.binding.holds_at(epoch) {
+            return Ok(());
+        }
+        binding_for_write(self.store, self.transaction.get(), identity)?;
+        self.binding.reproven_at(epoch);
+        Ok(())
     }
 
     pub fn authenticate_private(&self, sealed: &[u8], digest: &str) -> Result<(), String> {
