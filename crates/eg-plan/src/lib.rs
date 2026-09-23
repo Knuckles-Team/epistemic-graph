@@ -75,6 +75,8 @@ pub mod uql;
 /// DecideText (EH-073): the decision front end, kept out of UQL and `wire::Op`.
 pub mod decide_text;
 
+/// Execution budgets (EH-373): typed resource bounds on result size and traversal fan-out.
+pub mod budget;
 /// The typed DAG plan representation (CONCEPT:EG-KG.query.plan-dag, E5 phase 1): [`dag::PlanDag`]
 /// generalizes the linear [`Plan`] into a real graph of operators (a node's `inputs` name
 /// its dependency nodes), with a lossless conversion from every existing linear `Plan` (a
@@ -118,6 +120,9 @@ pub mod knowledge;
 /// vector, time-series, jobs, and cross-modal results.
 #[cfg(feature = "knowledge-batch")]
 pub mod knowledge_batch;
+/// Per-row, SQL-three-valued evaluation of the relational predicate algebra (EH-365) —
+/// the Rust twin of the FILTER leg's SQL for incremental maintenance and edge predicates.
+pub mod pred_eval;
 #[cfg(feature = "knowledge-batch")]
 pub mod result_stream;
 /// The physical EXECUTION runtime (CONCEPT:EG-KG.query.parallel-runtime) — Lane B. The

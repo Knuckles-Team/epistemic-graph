@@ -28,6 +28,36 @@ pub enum Pred {
     GtNum { prop: String, n: f64 },
     /// `prop < n` (numeric).
     LtNum { prop: String, n: f64 },
+    /// `prop <op> value` over a TYPED scalar (UQL predicate algebra, EH-365). The three
+    /// legacy forms above stay the canonical spelling of what they express —
+    /// `Cmp{Eq,Str}` ≡ `Eq`, `Cmp{Gt,Num}` ≡ `GtNum`, `Cmp{Lt,Num}` ≡ `LtNum` (the UQL
+    /// parser never emits those three `Cmp` shapes; `eg_plan::uql::canonicalize` rewrites
+    /// them) — so the wire keeps ONE encoding per meaning. A `Num` compares numerically
+    /// and a `Bool` as a boolean, never as their JSON text.
+    Cmp {
+        prop: String,
+        op: CmpOp,
+        value: Scalar,
+    },
+    /// `prop IN (v, …)` — membership in a typed literal list (non-empty).
+    In { prop: String, values: Vec<Scalar> },
+    /// `prop BETWEEN lo AND hi` — inclusive on both ends (SQL semantics).
+    Between {
+        prop: String,
+        lo: Scalar,
+        hi: Scalar,
+    },
+    /// `prop IS NULL` — the property is absent or JSON `null`. `IS NOT NULL` is
+    /// `Not { IsNull }` (one encoding).
+    IsNull { prop: String },
+    /// Conjunction of at least two predicates (a parenthesised `AND` group). A top-level
+    /// `WHERE a AND b` stays the flat `Filter.preds` list; this node exists so a
+    /// conjunction can sit under `Or`/`Not`.
+    And { preds: Vec<Pred> },
+    /// Disjunction of at least two predicates.
+    Or { preds: Vec<Pred> },
+    /// Negation.
+    Not { pred: Box<Pred> },
     /// DOCUMENT/JSON — keep rows whose node property document satisfies a deep
     /// JSONPath predicate (CONCEPT:EG-KG.query.json-wire-roundtrip). `path` is a JSONPath (`$.a.b`, `$.a[0]`,
     /// `$.a[*]`, wildcard) evaluated against the row's decoded JSON; `op` is the
@@ -83,6 +113,60 @@ pub enum Pred {
     SpatialDisjoint { column: String, wkt: String },
 }
 
+/// A comparison operator of [`Pred::Cmp`] (EH-365).
+#[cfg(feature = "query")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum CmpOp {
+    Eq,
+    Ne,
+    Gt,
+    Ge,
+    Lt,
+    Le,
+}
+
+/// A typed predicate literal (EH-365): the value a [`Pred::Cmp`]/[`Pred::In`]/
+/// [`Pred::Between`] compares against. Typed so a number is compared as a number and a
+/// string as a string — the literal's type, not its spelling, decides the comparison.
+#[cfg(feature = "query")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum Scalar {
+    Str(String),
+    Num(f64),
+    Bool(bool),
+}
+
+/// Which way an [`Op::Expand`] follows edges (EH-369).
+#[cfg(feature = "query")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum EdgeDir {
+    /// `-[..]->` — from the current rows along outgoing edges.
+    Out,
+    /// `<-[..]-` — along incoming edges.
+    In,
+    /// `-[..]-` — either direction.
+    Both,
+}
+
+/// A typed UQL parameter value (EH-371): what a `$name` in UQL text is bound to. Bound
+/// values are substituted into the parsed plan as typed literals — never spliced into
+/// the text — so a parameter can never change the query's structure.
+#[cfg(feature = "query")]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum UqlParam {
+    Str(String),
+    Num(f64),
+    Bool(bool),
+    /// A query vector (`RANK BY ~$v`).
+    Vector(Vec<f32>),
+    /// A literal list (`x IN $values`).
+    List(Vec<Scalar>),
+}
+
 /// DOCUMENT/JSON — the test applied by [`Pred::JsonPath`] against the value(s) a
 /// JSONPath resolves to (CONCEPT:EG-KG.query.json-wire-roundtrip). PURE serde (a small tag + an optional
 /// `serde_json::Value` literal); the actual walk/containment lives in
@@ -123,10 +207,24 @@ pub enum TimeAxis {
 pub enum Op {
     /// SOURCE — seed from all nodes carrying `label` (`type == label`).
     Scan { label: String },
+    /// SOURCE — seed from EVERY node of the (RLS/lease-filtered) snapshot, in id order:
+    /// UQL `MATCH ()` (EH-367).
+    ScanAll {},
     /// FILTER (relational) — keep rows matching ALL `preds`, via real DataFusion.
     Filter { preds: Vec<Pred> },
     /// TRAVERSE (graph) — follow `rel` edges `min..=max` hops (petgraph BFS).
     Traverse { rel: String, min: usize, max: usize },
+    /// TRAVERSE, general form (EH-369): follow edges in `dir`, restricted to relationship
+    /// `rel` (`None` ⇒ any relationship, UQL `*`) and to edges whose property blob
+    /// satisfies every `edge_preds` entry, `min..=max` hops. `Expand{Some(r), Out, [], ..}`
+    /// is spelled [`Op::Traverse`] (one encoding; the UQL parser emits `Traverse` for it).
+    Expand {
+        rel: Option<String>,
+        dir: EdgeDir,
+        min: usize,
+        max: usize,
+        edge_preds: Vec<Pred>,
+    },
     /// RANK (vector) — re-order by cosine similarity to `query` (SemanticStore kNN).
     Rank { query: Vec<f32> },
     /// RANK (vector-from-TEXT, CONCEPT:EG-KG.compute.no-embedder-bound-op) — like `Rank`, but the query vector is
@@ -481,6 +579,13 @@ pub enum Op {
     ExplainBelief { node_id: String },
     /// LIMIT — top-k, respecting the current order.
     Limit { k: usize },
+    /// PROJECT (UQL `RETURN`, EH-372) — name the score CHANNELS the result carries per
+    /// row, alongside `id` and the current `score`. Every scoring op records its score
+    /// under a fixed channel name (`similarity`, `text`, `belief`, `window`, …; see
+    /// `eg_plan::channels`) so results of several scoring stages coexist instead of the
+    /// last one overwriting the others. Rows pass through unchanged; a channel no op
+    /// produced for a row is `None`.
+    Project { channels: Vec<String> },
 }
 
 /// A logical plan: an ordered list of [`Op`]s over one `RowSet`. The serializable

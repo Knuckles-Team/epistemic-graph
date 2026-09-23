@@ -1075,10 +1075,12 @@ impl ModalityCardinality {
         match op {
             // SOURCE: a label selects a fraction of the graph (no per-label catalog).
             Op::Scan { .. } => (n * Self::LABEL_SEL).max(0.0),
+            // SOURCE: every node.
+            Op::ScanAll {} => n,
             // FILTER: input × per-predicate selectivity product.
             Op::Filter { preds } => in_card * self.filter_selectivity(preds),
             // TRAVERSE: degree histogram × path length, deduped, capped at the graph size.
-            Op::Traverse { min, max, .. } => {
+            Op::Traverse { min, max, .. } | Op::Expand { min, max, .. } => {
                 rowcount::traverse_static_rows_out(self, in_card, *min, *max, n)
             }
             // RANK: a rerank preserves the candidate set MINUS rows with no embedding

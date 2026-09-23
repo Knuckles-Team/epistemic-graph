@@ -1,9 +1,24 @@
-//! UQL lexer (CONCEPT:AU-KG.query.top-nodes-by-degree) — a hand-written, dependency-free tokenizer.
+//! UQL lexer (CONCEPT:AU-KG.query.top-nodes-by-degree, EH-366) — a hand-written,
+//! dependency-free tokenizer over `char`s.
 //!
 //! Turns a UQL source string into a flat `Vec<Token>` with byte spans, so the
 //! recursive-descent [`super::parser`] never touches raw characters. Pure Rust, no
 //! regex / no DataFusion — the whole UQL front-end stays in the dep-free half of
 //! eg-plan (the Pi contract): only EXECUTION is `query`-gated, parsing is not.
+//!
+//! Lexical grammar (the token half of `super::grammar`):
+//!  * whitespace separates; `# …`, `-- …` and `// …` run to end of line (comments);
+//!  * words are Unicode (`[\p{Alphabetic}_][\p{Alphanumeric}_]*`) — keywords are words
+//!    the parser recognizes case-insensitively; `` `any text` `` is a QUOTED identifier
+//!    (never a keyword; `` `` `` escapes a back-quote);
+//!  * strings: `'…'` (`''` escapes) and `"…"` (`""`, `\"`, `\\` escape), UTF-8 intact;
+//!  * numbers: `12`, `1.5`, `.5`, `1e-9`, `6.02E+23` (a leading `-` is a separate token;
+//!    the parser folds it into signed literals); the token keeps its source span so the
+//!    parser reads integers and `f32`s from the original text, exactly;
+//!  * `$name` is a typed parameter; `$.a.b[0]` / `$[…]` is a JSONPath;
+//!  * `<scheme:…>` (whitespace-free, with a `:`) is an IRI;
+//!  * punctuation: `|>` `(` `)` `{` `}` `[` `]` `:` `,` `;` `*` `~` `@` `@>` `..`
+//!    `->` `<-` `-` `=` `==` `!=` `<>` `>` `>=` `<` `<=`.
 
 use std::fmt;
 
@@ -21,357 +36,321 @@ pub struct Token {
 /// where the grammar expects them; everywhere else a bare word is an [`Tok::Ident`].
 #[derive(Clone, Debug, PartialEq)]
 pub enum Tok {
-    /// A bare identifier / keyword (label, property name, relationship, MATCH, …).
-    /// Keyword classification is done by the parser (case-insensitive compare), so the
-    /// lexer stays context-free.
+    /// A bare identifier / keyword. Keyword classification is done by the parser
+    /// (case-insensitive compare), so the lexer stays context-free.
     Ident(String),
-    /// A numeric literal (always parsed as f64; integers are a subset).
+    /// A back-quoted identifier — a name, never a keyword.
+    QIdent(String),
+    /// A numeric literal (its exact text is the token's source span).
     Num(f64),
-    /// A single- or double-quoted string literal (quotes stripped, `''`/`\"` unescaped).
+    /// A single- or double-quoted string literal (quotes stripped, escapes resolved).
     Str(String),
-    /// An angle-bracketed IRI `<scheme:...>` (CONCEPT:EG-KG.query.reason-iri-parses-angle) — a whitespace-free
-    /// `<...>` run whose interior carries a `:` (a scheme). Stored WITH its brackets
-    /// (`<http://ex/Device>`) so it round-trips as a canonical OWL class id for
-    /// `REASON <iri>`. Distinguished from the comparison `<` (which is followed by a
-    /// numeric RHS, e.g. `year < 2022`), so both coexist.
+    /// An angle-bracketed IRI, stored WITH its brackets (`<http://ex/Device>`).
     Iri(String),
-    /// `|>` — the pipeline stage separator.
+    /// `$name` — a typed parameter reference (the name, without `$`).
+    Param(String),
+    /// `$.a.b[0]` — a JSONPath, stored verbatim.
+    Path(String),
     Pipe,
-    /// `(`
     LParen,
-    /// `)`
     RParen,
-    /// `{`
     LBrace,
-    /// `}`
     RBrace,
-    /// `:`
-    Colon,
-    /// `,`
-    Comma,
-    /// `>`
-    Gt,
-    /// `<`
-    Lt,
-    /// `=` / `==` (both mean equality in UQL).
-    Eq,
-    /// `..` — the hop-range separator inside `{min,max}` / `{min..max}`.
-    DotDot,
-    /// `->` — the (forward) traversal arrow.
-    Arrow,
-    /// `-` — a lone dash (edge-pattern dash, e.g. `-[:CITES]->`).
-    Dash,
-    /// `[`
     LBracket,
-    /// `]`
     RBracket,
-    /// `~` — the vector-rank sigil (`RANK BY ~query`).
+    Colon,
+    Comma,
+    Semi,
+    Star,
     Tilde,
-    /// `@` — RESERVED for the future time/asof seam (`AS OF @t`); lexed, not parsed.
     At,
+    /// `@>` — JSON containment.
+    AtGt,
+    DotDot,
+    /// `->`
+    Arrow,
+    /// `<-` (only before `[`: the start of an incoming edge pattern).
+    LArrow,
+    Dash,
+    Eq,
+    Ne,
+    Gt,
+    Ge,
+    Lt,
+    Le,
 }
 
 impl fmt::Display for Tok {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Tok::Ident(s) => write!(f, "`{s}`"),
+            Tok::QIdent(s) => write!(f, "quoted identifier `{s}`"),
             Tok::Num(n) => write!(f, "number `{n}`"),
             Tok::Str(s) => write!(f, "string \"{s}\""),
             Tok::Iri(s) => write!(f, "IRI `{s}`"),
-            Tok::Pipe => f.write_str("`|>`"),
-            Tok::LParen => f.write_str("`(`"),
-            Tok::RParen => f.write_str("`)`"),
-            Tok::LBrace => f.write_str("`{`"),
-            Tok::RBrace => f.write_str("`}`"),
-            Tok::Colon => f.write_str("`:`"),
-            Tok::Comma => f.write_str("`,`"),
-            Tok::Gt => f.write_str("`>`"),
-            Tok::Lt => f.write_str("`<`"),
-            Tok::Eq => f.write_str("`=`"),
-            Tok::DotDot => f.write_str("`..`"),
-            Tok::Arrow => f.write_str("`->`"),
-            Tok::Dash => f.write_str("`-`"),
-            Tok::LBracket => f.write_str("`[`"),
-            Tok::RBracket => f.write_str("`]`"),
-            Tok::Tilde => f.write_str("`~`"),
-            Tok::At => f.write_str("`@`"),
+            Tok::Param(s) => write!(f, "parameter `${s}`"),
+            Tok::Path(s) => write!(f, "JSONPath `{s}`"),
+            other => write!(f, "`{}`", punct_text(other)),
         }
     }
 }
 
-/// A lexing error with the byte offset it occurred at (rendered with a caret by the
-/// parser's error formatter).
+/// The spelling of a punctuation token (value tokens render through `Display`).
+pub fn punct_text(t: &Tok) -> &'static str {
+    PUNCT
+        .iter()
+        .find(|(_, k)| k == t)
+        .map_or("?", |(text, _)| text)
+}
+
+/// Every punctuation spelling, longest first (so `|>` wins over `|`, `>=` over `>`).
+const PUNCT: &[(&str, Tok)] = &[
+    ("|>", Tok::Pipe),
+    ("@>", Tok::AtGt),
+    ("..", Tok::DotDot),
+    ("->", Tok::Arrow),
+    ("<-", Tok::LArrow),
+    ("==", Tok::Eq),
+    ("!=", Tok::Ne),
+    ("<>", Tok::Ne),
+    (">=", Tok::Ge),
+    ("<=", Tok::Le),
+    ("(", Tok::LParen),
+    (")", Tok::RParen),
+    ("{", Tok::LBrace),
+    ("}", Tok::RBrace),
+    ("[", Tok::LBracket),
+    ("]", Tok::RBracket),
+    (":", Tok::Colon),
+    (",", Tok::Comma),
+    (";", Tok::Semi),
+    ("*", Tok::Star),
+    ("~", Tok::Tilde),
+    ("@", Tok::At),
+    ("-", Tok::Dash),
+    ("=", Tok::Eq),
+    (">", Tok::Gt),
+    ("<", Tok::Lt),
+];
+
+/// What went wrong while lexing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LexErrorKind {
+    UnexpectedCharacter,
+    UnterminatedString,
+    UnterminatedIdentifier,
+    InvalidNumber,
+    EmptyParameterName,
+}
+
+/// A lexing error with the byte offset it occurred at.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LexError {
+    pub kind: LexErrorKind,
     pub msg: String,
     pub at: usize,
 }
 
-/// Tokenize a UQL source string. Whitespace is skipped; everything else becomes a
-/// [`Token`]. Returns the first [`LexError`] on an unterminated string or a stray
-/// character.
+fn lex_err(kind: LexErrorKind, msg: impl Into<String>, at: usize) -> LexError {
+    LexError {
+        kind,
+        msg: msg.into(),
+        at,
+    }
+}
+
+/// Tokenize a UQL source string.
 pub fn lex(src: &str) -> Result<Vec<Token>, LexError> {
-    let bytes = src.as_bytes();
-    let mut i = 0;
     let mut out = Vec::new();
-    while i < bytes.len() {
-        if bytes[i].is_ascii_whitespace() {
-            i += 1;
+    let mut i = 0;
+    while let Some(c) = src[i..].chars().next() {
+        if c.is_whitespace() {
+            i += c.len_utf8();
             continue;
         }
-        lex_one(src, bytes, &mut i, &mut out)?;
+        if starts_comment(&src[i..]) {
+            i = src[i..].find('\n').map_or(src.len(), |n| i + n);
+            continue;
+        }
+        let (kind, end) = lex_one(src, i, c)?;
+        out.push(Token {
+            kind,
+            start: i,
+            end,
+        });
+        i = end;
     }
     Ok(out)
 }
 
-/// Lex exactly one non-whitespace token starting at `*i`, pushing it to `out` and
-/// advancing `*i` past it (or returning the [`LexError`] at `*i`).
-fn lex_one(src: &str, bytes: &[u8], i: &mut usize, out: &mut Vec<Token>) -> Result<(), LexError> {
-    let start = *i;
-    let c = bytes[*i];
-    if let Some(kind) = single_char_punct(c) {
-        simple(out, i, kind);
-        return Ok(());
-    }
-    if let Some((kind, len)) = two_char_lookahead(bytes, *i, c) {
-        out.push(tok(kind, start, start + len));
-        *i += len;
-        return Ok(());
-    }
-    // `<` is either an angle-bracketed IRI (`<http://ex/Device>` — CONCEPT:EG-KG.query.reason-iri-parses-angle)
-    // or the comparison `<` (`year < 2022`). Try the IRI form first; it only
-    // matches a whitespace-free `<...>` run whose interior carries a `:` (a scheme),
-    // which a numeric comparison never does, so the two never collide.
-    if c == b'<' {
-        match lex_iri(bytes, *i) {
-            Some((iri, next)) => {
-                out.push(tok(Tok::Iri(iri), start, next));
-                *i = next;
-            }
-            None => simple(out, i, Tok::Lt),
-        }
-        return Ok(());
-    }
-    // A lone `-` (the `->` arrow was already handled by `two_char_lookahead`).
-    if c == b'-' {
-        simple(out, i, Tok::Dash);
-        return Ok(());
-    }
-    lex_value_token(src, bytes, i, out)
+fn starts_comment(rest: &str) -> bool {
+    rest.starts_with('#') || rest.starts_with("--") || rest.starts_with("//")
 }
 
-/// The single-byte punctuation tokens with no lookahead: brackets/braces/parens plus
-/// the remaining single-char symbols.
-fn single_char_punct(c: u8) -> Option<Tok> {
-    bracket_punct(c).or_else(|| symbol_punct(c))
-}
+type Lexed = Result<(Tok, usize), LexError>;
 
-fn bracket_punct(c: u8) -> Option<Tok> {
-    Some(match c {
-        b'(' => Tok::LParen,
-        b')' => Tok::RParen,
-        b'{' => Tok::LBrace,
-        b'}' => Tok::RBrace,
-        b'[' => Tok::LBracket,
-        b']' => Tok::RBracket,
-        _ => return None,
-    })
-}
-
-fn symbol_punct(c: u8) -> Option<Tok> {
-    Some(match c {
-        b':' => Tok::Colon,
-        b',' => Tok::Comma,
-        b'>' => Tok::Gt,
-        b'~' => Tok::Tilde,
-        b'@' => Tok::At,
-        _ => return None,
-    })
-}
-
-/// A byte whose token depends on whether the NEXT byte extends it: `|>` (pipe), `=`/`==`
-/// (eq), `->` (arrow), `..` (dotdot). Returns the resolved token and its length (1 or 2
-/// bytes) when `c` starts one of these; `None` otherwise (including a lone `=`, which
-/// always resolves here since it is never ambiguous with anything else).
-fn two_char_lookahead(bytes: &[u8], i: usize, c: u8) -> Option<(Tok, usize)> {
+fn lex_one(src: &str, i: usize, c: char) -> Lexed {
+    let rest = &src[i..];
     match c {
-        b'|' if peek(bytes, i + 1) == Some(b'>') => Some((Tok::Pipe, 2)),
-        b'=' => Some((
-            Tok::Eq,
-            if peek(bytes, i + 1) == Some(b'=') {
-                2
-            } else {
-                1
-            },
-        )),
-        b'-' if peek(bytes, i + 1) == Some(b'>') => Some((Tok::Arrow, 2)),
-        b'.' if peek(bytes, i + 1) == Some(b'.') => Some((Tok::DotDot, 2)),
-        _ => None,
+        '\'' | '"' => lex_string(src, i, c),
+        '`' => lex_quoted_ident(src, i),
+        '$' => lex_dollar(src, i),
+        '<' => Ok(lex_angle(src, i)),
+        '0'..='9' => lex_number(src, i),
+        '.' if rest[1..].starts_with(|d: char| d.is_ascii_digit()) => lex_number(src, i),
+        c if c.is_alphabetic() || c == '_' => {
+            let end = scan(src, i, |c| c.is_alphanumeric() || c == '_');
+            Ok((Tok::Ident(src[i..end].to_string()), end))
+        }
+        _ => lex_punct(rest, i),
     }
 }
 
-/// The value-bearing tokens: quoted strings, numbers (leading digit or `.digit`), and
-/// identifiers/keywords — or the lexing error for anything else.
-fn lex_value_token(
-    src: &str,
-    bytes: &[u8],
-    i: &mut usize,
-    out: &mut Vec<Token>,
-) -> Result<(), LexError> {
-    let start = *i;
-    let c = bytes[*i];
-    match c {
-        b'\'' | b'"' => {
-            let (s, next) = lex_string(bytes, *i, c)?;
-            out.push(tok(Tok::Str(s), start, next));
-            *i = next;
-        }
-        b'0'..=b'9' => {
-            let (n, next) = lex_number(src, bytes, *i)?;
-            out.push(tok(Tok::Num(n), start, next));
-            *i = next;
-        }
-        // Leading `-` followed by a digit is a negative number (e.g. a vector
-        // component); a lone `-` is handled by `lex_one` before this is reached. A `.`
-        // starting a number (e.g. `.5`) is also accepted.
-        b'.' if peek(bytes, *i + 1).is_some_and(|d| d.is_ascii_digit()) => {
-            let (n, next) = lex_number(src, bytes, *i)?;
-            out.push(tok(Tok::Num(n), start, next));
-            *i = next;
-        }
-        _ if is_ident_start(c) => {
-            let next = scan_while(bytes, *i, is_ident_continue);
-            let word = src[*i..next].to_string();
-            out.push(tok(Tok::Ident(word), start, next));
-            *i = next;
-        }
-        _ => {
-            return Err(LexError {
-                msg: format!("unexpected character `{}`", c as char),
-                at: start,
-            });
-        }
-    }
-    Ok(())
+fn lex_punct(rest: &str, i: usize) -> Lexed {
+    PUNCT
+        .iter()
+        .find(|(text, _)| rest.starts_with(text))
+        .map(|(text, kind)| (kind.clone(), i + text.len()))
+        .ok_or_else(|| {
+            let c = rest.chars().next().unwrap_or(' ');
+            lex_err(
+                LexErrorKind::UnexpectedCharacter,
+                format!("unexpected character `{c}`"),
+                i,
+            )
+        })
 }
 
-fn tok(kind: Tok, start: usize, end: usize) -> Token {
-    Token { kind, start, end }
+fn scan(src: &str, from: usize, keep: impl Fn(char) -> bool) -> usize {
+    src[from..]
+        .char_indices()
+        .find(|&(_, c)| !keep(c))
+        .map_or(src.len(), |(n, _)| from + n)
 }
 
-fn simple(out: &mut Vec<Token>, i: &mut usize, kind: Tok) {
-    out.push(tok(kind, *i, *i + 1));
-    *i += 1;
-}
-
-fn peek(bytes: &[u8], i: usize) -> Option<u8> {
-    bytes.get(i).copied()
-}
-
-fn is_ident_start(c: u8) -> bool {
-    c.is_ascii_alphabetic() || c == b'_'
-}
-
-fn is_ident_continue(c: u8) -> bool {
-    c.is_ascii_alphanumeric() || c == b'_'
-}
-
-fn scan_while(bytes: &[u8], mut i: usize, pred: fn(u8) -> bool) -> usize {
-    while i < bytes.len() && pred(bytes[i]) {
-        i += 1;
-    }
-    i
-}
-
-/// Lex a quoted string starting at `start` (the opening quote `q`). Supports `''`
-/// (SQL-style) inside single-quoted and `\"` / `\\` inside double-quoted strings.
-fn lex_string(bytes: &[u8], start: usize, q: u8) -> Result<(String, usize), LexError> {
-    let mut i = start + 1;
+/// `'…'` / `"…"`: a doubled quote escapes itself; in `"…"` also `\"` and `\\`.
+fn lex_string(src: &str, start: usize, q: char) -> Lexed {
     let mut s = String::new();
-    while i < bytes.len() {
-        let c = bytes[i];
-        if c == q {
-            // A doubled quote is an escaped quote (`''` / `""`); otherwise it closes.
-            if peek(bytes, i + 1) == Some(q) {
-                s.push(q as char);
-                i += 2;
-                continue;
-            }
-            return Ok((s, i + 1));
-        }
-        if c == b'\\' && q == b'"' {
-            match peek(bytes, i + 1) {
-                Some(b'"') => {
-                    s.push('"');
-                    i += 2;
-                    continue;
-                }
-                Some(b'\\') => {
-                    s.push('\\');
-                    i += 2;
-                    continue;
-                }
-                _ => {}
-            }
-        }
-        s.push(c as char);
-        i += 1;
-    }
-    Err(LexError {
-        msg: "unterminated string literal".into(),
-        at: start,
-    })
-}
-
-/// Try to lex an angle-bracketed IRI starting at `start` (the `<`) — CONCEPT:EG-KG.query.reason-iri-parses-angle.
-/// Returns `Some((iri_with_brackets, next))` when `bytes[start..]` opens a whitespace-
-/// free `<...>` run whose interior contains a `:` (a scheme separator); `None` otherwise
-/// (so the caller falls back to the comparison `<`). Never consumes across whitespace or
-/// a newline, so a stray `<` in `year < 2` stays the `Lt` operator.
-fn lex_iri(bytes: &[u8], start: usize) -> Option<(String, usize)> {
-    let mut i = start + 1;
-    let mut has_colon = false;
-    while i < bytes.len() {
-        let c = bytes[i];
-        if c == b'>' {
-            // A closing `>` with a scheme colon inside and a non-empty body ⇒ an IRI.
-            if has_colon && i > start + 1 {
-                let iri = std::str::from_utf8(&bytes[start..=i]).ok()?.to_string();
-                return Some((iri, i + 1));
-            }
-            return None;
-        }
-        if c.is_ascii_whitespace() {
-            return None; // a comparison `<`, not an IRI
-        }
-        if c == b':' {
-            has_colon = true;
-        }
-        i += 1;
-    }
-    None // unterminated `<...` ⇒ treat the `<` as the comparison operator
-}
-
-/// Lex a numeric literal (integer or decimal, optional leading `.`). Parsed as f64.
-fn lex_number(src: &str, bytes: &[u8], start: usize) -> Result<(f64, usize), LexError> {
-    let mut i = start;
-    let mut seen_dot = false;
-    while i < bytes.len() {
-        let c = bytes[i];
-        if c.is_ascii_digit() {
-            i += 1;
-        } else if c == b'.' && !seen_dot && peek(bytes, i + 1) != Some(b'.') {
-            // A single `.` is the decimal point; `..` is the range operator (stop).
-            seen_dot = true;
-            i += 1;
+    let mut chars = src[start + 1..].char_indices().peekable();
+    while let Some((n, c)) = chars.next() {
+        let next = chars.peek().map(|&(_, d)| d);
+        if c == q && next == Some(q) {
+            s.push(q);
+            chars.next();
+        } else if c == q {
+            return Ok((Tok::Str(s), start + 1 + n + 1));
+        } else if c == '\\' && q == '"' && matches!(next, Some('"') | Some('\\')) {
+            s.push(next.unwrap_or('\\'));
+            chars.next();
         } else {
-            break;
+            s.push(c);
         }
     }
-    let text = &src[start..i];
-    let n = text.parse::<f64>().map_err(|_| LexError {
-        msg: format!("invalid number `{text}`"),
-        at: start,
+    Err(lex_err(
+        LexErrorKind::UnterminatedString,
+        "unterminated string literal",
+        start,
+    ))
+}
+
+/// `` `name` ``: a doubled back-quote escapes itself.
+fn lex_quoted_ident(src: &str, start: usize) -> Lexed {
+    match lex_string(src, start, '`') {
+        Ok((Tok::Str(s), end)) => Ok((Tok::QIdent(s), end)),
+        Ok(other) => Ok(other),
+        Err(_) => Err(lex_err(
+            LexErrorKind::UnterminatedIdentifier,
+            "unterminated back-quoted identifier",
+            start,
+        )),
+    }
+}
+
+/// `$name` (parameter) or `$.a` / `$[0]` (JSONPath).
+fn lex_dollar(src: &str, start: usize) -> Lexed {
+    let after = &src[start + 1..];
+    if after.starts_with('.') || after.starts_with('[') || after.is_empty() {
+        let end = scan(src, start + 1, is_path_char);
+        return Ok((Tok::Path(src[start..end].to_string()), end));
+    }
+    let end = scan(src, start + 1, |c| c.is_alphanumeric() || c == '_');
+    if end == start + 1 {
+        return Err(lex_err(
+            LexErrorKind::EmptyParameterName,
+            "`$` must be followed by a parameter name (`$name`) or a JSONPath (`$.field`)",
+            start,
+        ));
+    }
+    Ok((Tok::Param(src[start + 1..end].to_string()), end))
+}
+
+fn is_path_char(c: char) -> bool {
+    c.is_alphanumeric() || "$._[]*".contains(c)
+}
+
+/// `<`: an IRI, `<-` before `[`, `<>`/`<=`, or the comparison `<`.
+fn lex_angle(src: &str, start: usize) -> (Tok, usize) {
+    let rest = &src[start..];
+    if rest.starts_with("<-[") {
+        return (Tok::LArrow, start + 2);
+    }
+    if let Some(end) = iri_end(rest) {
+        return (Tok::Iri(rest[..end].to_string()), start + end);
+    }
+    match rest.as_bytes().get(1) {
+        Some(b'>') => (Tok::Ne, start + 2),
+        Some(b'=') => (Tok::Le, start + 2),
+        _ => (Tok::Lt, start + 1),
+    }
+}
+
+/// The byte length of a whitespace-free `<…>` run whose body holds a `:`.
+fn iri_end(rest: &str) -> Option<usize> {
+    let close = rest[1..].find(|c: char| c == '>' || c == '<' || c.is_whitespace())?;
+    let body = &rest[1..1 + close];
+    (rest[1 + close..].starts_with('>') && !body.is_empty() && body.contains(':'))
+        .then_some(close + 2)
+}
+
+/// Digits, an optional fraction (a `..` range stops it), an optional exponent.
+fn lex_number(src: &str, start: usize) -> Lexed {
+    let mut end = scan(src, start, |c| c.is_ascii_digit());
+    let rest = &src[end..];
+    if rest.starts_with('.') && !rest.starts_with("..") {
+        end = scan(src, end + 1, |c| c.is_ascii_digit());
+    }
+    end = exponent_end(src, end);
+    let text = &src[start..end];
+    let n = text.parse::<f64>().map_err(|_| {
+        lex_err(
+            LexErrorKind::InvalidNumber,
+            format!("invalid number `{text}`"),
+            start,
+        )
     })?;
-    Ok((n, i))
+    if !n.is_finite() {
+        return Err(lex_err(
+            LexErrorKind::InvalidNumber,
+            format!("number `{text}` is out of range"),
+            start,
+        ));
+    }
+    Ok((Tok::Num(n), end))
+}
+
+/// Extend past `e[+-]digits` when one follows; otherwise leave `end` unchanged (so
+/// `3 e` is a number then a word).
+fn exponent_end(src: &str, end: usize) -> usize {
+    let rest = &src[end..];
+    let Some(after_e) = rest.strip_prefix('e').or_else(|| rest.strip_prefix('E')) else {
+        return end;
+    };
+    let sign = usize::from(after_e.starts_with('+') || after_e.starts_with('-'));
+    let digits = after_e[sign..]
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(after_e.len() - sign);
+    if digits == 0 {
+        return end;
+    }
+    end + 1 + sign + digits
 }

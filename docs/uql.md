@@ -1,28 +1,30 @@
 # UQL — the Unified Query Language
 
 UQL is epistemic-graph's human- and agent-writable query language. It is a **pure
-front-end** (CONCEPT:AU-KG.query.top-nodes-by-degree) over the engine's cross-modal plan algebra (CONCEPT:AU-KG.compute.vector):
-a UQL string parses to the *exact same* `wire::Plan` (an ordered `Vec<Op>`) that the
-structured `UnifiedQuery` API executes — it adds **no** new execution path. The proof is
-in the planner tests: a UQL string parses to the byte-identical plan a hand-built test
-constructs, and the served query returns the same result as the structured plan *and* the
-separate-surfaces oracle.
+front-end** (CONCEPT:AU-KG.query.top-nodes-by-degree) over the engine's cross-modal plan
+algebra (CONCEPT:AU-KG.compute.vector): a UQL string parses to the *exact same* `wire::Plan`
+(an ordered `Vec<Op>`) that the structured `UnifiedQuery` API executes — it adds **no** new
+execution path.
 
-The parser is dependency-free (no DataFusion, no regex), so it can be included in
-an explicitly minimal `--no-default-features` build; execution of each stage still
-requires its owning feature.
+**Every plan operator has a UQL spelling.** The contract is executable: a test walks every
+`wire::Op` and `wire::Pred` variant compiled into the build, prints it with the canonical
+printer (`Plan::to_uql`) and re-parses it; any variant without a faithful spelling fails the
+build's tests (the "builder-only" allowlist is empty). A property test does the same over
+randomly generated plans, and the fuzz target checks it on every input that parses.
+
+The parser is dependency-free (no DataFusion, no regex), so it is available in every build;
+each clause's *executor* needs its owning cargo feature (see [Feature gating](#feature-gating)).
 
 ## The mental model: one pipeline, one RowSet currency
 
-A UQL query is a **pipeline**. It starts with a *source* (`MATCH …`) that seeds a set of
-candidate node ids, then threads that set through a sequence of `|>`-separated **stages**.
-Every stage is a function `(RowSet) -> RowSet` over the cross-modal currency — a `RowSet`
-is an ordered list of `(id, optional score)` rows — so SQL, graph, vector, text, temporal,
-reasoning, and federation stages **compose with no impedance mismatch**. The whole pipeline
-runs over **one off-lock snapshot** at a single engine version, so a cross-modal read is
-snapshot-isolated for free (CONCEPT:EG-KG.txn.multi-op-occ-acid).
+A query is a **pipeline**: a *source* seeds a set of candidate node ids, then `|>`-separated
+**stages** transform it. Every stage is `(RowSet) -> RowSet` over one currency — an ordered
+list of `(id, score)` rows, plus named score channels (see [`RETURN`](#return--score-channels))
+— so SQL, graph, vector, text, temporal, reasoning, spatial, tensor, stream and federation
+stages compose with no impedance mismatch. The whole pipeline runs over **one** off-lock,
+RLS-filtered snapshot at a single engine version.
 
-```
+```uql
 MATCH (:Doc) WHERE year > 2024            # source + relational filter
   |> TRAVERSE -[:CITES]->{1,2}            # graph traversal (1..2 hops)
   |> RANK BY ~[0.1, 0.9, 0.0]             # vector re-rank by similarity
@@ -31,287 +33,277 @@ MATCH (:Doc) WHERE year > 2024            # source + relational filter
   |> LIMIT 10
 ```
 
+Comments start with `#`, `--` or `//` and run to the end of the line. Keywords are
+case-insensitive. Strings are `'single'` (a doubled `''` escapes) or `"double"` (`\"`, `\\`).
+Names with spaces, punctuation, non-ASCII letters or keyword spellings are back-quoted:
+`` `research paper` ``, `` `LIMIT` ``. Numbers accept exponents (`1e-9`, `6.02E+23`).
+
 ## Grammar (EBNF)
 
+Generated from the grammar table (`crates/eg-plan/src/uql/grammar.rs`) — the one source of
+truth the parser's dispatch table, the parse-error "expected" lists and the NL planner's
+system prompt are all generated from or checked against. A test fails when this block drifts;
+regenerate it with `cargo run -p eg-plan --example uql_grammar`.
+
+<!-- BEGIN GENERATED: uql-grammar -->
 ```text
-query      = source { "|>" stage } ;
-source     = "MATCH" "(" [ ":" ] label ")" [ "WHERE" pred_list ]   (* property-graph scan *)
-           | "REASON" class                                        (* OWL-inferred members *)
-           | "FOREIGN" string ;                                     (* external source seed  *)
-stage      = filter | traverse | rank | text | fuse | rerank
-           | asof | window | foreign | reason | limit
-           | evidence_for | contradicts | supported_by
-           | belief_asof | valid_asof | source_reliability
-           | confidence | explain_belief ;                          (* epistemic, E2 *)
-filter     = "WHERE" pred_list ;
-traverse   = "TRAVERSE" edge ;
-edge       = "-" "[" ":" rel "]" "->" [ hop_range ]
-           | rel [ hop_range ] ;                                    (* bare-rel shorthand *)
-hop_range  = "{" int [ ( "," | ".." ) int ] "}" ;                   (* {2}={2,2}; {1,3}   *)
-rank       = "RANK" "BY" "~" vector_ref ;
-vector_ref = "[" num { "," num } "]" ;                              (* inline literal vec *)
-text       = "TEXT" string ;                                        (* BM25 lexical rank  *)
-fuse       = "FUSE" branch { branch } ;                             (* N-way RRF hybrid   *)
-branch     = "[" stage { "|>" stage } "]" ;
-rerank     = "RERANK" ( "NODE_DISTANCE" "FROM" id
-                      | "MENTIONS"
-                      | "MMR" num int ) ;                           (* graph-native rerankers *)
-asof       = "AS" "OF" [ "TX" | "VALID" ] "@" num ;                 (* bi-temporal point-in-time *)
-window     = "WINDOW" num [ unit ] ;                                (* s | m | h | d *)
-foreign    = "FOREIGN" string ;
-reason     = "REASON" class ;
-limit      = "LIMIT" int ;
-pred_list  = pred { "AND" pred } ;
-pred       = prop ( ">" | "<" | ( "=" | "==" ) ) value ;
-value      = num | string | ident ;
-id         = ident | string ;                                      (* QUOTE ids with - . : @ *)
-(* ── epistemic (E2, CONCEPT:EG-KG.epistemic.epistemic-substrate) ── *)
-evidence_for        = "EVIDENCE" "FOR" id ;
-contradicts         = "CONTRADICTS" id ;
-supported_by        = "SUPPORTED" "BY" id ;
-belief_asof         = "BELIEF" "AS" "OF" "@" num ;
-valid_asof           = "VALID" "AS" "OF" "@" num ;                  (* alias -> AsOf{Valid} *)
-source_reliability  = "SOURCE" "RELIABILITY" id ;
-confidence          = "CONFIDENCE" ;                                (* no argument         *)
-explain_belief      = "EXPLAIN" "BELIEF" id ;
+PENDING-GENERATION
+```
+<!-- END GENERATED: uql-grammar -->
+
+## Sources
+
+A source seeds the RowSet from nothing. Start every pipeline with one.
+
+| Clause | Op | Feature |
+|--------|-----|---------|
+| `MATCH (:Label)` | `Scan{label}` | — |
+| `MATCH ()` | `ScanAll{}` — every node of the (RLS-filtered) snapshot | — |
+| `MATCH (:Label) WHERE p` | `Scan` + `Filter` | — |
+| `FOREIGN 'name'` | `Foreign{name}` — a registered external source | — (resolve: `federation`) |
+| `FOREIGN SCAN 'name' [JOIN]` | `ForeignScan{Named}` | `federation` |
+| `FOREIGN HTTP 'url' [PATH 'p'] ID 'f' [SCORE 's'] [JOIN]` | `ForeignScan{HttpJson}` | `federation` |
+| `SPARQL 'select…' VAR 'x'` | `SparqlBgp{query,var}` | `owl` |
+| `TSSCAN ['cpu'] FROM 0 TO 3600` | `TsScan{series,from,to}` | `timeseries` |
+| `SENSOR FUSE ['imu','gps'] TOLERANCE 5000000` | `SensorFuse` (ns) | `timeseries` |
+| `SENSOR ALIGN ['imu' LINEAR, 'gps' NEAREST] CLOCK UNIFORM FROM 0 TO 1000 STEP 10` | `SensorAlign` (ns) | `timeseries` |
+| `SPATIAL SCAN 'roads' BBOX [0, 0, 10, 10]` | `SpatialScan{layer,bbox}` | `geo` |
+| `TENSOR SCAN 'frames'` | `TensorScan{layer}` | `tensor` |
+
+These also seed when they lead a pipeline, and narrow when they follow one: `WHERE`,
+`AS OF`, `VALID AS OF`, `REASON`, `EVIDENCE FOR`, `CONTRADICTS`, `SUPPORTED BY`,
+`EXPLAIN BELIEF`.
+
+A credential-bearing foreign source (a remote engine's shared secret, a SQL DSN) has **no**
+text spelling: register it with `RegisterForeignSource` and use `FOREIGN SCAN '<name>'`.
+`FOREIGN ENGINE …` / `FOREIGN SQL …` fail with `UQL_CREDENTIAL_BEARING_SPEC`.
+
+```uql
+MATCH () WHERE status IN ('open', 'new') |> LIMIT 20
 ```
 
 ## Stages
 
-### Source stages (seed the RowSet)
+### `WHERE` — relational filter (DataFusion)
 
-| Clause | Op | Feature | Meaning |
-|--------|-----|---------|---------|
-| `MATCH (:Label)` | `Scan{label}` | base | Seed every node whose `type == Label`. |
-| `MATCH (:Label) WHERE p…` | `Scan` + `Filter` | `query` | Inline `WHERE` is sugar for a following filter. |
-| `REASON <Class>` | `Reason{target_class}` | `owl` | Seed every individual the OWL 2 reasoner **infers** to be a member of `<Class>` — including those with no asserted type edge. |
-| `FOREIGN "<name>"` | `Foreign{name}` | base (resolve: `federation`) | Seed from a registered external source (remote engine / HTTP-JSON / SQL). |
+`WHERE pred` → `Filter{preds}`. A top-level `a AND b` is the filter's conjunct list; the
+predicate algebra:
 
-### Transform stages
+| Form | Pred |
+|------|------|
+| `x = 'str'` / `x = name` | `Eq` |
+| `x > 3` / `x < 3` | `GtNum` / `LtNum` |
+| `x = 3`, `x != 'a'`, `x <> TRUE`, `x >= 1.5`, `x <= -2` | `Cmp{op, value}` — a **typed** literal: numbers compare as numbers, booleans as booleans |
+| `x IN ('a', 2, TRUE)` / `x NOT IN (…)` / `x IN $list` | `In` / `Not{In}` |
+| `x BETWEEN 1 AND 5` / `x NOT BETWEEN …` | `Between` (inclusive) / `Not{Between}` |
+| `x IS NULL` / `x IS NOT NULL` | `IsNull` / `Not{IsNull}` |
+| `a OR b`, `NOT a`, `( … )` | `Or`, `Not`, grouping — `NOT` > `AND` > `OR` |
+| `$.a.b[0] EXISTS`, `$.tags = 'x'`, `$.meta @> JSON '{"k": 1}'`, `JSONPATH '$.a b' EXISTS` | `JsonPath` |
+| `SPATIAL WITHIN(geom, 'POLYGON(…)')`, `SPATIAL DWITHIN(geom, 'POINT(0 0)', 2.5)`, `CONTAINS`/`COVERS`/`TOUCHES`/`CROSSES`/`OVERLAPS`/`EQUALS`/`DISJOINT` | `Spatial*` (feature `geo`) |
 
-#### `WHERE` — relational filter (real DataFusion)
-`WHERE year > 2024 AND lang = 'en'` → `Filter{preds}` (feature `query`). Compiled to a SQL
-`WHERE` over the schema-on-read `nodes` provider and evaluated by DataFusion. When it follows
-a prior stage, it is pushed down as `id IN (…)` over just the current candidates. Predicates:
-`>` / `<` (numeric), `=` / `==` (string equality).
+Semantics are SQL's three-valued logic: a comparison with a missing property is *unknown*,
+and `NOT unknown` does not keep the row. `x = NULL` is refused (`UQL_NULL_LITERAL`) — use
+`IS NULL`. JSONPath and spatial predicates are evaluated per row; they may appear as
+top-level conjuncts but not under `OR`/`NOT`.
 
-#### `TRAVERSE` — graph hops (petgraph BFS)
-`TRAVERSE -[:CITES]->{1,2}` (or the bare-rel form `TRAVERSE CITES {1,2}`) → `Traverse{rel,min,max}`.
-Follows outgoing `rel` edges for `min..=max` hops. `{2}` means exactly 2; `{1,3}` means 1–3;
-omitted range means 1 hop. The relationship is matched against the edge's stored
-canonical `relationship` blob field (same as Cypher's `rel_matches`).
+```uql
+MATCH (:Doc)
+  |> WHERE (year >= 2020 AND lang = 'en') OR pinned = TRUE
+  |> WHERE rating BETWEEN 3 AND 5 AND author IS NOT NULL
+  |> LIMIT 10
+```
 
-#### `RANK BY` — vector re-rank
-`RANK BY ~[0.1,0.9,-0.3]` → `Rank{query}` (feature `query`). Re-orders the current candidates
-by cosine similarity to the inline literal query vector (kNN over the `SemanticStore`). The
-`~` sigil marks a vector; components may be **negative** (CONCEPT:EG-KG.compute.negative-vector-component-parses), matching the Rust
-builder / wire DTO.
+### `TRAVERSE` — graph hops
 
-**`RANK BY ~"some text"` — server-side NL→vector (CONCEPT:EG-KG.compute.no-embedder-bound-op).** A *quoted* rank ref now
-lowers to `RankEmbed{text}` and is **resolved at exec time by a server-side embedder** bound on
-the query context (`PlanCtx::with_embedder`) — the text is turned into a query vector and
-kNN-ranked exactly like a literal `~[…]`. The seam is closed: `~"…"` no longer errors when an
-embedder is bound. The engine stores embeddings but produces them client-side today, so **no
-in-process model ships by default** — with no embedder bound, `~"…"` is a *clear typed error*
-(not a panic), and the facade injection point (`run_unified` → `with_embedder`) is where a real
-embedding model is wired (opt-in deterministic `HashEmbedder` fallback via
-`EG_UQL_TEXT_EMBEDDER=hash`). A *bare-ident* handle (`~handle`) stays a reserved forward seam
-(no by-name embedding registry yet).
+| Form | Op |
+|------|-----|
+| `TRAVERSE -[:CITES]->{1,2}` / `TRAVERSE CITES{1,2}` | `Traverse` (outgoing) |
+| `TRAVERSE <-[:CITES]-{1,2}` | `Expand{dir: In}` |
+| `TRAVERSE -[:KNOWS]-{1,3}` | `Expand{dir: Both}` |
+| `TRAVERSE -[*]->` | `Expand{rel: None}` — any relationship |
+| `TRAVERSE -[:CITES WHERE weight >= 0.5]->{1,2}` | `Expand{edge_preds}` — predicates over the edge's properties |
 
-#### `TEXT` — lexical (BM25) re-rank
-`TEXT "graph database"` → `RankText{query}` (feature `text`). Re-orders candidates by BM25
-relevance to the query string over the lexical index. With no text index configured the
-result is empty (degrade, never error). Sibling of the vector `RANK BY`.
+`{n}` is exactly `n` hops, `{a,b}` / `{a..b}` a range, no range one hop. `Expand` reports each
+node once at its shortest hop distance, and `{0,n}` includes the seeds themselves. Every
+traversal is bounded by the plan's traversal budget (`UQL_BUDGET_EXCEEDED`).
 
-#### `FUSE` — N-way hybrid (reciprocal-rank fusion)
-`FUSE [ RANK BY ~[…] ] [ TEXT "…" ] [ RERANK NODE_DISTANCE FROM "x" ]` →
-`FuseRrf{branches,k:0.0}` (feature `text`, CONCEPT:AU-KG.compute.change-feed-subscription / EG-KG.compute.fuse-stage-now-dispatches — the UQL parser now
-dispatches `FUSE`, closing a surface asymmetry where RRF was builder/wire-only; `k=0.0` ⇒ the
-canonical `RRF_K` default). Runs each bracketed **sub-pipeline**
-over the *same* seed, then reciprocal-rank-fuses their ranked id lists into one result. RRF
-fuses the **ranks** (not the incomparable cosine/BM25/distance scores), so a node strong
-across *more* branches out-ranks one strong in only one — the property that makes the fused
-query beat any single modality alone. Generalized past two legs: any number of branches.
+```uql
+MATCH (:Paper) |> TRAVERSE <-[:CITES WHERE year > 2020]-{1,2} |> LIMIT 50
+```
 
-#### `RERANK` — graph-native + diversity rerankers (CONCEPT:EG-KG.query.uql-parser-ops / AU-KG.retrieval.mmr-diversification)
-Re-score the current candidates without leaving the engine:
+### Ranking
 
-| Clause | Op | Meaning |
+| Clause | Op | Feature |
 |--------|-----|---------|
-| `RERANK NODE_DISTANCE FROM <id>` | `RankNodeDistance{center}` | Inverse shortest-path hop distance from a focal node (`1/(1+hops)`; unreachable → 0). Proximity-to-`<id>` ranking. |
-| `RERANK MENTIONS` | `RankMentions{}` | Provenance salience: incoming-edge count, normalized to the set max. A node many things point at ranks higher. |
-| `RERANK MMR <lambda> <k>` | `RankMmr{lambda,k}` | Maximal Marginal Relevance: greedily trade relevance vs. cosine similarity to already-picked items, demoting near-duplicates. `lambda∈[0,1]` (1 = pure relevance, 0 = pure diversity); `k` caps how many to re-rank (0 = all). |
+| `RANK BY ~[0.1, -0.2]` / `RANK BY ~$vec` | `Rank{query}` | — |
+| `RANK BY ~'some text'` / `RANK BY ~$text` | `RankEmbed{text}` (server-side embedder) | — |
+| `TEXT 'graph databases'` | `RankText{query}` (BM25) | `text` |
+| `FUSE [K 60] [branch] [branch] …` | `FuseRrf{branches, k}` (`k` omitted ⇒ the RRF default) | `text` |
+| `RERANK NODE_DISTANCE FROM 'id'` / `RERANK MENTIONS` / `RERANK MMR 0.5 10` | graph-native / diversity rerankers | — |
+| `PROB EXPECTATION` / `PROB MARGINAL AT 0.5 [LABEL 'x']` / `PROB CONDITIONAL BERNOULLI 3 1` / `PROB CONDITIONAL GAUSSIAN [1, 2] VARIANCE 0.25` / `PROB SAMPLE SEED 7` | `Probabilistic{query}` | `probabilistic` |
 
-All three are dependency-free and run under the base `query` feature.
+A bare-name embedding handle (`RANK BY ~handle`) is a reserved seam and is refused.
 
-#### `AS OF` — bi-temporal point-in-time (CONCEPT:AU-KG.compute.kg-2)
-`AS OF @1700000000` → `AsOf{ts, axis=Valid}`. Drops every row **not live** at the unix-seconds
-instant `ts`, using a half-open window `[from, until)`:
+```uql
+MATCH (:Doc) |> FUSE K 60 [RANK BY ~[1, 0]] [TEXT 'graph'] [RERANK NODE_DISTANCE FROM 'kg-2.0'] |> LIMIT 5
+```
 
-- `AS OF @t` / `AS OF VALID @t` — **valid (event) time**: "what was **TRUE** at `t`" — filters
-  `valid_from`/`valid_until`.
-- `AS OF TX @t` — **transaction time**: "what we **BELIEVED** at `t`" — filters `tx_from`/`tx_to`.
+### Time
 
-Order-preserving: a `RANK …` then `AS OF` keeps the ranked survivors in rank order. When it is
-the first stage it acts as a source (every node live at `t`). Its implementation is
-dependency-light and available in the main build. The two axes give the headline bi-temporal pair in one grammar — see
-[Bi-temporal facts](architecture/engine.md).
+| Clause | Op |
+|--------|-----|
+| `AS OF @t` / `AS OF VALID @t` / `VALID AS OF @t` | `AsOf{axis: Valid}` — what was true at `t` |
+| `AS OF TX @t` | `AsOf{axis: Transaction}` — what we believed at `t` |
+| `WINDOW 1 h` | `Window{secs}` — tumbling mean |
+| `WINDOW 500 ms SUM` | `WindowAgg{secs, agg}` |
 
-#### `WINDOW` — tumbling time-series aggregate (CONCEPT:EG-KG.compute.tsscan-series-window-60s / EG-KG.compute.trailing-aggregate-selector-lowers)
-`WINDOW 1 h` (or `30 m`, `7 d`, bare seconds) → `Window{secs}` — a **real tumbling windowed
-aggregate** (no longer a passthrough). It **consumes** a RowSet of `(ts, value)` rows — e.g. the
-output of `TsScan` (`id` = point ts, `score` = value), or graph-node rows carrying `valid_from`
-+ a numeric `value`/`score` — and **produces** one row per non-empty window bucket
-(`id` = the aligned bucket start, `score` = the aggregate), via eg-tsdb's `time_bucket`
-primitive. The result composes cleanly downstream (→ `RANK`, `LIMIT`). Wired under the
-`timeseries` feature; without it the op keeps the RowSet-preserving passthrough.
+`t` is unix seconds, may be negative, or a `$param`. Units: `ns`, `us`, `ms`, `s`, `m`/`min`,
+`h`, `d`; aggregates `MEAN`/`AVG`, `SUM`, `MIN`, `MAX`, `COUNT`, `FIRST`, `LAST`. The unit is
+read before the aggregate, so `WINDOW 30 min` is thirty minutes.
 
-`WINDOW 60 s SUM` → `WindowAgg{secs,agg}` (CONCEPT:EG-KG.compute.trailing-aggregate-selector-lowers) selects the aggregate: one of
-`mean`/`avg`, `sum`, `min`, `max`, `count`, `first`, `last` (unknown ⇒ `mean`). The unit is
-matched before the aggregate, so `WINDOW 30 min` is 30 **minutes**; write `WINDOW 30 s min` for
-a 30-second min-aggregate. Canonical example — downsample a series and rerank:
-`… |> TsScan("cpu", 0, 3600) |> WINDOW 60 s MEAN |> RANK BY ~[…] |> LIMIT 10`.
+```uql
+TSSCAN ['cpu', 'mem'] FROM 0 TO 3600 |> WINDOW 60 s MEAN |> LIMIT 60
+```
 
-#### `LIMIT`
-`LIMIT 10` → `Limit{k}`. Order-respecting top-k.
+### Reasoning and epistemic stages
 
-#### Epistemic — belief, evidence & justification (CONCEPT:EG-KG.epistemic.epistemic-substrate, E2)
-Claims/Evidence/Sources are ordinary `type`-tagged nodes; SUPPORTS/CONTRADICTS/ATTACKS
-edges (classified from canonical `relationship` — `SUPPORTS`/`SUPPORTS_BELIEF`/`HAS_EVIDENCE`/
-`CORROBORATES`, `CONTRADICTS`/`CONTRADICTS_BELIEF`/`REFUTES`, `ATTACKS`/`DEFEATS`/
-`UNDERCUTS`) are the evidence graph the confidence-propagation walk runs over (a bounded,
-cycle-guarded conjugate Bayesian update, `eg-epistemic`). Feature `epistemic`.
-
-| Clause | Op | Meaning |
+| Clause | Op | Feature |
 |--------|-----|---------|
-| `EVIDENCE FOR <id>` | `EvidenceFor{claim_id}` | Seed/filter to the nodes with an INCOMING support edge into `<id>`. |
-| `CONTRADICTS <id>` | `Contradicts{node_id}` | Seed/filter to the nodes with an INCOMING contradiction OR attack edge into `<id>` (an attack is a stronger contradiction). |
-| `SUPPORTED BY <id>` | `SupportedBy{node_id}` | The mirror of `EVIDENCE FOR`: the claims `<id>` itself supports (OUTGOING support edges). |
-| `CONFIDENCE` | `ConfidenceOp{}` | Re-score EACH row in the current set by its OWN propagated belief confidence, ranked descending. No argument. |
-| `SOURCE RELIABILITY <id>` | `SourceReliability{source_id}` | Re-weight every row currently in the set by `<id>`'s propagated reliability — a uniform scalar discount. |
-| `BELIEF AS OF <ts>` | `BeliefAsOf{ts}` | Pin the TRANSACTION-time axis (what the engine BELIEVED at `ts`) then re-score by propagated confidence AT that instant. |
-| `VALID AS OF <ts>` | `AsOf{ts,axis:Valid}` | A pure ALIAS for the bare `AS OF @ts` / `AS OF VALID @ts` forms — no belief propagation, just the world-truth axis. |
-| `EXPLAIN BELIEF <id>` | `ExplainBelief{node_id}` | Build the recursive justification tree rooted at `<id>` and flatten it (pre-order, deduped) to scored rows — the queryable projection of `eg_epistemic::explain_belief`. |
+| `REASON <http://ex/Device> [ONTOLOGY '<turtle>']` | `Reason{target_class, ontology}` | `owl` |
+| `EVIDENCE FOR 'c1'`, `CONTRADICTS 'c1'`, `SUPPORTED BY 'c1'` | evidence graph | `epistemic` |
+| `BELIEF AS OF @t`, `SOURCE RELIABILITY 's1'`, `CONFIDENCE`, `EXPLAIN BELIEF 'c1'` | belief scoring | `epistemic` |
 
-`BELIEF AS OF` vs `VALID AS OF` is the headline bi-temporal-meets-epistemic distinction:
-a fact can be **true** (`valid_from`) long before the engine **believed**/recorded it
-(`tx_from`) — `VALID AS OF` answers "what was true", `BELIEF AS OF` answers "what did we
-believe, and how confident were we" at a given instant. `VALID AS OF` never changes what
-the bare `AS OF @ts` form parses to — it is a strict-superset alias, not a new Op.
+```uql
+MATCH (:Claim) |> EVIDENCE FOR 'c1' |> BELIEF AS OF @1700000000 |> LIMIT 10
+```
 
-Composable example — the evidence for a claim, discounted by BELIEF-time confidence:
-`MATCH (:Claim) |> EVIDENCE FOR "c1" |> BELIEF AS OF @1700000000 |> LIMIT 10`.
+### Modality stages
 
-## Composition, sources & commutativity (the empty ⇒ source rule)
+| Clause | Op | Feature |
+|--------|-----|---------|
+| `UDF 'score-v2'` | `Udf{id}` (sandboxed WASM) | `wasm-udf` |
+| `REPROJECT TO 3857 [FROM 4326]` | `Reproject` | `geo` |
+| `SPATIAL BUFFER 2.5` / `CONVEX_HULL` / `SIMPLIFY 0.1` / `CENTROID` / `UNION 'wkt'` / `INTERSECTION 'wkt'` / `DIFFERENCE 'wkt'` | `SpatialOp` | `geo` |
+| `TENSOR SLICE [0:2, 1:4]` / `TENSOR REDUCE MEAN AXIS 0` / `TENSOR ADD 1.5` (`SUB`/`MUL`/`DIV`) | `TensorOp` | `tensor` |
+| `CEP SEQ ({KEY 'trade' WHERE qty > 100}, {KEY 'cancel'}) WINDOW SLIDING 60` | `Cep` | `stream` |
+| `CEP WITHIN 30 (SEQ (…)) WINDOW TUMBLING 60`, `CEP ABSENCE {…} THEN NOT {…} WITHIN 10 WINDOW SLIDING 60` | `Cep` | `stream` |
 
-UQL ops compose as a left-to-right fold over one RowSet, but composition is **deliberately
-not freely commutative**. The rule is: **an op fed an EMPTY RowSet acts as a SOURCE** — a
-`WHERE` / `AS OF` / `REASON` (and the rank leaves) with no surviving input re-seeds from the
-whole snapshot instead of staying empty. This is what lets a **bare** op be a leaf source: a
-query may start with `AS OF @t` (every node live at `t`), `REASON <Class>` (every inferred
-member), or `TEXT "q"` (every lexical hit) with no upstream `MATCH`. It is **intended
-semantics, not a bug** (EG-405 / `EG-KG.query.empty-set-commutativity`).
+```uql
+SPATIAL SCAN 'roads' BBOX [0, 0, 10, 10] |> SPATIAL BUFFER 2.5 |> REPROJECT TO 3857
+```
 
-Consequence for reordering: two narrowers do **not** commute when the first empties the set.
-Over the Event fixture at `ts=100`, `WHERE level>9` (which matches nothing) `|> AS OF @100`
-yields `[e1]` (the empty filter output makes `AS OF` a source), while `AS OF @100 |> WHERE
-level>9` yields `[]`. The algebraic commute law therefore holds **only in the non-emptying
-regime**. The cost optimizer respects this precisely: it reorders **only** an adjacent
-*narrower-vs-`RANK`* pair whose input comes from a source and where **both** candidate
-intermediates stay ≥ 1 row — never *narrower-vs-narrower* (the exact EG-405 witness), so no
-rewrite can silently flip an op's source-vs-filter role. The witnesses
-`plan_proptest::empty_intermediate_reseeds_source_breaks_commute` (the break) and
-`filter_and_asof_commute_in_nonempty_regime` (the law when non-empty) are the **spec**: a
-change to this behavior must update them and the `docs/north_star.md` row.
+### `LIMIT`
 
-`REASON` confidence is **decay-neutral by default** (a bare `REASON` is a stable, deterministic
-leaf). A server/facade may bind a `(now, half_life)` decay context onto the plan context
-(`PlanCtx::with_decay`, `EG-KG.query.reason-decay-in-plan`) so `REASON` membership confidence is
-Ebbinghaus-decayed **in-plan** and composes alongside `AS OF` in one fused pipeline.
+`LIMIT 10` / `LIMIT $k` → `Limit{k}`. Order-respecting top-k.
 
-## Op mapping (cheat sheet)
+### `RETURN` — score channels
 
-| UQL | `wire::Op` |
-|-----|-----------|
-| `MATCH (:Doc)` | `Scan{label:"Doc"}` |
-| `WHERE year > 2024 AND lang = 'en'` | `Filter{preds:[GtNum, Eq]}` |
-| `TRAVERSE -[:CITES]->{1,2}` | `Traverse{rel:"CITES",min:1,max:2}` |
-| `RANK BY ~[1.0,-0.5]` | `Rank{query:[1.0,-0.5]}` |
-| `RANK BY ~"some text"` | `RankEmbed{text:"some text"}` |
-| `TEXT "graphs"` | `RankText{query:"graphs"}` |
-| `FUSE [RANK BY ~[1,0]] [TEXT "q"]` | `FuseRrf{branches:[..],k:0.0}` |
-| `RERANK NODE_DISTANCE FROM "n1"` | `RankNodeDistance{center:"n1"}` |
-| `RERANK MENTIONS` | `RankMentions{}` |
-| `RERANK MMR 0.5 10` | `RankMmr{lambda:0.5,k:10}` |
-| `AS OF @t` / `AS OF TX @t` | `AsOf{ts:t,axis:Valid|Transaction}` |
-| `VALID AS OF @t` | `AsOf{ts:t,axis:Valid}` (ALIAS) |
-| `WINDOW 1 h` | `Window{secs:3600}` |
-| `WINDOW 60 s SUM` | `WindowAgg{secs:60,agg:"sum"}` |
-| `FOREIGN "peer"` | `Foreign{name:"peer"}` |
-| `REASON Mammal` | `Reason{target_class:"Mammal"}` |
-| `EVIDENCE FOR "c1"` | `EvidenceFor{claim_id:"c1"}` |
-| `CONTRADICTS "c1"` | `Contradicts{node_id:"c1"}` |
-| `SUPPORTED BY "c1"` | `SupportedBy{node_id:"c1"}` |
-| `BELIEF AS OF @100` | `BeliefAsOf{ts:100.0}` |
-| `SOURCE RELIABILITY "s1"` | `SourceReliability{source_id:"s1"}` |
-| `CONFIDENCE` | `ConfidenceOp{}` |
-| `EXPLAIN BELIEF "c1"` | `ExplainBelief{node_id:"c1"}` |
-| `LIMIT 10` | `Limit{k:10}` |
+`RETURN similarity, belief` → `Project{channels}`. Every scoring stage records its score under
+a named channel as well as in `score`, so the results of several scoring stages coexist
+instead of the last one overwriting the others. The served result carries the named channels
+per row (see [Running a query](#running-a-query)).
+
+## Parameters
+
+`$name` is a typed parameter. Values are bound **as values** at the literal position that uses
+them — a string, number, boolean, vector (`RANK BY ~$v`) or list (`x IN $ids`) — and never
+spliced into the text, so a parameter can never change a query's structure. Binding the wrong
+type (`UQL_PARAMETER_TYPE`), leaving one unbound (`UQL_UNBOUND_PARAMETER`) or binding one the
+query never references (`UQL_UNUSED_PARAMETER`) is an error.
+
+```text
+MATCH (:Doc) WHERE year >= $min AND lang = $lang |> RANK BY ~$v |> LIMIT $k
+```
+
+## Programs: named sub-plans and DAGs
+
+`LET name = pipeline;` names a sub-plan. `FROM name` continues from a binding's output and
+`JOIN a, b |> stage` feeds the intersection of several outputs into one stage — the program
+becomes a `PlanDag` (the executor's multi-input nodes intersect their inputs). `FUSE (a, b)`
+inlines bindings as RRF branches. Bindings must be defined before use and must be used.
+
+```uql
+LET recent = MATCH (:Doc) WHERE year > 2020;
+LET cited  = FROM recent |> TRAVERSE -[:CITES]->;
+JOIN recent, cited |> LIMIT 10
+```
+
+A statement may start with a version pragma, `UQL 1;`, and with `EXPLAIN` (plan, cost and
+incremental-maintainability, no execution) or `PROFILE` (execute and report per-stage rows
+and time).
+
+```uql
+UQL 1; EXPLAIN MATCH (:Doc) WHERE year > 2024 |> TRAVERSE -[:CITES]-> |> LIMIT 10
+```
+
+## Feature gating
+
+One rule for every clause: the parser **recognizes** every keyword in every build, and a clause
+whose executor needs a cargo feature the build lacks is refused **at parse time** with
+`UQL_FEATURE_NOT_IN_BUILD` naming the feature. `VALID AS OF` lowers to the always-available
+`AsOf` and is available everywhere.
+
+## Diagnostics
+
+Every error has a stable code (`UQL_UNEXPECTED_TOKEN`, `UQL_UNKNOWN_STAGE`,
+`UQL_EXPECTED_INTEGER`, `UQL_NESTING_TOO_DEEP`, `UQL_UNBOUND_PARAMETER`,
+`UQL_FEATURE_NOT_IN_BUILD`, …), a byte span, the set of spellings that would have been
+accepted, and — where one is known — a fix. Rendered, the caret sits under the exact span on
+the right line:
+
+```text
+UQL_UNEXPECTED_TOKEN at 2:12: expected a LIMIT count (an integer), found `)`
+  2 |   |> LIMIT )
+    |            ^
+```
+
+A transform at the head of a pipeline parses but warns
+(`UQL_W_HEAD_TRANSFORM_YIELDS_EMPTY`): it runs over an empty RowSet.
+
+## Composition, sources & commutativity
+
+At runtime some operators re-seed when their input is empty (`WHERE`, `AS OF`, `REASON` and the
+epistemic stages act as sources on an empty RowSet); that is why they are listed as
+source-capable above. It is an executor property, not something to lean on: two narrowers do
+not commute when the first empties the set (`WHERE level > 9 |> AS OF @100` re-seeds;
+`AS OF @100 |> WHERE level > 9` stays empty), and the cost optimizer never reorders across that
+boundary (EG-405, `EG-KG.query.empty-set-commutativity`; the witnesses
+`plan_proptest::empty_intermediate_reseeds_source_breaks_commute` and
+`filter_and_asof_commute_in_nonempty_regime` are the spec). Start pipelines with an explicit
+source.
+
+## Bounds and read-only guarantee
+
+Every plan runs under a budget: at most `max_result_rows` rows (default 100 000) and at most
+`max_traversal_visits` nodes per traversal (default 1 000 000). Exceeding one fails with
+`UQL_BUDGET_EXCEEDED` naming the budget — never a silent truncation. UQL is **read-only**: no
+operator writes graph state (a test asserts every `Op` is classified read-only).
 
 ## Running a query
 
-**Python client** (the front-end over `unified`):
+**Python client**:
 
 ```python
-import os
-
-from epistemic_graph.client import EpistemicGraphClient
-
-context = {
-    "principal": "service:client",
-    "tenant": "tenant:default",
-    "audience": "epistemic-graph",
-    "agent_id": "service:client",
-    "roles": ["graph-client"],
-    "scopes": ["kg:read"],
-    "policy_version": "policy:initial",
-    "delegation": [],
-}
-c = await EpistemicGraphClient.connect(
-    socket_path=os.environ["GRAPH_SERVICE_SOCKET"],
-    graph_name="__commons__",
-    verified_context=context,
+rows = await client.uql(
+    "MATCH (:Concept) WHERE year >= $min |> RERANK MMR 0.5 5 |> LIMIT $k",
+    params={"min": 2020, "k": 5},
 )
-rows = await c.query.uql("MATCH (:Concept) |> AS OF @1700000000 |> RERANK MMR 0.5 5 |> LIMIT 5")
 ```
 
 **MCP / REST** — the served `graph_query` / `graph_search` surfaces accept UQL through the same
-`unified` core, so an agent runs UQL with no extra wiring.
+`unified` core.
 
 ## Gotchas
 
-- **Quote ids that contain `-`, `.`, `:` or `@`.** The lexer tokenizes `-` as its own symbol,
-  so `RERANK NODE_DISTANCE FROM kg-2.0` parses `kg` then a stray `-` and errors with
-  *"unexpected trailing tokens, found `-`"*. Quote it: `RERANK NODE_DISTANCE FROM "kg-2.0"`.
-  Concept ids, namespaced labels, and timestamps-as-ids all need quoting.
-- **`AS OF` windows are half-open `[from, until)`, in unix seconds.** `AS OF @200` excludes a
-  fact whose `valid_until == 200`. A missing `valid_from` reads as "has always been" (0); a
-  missing `valid_until` reads as "still current".
-- **`FUSE` fuses ranks, not scores** — don't expect the fused score to be a blend of cosine and
-  BM25; it is `Σ 1/(k+rank)` across branches (`k=60` by convention; `0` ⇒ that default).
-- **A bad `RERANK` mode errors with a help string** listing the valid forms — that is the parser
-  validating, not a bug.
-- **Feature gating is on *execution*, not parsing.** A build without `text` parses `FUSE`/`TEXT`
-  but errors at run time ("not in this build"); the dep-free stages (`AS OF`, `RERANK`,
-  `TRAVERSE`, `WHERE`) run everywhere `query` is on.
-- **`VALID AS OF` is parsing sugar, not a new op.** It always lowers to the SAME `Op::AsOf{axis:
-  Valid}` the bare `AS OF @ts` form produces — it exists so the epistemic vocabulary reads
-  symmetrically alongside `BELIEF AS OF`, not because the underlying op differs.
+- **Quote ids.** An id with `-`, `.`, `:` or `@` must be a string: `RERANK NODE_DISTANCE FROM 'kg-2.0'`.
+- **`AS OF` windows are half-open `[from, until)`, in unix seconds.** A missing `valid_from`
+  reads as 0; a missing `valid_until` as still current.
+- **`FUSE` fuses ranks, not scores** — the fused score is `Σ 1/(k+rank)` across branches.
+- **`x = 3` is numeric.** A number compares as a number; write `x = '3'` for a string compare.
 
 ## See also
 
 - [Engine architecture](architecture/engine.md) — the plan executor, bi-temporal model, tiers.
-- [Concepts](concepts.md) — `AU-KG.compute.vector` (fused executor), `AU-KG.query.top-nodes-by-degree` (UQL), `AU-KG.compute.kg-2` (bi-temporal
-  `AS OF`), `KG-2.253` (N-way FUSE), `EG-KG.query.uql-parser-ops/2.255` (graph-native + MMR rerankers).
-- The authoritative grammar lives in `crates/eg-plan/src/uql/parser.rs` (kept in lockstep with
-  this page); the op algebra in `crates/eg-types/src/wire.rs`.
+- [Concepts](concepts.md) — `AU-KG.compute.vector` (fused executor), `AU-KG.query.top-nodes-by-degree` (UQL).
+- The grammar lives in `crates/eg-plan/src/uql/grammar.rs`; the printer in
+  `crates/eg-types/src/wire_query_uql.rs`; the op algebra in `crates/eg-types/src/wire_query_core.rs`.

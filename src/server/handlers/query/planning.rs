@@ -83,7 +83,13 @@ pub(crate) fn plan_dependency_set(plan: &eg_plan::Plan) -> Option<eg_core::dep_s
                     dims.push(Dim::Label(label.clone()));
                 }
             }
-            eg_plan::Op::Filter { .. } | eg_plan::Op::Limit { .. } => {}
+            eg_plan::Op::ScanAll {} => {
+                has_source = true;
+                dims.push(Dim::AllNodes);
+            }
+            eg_plan::Op::Filter { .. }
+            | eg_plan::Op::Limit { .. }
+            | eg_plan::Op::Project { .. } => {}
             // Any op reading state outside the dependency clock's model ⇒ coarse fallback.
             _ => return None,
         }

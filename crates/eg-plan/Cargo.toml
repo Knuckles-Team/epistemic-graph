@@ -422,7 +422,7 @@ eg-tsdb = { path = "../eg-tsdb", features = ["dev-scope-grant"] }
 # its regular deps). eg-core builds the GraphCore/SemanticStore fixtures; eg-types names
 # the `TimeAxis` the `AsOf` builder needs; serde_json/rmp-serde encode node blobs.
 eg-core = { path = "../eg-core" }
-eg-types = { path = "../eg-types", features = ["query"] }
+eg-types = { path = "../eg-types", features = ["query", "test-support"] }
 serde_json = "1.0"
 rmp-serde = "1.3"
 # `federation_tests`' env-serialization token. A lock that guards `()` has no state a
