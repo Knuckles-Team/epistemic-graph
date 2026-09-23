@@ -236,15 +236,26 @@ fn a_weather_event_occurs_in_a_weather_system_and_its_region() {
     assert!(materialized().holds(&kg("occursIn"), &[STORM, BAVARIA]));
 }
 
+/// A taxon (a GDC) can never be an organism (an IC): the core
+/// `AllDisjointClasses(IC, GDC, Process, TemporalRegion)` makes their intersection
+/// unsatisfiable. Checked on the EL⁺/RL classification, which expands the n-ary
+/// disjointness; the tableau does not read `owl:AllDisjointClasses` (reported to the
+/// eg-rdf owner, see the lane WRAPUP), so an ABox-level check would pass vacuously.
 #[test]
 fn a_taxon_is_never_an_organism() {
     let mut triples = wired_with_fixture();
     triples.extend(parse_scoped(
-        "@prefix : <http://knuckles.team/kg#> . <http://example.org/world#vulpes> a :Organism .",
+        "@prefix : <http://knuckles.team/kg#> . \
+         @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> . \
+         <http://example.org/world#TaxonOrganism> rdfs:subClassOf :Taxon, :Organism .",
         "clash",
     ));
-    let dl = eg_rdf::tableau::parse_dl_ontology(&triples);
-    assert!(!eg_rdf::tableau::is_consistent(&dl));
+    let classification = eg_rdf::owl::Reasoner::from_triples(&triples).classify();
+    assert!(classification
+        .unsatisfiable
+        .contains("<http://example.org/world#TaxonOrganism>"));
+    assert!(!classification.unsatisfiable.contains(&kg("Taxon")));
+    assert!(!classification.unsatisfiable.contains(&kg("Organism")));
 }
 
 /// Mappings, not imports: every native class the module declares carries at least
