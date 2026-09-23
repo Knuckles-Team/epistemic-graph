@@ -28,6 +28,8 @@ use crate::server::state::ServerState;
 
 mod admin;
 mod content_model;
+#[cfg(all(feature = "owl", feature = "shacl"))]
+mod ontology;
 #[cfg(feature = "shacl")]
 mod outbox;
 
@@ -135,11 +137,7 @@ impl Served {
     /// Upload `archive` through the Blob CAS and return its blob digest.
     pub(super) async fn upload(&self, archive: &[u8]) -> String {
         // One identity per upload: re-uploading the same bytes is a new cursor.
-        let tag = format!(
-            "{}:{}",
-            hex::encode(Sha256::digest(archive)),
-            next_id()
-        );
+        let tag = format!("{}:{}", hex::encode(Sha256::digest(archive)), next_id());
         let cursor: u64 = ok(
             "BlobBegin",
             self.call(
