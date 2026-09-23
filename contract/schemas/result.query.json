@@ -195,6 +195,75 @@
         }
       ]
     },
+    "AbstentionResolution": {
+      "additionalProperties": false,
+      "description": "One resolution of a logged abstention: the option the escalation chose.\nThe option must be one the abstained record already held, so a\nresolution can never introduce an option the decision did not have.",
+      "properties": {
+        "option_id": {
+          "type": "string"
+        },
+        "record_id": {
+          "type": "string"
+        },
+        "resolution_id": {
+          "type": "string"
+        },
+        "resolver": {
+          "$ref": "#/$defs/AbstentionResolver"
+        }
+      },
+      "required": [
+        "record_id",
+        "resolution_id",
+        "option_id",
+        "resolver"
+      ],
+      "type": "object"
+    },
+    "AbstentionResolver": {
+      "description": "Who resolved an abstention (EH-037, §6.4 \"abstentions as labels\").",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The verified caller, a human, resolved it: a gold-label candidate\n(observation class).",
+          "properties": {
+            "resolver": {
+              "const": "human",
+              "type": "string"
+            }
+          },
+          "required": [
+            "resolver"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A model proposed the option: a CLAIM with unknown propensity, never a\ncalibration or off-policy label; at most a candidate for human review.",
+          "properties": {
+            "producer": {
+              "type": "string"
+            },
+            "prompt_digest": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "resolver": {
+              "const": "model",
+              "type": "string"
+            }
+          },
+          "required": [
+            "resolver",
+            "producer"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "AgentComponentContentRequest": {
       "additionalProperties": false,
       "description": "Read one component revision's bytes.",
@@ -2997,6 +3066,27 @@
       "maxItems": 32,
       "type": "array"
     },
+    "BoundedVec_DeclaredNumber_32": {
+      "items": {
+        "$ref": "#/$defs/DeclaredNumber"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "BoundedVec_DeclaredOption_64": {
+      "items": {
+        "$ref": "#/$defs/DeclaredOption"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
+    "BoundedVec_DeclaredText_8": {
+      "items": {
+        "$ref": "#/$defs/DeclaredText"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
     "BoundedVec_DerivationEdge_16": {
       "items": {
         "$ref": "#/$defs/DerivationEdge"
@@ -3452,6 +3542,24 @@
             "plan"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The caller's own options, each fact a claim the caller makes\n([`declared`]). Visible to the declaring principal only.",
+          "properties": {
+            "options": {
+              "$ref": "#/$defs/BoundedVec_DeclaredOption_64"
+            },
+            "source": {
+              "const": "declared",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "options"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -3498,6 +3606,24 @@
           "required": [
             "source",
             "plan_digest"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Options the caller declared, pinned by the digest of the declaration.",
+          "properties": {
+            "options_digest": {
+              "type": "string"
+            },
+            "source": {
+              "const": "declared",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "options_digest"
           ],
           "type": "object"
         }
@@ -6564,6 +6690,28 @@
             "record_id"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Record how an escalation resolved one logged abstention (EH-037).",
+          "properties": {
+            "op": {
+              "const": "resolve",
+              "type": "string"
+            },
+            "resolution": {
+              "$ref": "#/$defs/AbstentionResolution"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "resolution"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -6950,6 +7098,69 @@
       "required": [
         "p50_ms",
         "p95_ms"
+      ],
+      "type": "object"
+    },
+    "DeclaredNumber": {
+      "additionalProperties": false,
+      "description": "One named numeric fact of a declared option, already on the `Q32` scale.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "q32": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "key",
+        "q32"
+      ],
+      "type": "object"
+    },
+    "DeclaredOption": {
+      "additionalProperties": false,
+      "description": "One option a caller declares.",
+      "properties": {
+        "classification": {
+          "$ref": "#/$defs/BoundedVec_string_16",
+          "default": [],
+          "description": "Native capability IRIs the option claims; read by `CoverageFraction`."
+        },
+        "numbers": {
+          "$ref": "#/$defs/BoundedVec_DeclaredNumber_32",
+          "default": [],
+          "description": "Sorted by key and unique."
+        },
+        "option_id": {
+          "type": "string"
+        },
+        "texts": {
+          "$ref": "#/$defs/BoundedVec_DeclaredText_8",
+          "default": [],
+          "description": "Sorted by key and unique."
+        }
+      },
+      "required": [
+        "option_id"
+      ],
+      "type": "object"
+    },
+    "DeclaredText": {
+      "additionalProperties": false,
+      "description": "One named text field of a declared option.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "text"
       ],
       "type": "object"
     },
