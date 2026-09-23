@@ -52,7 +52,12 @@ fn classify(components: &[(&str, &AgentComponentFacts)]) -> CapabilityClassifica
             facts: *facts,
         })
         .collect();
-    classify_components(&profiled, &Ontology::default(), &RuleSet::new())
+    classify_components(
+        &profiled,
+        &ClassificationPolicy::default(),
+        &Ontology::default(),
+        &RuleSet::new(),
+    )
 }
 
 #[test]
@@ -130,7 +135,12 @@ fn a_caller_rule_extends_the_classification_in_the_same_fixpoint() {
         component_id: "model:m",
         facts: &facts,
     }];
-    let out = classify_components(&profiled, &Ontology::default(), &extra);
+    let out = classify_components(
+        &profiled,
+        &ClassificationPolicy::default(),
+        &Ontology::default(),
+        &extra,
+    );
     let derived = out.components["model:m"]
         .iter()
         .find(|c| c.class == "example:multimodal-analyst")
@@ -173,11 +183,48 @@ fn measured_latency_opaque_and_toolset_components_project_their_own_atoms() {
 
 #[test]
 fn every_builtin_rule_names_a_distinct_rule() {
-    let rules = builtin_classification_rules();
+    let rules = builtin_classification_rules(&ClassificationPolicy::default());
     let mut names = rules.names();
     let total = names.len();
     names.sort();
     names.dedup();
     assert_eq!(names.len(), total);
     assert!(total > DERIVATION_RULES.len());
+}
+
+/// The thresholds are policy inputs: a stricter policy drops a class the defaults
+/// derive, a looser one adds a class the defaults do not.
+#[test]
+fn a_non_default_policy_changes_the_classification() {
+    let facts = model(200_000, false, &["eg:modality/text"]);
+    let profiled = [ProfiledComponent {
+        component_id: "model:m",
+        facts: &facts,
+    }];
+    let run = |policy: ClassificationPolicy| {
+        classify_components(&profiled, &policy, &Ontology::default(), &RuleSet::new())
+    };
+    let defaults = run(ClassificationPolicy::default());
+    assert!(defaults.has_class("model:m", "eg:profile/long-context"));
+    assert!(defaults.has_class("model:m", "eg:profile/low-latency"));
+    let strict = run(ClassificationPolicy {
+        long_context_tokens: 1_000_000,
+        low_latency_p95_ms: 500,
+    });
+    assert!(!strict.has_class("model:m", "eg:profile/long-context"));
+    assert!(!strict.has_class("model:m", "eg:profile/low-latency"));
+    let small = model(8_000, false, &["eg:modality/text"]);
+    let loose = classify_components(
+        &[ProfiledComponent {
+            component_id: "model:s",
+            facts: &small,
+        }],
+        &ClassificationPolicy {
+            long_context_tokens: 4_000,
+            ..ClassificationPolicy::default()
+        },
+        &Ontology::default(),
+        &RuleSet::new(),
+    );
+    assert!(loose.has_class("model:s", "eg:profile/long-context"));
 }
