@@ -7,9 +7,10 @@
 //! either one scope or scopes whose rows were separate files.
 //!
 //! A shard is the first layout where one physical file holds many tenants'
-//! owner rows: 42 of its 53 tables lead their key with the graph name and 11
-//! belong to the file itself (Raft log and meta, the cross-shard 2PC records,
-//! the matview and canary rows, the series key spaces). Without an attribute
+//! owner rows: 41 of its 54 tables lead their key with the graph name and 13
+//! belong to the file itself (the graph catalog, Raft log and meta, the
+//! cross-shard 2PC records, the matview, canary and scrub-cursor rows, the
+//! series key spaces). Without an attribute
 //! saying which is which, "no member may reach another member's rows"
 //! (RF-RULING-008) is unenforceable for owner rows, and any graph bound to a
 //! shard can write the Raft log.

@@ -663,6 +663,21 @@ pub(super) async fn provenance_anchor_tick(state: SharedState) {
     }
 }
 
+#[cfg(feature = "redb")]
+pub(super) async fn storage_scrub_tick(state: SharedState) {
+    let Some(persistence) = state.read().await.persistence.clone() else {
+        return;
+    };
+    match server::persistence::storage_scrub::run_step(persistence.as_ref()).await {
+        Ok(0) => {}
+        Ok(found) => tracing::error!(
+            "Storage scrub: {} unreadable node row(s) found this pass (named above)",
+            found
+        ),
+        Err(error) => tracing::warn!(%error, "storage scrub: pass failed; will retry next tick"),
+    }
+}
+
 pub(super) async fn txn_ttl_tick(state: SharedState, ttl: u64) {
     let now = server::txn::now_ms();
     let reclaimed = server::txn::sweep_expired_txns(&state, ttl, now);

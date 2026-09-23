@@ -168,14 +168,9 @@ impl RedbBackend {
         } else {
             None
         };
-        let tx = self.shard_for(graph_fname).tx.clone();
-        tokio::task::spawn_blocking(move || {
-            let _routing = routing;
-            tx.send(cmd).map_err(|_| ())
-        })
-        .await
-        .map_err(|error| format!("{what} join error: {error}"))?
-        .map_err(|_| "redb writer thread is gone".to_string())
+        self.shard_for(graph_fname)
+            .send_off_reactor(routing, cmd, what)
+            .await
     }
 
     /// Run one typed MVCC read on Tokio's blocking pool. Redb snapshot reads
@@ -204,23 +199,9 @@ impl RedbBackend {
         } else {
             None
         };
-        let writer = self.shard_for(graph_fname);
-        let shard = writer
-            .shard
-            .upgrade()
-            .ok_or_else(|| "redb writer thread is gone".to_string())?;
-        #[cfg(feature = "security")]
-        let cipher = writer.cipher.clone();
-        tokio::task::spawn_blocking(move || {
-            let _routing_guard = routing_guard;
-            #[cfg(feature = "security")]
-            let crypto = crate::redb_store::DurableCrypto::new(cipher.as_ref());
-            #[cfg(not(feature = "security"))]
-            let crypto = crate::redb_store::DurableCrypto::none();
-            read(shard.as_ref(), crypto)
-        })
-        .await
-        .map_err(|error| format!("redb snapshot read join error: {error}"))?
+        self.shard_for(graph_fname)
+            .read_off_writer(routing_guard, read)
+            .await
     }
 }
 

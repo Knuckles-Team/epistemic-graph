@@ -93,6 +93,7 @@ Every listener is opt-in (feature **and** address must be set). Full connect exa
 | Var | Effect |
 |-----|--------|
 | `EPISTEMIC_GRAPH_REDB_GROUP_LINGER_US` / `…_REDB_GROUP_SHALLOW` | Group-commit micro-linger window / shallow batch (EG-024). |
+| `EPISTEMIC_GRAPH_STORAGE_SCRUB_SECS` / `…_STORAGE_SCRUB_ROWS` | Background node-payload scrub (EH-384): seconds between passes (default `300`, `0` = off) / node payloads one pass opens per shard (default `4096`). Read-only MVCC walk with a durable resume cursor; each unreadable row is logged by graph and node id and counted on `epistemic_graph_storage_scrub_unreadable_total{cause}`. |
 | `EPISTEMIC_GRAPH_REDB_FLUSH_THRESHOLD` / `…_REDB_SHARDS` | redb flush threshold / shard count. Every K uses `graph-<n>.redb`; K=1 is `graph-0.redb`. |
 | `EPISTEMIC_GRAPH_MAX_INFLIGHT` / `…_MAX_INFLIGHT_PER_GRAPH` | Admission control / back-pressure. |
 | `EPISTEMIC_GRAPH_READ_RESERVED` | Reserved read-admission lane (EG-KG.coordination.reserved-read-lane) — keep reads fast under a write firehose. |

@@ -138,6 +138,11 @@ pub mod provenance_anchor;
 #[cfg(feature = "redb")]
 pub mod rebalance;
 
+// Background node-payload scrub (EH-384, CONCEPT:EG-KG.storage.node-payload-scrub):
+// bounded, resumable, read-only detection of unreadable node rows between restarts.
+#[cfg(feature = "redb")]
+pub mod storage_scrub;
+
 // EG-090 — online consistent backup/restore + PITR foundation. Redb-only:
 //   * `backup` — per-shard `begin_read()` MVCC snapshot (EG-027) streamed verbatim
 //     (reusing EG-030's raw-row copy) into a portable bundle + manifest, ONLINE (no

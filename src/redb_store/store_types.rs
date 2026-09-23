@@ -543,21 +543,57 @@ impl<'a> DurableCrypto<'a> {
     /// an unsealed blob with an active cipher both fail closed.
     #[inline]
     pub(crate) fn unseal(&self, stored: &[u8]) -> Result<Vec<u8>, String> {
+        self.open(stored)
+            .map_err(|failure| failure.message().to_string())
+    }
+
+    /// [`Self::unseal`] for one node row: a failure names the row it was
+    /// found on (EH-384), so a read or dump of a corrupt node fails closed with
+    /// `NODE_UNREADABLE:` and the graph and node id.
+    #[inline]
+    pub(crate) fn unseal_node(
+        &self,
+        graph: &str,
+        node_id: &str,
+        stored: &[u8],
+    ) -> Result<Vec<u8>, NodeUnreadable> {
+        self.open(stored)
+            .map_err(|cause| NodeUnreadable::new(graph, node_id, cause))
+    }
+
+    /// The typed form every unseal goes through: the closed reason a stored
+    /// blob cannot be opened, or its plaintext.
+    pub(crate) fn open(&self, stored: &[u8]) -> Result<Vec<u8>, UnsealFailure> {
         if stored.len() > MAX_DURABLE_STORED_BYTES {
-            return Err("durable value exceeds resource limits".to_string());
+            return Err(UnsealFailure::Oversize);
         }
         #[cfg(feature = "security")]
         if let Some(c) = self.cipher {
-            let plaintext = c.unseal(stored)?;
-            if plaintext.len() > MAX_DURABLE_MSGPACK_BYTES {
-                return Err("durable value exceeds resource limits".to_string());
-            }
-            return Ok(plaintext);
+            return open_sealed(c, stored);
         }
         #[cfg(feature = "security")]
         if crate::crypto::is_sealed(stored) {
-            return Err("encrypted durable value requires configured key material".to_string());
+            return Err(UnsealFailure::SealedWithoutKey);
         }
         Ok(stored.to_vec())
     }
+}
+
+/// Open a blob under an active cipher: framing first, then AEAD, then the
+/// plaintext bound.
+#[cfg(feature = "security")]
+fn open_sealed(
+    cipher: &crate::crypto::ValueCipher,
+    stored: &[u8],
+) -> Result<Vec<u8>, UnsealFailure> {
+    if !crate::crypto::is_sealed(stored) {
+        return Err(UnsealFailure::MissingFraming);
+    }
+    let plaintext = cipher
+        .unseal(stored)
+        .map_err(|_| UnsealFailure::Authentication)?;
+    if plaintext.len() > MAX_DURABLE_MSGPACK_BYTES {
+        return Err(UnsealFailure::Oversize);
+    }
+    Ok(plaintext)
 }

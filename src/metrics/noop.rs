@@ -40,6 +40,7 @@ pub fn observe_write_lock_hold(_graph: &str, _seconds: f64) {}
 pub fn observe_dispatch_lock_wait(_mode: &str, _seconds: f64) {}
 pub fn observe_commit_ops_phase(_phase: &str, _seconds: f64) {}
 pub fn observe_commit_ops_bytes(_kind: &str, _bytes: u64) {}
+pub fn storage_scrub_pass(_rows: u64, _causes: &[&str], _completed_cycle: bool) {}
 pub fn projection_cache_hit() {}
 pub fn projection_cache_miss(_seconds: f64) {}
 pub fn loop_tick(_name: &str, _seconds: f64) {}
