@@ -1,7 +1,7 @@
 //! Integration tests of the statistical decision layer (`--features decision`):
 //! features, the act/abstain ladder, keyed exploration, label admission,
-//! fitting, evaluation and NL slot filling, including the §11.2 negative
-//! fixtures. Shared fixtures live in [`common`].
+//! fitting, evaluation, NL slot filling and the resident scorer (EH-291..303),
+//! including the §11.2 negative fixtures. Shared fixtures live in [`common`].
 #![cfg(feature = "decision")]
 
 #[path = "decision/admission.rs"]
@@ -18,3 +18,7 @@ mod fit_eval;
 mod ladder;
 #[path = "decision/nl.rs"]
 mod nl;
+#[path = "decision/scorer.rs"]
+mod scorer;
+#[path = "decision/scorer_promotion.rs"]
+mod scorer_promotion;
