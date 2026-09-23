@@ -59,7 +59,7 @@ pub struct TextHit {
 /// pair (CONCEPT:EG-KG.query.bm25-ranking-snippets) — dep-free, ships in EVERY build. The REAL ranking behind the
 /// eg-query `bm25_score`/`bm25_snippet` UDFs, replacing their EG-119 placeholders.
 mod bm25;
-pub use bm25::{bm25_score, bm25_snippet, Bm25, Corpus};
+pub use bm25::{bm25_score, bm25_snippet, tokenize, Bm25, Corpus};
 
 /// Table extraction + layout spans + citation/clause spans (CONCEPT:EG-KG.query
 /// depth: per-modality text/layout structure) — dep-free, ships in EVERY build
