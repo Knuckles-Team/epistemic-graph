@@ -79,7 +79,9 @@ class MethodPolicyRow:
 # events, the class volatility policy and foreign-source watermark freshness.
 # 438 -> 439: EH-346/EH-347 `PolicyEvolution`.
 # 439 -> 440: EH-346 engine-internal `PolicyEvolutionStore`.
-EXPECTED_METHOD_POLICY_ROWS = 440
+# 440 -> 447: `ListControlLeases` (graph-os EG-5) and the EH-348 work market --
+# `GapUpsert`, `GapTransition`, `GapSettle`, `WorkOfferPut`, `GapGet`, `GapList`.
+EXPECTED_METHOD_POLICY_ROWS = 447
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",
