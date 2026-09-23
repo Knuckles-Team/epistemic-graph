@@ -176,9 +176,13 @@ pub(crate) async fn lifecycle_was_committed(
     if !committed.replayed {
         return Err("lifecycle replay probe unexpectedly committed fresh work".to_string());
     }
-    Ok(persistence
-        .read_mutation_lifecycle_head(&fname)
-        .await?
-        .as_deref()
-        == Some(committed.record.batch.batch_id.as_str()))
+    // The replayed receipt IS the answer. This used to also require the batch to be
+    // the graph's `mutation_lifecycle_head`, but that table was retired (ceec54145):
+    // `read_mutation_lifecycle_head` is now the trait default `Ok(None)` for every
+    // backend, so the comparison was always false and every retry of a committed
+    // CreateGraph/DeleteGraph was refused ("already exists" / "not found"). Stale
+    // retries across a delete/recreate are fenced by the kernel instead: purging a
+    // graph retires its scope binding and its receipts, so an old incarnation's batch
+    // is no longer readable above (`store_cleanup::purge_graph_rows`, RF-RULING-004).
+    Ok(true)
 }
