@@ -2,10 +2,10 @@
 //! path -- fixed-point kernels, the cross-host golden vector, legality, the
 //! shortlist, encode-once scoring and trajectory-prefix belief.
 
-use eg_numeric::decision::scorer::fixed::{exp_non_positive, softmax, ONE};
+use eg_numeric::decision::scorer::fixed::{exp_non_positive, softmax, to_f64, ONE};
 use eg_numeric::decision::scorer::forward::{read, EncodedState, Scorer, EXCLUDED_LOGIT};
 use eg_numeric::decision::scorer::legal::{shortlist, LegalSet};
-use eg_numeric::decision::scorer::trajectory::{belief, Prefix};
+use eg_numeric::decision::trajectory::{belief, Prefix};
 use eg_types::decision::digest::digest_text;
 use eg_types::decision::statistical::head::{
     DecisionHeadBody, FeatureStandardisation, FittedRegime, HeadKind, DECISION_HEAD_SCHEMA_VERSION,
@@ -211,26 +211,36 @@ fn trajectory_belief_reads_one_state_over_time() {
     let mut late = rows();
     late[2] = vec![3 * ONE / 2; FEATURES];
     let (early_views, late_views) = (views(&early), views(&late));
-    let legal = LegalSet::derive(OPTIONS, &[]);
     let prefixes = [
         Prefix {
             as_of_ms: 10,
             rows: &early_views,
         },
         Prefix {
+            as_of_ms: 15,
+            rows: &[],
+        },
+        Prefix {
             as_of_ms: 20,
             rows: &late_views,
         },
     ];
-    let trajectory = belief(&head, &prefixes, &legal).expect("believes");
-    assert_eq!(trajectory.len(), 2);
+    let trajectory = belief(&head, &prefixes, OPTIONS).expect("believes");
+    assert_eq!(trajectory.len(), 3);
     let first = trajectory[0].probabilities.as_ref().expect("in range");
-    let second = trajectory[1].probabilities.as_ref().expect("in range");
-    assert_ne!(first, second, "the belief moves with the state");
-    let single = read(&head, &early_views, &legal).unwrap().unwrap();
-    assert_eq!(first, &single.probabilities, "each slice is one decision");
+    assert_eq!(
+        trajectory[1].probabilities, None,
+        "an empty slice has no belief"
+    );
+    let last = trajectory[2].probabilities.as_ref().expect("in range");
+    assert_ne!(first, last, "the belief moves with the state");
+    let single = read(&head, &early_views, &LegalSet::derive(OPTIONS, &[]))
+        .unwrap()
+        .unwrap();
+    let exact: Vec<f64> = single.probabilities.iter().map(|&p| to_f64(p)).collect();
+    assert_eq!(first, &exact, "each slice is one served reading");
 
-    let reversed = [prefixes[1], prefixes[0]];
-    let refusal = belief(&head, &reversed, &legal).expect_err("time must increase");
+    let reversed = [prefixes[2], prefixes[0]];
+    let refusal = belief(&head, &reversed, OPTIONS).expect_err("time must increase");
     assert_eq!(refusal.code, "PARAMETER_INVALID");
 }

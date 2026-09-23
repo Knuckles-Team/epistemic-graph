@@ -4,9 +4,10 @@
 //! its pinned feature schema, head and policy are re-read by pin, and the
 //! decision function re-runs on the STORED feature matrix, parameters and
 //! clock -- never on live features, which move with every write. The outcome,
-//! calibration statement, audit draw, explanation and logging distribution
-//! must come out identical, and the recomputed keyed seed must match the
-//! record's commitment; only then is the seed revealed in the logged copy.
+//! calibration statement, audit draw, explanation, logging distribution and
+//! belief slices (EH-297, from their stored matrices) must come out
+//! identical, and the recomputed keyed seed must match the record's
+//! commitment; only then is the seed revealed in the logged copy.
 
 use eg_numeric::decision::features::FeatureMatrix;
 use eg_types::decision::digest::statistical_record_digest;
@@ -16,6 +17,7 @@ use eg_types::decision::statistical::{
 };
 use eg_types::decision::DecisionErrorCode;
 
+use super::stat_belief::points;
 use super::stat_classes::current_rules;
 use super::stat_executor::{
     pinned_inputs, recorded_explanation, run_on_matrix, Executed, ExecutionContext, MatrixInputs,
@@ -64,12 +66,13 @@ fn loggable(outcome: &StatisticalOutcome) -> bool {
     )
 }
 
-fn same_answer(record: &StatisticalDecisionRecord, replayed: &Executed, explanation: bool) -> bool {
+/// `derived` says the explanation and the belief slices re-derived equal.
+fn same_answer(record: &StatisticalDecisionRecord, replayed: &Executed, derived: bool) -> bool {
     record.outcome == replayed.ladder.outcome
         && record.calibration == replayed.ladder.calibration
         && record.audit == replayed.ladder.audit
         && record.logging_propensities.as_slice() == replayed.ladder.logging.as_slice()
-        && explanation
+        && derived
 }
 
 /// Re-derive `record` and return the copy to log, with its seed revealed.
@@ -105,9 +108,13 @@ pub(super) fn replay(
         now_ms: inputs.shortlist.now_ms,
         server_secret: ctx.server_secret,
     };
-    let replayed = run_on_matrix(&matrix_inputs, &pinned, &policy, stored_matrix(record)?)?;
+    let matrix = stored_matrix(record)?;
+    let options = matrix.candidate_ids.len();
+    let replayed = run_on_matrix(&matrix_inputs, &pinned, &policy, matrix)?;
     let explanation = recorded_explanation(&pinned, &replayed)? == record.explanation;
-    if !same_answer(record, &replayed, explanation) {
+    let belief =
+        points(&pinned, inputs.belief_slices.as_slice(), options)? == record.belief.as_slice();
+    if !same_answer(record, &replayed, explanation && belief) {
         return Err(mismatch(
             "re-running the decision on its stored inputs gives another answer",
         ));
