@@ -164,7 +164,11 @@ fn an_eliminated_option_is_never_scored_and_moves_nothing() {
 
 #[test]
 fn the_shortlist_bounds_what_is_scored_and_breaks_ties_by_option_order() {
-    assert_eq!(shortlist(&[(0, 5), (1, 9), (2, 5), (3, 1)], 2), vec![1, 0]);
+    // Top two: option 1 (9), then the 5-5 tie between options 0 and 2 goes to
+    // the lower option index. The kept set is returned in option order.
+    assert_eq!(shortlist(&[(0, 5), (1, 9), (2, 5), (3, 1)], 2), vec![0, 1]);
+    // The tie-break is by option index, not by input position.
+    assert_eq!(shortlist(&[(2, 5), (1, 9), (0, 5), (3, 1)], 2), vec![0, 1]);
     assert_eq!(
         shortlist(&[(0, 5), (1, 9), (2, 5), (3, 1)], 3),
         vec![0, 1, 2]
