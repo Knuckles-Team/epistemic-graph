@@ -69,7 +69,10 @@ class MethodPolicyRow:
 # `MutationOutbox`.
 # 425 -> 426: RF-ADR-009's served `SourceIngest` raw-record authority.
 # 426 -> 427: governed connector `WriteBack` authority.
-EXPECTED_METHOD_POLICY_ROWS = 430
+# 430 -> 436: graph-os EG-2..EG-5 typed control-plane methods -- `GetWorkItem`,
+# `ListWorkItems`, `GetWorkItemOutcome`, `IssueControlLease`,
+# `TransitionControlLease` and `GetControlLease`.
+EXPECTED_METHOD_POLICY_ROWS = 436
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",

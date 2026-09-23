@@ -11,9 +11,9 @@ use serde::de::DeserializeOwned;
 
 use eg_types::agent_component::{AgentComponentEntry, AgentComponentKind, ComponentDependency};
 use eg_types::decision::digest::policy_digest;
+use eg_types::decision::policy::policy_from_attributes;
 use eg_types::decision::statistical::body::decode_body;
 use eg_types::decision::statistical::StatisticalErrorCode;
-use eg_types::decision::policy::policy_from_attributes;
 use eg_types::decision::{
     DecisionPolicy, DecisionPolicyRef, QuantScaleTag, QuantisedValue, StatisticalPolicy,
     TraceFidelityLevel, UnitRationalWire,

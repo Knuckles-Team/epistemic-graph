@@ -121,9 +121,11 @@ def _native_method_catalog(source: str) -> dict[str, str]:
     # 100 since f17f47ab3 added the governed `GraphSchema => GraphState` record
     # (the durable graph-schema authority). This is the catalog's declared
     # cardinality, so it moves only with a reviewed catalog change.
+    # 100 -> 102: graph-os EG-2/EG-3 native records -- the tenant-bound
+    # `IssueControlLease` / `TransitionControlLease` control-lease rows.
     require(
-        len(entries) == 100,
-        f"native method catalog must contain 100 entries, observed {len(entries)}",
+        len(entries) == 102,
+        f"native method catalog must contain 102 entries, observed {len(entries)}",
     )
     require("RegisterServer" not in names, "RegisterServer must remain gateway-routed")
     require(
@@ -149,7 +151,7 @@ def _native_method_catalog(source: str) -> dict[str, str]:
         == {
             "GraphState": 23,
             "Transaction": 15,
-            "WorkItem": 18,
+            "WorkItem": 20,  # +2 IssueControlLease, TransitionControlLease
             "Blob": 6,
             "KeyValue": 3,
             "TimeSeries": 3,

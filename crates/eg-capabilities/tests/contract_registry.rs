@@ -178,9 +178,12 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 427 -> 428: governed source-system `WriteBack` authority.
     // 428 -> 429: typed, bounded live fleet `ListRegisteredServers` authority.
     // 429 -> 430: EH-345's `FleetCatalog` registry records and projection.
+    // 430 -> 436: graph-os EG-2..EG-5 -- `GetWorkItem`, `ListWorkItems`,
+    // `GetWorkItemOutcome`, `IssueControlLease`, `TransitionControlLease`,
+    // `GetControlLease`.
     assert_eq!(
         variants.len(),
-        430,
+        436,
         "the wire method census changed; update this exact count deliberately"
     );
 }

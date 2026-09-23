@@ -67,7 +67,9 @@ fn owner_layout_registry_has_frozen_cardinality() {
     // 17 -> 18: the Decide layer's `decision_artifacts` (job rows, evaluation
     // receipts, fit drafts) in the same owner, so a `DecisionHead` publish
     // reads its receipt from the authority that commits the head.
-    assert_eq!(owner_table_names(OwnerLayout::AgentLibrary).len(), 18);
+    // 18 -> 19: the Decide layer's `decision_records` (committed assembly
+    // records, written in the same WTX as their `DecisionRecord` component).
+    assert_eq!(owner_table_names(OwnerLayout::AgentLibrary).len(), 19);
     // The authoritative graph shard `graph-N.redb`: 53 tables. That is the
     // complete physical census of the shard file (39 in `redb_store.rs`, 4
     // capacity-lease, 3 work-item-capability, 10 development-lane, plus
@@ -143,8 +145,9 @@ fn every_owner_surface_has_one_closed_cutover_disposition() {
     // 130 -> 139: the ConnectorPack catalog's five and governed write-back's
     // four Agent Library tables, all `DomainService` (this count was not moved
     // when they landed). 139 -> 140: the Decide layer's `decision_artifacts`,
-    // also `DomainService`: service 138 = 128 + 9 + 1.
-    assert_eq!((names.len(), service, shared), (140, 138, 2));
+    // also `DomainService`: service 138 = 128 + 9 + 1. 140 -> 141: the Decide
+    // layer's `decision_records`, `DomainService`: service 139 = 138 + 1.
+    assert_eq!((names.len(), service, shared), (141, 139, 2));
 }
 
 #[test]
@@ -803,8 +806,9 @@ fn plain_recovery_rejects_every_known_mutation_table_marker() {
     // registered mutation table must refuse plain recovery, including it.
     // 148 -> 157: the ConnectorPack catalog's five and governed write-back's
     // four Agent Library mutation tables (not moved when they landed).
-    // 157 -> 158: the Decide layer's `decision_artifacts`.
-    assert_eq!(names.len(), 158);
+    // 157 -> 158: the Decide layer's `decision_artifacts`. 158 -> 159: its
+    // `decision_records`.
+    assert_eq!(names.len(), 159);
     for (ordinal, name) in names.into_iter().enumerate() {
         assert!(is_known_mutation_table(name));
         let dir = tempfile::tempdir().unwrap();

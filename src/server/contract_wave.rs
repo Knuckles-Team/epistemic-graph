@@ -194,6 +194,14 @@ mod dispatch_reachability_tests {
     /// has a real dispatch arm and no `contract_wave_stub!` declaration.
     const SERVED: &[&str] = &[
         "GraphSchemaList",
+        "AgentAssemble",
+        "DecisionCommit",
+        "Solve",
+        "Decide",
+        "DecisionFit.submit",
+        "DecisionFit.status",
+        "DecisionEval.submit",
+        "DecisionEval.status",
         "AgentComponent.content",
         "ConnectorPack.import",
         "ConnectorPack.reproject",

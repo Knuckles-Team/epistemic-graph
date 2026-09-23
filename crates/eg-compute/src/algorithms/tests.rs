@@ -576,12 +576,8 @@ mod community_tests {
             .iter()
             .map(|(s, t)| (s.to_string(), t.to_string(), 1.0))
             .collect();
-        let weighted_result = community_detection_weighted(
-            nodes,
-            weighted_edges,
-            1.0,
-            QualityFunction::default(),
-        );
+        let weighted_result =
+            community_detection_weighted(nodes, weighted_edges, 1.0, QualityFunction::default());
 
         assert_eq!(
             topology_result, weighted_result,
@@ -642,12 +638,8 @@ mod community_tests {
             "a unique-tier (0.60) bridge must not out-bind two dense triangles: {separated:?}"
         );
 
-        let merged = community_detection_weighted(
-            nodes,
-            edges_for(50.0),
-            1.0,
-            QualityFunction::Modularity,
-        );
+        let merged =
+            community_detection_weighted(nodes, edges_for(50.0), 1.0, QualityFunction::Modularity);
         assert!(
             same_community(&merged, "c", "x"),
             "a heavily-weighted bridge must bind its own endpoints into one community — \
@@ -677,15 +669,17 @@ mod community_tests {
         let via_ephemeral =
             community_detection_weighted(nodes.clone(), edges.clone(), 1.0, QualityFunction::Cpm);
 
-        let index: HashMap<&str, usize> =
-            nodes.iter().enumerate().map(|(i, n)| (n.as_str(), i)).collect();
+        let index: HashMap<&str, usize> = nodes
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.as_str(), i))
+            .collect();
         let mut adjacency: Vec<Vec<(String, f64)>> = vec![Vec::new(); nodes.len()];
         for (s, t, w) in &edges {
             adjacency[index[s.as_str()]].push((t.clone(), *w));
         }
-        let graph = crate::graph_algos::AdjacencyGraph::from_adjacency(
-            nodes.into_iter().zip(adjacency),
-        );
+        let graph =
+            crate::graph_algos::AdjacencyGraph::from_adjacency(nodes.into_iter().zip(adjacency));
         let direct = crate::graph_algos::leiden(
             &graph,
             &crate::graph_algos::LeidenConfig {

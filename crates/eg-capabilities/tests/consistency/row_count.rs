@@ -25,15 +25,18 @@
 /// 421 -> 422: typed, bounded live fleet `ListRegisteredServers` authority.
 /// 422 -> 423: EH-345's `FleetCatalog` -- registry discovery/override records
 /// and the projection joining them with connector-pack components.
+/// 423 -> 429: graph-os EG-2..EG-5 typed control-plane reads/records --
+/// `GetWorkItem`, `ListWorkItems`, `GetWorkItemOutcome`, `IssueControlLease`,
+/// `TransitionControlLease` and `GetControlLease`.
 ///
 /// This is a tripwire against an unnoticed protocol edit, not a ratchet;
 /// `scripts/method_policy_inventory.py`'s `EXPECTED_METHOD_POLICY_ROWS` is the
 /// same count seen from the other side and the two must agree
-/// (423 + 7 feature rows = 430). Keep the formula aligned with the cfg rows in
+/// (429 + 7 feature rows = 436). Keep the formula aligned with the cfg rows in
 /// the domain row inventory so every supported feature combination checks the
 /// same coverage invariant.
 pub fn expected_method_policy_rows() -> usize {
-    423 + usize::from(cfg!(feature = "jobs"))
+    429 + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
         + usize::from(cfg!(feature = "knowledge-batch"))
