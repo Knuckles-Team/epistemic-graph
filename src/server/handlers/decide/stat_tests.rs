@@ -497,6 +497,61 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
     );
 
     decision_log_round_trip(&h, record.clone()).await;
+    fit_from_the_engine_log(&h, &schema_pin, record).await;
+}
+
+/// Engine-log fitting: a bandit fit reads its labels from the decision log
+/// (committed record + independent evaluation), admitted only because the
+/// pinned policy approves the committing principal.
+async fn fit_from_the_engine_log(
+    h: &Harness,
+    schema_pin: &ComponentDependency,
+    record: &StatisticalDecisionRecord,
+) {
+    let mut policy = super::stat_support::default_policy_for_tests();
+    let mut statistical = super::stat_support::default_statistical_policy();
+    statistical.approved_commit_principals =
+        BoundedVec::new(vec![record.caller_principal.clone()]).unwrap();
+    policy.statistical = Some(statistical);
+    let policy_pin = h.publish_policy("policy-log-fit", &policy);
+    let request = DecisionFitRequest {
+        tenant_id: TENANT.to_string(),
+        idempotency_key: "fit-from-log".to_string(),
+        head_kind: HeadKind::WeightedFeatures,
+        feature_schema: schema_pin.clone(),
+        policy: DecisionPolicyRef::Pinned {
+            component: policy_pin,
+        },
+        label_regime: LabelRegime::BanditLabel,
+        window: window(),
+        optimiser: OptimiserSpec {
+            max_iterations: 20,
+            tolerance: QuantisedValue {
+                scale: QuantScaleTag::Q32,
+                value: 1 << 12,
+            },
+            seed: 0,
+        },
+        source: DatasetSource::Logged {
+            question_id: record.question.question_id.clone(),
+        },
+    };
+    let op = DecisionFitOp::Submit {
+        request: Box::new(request),
+    };
+    let job: DecisionJobRecord =
+        decode(super::jobs::handle_decision_fit(&h.state, 12, &verified(), op).await).unwrap();
+    let DecisionJobOutput::Fit {
+        draft, exclusions, ..
+    } = succeeded(&job).clone()
+    else {
+        panic!("fit output")
+    };
+    assert_eq!(
+        draft.n_training, 1,
+        "the one logged, independently evaluated success trains"
+    );
+    assert_eq!(exclusions.unapproved_principal, 0);
 }
 
 async fn log_op(h: &Harness, who: &str, op: DecisionLogOp) -> crate::protocol::Response {
