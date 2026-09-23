@@ -458,6 +458,7 @@ pub(super) fn index_kind_label(kind: crate::index::IndexKind) -> &'static str {
         crate::index::IndexKind::Temporal => "temporal",
         crate::index::IndexKind::DerivedOwl => "derived_owl",
         crate::index::IndexKind::Spatial => "spatial",
+        crate::index::IndexKind::EdgeSearch => "edge_search",
         crate::index::IndexKind::Label => "label",
         crate::index::IndexKind::Property => "property",
         crate::index::IndexKind::Ontology => "ontology",
