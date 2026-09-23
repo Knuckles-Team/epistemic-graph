@@ -288,7 +288,7 @@ pub(crate) fn provenance_leaf_hashes(
     let mut out = Vec::with_capacity(node_ids.len());
     for id in node_ids {
         if let Some(v) = nodes.get((graph, id.as_str()))? {
-            let content = crypto.unseal(v.value())?;
+            let content = crypto.unseal_node(graph, id, v.value())?;
             out.push((id.clone(), crate::audit::merkle_leaf_hash(id, &content)));
         }
     }
