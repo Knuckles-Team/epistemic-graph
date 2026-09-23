@@ -657,12 +657,12 @@ jobs:
             ${{ runner.temp }}/epistemic-graph-cccc-stderr.txt
             ${{ runner.temp }}/epistemic-graph-cccc-terms.txt
 
-      # One whole-tree `kiss check .` (was one KISS process per tracked file:
-      # 136.7 min on run 35740545815). The wrapper keeps every fail-closed
-      # check -- pinned version, .config/kiss.toml present, .kissconfig
-      # forbidden, rejected config keys, exit status agreeing with the report
-      # -- and reports a strict superset of the per-file findings; see
-      # scripts/check_kiss_census.py for the measured comparison.
+      # The union of one whole-tree run and one run per package root (was one
+      # KISS process per tracked file: 136.7 min on run 35740545815). The
+      # wrapper keeps every fail-closed check -- pinned version, .config/kiss.toml
+      # present, .kissconfig forbidden, rejected config keys, exit status
+      # agreeing with the report -- and reports a superset of the per-file,
+      # whole-tree and per-package findings; see scripts/check_kiss_census.py.
       - name: KISS tracked-tree census (advisory)
         run: python3 scripts/check_kiss_census.py
 

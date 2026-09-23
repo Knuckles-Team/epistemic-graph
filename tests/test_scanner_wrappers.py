@@ -177,6 +177,52 @@ def test_kiss_census_scans_the_tree_once_and_counts_findings(tmp_path, monkeypat
     ]
 
 
+def test_kiss_census_is_the_union_of_the_whole_tree_and_every_package(
+    tmp_path, monkeypatch
+):
+    census = _load_kiss_census()
+    fake = tmp_path / "kiss"
+    # The whole tree and a package report an overlapping finding (same file,
+    # rule and line; absolute vs relative path) plus one each of their own.
+    fake.write_text(
+        "#!/bin/sh\n"
+        'root="$(eval echo \\${$#})"\n'
+        'if [ "$root" = . ]; then\n'
+        f'  printf "VIOLATION:duplication:{tmp_path}/src/a.rs:3:f: x\\n"\n'
+        '  printf "VIOLATION:dependency_depth:crates/x/src/lib.rs:1:lib: x\\n"\n'
+        "else\n"
+        '  printf "VIOLATION:duplication:src/a.rs:3:f: x\\n"\n'
+        '  printf "VIOLATION:cycle_size:src/b.rs:1:b: x\\n"\n'
+        "fi\n"
+        "exit 1\n",
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    monkeypatch.setattr(census, "ROOT", tmp_path)
+
+    roots = [".", *census.package_roots(["src/a.rs", "src/b.rs"])]
+    union = census.union_census(str(fake), roots, [], {})
+
+    assert roots == [".", "src"]
+    assert union == {
+        ("duplication", "src/a.rs", 3, "f"),
+        ("dependency_depth", "crates/x/src/lib.rs", 1, "lib"),
+        ("cycle_size", "src/b.rs", 1, "b"),
+    }
+
+
+def test_kiss_census_package_roots_cover_the_facade_and_each_crate():
+    census = _load_kiss_census()
+
+    roots = census.package_roots(
+        ["src/lib.rs", "crates/eg-core/src/lib.rs", "crates/eg-core/tests/t.rs"]
+    )
+
+    assert roots == ["crates/eg-core", "src"]
+    with pytest.raises(SystemExit):
+        census.package_roots(["tests/stray.rs"])
+
+
 @pytest.mark.parametrize(
     ("status", "output", "message"),
     [

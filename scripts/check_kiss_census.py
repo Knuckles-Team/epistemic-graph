@@ -1,20 +1,30 @@
 #!/usr/bin/env python3
-"""Run the advisory KISS census as ONE whole-tree invocation.
+"""Run the advisory KISS census: one whole-tree run UNIONED with one run per package.
 
-KISS 0.4.10 reports a false clean when more than one path is passed to a
-single ``check`` invocation, so every call passes exactly one path.  The
-census used to pass each tracked file as its own path: that treats every file
-as a separate one-file codebase (the cross-file duplication, orphan-module,
-dependency-depth and cycle rules can never fire) and pays KISS's multi-second
-Rust role scan once per file -- 137 minutes of the hosted scanner job.  One
-``kiss check .`` over the repository root analyses the whole tree once.
+KISS 0.4.10 reports a false clean when more than one path is passed to a single
+``check`` invocation, so every call passes exactly one path. That path is the
+codebase root KISS analyses, and the choice changes what it can see:
 
-Measured 2026-09-22 over the 1,920-file manifest: the per-file census found
-430 findings, every one of which the whole-tree run also reports; the
-whole-tree run adds 72 cross-file findings (31 orphan modules, 29
-duplications, 12 dependency-depth, 1 cycle).  KISS honours ``.gitignore``;
-untracked, non-ignored Rust files are passed to ``--ignore`` so the census
-universe stays the tracked tree.
+* one tracked FILE per call (the census until 2026-09-22): each file is its own
+  one-file codebase, so the cross-file duplication, orphan-module, dependency-
+  depth and cycle rules never fire, and the multi-second Rust role scan is paid
+  per file (137 minutes in the hosted scanner job);
+* the repository root: the whole workspace in one graph -- cross-crate
+  duplication and dependency depth become visible, but KISS resolves `crate::`
+  paths less precisely across a multi-crate workspace, so some intra-crate
+  cycles and depths are lost (and 29 `orphan_module` findings appear for files
+  the compiler-derived `orphan-modules` gate proves are compiled);
+* one PACKAGE root (`src`, `crates/<name>`) per call: exact intra-crate graphs,
+  but no cross-crate view.
+
+The census is the de-duplicated UNION of the whole-tree run and every package
+run, so it reports every finding any of the three shapes reports. Measured
+2026-09-22 over the 1,920-file manifest: per-file 430, whole-tree 502, per-
+package 473, union 515; per-file, whole-tree and per-package are each subsets.
+Wall time is about 80 s (per-package runs in parallel).
+
+KISS honours ``.gitignore``; untracked, non-ignored Rust files are passed to
+``--ignore`` so the census universe stays the tracked tree.
 
 Exit 0 means the complete advisory census ran (findings are allowed).  Exit 2
 means the census could not run or a native report contradicted its exit status.
@@ -23,9 +33,11 @@ means the census could not run or a native report contradicted its exit status.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn
@@ -39,6 +51,8 @@ from scanner_contract import (
 
 ROOT = Path(__file__).resolve().parent.parent
 CENSUS_ROOT = "."
+PACKAGE_WORKERS = 4
+_VIOLATION = re.compile(rb"^VIOLATION:([^:]+):(.+?):(\d+):([^:]*):", re.M)
 
 
 @dataclass(frozen=True)
@@ -110,21 +124,40 @@ def untracked_rust_sources() -> list[str]:
     return [path for path in result.stdout.split("\0") if path]
 
 
-def census_command(kiss_bin: str, ignored: list[str]) -> list[str]:
-    """The single whole-tree invocation: exactly one path, the repository root."""
+def package_roots(paths: list[str]) -> list[str]:
+    """One codebase root per package: `src` (the facade) and each `crates/<name>`."""
+
+    roots = set()
+    for path in paths:
+        parts = path.split("/")
+        if parts[0] == "src":
+            roots.add("src")
+        elif parts[0] == "crates" and len(parts) > 2:
+            roots.add("/".join(parts[:2]))
+        else:
+            fail(f"tracked-source manifest has a path outside src/ and crates/: {path}")
+    return sorted(roots)
+
+
+def census_command(
+    kiss_bin: str, ignored: list[str], root: str = CENSUS_ROOT
+) -> list[str]:
+    """One invocation over exactly one codebase root."""
 
     command = [kiss_bin, "check", "--config", ".config/kiss.toml", "--lang", "rust"]
     for path in ignored:
         command += ["--ignore", path]
-    return [*command, CENSUS_ROOT]
+    return [*command, root]
 
 
-def scan_tree(kiss_bin: str, ignored: list[str], env: dict[str, str]) -> ScanResult:
-    """Run the whole tracked tree through exactly one pinned KISS process."""
+def scan_tree(
+    kiss_bin: str, ignored: list[str], env: dict[str, str], root: str = CENSUS_ROOT
+) -> ScanResult:
+    """Run one codebase root through exactly one pinned KISS process."""
 
     try:
         result = subprocess.run(
-            census_command(kiss_bin, ignored),
+            census_command(kiss_bin, ignored, root),
             cwd=ROOT,
             env=env,
             stdout=subprocess.PIPE,
@@ -133,9 +166,36 @@ def scan_tree(kiss_bin: str, ignored: list[str], env: dict[str, str]) -> ScanRes
         )
     except OSError as exc:
         message = f"could not start KISS: {exc}\n".encode()
-        return ScanResult(CENSUS_ROOT, 2, message, 0)
+        return ScanResult(root, 2, message, 0)
     count = sum(line.startswith(b"VIOLATION:") for line in result.stdout.splitlines())
-    return ScanResult(CENSUS_ROOT, result.returncode, result.stdout, count)
+    return ScanResult(root, result.returncode, result.stdout, count)
+
+
+def findings(result: ScanResult) -> set[tuple[str, str, int, str]]:
+    """(rule, repository-relative path, line, unit) for every reported violation."""
+
+    found = set()
+    for rule, path, line, unit in _VIOLATION.findall(result.output):
+        text = path.decode("utf-8", "replace")
+        relative = os.path.relpath(text, ROOT) if os.path.isabs(text) else text
+        found.add((rule.decode(), os.path.normpath(relative), int(line), unit.decode()))
+    return found
+
+
+def union_census(
+    kiss_bin: str, roots: list[str], ignored: list[str], env: dict[str, str]
+) -> set[tuple[str, str, int, str]]:
+    """Validate every run, then return the de-duplicated union of their findings."""
+
+    with ThreadPoolExecutor(max_workers=PACKAGE_WORKERS) as executor:
+        results = list(
+            executor.map(lambda root: scan_tree(kiss_bin, ignored, env, root), roots)
+        )
+    union: set[tuple[str, str, int, str]] = set()
+    for result in results:
+        validate(result)
+        union |= findings(result)
+    return union
 
 
 def validate(result: ScanResult) -> int:
@@ -191,11 +251,13 @@ def main() -> int:
         fail(".kissconfig is forbidden because it disables measured rules")
 
     paths = _manifest(env)
-    total = validate(scan_tree(kiss_bin, untracked_rust_sources(), env))
+    roots = [CENSUS_ROOT, *package_roots(paths)]
+    union = union_census(kiss_bin, roots, untracked_rust_sources(), env)
 
     print(
-        f"kiss census: {len(paths)} tracked Rust file(s) in one whole-tree run, "
-        f"{total} violation(s); findings are advisory"
+        f"kiss census: {len(paths)} tracked Rust file(s); whole-tree run + "
+        f"{len(roots) - 1} package run(s); {len(union)} distinct violation(s); "
+        "findings are advisory"
     )
     return 0
 

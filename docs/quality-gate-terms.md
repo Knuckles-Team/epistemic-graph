@@ -264,9 +264,11 @@ pre-commit run --config .config/pre-commit.yaml cccc-census --hook-stage manual 
 pre-commit run --config .config/pre-commit.yaml kiss-census --hook-stage manual --all-files
 ```
 
-The `kiss-census` hook runs ONE `kiss check .` over the repository root (about
-15 seconds). A per-file census treated every file as its own codebase, so the
-cross-file duplication, orphan-module, dependency-depth and cycle rules could
-never fire, and it paid KISS's Rust role scan once per file (137 minutes in the
-hosted scanner job). The whole-tree run reports every per-file finding plus the
-cross-file ones; `scripts/check_kiss_census.py` records the measured comparison.
+The `kiss-census` hook reports the de-duplicated union of one `kiss check .`
+over the repository root and one run per package root (`src`, `crates/<name>`),
+each a single-path invocation, in about 80 seconds. A per-file census treated
+every file as its own codebase, so the cross-file duplication, orphan-module,
+dependency-depth and cycle rules could never fire, and it paid KISS's Rust role
+scan once per file (137 minutes in the hosted scanner job). The root run sees
+cross-crate structure; the package runs resolve intra-crate `crate::` paths
+exactly. `scripts/check_kiss_census.py` records the measured comparison.
