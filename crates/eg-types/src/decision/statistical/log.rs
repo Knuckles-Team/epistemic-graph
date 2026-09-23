@@ -150,6 +150,49 @@ pub struct StoredEvaluation {
     pub recorded_at_ms: u64,
 }
 
+/// Who resolved an abstention (EH-037, §6.4 "abstentions as labels").
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "resolver", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum AbstentionResolver {
+    /// The verified caller, a human, resolved it: a gold-label candidate
+    /// (observation class).
+    Human,
+    /// A model proposed the option: a CLAIM with unknown propensity, never a
+    /// calibration or off-policy label; at most a candidate for human review.
+    Model {
+        producer: String,
+        #[serde(default)]
+        prompt_digest: Option<String>,
+    },
+}
+
+/// One resolution of a logged abstention: the option the escalation chose.
+/// The option must be one the abstained record already held, so a
+/// resolution can never introduce an option the decision did not have.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct AbstentionResolution {
+    pub record_id: String,
+    pub resolution_id: String,
+    pub option_id: String,
+    pub resolver: AbstentionResolver,
+}
+
+/// A stored resolution, its evidence class and who recorded it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct StoredResolution {
+    pub resolution: AbstentionResolution,
+    /// `Observation` for a human resolver, `Claim` for a model.
+    pub class: EvidenceClass,
+    /// The verified principal that recorded it.
+    pub producer: String,
+    pub recorded_at_ms: u64,
+}
+
 /// Ask for the outcome aggregate.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -254,6 +297,11 @@ pub enum DecisionLogOp {
         tenant_id: String,
         record_id: String,
     },
+    /// Record how an escalation resolved one logged abstention (EH-037).
+    Resolve {
+        tenant_id: String,
+        resolution: AbstentionResolution,
+    },
 }
 
 impl DecisionLogOp {
@@ -261,7 +309,10 @@ impl DecisionLogOp {
     pub fn is_mutation(&self) -> bool {
         matches!(
             self,
-            Self::Commit { .. } | Self::Evaluate { .. } | Self::Compact { .. }
+            Self::Commit { .. }
+                | Self::Evaluate { .. }
+                | Self::Compact { .. }
+                | Self::Resolve { .. }
         )
     }
 
@@ -269,7 +320,7 @@ impl DecisionLogOp {
     pub fn authz_action(&self) -> &'static str {
         match self {
             Self::Commit { .. } => "agent:decision-write",
-            Self::Evaluate { .. } => "agent:decision-evaluate",
+            Self::Evaluate { .. } | Self::Resolve { .. } => "agent:decision-evaluate",
             Self::Compact { .. } => "admin:decision-log",
             Self::Get { .. } | Self::Aggregate { .. } | Self::Verify { .. } => {
                 "agent:decision-read"
@@ -284,7 +335,8 @@ impl DecisionLogOp {
             Self::Evaluate { tenant_id, .. }
             | Self::Get { tenant_id, .. }
             | Self::Compact { tenant_id, .. }
-            | Self::Verify { tenant_id, .. } => tenant_id,
+            | Self::Verify { tenant_id, .. }
+            | Self::Resolve { tenant_id, .. } => tenant_id,
             Self::Aggregate { request } => &request.tenant_id,
         }
     }
