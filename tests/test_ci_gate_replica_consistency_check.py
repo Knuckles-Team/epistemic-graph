@@ -33,6 +33,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_PATH = REPO_ROOT / "scripts" / "ci_gate_replica.py"
@@ -40,7 +41,7 @@ SCRIPT_PATH = REPO_ROOT / "scripts" / "ci_gate_replica.py"
 
 # The release-critical cargo selections run in three parallel jobs. Guards
 # below that used to look inside `gates` alone look across all three.
-GATES_JOBS = ("gates", "gates-facade", "gates-variants")
+GATES_JOBS = ("gates", "gates-facade", "gates-variants", "gates-crates")
 # Every `cargo test` step runs through the EH-376 signal rescue (per-test
 # verdicts when a test binary dies on a signal); see scripts/cargo_test_rescue.py.
 RESCUE = "python3 scripts/cargo_test_rescue.py "
@@ -891,3 +892,143 @@ def test_run_step_injects_guard_without_rewriting_shell_text(monkeypatch):
     assert status == 0
     assert captured["args"] == ["bash", "-c", command]
     assert captured["env"]["CARGO_BUILD_JOBS"] == "2"
+
+
+# ── EH-311: every test target in the workspace is run by some release step ──
+
+
+def _package_test_targets(manifest: Path) -> set[tuple[str, str]]:
+    """Cargo's lib/bin/test targets for one package, by its auto-discovery rules."""
+    import tomllib
+
+    doc = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    root = manifest.parent
+    package = doc["package"]
+    targets: set[tuple[str, str]] = set()
+    lib = doc.get("lib", {})
+    if (root / lib.get("path", "src/lib.rs")).is_file():
+        name = lib.get("name", package["name"].replace("-", "_"))
+        targets.add(("lib", name))
+    if package.get("autotests", True):
+        for test in (root / "tests").glob("*.rs"):
+            targets.add(("test", test.stem))
+        for test in (root / "tests").glob("*/main.rs"):
+            targets.add(("test", test.parent.name))
+    targets |= {("test", entry["name"]) for entry in doc.get("test", [])}
+    if package.get("autobins", True):
+        if (root / "src/main.rs").is_file():
+            targets.add(("bin", package["name"]))
+        targets |= {("bin", p.stem) for p in (root / "src/bin").glob("*.rs")}
+    targets |= {("bin", entry["name"]) for entry in doc.get("bin", [])}
+    return targets
+
+
+def _workspace_packages() -> dict[str, set[tuple[str, str]]]:
+    import tomllib
+
+    root_doc = tomllib.loads((REPO_ROOT / "Cargo.toml").read_text(encoding="utf-8"))
+    manifests = [REPO_ROOT / "Cargo.toml"] + [
+        REPO_ROOT / member / "Cargo.toml" for member in root_doc["workspace"]["members"]
+    ]
+    return {
+        tomllib.loads(m.read_text(encoding="utf-8"))["package"]["name"]: (
+            _package_test_targets(m)
+        )
+        for m in manifests
+    }
+
+
+def _selected_targets(line: str, packages: dict) -> set[tuple[str, str, str]]:
+    import shlex
+
+    args = shlex.split(line.split("cargo test", 1)[1].split(" -- ")[0])
+    flag_values = lambda flag: [args[i + 1] for i, a in enumerate(args) if a == flag]  # noqa: E731
+    chosen = flag_values("-p") or ["epistemic-graph"]
+    if "--workspace" in args:
+        chosen = [p for p in packages if p not in flag_values("--exclude")]
+    tests, lib_only = set(flag_values("--test")), "--lib" in args
+    selected = set()
+    for package in chosen:
+        for kind, name in packages[package]:
+            if tests:
+                keep = kind == "test" and name in tests
+            else:
+                keep = kind == "lib" or not lib_only
+            if keep:
+                selected.add((package, kind, name))
+    return selected
+
+
+def test_every_workspace_test_target_is_run_by_a_release_step():
+    packages = _workspace_packages()
+    doc = yaml.safe_load((REPO_ROOT / ".github/workflows/release.yml").read_text())
+    selected: set[tuple[str, str, str]] = set()
+    for job in doc["jobs"].values():
+        for step in (job or {}).get("steps", []) or []:
+            for line in str(step.get("run", "")).splitlines():
+                if "cargo test" in line:
+                    selected |= _selected_targets(line, packages)
+    every = {
+        (p, kind, name) for p, targets in packages.items() for kind, name in targets
+    }
+    assert len(every) > 150, "the target census found almost nothing"
+    assert sorted(every - selected) == [], "test targets no release step runs"
+
+
+def test_pyo3_crates_are_tested_with_every_feature_but_python():
+    import tomllib
+
+    doc = yaml.safe_load((REPO_ROOT / ".github/workflows/release.yml").read_text())
+    step = next(
+        s
+        for s in doc["jobs"]["gates-crates"]["steps"]
+        if s.get("name") == "Test (pyo3 crates, every feature except python)"
+    )
+    listed = set(step["run"].split("--features ", 1)[1].split()[0].split(","))
+    for crate in ("eg-numeric", "eg-pyengine"):
+        manifest = REPO_ROOT / "crates" / crate / "Cargo.toml"
+        features = set(tomllib.loads(manifest.read_text())["features"]) - {
+            "default",
+            "python",
+        }
+        implied = {
+            f
+            for f in features
+            if f"{crate}/{f}" not in listed
+            and any(
+                f
+                in tomllib.loads(manifest.read_text())["features"].get(
+                    g.split("/")[1], []
+                )
+                for g in listed
+                if g.startswith(f"{crate}/")
+            )
+        }
+        missing = {f for f in features if f"{crate}/{f}" not in listed} - implied
+        assert missing == set(), (crate, missing)
+
+
+def test_clippy_denies_warnings_on_every_release_profile():
+    """EH-191/EH-225: --all-features compiles away cfg(not(feature)) code, so the
+    published profile (MATURIN_FEATURES, no raft) and slim `server` need own legs."""
+    m = _load_module()
+    doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
+    published = doc["env"]["MATURIN_FEATURES"]
+    plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["release.yml"], doc)
+    clippy = {
+        row["detail"]
+        for row in plan
+        if row["job"].startswith("quality-advisory#")
+        and row["detail"].startswith("cargo clippy")
+    }
+    for profile in (
+        "--workspace --all-features",
+        f"--no-default-features --features {published}",
+        "--no-default-features --features server",
+    ):
+        assert any(
+            profile in cmd and cmd.endswith("-- -D warnings") for cmd in clippy
+        ), (
+            profile,
+            clippy,
+        )

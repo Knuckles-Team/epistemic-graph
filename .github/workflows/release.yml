@@ -321,7 +321,8 @@ jobs:
       # These real-model tests fail loudly when their fixture is absent. Fetch the
       # pinned, sha256-verified model and WAV, export both paths, then exercise the
       # provider rather than counting an unconfigured test as a pass.
-      - name: Provision pinned Whisper real-model fixture
+      - &eg-gates-whisper
+        name: Provision pinned Whisper real-model fixture
         run: scripts/fetch_whisper_test_fixture.sh "$RUNNER_TEMP/eg-whisper-test" >> "$GITHUB_ENV"
       - name: Test (Whisper real-model transcription and cancellation)
         run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-asr-whisper --test real_transcription --no-fail-fast
@@ -357,6 +358,44 @@ jobs:
         run: "python3 scripts/cargo_test_rescue.py cargo test --locked -p epistemic-graph --features cluster,harness,calvin --lib --no-fail-fast -- raft::"
       - name: Test (raft cluster — ack-lost commit retry reconciliation)
         run: python3 scripts/cargo_test_rescue.py cargo test --locked -p epistemic-graph --features cluster,harness,calvin --test txn_reconcile_ack_lost_retry --no-fail-fast
+
+  # ── EH-311: every workspace crate's own tests. `cargo test -p epistemic-graph`
+  # runs only the facade's targets, so before this job 109 of the workspace's 178
+  # test targets (all of eg-query, eg-rdf, eg-shacl, eg-storage, eg-transaction,
+  # eg-plan's oracles, the quantum crates, ...) were run by no release step.
+  # tests/test_ci_gate_replica_consistency_check.py fails if a test target is
+  # ever again selected by no step. Excluded here only where another step runs
+  # the same package with the same features: the facade, eg-types/eg-core/
+  # eg-compute (gates), eg-tts-piper (needs onnxruntime, its own job). The two
+  # pyo3 crates get every feature except `python` (pyo3 extension-module cannot
+  # link a test binary).
+  gates-crates:
+    name: gates (workspace crates)
+    runs-on: ubuntu-latest
+    steps:
+      - *eg-gates-checkout
+
+      - *eg-gates-python
+
+      - *eg-gates-pydeps
+
+      # `--all-features` enables eg-stream/cdc-kafka, which links system
+      # Cyrus-SASL and librdkafka headers on Ubuntu runners.
+      - &eg-gates-sasl
+        name: Install librdkafka/Cyrus-SASL build headers
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libsasl2-dev libcurl4-openssl-dev
+      - *eg-gates-toolchain
+      - *eg-gates-cache
+
+      - *eg-gates-sqlite
+      - *eg-gates-whisper
+      - name: Test (every other workspace crate, all features)
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked --workspace --exclude epistemic-graph --exclude eg-types --exclude eg-core --exclude eg-compute --exclude eg-tts-piper --exclude eg-numeric --exclude eg-pyengine --all-features --no-fail-fast
+      - name: Test (pyo3 crates, every feature except python)
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-numeric -p eg-pyengine --features eg-numeric/analytics,eg-numeric/contract,eg-numeric/complex,eg-pyengine/security,eg-pyengine/ml-pipeline,eg-pyengine/reasoning,eg-pyengine/query,eg-pyengine/cypher,eg-pyengine/tsdb,eg-pyengine/streaming,eg-pyengine/wasm-udf,eg-pyengine/rdf,eg-pyengine/blob,eg-pyengine/jobs,eg-pyengine/statechart,eg-pyengine/finance --no-fail-fast
 
   # ── eg-tts-piper synthesis against a REAL onnxruntime.
   #
@@ -448,29 +487,38 @@ jobs:
 
   # ── Lint feedback is advisory. Product behavior and the release artifact
   # are covered by `gates` and `build`; lint findings must not hold up either.
+  # EH-191/EH-225: `-D warnings` across every release profile. `--all-features`
+  # compiles away every `cfg(not(feature = ...))` branch, so it cannot lint the
+  # published build (`full,ast-extended` = MATURIN_FEATURES, which has no raft) or
+  # the slim `server` build; each profile is its own leg.
   quality-advisory:
-    name: Clippy (advisory)
+    name: Clippy ${{ matrix.profile.name }} (advisory)
     runs-on: ubuntu-latest
     continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - { name: 'workspace-all-features', flags: '--workspace --all-features' }
+          - { name: 'published-full', flags: '--no-default-features --features full,ast-extended' }
+          - { name: 'slim-server', flags: '--no-default-features --features server' }
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
       # The `--all-features` profile enables eg-stream/cdc-kafka, which links
       # system Cyrus-SASL and librdkafka headers on Ubuntu runners.
-      - name: Install librdkafka/Cyrus-SASL build headers
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libsasl2-dev libcurl4-openssl-dev
+      - *eg-gates-sasl
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
           toolchain: stable
           components: clippy
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: clippy-${{ matrix.profile.name }}
 
-      - name: Clippy (workspace, all features)
-        run: cargo clippy --workspace --all-features --all-targets -- -D warnings
+      - name: Clippy (${{ matrix.profile.name }})
+        run: cargo clippy --locked ${{ matrix.profile.flags }} --all-targets -- -D warnings
 
   # ── Repository-wide scanner and complexity analysis is advisory. Keep its
   # reports visible, while product tests and cargo-deny remain release gates.
@@ -698,7 +746,7 @@ jobs:
   # product tests and installed-wheel smoke in `gates`.
   build:
     name: wheel ${{ matrix.name }}
-    needs: [gates, gates-facade, gates-variants, security, lint-and-architecture, tts-piper-inference]
+    needs: [gates, gates-facade, gates-variants, gates-crates, security, lint-and-architecture, tts-piper-inference]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.optional || false }}

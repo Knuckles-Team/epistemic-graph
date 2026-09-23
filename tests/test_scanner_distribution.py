@@ -261,7 +261,7 @@ def test_ci_uses_central_exact_python_version():
         for step in job.get("steps", [])
         if step.get("uses", "").startswith("actions/setup-python@")
     ]
-    assert len(setup_steps) == 10  # incl. gates-facade + gates-variants
+    assert len(setup_steps) == 11  # incl. gates-facade, gates-variants, gates-crates
     assert {filename for filename, _ in setup_steps} == set(registered)
     assert all(
         step.get("with", {}).get("python-version-file") == ".python-version"
@@ -417,10 +417,12 @@ def test_replica_never_installs_a_tool_during_a_gate():
         if row["mode"] == "RUN" and installers.search(row["detail"])
     ]
     assert offenders == []
-    setup_rows = [
-        row for row in plan if "[local: verify pinned tool present]" in row["name"]
-    ]
-    assert len(setup_rows) == len(module.LOCAL_SETUP_STEPS)
+    setup_steps = {
+        (row["job"].split("#", 1)[0], row["name"])
+        for row in plan
+        if "[local: verify pinned tool present]" in row["name"]
+    }
+    assert len(setup_steps) == len(module.LOCAL_SETUP_STEPS)
 
 
 def test_scanner_job_reports_every_step_after_a_failure():
