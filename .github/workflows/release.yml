@@ -475,6 +475,11 @@ jobs:
   # ── Repository-wide scanner and complexity analysis is advisory. Keep its
   # reports visible, while product tests and cargo-deny remain release gates.
   # Provisioning stays isolated from the local manual mirror.
+  # Every scanner step runs even when an earlier one failed (`!cancelled()`), so
+  # one red scanner never hides the verdicts of the rest -- on 57a12eb06 a red
+  # jscpd step left CCCC, KISS, import-linter, depcruise and arch-lint unrun.
+  # The job still fails at the end if any step failed. The local replica
+  # already continues past failures, so both report every step.
   scanner-quality:
     name: Scanner + architecture quality (advisory)
     runs-on: ubuntu-latest
@@ -488,8 +493,10 @@ jobs:
         with:
           python-version-file: '.python-version'
       - name: Install scanner adapter test dependency
+        if: ${{ !cancelled() }}
         run: python -m pip install --disable-pip-version-check --no-input pytest
       - name: Dupehound adapter contract tests
+        if: ${{ !cancelled() }}
         # --noconftest: the adapter tests own their fixtures; the suite conftest
         # imports the full client (msgpack), which this job does not install.
         run: python -m pytest -q --noconftest tests/test_dupehound_census.py
@@ -497,6 +504,7 @@ jobs:
         with:
           node-version: '22'
       - name: Install locked thin-client dependencies
+        if: ${{ !cancelled() }}
         working-directory: clients/js
         run: npm ci --ignore-scripts --no-audit --no-fund
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
@@ -508,6 +516,7 @@ jobs:
       # zero/empty base falls back to the immediate parent, then the root;
       # an unavailable object is an environment failure, never a baseline.
       - name: Resolve scanner base commit
+        if: ${{ !cancelled() }}
         shell: bash
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -551,7 +560,7 @@ jobs:
           key: eg-scanners-${{ runner.os }}-cccc-cli-d728759323be5d9977b7390a27133e8eaf481f26-kiss-ai-0.4.10-dupehound-0.1.2-arch-lint-cli-0.5.0-jscpd-5.0.16-dependency-cruiser-18.2.0
 
       - name: Provision pinned scanner toolchain
-        if: steps.scanner-cache.outputs.cache-hit != 'true'
+        if: ${{ !cancelled() && steps.scanner-cache.outputs.cache-hit != 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -565,6 +574,7 @@ jobs:
             "jscpd@5.0.16" "dependency-cruiser@18.2.0"
 
       - name: Put pinned scanner toolchain on PATH
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -euo pipefail
@@ -575,6 +585,7 @@ jobs:
           done
 
       - name: Verify scanner versions
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -euo pipefail
@@ -590,11 +601,14 @@ jobs:
           esac
 
       - name: jscpd differential analysis (new pairs)
+        if: ${{ !cancelled() }}
         run: python3 scripts/check_duplication.py enforce --base-ref "$CX_DUP_BASE_REF"
       - name: jscpd tracked-tree census (advisory)
+        if: ${{ !cancelled() }}
         run: python3 scripts/check_duplication.py census
 
       - name: Dupehound tracked-tree census (advisory)
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
           python3 scripts/check_dupehound_census.py \
@@ -618,6 +632,7 @@ jobs:
             ${{ runner.temp }}/epistemic-graph-dupehound.manifest.json
 
       - name: CCCC tracked-tree census (advisory)
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -euo pipefail
@@ -664,14 +679,18 @@ jobs:
       # agreeing with the report -- and reports a superset of the per-file,
       # whole-tree and per-package findings; see scripts/check_kiss_census.py.
       - name: KISS tracked-tree census (advisory)
+        if: ${{ !cancelled() }}
         run: python3 scripts/check_kiss_census.py
 
       - name: Python import architecture (import-linter)
+        if: ${{ !cancelled() }}
         run: lint-imports --config .config/importlinter.ini --no-cache
       - name: JavaScript dependency architecture (dependency-cruiser)
+        if: ${{ !cancelled() }}
         working-directory: clients/js
         run: depcruise --validate --config .dependency-cruiser.cjs index.mjs
       - name: Rust architecture (arch-lint)
+        if: ${{ !cancelled() }}
         run: python3 scripts/check_rust_arch_lint.py
 
   # ── Release wheel matrix. Run the expensive cross-platform reproducible
