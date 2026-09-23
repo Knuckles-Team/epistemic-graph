@@ -22,6 +22,8 @@ mod candidates;
 #[cfg(feature = "decide")]
 mod stat_adapter;
 #[cfg(feature = "decide")]
+mod stat_belief;
+#[cfg(feature = "decide")]
 mod stat_classes;
 #[cfg(feature = "decide")]
 mod stat_decide;

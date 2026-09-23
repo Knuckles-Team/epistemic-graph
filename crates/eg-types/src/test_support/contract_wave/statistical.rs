@@ -66,6 +66,7 @@ pub fn decide_request() -> DecideRequest {
                 .collect(),
         ),
         max_records: Some(16),
+        belief_as_of: bounded(vec![1_600_000_000_000, 1_650_000_000_000]),
     }
 }
 

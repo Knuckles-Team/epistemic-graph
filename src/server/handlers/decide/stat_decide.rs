@@ -26,6 +26,7 @@ use eg_types::decision::{
 };
 
 use super::candidates::{read_candidates, ReadCandidates};
+use super::stat_belief::{live_slices, Slices};
 use super::stat_executor::{
     execute, pinned_inputs, recorded_explanation, Executed, ExecutionContext, Pinned,
 };
@@ -126,6 +127,7 @@ fn decide_blocking(
         &mut candidates.views,
     )?;
     let executed = execute(ctx, request, &pinned, &policy, &candidates.views)?;
+    let slices = live_slices(ctx, request, &pinned, &candidates.views)?;
     let nl = binding(request, &executed.ladder.outcome, &candidates.entries)?;
     let record = seal(
         Sealing {
@@ -135,6 +137,7 @@ fn decide_blocking(
             policy: &policy,
             candidates: &candidates,
             principal,
+            slices: &slices,
         },
         &executed,
         nl,
@@ -157,6 +160,7 @@ struct Sealing<'a> {
     policy: &'a ResolvedPolicy,
     candidates: &'a ReadCandidates,
     principal: String,
+    slices: &'a Slices,
 }
 
 fn bounded<T, const N: usize>(values: Vec<T>) -> Result<BoundedVec<T, N>, String> {
@@ -365,6 +369,7 @@ fn seal(
             embedder_model_digest: None,
         },
         exploration: exploration(&sealing, executed),
+        belief_slices: bounded(sealing.slices.inputs.clone())?,
     };
     let inputs_digest = digest_text(
         STATISTICAL_INPUTS_DOMAIN,
@@ -398,6 +403,7 @@ fn seal(
         audit: executed.ladder.audit,
         logging_propensities: bounded(executed.ladder.logging.clone())?,
         nl_binding: nl,
+        belief: bounded(sealing.slices.points.clone())?,
         synthetic_evidence: synthetic,
         record_digest: String::new(),
     };
