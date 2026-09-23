@@ -95,6 +95,11 @@ pub(in crate::server::dispatch) async fn create_graph(
     graph_type: crate::protocol::GraphType,
 ) -> Response {
     let req_id = request.req_id;
+    // Refuse a reserved RBAC-resource name (e.g. `foreign-source:`) BEFORE the durable
+    // lifecycle commit; the registry re-checks at its own chokepoint.
+    if let Err(reserved) = crate::registry::validate_graph_name(&graph_name) {
+        return Response::err(req_id, reserved);
+    }
     match ResultPayload::of::<eg_types::result_contract::cluster::CreateGraph>(
         eg_types::result_contract::cluster::GraphCreated {
             created: graph_name.clone(),

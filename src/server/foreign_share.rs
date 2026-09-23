@@ -29,9 +29,15 @@ pub(crate) fn shared_name(owner_agent: &str, name: &str) -> String {
     format!("{owner_agent}/{name}")
 }
 
-/// The reserved RBAC resource a share grant names.
+/// The reserved RBAC resource a share grant names. Its prefix is reserved in graph-name
+/// validation (`registry::validate_graph_name`), so no graph can ever carry this name
+/// and a graph grant can never convey use of a source.
 pub(crate) fn share_resource(owner_agent: &str, name: &str) -> String {
-    format!("foreign-source:{}", shared_name(owner_agent, name))
+    format!(
+        "{}{}",
+        crate::registry::FOREIGN_SOURCE_RESOURCE_PREFIX,
+        shared_name(owner_agent, name)
+    )
 }
 
 /// The engine-provisioned role that conveys use of `owner_agent`'s source `name`.

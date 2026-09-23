@@ -314,8 +314,14 @@ wire-protocol UQL paths, and `NlQuery` — builds its registry from the caller's
 (`src/server/foreign_catalog.rs`). A name another principal registered resolves exactly like an
 unregistered name, so neither the credential nor the existence of the name crosses principals.
 Two principals may register the same name independently; neither can overwrite the other's
-source. Sharing a registered source with other principals is not supported yet (each principal
-registers its own). Registrations are held in memory and are not persisted.
+source. Sharing is explicit: registration provisions a `foreign-source-use:<owner agent>/<name>`
+role (assigned to nobody) whose single grant is `Read` on the reserved RBAC resource
+`foreign-source:<owner agent>/<name>`; an administrator assigns that role to share the source,
+and the grantee addresses it as `<owner agent>/<name>` until the role is removed. Only that exact
+grant counts (a wildcard reader grant never conveys a credential), and the `foreign-source:`
+prefix is reserved in graph-name validation (`CreateGraph` refuses it with
+`RESERVED_GRAPH_NAME`), so no graph grant can collide with it. Registrations are held in memory
+and are not persisted.
 
 **Foreign rows are not RLS-filtered.** A foreign source's rows come from outside the local snapshot,
 so the row-level visibility filter that governs local graph reads never sees them. Access to them

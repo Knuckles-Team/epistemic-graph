@@ -251,3 +251,31 @@ async fn shared_source_needs_an_explicit_grant() {
         "after revoke",
     );
 }
+
+/// EH-378 namespace isolation: the RBAC model has no typed resource kinds, so the share
+/// resource `foreign-source:<agent>/<name>` would collide with a graph of that exact
+/// name (a grant on that graph would convey use of the source). `CreateGraph` must
+/// refuse the reserved prefix with a typed error, before any durable commit, even for a
+/// System caller.
+#[tokio::test]
+async fn a_graph_cannot_take_a_reserved_foreign_source_resource_name() {
+    let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
+    let local = multi_tenant_state().await;
+    let reserved = crate::server::foreign_share::share_resource(OWNER_A, "remote_docs");
+    let create = Method::CreateGraph {
+        graph_name: reserved.clone(),
+        graph_type: GraphType::Global,
+    };
+    let refused = dispatch_on_heap(&local, request(950, "__commons__", None, create)).await;
+    let err = refused
+        .error
+        .expect("a reserved RBAC-resource name must not become a graph");
+    assert!(
+        err.starts_with("RESERVED_GRAPH_NAME"),
+        "typed refusal, got: {err}"
+    );
+    assert!(
+        !local.read().await.registry.exists(&reserved),
+        "nothing was registered"
+    );
+}
