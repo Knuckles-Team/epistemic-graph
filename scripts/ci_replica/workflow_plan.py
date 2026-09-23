@@ -236,7 +236,12 @@ _APT_INSTALL_RE = re.compile(r"apt-get\s+install\s+(?P<args>[^\n]*)")
 
 
 def apt_verification(run_text: str) -> str:
-    """Shell check: every package the step's `apt-get install` names is installed."""
+    """Shell check: every package the step's `apt-get install` names is installed.
+
+    A package also counts when an installed package PROVIDES it: on Ubuntu 24.04+
+    `pkg-config` is a virtual package provided by `pkgconf`, so `dpkg -s pkg-config`
+    fails on a host that has the tool (a false red on R710, 2026-09-23).
+    """
     packages = [
         token
         for match in _APT_INSTALL_RE.finditer(run_text)
@@ -246,8 +251,12 @@ def apt_verification(run_text: str) -> str:
     if not packages:
         return "echo 'apt setup step names no packages' >&2; exit 2"
     listed = " ".join(packages)
+    provided = (
+        "dpkg-query -W -f='${db:Status-Abbrev} ${Provides}\\n' 2>/dev/null "
+        '| grep -qE "^ii .*(^| |,)$p( |,|$)"'
+    )
     return (
-        f'for p in {listed}; do dpkg -s "$p" >/dev/null 2>&1 '
+        f'for p in {listed}; do dpkg -s "$p" >/dev/null 2>&1 || {provided} '
         '|| { echo "missing apt package: $p" >&2; exit 1; }; done'
     )
 
