@@ -6,30 +6,39 @@
 
 from __future__ import annotations
 
-from typing import Any
-
-from pydantic import BaseModel, ConfigDict
+from typing import TYPE_CHECKING, Any
 
 from ._runtime import (
     OpaqueResult,
+    decode_result,
     expect_bool,
     expect_string,
+    models,
 )
 
+if TYPE_CHECKING:
+    from . import models as _models
 
-class BatchUpdateRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        BatchUpdate
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/BatchUpdate
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    operations_msgpack: bytes
+    BatchUpdateRequest = _models.MethodBatchUpdateParams
+    MultiGraphBatchUpdateRequest = _models.MethodMultiGraphBatchUpdateParams
+    ApplyChangeEnvelopeRequest = _models.MethodApplyChangeEnvelopeParams
+    ApplyChangeEnvelopesRequest = _models.MethodApplyChangeEnvelopesParams
+    ApplyMultisigMutationRequest = _models.MethodApplyMultisigMutationParams
+    BeginTxnRequest = _models.MethodBeginTxnParams
+    TxnAddNodeRequest = _models.MethodTxnAddNodeParams
+    TxnRemoveNodeRequest = _models.MethodTxnRemoveNodeParams
+    TxnAddEdgeRequest = _models.MethodTxnAddEdgeParams
+    TxnRemoveEdgeRequest = _models.MethodTxnRemoveEdgeParams
+    TxnCasRequest = _models.MethodTxnCasParams
+    TxnAddEmbeddingRequest = _models.MethodTxnAddEmbeddingParams
+    TxnBlobRefRequest = _models.MethodTxnBlobRefParams
+    TxnAddMeasurementRequest = _models.MethodTxnAddMeasurementParams
+    TxnAxiomRequest = _models.MethodTxnAxiomParams
+    TxnConstructRequest = _models.MethodTxnConstructParams
+    TxnPlanWritebackRequest = _models.MethodTxnPlanWritebackParams
+    TxnMaterializeBeliefRequest = _models.MethodTxnMaterializeBeliefParams
+    CommitRequest = _models.MethodCommitParams
+    RollbackRequest = _models.MethodRollbackParams
 
 
 async def send_batch_update(
@@ -62,7 +71,7 @@ async def send_batch_update(
         - REDIRECTED
         - READ_ONLY
     """
-    BatchUpdateRequest.model_validate(params or {})
+    models().MethodBatchUpdateParams.model_validate(params or {})
     payload = await client._send(
         "BatchUpdate",
         params,
@@ -72,19 +81,9 @@ async def send_batch_update(
     return OpaqueResult("BatchUpdate", payload)
 
 
-class MultiGraphBatchUpdateRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MultiGraphBatchUpdate
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MultiGraphBatchUpdate
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    batches_msgpack: bytes
+def decode_batch_update(result: OpaqueResult) -> _models.BatchUpdateReport:
+    """Validate this method's result against its contract model."""
+    return decode_result("BatchUpdate", models().BatchUpdateReport, result)
 
 
 async def send_multi_graph_batch_update(
@@ -117,7 +116,7 @@ async def send_multi_graph_batch_update(
         - REDIRECTED
         - READ_ONLY
     """
-    MultiGraphBatchUpdateRequest.model_validate(params or {})
+    models().MethodMultiGraphBatchUpdateParams.model_validate(params or {})
     payload = await client._send(
         "MultiGraphBatchUpdate",
         params,
@@ -127,19 +126,13 @@ async def send_multi_graph_batch_update(
     return OpaqueResult("MultiGraphBatchUpdate", payload)
 
 
-class ApplyChangeEnvelopeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ApplyChangeEnvelope
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ApplyChangeEnvelope
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    envelope: Any
+def decode_multi_graph_batch_update(
+    result: OpaqueResult,
+) -> _models.MultiGraphBatchReport:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "MultiGraphBatchUpdate", models().MultiGraphBatchReport, result
+    )
 
 
 async def send_apply_change_envelope(
@@ -172,7 +165,7 @@ async def send_apply_change_envelope(
         - REDIRECTED
         - READ_ONLY
     """
-    ApplyChangeEnvelopeRequest.model_validate(params or {})
+    models().MethodApplyChangeEnvelopeParams.model_validate(params or {})
     payload = await client._send(
         "ApplyChangeEnvelope",
         params,
@@ -182,19 +175,9 @@ async def send_apply_change_envelope(
     return OpaqueResult("ApplyChangeEnvelope", payload)
 
 
-class ApplyChangeEnvelopesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ApplyChangeEnvelopes
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ApplyChangeEnvelopes
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    envelopes: list[Any]
+def decode_apply_change_envelope(result: OpaqueResult) -> _models.ChangeEnvelopeApplied:
+    """Validate this method's result against its contract model."""
+    return decode_result("ApplyChangeEnvelope", models().ChangeEnvelopeApplied, result)
 
 
 async def send_apply_change_envelopes(
@@ -227,7 +210,7 @@ async def send_apply_change_envelopes(
         - REDIRECTED
         - READ_ONLY
     """
-    ApplyChangeEnvelopesRequest.model_validate(params or {})
+    models().MethodApplyChangeEnvelopesParams.model_validate(params or {})
     payload = await client._send(
         "ApplyChangeEnvelopes",
         params,
@@ -237,22 +220,9 @@ async def send_apply_change_envelopes(
     return OpaqueResult("ApplyChangeEnvelopes", payload)
 
 
-class ApplyMultisigMutationRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ApplyMultisigMutation
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ApplyMultisigMutation
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    mutation_type: str
-    query: str
-    signatures: list[str]
-    threshold: int
+def decode_apply_change_envelopes(result: OpaqueResult) -> _models.ChangeEnvelopeBatch:
+    """Validate this method's result against its contract model."""
+    return decode_result("ApplyChangeEnvelopes", models().ChangeEnvelopeBatch, result)
 
 
 async def send_apply_multisig_mutation(
@@ -285,7 +255,7 @@ async def send_apply_multisig_mutation(
         - REDIRECTED
         - READ_ONLY
     """
-    ApplyMultisigMutationRequest.model_validate(params or {})
+    models().MethodApplyMultisigMutationParams.model_validate(params or {})
     payload = await client._send(
         "ApplyMultisigMutation",
         params,
@@ -295,20 +265,9 @@ async def send_apply_multisig_mutation(
     return OpaqueResult("ApplyMultisigMutation", payload)
 
 
-class BeginTxnRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        BeginTxn
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/BeginTxn
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graph: str | None = None
-    isolation: str | None = None
+def decode_apply_multisig_mutation(result: OpaqueResult) -> _models.SparqlUpdateReport:
+    """Validate this method's result against its contract model."""
+    return decode_result("ApplyMultisigMutation", models().SparqlUpdateReport, result)
 
 
 async def send_begin_txn(
@@ -341,7 +300,7 @@ async def send_begin_txn(
         - REDIRECTED
         - READ_ONLY
     """
-    BeginTxnRequest.model_validate(params or {})
+    models().MethodBeginTxnParams.model_validate(params or {})
     payload = await client._send(
         "BeginTxn",
         params,
@@ -349,24 +308,6 @@ async def send_begin_txn(
         idempotency_key=idempotency_key,
     )
     return expect_string("BeginTxn", payload)
-
-
-class TxnAddNodeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TxnAddNode
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TxnAddNode
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graph: str | None = None
-    node_id: str
-    properties_msgpack: bytes
-    txn_id: str
 
 
 async def send_txn_add_node(
@@ -399,7 +340,7 @@ async def send_txn_add_node(
         - REDIRECTED
         - READ_ONLY
     """
-    TxnAddNodeRequest.model_validate(params or {})
+    models().MethodTxnAddNodeParams.model_validate(params or {})
     payload = await client._send(
         "TxnAddNode",
         params,
@@ -407,23 +348,6 @@ async def send_txn_add_node(
         idempotency_key=idempotency_key,
     )
     return expect_bool("TxnAddNode", payload)
-
-
-class TxnRemoveNodeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TxnRemoveNode
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TxnRemoveNode
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graph: str | None = None
-    node_id: str
-    txn_id: str
 
 
 async def send_txn_remove_node(
@@ -456,7 +380,7 @@ async def send_txn_remove_node(
         - REDIRECTED
         - READ_ONLY
     """
-    TxnRemoveNodeRequest.model_validate(params or {})
+    models().MethodTxnRemoveNodeParams.model_validate(params or {})
     payload = await client._send(
         "TxnRemoveNode",
         params,
@@ -464,25 +388,6 @@ async def send_txn_remove_node(
         idempotency_key=idempotency_key,
     )
     return expect_bool("TxnRemoveNode", payload)
-
-
-class TxnAddEdgeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TxnAddEdge
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TxnAddEdge
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graph: str | None = None
-    properties_msgpack: bytes
-    source_id: str
-    target_id: str
-    txn_id: str
 
 
 async def send_txn_add_edge(
@@ -515,7 +420,7 @@ async def send_txn_add_edge(
         - REDIRECTED
         - READ_ONLY
     """
-    TxnAddEdgeRequest.model_validate(params or {})
+    models().MethodTxnAddEdgeParams.model_validate(params or {})
     payload = await client._send(
         "TxnAddEdge",
         params,
@@ -523,24 +428,6 @@ async def send_txn_add_edge(
         idempotency_key=idempotency_key,
     )
     return expect_bool("TxnAddEdge", payload)
-
-
-class TxnRemoveEdgeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TxnRemoveEdge
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TxnRemoveEdge
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graph: str | None = None
-    source_id: str
-    target_id: str
-    txn_id: str
 
 
 async def send_txn_remove_edge(
@@ -573,7 +460,7 @@ async def send_txn_remove_edge(
         - REDIRECTED
         - READ_ONLY
     """
-    TxnRemoveEdgeRequest.model_validate(params or {})
+    models().MethodTxnRemoveEdgeParams.model_validate(params or {})
     payload = await client._send(
         "TxnRemoveEdge",
         params,
@@ -581,25 +468,6 @@ async def send_txn_remove_edge(
         idempotency_key=idempotency_key,
     )
     return expect_bool("TxnRemoveEdge", payload)
-
-
-class TxnCasRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TxnCas
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TxnCas
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    conditions_msgpack: bytes
-    graph: str | None = None
-    node_id: str
-    txn_id: str
-    updates_msgpack: bytes
 
 
 async def send_txn_cas(
@@ -632,7 +500,7 @@ async def send_txn_cas(
         - REDIRECTED
         - READ_ONLY
     """
-    TxnCasRequest.model_validate(params or {})
+    models().MethodTxnCasParams.model_validate(params or {})
     payload = await client._send(
         "TxnCas",
         params,
@@ -640,24 +508,6 @@ async def send_txn_cas(
         idempotency_key=idempotency_key,
     )
     return expect_bool("TxnCas", payload)
-
-
-class TxnAddEmbeddingRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TxnAddEmbedding
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TxnAddEmbedding
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    embedding: list[float]
-    graph: str | None = None
-    node_id: str
-    txn_id: str
 
 
 async def send_txn_add_embedding(
@@ -690,7 +540,7 @@ async def send_txn_add_embedding(
         - REDIRECTED
         - READ_ONLY
     """
-    TxnAddEmbeddingRequest.model_validate(params or {})
+    models().MethodTxnAddEmbeddingParams.model_validate(params or {})
     payload = await client._send(
         "TxnAddEmbedding",
         params,
@@ -698,24 +548,6 @@ async def send_txn_add_embedding(
         idempotency_key=idempotency_key,
     )
     return expect_bool("TxnAddEmbedding", payload)
-
-
-class TxnBlobRefRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TxnBlobRef
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TxnBlobRef
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    digest: str
-    graph: str | None = None
-    node_id: str
-    txn_id: str
 
 
 async def send_txn_blob_ref(
@@ -748,7 +580,7 @@ async def send_txn_blob_ref(
         - REDIRECTED
         - READ_ONLY
     """
-    TxnBlobRefRequest.model_validate(params or {})
+    models().MethodTxnBlobRefParams.model_validate(params or {})
     payload = await client._send(
         "TxnBlobRef",
         params,
@@ -756,24 +588,6 @@ async def send_txn_blob_ref(
         idempotency_key=idempotency_key,
     )
     return expect_bool("TxnBlobRef", payload)
-
-
-class TxnAddMeasurementRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TxnAddMeasurement
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TxnAddMeasurement
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graph: str | None = None
-    points: bytes
-    series: str
-    txn_id: str
 
 
 async def send_txn_add_measurement(
@@ -806,7 +620,7 @@ async def send_txn_add_measurement(
         - REDIRECTED
         - READ_ONLY
     """
-    TxnAddMeasurementRequest.model_validate(params or {})
+    models().MethodTxnAddMeasurementParams.model_validate(params or {})
     payload = await client._send(
         "TxnAddMeasurement",
         params,
@@ -814,23 +628,6 @@ async def send_txn_add_measurement(
         idempotency_key=idempotency_key,
     )
     return expect_bool("TxnAddMeasurement", payload)
-
-
-class TxnAxiomRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TxnAxiom
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TxnAxiom
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graph: str | None = None
-    turtle: str
-    txn_id: str
 
 
 async def send_txn_axiom(
@@ -863,7 +660,7 @@ async def send_txn_axiom(
         - REDIRECTED
         - READ_ONLY
     """
-    TxnAxiomRequest.model_validate(params or {})
+    models().MethodTxnAxiomParams.model_validate(params or {})
     payload = await client._send(
         "TxnAxiom",
         params,
@@ -871,23 +668,6 @@ async def send_txn_axiom(
         idempotency_key=idempotency_key,
     )
     return expect_bool("TxnAxiom", payload)
-
-
-class TxnConstructRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TxnConstruct
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TxnConstruct
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graph: str | None = None
-    sparql: str
-    txn_id: str
 
 
 async def send_txn_construct(
@@ -920,7 +700,7 @@ async def send_txn_construct(
         - REDIRECTED
         - READ_ONLY
     """
-    TxnConstructRequest.model_validate(params or {})
+    models().MethodTxnConstructParams.model_validate(params or {})
     payload = await client._send(
         "TxnConstruct",
         params,
@@ -928,25 +708,6 @@ async def send_txn_construct(
         idempotency_key=idempotency_key,
     )
     return expect_bool("TxnConstruct", payload)
-
-
-class TxnPlanWritebackRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TxnPlanWriteback
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TxnPlanWriteback
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    anchor_id: str
-    graph: str | None = None
-    plan: Any
-    relationship: str
-    txn_id: str
 
 
 async def send_txn_plan_writeback(
@@ -979,7 +740,7 @@ async def send_txn_plan_writeback(
         - REDIRECTED
         - READ_ONLY
     """
-    TxnPlanWritebackRequest.model_validate(params or {})
+    models().MethodTxnPlanWritebackParams.model_validate(params or {})
     payload = await client._send(
         "TxnPlanWriteback",
         params,
@@ -987,23 +748,6 @@ async def send_txn_plan_writeback(
         idempotency_key=idempotency_key,
     )
     return expect_bool("TxnPlanWriteback", payload)
-
-
-class TxnMaterializeBeliefRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TxnMaterializeBelief
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TxnMaterializeBelief
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graph: str | None = None
-    node_id: str
-    txn_id: str
 
 
 async def send_txn_materialize_belief(
@@ -1036,7 +780,7 @@ async def send_txn_materialize_belief(
         - REDIRECTED
         - READ_ONLY
     """
-    TxnMaterializeBeliefRequest.model_validate(params or {})
+    models().MethodTxnMaterializeBeliefParams.model_validate(params or {})
     payload = await client._send(
         "TxnMaterializeBelief",
         params,
@@ -1046,20 +790,11 @@ async def send_txn_materialize_belief(
     return OpaqueResult("TxnMaterializeBelief", payload)
 
 
-class CommitRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        Commit
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/Commit
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    idempotency_key: str | None = None
-    txn_id: str
+def decode_txn_materialize_belief(
+    result: OpaqueResult,
+) -> _models.BeliefMaterialization:
+    """Validate this method's result against its contract model."""
+    return decode_result("TxnMaterializeBelief", models().BeliefMaterialization, result)
 
 
 async def send_commit(
@@ -1092,7 +827,7 @@ async def send_commit(
         - REDIRECTED
         - READ_ONLY
     """
-    CommitRequest.model_validate(params or {})
+    models().MethodCommitParams.model_validate(params or {})
     payload = await client._send(
         "Commit",
         params,
@@ -1102,19 +837,9 @@ async def send_commit(
     return OpaqueResult("Commit", payload)
 
 
-class RollbackRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        Rollback
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/Rollback
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    txn_id: str
+def decode_commit(result: OpaqueResult) -> _models.CommitOutcome:
+    """Validate this method's result against its contract model."""
+    return decode_result("Commit", models().CommitOutcome, result)
 
 
 async def send_rollback(
@@ -1147,7 +872,7 @@ async def send_rollback(
         - REDIRECTED
         - READ_ONLY
     """
-    RollbackRequest.model_validate(params or {})
+    models().MethodRollbackParams.model_validate(params or {})
     payload = await client._send(
         "Rollback",
         params,
@@ -1157,56 +882,36 @@ async def send_rollback(
     return expect_bool("Rollback", payload)
 
 
-class MutationOutboxRequest(BaseModel):
-    """Validate one engine-contract request body.
+# Methods whose `{Id}Request` resolves to `models.Method{Id}Params` (EH-192).
+_REQUEST_METHODS = frozenset(
+    {
+        "BatchUpdate",
+        "MultiGraphBatchUpdate",
+        "ApplyChangeEnvelope",
+        "ApplyChangeEnvelopes",
+        "ApplyMultisigMutation",
+        "BeginTxn",
+        "TxnAddNode",
+        "TxnRemoveNode",
+        "TxnAddEdge",
+        "TxnRemoveEdge",
+        "TxnCas",
+        "TxnAddEmbedding",
+        "TxnBlobRef",
+        "TxnAddMeasurement",
+        "TxnAxiom",
+        "TxnConstruct",
+        "TxnPlanWriteback",
+        "TxnMaterializeBelief",
+        "Commit",
+        "Rollback",
+    }
+)
 
-    Method:
-        MutationOutbox
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MutationOutbox
-    """
 
-    model_config = ConfigDict(extra="forbid")
-
-    op: Any
-
-
-async def send_mutation_outbox(
-    client: Any,
-    params: dict[str, Any] | None = None,
-    graph: str | None = None,
-    *,
-    idempotency_key: str | None = None,
-) -> OpaqueResult:
-    """Send one engine-contract request.
-
-    Method:
-        MutationOutbox
-    Authorization:
-        admin:outbox
-    Durability:
-        ControlRedb
-    Replay:
-        OperationIdentity
-    Result:
-        one declared body per request op
-    Result schema:
-        contract/schemas/result.transactions.json
-        #/methods/MutationOutbox
-    Errors:
-        - INVALID_ARGUMENT
-        - ACCESS_DENIED
-        - CONFLICT
-        - IDEMPOTENCY_CONFLICT
-        - REDIRECTED
-        - READ_ONLY
-    """
-    MutationOutboxRequest.model_validate(params or {})
-    payload = await client._send(
-        "MutationOutbox",
-        params,
-        graph,
-        idempotency_key=idempotency_key,
-    )
-    return OpaqueResult("MutationOutbox", payload)
+def __getattr__(name: str) -> Any:
+    """Resolve a ``{Id}Request`` name to its generated model on first use."""
+    method = name.removesuffix("Request")
+    if name == method or method not in _REQUEST_METHODS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(models(), f"Method{method}Params")

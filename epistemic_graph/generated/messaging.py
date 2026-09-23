@@ -6,33 +6,64 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from ._runtime import (
     OpaqueResult,
+    decode_result,
     expect_bool,
     expect_count,
     expect_ids,
     expect_string,
+    models,
 )
 
+if TYPE_CHECKING:
+    from . import models as _models
 
-class DeclareExchangeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DeclareExchange
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DeclareExchange
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    exchange: str
-    kind: str
+    DeclareExchangeRequest = _models.MethodDeclareExchangeParams
+    DeleteExchangeRequest = _models.MethodDeleteExchangeParams
+    BindQueueRequest = _models.MethodBindQueueParams
+    UnbindQueueRequest = _models.MethodUnbindQueueParams
+    PublishRequest = _models.MethodPublishParams
+    DeclareQueueRequest = _models.MethodDeclareQueueParams
+    PublishExRequest = _models.MethodPublishExParams
+    BrokerConsumeRequest = _models.MethodBrokerConsumeParams
+    BrokerAckRequest = _models.MethodBrokerAckParams
+    BrokerRejectRequest = _models.MethodBrokerRejectParams
+    SweepExpiredRequest = _models.MethodSweepExpiredParams
+    StreamDeclareRequest = _models.MethodStreamDeclareParams
+    StreamPublishRequest = _models.MethodStreamPublishParams
+    StreamReadRequest = _models.MethodStreamReadParams
+    StreamTrimRequest = _models.MethodStreamTrimParams
+    StreamCommitOffsetRequest = _models.MethodStreamCommitOffsetParams
+    StreamCommittedOffsetRequest = _models.MethodStreamCommittedOffsetParams
+    PublishConfirmedRequest = _models.MethodPublishConfirmedParams
+    PublishIdempotentRequest = _models.MethodPublishIdempotentParams
+    BrokerAckTagRequest = _models.MethodBrokerAckTagParams
+    BrokerNackTagRequest = _models.MethodBrokerNackTagParams
+    BrokerRenewTagRequest = _models.MethodBrokerRenewTagParams
+    CreateChannelRequest = _models.MethodCreateChannelParams
+    JoinChannelRequest = _models.MethodJoinChannelParams
+    LeaveChannelRequest = _models.MethodLeaveChannelParams
+    CloseChannelRequest = _models.MethodCloseChannelParams
+    SendMessageRequest = _models.MethodSendMessageParams
+    GetChannelMessagesRequest = _models.MethodGetChannelMessagesParams
+    GetChannelMembersRequest = _models.MethodGetChannelMembersParams
+    CdcReadRequest = _models.MethodCdcReadParams
+    RegisterContinuousQueryRequest = _models.MethodRegisterContinuousQueryParams
+    ReadContinuousQueryRequest = _models.MethodReadContinuousQueryParams
+    DropContinuousQueryRequest = _models.MethodDropContinuousQueryParams
+    WatchRequest = _models.MethodWatchParams
+    RegisterTriggerRequest = _models.MethodRegisterTriggerParams
+    DropTriggerRequest = _models.MethodDropTriggerParams
+    ListTriggersRequest = _models.MethodListTriggersParams
+    FiredTriggersRequest = _models.MethodFiredTriggersParams
+    CepSubscribeRequest = _models.MethodCepSubscribeParams
+    CepPollRequest = _models.MethodCepPollParams
+    CepUnsubscribeRequest = _models.MethodCepUnsubscribeParams
 
 
 async def send_declare_exchange(
@@ -65,7 +96,7 @@ async def send_declare_exchange(
         - REDIRECTED
         - READ_ONLY
     """
-    DeclareExchangeRequest.model_validate(params or {})
+    models().MethodDeclareExchangeParams.model_validate(params or {})
     payload = await client._send(
         "DeclareExchange",
         params,
@@ -73,21 +104,6 @@ async def send_declare_exchange(
         idempotency_key=idempotency_key,
     )
     return expect_string("DeclareExchange", payload)
-
-
-class DeleteExchangeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DeleteExchange
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DeleteExchange
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    exchange: str
 
 
 async def send_delete_exchange(
@@ -120,7 +136,7 @@ async def send_delete_exchange(
         - REDIRECTED
         - READ_ONLY
     """
-    DeleteExchangeRequest.model_validate(params or {})
+    models().MethodDeleteExchangeParams.model_validate(params or {})
     payload = await client._send(
         "DeleteExchange",
         params,
@@ -128,23 +144,6 @@ async def send_delete_exchange(
         idempotency_key=idempotency_key,
     )
     return expect_bool("DeleteExchange", payload)
-
-
-class BindQueueRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        BindQueue
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/BindQueue
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    exchange: str
-    queue: str
-    routing_key: str
 
 
 async def send_bind_queue(
@@ -177,7 +176,7 @@ async def send_bind_queue(
         - REDIRECTED
         - READ_ONLY
     """
-    BindQueueRequest.model_validate(params or {})
+    models().MethodBindQueueParams.model_validate(params or {})
     payload = await client._send(
         "BindQueue",
         params,
@@ -185,23 +184,6 @@ async def send_bind_queue(
         idempotency_key=idempotency_key,
     )
     return expect_string("BindQueue", payload)
-
-
-class UnbindQueueRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        UnbindQueue
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/UnbindQueue
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    exchange: str
-    queue: str
-    routing_key: str
 
 
 async def send_unbind_queue(
@@ -234,7 +216,7 @@ async def send_unbind_queue(
         - REDIRECTED
         - READ_ONLY
     """
-    UnbindQueueRequest.model_validate(params or {})
+    models().MethodUnbindQueueParams.model_validate(params or {})
     payload = await client._send(
         "UnbindQueue",
         params,
@@ -242,23 +224,6 @@ async def send_unbind_queue(
         idempotency_key=idempotency_key,
     )
     return expect_bool("UnbindQueue", payload)
-
-
-class PublishRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        Publish
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/Publish
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    exchange: str
-    payload: bytes
-    routing_key: str
 
 
 async def send_publish(
@@ -291,7 +256,7 @@ async def send_publish(
         - REDIRECTED
         - READ_ONLY
     """
-    PublishRequest.model_validate(params or {})
+    models().MethodPublishParams.model_validate(params or {})
     payload = await client._send(
         "Publish",
         params,
@@ -299,27 +264,6 @@ async def send_publish(
         idempotency_key=idempotency_key,
     )
     return expect_count("Publish", payload)
-
-
-class DeclareQueueRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DeclareQueue
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DeclareQueue
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    dl_exchange: str | None = None
-    dl_routing_key: str | None = None
-    max_delivery_count: int | None = None
-    max_priority: int | None = None
-    message_ttl_ms: int | None = None
-    queue: str
-    queue_expiry_ms: int | None = None
 
 
 async def send_declare_queue(
@@ -352,7 +296,7 @@ async def send_declare_queue(
         - REDIRECTED
         - READ_ONLY
     """
-    DeclareQueueRequest.model_validate(params or {})
+    models().MethodDeclareQueueParams.model_validate(params or {})
     payload = await client._send(
         "DeclareQueue",
         params,
@@ -360,27 +304,6 @@ async def send_declare_queue(
         idempotency_key=idempotency_key,
     )
     return expect_string("DeclareQueue", payload)
-
-
-class PublishExRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        PublishEx
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/PublishEx
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    delay_ms: int | None = None
-    exchange: str
-    now_ms: int | None = None
-    payload: bytes
-    priority: int | None = None
-    routing_key: str
-    ttl_ms: int | None = None
 
 
 async def send_publish_ex(
@@ -413,7 +336,7 @@ async def send_publish_ex(
         - REDIRECTED
         - READ_ONLY
     """
-    PublishExRequest.model_validate(params or {})
+    models().MethodPublishExParams.model_validate(params or {})
     payload = await client._send(
         "PublishEx",
         params,
@@ -421,26 +344,6 @@ async def send_publish_ex(
         idempotency_key=idempotency_key,
     )
     return expect_count("PublishEx", payload)
-
-
-class BrokerConsumeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        BrokerConsume
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/BrokerConsume
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    consumer: str
-    group: str
-    lease_ms: int
-    now_ms: int
-    prefetch: int
-    queue: str
 
 
 async def send_broker_consume(
@@ -473,7 +376,7 @@ async def send_broker_consume(
         - REDIRECTED
         - READ_ONLY
     """
-    BrokerConsumeRequest.model_validate(params or {})
+    models().MethodBrokerConsumeParams.model_validate(params or {})
     payload = await client._send(
         "BrokerConsume",
         params,
@@ -483,20 +386,9 @@ async def send_broker_consume(
     return OpaqueResult("BrokerConsume", payload)
 
 
-class BrokerAckRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        BrokerAck
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/BrokerAck
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_id: str
-    queue: str
+def decode_broker_consume(result: OpaqueResult) -> _models.BrokerConsumeResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("BrokerConsume", models().BrokerConsumeResult, result)
 
 
 async def send_broker_ack(
@@ -529,7 +421,7 @@ async def send_broker_ack(
         - REDIRECTED
         - READ_ONLY
     """
-    BrokerAckRequest.model_validate(params or {})
+    models().MethodBrokerAckParams.model_validate(params or {})
     payload = await client._send(
         "BrokerAck",
         params,
@@ -537,24 +429,6 @@ async def send_broker_ack(
         idempotency_key=idempotency_key,
     )
     return expect_bool("BrokerAck", payload)
-
-
-class BrokerRejectRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        BrokerReject
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/BrokerReject
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    node_id: str
-    now_ms: int
-    queue: str
-    requeue: bool
 
 
 async def send_broker_reject(
@@ -587,7 +461,7 @@ async def send_broker_reject(
         - REDIRECTED
         - READ_ONLY
     """
-    BrokerRejectRequest.model_validate(params or {})
+    models().MethodBrokerRejectParams.model_validate(params or {})
     payload = await client._send(
         "BrokerReject",
         params,
@@ -595,21 +469,6 @@ async def send_broker_reject(
         idempotency_key=idempotency_key,
     )
     return expect_string("BrokerReject", payload)
-
-
-class SweepExpiredRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        SweepExpired
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/SweepExpired
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    now_ms: int
 
 
 async def send_sweep_expired(
@@ -642,7 +501,7 @@ async def send_sweep_expired(
         - REDIRECTED
         - READ_ONLY
     """
-    SweepExpiredRequest.model_validate(params or {})
+    models().MethodSweepExpiredParams.model_validate(params or {})
     payload = await client._send(
         "SweepExpired",
         params,
@@ -650,23 +509,6 @@ async def send_sweep_expired(
         idempotency_key=idempotency_key,
     )
     return expect_count("SweepExpired", payload)
-
-
-class StreamDeclareRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        StreamDeclare
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/StreamDeclare
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    max_age_ms: int | None = None
-    max_messages: int | None = None
-    stream: str
 
 
 async def send_stream_declare(
@@ -699,7 +541,7 @@ async def send_stream_declare(
         - REDIRECTED
         - READ_ONLY
     """
-    StreamDeclareRequest.model_validate(params or {})
+    models().MethodStreamDeclareParams.model_validate(params or {})
     payload = await client._send(
         "StreamDeclare",
         params,
@@ -707,23 +549,6 @@ async def send_stream_declare(
         idempotency_key=idempotency_key,
     )
     return expect_string("StreamDeclare", payload)
-
-
-class StreamPublishRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        StreamPublish
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/StreamPublish
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    now_ms: int
-    payload: bytes
-    stream: str
 
 
 async def send_stream_publish(
@@ -756,7 +581,7 @@ async def send_stream_publish(
         - REDIRECTED
         - READ_ONLY
     """
-    StreamPublishRequest.model_validate(params or {})
+    models().MethodStreamPublishParams.model_validate(params or {})
     payload = await client._send(
         "StreamPublish",
         params,
@@ -764,23 +589,6 @@ async def send_stream_publish(
         idempotency_key=idempotency_key,
     )
     return expect_count("StreamPublish", payload)
-
-
-class StreamReadRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        StreamRead
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/StreamRead
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    from_offset: int
-    max: int
-    stream: str
 
 
 async def send_stream_read(
@@ -809,7 +617,7 @@ async def send_stream_read(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    StreamReadRequest.model_validate(params or {})
+    models().MethodStreamReadParams.model_validate(params or {})
     payload = await client._send(
         "StreamRead",
         params,
@@ -819,20 +627,9 @@ async def send_stream_read(
     return OpaqueResult("StreamRead", payload)
 
 
-class StreamTrimRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        StreamTrim
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/StreamTrim
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    now_ms: int
-    stream: str
+def decode_stream_read(result: OpaqueResult) -> _models.StreamReadResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("StreamRead", models().StreamReadResult, result)
 
 
 async def send_stream_trim(
@@ -865,7 +662,7 @@ async def send_stream_trim(
         - REDIRECTED
         - READ_ONLY
     """
-    StreamTrimRequest.model_validate(params or {})
+    models().MethodStreamTrimParams.model_validate(params or {})
     payload = await client._send(
         "StreamTrim",
         params,
@@ -873,23 +670,6 @@ async def send_stream_trim(
         idempotency_key=idempotency_key,
     )
     return expect_count("StreamTrim", payload)
-
-
-class StreamCommitOffsetRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        StreamCommitOffset
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/StreamCommitOffset
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    group: str
-    offset: int
-    stream: str
 
 
 async def send_stream_commit_offset(
@@ -922,7 +702,7 @@ async def send_stream_commit_offset(
         - REDIRECTED
         - READ_ONLY
     """
-    StreamCommitOffsetRequest.model_validate(params or {})
+    models().MethodStreamCommitOffsetParams.model_validate(params or {})
     payload = await client._send(
         "StreamCommitOffset",
         params,
@@ -930,22 +710,6 @@ async def send_stream_commit_offset(
         idempotency_key=idempotency_key,
     )
     return expect_string("StreamCommitOffset", payload)
-
-
-class StreamCommittedOffsetRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        StreamCommittedOffset
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/StreamCommittedOffset
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    group: str
-    stream: str
 
 
 async def send_stream_committed_offset(
@@ -974,7 +738,7 @@ async def send_stream_committed_offset(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    StreamCommittedOffsetRequest.model_validate(params or {})
+    models().MethodStreamCommittedOffsetParams.model_validate(params or {})
     payload = await client._send(
         "StreamCommittedOffset",
         params,
@@ -984,25 +748,13 @@ async def send_stream_committed_offset(
     return OpaqueResult("StreamCommittedOffset", payload)
 
 
-class PublishConfirmedRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        PublishConfirmed
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/PublishConfirmed
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    delay_ms: int | None = None
-    exchange: str
-    now_ms: int | None = None
-    payload: bytes
-    priority: int | None = None
-    routing_key: str
-    ttl_ms: int | None = None
+def decode_stream_committed_offset(
+    result: OpaqueResult,
+) -> _models.StreamCommittedOffsetResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "StreamCommittedOffset", models().StreamCommittedOffsetResult, result
+    )
 
 
 async def send_publish_confirmed(
@@ -1035,7 +787,7 @@ async def send_publish_confirmed(
         - REDIRECTED
         - READ_ONLY
     """
-    PublishConfirmedRequest.model_validate(params or {})
+    models().MethodPublishConfirmedParams.model_validate(params or {})
     payload = await client._send(
         "PublishConfirmed",
         params,
@@ -1045,27 +797,9 @@ async def send_publish_confirmed(
     return OpaqueResult("PublishConfirmed", payload)
 
 
-class PublishIdempotentRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        PublishIdempotent
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/PublishIdempotent
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    delay_ms: int | None = None
-    exchange: str
-    now_ms: int | None = None
-    payload: bytes
-    priority: int | None = None
-    producer_id: str | None = None
-    routing_key: str
-    seq: int | None = None
-    ttl_ms: int | None = None
+def decode_publish_confirmed(result: OpaqueResult) -> _models.ConfirmToken:
+    """Validate this method's result against its contract model."""
+    return decode_result("PublishConfirmed", models().ConfirmToken, result)
 
 
 async def send_publish_idempotent(
@@ -1098,7 +832,7 @@ async def send_publish_idempotent(
         - REDIRECTED
         - READ_ONLY
     """
-    PublishIdempotentRequest.model_validate(params or {})
+    models().MethodPublishIdempotentParams.model_validate(params or {})
     payload = await client._send(
         "PublishIdempotent",
         params,
@@ -1108,20 +842,9 @@ async def send_publish_idempotent(
     return OpaqueResult("PublishIdempotent", payload)
 
 
-class BrokerAckTagRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        BrokerAckTag
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/BrokerAckTag
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    consumer: str
-    delivery_tag: int
+def decode_publish_idempotent(result: OpaqueResult) -> _models.IdempotentPublish:
+    """Validate this method's result against its contract model."""
+    return decode_result("PublishIdempotent", models().IdempotentPublish, result)
 
 
 async def send_broker_ack_tag(
@@ -1154,7 +877,7 @@ async def send_broker_ack_tag(
         - REDIRECTED
         - READ_ONLY
     """
-    BrokerAckTagRequest.model_validate(params or {})
+    models().MethodBrokerAckTagParams.model_validate(params or {})
     payload = await client._send(
         "BrokerAckTag",
         params,
@@ -1162,24 +885,6 @@ async def send_broker_ack_tag(
         idempotency_key=idempotency_key,
     )
     return expect_bool("BrokerAckTag", payload)
-
-
-class BrokerNackTagRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        BrokerNackTag
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/BrokerNackTag
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    consumer: str
-    delivery_tag: int
-    now_ms: int
-    requeue: bool
 
 
 async def send_broker_nack_tag(
@@ -1212,7 +917,7 @@ async def send_broker_nack_tag(
         - REDIRECTED
         - READ_ONLY
     """
-    BrokerNackTagRequest.model_validate(params or {})
+    models().MethodBrokerNackTagParams.model_validate(params or {})
     payload = await client._send(
         "BrokerNackTag",
         params,
@@ -1220,24 +925,6 @@ async def send_broker_nack_tag(
         idempotency_key=idempotency_key,
     )
     return expect_string("BrokerNackTag", payload)
-
-
-class BrokerRenewTagRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        BrokerRenewTag
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/BrokerRenewTag
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    consumer: str
-    delivery_tag: int
-    lease_ms: int
-    now_ms: int
 
 
 async def send_broker_renew_tag(
@@ -1270,7 +957,7 @@ async def send_broker_renew_tag(
         - REDIRECTED
         - READ_ONLY
     """
-    BrokerRenewTagRequest.model_validate(params or {})
+    models().MethodBrokerRenewTagParams.model_validate(params or {})
     payload = await client._send(
         "BrokerRenewTag",
         params,
@@ -1278,24 +965,6 @@ async def send_broker_renew_tag(
         idempotency_key=idempotency_key,
     )
     return expect_bool("BrokerRenewTag", payload)
-
-
-class CreateChannelRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CreateChannel
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CreateChannel
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    channel_id: str
-    channel_type: Any
-    creator: str
-    initial_members: list[str]
 
 
 async def send_create_channel(
@@ -1328,7 +997,7 @@ async def send_create_channel(
         - REDIRECTED
         - READ_ONLY
     """
-    CreateChannelRequest.model_validate(params or {})
+    models().MethodCreateChannelParams.model_validate(params or {})
     payload = await client._send(
         "CreateChannel",
         params,
@@ -1338,20 +1007,9 @@ async def send_create_channel(
     return OpaqueResult("CreateChannel", payload)
 
 
-class JoinChannelRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        JoinChannel
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/JoinChannel
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    agent_id: str
-    channel_id: str
+def decode_create_channel(result: OpaqueResult) -> _models.ChannelCreated:
+    """Validate this method's result against its contract model."""
+    return decode_result("CreateChannel", models().ChannelCreated, result)
 
 
 async def send_join_channel(
@@ -1384,7 +1042,7 @@ async def send_join_channel(
         - REDIRECTED
         - READ_ONLY
     """
-    JoinChannelRequest.model_validate(params or {})
+    models().MethodJoinChannelParams.model_validate(params or {})
     payload = await client._send(
         "JoinChannel",
         params,
@@ -1392,22 +1050,6 @@ async def send_join_channel(
         idempotency_key=idempotency_key,
     )
     return expect_string("JoinChannel", payload)
-
-
-class LeaveChannelRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        LeaveChannel
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/LeaveChannel
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    agent_id: str
-    channel_id: str
 
 
 async def send_leave_channel(
@@ -1440,7 +1082,7 @@ async def send_leave_channel(
         - REDIRECTED
         - READ_ONLY
     """
-    LeaveChannelRequest.model_validate(params or {})
+    models().MethodLeaveChannelParams.model_validate(params or {})
     payload = await client._send(
         "LeaveChannel",
         params,
@@ -1450,21 +1092,9 @@ async def send_leave_channel(
     return OpaqueResult("LeaveChannel", payload)
 
 
-class CloseChannelRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CloseChannel
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CloseChannel
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    channel_id: str
-    summary_embedding: list[float] | None = None
-    topic_metadata: str | None = None
+def decode_leave_channel(result: OpaqueResult) -> _models.ChannelDeparture:
+    """Validate this method's result against its contract model."""
+    return decode_result("LeaveChannel", models().ChannelDeparture, result)
 
 
 async def send_close_channel(
@@ -1497,7 +1127,7 @@ async def send_close_channel(
         - REDIRECTED
         - READ_ONLY
     """
-    CloseChannelRequest.model_validate(params or {})
+    models().MethodCloseChannelParams.model_validate(params or {})
     payload = await client._send(
         "CloseChannel",
         params,
@@ -1507,21 +1137,9 @@ async def send_close_channel(
     return OpaqueResult("CloseChannel", payload)
 
 
-class SendMessageRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        SendMessage
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/SendMessage
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    channel_id: str
-    payload: str
-    sender: str
+def decode_close_channel(result: OpaqueResult) -> _models.ChannelDeparture:
+    """Validate this method's result against its contract model."""
+    return decode_result("CloseChannel", models().ChannelDeparture, result)
 
 
 async def send_send_message(
@@ -1554,7 +1172,7 @@ async def send_send_message(
         - REDIRECTED
         - READ_ONLY
     """
-    SendMessageRequest.model_validate(params or {})
+    models().MethodSendMessageParams.model_validate(params or {})
     payload = await client._send(
         "SendMessage",
         params,
@@ -1562,22 +1180,6 @@ async def send_send_message(
         idempotency_key=idempotency_key,
     )
     return expect_string("SendMessage", payload)
-
-
-class GetChannelMessagesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetChannelMessages
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetChannelMessages
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    channel_id: str
-    limit: int | None = None
 
 
 async def send_get_channel_messages(
@@ -1606,7 +1208,7 @@ async def send_get_channel_messages(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetChannelMessagesRequest.model_validate(params or {})
+    models().MethodGetChannelMessagesParams.model_validate(params or {})
     payload = await client._send(
         "GetChannelMessages",
         params,
@@ -1614,6 +1216,15 @@ async def send_get_channel_messages(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("GetChannelMessages", payload)
+
+
+def decode_get_channel_messages(
+    result: OpaqueResult,
+) -> _models.GetChannelMessagesResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "GetChannelMessages", models().GetChannelMessagesResult, result
+    )
 
 
 class ListChannelsRequest(BaseModel):
@@ -1667,19 +1278,9 @@ async def send_list_channels(
     return OpaqueResult("ListChannels", payload)
 
 
-class GetChannelMembersRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetChannelMembers
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetChannelMembers
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    channel_id: str
+def decode_list_channels(result: OpaqueResult) -> _models.ListChannelsResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ListChannels", models().ListChannelsResult, result)
 
 
 async def send_get_channel_members(
@@ -1708,7 +1309,7 @@ async def send_get_channel_members(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetChannelMembersRequest.model_validate(params or {})
+    models().MethodGetChannelMembersParams.model_validate(params or {})
     payload = await client._send(
         "GetChannelMembers",
         params,
@@ -1716,23 +1317,6 @@ async def send_get_channel_members(
         idempotency_key=idempotency_key,
     )
     return expect_ids("GetChannelMembers", payload)
-
-
-class CdcReadRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CdcRead
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CdcRead
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    from_seq: int
-    graph: str
-    limit: int | None = None
 
 
 async def send_cdc_read(
@@ -1761,7 +1345,7 @@ async def send_cdc_read(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    CdcReadRequest.model_validate(params or {})
+    models().MethodCdcReadParams.model_validate(params or {})
     payload = await client._send(
         "CdcRead",
         params,
@@ -1771,20 +1355,9 @@ async def send_cdc_read(
     return OpaqueResult("CdcRead", payload)
 
 
-class RegisterContinuousQueryRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        RegisterContinuousQuery
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/RegisterContinuousQuery
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
-    spec_msgpack: bytes
+def decode_cdc_read(result: OpaqueResult) -> _models.CdcReadResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("CdcRead", models().CdcReadResult, result)
 
 
 async def send_register_continuous_query(
@@ -1817,7 +1390,7 @@ async def send_register_continuous_query(
         - REDIRECTED
         - READ_ONLY
     """
-    RegisterContinuousQueryRequest.model_validate(params or {})
+    models().MethodRegisterContinuousQueryParams.model_validate(params or {})
     payload = await client._send(
         "RegisterContinuousQuery",
         params,
@@ -1825,21 +1398,6 @@ async def send_register_continuous_query(
         idempotency_key=idempotency_key,
     )
     return expect_string("RegisterContinuousQuery", payload)
-
-
-class ReadContinuousQueryRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ReadContinuousQuery
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ReadContinuousQuery
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
 
 
 async def send_read_continuous_query(
@@ -1868,7 +1426,7 @@ async def send_read_continuous_query(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ReadContinuousQueryRequest.model_validate(params or {})
+    models().MethodReadContinuousQueryParams.model_validate(params or {})
     payload = await client._send(
         "ReadContinuousQuery",
         params,
@@ -1878,19 +1436,9 @@ async def send_read_continuous_query(
     return OpaqueResult("ReadContinuousQuery", payload)
 
 
-class DropContinuousQueryRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DropContinuousQuery
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DropContinuousQuery
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
+def decode_read_continuous_query(result: OpaqueResult) -> _models.ContinuousQueryResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ReadContinuousQuery", models().ContinuousQueryResult, result)
 
 
 async def send_drop_continuous_query(
@@ -1923,7 +1471,7 @@ async def send_drop_continuous_query(
         - REDIRECTED
         - READ_ONLY
     """
-    DropContinuousQueryRequest.model_validate(params or {})
+    models().MethodDropContinuousQueryParams.model_validate(params or {})
     payload = await client._send(
         "DropContinuousQuery",
         params,
@@ -1931,24 +1479,6 @@ async def send_drop_continuous_query(
         idempotency_key=idempotency_key,
     )
     return expect_bool("DropContinuousQuery", payload)
-
-
-class WatchRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        Watch
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/Watch
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    from_seq: int
-    graph: str
-    label: str | None = None
-    timeout_ms: int | None = None
 
 
 async def send_watch(
@@ -1977,7 +1507,7 @@ async def send_watch(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    WatchRequest.model_validate(params or {})
+    models().MethodWatchParams.model_validate(params or {})
     payload = await client._send(
         "Watch",
         params,
@@ -1987,23 +1517,9 @@ async def send_watch(
     return OpaqueResult("Watch", payload)
 
 
-class RegisterTriggerRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        RegisterTrigger
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/RegisterTrigger
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    action_msgpack: bytes = Field(default_factory=bytes)
-    graph: str
-    label: str | None = None
-    name: str
-    op: str
+def decode_watch(result: OpaqueResult) -> _models.WatchBatch:
+    """Validate this method's result against its contract model."""
+    return decode_result("Watch", models().WatchBatch, result)
 
 
 async def send_register_trigger(
@@ -2036,7 +1552,7 @@ async def send_register_trigger(
         - REDIRECTED
         - READ_ONLY
     """
-    RegisterTriggerRequest.model_validate(params or {})
+    models().MethodRegisterTriggerParams.model_validate(params or {})
     payload = await client._send(
         "RegisterTrigger",
         params,
@@ -2044,21 +1560,6 @@ async def send_register_trigger(
         idempotency_key=idempotency_key,
     )
     return expect_string("RegisterTrigger", payload)
-
-
-class DropTriggerRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DropTrigger
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DropTrigger
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
 
 
 async def send_drop_trigger(
@@ -2091,7 +1592,7 @@ async def send_drop_trigger(
         - REDIRECTED
         - READ_ONLY
     """
-    DropTriggerRequest.model_validate(params or {})
+    models().MethodDropTriggerParams.model_validate(params or {})
     payload = await client._send(
         "DropTrigger",
         params,
@@ -2099,21 +1600,6 @@ async def send_drop_trigger(
         idempotency_key=idempotency_key,
     )
     return expect_bool("DropTrigger", payload)
-
-
-class ListTriggersRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ListTriggers
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ListTriggers
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graph: str
 
 
 async def send_list_triggers(
@@ -2142,7 +1628,7 @@ async def send_list_triggers(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ListTriggersRequest.model_validate(params or {})
+    models().MethodListTriggersParams.model_validate(params or {})
     payload = await client._send(
         "ListTriggers",
         params,
@@ -2152,21 +1638,9 @@ async def send_list_triggers(
     return OpaqueResult("ListTriggers", payload)
 
 
-class FiredTriggersRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FiredTriggers
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FiredTriggers
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    from_seq: int
-    graph: str
-    limit: int | None = None
+def decode_list_triggers(result: OpaqueResult) -> _models.ListTriggersResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ListTriggers", models().ListTriggersResult, result)
 
 
 async def send_fired_triggers(
@@ -2195,7 +1669,7 @@ async def send_fired_triggers(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    FiredTriggersRequest.model_validate(params or {})
+    models().MethodFiredTriggersParams.model_validate(params or {})
     payload = await client._send(
         "FiredTriggers",
         params,
@@ -2205,20 +1679,9 @@ async def send_fired_triggers(
     return OpaqueResult("FiredTriggers", payload)
 
 
-class CepSubscribeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CepSubscribe
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CepSubscribe
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    buffer: int | None = None
-    pattern_msgpack: bytes
+def decode_fired_triggers(result: OpaqueResult) -> _models.FiredTriggersResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("FiredTriggers", models().FiredTriggersResult, result)
 
 
 async def send_cep_subscribe(
@@ -2251,7 +1714,7 @@ async def send_cep_subscribe(
         - REDIRECTED
         - READ_ONLY
     """
-    CepSubscribeRequest.model_validate(params or {})
+    models().MethodCepSubscribeParams.model_validate(params or {})
     payload = await client._send(
         "CepSubscribe",
         params,
@@ -2259,22 +1722,6 @@ async def send_cep_subscribe(
         idempotency_key=idempotency_key,
     )
     return expect_count("CepSubscribe", payload)
-
-
-class CepPollRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CepPoll
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CepPoll
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    sub_id: int
-    timeout_ms: int | None = None
 
 
 async def send_cep_poll(
@@ -2303,7 +1750,7 @@ async def send_cep_poll(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    CepPollRequest.model_validate(params or {})
+    models().MethodCepPollParams.model_validate(params or {})
     payload = await client._send(
         "CepPoll",
         params,
@@ -2313,19 +1760,9 @@ async def send_cep_poll(
     return OpaqueResult("CepPoll", payload)
 
 
-class CepUnsubscribeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CepUnsubscribe
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CepUnsubscribe
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    sub_id: int
+def decode_cep_poll(result: OpaqueResult) -> _models.CepPollResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("CepPoll", models().CepPollResult, result)
 
 
 async def send_cep_unsubscribe(
@@ -2358,7 +1795,7 @@ async def send_cep_unsubscribe(
         - REDIRECTED
         - READ_ONLY
     """
-    CepUnsubscribeRequest.model_validate(params or {})
+    models().MethodCepUnsubscribeParams.model_validate(params or {})
     payload = await client._send(
         "CepUnsubscribe",
         params,
@@ -2366,3 +1803,59 @@ async def send_cep_unsubscribe(
         idempotency_key=idempotency_key,
     )
     return expect_bool("CepUnsubscribe", payload)
+
+
+# Methods whose `{Id}Request` resolves to `models.Method{Id}Params` (EH-192).
+_REQUEST_METHODS = frozenset(
+    {
+        "DeclareExchange",
+        "DeleteExchange",
+        "BindQueue",
+        "UnbindQueue",
+        "Publish",
+        "DeclareQueue",
+        "PublishEx",
+        "BrokerConsume",
+        "BrokerAck",
+        "BrokerReject",
+        "SweepExpired",
+        "StreamDeclare",
+        "StreamPublish",
+        "StreamRead",
+        "StreamTrim",
+        "StreamCommitOffset",
+        "StreamCommittedOffset",
+        "PublishConfirmed",
+        "PublishIdempotent",
+        "BrokerAckTag",
+        "BrokerNackTag",
+        "BrokerRenewTag",
+        "CreateChannel",
+        "JoinChannel",
+        "LeaveChannel",
+        "CloseChannel",
+        "SendMessage",
+        "GetChannelMessages",
+        "GetChannelMembers",
+        "CdcRead",
+        "RegisterContinuousQuery",
+        "ReadContinuousQuery",
+        "DropContinuousQuery",
+        "Watch",
+        "RegisterTrigger",
+        "DropTrigger",
+        "ListTriggers",
+        "FiredTriggers",
+        "CepSubscribe",
+        "CepPoll",
+        "CepUnsubscribe",
+    }
+)
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve a ``{Id}Request`` name to its generated model on first use."""
+    method = name.removesuffix("Request")
+    if name == method or method not in _REQUEST_METHODS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(models(), f"Method{method}Params")
