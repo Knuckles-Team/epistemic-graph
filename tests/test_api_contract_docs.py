@@ -138,13 +138,28 @@ def test_mkdocs_nav_includes_every_generated_page():
         assert (ROOT / "docs" / page).is_file()
 
 
-def test_swagger_ui_page_has_no_external_network_reference():
+def test_swagger_ui_page_loads_a_pinned_integrity_checked_cdn_reference():
+    """No vendored copy (a minified third-party bundle in the tree cannot carry
+    an inline provenance marker, which made it an unfixable secret-history-scan
+    false positive) -- instead a pinned CDN reference with SRI on both assets."""
     page = (ROOT / "docs" / "swagger-ui.md").read_text(encoding="utf-8")
-    assert "http://" not in page
-    assert "https://" not in page
-    assert "cdn." not in page.lower()
-    for asset in ("swagger-ui.css", "swagger-ui-bundle.js"):
-        assert (ROOT / "docs" / "assets" / "swagger-ui" / asset).is_file()
+    assert not (ROOT / "docs" / "assets" / "swagger-ui").exists()
+    pinned = "https://cdn.jsdelivr.net/npm/swagger-ui-dist@4.15.5/"
+    for asset, sri in (
+        (
+            "swagger-ui.css",
+            "sha384-2/StnWvcTFa+ulN5XGsmRCRCHlS3w55zYM2opgTX9cGDkOHlC2PJMND08SWG4Bag",
+        ),
+        (
+            "swagger-ui-bundle.js",
+            "sha384-GJoyyEnbeIyINXWDkEzUHpPPCZPcP2KrAg83c6DGAkTPr2tDHQ59DuqMRwAwsJwV",
+        ),
+    ):
+        assert f'{pinned}{asset}"' in page, (
+            f"{asset} is not loaded from the pinned CDN URL"
+        )
+        assert f'integrity="{sri}"' in page, f"{asset} is missing its pinned SRI hash"
+    assert page.count('crossorigin="anonymous"') == 2
 
 
 def test_pre_commit_hook_is_wired():
