@@ -53,9 +53,9 @@ impl std::fmt::Display for UqlPrintError {
     }
 }
 
-type Printed = Result<String, UqlPrintError>;
+pub(super) type Printed = Result<String, UqlPrintError>;
 
-fn refuse(code: UqlPrintCode, detail: impl Into<String>) -> UqlPrintError {
+pub(super) fn refuse(code: UqlPrintCode, detail: impl Into<String>) -> UqlPrintError {
     UqlPrintError {
         code,
         detail: detail.into(),
@@ -242,6 +242,11 @@ pub fn uql_num32(n: f32) -> Printed {
     }
 }
 
+/// `KEYWORD 'quoted'` — the shape of every single-string clause.
+fn keyword_quoted(keyword: &str, value: &str) -> Printed {
+    Ok(format!("{keyword} {}", uql_quote(value)))
+}
+
 fn list<T>(items: &[T], each: impl Fn(&T) -> Printed) -> Printed {
     let parts = items.iter().map(each).collect::<Result<Vec<_>, _>>()?;
     Ok(format!("[{}]", parts.join(", ")))
@@ -265,7 +270,7 @@ pub fn uql_json(value: &serde_json::Value) -> Printed {
     })
 }
 
-fn uql_bool(b: bool) -> &'static str {
+pub(super) fn uql_bool(b: bool) -> &'static str {
     if b {
         "TRUE"
     } else {
@@ -302,13 +307,11 @@ pub fn uql_op(op: &Op) -> Printed {
         } => expand(rel.as_deref(), *dir, (*min, *max), edge_preds),
         Op::Rank { query } => Ok(format!("RANK BY ~{}", list(query, |v| uql_num32(*v))?)),
         Op::RankEmbed { text } => Ok(format!("RANK BY ~{}", uql_quote(text))),
-        Op::RankNodeDistance { center } => {
-            Ok(format!("RERANK NODE_DISTANCE FROM {}", uql_quote(center)))
-        }
+        Op::RankNodeDistance { center } => keyword_quoted("RERANK NODE_DISTANCE FROM", center),
         Op::RankMentions {} => Ok("RERANK MENTIONS".into()),
         Op::RankMmr { lambda, k } => Ok(format!("RERANK MMR {} {k}", uql_num32(*lambda)?)),
         #[cfg(feature = "text")]
-        Op::RankText { query } => Ok(format!("TEXT {}", uql_quote(query))),
+        Op::RankText { query } => keyword_quoted("TEXT", query),
         #[cfg(feature = "text")]
         Op::FuseRrf { branches, k } => fuse(branches, *k),
         #[cfg(feature = "owl-plan")]
@@ -329,13 +332,13 @@ pub fn uql_op(op: &Op) -> Printed {
             keep,
         } => Ok(validate_shape(shape, shapes, *keep)),
         #[cfg(feature = "wasm-udf")]
-        Op::Udf { id } => Ok(format!("UDF {}", uql_quote(id))),
+        Op::Udf { id } => keyword_quoted("UDF", id),
         #[cfg(feature = "federation")]
         Op::ForeignScan { source, join } => foreign_scan(source, *join),
         Op::AsOf { ts, axis } => as_of(*ts, *axis),
         Op::Window { secs } => Ok(format!("WINDOW {} s", uql_num(*secs)?)),
         Op::WindowAgg { secs, agg } => window_agg(*secs, agg),
-        Op::Foreign { name } => Ok(format!("FOREIGN {}", uql_quote(name))),
+        Op::Foreign { name } => keyword_quoted("FOREIGN", name),
         #[cfg(feature = "geo")]
         Op::SpatialScan { layer, bbox } => Ok(format!(
             "SPATIAL SCAN {} BBOX {}",
@@ -350,7 +353,7 @@ pub fn uql_op(op: &Op) -> Printed {
         #[cfg(feature = "geo")]
         Op::SpatialOp { kind } => spatial_op(kind),
         #[cfg(feature = "tensor")]
-        Op::TensorScan { layer } => Ok(format!("TENSOR SCAN {}", uql_quote(layer))),
+        Op::TensorScan { layer } => keyword_quoted("TENSOR SCAN", layer),
         #[cfg(feature = "tensor")]
         Op::TensorOp { kind } => tensor_op(kind),
         #[cfg(feature = "stream")]
@@ -379,21 +382,19 @@ pub fn uql_op(op: &Op) -> Printed {
         #[cfg(feature = "probabilistic")]
         Op::Probabilistic { query } => probabilistic(query),
         #[cfg(feature = "epistemic")]
-        Op::EvidenceFor { claim_id } => Ok(format!("EVIDENCE FOR {}", uql_quote(claim_id))),
+        Op::EvidenceFor { claim_id } => keyword_quoted("EVIDENCE FOR", claim_id),
         #[cfg(feature = "epistemic")]
-        Op::Contradicts { node_id } => Ok(format!("CONTRADICTS {}", uql_quote(node_id))),
+        Op::Contradicts { node_id } => keyword_quoted("CONTRADICTS", node_id),
         #[cfg(feature = "epistemic")]
-        Op::SupportedBy { node_id } => Ok(format!("SUPPORTED BY {}", uql_quote(node_id))),
+        Op::SupportedBy { node_id } => keyword_quoted("SUPPORTED BY", node_id),
         #[cfg(feature = "epistemic")]
         Op::BeliefAsOf { ts } => Ok(format!("BELIEF AS OF @{}", uql_num(*ts)?)),
         #[cfg(feature = "epistemic")]
-        Op::SourceReliability { source_id } => {
-            Ok(format!("SOURCE RELIABILITY {}", uql_quote(source_id)))
-        }
+        Op::SourceReliability { source_id } => keyword_quoted("SOURCE RELIABILITY", source_id),
         #[cfg(feature = "epistemic")]
         Op::ConfidenceOp {} => Ok("CONFIDENCE".into()),
         #[cfg(feature = "epistemic")]
-        Op::ExplainBelief { node_id } => Ok(format!("EXPLAIN BELIEF {}", uql_quote(node_id))),
+        Op::ExplainBelief { node_id } => keyword_quoted("EXPLAIN BELIEF", node_id),
         Op::Limit { k } => Ok(format!("LIMIT {k}")),
         Op::Project { channels } => project(channels),
     }
@@ -717,153 +718,4 @@ fn probabilistic(query: &ProbQuery) -> Printed {
         },
         ProbQuery::Sample { seed } => format!("PROB SAMPLE SEED {seed}"),
     })
-}
-
-// ── predicates ──────────────────────────────────────────────────────────────────
-
-/// A top-level `AND` list (a `Filter`'s `preds`): each member is an operand, so a
-/// nested connective is parenthesised and re-parses as the same single node.
-pub fn conjunction(preds: &[Pred]) -> Printed {
-    let parts = preds.iter().map(operand).collect::<Result<Vec<_>, _>>()?;
-    Ok(parts.join(" AND "))
-}
-
-/// A predicate in operand position: connectives are parenthesised, atoms bare.
-fn operand(pred: &Pred) -> Printed {
-    let text = uql_pred(pred)?;
-    Ok(if matches!(pred, Pred::And { .. } | Pred::Or { .. }) {
-        format!("({text})")
-    } else {
-        text
-    })
-}
-
-fn connective(preds: &[Pred], word: &str) -> Printed {
-    if preds.len() < 2 {
-        return Err(refuse(
-            UqlPrintCode::DegenerateShape,
-            format!("{word} with fewer than two members"),
-        ));
-    }
-    let parts = preds.iter().map(operand).collect::<Result<Vec<_>, _>>()?;
-    Ok(parts.join(&format!(" {word} ")))
-}
-
-/// One predicate's canonical UQL.
-pub fn uql_pred(pred: &Pred) -> Printed {
-    match pred {
-        Pred::Eq { prop, value } => Ok(format!("{} = {}", uql_ident(prop), uql_quote(value))),
-        Pred::GtNum { prop, n } => Ok(format!("{} > {}", uql_ident(prop), uql_num(*n)?)),
-        Pred::LtNum { prop, n } => Ok(format!("{} < {}", uql_ident(prop), uql_num(*n)?)),
-        Pred::Cmp { prop, op, value } => Ok(format!(
-            "{} {} {}",
-            uql_ident(prop),
-            cmp_op(*op),
-            uql_scalar(value)?
-        )),
-        Pred::In { prop, values } => in_list(prop, values),
-        Pred::Between { prop, lo, hi } => Ok(format!(
-            "{} BETWEEN {} AND {}",
-            uql_ident(prop),
-            uql_scalar(lo)?,
-            uql_scalar(hi)?
-        )),
-        Pred::IsNull { prop } => Ok(format!("{} IS NULL", uql_ident(prop))),
-        Pred::And { preds } => connective(preds, "AND"),
-        Pred::Or { preds } => connective(preds, "OR"),
-        Pred::Not { pred } => Ok(format!("NOT {}", operand(pred)?)),
-        Pred::JsonPath { path, op } => json_path(path, op),
-        #[cfg(feature = "geo")]
-        Pred::SpatialWithin { column, wkt } => spatial_pred("WITHIN", column, wkt, None),
-        #[cfg(feature = "geo")]
-        Pred::SpatialDWithin {
-            column,
-            wkt,
-            distance,
-        } => spatial_pred("DWITHIN", column, wkt, Some(*distance)),
-        #[cfg(feature = "geo")]
-        Pred::SpatialContains { column, wkt } => spatial_pred("CONTAINS", column, wkt, None),
-        #[cfg(feature = "geo")]
-        Pred::SpatialCovers { column, wkt } => spatial_pred("COVERS", column, wkt, None),
-        #[cfg(feature = "geo")]
-        Pred::SpatialTouches { column, wkt } => spatial_pred("TOUCHES", column, wkt, None),
-        #[cfg(feature = "geo")]
-        Pred::SpatialCrosses { column, wkt } => spatial_pred("CROSSES", column, wkt, None),
-        #[cfg(feature = "geo")]
-        Pred::SpatialOverlaps { column, wkt } => spatial_pred("OVERLAPS", column, wkt, None),
-        #[cfg(feature = "geo")]
-        Pred::SpatialEquals { column, wkt } => spatial_pred("EQUALS", column, wkt, None),
-        #[cfg(feature = "geo")]
-        Pred::SpatialDisjoint { column, wkt } => spatial_pred("DISJOINT", column, wkt, None),
-    }
-}
-
-/// The UQL spelling of a comparison operator.
-pub fn cmp_op(op: CmpOp) -> &'static str {
-    match op {
-        CmpOp::Eq => "=",
-        CmpOp::Ne => "!=",
-        CmpOp::Gt => ">",
-        CmpOp::Ge => ">=",
-        CmpOp::Lt => "<",
-        CmpOp::Le => "<=",
-    }
-}
-
-/// A typed scalar literal.
-pub fn uql_scalar(value: &Scalar) -> Printed {
-    match value {
-        Scalar::Str(s) => Ok(uql_quote(s)),
-        Scalar::Num(n) => uql_num(*n),
-        Scalar::Bool(b) => Ok(uql_bool(*b).into()),
-    }
-}
-
-fn in_list(prop: &str, values: &[Scalar]) -> Printed {
-    if values.is_empty() {
-        return Err(refuse(
-            UqlPrintCode::DegenerateShape,
-            "IN with an empty list",
-        ));
-    }
-    let parts = values
-        .iter()
-        .map(uql_scalar)
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(format!("{} IN ({})", uql_ident(prop), parts.join(", ")))
-}
-
-fn json_path(path: &str, op: &JsonPathOp) -> Printed {
-    let path = if is_path_token(path) {
-        path.to_string()
-    } else {
-        format!("JSONPATH {}", uql_quote(path))
-    };
-    Ok(match op {
-        JsonPathOp::Exists => format!("{path} EXISTS"),
-        JsonPathOp::Eq { value } => format!("{path} = {}", uql_json(value)?),
-        JsonPathOp::Contains { value } => format!("{path} @> {}", uql_json(value)?),
-    })
-}
-
-/// Would the UQL lexer read `s` back as ONE bare JSONPath token (`$.a.b[0]`)?
-pub fn is_path_token(s: &str) -> bool {
-    let mut chars = s.chars();
-    chars.next() == Some('$')
-        && matches!(chars.next(), Some('.') | Some('['))
-        && s.chars()
-            .all(|c| c.is_alphanumeric() || "$._[]*".contains(c))
-}
-
-#[cfg(feature = "geo")]
-fn spatial_pred(rel: &str, column: &str, wkt: &str, distance: Option<f64>) -> Printed {
-    let tail = match distance {
-        Some(d) => format!(", {}", uql_num(d)?),
-        None => String::new(),
-    };
-    Ok(format!(
-        "SPATIAL {rel}({}, {}{tail})",
-        uql_ident(column),
-        uql_quote(wkt)
-    ))
 }

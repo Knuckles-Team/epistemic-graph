@@ -19,7 +19,7 @@ impl<'a> Parser<'a> {
             if self.eat_kw("SCAN") {
                 let layer = self.id("a spatial layer")?;
                 self.expect_kw("BBOX")?;
-                let at = self.cur_start();
+                let at = self.cur_span().0;
                 let v = self.number_list("the bounding box")?;
                 let bbox: [f64; 4] = v
                     .try_into()

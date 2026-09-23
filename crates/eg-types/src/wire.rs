@@ -37,6 +37,9 @@ mod wire_query_samples;
 #[cfg(feature = "query")]
 #[path = "wire_query_uql.rs"]
 mod wire_query_uql;
+#[cfg(feature = "query")]
+#[path = "wire_query_uql_pred.rs"]
+mod wire_query_uql_pred;
 #[cfg(feature = "streaming")]
 #[path = "wire_streaming.rs"]
 mod wire_streaming;
@@ -66,6 +69,8 @@ pub use wire_query_modalities::*;
 pub use wire_query_samples::{uql_sample_op, uql_sample_pred};
 #[cfg(feature = "query")]
 pub use wire_query_uql::*;
+#[cfg(feature = "query")]
+pub use wire_query_uql_pred::*;
 #[cfg(feature = "streaming")]
 pub use wire_streaming::*;
 

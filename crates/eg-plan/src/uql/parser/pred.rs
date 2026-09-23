@@ -180,7 +180,7 @@ impl<'a> Parser<'a> {
         Ok(Pred::JsonPath { path, op })
     }
 
-    crate::uql::parser::gated! { "geo",
+    gated! { "geo",
         /// `SPATIAL rel ( column , 'wkt' [, distance] )` — `SPATIAL` consumed.
         fn spatial_pred(&mut self) -> Result<Pred, UqlError> {
             let rel = self.name("a spatial relation (`WITHIN`, `DWITHIN`, `CONTAINS`, …)")?;
