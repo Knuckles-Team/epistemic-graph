@@ -206,14 +206,19 @@ pub(super) fn drop_registrations_in(
 /// Remove every ANN registration named `name` (its `CREATE INDEX` name, or its
 /// catalog key), with its generations and, for a table left unindexed, its
 /// changed-row log. `Ok(n)` is the number of registrations removed.
-fn drop_named_registrations_in(wtx: &SqlWrite<'_>, name: &str) -> Result<usize, String> {
+fn drop_named_registrations_in(
+    wtx: &SqlWrite<'_>,
+    name: &str,
+    table: Option<&str>,
+) -> Result<usize, String> {
     let named: Vec<(String, String)> = {
         let indexes = wtx.open_table(ANN_INDEXES)?;
         let mut named = Vec::new();
         for entry in indexes.iter().map_err(map_err)? {
             let (key, value) = entry.map_err(map_err)?;
             let plan: AnnIndexPlan = decode_stored(value.value(), "ANN index")?;
-            if plan.name.as_deref() == Some(name) || key.value() == name {
+            let named = plan.name.as_deref() == Some(name) || key.value() == name;
+            if named && table.is_none_or(|table| table.eq_ignore_ascii_case(&plan.table)) {
                 named.push((key.value().to_string(), plan.table));
             }
         }
@@ -223,6 +228,20 @@ fn drop_named_registrations_in(wtx: &SqlWrite<'_>, name: &str) -> Result<usize, 
         drop_registrations_in(wtx, table, key)?;
     }
     Ok(named.len())
+}
+
+/// `DROP INDEX name` inside a SQL transaction: the ANN index `name` on `table`
+/// (the table the drop was authorized on). A missing index is an error; the
+/// caller resolved it before authorizing.
+pub(super) fn drop_ann_index_in(
+    wtx: &SqlWrite<'_>,
+    table: &str,
+    name: &str,
+) -> Result<usize, String> {
+    match drop_named_registrations_in(wtx, name, Some(table))? {
+        0 => Err(format!("index `{name}` does not exist")),
+        dropped => Ok(dropped),
+    }
 }
 
 /// Remove every generation of registration `index`.
@@ -385,7 +404,7 @@ impl TableStore {
     /// running for it can no longer persist. `Ok(n)` is the number dropped.
     pub fn drop_ann_index(&self, name: &str) -> Result<usize, String> {
         let dropped = self.authority.maintain("drop-ann-index", name, |wtx| {
-            drop_named_registrations_in(wtx, name)
+            drop_named_registrations_in(wtx, name, None)
         })?;
         let registered = self
             .list_ann_indexes()?
@@ -394,6 +413,18 @@ impl TableStore {
             .collect();
         self.ann_authority().retain(&registered);
         Ok(dropped)
+    }
+
+    /// The table the ANN index `name` (its `CREATE INDEX` name or catalog key)
+    /// covers, when it exists — what `DROP INDEX name` is authorized against.
+    pub fn ann_index_table(&self, name: &str) -> Result<Option<String>, String> {
+        Ok(self
+            .list_ann_indexes()?
+            .into_iter()
+            .find(|plan| {
+                plan.name.as_deref() == Some(name) || TableStore::ann_index_key(plan) == name
+            })
+            .map(|plan| plan.table))
     }
 
     /// The live persisted generation of `index`, when one was activated.

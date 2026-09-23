@@ -108,6 +108,26 @@ pub fn parse_create_ann_index(sql: &str) -> Option<AnnIndexPlan> {
     })
 }
 
+/// `DROP INDEX [CONCURRENTLY] [IF EXISTS] name [CASCADE | RESTRICT]` — the typed drop
+/// of a maintained ANN index (EH-352). `Some((name, if_exists))`; `None` for any
+/// other statement, including a multi-name `DROP INDEX a, b`.
+pub fn parse_drop_ann_index(sql: &str) -> Option<(String, bool)> {
+    let toks = tokenize(sql);
+    let mut i = 0;
+    if !eat(&toks, &mut i, "drop") || !eat(&toks, &mut i, "index") {
+        return None;
+    }
+    eat(&toks, &mut i, "concurrently");
+    let if_exists = matches_kw(&toks, i, "if") && matches_kw(&toks, i + 1, "exists");
+    i += if if_exists { 2 } else { 0 };
+    let name = toks.get(i)?.clone();
+    i += 1;
+    let tail_ok = toks.get(i).is_none_or(|word| {
+        word.eq_ignore_ascii_case("cascade") || word.eq_ignore_ascii_case("restrict")
+    });
+    (tail_ok && toks.len() <= i + 1 && name != ",").then_some((name, if_exists))
+}
+
 /// Map a pgvector opclass name to its distance metric (CONCEPT:EG-KG.query.real-ann-top-k).
 fn metric_from_opclass(op: &str) -> VectorMetric {
     match op.to_ascii_lowercase().as_str() {
@@ -192,5 +212,21 @@ mod tests {
     #[test]
     fn eg116_non_ann_index_is_not_recognized() {
         assert!(parse_create_ann_index("CREATE INDEX ON t USING btree (a)").is_none());
+    }
+
+    #[test]
+    fn drop_index_is_recognized_with_its_options() {
+        let parsed = |sql| parse_drop_ann_index(sql);
+        assert_eq!(
+            parsed("DROP INDEX emb_idx"),
+            Some(("emb_idx".into(), false))
+        );
+        assert_eq!(
+            parsed("drop index concurrently if exists emb_idx cascade;"),
+            Some(("emb_idx".into(), true))
+        );
+        assert_eq!(parsed("DROP INDEX a, b"), None, "one name only");
+        assert_eq!(parsed("DROP INDEX emb_idx garbage"), None);
+        assert_eq!(parsed("DROP TABLE emb_idx"), None);
     }
 }
