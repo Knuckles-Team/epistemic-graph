@@ -12,6 +12,7 @@ use super::{mapping_type, push_field, FieldPresence, HEADER};
 pub(super) const SHARED_DTO_RESULT_MODELS: &[(&str, &str)] = &[
     ("SourceIngestStatus", "SourceIngestStatus"),
     ("GraphSchemaList", "GraphSchemaSourcesView"),
+    ("EdgeSearch", "EdgeSearchView"),
     ("OwlReasonDistributed", "OwlReasonResult"),
     ("OwlExplain", "OwlExplainResult"),
     ("RunDatalogReasoning", "DatalogReasoningResult"),

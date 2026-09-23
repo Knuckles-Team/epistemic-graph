@@ -238,6 +238,22 @@ pub enum EdgeIndexOp {
     Status,
 }
 
+impl EdgeIndexOp {
+    /// Only the status view reads; every other op writes the tenant catalog.
+    pub fn is_mutation(&self) -> bool {
+        !matches!(self, Self::Status)
+    }
+
+    /// The RBAC action: edge indexes are semantic retrieval indexes, governed
+    /// by the semantic-binding actions identities already hold.
+    pub fn authz_action(&self) -> &'static str {
+        if self.is_mutation() {
+            return "semantic:binding-write";
+        }
+        "semantic:binding-read"
+    }
+}
+
 /// What an edge search looks for.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
