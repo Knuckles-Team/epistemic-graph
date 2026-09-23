@@ -190,16 +190,13 @@ where
     #[cfg(feature = "security")]
     rls.filter_view(caller, &mut view);
     match compute_off_lock(req_id, move || {
-        let indexes = crate::server::handlers::query::CoreIndexes::open(&core);
         run_unified_with_staged(
             plan,
             &view,
             &core,
             &vectors,
-            indexes.served(
-                #[cfg(feature = "federation")]
-                Some(&*foreign_sources),
-            ),
+            #[cfg(feature = "federation")]
+            Some(&*foreign_sources),
             #[cfg(feature = "tsdb")]
             TsdbLegBind {
                 tsdb: tsdb.as_deref(),
@@ -265,21 +262,29 @@ pub(crate) fn overlay_write_set(view: &mut crate::graph::GraphView, write_set: &
     }
 }
 
-/// Run `plan` over `view` against `core`'s semantic store with `staged`
-/// embeddings overlaid (read-your-own-writes). No staged embedding ⇒ the
-/// COMMITTED store is searched through a guard -- no clone, no forced HNSW
-/// rebuild (CONCEPT:EG-KG.query.served-vector-index-binding); only a txn that
-/// actually staged embeddings pays for the `semantic_overlay` copy. Off-txn
-/// callers pass no staged embeddings.
+/// Run `plan` over `view` with `core`'s maintained indexes bound (and the
+/// registered foreign sources when the caller has them), against `core`'s
+/// semantic store with `staged` embeddings overlaid (read-your-own-writes). No
+/// staged embedding ⇒ the COMMITTED store is searched through a guard -- no
+/// clone, no forced HNSW rebuild (CONCEPT:EG-KG.query.served-vector-index-
+/// binding); only a txn that actually staged embeddings pays for the
+/// `semantic_overlay` copy. Off-txn callers pass no staged embeddings.
 #[cfg(feature = "query")]
 pub(crate) fn run_unified_with_staged(
     plan: eg_plan::Plan,
     view: &crate::graph::GraphView,
-    core: &crate::graph::GraphCore,
+    core: &Arc<GraphCore>,
     staged: &[(String, Vec<f32>)],
-    served: ServedIndexes<'_>,
+    #[cfg(feature = "federation")] foreign: Option<
+        &dashmap::DashMap<String, eg_types::wire::ForeignSourceSpec>,
+    >,
     #[cfg(feature = "tsdb")] tsdb_ctx: TsdbLegBind<'_>,
 ) -> Result<Vec<(String, Option<f32>)>, String> {
+    let indexes = CoreIndexes::open(core);
+    let served = indexes.served(
+        #[cfg(feature = "federation")]
+        foreign,
+    );
     if staged.is_empty() {
         let committed = core.semantic_store.read();
         return run_unified(

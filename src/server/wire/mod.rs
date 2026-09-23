@@ -4592,16 +4592,13 @@ impl WireSession {
         // `semantic_overlay` clone is paid ONLY when the txn actually staged embeddings.
         let core_for_ctx = core.clone();
         let rows = tokio::task::spawn_blocking(move || {
-            let indexes = crate::server::handlers::query::CoreIndexes::open(&core_for_ctx);
             crate::server::handlers::query::run_unified_with_staged(
                 plan,
                 &view,
                 &core_for_ctx,
                 &vectors,
-                indexes.served(
-                    #[cfg(feature = "federation")]
-                    Some(&*foreign_sources),
-                ),
+                #[cfg(feature = "federation")]
+                Some(&*foreign_sources),
                 #[cfg(feature = "tsdb")]
                 crate::server::handlers::query::TsdbLegBind {
                     tsdb: tsdb.as_deref(),

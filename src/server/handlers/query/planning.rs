@@ -582,16 +582,13 @@ pub(crate) async fn run_unified_off_lock(
     #[cfg(not(feature = "tsdb"))]
     let _ = state;
     compute_off_lock(req_id, move || {
-        let indexes = crate::server::handlers::query::CoreIndexes::open(&core_for_ctx);
         run_unified_with_staged(
             plan,
             &snap,
             &core_for_ctx,
             &[],
-            indexes.served(
-                #[cfg(feature = "federation")]
-                Some(&*foreign_sources),
-            ),
+            #[cfg(feature = "federation")]
+            Some(&*foreign_sources),
             #[cfg(feature = "tsdb")]
             TsdbLegBind {
                 tsdb: tsdb.as_deref(),
