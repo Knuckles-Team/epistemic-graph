@@ -1,6 +1,13 @@
 {
   "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
   "$defs": {
+    "BoundedVec_FleetCatalogRow_256": {
+      "items": {
+        "$ref": "#/$defs/FleetCatalogRow"
+      },
+      "maxItems": 256,
+      "type": "array"
+    },
     "BoundedVec_RegisteredServerView_256": {
       "items": {
         "$ref": "#/$defs/RegisteredServerView"
@@ -267,6 +274,111 @@
       ],
       "type": "object"
     },
+    "DiscoveryCounts": {
+      "additionalProperties": false,
+      "description": "How many of each MCP primitive the probe saw.",
+      "properties": {
+        "prompts": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "resources": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "skills": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tools": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tools",
+        "skills",
+        "prompts",
+        "resources"
+      ],
+      "type": "object"
+    },
+    "DiscoveryOutcome": {
+      "description": "What the probe found.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "const": "reachable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Recorded rather than omitted: \"unavailable\" must never look identical to\n\"empty\". `error` is caller-redacted text; it is bounded here and never\ninterpreted.",
+          "properties": {
+            "error": {
+              "type": "string"
+            },
+            "status": {
+              "const": "unreachable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "error"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DiscoveryScope": {
+      "description": "Under whose authority a discovery observation was made.\n\nClosed, and deliberately two-valued. A local/stdio probe has no provider\ngrant to fingerprint, so it is tenant-local and visible to the tenant; a\nprobe made with a principal's OAuth grant saw what THAT grant allows, so it\nis visible only to that principal while that grant is current. There is no\nthird \"global\" value: an observation that cannot say which of the two it is\nis not recorded.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "authority": {
+              "const": "tenant_local",
+              "type": "string"
+            }
+          },
+          "required": [
+            "authority"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`grant_digest` is the broker-minted fingerprint of the grant the probe\nused. The principal is NOT a field: the server binds it from the\nverified request context.",
+          "properties": {
+            "authority": {
+              "const": "oauth_grant",
+              "type": "string"
+            },
+            "grant_digest": {
+              "$ref": "#/$defs/Digest256"
+            }
+          },
+          "required": [
+            "authority",
+            "grant_digest"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "DistResult": {
       "description": "The result of a distributed computation, in a wire-ready form. Serialized to\n`ResultPayload::Raw` by the handler.",
       "oneOf": [
@@ -325,6 +437,532 @@
           "type": "object"
         }
       ]
+    },
+    "FleetCatalogCursor": {
+      "additionalProperties": false,
+      "description": "Where a page resumes, fenced to the snapshot that produced it.",
+      "properties": {
+        "after_id": {
+          "type": "string"
+        },
+        "after_name": {
+          "description": "Exclusive `(lowercased name, id)` lower bound for the next page.",
+          "type": "string"
+        },
+        "snapshot_digest": {
+          "$ref": "#/$defs/Digest256",
+          "description": "Digest of the whole visible, filtered snapshot of the page's kind. The\nfence is content, not a graph revision: a registry heartbeat that changes\nnothing this kind shows must not invalidate a caller's cursor."
+        }
+      },
+      "required": [
+        "after_name",
+        "after_id",
+        "snapshot_digest"
+      ],
+      "type": "object"
+    },
+    "FleetCatalogKind": {
+      "description": "Which kind of row a page lists.",
+      "enum": [
+        "discoveries",
+        "tools",
+        "prompts",
+        "resources",
+        "skills"
+      ],
+      "type": "string"
+    },
+    "FleetCatalogLookup": {
+      "additionalProperties": false,
+      "description": "The visible rows for a lookup, in request order. Unknown and invisible ids\nare both simply absent.",
+      "properties": {
+        "commons_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "observed_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rows": {
+          "$ref": "#/$defs/BoundedVec_FleetCatalogRow_256"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "rows",
+        "commons_revision",
+        "observed_at_ms"
+      ],
+      "type": "object"
+    },
+    "FleetCatalogPage": {
+      "additionalProperties": false,
+      "description": "One bounded page of one kind, fenced to the snapshot it was cut from.",
+      "properties": {
+        "commons_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "$ref": "#/$defs/FleetCatalogKind"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FleetCatalogCursor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "observed_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rows": {
+          "$ref": "#/$defs/BoundedVec_FleetCatalogRow_256"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "snapshot_digest": {
+          "$ref": "#/$defs/Digest256"
+        },
+        "total": {
+          "description": "Every visible row matching the request's filter, across all pages.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "schema_version",
+        "kind",
+        "rows",
+        "total",
+        "commons_revision",
+        "snapshot_digest",
+        "observed_at_ms"
+      ],
+      "type": "object"
+    },
+    "FleetCatalogRow": {
+      "description": "One row of any kind.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "discovery",
+              "type": "string"
+            },
+            "row": {
+              "$ref": "#/$defs/FleetDiscoveryRow"
+            }
+          },
+          "required": [
+            "kind",
+            "row"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "tool",
+              "type": "string"
+            },
+            "row": {
+              "$ref": "#/$defs/FleetToolRow"
+            }
+          },
+          "required": [
+            "kind",
+            "row"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "prompt",
+              "type": "string"
+            },
+            "row": {
+              "$ref": "#/$defs/FleetPromptRow"
+            }
+          },
+          "required": [
+            "kind",
+            "row"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "resource",
+              "type": "string"
+            },
+            "row": {
+              "$ref": "#/$defs/FleetResourceRow"
+            }
+          },
+          "required": [
+            "kind",
+            "row"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "skill",
+              "type": "string"
+            },
+            "row": {
+              "$ref": "#/$defs/FleetSkillRow"
+            }
+          },
+          "required": [
+            "kind",
+            "row"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "FleetComponentRef": {
+      "additionalProperties": false,
+      "description": "The part of every content row that identifies its component revision.",
+      "properties": {
+        "acl": {
+          "$ref": "#/$defs/FleetRowAcl"
+        },
+        "connector": {
+          "type": "string"
+        },
+        "definition_digest": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Published, and its server is not registered as disabled.",
+          "type": "boolean"
+        },
+        "entry_revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "description": "The `AgentComponent` id (`mcp:<connector>/<kind>/<name>`).",
+          "type": "string"
+        },
+        "name": {
+          "description": "The name the server itself uses.",
+          "type": "string"
+        },
+        "server_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "server_name",
+        "connector",
+        "enabled",
+        "entry_revision",
+        "definition_digest",
+        "acl"
+      ],
+      "type": "object"
+    },
+    "FleetDiscoveryRow": {
+      "additionalProperties": false,
+      "description": "One server's latest observation under one scope.",
+      "properties": {
+        "acl": {
+          "$ref": "#/$defs/FleetRowAcl"
+        },
+        "connector": {
+          "type": "string"
+        },
+        "counts": {
+          "$ref": "#/$defs/DiscoveryCounts"
+        },
+        "id": {
+          "description": "`srvobs:<server_name>:<scope key>` -- stable across revisions.",
+          "type": "string"
+        },
+        "observed_at_ms": {
+          "description": "Server clock, never the caller's.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "outcome": {
+          "$ref": "#/$defs/DiscoveryOutcome"
+        },
+        "revision": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "scope": {
+          "$ref": "#/$defs/DiscoveryScope"
+        },
+        "server_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "server_name",
+        "scope",
+        "connector",
+        "outcome",
+        "counts",
+        "observed_at_ms",
+        "revision",
+        "acl"
+      ],
+      "type": "object"
+    },
+    "FleetPromptRow": {
+      "additionalProperties": false,
+      "properties": {
+        "component": {
+          "$ref": "#/$defs/FleetComponentRef"
+        },
+        "uri": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "component",
+        "uri"
+      ],
+      "type": "object"
+    },
+    "FleetResourceRow": {
+      "additionalProperties": false,
+      "properties": {
+        "component": {
+          "$ref": "#/$defs/FleetComponentRef"
+        },
+        "media_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "resource_kind": {
+          "$ref": "#/$defs/ResourceKind"
+        },
+        "uri": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "component",
+        "uri",
+        "resource_kind"
+      ],
+      "type": "object"
+    },
+    "FleetRowAcl": {
+      "additionalProperties": false,
+      "description": "Who may see a row, and who published what it shows.",
+      "properties": {
+        "publisher": {
+          "description": "The opaque persistence id of the principal that wrote the underlying\nrecord: the observer for a discovery row, the importer for a component.",
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "visibility": {
+          "$ref": "#/$defs/FleetVisibility"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "visibility",
+        "publisher"
+      ],
+      "type": "object"
+    },
+    "FleetSkillRow": {
+      "additionalProperties": false,
+      "properties": {
+        "classification": {
+          "description": "`skill_type`'s display label, computed by the engine.",
+          "type": "string"
+        },
+        "component": {
+          "$ref": "#/$defs/FleetComponentRef"
+        },
+        "override_revision": {
+          "description": "The override record's revision, when an override decided `skill_type`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "skill_type": {
+          "$ref": "#/$defs/SkillType"
+        },
+        "skill_type_source": {
+          "$ref": "#/$defs/SkillTypeSource"
+        },
+        "uri": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "component",
+        "uri",
+        "skill_type",
+        "classification",
+        "skill_type_source"
+      ],
+      "type": "object"
+    },
+    "FleetToolRow": {
+      "additionalProperties": false,
+      "properties": {
+        "component": {
+          "$ref": "#/$defs/FleetComponentRef"
+        },
+        "effect": {
+          "$ref": "#/$defs/ToolEffect"
+        },
+        "input_schema_digest": {
+          "description": "`sha256:<hex>` of the served input schema, when the pack pinned one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tool_mode": {
+          "$ref": "#/$defs/ToolMode"
+        }
+      },
+      "required": [
+        "component",
+        "effect",
+        "tool_mode"
+      ],
+      "type": "object"
+    },
+    "FleetVisibility": {
+      "description": "Who may see a row, as the engine decided it.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Every verified principal of the tenant.",
+          "properties": {
+            "scope": {
+              "const": "tenant",
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Only `principal` (an opaque persistence id), while the grant that made\nthe observation is current.",
+          "properties": {
+            "principal": {
+              "type": "string"
+            },
+            "scope": {
+              "const": "principal",
+              "type": "string"
+            }
+          },
+          "required": [
+            "scope",
+            "principal"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "FleetWriteDisposition": {
+      "description": "What a fleet catalog write did.",
+      "oneOf": [
+        {
+          "const": "written",
+          "description": "A new revision was committed.",
+          "type": "string"
+        },
+        {
+          "const": "replayed",
+          "description": "The stored record already said exactly this; nothing was committed.",
+          "type": "string"
+        }
+      ]
+    },
+    "FleetWriteReceipt": {
+      "additionalProperties": false,
+      "description": "What one fleet catalog write committed.",
+      "properties": {
+        "disposition": {
+          "$ref": "#/$defs/FleetWriteDisposition"
+        },
+        "observed_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "record_id": {
+          "description": "The logical record id (a discovery id, or `ovr:<field>:<component id>`).",
+          "type": "string"
+        },
+        "revision": {
+          "description": "The record's revision after this write.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "record_id",
+        "revision",
+        "disposition",
+        "observed_at_ms"
+      ],
+      "type": "object"
     },
     "GraphCreated": {
       "description": "`CreateGraph`: the created graph's name.",
@@ -895,6 +1533,9 @@
       "additionalProperties": false,
       "description": "One currently live, well-typed `:Server` row.",
       "properties": {
+        "desired": {
+          "$ref": "#/$defs/ServerDesiredState"
+        },
         "last_heartbeat_ms": {
           "format": "uint64",
           "minimum": 0,
@@ -914,6 +1555,9 @@
           "type": "integer"
         },
         "resources": true,
+        "transport": {
+          "$ref": "#/$defs/ServerTransport"
+        },
         "ttl_secs": {
           "format": "uint64",
           "minimum": 0,
@@ -926,6 +1570,8 @@
       "required": [
         "name",
         "url",
+        "transport",
+        "desired",
         "resources",
         "ttl_secs",
         "registered_at_ms",
@@ -933,6 +1579,53 @@
         "lease_expires_at_ms"
       ],
       "type": "object"
+    },
+    "ResourceKind": {
+      "description": "What an MCP resource carries, from its URI scheme.",
+      "enum": [
+        "skill",
+        "prompt",
+        "resource"
+      ],
+      "type": "string"
+    },
+    "ServerDesiredState": {
+      "description": "The operator's DESIRED state for a registered server.\n\nDesired, not observed: whether the server answered its last probe is a\ndiscovery observation (`FleetCatalog.RecordDiscovery`), and the two are\nnever collapsed into one status.",
+      "enum": [
+        "enabled",
+        "disabled"
+      ],
+      "type": "string"
+    },
+    "ServerTransport": {
+      "description": "How a registered server is reached. Closed on purpose: a transport the\nengine cannot name is `Unspecified`, never a free-form string.",
+      "oneOf": [
+        {
+          "const": "unspecified",
+          "description": "A registration that predates the typed field, or did not say.",
+          "type": "string"
+        },
+        {
+          "const": "stdio",
+          "description": "A local child process speaking MCP over stdio.",
+          "type": "string"
+        },
+        {
+          "const": "streamable_http",
+          "description": "MCP streamable HTTP.",
+          "type": "string"
+        },
+        {
+          "const": "sse",
+          "description": "MCP over server-sent events.",
+          "type": "string"
+        },
+        {
+          "const": "http",
+          "description": "Plain HTTP JSON-RPC.",
+          "type": "string"
+        }
+      ]
     },
     "ShardLoadSummary": {
       "description": "The load of one shard the plan was computed against.",
@@ -1030,6 +1723,61 @@
         "no_op"
       ],
       "type": "object"
+    },
+    "SkillType": {
+      "description": "How a skill is run. The four values the agent ecosystem declares.",
+      "enum": [
+        "skill",
+        "workflow",
+        "graph",
+        "mcp_skill"
+      ],
+      "type": "string"
+    },
+    "SkillTypeSource": {
+      "description": "Which authority a skill row's type came from.",
+      "oneOf": [
+        {
+          "const": "override",
+          "description": "A durable operator override. Wins over everything else.",
+          "type": "string"
+        },
+        {
+          "const": "declared",
+          "description": "The skill's own declaration, as its pack published it.",
+          "type": "string"
+        },
+        {
+          "const": "default",
+          "description": "Nothing declared one; an ordinary atomic skill.",
+          "type": "string"
+        }
+      ]
+    },
+    "ToolEffect": {
+      "description": "Whether invoking a tool can change anything.\n\nNot a hint. A read-only agent graph is one whose reachable tools are all\n[`ToolEffect::Read`], and that is a property worth being able to prove\nbefore a run rather than discover during one.",
+      "enum": [
+        "read",
+        "write"
+      ],
+      "type": "string"
+    },
+    "ToolMode": {
+      "description": "Whether a tool takes the condensed `action` + `params_json` calling shape.",
+      "oneOf": [
+        {
+          "enum": [
+            "condensed",
+            "verbose"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "undeclared",
+          "description": "The publisher did not declare one. Never guessed from the schema.",
+          "type": "string"
+        }
+      ]
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1143,6 +1891,46 @@
         }
       },
       "selected_by": null
+    },
+    "FleetCatalog": {
+      "bodies": {
+        "clear_override": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/FleetWriteReceipt"
+          }
+        },
+        "list": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/FleetCatalogPage"
+          }
+        },
+        "lookup": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/FleetCatalogLookup"
+          }
+        },
+        "record_discovery": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/FleetWriteReceipt"
+          }
+        },
+        "set_override": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/FleetWriteReceipt"
+          }
+        }
+      },
+      "selected_by": "op"
     },
     "GetMatView": {
       "bodies": {

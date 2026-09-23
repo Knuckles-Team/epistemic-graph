@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 429,
+  "method_count": 430,
   "methods": [
     {
       "consumer_profiles": [
@@ -697,6 +697,69 @@
         "kind": "declared",
         "schema": "contract/schemas/result.cluster.json#/methods/ListRegisteredServers",
         "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "cluster",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
+      "id": "FleetCatalog",
+      "note": "EH-345 fleet catalog, runtime-conditional: list/lookup are tenant- and principal-projected snapshot reads forced to __commons__ that join discovery records and operator overrides with connector-pack AgentComponents; record_discovery/set_override/clear_override self-translate into CreateNodeIfAbsent/CompareAndSetNodeFields against __commons__ (overrides need admin:fleet-catalog)",
+      "policy": {
+        "audited": true,
+        "authz_action": "registry:write",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": true,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/FleetCatalog"
+      },
+      "result_schema": {
+        "bodies": {
+          "clear_override": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "list": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "lookup": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "record_discovery": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "set_override": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.cluster.json#/methods/FleetCatalog",
+        "selected_by": "op"
       },
       "stability": "stable"
     },

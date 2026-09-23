@@ -50,13 +50,24 @@ pub(super) fn admin_audit_line(method: &Method) -> Option<String> {
             "ICV_CONFIGURE|{}|{mode}",
             graph.as_deref().unwrap_or("<default>")
         )),
-        _ => None,
+        _ => fleet_catalog_audit_line(method),
     }
 }
 
 // X9. The line names WHAT was done and to WHICH keyed source, and nothing
 // else: the documents themselves are graph content, and an audit line is
 // not a place to copy them.
+/// EH-345: defense-in-depth, like `REGISTER_SERVER` above -- a fleet catalog
+/// write lowers into exactly one `CREATE_NODE_IF_ABSENT`/`CAS_NODE` line, which
+/// is the durable one. Reads are never audited.
+fn fleet_catalog_audit_line(method: &Method) -> Option<String> {
+    let Method::FleetCatalog { op } = method else {
+        return None;
+    };
+    op.is_mutation()
+        .then(|| format!("FLEET_CATALOG|{}", op.name()))
+}
+
 pub(super) fn graph_schema_audit_line(method: &Method) -> Option<String> {
     match method {
         #[cfg(feature = "shacl")]

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -41,21 +42,28 @@ class RegisteredServerListRequest(BaseModel):
 class RegisteredServerView(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    desired: ServerDesiredState
     last_heartbeat_ms: Annotated[int, Field(ge=0)]
     lease_expires_at_ms: Annotated[int, Field(ge=0)]
     name: str
     registered_at_ms: Annotated[int, Field(ge=0)]
     resources: Any
+    transport: ServerTransport
     ttl_secs: Annotated[int, Field(ge=0)]
     url: str
 
 
-BoundedVec_RegisteredServerView_256 = Annotated[
-    list[RegisteredServerView],
-    Field(
-        max_length=256,
-    ),
-]
+class ServerDesiredState(str, Enum):
+    ENABLED = "enabled"
+    DISABLED = "disabled"
+
+
+class ServerTransport(str, Enum):
+    UNSPECIFIED = "unspecified"
+    STDIO = "stdio"
+    STREAMABLE_HTTP = "streamable_http"
+    SSE = "sse"
+    HTTP = "http"
 
 
 Digest256 = Annotated[
@@ -64,6 +72,14 @@ Digest256 = Annotated[
         pattern="^[0-9a-f]{64}$",
         min_length=64,
         max_length=64,
+    ),
+]
+
+
+BoundedVec_RegisteredServerView_256 = Annotated[
+    list[RegisteredServerView],
+    Field(
+        max_length=256,
     ),
 ]
 

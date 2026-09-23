@@ -234,23 +234,27 @@ async fn dispatch_cluster_admin_methods_arm_4(ctx: DispatchCtx<'_>, method: Meth
             url,
             resources_json,
             ttl_secs,
+            transport,
+            desired,
         } => {
             dispatch_boxed(async {
-                let req_id = req.id;
                 let req_agent_id = req.agent_id.clone();
-                {
-                    handle_register_server(
-                        state,
-                        req_id,
-                        req_agent_id.as_deref(),
-                        verified_context,
-                        name,
-                        url,
-                        resources_json,
-                        ttl_secs,
-                    )
-                    .await
-                }
+                let registration = ServerRegistration {
+                    name,
+                    url,
+                    resources_json,
+                    ttl_secs,
+                    transport,
+                    desired,
+                };
+                handle_register_server(
+                    state,
+                    req.id,
+                    req_agent_id.as_deref(),
+                    verified_context,
+                    registration,
+                )
+                .await
             })
             .await
         }
@@ -263,6 +267,40 @@ async fn dispatch_cluster_admin_methods_arm_4(ctx: DispatchCtx<'_>, method: Meth
         _ => Response::err(req.id, "router dispatch helper routing mismatch"),
     }
 }
+/// The fleet catalog (EH-345): the server registry's discovery and override
+/// records and the projection that joins them with connector-pack components.
+/// Self-routing like the registry above -- fleet-wide, never request-graph
+/// scoped -- and its own link in the control-plane chain, so it adds no arm to
+/// the registry's dispatcher.
+pub(super) async fn dispatch_fleet_catalog_methods(
+    ctx: DispatchCtx<'_>,
+    method: Method,
+) -> ControlFlow<Response, Method> {
+    let Method::FleetCatalog { op } = method else {
+        return ControlFlow::Continue(method);
+    };
+    let DispatchCtx {
+        state,
+        req,
+        verified_context,
+        ..
+    } = ctx;
+    ControlFlow::Break(
+        dispatch_boxed(async {
+            let req_agent_id = req.agent_id.clone();
+            handle_fleet_catalog(
+                state,
+                req.id,
+                req_agent_id.as_deref(),
+                verified_context,
+                *op,
+            )
+            .await
+        })
+        .await,
+    )
+}
+
 pub(super) async fn dispatch_agent_library_methods(
     ctx: DispatchCtx<'_>,
     method: Method,

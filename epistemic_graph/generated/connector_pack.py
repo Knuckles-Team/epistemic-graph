@@ -469,18 +469,6 @@ class PackWriteErrorCode(str, Enum):
     IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT"
 
 
-BoundedVec_PackEntry_1024 = Annotated[list[PackEntry], Field(max_length=1024)]
-
-
-BoundedVec_PackRef_64 = Annotated[list[PackRef], Field(max_length=64)]
-
-
-BoundedVec_PackViolation_256 = Annotated[list[PackViolation], Field(max_length=256)]
-
-
-BoundedVec_PackWarning_256 = Annotated[list[PackWarning], Field(max_length=256)]
-
-
 BoundedVec_string_1024 = Annotated[list[str], Field(max_length=1024)]
 
 
@@ -498,6 +486,18 @@ Digest256 = Annotated[
 
 
 Nonce = Annotated[str, Field(pattern="^[0-9a-f]{64}$", min_length=64, max_length=64)]
+
+
+BoundedVec_PackEntry_1024 = Annotated[list[PackEntry], Field(max_length=1024)]
+
+
+BoundedVec_PackRef_64 = Annotated[list[PackRef], Field(max_length=64)]
+
+
+BoundedVec_PackViolation_256 = Annotated[list[PackViolation], Field(max_length=256)]
+
+
+BoundedVec_PackWarning_256 = Annotated[list[PackWarning], Field(max_length=256)]
 
 AgentLibraryMutationContext.model_rebuild()
 

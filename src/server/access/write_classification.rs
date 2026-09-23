@@ -107,6 +107,15 @@ fn requires_write_back_surface(method: &Method) -> Option<bool> {
     }
 }
 
+/// The fleet catalog (EH-345) carries its read/write split on the op, so this
+/// classifier and the capability ledger cannot disagree about an operation.
+fn requires_write_fleet_catalog_surface(method: &Method) -> Option<bool> {
+    if let Method::FleetCatalog { op } = method {
+        return Some(op.is_mutation());
+    }
+    None
+}
+
 fn requires_write_native_surface(method: &Method) -> Option<bool> {
     // The fleet registry page is a forced-`__commons__`, RLS-projected read.
     // Keep it explicit even though the classifier's default is read so a later
@@ -337,6 +346,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
         requires_write_agent_surface,
         requires_write_decision_surface,
         requires_write_back_surface,
+        requires_write_fleet_catalog_surface,
         requires_write_native_surface,
         requires_write_query_surface,
         requires_write_mining_surface,
@@ -441,6 +451,39 @@ mod eh316_eh319_slim_profile_tests {
             },
         };
         assert!(!requires_write(&method));
+    }
+
+    #[test]
+    fn fleet_catalog_reads_and_writes_split_on_the_op() {
+        use eg_types::fleet_catalog::{
+            DiscoveryCounts, DiscoveryOutcome, DiscoveryScope, FleetCatalogKind,
+            FleetCatalogListRequest, FleetCatalogOp, FleetDiscoveryRecordRequest,
+        };
+        let list = Method::FleetCatalog {
+            op: Box::new(FleetCatalogOp::List {
+                request: FleetCatalogListRequest {
+                    kind: FleetCatalogKind::Tools,
+                    query: None,
+                    grant_digests: Default::default(),
+                    limit: None,
+                    cursor: None,
+                },
+            }),
+        };
+        assert!(!requires_write(&list));
+        let record = Method::FleetCatalog {
+            op: Box::new(FleetCatalogOp::RecordDiscovery {
+                request: FleetDiscoveryRecordRequest {
+                    server_name: "github".to_string(),
+                    scope: DiscoveryScope::TenantLocal,
+                    connector: eg_types::contract::ResourceId::new("github").unwrap(),
+                    outcome: DiscoveryOutcome::Reachable,
+                    counts: DiscoveryCounts::default(),
+                    expected_revision: None,
+                },
+            }),
+        };
+        assert!(requires_write(&record));
     }
 
     #[test]

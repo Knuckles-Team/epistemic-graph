@@ -2,13 +2,13 @@ use super::*;
 
 use eg_types::contract::{BoundedVec, Digest256};
 use eg_types::result_contract::cluster::{
-    RegisteredServerCursor, RegisteredServerListPage, RegisteredServerListRequest,
-    RegisteredServerView, MAX_REGISTERED_SERVER_PAGE_ENTRIES,
-    REGISTERED_SERVER_LIST_SCHEMA_VERSION,
+    is_valid_server_name, RegisteredServerCursor, RegisteredServerListPage,
+    RegisteredServerListRequest, RegisteredServerView, ServerDesiredState, ServerTransport,
+    MAX_REGISTERED_SERVER_PAGE_ENTRIES, REGISTERED_SERVER_LIST_SCHEMA_VERSION,
 };
 
-const REGISTRY_GRAPH: &str = "__commons__";
-const REGISTERED_SERVER_SNAPSHOT_DOMAIN: &[u8] = b"eg/registered-server-snapshot/v1";
+pub(super) const REGISTRY_GRAPH: &str = "__commons__";
+const REGISTERED_SERVER_SNAPSHOT_DOMAIN: &[u8] = b"eg/registered-server-snapshot/v2";
 const REGISTRY_CURSOR_STALE: &str =
     "REGISTRY_CURSOR_STALE: registered-server snapshot changed; restart from the first page";
 
@@ -44,17 +44,6 @@ fn format_iso8601_seconds(unix_secs: u64) -> String {
     format!("{y:04}-{m:02}-{d:02}T{hh:02}:{mm:02}:{ss:02}Z")
 }
 
-/// `RegisterServer.name` validity -- mirrors au's `_SERVER_NAME` regex
-/// (`^[A-Za-z0-9_.-]{1,128}$`) byte-for-byte so the same name is valid on both
-/// the au config-sync path and this engine-native push-registration path.
-fn valid_register_server_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= MAX_REGISTER_SERVER_NAME_BYTES
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
-}
-
 /// Recursively sort JSON object keys so semantically identical resource maps
 /// have one digest representation regardless of their original insertion order.
 fn canonical_json(value: serde_json::Value) -> serde_json::Value {
@@ -88,7 +77,7 @@ fn registered_server_view(
         return None;
     }
     let name = value.get("name")?.as_str()?;
-    if !valid_register_server_name(name) || node_id != format!("srv:{name}") {
+    if !is_valid_server_name(name) || node_id != format!("srv:{name}") {
         return None;
     }
     let url = value.get("url")?.as_str()?;
@@ -105,15 +94,54 @@ fn registered_server_view(
     {
         return None;
     }
+    let (transport, desired) = registration_state(&value)?;
     Some(RegisteredServerView {
         name: name.to_string(),
         url: url.to_string(),
+        transport,
+        desired,
         resources: canonical_json(resources),
         ttl_secs,
         registered_at_ms,
         last_heartbeat_ms,
         lease_expires_at_ms,
     })
+}
+
+/// The typed registration claim of one `:Server` row.
+///
+/// An ABSENT field is the default a pre-typed registration implies (`unspecified`
+/// transport, `enabled`); a PRESENT field that is not one of the closed values is
+/// a malformed row and not registry authority.
+fn registration_state(value: &serde_json::Value) -> Option<(ServerTransport, ServerDesiredState)> {
+    let transport = match value.get("transport") {
+        Some(raw) => serde_json::from_value(raw.clone()).ok()?,
+        None => ServerTransport::default(),
+    };
+    let desired = match value.get("desired") {
+        Some(raw) => serde_json::from_value(raw.clone()).ok()?,
+        None => ServerDesiredState::default(),
+    };
+    Some((transport, desired))
+}
+
+/// The desired state of every live, caller-visible registered server, by name.
+///
+/// The fleet catalog projection reads a component's `enabled` through this --
+/// the SAME typed decode and lease filter `ListRegisteredServers` answers from,
+/// never a second reading of `:Server` rows.
+pub(super) fn live_desired_states<F>(
+    core: &crate::graph::GraphCore,
+    observed_at_ms: u64,
+    visible: F,
+) -> std::collections::BTreeMap<String, ServerDesiredState>
+where
+    F: FnMut(&str, &[u8]) -> bool,
+{
+    live_registered_servers(core, observed_at_ms, visible)
+        .into_iter()
+        .map(|view| (view.name, view.desired))
+        .collect()
 }
 
 fn live_registered_servers<F>(
@@ -169,7 +197,7 @@ fn registered_server_page(
     let registry_digest = registered_server_snapshot_digest(live)?;
     let start = match request.cursor.as_ref() {
         Some(cursor) => {
-            if !valid_register_server_name(&cursor.after_name) {
+            if !is_valid_server_name(&cursor.after_name) {
                 return Err(
                     "INVALID_ARGUMENT: ListRegisteredServers cursor has an invalid after_name"
                         .to_string(),
@@ -258,6 +286,47 @@ pub(in crate::server::dispatch) async fn handle_list_registered_servers(
     }
 }
 
+/// One `RegisterServer` call's typed inputs, as the router unpacked them.
+pub(in crate::server::dispatch) struct ServerRegistration {
+    pub(in crate::server::dispatch) name: String,
+    pub(in crate::server::dispatch) url: String,
+    pub(in crate::server::dispatch) resources_json: String,
+    pub(in crate::server::dispatch) ttl_secs: u64,
+    pub(in crate::server::dispatch) transport: ServerTransport,
+    pub(in crate::server::dispatch) desired: ServerDesiredState,
+}
+
+/// Validate a registration and parse its resource map. Every refusal names the
+/// field it refuses.
+fn validated_resources(registration: &ServerRegistration) -> Result<serde_json::Value, String> {
+    if !is_valid_server_name(&registration.name) {
+        return Err(
+            "RegisterServer.name must be a bounded logical name (^[A-Za-z0-9_.-]{1,128}$)".into(),
+        );
+    }
+    if registration.url.is_empty() || registration.url.len() > MAX_REGISTER_SERVER_URL_BYTES {
+        return Err("RegisterServer.url exceeds resource limits".into());
+    }
+    if registration.resources_json.len() > MAX_REGISTER_SERVER_RESOURCES_BYTES {
+        return Err("RegisterServer.resources_json exceeds resource limits".into());
+    }
+    if !(MIN_REGISTER_SERVER_TTL_SECS..=MAX_REGISTER_SERVER_TTL_SECS)
+        .contains(&registration.ttl_secs)
+    {
+        return Err(format!(
+            "RegisterServer.ttl_secs must be between {MIN_REGISTER_SERVER_TTL_SECS} and \
+             {MAX_REGISTER_SERVER_TTL_SECS}"
+        ));
+    }
+    if registration.resources_json.trim().is_empty() {
+        return Ok(serde_json::Value::Object(serde_json::Map::new()));
+    }
+    match serde_json::from_str::<serde_json::Value>(&registration.resources_json) {
+        Ok(value @ serde_json::Value::Object(_)) => Ok(value),
+        _ => Err("RegisterServer.resources_json must be a JSON object".into()),
+    }
+}
+
 /// `Method::RegisterServer`'s handler (CONCEPT:EG-KG.sharding.server-registry, W2.5):
 /// validate, compute the server-authoritative lease fields, build the `:Server`
 /// property blob (preserving `registered_at_ms` across a renewal -- a heartbeat
@@ -267,61 +336,20 @@ pub(in crate::server::dispatch) async fn handle_list_registered_servers(
 /// `server::mutation::NON_GATEWAY_COORDINATED`'s `RegisterServer` entry. Never
 /// trusts a caller-supplied timestamp: every lease field is derived from
 /// [`authoritative_now_ms`].
-// Mirrors `build_envelope_v2_bytes` (protocol.rs): a wire-marshaling function
-// over genuinely-required distinct fields, with no natural grouping that
-// wouldn't just be a single-use wrapper struct.
-#[allow(clippy::too_many_arguments)]
 pub(in crate::server::dispatch) async fn handle_register_server(
     state: &Arc<RwLock<ServerState>>,
     req_id: u64,
     caller: Option<&str>,
     verified_context: &VerifiedRequestContext,
-    name: String,
-    url: String,
-    resources_json: String,
-    ttl_secs: u64,
+    registration: ServerRegistration,
 ) -> Response {
-    if !valid_register_server_name(&name) {
-        return Response::err(
-            req_id,
-            "RegisterServer.name must be a bounded logical name (^[A-Za-z0-9_.-]{1,128}$)",
-        );
-    }
-    if url.is_empty() || url.len() > MAX_REGISTER_SERVER_URL_BYTES {
-        return Response::err(req_id, "RegisterServer.url exceeds resource limits");
-    }
-    if resources_json.len() > MAX_REGISTER_SERVER_RESOURCES_BYTES {
-        return Response::err(
-            req_id,
-            "RegisterServer.resources_json exceeds resource limits",
-        );
-    }
-    let resources = if resources_json.trim().is_empty() {
-        serde_json::Value::Object(serde_json::Map::new())
-    } else {
-        match serde_json::from_str::<serde_json::Value>(&resources_json) {
-            Ok(value @ serde_json::Value::Object(_)) => value,
-            _ => {
-                return Response::err(
-                    req_id,
-                    "RegisterServer.resources_json must be a JSON object",
-                )
-            }
-        }
+    let resources = match validated_resources(&registration) {
+        Ok(resources) => resources,
+        Err(error) => return Response::err(req_id, error),
     };
-    if !(MIN_REGISTER_SERVER_TTL_SECS..=MAX_REGISTER_SERVER_TTL_SECS).contains(&ttl_secs) {
-        return Response::err(
-            req_id,
-            format!(
-                "RegisterServer.ttl_secs must be between {MIN_REGISTER_SERVER_TTL_SECS} and \
-                 {MAX_REGISTER_SERVER_TTL_SECS}"
-            ),
-        );
-    }
-
-    let node_id = format!("srv:{name}");
+    let node_id = format!("srv:{}", registration.name);
     let now_ms = authoritative_now_ms();
-    let lease_expires_at_ms = now_ms.saturating_add(ttl_secs.saturating_mul(1_000));
+    let lease_expires_at_ms = now_ms.saturating_add(registration.ttl_secs.saturating_mul(1_000));
 
     // Preserve `registered_at_ms` across a renewal by peeking at any existing row
     // -- read-only, off the always-resident `__commons__` core, never a
@@ -330,7 +358,7 @@ pub(in crate::server::dispatch) async fn handle_register_server(
     let registered_at_ms = {
         let s = timed_read(state).await;
         s.registry
-            .get("__commons__")
+            .get(REGISTRY_GRAPH)
             .and_then(|entry| entry.core.get_node_properties(&node_id))
             .and_then(|blob| eg_types::msgpack::decode_property_value(&blob).ok())
             .and_then(|value| value.get("registered_at_ms").and_then(|v| v.as_u64()))
@@ -339,11 +367,13 @@ pub(in crate::server::dispatch) async fn handle_register_server(
 
     let properties = serde_json::json!({
         "node_type": "Server",
-        "name": name,
-        "url": url,
+        "name": registration.name,
+        "url": registration.url,
+        "transport": registration.transport,
+        "desired": registration.desired,
         "resources": resources,
         "timestamp": format_iso8601_seconds(now_ms / 1_000),
-        "ttl_secs": ttl_secs,
+        "ttl_secs": registration.ttl_secs,
         "registered_at_ms": registered_at_ms,
         "last_heartbeat_ms": now_ms,
         "lease_expires_at_ms": lease_expires_at_ms,
@@ -361,7 +391,7 @@ pub(in crate::server::dispatch) async fn handle_register_server(
     register_server_response(
         dispatch_graph_op(
             state,
-            "__commons__",
+            REGISTRY_GRAPH,
             req_id,
             caller,
             verified_context,
@@ -409,6 +439,8 @@ mod list_registered_servers_tests {
             "node_type": "Server",
             "name": name,
             "url": format!("http://{name}"),
+            "transport": "streamable_http",
+            "desired": "disabled",
             "resources": {"z": 1, "a": {"y": 2, "b": 3}},
             "ttl_secs": 60,
             "registered_at_ms": 1,
@@ -471,6 +503,56 @@ mod list_registered_servers_tests {
             snapshot[0].resources,
             serde_json::json!({"a": {"b": 3, "y": 2}, "z": 1})
         );
+        assert_eq!(snapshot[0].transport, ServerTransport::StreamableHttp);
+        assert_eq!(snapshot[0].desired, ServerDesiredState::Disabled);
+    }
+
+    #[test]
+    fn registration_state_defaults_when_absent_and_refuses_when_malformed() {
+        assert_eq!(
+            registration_state(&serde_json::json!({})),
+            Some((ServerTransport::Unspecified, ServerDesiredState::Enabled))
+        );
+        assert_eq!(
+            registration_state(&serde_json::json!({"transport": "stdio", "desired": "disabled"})),
+            Some((ServerTransport::Stdio, ServerDesiredState::Disabled))
+        );
+        assert_eq!(
+            registration_state(&serde_json::json!({"transport": "carrier-pigeon"})),
+            None
+        );
+        let core = crate::graph::GraphCore::new();
+        core.add_node("srv:alpha".to_string(), row("alpha", 100_000));
+        let desired = live_desired_states(&core, 50_000, |_, _| true);
+        assert_eq!(desired.get("alpha"), Some(&ServerDesiredState::Disabled));
+    }
+
+    #[test]
+    fn registration_validation_names_the_refused_field() {
+        let registration = |name: &str, resources_json: &str, ttl_secs| ServerRegistration {
+            name: name.to_string(),
+            url: "mcp-ref://alpha".to_string(),
+            resources_json: resources_json.to_string(),
+            ttl_secs,
+            transport: ServerTransport::Stdio,
+            desired: ServerDesiredState::Enabled,
+        };
+        assert_eq!(
+            validated_resources(&registration("alpha", "", 60)).unwrap(),
+            serde_json::json!({})
+        );
+        for (candidate, field) in [
+            (registration("bad name", "", 60), "RegisterServer.name"),
+            (
+                registration("alpha", "[1]", 60),
+                "RegisterServer.resources_json",
+            ),
+            (registration("alpha", "", 0), "RegisterServer.ttl_secs"),
+        ] {
+            assert!(validated_resources(&candidate)
+                .unwrap_err()
+                .starts_with(field));
+        }
     }
 
     #[test]

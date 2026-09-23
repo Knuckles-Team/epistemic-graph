@@ -3,6 +3,7 @@ use super::graph_pipeline::dispatch_graph_op;
 use super::request_boundary::dispatch_with_context;
 use super::*;
 
+mod fleet_catalog;
 #[cfg(all(feature = "raft", feature = "jobs"))]
 mod publication;
 mod registry;
@@ -14,9 +15,12 @@ mod sanitization;
 #[cfg(feature = "raft")]
 mod transaction;
 
+pub(super) use fleet_catalog::handle_fleet_catalog;
 #[cfg(all(feature = "raft", feature = "jobs"))]
 use publication::{execute_consensus_job_publication, JobPublicationExecution};
-pub(super) use registry::{handle_list_registered_servers, handle_register_server};
+pub(super) use registry::{
+    handle_list_registered_servers, handle_register_server, ServerRegistration,
+};
 #[cfg(feature = "raft")]
 use replicated::capability_authority_unavailable;
 #[cfg(not(feature = "raft"))]

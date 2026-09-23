@@ -54,6 +54,10 @@ pub mod connector_pack;
 // the decision policy, the statistical surface and the two admin jobs. Pure
 // data; every algorithm lives above this crate.
 pub mod decision;
+// EH-345 — the fleet catalog: discovery observations and operator overrides
+// beside the server registry, and the typed projection that joins them with
+// connector-pack `AgentComponent`s. Pure serde; the handler lives in the server.
+pub mod fleet_catalog;
 // CONCEPT:EG-KG.sharding.semantic-embedding-store-backed — the pinned embedding-space
 // identity (`EmbeddingSpaceRef`) + stamped-vector (`StampedVector`) currency shared
 // by BOTH `eg-core::compute::semantic` backends, plus their two dimensionality

@@ -503,6 +503,31 @@ fn connector_family_policy(method: &Method) -> Option<MethodPolicy> {
     None
 }
 
+/// The fleet catalog's policy. Its writes ARE registry writes: they
+/// self-translate into `CreateNodeIfAbsent`/`CompareAndSetNodeFields` against
+/// `__commons__`, so they are graph-durable, audited and CDC-emitted exactly as
+/// `RegisterServer` is. Its reads are snapshot reads with no state transition.
+fn fleet_catalog_policy(op: &eg_types::fleet_catalog::FleetCatalogOp) -> MethodPolicy {
+    let mutates = op.is_mutation();
+    MethodPolicy {
+        mutates,
+        durability_domain: if mutates {
+            DurabilityDomain::GraphRedb
+        } else {
+            DurabilityDomain::None
+        },
+        authz_action: op.authz_action(),
+        idempotent: true,
+        audited: mutates,
+        emits_cdc: mutates,
+        txn_participation: if mutates {
+            TxnParticipation::Atomic
+        } else {
+            TxnParticipation::Snapshot
+        },
+    }
+}
+
 /// The control family: the remaining runtime-conditional surfaces.
 fn control_family_policy(method: &Method) -> Option<MethodPolicy> {
     match method {
@@ -520,8 +545,21 @@ fn control_family_policy(method: &Method) -> Option<MethodPolicy> {
     }
 }
 
+/// The fleet registry family: every registry surface whose read/write split
+/// and authz action live on its own op. Its own link, so the fleet catalog adds
+/// no branch to any other family's dispatcher.
+fn registry_family_policy(method: &Method) -> Option<MethodPolicy> {
+    if let Method::FleetCatalog { op } = method {
+        return Some(fleet_catalog_policy(op));
+    }
+    None
+}
+
 fn policy_for_method(method: &Method) -> MethodPolicy {
-    if let Some(policy) = agent_family_policy(method).or_else(|| connector_family_policy(method)) {
+    if let Some(policy) = agent_family_policy(method)
+        .or_else(|| connector_family_policy(method))
+        .or_else(|| registry_family_policy(method))
+    {
         return policy;
     }
     if let Some(policy) = control_family_policy(method) {

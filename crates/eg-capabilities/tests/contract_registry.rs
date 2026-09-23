@@ -177,9 +177,10 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 426 -> 427: authoritative source checkpoint/status recovery.
     // 427 -> 428: governed source-system `WriteBack` authority.
     // 428 -> 429: typed, bounded live fleet `ListRegisteredServers` authority.
+    // 429 -> 430: EH-345's `FleetCatalog` registry records and projection.
     assert_eq!(
         variants.len(),
-        429,
+        430,
         "the wire method census changed; update this exact count deliberately"
     );
 }

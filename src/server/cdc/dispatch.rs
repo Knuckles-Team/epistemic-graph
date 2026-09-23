@@ -246,8 +246,16 @@ fn marker_event_id(method: &Method) -> Option<&'static str> {
         Method::RunDatalogReasoning { .. } => Some("__run_datalog_reasoning"),
         Method::ClearLedger | Method::ApplyLedger { .. } => Some("__ledger"),
         Method::CompactNodesByType { .. } => Some("__compact_nodes_by_type"),
-        _ => source_ingestion_marker_event_id(method),
+        _ => source_ingestion_marker_event_id(method)
+            .or_else(|| fleet_catalog_marker_event_id(method)),
     }
+}
+
+/// EH-345: defense-in-depth, like `RegisterServer`'s marker -- a fleet catalog
+/// write self-translates into `CreateNodeIfAbsent`/`CompareAndSetNodeFields`,
+/// whose own node events are the real ones. Reads emit nothing.
+fn fleet_catalog_marker_event_id(method: &Method) -> Option<&'static str> {
+    matches!(method, Method::FleetCatalog { op } if op.is_mutation()).then_some("__fleet_catalog")
 }
 
 fn source_ingestion_marker_event_id(method: &Method) -> Option<&'static str> {
