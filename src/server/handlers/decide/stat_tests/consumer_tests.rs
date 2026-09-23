@@ -55,11 +55,6 @@ fn declared_request(schema: &ComponentDependency, options: Vec<DeclaredOption>) 
     }
 }
 
-async fn log_as(h: &Harness, who: &str, op: DecisionLogOp) -> crate::protocol::Response {
-    let verified = VerifiedRequestContext::verified_for_test_in_tenant(who, TENANT);
-    super::super::log::handle_decision_log(&h.state, 21, &verified, op).await
-}
-
 fn resolution(
     record_id: &str,
     id: &str,
@@ -78,7 +73,7 @@ fn resolution(
 }
 
 async fn resolve(h: &Harness, op: DecisionLogOp) -> Result<StoredResolution, String> {
-    decode(log_as(h, "decider", op).await)
+    decode(log_op(h, "decider", op).await)
 }
 
 async fn declared_abstention(h: &Harness) -> StatisticalDecisionRecord {
@@ -128,15 +123,15 @@ async fn declared_options_decide_as_claims_under_the_declaring_principal() {
     let commit = |r: &StatisticalDecisionRecord| DecisionLogOp::Commit {
         record: Box::new(r.clone()),
     };
-    let logged: DecisionLogCommitted = decode(log_as(&h, "decider", commit(&record)).await)
+    let logged: DecisionLogCommitted = decode(log_op(&h, "decider", commit(&record)).await)
         .expect("an abstention is logged after verify-replay");
     let get = DecisionLogOp::Get {
         tenant_id: TENANT.to_string(),
         record_id: logged.record_id.clone(),
     };
-    let mine: Option<DecisionLogEntry> = decode(log_as(&h, "decider", get.clone()).await).unwrap();
+    let mine: Option<DecisionLogEntry> = decode(log_op(&h, "decider", get.clone()).await).unwrap();
     assert!(mine.is_some());
-    let theirs: Option<DecisionLogEntry> = decode(log_as(&h, "stranger", get).await).unwrap();
+    let theirs: Option<DecisionLogEntry> = decode(log_op(&h, "stranger", get).await).unwrap();
     assert!(
         theirs.is_none(),
         "a declared record is the declarer's alone"
@@ -159,7 +154,7 @@ async fn a_logged_abstention_takes_a_resolution_of_its_resolver_class() {
     let commit = DecisionLogOp::Commit {
         record: Box::new(record.clone()),
     };
-    let logged: DecisionLogCommitted = decode(log_as(&h, "decider", commit).await).unwrap();
+    let logged: DecisionLogCommitted = decode(log_op(&h, "decider", commit).await).unwrap();
     let id = logged.record_id.as_str();
     let model = || AbstentionResolver::Model {
         producer: "au-escalation".to_string(),
@@ -204,7 +199,7 @@ async fn a_logged_abstention_takes_a_resolution_of_its_resolver_class() {
             success: Some(true),
         },
     };
-    let refused = decode::<StoredEvaluation>(log_as(&h, "decider", evaluation).await);
+    let refused = decode::<StoredEvaluation>(log_op(&h, "decider", evaluation).await);
     assert!(
         refused.unwrap_err().contains("executed no option"),
         "an abstention executed nothing an outcome could evaluate"
