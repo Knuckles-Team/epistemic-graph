@@ -644,13 +644,13 @@ fn connector_capabilities(name: &str) -> Option<u16> {
     Some(match name {
         "connector_pack_imports"
         | "connector_pack_body_holders"
-        | "decision_artifacts"
         | "write_back_change_sets"
         | "write_back_idempotency"
         | "write_back_receipts" => CAP_READ | CAP_INSERT,
-        "connector_pack_heads" | "connector_pack_members" | "write_back_receipt_heads" => {
-            CAP_READ | CAP_INSERT | CAP_UPDATE
-        }
+        "connector_pack_heads"
+        | "connector_pack_members"
+        | "write_back_receipt_heads"
+        | "decision_artifacts" => CAP_READ | CAP_INSERT | CAP_UPDATE,
         "connector_pack_bindings" => CAP_READ | CAP_INSERT | CAP_UPDATE | CAP_DELETE,
         _ => return None,
     })

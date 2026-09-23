@@ -484,7 +484,7 @@ pub(super) async fn handle_fit(
     respond(
         req_id,
         "DecisionFit",
-        serve_fit(state, LogReader::of(verified), op)
+        serve_fit(state, LogReader::served(state, verified).await, op)
             .instrument(span)
             .await,
     )
@@ -504,7 +504,7 @@ pub(super) async fn handle_eval(
     respond(
         req_id,
         "DecisionEval",
-        serve_eval(state, LogReader::of(verified), op)
+        serve_eval(state, LogReader::served(state, verified).await, op)
             .instrument(span)
             .await,
     )

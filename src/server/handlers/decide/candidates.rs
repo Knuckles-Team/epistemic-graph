@@ -23,6 +23,7 @@ use eg_types::decision::statistical::log::RecordVisibility;
 use eg_types::decision::statistical::{CandidateSource, StatisticalErrorCode};
 use eg_types::decision::{CandidateSourceRecord, LibraryCandidateScope, MAX_ASSEMBLY_CANDIDATES};
 
+use super::stat_classes::{current_rules, derive, DerivedClasses};
 use super::stat_support::refusal;
 use crate::server::persistence::agent_library::AgentLibraryStore;
 
@@ -38,6 +39,8 @@ pub(super) struct ReadCandidates {
     pub(super) entries: Vec<AgentComponentEntry>,
     pub(super) record: CandidateSourceRecord,
     pub(super) visibility: RecordVisibility,
+    /// Rule-derived classes of library candidates (EH-200); empty for graph rows.
+    pub(super) derived: DerivedClasses,
 }
 
 fn too_many() -> String {
@@ -55,7 +58,14 @@ fn search_request(
     AgentComponentSearchRequest {
         tenant_id: tenant_id.to_string(),
         task: None,
-        capabilities: scope.classification_under.iter().cloned().collect(),
+        // With kinds to page by, `classification_under` is applied locally
+        // over declared AND rule-derived classes (EH-200); without kinds the
+        // declared classification is the only selector the search has.
+        capabilities: if scope.kinds.is_empty() {
+            scope.classification_under.iter().cloned().collect()
+        } else {
+            Vec::new()
+        },
         kinds: scope.kinds.iter().copied().collect(),
         read_only: false,
         limit: Some(PAGE),
@@ -63,24 +73,55 @@ fn search_request(
     }
 }
 
+/// Whether `entry` falls under `root` by its declared or derived classes.
+fn under_root(entry: &AgentComponentEntry, derived: &DerivedClasses, root: Option<&str>) -> bool {
+    let Some(root) = root else { return true };
+    let derived_classes = derived
+        .by_component
+        .get(&entry.component_id)
+        .into_iter()
+        .flatten()
+        .map(|(class, _)| class);
+    entry
+        .classification
+        .iter()
+        .chain(derived_classes)
+        .any(|class| eg_types::agent_ontology::satisfies(class, root))
+}
+
 fn read_library(
     store: &AgentLibraryStore,
     tenant_id: &str,
     scope: &LibraryCandidateScope,
-) -> Result<Vec<AgentComponentEntry>, String> {
+) -> Result<(Vec<AgentComponentEntry>, DerivedClasses), String> {
     let mut entries = Vec::new();
+    let mut derived = DerivedClasses {
+        rules: current_rules(),
+        ..DerivedClasses::default()
+    };
     let mut cursor = None;
     for _ in 0..MAX_PAGES {
         let page = store
             .search_components(&search_request(tenant_id, scope, cursor))
             .map_err(|detail| refusal(StatisticalErrorCode::ParameterInvalid, detail))?;
-        entries.extend(page.entries);
+        let classes = derive(&page.entries);
+        for entry in page.entries {
+            if under_root(&entry, &classes, scope.classification_under.as_deref()) {
+                let own = classes
+                    .by_component
+                    .get(&entry.component_id)
+                    .cloned()
+                    .unwrap_or_default();
+                derived.by_component.insert(entry.component_id.clone(), own);
+                entries.push(entry);
+            }
+        }
         if entries.len() > MAX_ASSEMBLY_CANDIDATES {
             return Err(too_many());
         }
         match page.next_cursor {
             Some(next) => cursor = Some(next),
-            None => return Ok(entries),
+            None => return Ok((entries, derived)),
         }
     }
     Err(refusal(
@@ -89,17 +130,36 @@ fn read_library(
     ))
 }
 
+fn view_of(entry: &AgentComponentEntry, derived: &DerivedClasses) -> CandidateView {
+    let mut view = CandidateView::from_component(entry);
+    for (class, _) in derived
+        .by_component
+        .get(&entry.component_id)
+        .into_iter()
+        .flatten()
+    {
+        if !view.classification.contains(class) {
+            view.classification.push(class.clone());
+        }
+    }
+    view
+}
+
 /// Read library candidates for `tenant_id`.
 pub(super) fn library_candidates(
     store: &AgentLibraryStore,
     tenant_id: &str,
     scope: &LibraryCandidateScope,
 ) -> Result<ReadCandidates, String> {
-    let mut entries = read_library(store, tenant_id, scope)?;
+    let (mut entries, derived) = read_library(store, tenant_id, scope)?;
     entries.sort_by(|a, b| a.component_id.cmp(&b.component_id));
     Ok(ReadCandidates {
-        views: entries.iter().map(CandidateView::from_component).collect(),
+        views: entries
+            .iter()
+            .map(|entry| view_of(entry, &derived))
+            .collect(),
         entries,
+        derived,
         record: CandidateSourceRecord::AgentLibrary {
             kinds: scope.kinds.clone(),
             classification_under: scope.classification_under.clone(),
@@ -193,6 +253,7 @@ pub(super) fn graph_candidates(
             ),
         },
         visibility: RecordVisibility::Principal { principal },
+        derived: DerivedClasses::default(),
     })
 }
 

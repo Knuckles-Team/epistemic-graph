@@ -205,6 +205,11 @@ pub struct StatisticalInputs {
     /// The typed parameters the features and the keyed seed read.
     #[serde(default)]
     pub params: BoundedVec<TypedParam, 64>,
+    /// Identity of the rules (names, thresholds, ontology digest) the
+    /// candidates' derived classes came from (EH-200); a record replays only
+    /// under the same identity. `None` when no class was derived.
+    #[serde(default)]
+    pub classification_rules: Option<String>,
     pub feature_matrix: FeatureMatrixRef,
     pub shortlist: ShortlistProvenance,
     #[serde(default)]

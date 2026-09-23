@@ -39,6 +39,8 @@ pub fn statistical() -> StatisticalPolicy {
         tenant_public_features: false,
         audit_sample: rational(1, 20),
         approved_commit_principals: bounded(vec!["approved".to_string()]),
+        compact_after_ms: None,
+        drop_blob_after_ms: None,
     }
 }
 

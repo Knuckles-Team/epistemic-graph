@@ -6461,6 +6461,56 @@
             "request"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Apply the policy's retention to at most `limit` entries: compact the\nones older than `compact_after_ms`, retire blobs older than\n`drop_blob_after_ms`. Idempotent.",
+          "properties": {
+            "limit": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "op": {
+              "const": "compact",
+              "type": "string"
+            },
+            "policy": {
+              "$ref": "#/$defs/DecisionPolicyRef"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "policy",
+            "limit"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Re-verify one logged record against its (possibly compacted) inputs.",
+          "properties": {
+            "op": {
+              "const": "verify",
+              "type": "string"
+            },
+            "record_id": {
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "record_id"
+          ],
+          "type": "object"
         }
       ]
     },
@@ -25086,6 +25136,11 @@
                   "description": "Projection base namespace IRI. Empty ⇒ identity projection.",
                   "type": "string"
                 },
+                "explain": {
+                  "default": false,
+                  "description": "When true, the result carries one witness proof per row\n(`SparqlResult::proofs`, EH-197): the ground triples that instantiate the\nquery's patterns under that row. Opt-in, because the witness search scans\nthe graph once per triple pattern.",
+                  "type": "boolean"
+                },
                 "query": {
                   "type": "string"
                 },
@@ -25303,6 +25358,11 @@
                 "derived_only": {
                   "default": false,
                   "description": "When true, return only the DERIVED facts (omit the asserted base).",
+                  "type": "boolean"
+                },
+                "explain": {
+                  "default": false,
+                  "description": "When true, every returned fact carries its proof tree (`RuleFact::proof`,\nEH-197): the rule and premises that set its confidence, down to asserted\nleaves. Opt-in, like `OwlExplain` beside `OwlReason`, because a proof per\nfact multiplies the response size.",
                   "type": "boolean"
                 },
                 "min_confidence": {
@@ -37860,6 +37920,14 @@
       "additionalProperties": false,
       "description": "The input set of one statistical decision.",
       "properties": {
+        "classification_rules": {
+          "default": null,
+          "description": "Identity of the rules (names, thresholds, ontology digest) the\ncandidates' derived classes came from (EH-200); a record replays only\nunder the same identity. `None` when no class was derived.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "exploration": {
           "anyOf": [
             {
@@ -38027,9 +38095,29 @@
           "$ref": "#/$defs/UnitRationalWire",
           "description": "Share of decisions sampled into the audit stream."
         },
+        "compact_after_ms": {
+          "default": null,
+          "description": "Age after which a logged record's inputs move to Blob CAS (EH-060).\n`None` keeps them inline.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "delta": {
           "$ref": "#/$defs/UnitRationalWire",
           "description": "Failure probability of that guarantee."
+        },
+        "drop_blob_after_ms": {
+          "default": null,
+          "description": "Age after which a compacted record's blob is released; verification\nthen answers `INPUTS_RETIRED`. `None` keeps the blob.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "epsilon": {
           "$ref": "#/$defs/UnitRationalWire",

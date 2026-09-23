@@ -79,6 +79,31 @@ impl AgentLibraryStore {
         })
     }
 
+    /// Overwrite one existing decision artifact: the log entry's retention
+    /// state (`Compacted`/`Retired`) is the only row that changes after it is
+    /// written, and its record digest is never recomputed.
+    pub fn replace_decision_artifact(
+        &self,
+        tenant_id: &str,
+        key: &str,
+        bytes: Vec<u8>,
+    ) -> Result<(), String> {
+        self.maintain_control_rows(tenant_id, "decision_artifacts", |owner| {
+            let mut table = owner.open_table(DECISION_ARTIFACTS)?;
+            let present = table
+                .get((tenant_id, key))
+                .map_err(|error| error.to_string())?
+                .is_some();
+            if !present {
+                return Err(format!("decision artifact {key} is absent"));
+            }
+            table
+                .insert((tenant_id, key), bytes.as_slice())
+                .map_err(|error| error.to_string())?;
+            Ok(())
+        })
+    }
+
     /// Every decision artifact of `tenant_id` whose key starts with `prefix`,
     /// in key order. Refuses rather than truncates past `limit`.
     pub fn decision_artifacts_with_prefix(
