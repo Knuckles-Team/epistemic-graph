@@ -10,6 +10,7 @@ use crate::decision::{
     ShortlistProvenance, StatisticalOutcome, StatisticalQuestion, TypedParam, TypedValue,
 };
 
+use crate::decision::jobs::DatasetSource;
 use crate::decision::statistical::dataset::{
     ItemLabel, LabelSource, LabelledDataset, LabelledItem, LoggedOutcome, OutcomeEvaluation,
     OutcomeFidelity, PropensitySource, LABELLED_DATASET_SCHEMA_VERSION,
@@ -186,8 +187,9 @@ pub fn fit_ops() -> Vec<(&'static str, DecisionFitOp)> {
                         gold_set_digest: digest_text(0xb1),
                     },
                     window: window(),
-                    dataset: dataset(),
-                    approved_commit_principals: bounded(vec!["principal-a".to_string()]),
+                    source: DatasetSource::Inline {
+                        dataset: Box::new(dataset()),
+                    },
                     optimiser: OptimiserSpec {
                         max_iterations: 500,
                         tolerance: QuantisedValue {
@@ -234,8 +236,9 @@ pub fn eval_ops() -> Vec<(&'static str, DecisionEvalOp)> {
                     ]),
                     gold_set_digest: Some(digest_text(0xb3)),
                     window: window(),
-                    dataset: dataset(),
-                    approved_commit_principals: bounded(vec!["principal-a".to_string()]),
+                    source: DatasetSource::Logged {
+                        question_id: "route.ingestion".to_string(),
+                    },
                 }),
             },
         ),
@@ -307,4 +310,49 @@ pub fn dataset() -> LabelledDataset {
         items: bounded(vec![gold_item(), logged_item()]),
         synthetic: true,
     }
+}
+
+/// Every decision-log operation.
+pub fn log_ops() -> Vec<(
+    &'static str,
+    crate::decision::statistical::log::DecisionLogOp,
+)> {
+    use crate::decision::statistical::log::{
+        DecisionLogOp, DecisionOutcomeEvaluation, OutcomeAggregateRequest,
+    };
+    let evaluation = DecisionOutcomeEvaluation {
+        record_id: "decision:record-a".to_string(),
+        evaluation_id: "evaluation-1".to_string(),
+        class: EvidenceClass::Observation,
+        selected_agent: "agent-b".to_string(),
+        lease_holder: "worker-b".to_string(),
+        fidelity: OutcomeFidelity::ToolCalls,
+        success: Some(true),
+    };
+    vec![
+        (
+            "DecisionLog.evaluate",
+            DecisionLogOp::Evaluate {
+                tenant_id: "tenant-a".to_string(),
+                evaluation,
+            },
+        ),
+        (
+            "DecisionLog.get",
+            DecisionLogOp::Get {
+                tenant_id: "tenant-a".to_string(),
+                record_id: "decision:record-a".to_string(),
+            },
+        ),
+        (
+            "DecisionLog.aggregate",
+            DecisionLogOp::Aggregate {
+                request: OutcomeAggregateRequest {
+                    tenant_id: "tenant-a".to_string(),
+                    question_id: None,
+                    window: window(),
+                },
+            },
+        ),
+    ]
 }

@@ -458,7 +458,7 @@ fn write_back_policy(op: &eg_types::write_back::WriteBackOp) -> MethodPolicy {
 fn decision_job_policy(mutates: bool, authz_action: &'static str) -> MethodPolicy {
     native_owner_policy(
         mutates,
-        DurabilityDomain::JobsRedb,
+        DurabilityDomain::ControlRedb,
         authz_action,
         TxnParticipation::Atomic,
     )
@@ -514,6 +514,9 @@ fn control_family_policy(method: &Method) -> Option<MethodPolicy> {
         }
         Method::DecisionEval { op } => {
             Some(decision_job_policy(op.is_mutation(), "admin:decision-eval"))
+        }
+        Method::DecisionLog { op } => {
+            Some(decision_job_policy(op.is_mutation(), op.authz_action()))
         }
         Method::MutationOutbox { op } => Some(mutation_outbox_policy(op)),
         _ => None,

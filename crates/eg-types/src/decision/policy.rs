@@ -126,6 +126,10 @@ pub struct StatisticalPolicy {
     pub tenant_public_features: bool,
     /// Share of decisions sampled into the audit stream.
     pub audit_sample: UnitRationalWire,
+    /// Commit principals whose logged outcomes may train or evaluate a head
+    /// (§4.3 log poisoning). Empty admits no bandit record at all.
+    #[serde(default)]
+    pub approved_commit_principals: BoundedVec<String, 64>,
 }
 
 /// The complete decision policy.

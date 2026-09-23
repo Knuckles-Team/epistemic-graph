@@ -42,6 +42,15 @@ fn outcome_label(outcome: &StatisticalOutcome) -> (&'static str, String) {
 /// One `Decide` answer.
 pub(super) fn decided(record: &StatisticalDecisionRecord, candidates: usize, started: Instant) {
     let (outcome, reasons) = outcome_label(&record.outcome);
+    let evidence = format!("{:?}", record.evidence_class);
+    crate::metrics::decision_answered(outcome, &evidence, &reasons);
+    crate::metrics::decision_latency("Decide", started.elapsed().as_secs_f64());
+    if record.inputs.exploration.is_some() {
+        crate::metrics::decision_explored(matches!(
+            record.outcome,
+            StatisticalOutcome::Explored { .. }
+        ));
+    }
     tracing::info!(
         target: "eg.decide",
         resolution_kind = ?record.resolution_kind,
@@ -59,6 +68,8 @@ pub(super) fn decided(record: &StatisticalDecisionRecord, candidates: usize, sta
 
 /// One finished evaluation.
 pub(super) fn evaluated(receipt: &DecisionEvalReceipt, started: Instant) {
+    crate::metrics::decision_evaluated(receipt.passed);
+    crate::metrics::decision_latency("DecisionEval", started.elapsed().as_secs_f64());
     let min_ess = receipt
         .estimates
         .iter()
@@ -79,6 +90,7 @@ pub(super) fn evaluated(receipt: &DecisionEvalReceipt, started: Instant) {
 
 /// One finished fit.
 pub(super) fn fitted(n_training: u64, calibrated: bool, started: Instant) {
+    crate::metrics::decision_latency("DecisionFit", started.elapsed().as_secs_f64());
     tracing::info!(
         target: "eg.decide",
         n_training,
@@ -90,6 +102,30 @@ pub(super) fn fitted(n_training: u64, calibrated: bool, started: Instant) {
 
 /// One refused call.
 pub(super) fn refused(method: &'static str, error: &str) {
-    let code = error.split(':').next().unwrap_or("");
+    let code = refusal_code(error);
+    crate::metrics::decision_refused(method, code);
     tracing::info!(target: "eg.decide", method, code, "decision call refused");
+}
+
+/// The closed code token of a refusal text, or `OTHER` for free text, so the
+/// metric label set stays bounded.
+fn refusal_code(error: &str) -> &str {
+    let code = error.split(':').next().unwrap_or("");
+    let closed = !code.is_empty() && code.bytes().all(|b| b.is_ascii_uppercase() || b == b'_');
+    if closed {
+        code
+    } else {
+        "OTHER"
+    }
+}
+
+/// One served decision-log call.
+pub(super) fn logged(ok: bool, started: Instant) {
+    crate::metrics::decision_latency("DecisionLog", started.elapsed().as_secs_f64());
+    tracing::info!(
+        target: "eg.decide",
+        ok,
+        latency_ms = started.elapsed().as_millis() as u64,
+        "decision log call served"
+    );
 }

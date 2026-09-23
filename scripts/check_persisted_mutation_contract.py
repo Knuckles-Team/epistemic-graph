@@ -118,9 +118,10 @@ def _native_method_catalog(source: str) -> dict[str, str]:
         len(names) == len(set(names)),
         "native method catalog contains a duplicate entry",
     )
+    # 99 -> 100: the statistical `DecisionLog` (agent_library.redb control owner).
     require(
-        len(entries) == 99,
-        f"native method catalog must contain 99 entries, observed {len(entries)}",
+        len(entries) == 100,
+        f"native method catalog must contain 100 entries, observed {len(entries)}",
     )
     require("RegisterServer" not in names, "RegisterServer must remain gateway-routed")
     require(
@@ -144,7 +145,7 @@ def _native_method_catalog(source: str) -> dict[str, str]:
     require(
         domain_counts
         == {
-            "GraphState": 22,
+            "GraphState": 23,
             "Transaction": 15,
             "WorkItem": 18,
             "Blob": 6,

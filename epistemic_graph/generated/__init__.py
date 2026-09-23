@@ -148,6 +148,7 @@ SEND_BY_METHOD = {
     "Decide": query.send_decide,
     "DecisionEval": coordination.send_decision_eval,
     "DecisionFit": coordination.send_decision_fit,
+    "DecisionLog": coordination.send_decision_log,
     "DeclareExchange": messaging.send_declare_exchange,
     "DeclareQueue": messaging.send_declare_queue,
     "DeferWorkItem": coordination.send_defer_work_item,

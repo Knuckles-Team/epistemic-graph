@@ -108,6 +108,7 @@ pub(crate) const ACCESS_RS_MUTATES_CONDITIONAL: &[&str] = &[
     "ConnectorPack",
     "DecisionEval",
     "DecisionFit",
+    "DecisionLog",
     "MutationOutbox",
     "WriteBack",
     // Publish/Retire write; Current/History/Status remain authenticated reads.

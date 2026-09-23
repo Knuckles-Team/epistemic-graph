@@ -310,9 +310,20 @@ pub(super) const REASON_SOURCE_INGESTION_MARKER: &str =
 pub(super) const REASON_DECIDE_LIBRARY_SNAPSHOT: &str =
     "Decide reads its candidates and pinned catalog bodies from one tenant-bound agent_library.redb snapshot through AgentComponent.Search's accessor and refuses graph-sourced candidates before opening any graph -- never a GraphView/core.analysis_snapshot() row read";
 
+// RF-ADR-010 DL-5: `DecisionLog.get`/`aggregate` read committed decision
+// records and their evaluations from the agent_library.redb control owner,
+// never graph rows. Each record carries its own visibility: tenant-wide for a
+// library-sourced record (its inputs are tenant-wide), the committing
+// principal only for a graph-sourced one; every read filters by it before a
+// record, a count or a pooled rate is formed.
+pub(super) const REASON_DECISION_LOG_VISIBILITY: &str =
+    "DecisionLog reads committed decision records and evaluations from the tenant-bound agent_library.redb control owner, filtered by each record's own visibility (tenant for library-sourced, committing principal for graph-sourced) before any record or aggregate is formed -- never a GraphView/core.analysis_snapshot() row read";
+
 pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     // REASON_DECIDE_LIBRARY_SNAPSHOT
     ("Decide", REASON_DECIDE_LIBRARY_SNAPSHOT),
+    // REASON_DECISION_LOG_VISIBILITY
+    ("DecisionLog", REASON_DECISION_LOG_VISIBILITY),
     // REASON_AGENT_LIBRARY_TENANT_SNAPSHOT
     ("AgentAssemble", REASON_AGENT_LIBRARY_TENANT_SNAPSHOT),
     // REASON_SOLVE_PURE_COMPUTE

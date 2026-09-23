@@ -2050,6 +2050,61 @@ async def send_decision_eval(
     return OpaqueResult("DecisionEval", payload)
 
 
+class DecisionLogRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        DecisionLog
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/DecisionLog
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: Any
+
+
+async def send_decision_log(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        DecisionLog
+    Authorization:
+        agent:decision-write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/DecisionLog
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
+    """
+    DecisionLogRequest.model_validate(params or {})
+    payload = await client._send(
+        "DecisionLog",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("DecisionLog", payload)
+
+
 class StatechartRequest(BaseModel):
     """Validate one engine-contract request body.
 

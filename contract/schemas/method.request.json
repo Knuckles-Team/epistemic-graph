@@ -2679,6 +2679,23 @@
       },
       "type": "object"
     },
+    "AuditDraw": {
+      "additionalProperties": false,
+      "description": "One audit-sampling draw. An acted decision is sampled into human review\nwith a KNOWN inclusion probability, so review results re-enter calibration\nweighted by its inverse and the review queue carries no selection bias.",
+      "properties": {
+        "inclusion_probability": {
+          "$ref": "#/$defs/UnitRationalWire"
+        },
+        "sampled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "inclusion_probability",
+        "sampled"
+      ],
+      "type": "object"
+    },
     "AuthorityContext": {
       "additionalProperties": false,
       "description": "Complete attempt-specific authority context. Its digest intentionally binds\nrequest/trace identity, timestamps, and nonce and therefore MUST NOT be used\nas the stable operation replay identity.",
@@ -3028,6 +3045,20 @@
       "maxItems": 32,
       "type": "array"
     },
+    "BoundedVec_QuantisedValue_32": {
+      "items": {
+        "$ref": "#/$defs/QuantisedValue"
+      },
+      "maxItems": 32,
+      "type": "array"
+    },
+    "BoundedVec_ScoredOption_64": {
+      "items": {
+        "$ref": "#/$defs/ScoredOption"
+      },
+      "maxItems": 64,
+      "type": "array"
+    },
     "BoundedVec_SlotAssignment_64": {
       "items": {
         "$ref": "#/$defs/SlotAssignment"
@@ -3068,6 +3099,13 @@
         "$ref": "#/$defs/SqlSourceCell"
       },
       "maxItems": 256,
+      "type": "array"
+    },
+    "BoundedVec_TypedParam_16": {
+      "items": {
+        "$ref": "#/$defs/TypedParam"
+      },
+      "maxItems": 16,
       "type": "array"
     },
     "BoundedVec_TypedParam_64": {
@@ -3155,6 +3193,74 @@
       },
       "maxItems": 8,
       "type": "array"
+    },
+    "CalibrationMethod": {
+      "description": "How the scores were calibrated, if at all.",
+      "enum": [
+        "temperature",
+        "vector",
+        "dirichlet",
+        "isotonic",
+        "none"
+      ],
+      "type": "string"
+    },
+    "CalibrationStatement": {
+      "additionalProperties": false,
+      "description": "The calibration behind a decision's probabilities.",
+      "properties": {
+        "alpha": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnitRationalWire"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "coverage_lower": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnitRationalWire"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "coverage_upper": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnitRationalWire"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "method": {
+          "$ref": "#/$defs/CalibrationMethod"
+        },
+        "n_calibration": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "synthetic": {
+          "description": "True when the calibration set was synthetic.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "method",
+        "n_calibration",
+        "synthetic"
+      ],
+      "type": "object"
     },
     "CalibrationWire": {
       "description": "Wire mirror of `eg_epistemic::Calibration` (EPI-P3-3) — the calibrated interval\nbacking a `RetrievalCandidateWire`'s evidence-quality score, when the candidate\nhas one.",
@@ -5658,6 +5764,47 @@
       ],
       "type": "string"
     },
+    "DatasetSource": {
+      "description": "Where a job's labelled items come from.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A submitted dataset, pinned by digest (gold sets, exported suites).",
+          "properties": {
+            "dataset": {
+              "$ref": "#/$defs/LabelledDataset"
+            },
+            "source": {
+              "const": "inline",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "dataset"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The engine's own decision log: every committed, executed record of\n`question_id` the caller may read, with its independent evaluations.\nBandit labels only.",
+          "properties": {
+            "question_id": {
+              "type": "string"
+            },
+            "source": {
+              "const": "logged",
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "question_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "DecideRequest": {
       "additionalProperties": false,
       "description": "One statistical decision request.\nNot `Eq`, for the same reason [`CandidateSource`] is not.",
@@ -5783,17 +5930,8 @@
       "additionalProperties": false,
       "description": "Evaluate a candidate head against recorded decisions.",
       "properties": {
-        "approved_commit_principals": {
-          "$ref": "#/$defs/BoundedVec_string_64",
-          "default": [],
-          "description": "Commit principals whose bandit records may be evaluated on."
-        },
         "candidate": {
           "$ref": "#/$defs/EvalCandidate"
-        },
-        "dataset": {
-          "$ref": "#/$defs/LabelledDataset",
-          "description": "The labelled items the candidate is evaluated on."
         },
         "estimators": {
           "$ref": "#/$defs/BoundedVec_OpeEstimatorKind_8"
@@ -5811,6 +5949,10 @@
         "policy": {
           "$ref": "#/$defs/DecisionPolicyRef"
         },
+        "source": {
+          "$ref": "#/$defs/DatasetSource",
+          "description": "Where the labelled items the candidate is evaluated on come from."
+        },
         "tenant_id": {
           "type": "string"
         },
@@ -5825,7 +5967,7 @@
         "policy",
         "estimators",
         "window",
-        "dataset"
+        "source"
       ],
       "type": "object"
     },
@@ -5874,15 +6016,6 @@
       "additionalProperties": false,
       "description": "Fit a decision head into a draft artifact.",
       "properties": {
-        "approved_commit_principals": {
-          "$ref": "#/$defs/BoundedVec_string_64",
-          "default": [],
-          "description": "Commit principals whose bandit records may train. Empty admits none."
-        },
-        "dataset": {
-          "$ref": "#/$defs/LabelledDataset",
-          "description": "The labelled items, pinned: a full-label regime's `gold_set_digest`\nmust equal this dataset's digest."
-        },
         "feature_schema": {
           "$ref": "#/$defs/ComponentDependency"
         },
@@ -5901,6 +6034,10 @@
         "policy": {
           "$ref": "#/$defs/DecisionPolicyRef"
         },
+        "source": {
+          "$ref": "#/$defs/DatasetSource",
+          "description": "Where the labelled items come from. A full-label regime's\n`gold_set_digest` must equal the inline dataset's digest."
+        },
         "tenant_id": {
           "type": "string"
         },
@@ -5917,7 +6054,7 @@
         "label_regime",
         "window",
         "optimiser",
-        "dataset"
+        "source"
       ],
       "type": "object"
     },
@@ -5976,6 +6113,91 @@
       ],
       "type": "object"
     },
+    "DecisionLogOp": {
+      "description": "One decision-log operation.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Make one statistical record durable, after verify-replay.",
+          "properties": {
+            "op": {
+              "const": "commit",
+              "type": "string"
+            },
+            "record": {
+              "$ref": "#/$defs/StatisticalDecisionRecord"
+            }
+          },
+          "required": [
+            "op",
+            "record"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Join one independent evaluation to a committed record.",
+          "properties": {
+            "evaluation": {
+              "$ref": "#/$defs/DecisionOutcomeEvaluation"
+            },
+            "op": {
+              "const": "evaluate",
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "evaluation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Read one committed record.",
+          "properties": {
+            "op": {
+              "const": "get",
+              "type": "string"
+            },
+            "record_id": {
+              "type": "string"
+            },
+            "tenant_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "op",
+            "tenant_id",
+            "record_id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Read the outcome aggregate.",
+          "properties": {
+            "op": {
+              "const": "aggregate",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/OutcomeAggregateRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "DecisionOutcome": {
       "description": "The conclusion of one assembly decision.",
       "oneOf": [
@@ -6024,6 +6246,48 @@
           "type": "object"
         }
       ]
+    },
+    "DecisionOutcomeEvaluation": {
+      "additionalProperties": false,
+      "description": "One independent evaluation of a committed record's executed option.",
+      "properties": {
+        "class": {
+          "$ref": "#/$defs/EvidenceClass"
+        },
+        "evaluation_id": {
+          "type": "string"
+        },
+        "fidelity": {
+          "$ref": "#/$defs/OutcomeFidelity"
+        },
+        "lease_holder": {
+          "type": "string"
+        },
+        "record_id": {
+          "type": "string"
+        },
+        "selected_agent": {
+          "description": "The agent the executed option ran as; the evaluator must not be it.",
+          "type": "string"
+        },
+        "success": {
+          "default": null,
+          "description": "`None`: censored, neither success nor failure.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "record_id",
+        "evaluation_id",
+        "class",
+        "selected_agent",
+        "lease_holder",
+        "fidelity"
+      ],
+      "type": "object"
     },
     "DecisionPolicy": {
       "additionalProperties": false,
@@ -7683,6 +7947,30 @@
       ],
       "type": "object"
     },
+    "ExplorationRecord": {
+      "additionalProperties": false,
+      "description": "A committed exploration draw: the seed is committed before the draw and\nrevealed after, so the draw cannot be chosen after the fact.",
+      "properties": {
+        "budget_digest": {
+          "type": "string"
+        },
+        "revealed_seed": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "seed_commitment": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "seed_commitment",
+        "budget_digest"
+      ],
+      "type": "object"
+    },
     "FactQuality": {
       "description": "How strong one declared fact is.\n\nA connector pack carries no measurement and no operator attestation, so a\nprice read out of one is neither measured nor estimated: it is\n[`FactQuality::Declared`], and a record that used it says so.",
       "enum": [
@@ -7692,6 +7980,77 @@
         "unavailable"
       ],
       "type": "string"
+    },
+    "FeatureMatrixRef": {
+      "description": "How the feature matrix the decision read is pinned.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Small matrices travel inline, exactly, on a named fixed-point scale.",
+          "properties": {
+            "candidate_ids": {
+              "$ref": "#/$defs/BoundedVec_string_64"
+            },
+            "feature_names": {
+              "$ref": "#/$defs/BoundedVec_string_32"
+            },
+            "matrix": {
+              "const": "inline",
+              "type": "string"
+            },
+            "scale": {
+              "$ref": "#/$defs/QuantScaleTag"
+            },
+            "values": {
+              "$ref": "#/$defs/BoundedVec_int64_2048"
+            }
+          },
+          "required": [
+            "matrix",
+            "candidate_ids",
+            "feature_names",
+            "scale",
+            "values"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Larger ones are pinned by content digest.",
+          "properties": {
+            "columns": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "length": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "matrix": {
+              "const": "blob",
+              "type": "string"
+            },
+            "rows": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "sha256": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "matrix",
+            "sha256",
+            "length",
+            "rows",
+            "columns"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "FeatureRecord": {
       "properties": {
@@ -10258,6 +10617,23 @@
       ],
       "type": "object"
     },
+    "LinearExplanation": {
+      "additionalProperties": false,
+      "description": "The exact per-feature logit contributions of one option under a linear\nhead: `weight x standardised value`, in schema order. Not an explanation of\nthe calibrated probability or of the softmax.",
+      "properties": {
+        "contributions": {
+          "$ref": "#/$defs/BoundedVec_QuantisedValue_32"
+        },
+        "option_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "option_id",
+        "contributions"
+      ],
+      "type": "object"
+    },
     "Linkage": {
       "description": "Hierarchical agglomerative linkage criterion (CONCEPT:EG-KG.mining.hierarchical-linkage).",
       "enum": [
@@ -10954,6 +11330,132 @@
         "sql_catalog"
       ],
       "type": "string"
+    },
+    "NlBinding": {
+      "additionalProperties": false,
+      "description": "A routed utterance: the template chosen and the typed slot values.",
+      "properties": {
+        "params": {
+          "$ref": "#/$defs/BoundedVec_TypedParam_16"
+        },
+        "source": {
+          "$ref": "#/$defs/NlChoiceSource"
+        },
+        "target": {
+          "$ref": "#/$defs/NlTarget"
+        },
+        "template": {
+          "$ref": "#/$defs/ComponentDependency"
+        },
+        "unfilled": {
+          "$ref": "#/$defs/BoundedVec_string_16",
+          "default": [],
+          "description": "Required slots the utterance did not fill."
+        }
+      },
+      "required": [
+        "template",
+        "target",
+        "params",
+        "source"
+      ],
+      "type": "object"
+    },
+    "NlChoiceSource": {
+      "description": "Who produced a template choice.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The engine's own routing decision.",
+          "properties": {
+            "by": {
+              "const": "engine",
+              "type": "string"
+            }
+          },
+          "required": [
+            "by"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An LLM planner's proposal after the engine abstained: a claim.",
+          "properties": {
+            "by": {
+              "const": "llm_proposal",
+              "type": "string"
+            },
+            "producer": {
+              "type": "string"
+            },
+            "prompt_digest": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "by",
+            "producer",
+            "prompt_digest"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "NlTarget": {
+      "description": "Which request a template fills.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A statistical decision question.",
+          "properties": {
+            "question": {
+              "$ref": "#/$defs/StatisticalQuestion"
+            },
+            "target": {
+              "const": "decide",
+              "type": "string"
+            }
+          },
+          "required": [
+            "target",
+            "question"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An agent assembly.",
+          "properties": {
+            "target": {
+              "const": "agent_assemble",
+              "type": "string"
+            }
+          },
+          "required": [
+            "target"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A named, operator-published query.",
+          "properties": {
+            "query_id": {
+              "type": "string"
+            },
+            "target": {
+              "const": "named_query",
+              "type": "string"
+            }
+          },
+          "required": [
+            "target",
+            "query_id"
+          ],
+          "type": "object"
+        }
+      ]
     },
     "Nonce": {
       "description": "32 bytes of attempt nonce as lowercase hexadecimal",
@@ -12183,6 +12685,31 @@
           "type": "object"
         }
       ]
+    },
+    "OutcomeAggregateRequest": {
+      "additionalProperties": false,
+      "description": "Ask for the outcome aggregate.",
+      "properties": {
+        "question_id": {
+          "default": null,
+          "description": "`None` aggregates every question; rows then also carry the\ncross-question total per option.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "window": {
+          "$ref": "#/$defs/RecordWindow"
+        }
+      },
+      "required": [
+        "tenant_id",
+        "window"
+      ],
+      "type": "object"
     },
     "OutcomeArtifactRef": {
       "additionalProperties": false,
@@ -15059,6 +15586,43 @@
         }
       ]
     },
+    "RiskMethod": {
+      "description": "Which controlled procedure produced the risk statement.",
+      "enum": [
+        "learn_then_test",
+        "conformal_risk_control"
+      ],
+      "type": "string"
+    },
+    "RiskStatement": {
+      "additionalProperties": false,
+      "description": "The risk guarantee an acted-on decision carries.",
+      "properties": {
+        "delta": {
+          "$ref": "#/$defs/UnitRationalWire",
+          "description": "Failure probability of that control."
+        },
+        "epsilon": {
+          "$ref": "#/$defs/UnitRationalWire",
+          "description": "Risk level the procedure controls."
+        },
+        "method": {
+          "$ref": "#/$defs/RiskMethod"
+        },
+        "n_calibration": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "method",
+        "epsilon",
+        "delta",
+        "n_calibration"
+      ],
+      "type": "object"
+    },
     "Role": {
       "description": "A durable RBAC role with an optional set of parent roles forming a hierarchy\n(CONCEPT:EG-KG.compute.feature). A role transitively inherits every grant of its parents.",
       "properties": {
@@ -15223,6 +15787,35 @@
     "ScopeTenantId": {
       "description": "Validated tenant security boundary. Bytes are retained exactly as supplied.",
       "type": "string"
+    },
+    "ScoredOption": {
+      "additionalProperties": false,
+      "description": "One scored option of an advisory answer.",
+      "properties": {
+        "option_id": {
+          "type": "string"
+        },
+        "probability": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UnitRationalWire"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Present only when the score is calibrated into a probability."
+        },
+        "score": {
+          "$ref": "#/$defs/QuantisedValue"
+        }
+      },
+      "required": [
+        "option_id",
+        "score"
+      ],
+      "type": "object"
     },
     "SemanticActivationTarget": {
       "additionalProperties": false,
@@ -18231,6 +18824,37 @@
       "description": "A SHA-256 digest, serialised as 64 lower-case hex characters.",
       "type": "string"
     },
+    "ShortlistProvenance": {
+      "additionalProperties": false,
+      "description": "How the shortlist the decision scored was produced.",
+      "properties": {
+        "ann_recall_mode": {
+          "default": null,
+          "description": "The approximate-nearest-neighbour recall mode, when one was used.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "embedder_model_digest": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "now_ms": {
+          "description": "The clock the shortlist's recency filters read, recorded so the\nshortlist can be reproduced.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "now_ms"
+      ],
+      "type": "object"
+    },
     "SlotAssignment": {
       "additionalProperties": false,
       "description": "One slot of the assembled graph and the component bound to it.",
@@ -19439,6 +20063,291 @@
         }
       ]
     },
+    "StatisticalDecisionRecord": {
+      "additionalProperties": false,
+      "description": "One statistical decision, recorded. Record version 2.",
+      "properties": {
+        "audit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuditDraw"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The audit-sampling draw of an acted decision (EH-026)."
+        },
+        "calibration": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CalibrationStatement"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "caller_principal": {
+          "type": "string"
+        },
+        "candidate_source": {
+          "$ref": "#/$defs/CandidateSourceRecord"
+        },
+        "created_at_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "evidence_class": {
+          "$ref": "#/$defs/EvidenceClass"
+        },
+        "explanation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LinearExplanation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Per-feature logit contributions of the chosen or top option; exact for\na linear head's logit only."
+        },
+        "inputs": {
+          "$ref": "#/$defs/StatisticalInputs"
+        },
+        "inputs_digest": {
+          "type": "string"
+        },
+        "logging_propensities": {
+          "$ref": "#/$defs/BoundedVec_UnitRationalWire_64",
+          "default": [],
+          "description": "The executed policy's full distribution over the options, aligned with\nthe feature matrix's candidate order and conditional on an option being\nexecuted; empty when nothing was (advisory or abstained). Off-policy\nevaluation over the decision log reads it."
+        },
+        "nl_binding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NlBinding"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The routed template and slot values of a `TemplateChoice` question."
+        },
+        "outcome": {
+          "$ref": "#/$defs/StatisticalOutcome"
+        },
+        "premises": {
+          "$ref": "#/$defs/BoundedVec_PremiseRef_1024"
+        },
+        "question": {
+          "$ref": "#/$defs/StatisticalQuestion"
+        },
+        "record_digest": {
+          "type": "string"
+        },
+        "record_id": {
+          "type": "string"
+        },
+        "resolution_kind": {
+          "$ref": "#/$defs/ResolutionKind"
+        },
+        "schema_version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "synthetic_evidence": {
+          "description": "Synthetic evidence is labelled as such, always.",
+          "type": "boolean"
+        },
+        "tenant_id": {
+          "type": "string"
+        },
+        "trace_fidelity": {
+          "$ref": "#/$defs/TraceFidelity"
+        }
+      },
+      "required": [
+        "schema_version",
+        "record_id",
+        "tenant_id",
+        "caller_principal",
+        "created_at_ms",
+        "question",
+        "candidate_source",
+        "inputs",
+        "inputs_digest",
+        "resolution_kind",
+        "evidence_class",
+        "trace_fidelity",
+        "premises",
+        "outcome",
+        "synthetic_evidence",
+        "record_digest"
+      ],
+      "type": "object"
+    },
+    "StatisticalInputs": {
+      "additionalProperties": false,
+      "description": "The input set of one statistical decision.",
+      "properties": {
+        "exploration": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExplorationRecord"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "feature_matrix": {
+          "$ref": "#/$defs/FeatureMatrixRef"
+        },
+        "feature_schema": {
+          "$ref": "#/$defs/ComponentDependency"
+        },
+        "head": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComponentDependency"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "params": {
+          "$ref": "#/$defs/BoundedVec_TypedParam_64",
+          "default": [],
+          "description": "The typed parameters the features and the keyed seed read."
+        },
+        "policy": {
+          "$ref": "#/$defs/DecisionPolicyRef",
+          "description": "The policy the decision resolved, so a replay reads the same body."
+        },
+        "policy_digest": {
+          "type": "string"
+        },
+        "shortlist": {
+          "$ref": "#/$defs/ShortlistProvenance"
+        }
+      },
+      "required": [
+        "feature_schema",
+        "policy",
+        "policy_digest",
+        "feature_matrix",
+        "shortlist"
+      ],
+      "type": "object"
+    },
+    "StatisticalOutcome": {
+      "description": "The conclusion of one statistical decision.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "An option was chosen, with the propensity it was chosen under and the\nrisk level that choice controls.",
+          "properties": {
+            "option_id": {
+              "type": "string"
+            },
+            "outcome": {
+              "const": "acted",
+              "type": "string"
+            },
+            "prediction_set": {
+              "$ref": "#/$defs/BoundedVec_string_64"
+            },
+            "propensity": {
+              "$ref": "#/$defs/UnitRationalWire"
+            },
+            "risk": {
+              "$ref": "#/$defs/RiskStatement"
+            }
+          },
+          "required": [
+            "outcome",
+            "option_id",
+            "propensity",
+            "prediction_set",
+            "risk"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An option chosen by the declared exploration budget, not by a score:\nthe propensity is the executed policy's exact probability, and no risk\nclaim is made.",
+          "properties": {
+            "option_id": {
+              "type": "string"
+            },
+            "outcome": {
+              "const": "explored",
+              "type": "string"
+            },
+            "propensity": {
+              "$ref": "#/$defs/UnitRationalWire"
+            }
+          },
+          "required": [
+            "outcome",
+            "option_id",
+            "propensity"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Scores only. `calibrated` says whether they mean anything numerically.",
+          "properties": {
+            "calibrated": {
+              "type": "boolean"
+            },
+            "outcome": {
+              "const": "advisory",
+              "type": "string"
+            },
+            "scores": {
+              "$ref": "#/$defs/BoundedVec_ScoredOption_64"
+            }
+          },
+          "required": [
+            "outcome",
+            "scores",
+            "calibrated"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Below the policy's floor; the same typed reasons as an assembly.",
+          "properties": {
+            "outcome": {
+              "const": "abstained",
+              "type": "string"
+            },
+            "reasons": {
+              "$ref": "#/$defs/BoundedVec_AbstainReason_64"
+            }
+          },
+          "required": [
+            "outcome",
+            "reasons"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "StatisticalPolicy": {
       "additionalProperties": false,
       "description": "The statistical half of a policy: the risk, coverage and support levels\nbelow which the engine abstains instead of acting.",
@@ -19446,6 +20355,11 @@
         "alpha": {
           "$ref": "#/$defs/UnitRationalWire",
           "description": "Miscoverage level of the prediction set."
+        },
+        "approved_commit_principals": {
+          "$ref": "#/$defs/BoundedVec_string_64",
+          "default": [],
+          "description": "Commit principals whose logged outcomes may train or evaluate a head\n(§4.3 log poisoning). Empty admits no bandit record at all."
         },
         "audit_sample": {
           "$ref": "#/$defs/UnitRationalWire",
@@ -24285,6 +25199,33 @@
           "properties": {
             "op": {
               "$ref": "#/$defs/DecisionFitOp"
+            }
+          },
+          "required": [
+            "op"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    "DecisionLog": {
+      "additionalProperties": false,
+      "description": "The statistical decision log: commit an acted-on record after\nverify-replay, join independent outcome evaluations, and read the\noutcome aggregate the log answers.",
+      "properties": {
+        "method": {
+          "const": "DecisionLog",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": false,
+          "properties": {
+            "op": {
+              "$ref": "#/$defs/DecisionLogOp"
             }
           },
           "required": [

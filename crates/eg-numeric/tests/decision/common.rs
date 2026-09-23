@@ -38,6 +38,7 @@ pub fn statistical() -> StatisticalPolicy {
         min_outcome_fidelity: TraceFidelityLevel::ToolCalls,
         tenant_public_features: false,
         audit_sample: rational(1, 20),
+        approved_commit_principals: bounded(vec!["approved".to_string()]),
     }
 }
 

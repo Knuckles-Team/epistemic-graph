@@ -121,3 +121,27 @@ pub fn audit(seed: &[u8; 32], rate: UnitRationalWire) -> AuditDraw {
         sampled: draw < rate.numerator(),
     }
 }
+
+/// The executed policy's full distribution over a legal set of `set_len`
+/// options, conditional on an option being executed: one-hot on `greedy`
+/// without a budget; `(1-f) + f/n` on `greedy` and `f/n` elsewhere with one;
+/// uniform when there is no greedy option (the exploration branch alone
+/// executes). Every vector sums to exactly one.
+pub fn logging_vector(
+    set_len: usize,
+    greedy: Option<usize>,
+    fraction: Option<UnitRationalWire>,
+) -> RefusalResult<Vec<UnitRationalWire>> {
+    let n = set_len as u128;
+    (0..set_len)
+        .map(|i| match (greedy, fraction) {
+            (Some(g), None) => reduced(u128::from(i == g), 1),
+            (Some(g), Some(f)) => {
+                let (a, b) = (u128::from(f.numerator()), u128::from(f.denominator()));
+                let numerator = if i == g { n * (b - a) + a } else { a };
+                reduced(numerator, n * b)
+            }
+            (None, _) => reduced(1, n),
+        })
+        .collect()
+}
