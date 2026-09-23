@@ -104,6 +104,9 @@ mod sketch_udfs;
 mod spill;
 mod tablefuncs;
 mod udfs;
+// EH-387: the read-only gate of the graph-free SQL path.
+mod read_only;
+pub use read_only::require_single_read;
 
 pub(crate) use ann::{isqrt, metric_to_ann};
 pub use ann_filter::{AnnDeclineReason, AnnQueryShape};

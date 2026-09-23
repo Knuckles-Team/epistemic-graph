@@ -137,7 +137,9 @@ pub fn exec_sql(
     )
 }
 
-/// Run read-only `sql` over a set of pre-built in-memory Arrow tables — NO graph
+/// Run read-only `sql` over a set of pre-built in-memory Arrow tables — NO graph. Anything
+/// but ONE read statement is refused with `READ_ONLY_SQL` before DataFusion sees it
+/// ([`super::read_only::require_single_read`], EH-387)
 /// (CONCEPT:EG-KG.query.concept-4). Each `(name, schema, batches)` is registered as a DataFusion
 /// `MemTable`, and the `json_get*` scalar UDFs are registered so a JSON-object column
 /// (e.g. an observability log record's `attrs`) is reachable schema-on-read. This is
@@ -150,6 +152,9 @@ pub fn exec_sql_over_tables(
     tables: Vec<(String, SchemaRef, Vec<arrow::record_batch::RecordBatch>)>,
     sql: &str,
 ) -> Result<TypedQueryResult, String> {
+    // EH-387: the chokepoint read-only gate — DDL/DML/COPY/`CREATE EXTERNAL TABLE`
+    // (a server-side file read) and multi-statement input never reach DataFusion.
+    super::read_only::require_single_read(sql)?;
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
