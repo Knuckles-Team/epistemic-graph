@@ -54,8 +54,9 @@ fn graph(nodes: &[&str]) -> GraphCore {
     core
 }
 
-/// One committed batch, exactly as the write coalescer commits it: the ops and
-/// the index delta under ONE held topology lock.
+/// One committed batch, exactly as the served write path commits it: the ops
+/// and the index delta under ONE held topology lock (the write coalescer), then
+/// one version bump per op (the dispatch shell's `mark_dirty`).
 fn commit(core: &GraphCore, removes: &[(&str, &str)], adds: &[(&str, &str, Value)]) {
     let mut txn = core.txn();
     let mut change = ChangeSet::new();
@@ -79,6 +80,9 @@ fn commit(core: &GraphCore, removes: &[(&str, &str)], adds: &[(&str, &str, Value
         txn.edge_count(),
     );
     drop(txn);
+    for _ in 0..change.len() {
+        core.mark_dirty();
+    }
 }
 
 fn key(source: &str, target: &str, ordinal: u32) -> EdgeKey {
@@ -96,7 +100,7 @@ fn search(
     k: usize,
     prefilter: Option<&RowPredicate>,
 ) -> EdgeSearchAnswer {
-    let (view, version) = core.analysis_snapshot_versioned();
+    let (view, version) = snapshot(core);
     search_view(core, name, &view, version, query, (k, prefilter))
 }
 
@@ -236,7 +240,7 @@ fn visibility_runs_inside_the_walk_and_an_unresolved_identity_is_denied() {
         "k visible edges; bob's and the owner-less edge never occupy a slot"
     );
 
-    let (mut view, version) = core.analysis_snapshot_versioned();
+    let (mut view, version) = snapshot(&core);
     view.node_map.remove("c");
     let hidden_endpoint = search_view(
         &core,
@@ -304,6 +308,7 @@ fn an_unaccounted_write_takes_the_bounded_exact_path() {
         blob(json!({"emb": [3.0, 3.0, 3.0, 3.0]})),
     )
     .unwrap();
+    core.mark_dirty();
     let answer = search(&core, "rel_emb", EdgeQuery::Vector(&[3.0; DIM]), 1, None);
 
     assert_eq!(answer.path, Err(EdgeFallbackReason::Unaccounted));
@@ -315,7 +320,7 @@ fn scope_and_query_family_mismatches_are_refused() {
     let core = parallel_graph();
     create_edge_index(&core, vector_spec("rel_emb")).unwrap();
     let index = edge_index(&core, "rel_emb").unwrap();
-    let (view, version) = core.analysis_snapshot_versioned();
+    let (view, version) = snapshot(&core);
     let other = EdgeScope {
         purpose: "billing".to_string(),
         ..scope()
@@ -407,17 +412,9 @@ fn a_blocked_build_carries_its_typed_diagnostic() {
     assert_eq!(keys(&answer), vec![key("a", "b", 0)], "exact meanwhile");
 }
 
-/// SplitMix64 `f32`s in `[-1, 1)`.
-fn stream(seed: u64) -> impl FnMut() -> f32 {
-    let mut state = seed;
-    move || {
-        state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = state;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^= z >> 31;
-        ((z >> 40) as f32 / (1u64 << 24) as f32) * 2.0 - 1.0
-    }
+/// A deterministic, well-spread coordinate in `[-1, 1]`.
+fn wave(seed: usize) -> f32 {
+    (seed as f32 * 0.618_034).sin()
 }
 
 #[test]
@@ -425,13 +422,14 @@ fn recall_holds_on_parallel_edges() {
     let nodes: Vec<String> = (0..20).map(|n| format!("n{n}")).collect();
     let names: Vec<&str> = nodes.iter().map(String::as_str).collect();
     let core = graph(&names);
-    let mut next = stream(7);
     let centres: Vec<Vec<f32>> = (0..8)
-        .map(|_| (0..DIM).map(|_| next() * 3.0).collect())
+        .map(|c| (0..DIM).map(|d| wave(c * 31 + d * 7) * 3.0).collect())
         .collect();
     let adds: Vec<(&str, &str, Value)> = (0..600)
         .map(|i| {
-            let vector: Vec<f32> = centres[i % 8].iter().map(|c| c + next()).collect();
+            let vector: Vec<f32> = (0..DIM)
+                .map(|d| centres[i % 8][d] + wave(i * 13 + d * 5) * 0.8)
+                .collect();
             (
                 names[i % 20],
                 names[(i / 20) % 20],
@@ -446,9 +444,8 @@ fn recall_holds_on_parallel_edges() {
 
     let mut total = 0.0;
     for round in 0..20 {
-        let query: Vec<f32> = centres[round % 8]
-            .iter()
-            .map(|c| c + next() * 0.5)
+        let query: Vec<f32> = (0..DIM)
+            .map(|d| centres[round % 8][d] + wave(round * 17 + d * 3) * 0.4)
             .collect();
         let got = search(&core, "rel_emb", EdgeQuery::Vector(&query), 10, None);
         let want = search(&core, "reference", EdgeQuery::Vector(&query), 10, None);

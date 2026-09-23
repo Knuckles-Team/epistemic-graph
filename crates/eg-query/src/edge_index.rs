@@ -180,7 +180,7 @@ impl EdgeIndex {
         let Some(number) = self.begin_build() else {
             return self.refused();
         };
-        let (view, version) = core.analysis_snapshot_versioned();
+        let (view, version) = snapshot(core);
         let built = EdgeGeneration::build(number, &self.spec, &view, version, self.limits());
         let outcome = match built {
             Ok(generation) => self.activate(generation),
@@ -282,6 +282,15 @@ impl EdgeIndex {
         self.lock_maintenance().block = None;
         outcome
     }
+}
+
+/// One analysis snapshot of `core` and the graph version it is known to cover:
+/// the version read BEFORE the snapshot. A batch committed while the snapshot
+/// was taken has a pre-version at or above it, so its pairs are still scored
+/// exactly; at worst they are scored twice, never missed.
+pub fn snapshot(core: &GraphCore) -> (eg_core::graph::GraphView, u64) {
+    let version = core.version();
+    (core.analysis_snapshot(), version)
 }
 
 /// A poisoned lock means a panic interrupted a generation swap; the index does
