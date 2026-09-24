@@ -275,9 +275,11 @@ def test_full_build_value_is_three_valued():
     assert value('not(all(feature = "geo", feature = "owl"))') is False
     assert value('any(feature = "geo", test)') is True
     assert value('all(unix, not(feature = "geo"))') is False
-    assert value("test") is None
-    assert value("not(test)") is None
-    assert value('all(feature = "geo", test)') is None
+    assert value("test") is False
+    assert value("not(test)") is True
+    assert value("unix") is None
+    assert value('all(feature = "geo", unix)') is None
+    assert value("not a cfg (") is None
 
 
 def test_an_unbuilt_fallback_arm_is_absent_from_the_full_build():
@@ -304,7 +306,12 @@ def test_a_planted_real_arm_beside_the_unbuilt_fallback_still_fails():
 
 @pytest.mark.parametrize(
     "attribute",
-    ['#[cfg(feature = "geo")]', "#[cfg(not(test))]", "#[allow(unreachable_patterns)]"],
+    [
+        '#[cfg(feature = "geo")]',
+        "#[cfg(not(test))]",
+        "#[cfg(unix)]",
+        "#[allow(unreachable_patterns)]",
+    ],
 )
 def test_a_fallback_the_full_build_may_compile_is_still_a_catch_all(attribute):
     module = _module()

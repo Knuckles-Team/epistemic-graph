@@ -72,9 +72,10 @@ this configuration" fallback of a feature-gated dispatcher -- is ABSENT.  It is
 not counted as an arm, cannot be a catch-all, and is subtracted from the
 measured cyclomatic complexity (cccc charged it one decision point).  A
 function whose full-build cyclomatic complexity is within the cap is within the
-cap.  The predicate is evaluated three-valued: `feature = ".."` is true,
-`not`/`all`/`any` combine, and every other key (`test`, `unix`, `target_os`,
-...) is UNKNOWN, which keeps the arm.  Only a provably-false predicate removes
+cap.  The predicate is parsed and combined by the shared `rust_lexer` cfg
+evaluator, three-valued: `feature = ".."` is true, `test` is false (a release
+build), and every other key (`unix`, `target_os`, ...) is UNKNOWN, which keeps
+the arm.  Only a provably-false predicate removes
 an arm, so a real extra arm, or a catch-all gated on an enabled feature, still
 counts.  This is a rule about the build, recomputed from the source every run;
 no function is named anywhere.
@@ -100,7 +101,12 @@ from __future__ import annotations
 import re
 from typing import NamedTuple
 
-from rust_lexer import _balanced_span_from, _rust_code_mask
+from rust_lexer import (
+    _CFG_EVALUATORS,
+    _balanced_span_from,
+    _parse_cfg_expression,
+    _rust_code_mask,
+)
 
 #: An arm pattern that binds instead of discriminating. `_`, a bare lowercase
 #: binding, and an `ident @ _` binding all match every remaining value, so the
@@ -131,53 +137,29 @@ class DispatchShape(NamedTuple):
 
 
 _CFG_ATTRIBUTE = re.compile(r"#\s*\[\s*cfg\s*\((.*)\)\s*\]\Z", re.S)
-_FEATURE_ATOM = re.compile(r'feature\s*=\s*"[^"]*"\Z')
 
 
-def _top_level_parts(text: str) -> list[str]:
-    """``text`` split at its top-level commas (empty parts dropped)."""
-    parts, depth, start = [], 0, 0
-    for index, char in enumerate(text):
-        if char in _OPEN:
-            depth += 1
-        elif char in _CLOSE:
-            depth -= 1
-        elif char == "," and depth == 0:
-            parts.append(text[start:index])
-            start = index + 1
-    parts.append(text[start:])
-    return [part.strip() for part in parts if part.strip()]
-
-
-def _cfg_not(values: list[bool | None]) -> bool | None:
-    if len(values) != 1 or values[0] is None:
-        return None
-    return not values[0]
-
-
-def _cfg_all(values: list[bool | None]) -> bool | None:
-    if False in values:
-        return False
-    return True if all(value is True for value in values) else None
-
-
-def _cfg_any(values: list[bool | None]) -> bool | None:
-    if True in values:
+def _full_build_atom(atom: str) -> bool | None:
+    """``feature = ".."`` is on, ``test`` is off, anything else is unknown."""
+    if atom.startswith("feature="):
         return True
-    return False if all(value is False for value in values) else None
+    return False if atom == "test" else None
 
 
-_CFG_COMBINATORS = {"not": _cfg_not, "all": _cfg_all, "any": _cfg_any}
+def _full_build(tree: tuple) -> bool | None:
+    kind, payload = tree
+    if kind == "atom":
+        return _full_build_atom(payload)
+    return _CFG_EVALUATORS[kind]([_full_build(child) for child in payload])
 
 
 def full_build_value(predicate: str) -> bool | None:
-    """Truth of a ``cfg`` predicate with every feature enabled; None = unknown."""
-    predicate = predicate.strip()
-    head, paren, rest = predicate.partition("(")
-    combine = _CFG_COMBINATORS.get(head.strip())
-    if paren and combine is not None and rest.endswith(")"):
-        return combine([full_build_value(part) for part in _top_level_parts(rest[:-1])])
-    return True if _FEATURE_ATOM.match(predicate) else None
+    """Truth of a ``cfg`` predicate in the full release build; None = unknown
+    (including a predicate the shared cfg parser cannot read)."""
+    try:
+        return _full_build(_parse_cfg_expression(predicate))
+    except SystemExit:
+        return None
 
 
 def _absent_in_full_build(attribute: str) -> bool:
