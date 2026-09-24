@@ -404,6 +404,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
                 | Method::ApplyChangeEnvelope { .. }
                 | Method::ApplyChangeEnvelopes { .. }
                 | Method::SourceIngest { .. }
+                | Method::TelemetryDerive { .. }
                 | Method::Reconcile { .. }
                 | Method::ApplyMutation { .. }
                 | Method::ApplyMultisigMutation { .. }

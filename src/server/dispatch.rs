@@ -449,6 +449,9 @@ pub(crate) async fn ensure_internal_global_graph(
     }
 }
 mod sparql_update;
+// EH-408 / EH-409: stored telemetry → ontology-bound facts.
+#[cfg(feature = "obs")]
+mod telemetry;
 
 #[cfg(all(feature = "raft", feature = "jobs"))]
 pub(crate) use consensus::{
