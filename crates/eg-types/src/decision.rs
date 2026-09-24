@@ -30,6 +30,7 @@ pub mod policy;
 pub mod record;
 pub mod request;
 pub mod statistical;
+pub mod topology;
 
 /// Format identity (RF-ADR-006) of an assembly decision record.
 pub const DECISION_RECORD_SCHEMA_VERSION: u16 = 1;
@@ -37,6 +38,10 @@ pub const DECISION_RECORD_SCHEMA_VERSION: u16 = 1;
 /// statistical record is the SECOND shape of the same durable record family,
 /// not a second family.
 pub const STATISTICAL_DECISION_RECORD_SCHEMA_VERSION: u16 = 2;
+/// Format identity of an assembly record whose request asked for a topology
+/// (SWARM-TOPOLOGY-DECIDE-DESIGN §6.5). A v1 record keeps its exact bytes and
+/// digest: every topology field is absent from it, never serialized as null.
+pub const TOPOLOGY_DECISION_RECORD_SCHEMA_VERSION: u16 = 3;
 /// Format identity of a decision policy body.
 pub const DECISION_POLICY_SCHEMA_VERSION: u16 = 1;
 /// Format identity of a durable decision-job row.
@@ -85,4 +90,10 @@ pub use statistical::{
     ExplorationRecord, FeatureMatrixRef, QuestionKind, QuestionSafety, RiskMethod, RiskStatement,
     ScoredOption, ShortlistProvenance, StatisticalDecisionRecord, StatisticalInputs,
     StatisticalOutcome, StatisticalQuestion, TypedParam, TypedValue,
+};
+pub use topology::{
+    CapacityHeadroom, CapacityScope, CellLease, LeaseDemand, LeasePlan, SchemaAuthority, SlotPlan,
+    SlotRole, SlotTopology, StopRule, SubagentAllowance, SubagentFallback, TopologyAdmission,
+    TopologyCaps, TopologyFacts, TopologyInputs, TopologyPlan, TopologyPolicy,
+    TopologyRequirements,
 };

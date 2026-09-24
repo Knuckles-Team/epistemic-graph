@@ -75,7 +75,7 @@ impl<'a> SolveContext<'a> {
 
     /// The chosen candidates with their slots, in variable order.
     pub(super) fn chosen(&self, selected: &[bool]) -> Vec<(usize, &'a CandidateFacts)> {
-        (0..selected.len())
+        (0..self.built.vars.len().min(selected.len()))
             .filter(|&position| selected[position])
             .map(|position| {
                 let var = VarId(position as u32);
@@ -136,7 +136,9 @@ pub(super) fn search(
                     .unwrap_or("VALIDATION")
                     .to_string();
                 refused.push(format!("nogood:{round}:{code}"));
-                spec.constraints.push(nogood(round, &selected));
+                let candidates = context.built.vars.len().min(selected.len());
+                spec.constraints
+                    .push(nogood(round, &selected[..candidates]));
             }
         }
     }
@@ -145,7 +147,8 @@ pub(super) fn search(
     Ok(Err(vec![AbstainReason::Infeasible { constraints }]))
 }
 
-/// `Σ_{selected} x ≤ |selected| − 1`: this exact selection is refused.
+/// `Σ_{selected} x ≤ |selected| − 1`: this exact selection of CANDIDATES is
+/// refused (the validators judge candidates, never a topology choice).
 fn nogood(round: u8, selected: &[bool]) -> ConstraintSpec {
     let terms: Vec<Term> = (0..selected.len())
         .filter(|&position| selected[position])

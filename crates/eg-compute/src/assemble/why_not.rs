@@ -39,7 +39,7 @@ pub(super) fn explain(
 ) -> Vec<WhyNot> {
     let mut out = Vec::new();
     for kind in SLOTS {
-        let mut excluded: Vec<VarId> = (0..selected.len())
+        let mut excluded: Vec<VarId> = (0..context.built.vars.len().min(selected.len()))
             .map(|position| VarId(position as u32))
             .filter(|var| !selected[var.index()] && context.kind_of(*var) == kind)
             .collect();

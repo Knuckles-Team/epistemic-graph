@@ -30,7 +30,7 @@ fn edge(from: &str, to: &str) -> AgentGraphEdge {
 }
 
 /// A published chain of `agents` agent nodes ending in `End`.
-fn template(graph_id: &str, agents: &[&str]) -> TemplateFacts {
+pub(super) fn template(graph_id: &str, agents: &[&str]) -> TemplateFacts {
     let mut nodes: Vec<AgentGraphNode> = agents.iter().map(|id| agent_node(id)).collect();
     nodes.push(AgentGraphNode {
         node_id: "end".to_string(),
@@ -53,10 +53,11 @@ fn template(graph_id: &str, agents: &[&str]) -> TemplateFacts {
             edges,
             max_iterations: 8,
         },
+        topology: None,
     }
 }
 
-fn reference(template: &TemplateFacts) -> AgentGraphEntryRef {
+pub(super) fn reference(template: &TemplateFacts) -> AgentGraphEntryRef {
     AgentGraphEntryRef {
         tenant_id: TENANT.to_string(),
         graph_id: template.graph_id.clone(),

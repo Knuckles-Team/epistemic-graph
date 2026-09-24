@@ -215,6 +215,7 @@ fn graph_draft(
         purpose_id: ASSEMBLY_PURPOSE.to_string(),
         policy_digest: inputs.policy_digest.clone(),
         synthesis_evidence: None,
+        topology: None,
     }
 }
 
@@ -248,5 +249,6 @@ fn template_graph(
         purpose_id: ASSEMBLY_PURPOSE.to_string(),
         policy_digest: inputs.policy_digest.clone(),
         synthesis_evidence: None,
+        topology: None,
     }
 }

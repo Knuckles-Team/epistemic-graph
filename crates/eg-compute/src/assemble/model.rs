@@ -76,6 +76,9 @@ pub(super) struct VarRef {
 pub(super) struct Built {
     pub spec: ModelSpec,
     pub vars: Vec<VarRef>,
+    /// The topology choice each variable after the candidate variables stands
+    /// for; empty when the request asks no topology question.
+    pub shape: Vec<super::topology::Choice>,
 }
 
 pub(super) enum Building {
@@ -133,6 +136,7 @@ pub(super) fn build(
             objective,
         },
         vars,
+        shape: Vec::new(),
     }))
 }
 
