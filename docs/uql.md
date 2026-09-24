@@ -412,8 +412,10 @@ result = await client.uql(
 rows = result["rows"]  # [{"id", "score", "channels": {"mmr": …}}]; result["kind"] == "rows"
 ```
 
-On the wire this is `Method::Uql { text, params }` — the one query-text method (EH-434 retired
-the rows-only `UnifiedQueryText`). Executed answers are result-cached like `UnifiedQuery`
+On the wire this is `Method::Uql { text, params }` — the one query-text method — and, inside a
+transaction (read your own writes), `Method::TxnUql { txn_id, text, params }`: the same
+statement, grammar and result (EH-434 retired the rows-only `UnifiedQueryText` and
+`TxnUnifiedQueryText`). Executed answers are result-cached like `UnifiedQuery`
 answers (keyed on the text, the bound params and the caller's RLS context); `PROFILE` answers
 and plans that read the decision log are not.
 

@@ -245,7 +245,7 @@ async fn dispatch_evidence_causal_method(
 fn is_txn_query_method(method: &Method) -> bool {
     matches!(
         method,
-        Method::TxnUnifiedQuery { .. } | Method::TxnUnifiedQueryText { .. }
+        Method::TxnUnifiedQuery { .. } | Method::TxnUql { .. }
     )
 }
 
@@ -268,9 +268,11 @@ async fn dispatch_txn_query_method(
             )
             .await)
         }
-        Method::TxnUnifiedQueryText { txn_id, text } => {
-            handle_txn_unified_query_text(ctx, txn_id, text).await
-        }
+        Method::TxnUql {
+            txn_id,
+            text,
+            params,
+        } => handle_txn_uql(ctx, txn_id, text, params).await,
         other => Err(other),
     }
 }
