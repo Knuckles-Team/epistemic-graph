@@ -189,6 +189,14 @@ fn authority_policy_digest(policy: &RbacPolicy) -> Result<String, RbacPersistErr
     struct CanonicalPolicy<'a> {
         roles: BTreeMap<&'a str, &'a crate::acl::Role>,
         grants: &'a [crate::acl::Grant],
+        // EH-404: an elevation transition (above all a revocation) moves the
+        // digest, so a policy decision lease minted before it fails closed.
+        // Omitted while empty, so an image without elevations keeps its digest.
+        #[serde(skip_serializing_if = "no_elevations")]
+        elevations: &'a eg_types::rbac_elevation::ElevationLedger,
+    }
+    fn no_elevations(ledger: &&eg_types::rbac_elevation::ElevationLedger) -> bool {
+        ledger.is_empty()
     }
     let canonical = CanonicalPolicy {
         roles: policy
@@ -196,6 +204,7 @@ fn authority_policy_digest(policy: &RbacPolicy) -> Result<String, RbacPersistErr
             .map(|role| (role.name.as_str(), role))
             .collect(),
         grants: policy.grants(),
+        elevations: policy.elevations(),
     };
     let mut hasher = Sha256::new();
     hasher.update(b"eg/rbac-policy-snapshot/v1\0");

@@ -141,6 +141,12 @@ pub struct CapacityCell {
     /// privacy" section); opaque here, verified upstream.
     pub policy_digest: String,
     pub updated_at_ms: u64,
+    /// EH-406: the optional error-budget throttle. Its `ceiling` gates new
+    /// admissions and never exceeds `capacity`; automatic steps
+    /// (`ThrottleCapacityCell`) move only the ceiling, and only the operator
+    /// (`UpdateCapacityCell`) declares the policy or the capacity itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub throttle: Option<crate::capacity_throttle::CapacityThrottle>,
 }
 
 impl CapacityCell {
@@ -155,7 +161,18 @@ impl CapacityCell {
                 "epoch must be non-zero (0 is reserved for 'never provisioned')".to_string(),
             );
         }
+        if let Some(throttle) = &self.throttle {
+            throttle.validate(self.capacity)?;
+        }
         Ok(())
+    }
+
+    /// The ceiling new admissions are measured against: the declared
+    /// `capacity`, narrowed by the throttle when one is declared.
+    pub fn effective_capacity(&self) -> u64 {
+        self.throttle.as_ref().map_or(self.capacity, |throttle| {
+            throttle.ceiling.min(self.capacity)
+        })
     }
 
     /// Capacity available to `priority` right now, given `already_leased`
@@ -163,10 +180,11 @@ impl CapacityCell {
     /// the spare (non-floor) capacity; every other priority may also draw on
     /// the reserved floor.
     pub fn available_for(&self, priority: LeasePriority, already_leased: u64) -> u64 {
+        let effective = self.effective_capacity();
         let ceiling = if priority.may_spend_reserved_floor() {
-            self.capacity
+            effective
         } else {
-            self.capacity.saturating_sub(self.reserved_floor)
+            effective.saturating_sub(self.reserved_floor)
         };
         ceiling.saturating_sub(already_leased.min(ceiling))
     }
@@ -572,7 +590,39 @@ mod tests {
             epoch,
             policy_digest: "d".repeat(64),
             updated_at_ms: 0,
+            throttle: None,
         }
+    }
+
+    /// EH-406: a narrowed throttle ceiling gates new admissions, reserved floor
+    /// included, and never lifts the cell above its declared capacity.
+    #[test]
+    fn admission_is_measured_against_the_throttle_ceiling() {
+        use crate::capacity_throttle::{CapacityThrottle, CapacityThrottlePolicy};
+        let policy = CapacityThrottlePolicy {
+            error_budget_ppm: 50_000,
+            recovery_ppm: 10_000,
+            min_samples: 1,
+            decrease_per_mille: 500,
+            increase_step: 1,
+            floor: 1,
+            cooldown_ms: 0,
+        };
+        let mut throttled = cell(1);
+        let mut throttle = CapacityThrottle::open(policy, 10);
+        throttle.ceiling = 1;
+        throttled.throttle = Some(throttle);
+        assert_eq!(throttled.effective_capacity(), 1);
+        assert_eq!(throttled.available_for(LeasePriority::Interactive, 0), 1);
+        assert_eq!(
+            throttled.available_for(LeasePriority::BackgroundIngestion, 0),
+            0
+        );
+        throttled.throttle.as_mut().unwrap().ceiling = 11;
+        assert!(
+            throttled.validate().is_err(),
+            "a ceiling above capacity is refused"
+        );
     }
 
     /// KNOWN-BAD PROOF 1: an expired lease holder is rejected on renew, not

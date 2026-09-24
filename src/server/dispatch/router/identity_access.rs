@@ -46,6 +46,22 @@ pub(super) async fn dispatch_identity_and_access_methods(
         method @ Method::ApplyMultisigMutation { .. } => {
             dispatch_identity_and_access_methods_arm_3(ctx, method).await
         }
+
+        // ── Just-in-time RBAC elevation (EH-404) ──────────────────────────
+        // Security-only like `RbacAdmin`: the ledger lives in the RBAC image.
+        #[cfg(feature = "security")]
+        Method::RbacElevation { op, actor } => {
+            crate::server::dispatch::elevation::dispatch_rbac_elevation(
+                state,
+                req.id,
+                verified_context,
+                crate::server::dispatch::elevation::ElevationStampAuthority::of(
+                    state_machine_authorized,
+                ),
+                (op, actor),
+            )
+            .await
+        }
         other => return ControlFlow::Continue(other),
     })
 }

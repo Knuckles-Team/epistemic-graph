@@ -82,7 +82,8 @@ class MethodPolicyRow:
 # 440 -> 447: `ListControlLeases` (graph-os EG-5) and the EH-348 work market --
 # `GapUpsert`, `GapTransition`, `GapSettle`, `WorkOfferPut`, `GapGet`, `GapList`.
 # 447 -> 449: EH-351/EH-352 `EdgeIndex` and `EdgeSearch` (query).
-EXPECTED_METHOD_POLICY_ROWS = 449
+# 449 -> 451: EH-404's `RbacElevation` and EH-406's `ThrottleCapacityCell`.
+EXPECTED_METHOD_POLICY_ROWS = 451
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",
