@@ -252,6 +252,7 @@ fn run_absence(
 /// [`run_absence`] batch result on the same ts-ordered stream: an `a` follower is valid at
 /// `dt <= within` (and in-window), and an `a` is final-unfollowed once `now - a.ts >
 /// within` — the same `dt > within` cut-off `run_absence`'s forward scan breaks on.
+#[cfg(feature = "stream")]
 pub(crate) struct AbsenceState {
     a: EventMatcher,
     b: EventMatcher,
@@ -261,6 +262,7 @@ pub(crate) struct AbsenceState {
     pending: Vec<Event>,
 }
 
+#[cfg(feature = "stream")]
 impl AbsenceState {
     pub(crate) fn new(
         a: EventMatcher,
