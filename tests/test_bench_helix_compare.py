@@ -16,7 +16,13 @@ from helix_compare import queries as query_set
 from helix_compare.eg_engine import cypher_ids, uql_ids
 from helix_compare.helix_engine import rows
 from helix_compare.measure import Timing, parse_cpus, percentile
-from helix_compare.oracle import Oracle, check_ranked, check_set, check_text
+from helix_compare.oracle import (
+    Oracle,
+    check_ranked,
+    check_set,
+    check_text,
+    recall_at_k,
+)
 from helix_compare.report import render
 
 pytestmark = pytest.mark.no_engine
@@ -79,7 +85,9 @@ def test_text_check_requires_the_term_the_prefilter_and_the_count() -> None:
     assert "fail the prefilter" in check_text(oracle, (group, term, k), [outsider])
 
 
-def test_vector_check_accepts_the_exact_top_k_and_rejects_a_weaker_hit() -> None:
+def test_ranked_answers_are_scored_by_recall_and_refused_outside_the_prefilter() -> (
+    None
+):
     data = corpus.generate(TINY)
     oracle = Oracle.of(data)
     group = data.docs[0].category
@@ -91,10 +99,22 @@ def test_vector_check_accepts_the_exact_top_k_and_rejects_a_weaker_hit() -> None
             -sum(a * b for a, b in zip(oracle.docs[key].embedding, vector, strict=True))
         ),
     )
-    assert check_ranked(oracle, candidates, vector, 3, ranked[:3]) is None
+    assert check_ranked(candidates, 3, ranked[:3]) is None
+    assert recall_at_k(oracle, candidates, vector, 3, ranked[:3]) == 1.0
     weaker = [ranked[0], ranked[1], ranked[-1]]
-    assert "rank below" in check_ranked(oracle, candidates, vector, 3, weaker)
-    assert "outside" in check_ranked(oracle, candidates[:1], vector, 1, [ranked[-1]])
+    assert check_ranked(candidates, 3, weaker) is None
+    assert recall_at_k(oracle, candidates, vector, 3, weaker) == 2 / 3
+    assert "outside" in check_ranked(candidates[:1], 1, [ranked[-1]])
+    assert "expected 3" in check_ranked(candidates, 3, ranked[:2])
+
+
+def test_a_ranked_gate_fails_on_mean_recall_below_the_floor() -> None:
+    from helix_compare.runner import _gate_report
+
+    assert _gate_report(10, [], [1.0] * 10)["passed"]
+    low = _gate_report(10, [], [0.9] * 10)
+    assert not low["passed"] and low["recall_mean"] == 0.9
+    assert not _gate_report(10, ["boom"], [])["passed"]
 
 
 def test_percentiles_are_nearest_rank_and_timing_counts_errors() -> None:
@@ -131,13 +151,20 @@ def test_the_report_renders_gates_timings_and_footprint() -> None:
     }
     engine = {
         "engine": "e",
-        "gate": {"point_get": {"checked": 5, "failed": 0, "failure_samples": []}},
+        "gate": {
+            "point_get": {
+                "checked": 5,
+                "failed": 0,
+                "failure_samples": [],
+                "passed": True,
+            }
+        },
         "warm": {"point_get": {"c1": summary}},
         "cold": {"point_get": summary},
         "txn_batch": {"gate": {"checked": 1, "failed": 0}, "c1": summary},
         "load": {"seconds": 1.0, "storage_bytes": 10, "storage_amplification": 2.0},
     }
     markdown = render({"engines": [engine]})
-    assert "| point_get | e | 5 | 0 |" in markdown
+    assert "| point_get | e | yes | 5 | 0 |" in markdown
     assert markdown.count("| point_get | e | 1 | 10 | 0 | 1.0 |") == 2
     assert "| txn_batch | e | 1 | 10 |" in markdown

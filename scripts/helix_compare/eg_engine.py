@@ -35,6 +35,11 @@ POLICY = "policy:bench"
 GRAPH = "helixbench"
 LOAD_CHUNK = 2000
 START_TIMEOUT_S = 120.0
+# A restarted engine re-materializes a graph lazily and refuses reads with a
+# retryable PARTIAL_MATERIALIZATION until it is complete; the harness waits for
+# `valid` (bounded) and reports how long it took and how the cursor moved.
+READY_TIMEOUT_S = 1800.0
+READY_POLL_S = 0.5
 
 
 def _context(*, bootstrap: bool = False) -> dict[str, Any]:
@@ -126,6 +131,8 @@ class EgEngine:
         self.process: subprocess.Popen[bytes] | None = None
         self.client: Any = None
         self._bootstrapped = False
+        self.ready_s = 0.0
+        self.materialization: list[dict[str, Any]] = []
 
     @property
     def pid(self) -> int:
@@ -136,6 +143,7 @@ class EgEngine:
         for directory in (self.data_dir, self.workdir / "security"):
             directory.mkdir(parents=True, exist_ok=True)
         self.socket.unlink(missing_ok=True)
+        began = asyncio.get_running_loop().time()
         self.process = subprocess.Popen(
             [str(self.binary), "--socket-path", str(self.socket)],
             env={**os.environ, **server_env(self.workdir)},
@@ -147,6 +155,8 @@ class EgEngine:
         if not self._bootstrapped:
             await self._bootstrap()
         self.client = await self._connect(_context(), GRAPH)
+        await self._wait_materialized()
+        self.ready_s = round(asyncio.get_running_loop().time() - began, 2)
 
     async def _wait_for_socket(self) -> None:
         loop = asyncio.get_running_loop()
@@ -157,6 +167,41 @@ class EgEngine:
             if loop.time() > deadline:
                 raise TimeoutError("engine socket never appeared")
             await asyncio.sleep(0.1)
+
+    async def _graph_entry(self) -> dict[str, Any]:
+        admin = await self._connect(_context(), "__commons__")
+        try:
+            graphs = await admin.tenants.list()
+        finally:
+            await admin.close()
+        return next((g for g in graphs if g.get("name") == GRAPH), {})
+
+    async def _touch(self) -> None:
+        """One graph read: a restarted engine opens a graph lazily on first touch
+        and pages the rest in off the request path; a refusal here is expected."""
+
+        try:
+            await self.client.nodes.count()
+        except RuntimeError as error:
+            if "PARTIAL_MATERIALIZATION" not in str(error):
+                raise
+
+    async def _wait_materialized(self) -> None:
+        loop = asyncio.get_running_loop()
+        began, last = loop.time(), None
+        self.materialization = []
+        await self._touch()
+        while loop.time() - began < READY_TIMEOUT_S:
+            entry = await self._graph_entry()
+            if entry.get("valid") is True:
+                return
+            state = (entry.get("materialization"), entry.get("completeness_cursor"))
+            if state != last:
+                at = round(loop.time() - began, 2)
+                self.materialization.append({"at_s": at, "state": repr(state)})
+                last = state
+            await asyncio.sleep(READY_POLL_S)
+        raise TimeoutError(f"graph never materialized: {self.materialization[-5:]}")
 
     async def _connect(self, context: dict[str, Any], graph: str) -> Any:
         from epistemic_graph.client import EpistemicGraphClient

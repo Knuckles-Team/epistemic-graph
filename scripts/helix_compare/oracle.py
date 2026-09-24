@@ -2,11 +2,15 @@
 
 Exact workloads (point get, hops, transactional batch) must match the corpus
 exactly. Ranked workloads are checked on what both engines' contracts promise:
-every hit satisfies the prefilter, the hit count is ``min(k, eligible)``, and
-for vector ranking every returned hit is at least as similar as the oracle's
-k-th best within :data:`SIMILARITY_TOLERANCE` (f32 storage vs f64 oracle). BM25
-parameters and tokenization differ between engines, so a text hit's RANK is not
-asserted -- only that it contains the query term inside the prefilter.
+every hit satisfies the prefilter and the hit count is ``min(k, eligible)`` --
+a violation of either fails the query outright. Vector ranking is approximate
+in both engines (HNSW-family indexes), so its quality is measured, not assumed:
+``recall@k`` against the exact top-k, where a hit counts when it is at least as
+similar as the oracle's k-th best within :data:`SIMILARITY_TOLERANCE` (f32
+storage vs f64 oracle, and ties). A ranked workload passes its gate only when
+its MEAN recall reaches :data:`RECALL_FLOOR`. BM25 parameters and tokenization
+differ between engines, so a text hit's RANK is not asserted -- only that it
+contains the query term inside the prefilter.
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ from dataclasses import dataclass, field
 from .dataset import Dataset, Doc
 
 SIMILARITY_TOLERANCE = 1e-4
+RECALL_FLOOR = 0.95
 
 
 def cosine(left: Sequence[float], right: Sequence[float]) -> float:
@@ -106,18 +111,29 @@ def check_text(
     return None
 
 
-def check_ranked(
-    oracle: Oracle,
-    candidates: Sequence[str],
-    vector: Sequence[float],
-    k: int,
-    got: Sequence[str],
-) -> str | None:
+def check_ranked(candidates: Sequence[str], k: int, got: Sequence[str]) -> str | None:
+    """Hard violations of a ranked answer: outside the prefilter, or a wrong count."""
+
     allowed = set(candidates)
     if any(key not in allowed for key in got):
         return "vector: a hit is outside the candidate set"
     if len(set(got)) != len(got) or len(got) != min(k, len(allowed)):
         return f"vector: {len(got)} hits, expected {min(k, len(allowed))}"
+    return None
+
+
+def recall_at_k(
+    oracle: Oracle,
+    candidates: Sequence[str],
+    vector: Sequence[float],
+    k: int,
+    got: Sequence[str],
+) -> float:
+    """Share of the exact top-``k`` a ranked answer recovered (ties count)."""
+
+    wanted = min(k, len(candidates))
+    if wanted == 0:
+        return 1.0
     floor = oracle.kth_similarity(candidates, vector, k) - SIMILARITY_TOLERANCE
-    weak = [key for key in got if cosine(oracle.docs[key].embedding, vector) < floor]
-    return f"vector: {weak[:3]} rank below the exact top-{k}" if weak else None
+    good = sum(cosine(oracle.docs[key].embedding, vector) >= floor for key in got)
+    return min(good, wanted) / wanted
