@@ -45,6 +45,13 @@ Secure deployments must align these values with the issuing Graph-OS service:
 - `EPISTEMIC_GRAPH_ENVELOPE_SKEW_SECS`, the timestamp and replay-retention
   horizon.
 
+The replay ledger keeps accepted read-request nonces in a bounded in-memory
+window and makes only a high-water envelope timestamp durable, once per clock
+second, before the request dispatches. After a restart every envelope signed at
+or before that high-water is refused as a possible replay, so a client whose
+request raced a restart re-signs it; signed mutations consume their nonce inside
+the mutation kernel instead.
+
 All values are mandatory except the skew override. The server also requires a
 build containing the `security` feature. Graph operations receive identity only
 from verified context, never unsigned request fields. A routable native TCP
