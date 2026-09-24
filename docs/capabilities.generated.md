@@ -384,6 +384,7 @@
 | `IcvConfigure` | true | GraphRedb | `security:admin` | true | true | true | Atomic | state-backed MutationBatch |
 | `GraphSchema` | true | GraphRedb | `security:admin` | true | true | true | Atomic | X9. Gateway-routed exactly like IcvConfigure: every op attaches, replaces or detaches one keyed schema source through the graph commit kernel, so it is audited, emits CDC, and is recorded in the native Raft GraphState catalog |
 | `GraphSchemaList` | false | None | `security:admin` | true | false | false | Snapshot | X9. Reads the request graph's schema-source set and its composed digest; a separate method rather than an op because a read op inside a gateway-routed method would need a runtime-conditional gateway plan |
+| `GraphSchemaClasses` | false | None | `owl:read` | true | false | false | Snapshot | EH-389. One page of the classes and properties the request graph's composed schema declares, with the declaring source; the schema's own vocabulary, not graph rows and not the source documents, so an ordinary ontology read (owl:read) rather than GraphSchemaList's security:admin |
 | `ShexValidate` | false | None | `validation:read` | true | false | false | Snapshot |  |
 | `GetLedger` | false | None | `ledger:read` | true | false | false | Snapshot |  |
 | `AuditVerify` | false | None | `security:audit` | true | false | false | Snapshot |  |

@@ -5572,6 +5572,17 @@ class GraphResourceStats(BaseModel):
     tenant: str
 
 
+class GraphSchemaClassesView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    composed_digest: str
+    graph: str
+    next_cursor: str | None = None
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    terms: BoundedVec_GraphSchemaTermView_1000
+    total_terms: Annotated[int, Field(ge=0)]
+
+
 class GraphSchemaCommitted(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5635,6 +5646,23 @@ class GraphSchemaSourcesView(BaseModel):
     dynamic_sources: BoundedVec_GraphSchemaSourceView_32
     graph: str
     schema_version: Annotated[int, Field(ge=0, le=65535)]
+
+
+class GraphSchemaTermKind(str, Enum):
+    CLASS = "class"
+    OBJECT_PROPERTY = "object_property"
+    DATATYPE_PROPERTY = "datatype_property"
+    ANNOTATION_PROPERTY = "annotation_property"
+    PROPERTY = "property"
+
+
+class GraphSchemaTermView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    iri: str
+    kind: GraphSchemaTermKind
+    local_name: str
+    source_id: str
 
 
 class GraphSource(BaseModel):
@@ -9750,6 +9778,13 @@ class MethodGraphSchemaList(BaseModel):
     method: Literal["GraphSchemaList"]
 
 
+class MethodGraphSchemaClasses(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["GraphSchemaClasses"]
+    params: MethodGraphSchemaClassesParams
+
+
 class MethodMutationOutbox(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -10230,6 +10265,7 @@ Method = Annotated[
     | MethodWriteBack
     | MethodGraphSchema
     | MethodGraphSchemaList
+    | MethodGraphSchemaClasses
     | MethodMutationOutbox
     | MethodGetWorkItem
     | MethodListWorkItems
@@ -11889,6 +11925,14 @@ class MethodGraphQlParams(BaseModel):
 
     query: str
     variables: Any | None = None
+
+
+class MethodGraphSchemaClassesParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    cursor: str | None = None
+    kind: GraphSchemaTermKind | None = None
+    limit: Annotated[int, Field(ge=0)]
 
 
 class MethodGraphSchemaParams(BaseModel):
@@ -20489,6 +20533,14 @@ BoundedVec_GraphSchemaSourceView_64 = Annotated[
     list[GraphSchemaSourceView],
     Field(
         max_length=64,
+    ),
+]
+
+
+BoundedVec_GraphSchemaTermView_1000 = Annotated[
+    list[GraphSchemaTermView],
+    Field(
+        max_length=1000,
     ),
 ]
 

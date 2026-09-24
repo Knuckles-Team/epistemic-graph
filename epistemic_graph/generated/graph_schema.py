@@ -6,9 +6,21 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class GraphSchemaClassesView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    composed_digest: str
+    graph: str
+    next_cursor: str | None = None
+    schema_version: Annotated[int, Field(ge=0, le=65535)]
+    terms: BoundedVec_GraphSchemaTermView_1000
+    total_terms: Annotated[int, Field(ge=0)]
 
 
 class GraphSchemaCommitted(BaseModel):
@@ -76,6 +88,23 @@ class GraphSchemaSourcesView(BaseModel):
     schema_version: Annotated[int, Field(ge=0, le=65535)]
 
 
+class GraphSchemaTermKind(str, Enum):
+    CLASS = "class"
+    OBJECT_PROPERTY = "object_property"
+    DATATYPE_PROPERTY = "datatype_property"
+    ANNOTATION_PROPERTY = "annotation_property"
+    PROPERTY = "property"
+
+
+class GraphSchemaTermView(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    iri: str
+    kind: GraphSchemaTermKind
+    local_name: str
+    source_id: str
+
+
 class SchemaSourceOriginViewCore(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -139,6 +168,16 @@ BoundedVec_GraphSchemaSourceView_64 = Annotated[
     ),
 ]
 
+
+BoundedVec_GraphSchemaTermView_1000 = Annotated[
+    list[GraphSchemaTermView],
+    Field(
+        max_length=1000,
+    ),
+]
+
+GraphSchemaClassesView.model_rebuild()
+
 GraphSchemaCommitted.model_rebuild()
 
 GraphSchemaOpAttach.model_rebuild()
@@ -150,6 +189,8 @@ GraphSchemaOpDetach.model_rebuild()
 GraphSchemaSourceView.model_rebuild()
 
 GraphSchemaSourcesView.model_rebuild()
+
+GraphSchemaTermView.model_rebuild()
 
 SchemaSourceOriginViewCore.model_rebuild()
 

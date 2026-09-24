@@ -363,6 +363,7 @@ METHOD_IDS = frozenset(
         "IcvConfigure",
         "GraphSchema",
         "GraphSchemaList",
+        "GraphSchemaClasses",
         "GetLedger",
         "AuditVerify",
         "AuditProveInclusion",

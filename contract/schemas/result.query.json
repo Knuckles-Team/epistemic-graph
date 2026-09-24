@@ -10812,6 +10812,36 @@
         }
       ]
     },
+    "GraphSchemaTermKind": {
+      "description": "What a declared term is, by the RDF type that declares it.",
+      "oneOf": [
+        {
+          "const": "class",
+          "description": "`owl:Class` or `rdfs:Class`.",
+          "type": "string"
+        },
+        {
+          "const": "object_property",
+          "description": "`owl:ObjectProperty`.",
+          "type": "string"
+        },
+        {
+          "const": "datatype_property",
+          "description": "`owl:DatatypeProperty`.",
+          "type": "string"
+        },
+        {
+          "const": "annotation_property",
+          "description": "`owl:AnnotationProperty`.",
+          "type": "string"
+        },
+        {
+          "const": "property",
+          "description": "`rdf:Property` (an RDFS property with no OWL typing).",
+          "type": "string"
+        }
+      ]
+    },
     "GraphSource": {
       "description": "A graph-derived subgraph source for `GraphLearn*` (CONCEPT:EG-KG.graphlearn.link-predictor).\n\nEvery node carrying `node_label` becomes a vertex; edges among them (following\n`direction`, optionally filtered to `relation`) are the observed positive links\nthe KAN learns from. Isolated label instances are kept as candidate endpoints.",
       "properties": {
@@ -28855,6 +28885,53 @@
           },
           "required": [
             "method"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "One page of the classes and properties the request graph's composed\nschema declares, ordered by `(iri, kind)` (EH-389). `kind` keeps one\nterm kind; `cursor` is the previous page's `next_cursor`; `limit` is\n1..=`MAX_GRAPH_SCHEMA_TERMS_PAGE`.",
+          "properties": {
+            "method": {
+              "const": "GraphSchemaClasses",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "cursor": {
+                  "default": null,
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kind": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/GraphSchemaTermKind"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "limit": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "limit"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
           ],
           "type": "object"
         },

@@ -308,6 +308,7 @@ SEND_BY_METHOD = {
     "GraphLearnPredict": compute.send_graph_learn_predict,
     "GraphQl": query.send_graph_ql,
     "GraphSchema": reasoning.send_graph_schema,
+    "GraphSchemaClasses": reasoning.send_graph_schema_classes,
     "GraphSchemaList": reasoning.send_graph_schema_list,
     "HasEdge": graph.send_has_edge,
     "HasNode": graph.send_has_node,
