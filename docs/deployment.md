@@ -259,6 +259,7 @@ asyncio.run(main())
 | — | `EPISTEMIC_GRAPH_TENANT` | — (**required**) | Exact tenant accepted by request verification |
 | — | `EPISTEMIC_GRAPH_POLICY_VERSION` | — (**required**) | Exact authorization-policy revision accepted by request verification |
 | — | `EPISTEMIC_GRAPH_SIGNER_KEYS_JSON` | — (**required**) | Runtime secret map of trusted operation signer ids to HMAC keys |
+| — | `EPISTEMIC_GRAPH_CONTROL_LEASE_KIND_POLICY_JSON` | unset (no principal restricted) | Per-principal control-lease kind allowlist, `{"<agent_id>": ["<kind>", ...]}`. A named principal may issue or transition only the listed kinds; unnamed principals are unaffected. Malformed JSON refuses every control-lease write. See [request authority](architecture/request_authority.md#control-lease-kind-allowlist). |
 | — | `EPISTEMIC_GRAPH_BACKUP_ROOT` | unset (RPC disabled) | Private operator-owned root for logical-name online backup/restore RPCs |
 | — | `EPISTEMIC_GRAPH_SQLITE_TRANSFER_ROOT` | unset (RPC disabled) | Private operator-owned root for logical `.db` import/export names |
 | — | `EPISTEMIC_GRAPH_SQLITE_MAX_BYTES` / `EPISTEMIC_GRAPH_SQLITE_MAX_ROWS` | 256 MiB / 1,000,000 | SQLite transfer resource ceilings |
