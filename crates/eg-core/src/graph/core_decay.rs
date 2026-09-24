@@ -1,4 +1,5 @@
 use super::*;
+use eg_types::sealed_record::is_sealed_record_row;
 
 impl GraphCore {
     // ── Ebbinghaus Temporal Decay (CONCEPT:EG-KG.compute.graph-compute-engine) ──────────────────────
@@ -83,7 +84,8 @@ impl GraphCore {
             let Ok(mut val) = decode_property_value(&bytes) else {
                 continue;
             };
-            let Some(obj) = val.as_object_mut() else {
+            // A sealed record (EH-558) is not a belief: it never decays or prunes.
+            let Some(obj) = val.as_object_mut().filter(|obj| !is_sealed_record_row(obj)) else {
                 continue;
             };
             let (new_conf, changed) = apply_decay(obj, now, default_half_life);
@@ -174,7 +176,9 @@ impl GraphCore {
         for nid in node_ids {
             if let Some(bytes) = self.node_properties.get(nid).map(|a| (**a).clone()) {
                 if let Ok(mut val) = decode_property_value(&bytes) {
-                    if let Some(obj) = val.as_object_mut() {
+                    // A sealed record (EH-558) has no forgetting clock to restart.
+                    if let Some(obj) = val.as_object_mut().filter(|obj| !is_sealed_record_row(obj))
+                    {
                         obj.insert("last_access".to_string(), serde_json::json!(now));
                         obj.insert("confidence".to_string(), serde_json::json!(1.0_f64));
                         if let Ok(reenc) = rmp_serde::to_vec_named(&val) {
@@ -186,5 +190,48 @@ impl GraphCore {
             }
         }
         touched
+    }
+}
+
+#[cfg(test)]
+mod sealed_record_tests {
+    use super::*;
+
+    fn props(value: serde_json::Value) -> Vec<u8> {
+        rmp_serde::to_vec_named(&value).unwrap()
+    }
+
+    /// EH-558: belief maintenance leaves sealed records byte-identical — a decay sweep
+    /// neither decays nor prunes them and a touch does not restamp them — while an
+    /// ordinary node beside them is still decayed, pruned and touched.
+    #[test]
+    fn decay_and_touch_skip_sealed_records_but_not_beliefs() {
+        let g = GraphCore::new();
+        let now = 1_000_000u64;
+        let stale = serde_json::json!({"confidence": 1.0, "last_access": now - 400});
+        let mut sealed = stale.clone();
+        sealed["type"] = "AnalysisSnapshot".into();
+        let mut belief = stale;
+        belief["type"] = "Fact".into();
+        g.add_node("snap".to_string(), props(sealed.clone()));
+        g.add_node("fact".to_string(), props(belief));
+
+        let ids = ["snap".to_string(), "fact".to_string()];
+        assert_eq!(
+            g.touch_nodes(&ids, now - 400),
+            1,
+            "only the belief is touched"
+        );
+        let stats = g.decay_sweep(now, 100.0, 0.1, true);
+        assert_eq!((stats.nodes_decayed, stats.nodes_pruned), (1, 1));
+        assert!(
+            g.get_node_properties("fact").is_none(),
+            "the stale belief is pruned"
+        );
+        assert_eq!(
+            g.get_node_properties("snap").as_deref(),
+            Some(props(sealed).as_slice()),
+            "the sealed record is untouched"
+        );
     }
 }

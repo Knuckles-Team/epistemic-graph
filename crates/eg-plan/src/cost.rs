@@ -124,10 +124,8 @@ impl CostModel {
     /// PHYSICAL executor (not just this plan-time cost estimate) can size a real
     /// candidate-set-intersection over-fetch pool with the SAME canonical formula instead
     /// of a hand-rolled duplicate (the seam [`IndexMethod`] and its registered methods
-    /// share). Used by ANY index-backed rerank that must coexist with an already-applied
-    /// filter — e.g. the BM25 `RankText` leg (`crate::exec::rank_text`) sizing its
-    /// over-fetch against the current candidate set's selectivity, mirroring the vector
-    /// `Rank` leg's (now allowlist-during-probe, no over-fetch needed) prior approach.
+    /// share). No executor over-fetches today: the vector `Rank` leg probes with an
+    /// allowlist and the BM25 `RankText` leg searches within its candidate set (EH-532).
     pub fn overfetch_pool_size(top_k: usize, selectivity: f64) -> usize {
         ((top_k as f64) / selectivity.max(1e-9)).ceil() as usize
     }
@@ -332,94 +330,6 @@ pub(crate) use index_method::is_index_method_op;
 pub(crate) use index_method::estimate as index_method_estimate;
 #[cfg(feature = "query")]
 pub use index_method::{IndexMethod, IndexMethodCostEstimate};
-
-// ── A tiny Bloom filter for cross-modal candidate-set join probes ────────────────
-// (CONCEPT:EG-KG.query.bloom-gate) — pairs with the index-method seam above: when an
-// over-fetched index candidate pool (ANN or BM25) must be intersected against an
-// already-narrowed candidate set, a compact bit-array membership PRE-check rejects the
-// (usually large majority of) non-candidate hits before paying for the exact `HashSet`
-// lookup — the SAME heuristic turso's `join.rs` `use_bloom_filter` applies to its build
-// side of a join. Dep-free (two salted `DefaultHasher` passes, Kirsch-Mitzenmacher double
-// hashing — no external crate), so it ships in every tier that already links `std`.
-#[cfg(feature = "text")]
-pub(crate) struct BloomFilter {
-    bits: Vec<u64>,
-    num_bits: usize,
-    num_hashes: u32,
-}
-
-#[cfg(feature = "text")]
-impl BloomFilter {
-    /// Size a filter for `expected_items` at a target false-positive rate `fp_rate`
-    /// (standard formulas: `m = -n·ln(p)/ln(2)²` bits, `k = (m/n)·ln(2)` hash rounds).
-    /// `expected_items == 0` still yields a small, usable (if maximally conservative)
-    /// filter rather than a degenerate zero-bit one.
-    pub fn new(expected_items: usize, fp_rate: f64) -> Self {
-        let n = (expected_items.max(1)) as f64;
-        let p = fp_rate.clamp(1e-6, 0.5);
-        let m = ((-(n * p.ln())) / std::f64::consts::LN_2.powi(2))
-            .ceil()
-            .max(64.0);
-        let k = ((m / n) * std::f64::consts::LN_2).round().clamp(1.0, 16.0);
-        let num_bits = m as usize;
-        let num_words = num_bits.div_ceil(64);
-        Self {
-            bits: vec![0u64; num_words],
-            num_bits: num_words * 64,
-            num_hashes: k as u32,
-        }
-    }
-
-    /// Build a populated filter directly from an id iterator, sized off `count_hint`
-    /// (the caller's already-known candidate-set cardinality — avoids a second pass).
-    pub fn from_ids<'a, I: IntoIterator<Item = &'a str>>(ids: I, count_hint: usize) -> Self {
-        let mut f = Self::new(count_hint, 0.01);
-        for id in ids {
-            f.insert(id);
-        }
-        f
-    }
-
-    /// Two independent hashes of `item`, salted so they are NOT the same value —
-    /// Kirsch-Mitzenmacher then derives all `k` probe positions from this one pair
-    /// without `k` separate hash passes.
-    fn hashes(item: &str) -> (u64, u64) {
-        use std::hash::{Hash, Hasher};
-        let mut h1 = std::collections::hash_map::DefaultHasher::new();
-        item.hash(&mut h1);
-        let a = h1.finish();
-        let mut h2 = std::collections::hash_map::DefaultHasher::new();
-        item.hash(&mut h2);
-        0x9E37_79B9_7F4A_7C15u64.hash(&mut h2); // salt so h2 != h1
-        let b = h2.finish();
-        (a, b)
-    }
-
-    fn bit_index(&self, round: u32, h1: u64, h2: u64) -> usize {
-        // g_i(x) = h1 + i*h2 (mod m) — the standard double-hashing derivation that
-        // simulates `k` independent hash functions from just two (Kirsch & Mitzenmacher).
-        (h1.wrapping_add((round as u64).wrapping_mul(h2)) as usize) % self.num_bits
-    }
-
-    pub fn insert(&mut self, item: &str) {
-        let (h1, h2) = Self::hashes(item);
-        for i in 0..self.num_hashes {
-            let idx = self.bit_index(i, h1, h2);
-            self.bits[idx / 64] |= 1u64 << (idx % 64);
-        }
-    }
-
-    /// `false` ⇒ DEFINITELY absent (no false negatives, ever); `true` ⇒ probably
-    /// present (bounded false-positive rate — the caller must still confirm with an
-    /// exact check, exactly like turso's gate: a bloom filter narrows, never decides).
-    pub fn might_contain(&self, item: &str) -> bool {
-        let (h1, h2) = Self::hashes(item);
-        (0..self.num_hashes).all(|i| {
-            let idx = self.bit_index(i, h1, h2);
-            self.bits[idx / 64] & (1u64 << (idx % 64)) != 0
-        })
-    }
-}
 
 // ── Cross-modal cost/cardinality catalog + per-modality estimators ───────────────
 // (CONCEPT:EG-KG.query.cardinality-estimators) — the plan-time inputs Lane A's optimizer
@@ -1470,48 +1380,5 @@ mod tests {
         assert_eq!(CostModel::overfetch_pool_size(10, 1.0), 10);
         // A near-zero selectivity is clamped, never divides by zero / overflows.
         assert!(CostModel::overfetch_pool_size(10, 0.0) > 0);
-    }
-
-    // ── RANK 11: the Bloom filter join-probe gate ─────────────────────────────────
-
-    #[cfg(feature = "text")]
-    #[test]
-    fn bloom_filter_never_false_negatives() {
-        let ids: Vec<String> = (0..500).map(|i| format!("id-{i}")).collect();
-        let filter = BloomFilter::from_ids(ids.iter().map(String::as_str), ids.len());
-        for id in &ids {
-            assert!(
-                filter.might_contain(id),
-                "every INSERTED id must test as present: {id}"
-            );
-        }
-    }
-
-    #[cfg(feature = "text")]
-    #[test]
-    fn bloom_filter_bounded_false_positive_rate() {
-        let members: Vec<String> = (0..1_000).map(|i| format!("member-{i}")).collect();
-        let filter = BloomFilter::from_ids(members.iter().map(String::as_str), members.len());
-        let non_members: Vec<String> = (0..5_000).map(|i| format!("absent-{i}")).collect();
-        let false_positives = non_members
-            .iter()
-            .filter(|id| filter.might_contain(id))
-            .count();
-        let rate = false_positives as f64 / non_members.len() as f64;
-        // Sized at the default 1% target; a generous 10% ceiling keeps this robust to
-        // hash-distribution noise while still catching a badly broken implementation
-        // (e.g. one that degenerates to "always true").
-        assert!(
-            rate < 0.10,
-            "false-positive rate too high: {rate} ({false_positives}/{})",
-            non_members.len()
-        );
-    }
-
-    #[cfg(feature = "text")]
-    #[test]
-    fn bloom_filter_empty_never_panics_and_rejects_everything_absent() {
-        let filter = BloomFilter::from_ids(std::iter::empty(), 0);
-        assert!(!filter.might_contain("anything"));
     }
 }

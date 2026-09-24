@@ -143,6 +143,8 @@ pub mod quantum;
 // F3: RDF load/update/rule/shape-validation report bodies (eg-rdf/eg-shacl/eg-shex results).
 pub mod rdf_report;
 pub mod row_predicate;
+// EH-558 — sealed record classes: content-addressed rows generic writes may not change.
+pub mod sealed_record;
 // F3: the typed result contract -- one marker per method result, compile-checked at every
 // handler site and walked by `eg-capabilities` to publish the result schemas.
 pub mod result_contract;

@@ -51,6 +51,7 @@ where
 }
 
 mod commit_timing;
+mod sealed_rows;
 mod store_batch;
 mod store_cleanup;
 mod store_control;

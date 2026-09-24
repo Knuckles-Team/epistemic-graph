@@ -180,31 +180,18 @@ pub trait ShapeSource: Send + Sync {
 
 #[cfg(feature = "text")]
 pub trait TextSource: Send + Sync {
-    /// BM25 top-`k` for `query` — same contract as `eg_text::TextIndex::search`:
-    /// `(id, bm25_score)` descending, empty on an empty/unparsable query.
-    fn search(&self, query: &str, k: usize) -> Vec<eg_text::TextHit>;
-
-    /// The (live) document count backing this index (CONCEPT:EG-KG.query.index-method-seam) —
-    /// lets a candidate-restricted `RankText` size its over-fetch pool from the ACTUAL
-    /// selectivity of the current candidate set against the real corpus, the same way
-    /// [`crate::cost::CostModel::vector_first_cost`] already does for the vector leg,
-    /// instead of a blind fixed multiplier. Defaults to `u64::MAX` (a "cardinality
-    /// unknown" sentinel any implementor need not override) so an adapter that cannot
-    /// cheaply report its size degrades to the prior fixed-heuristic over-fetch rather
-    /// than mis-sizing one off a fabricated count.
-    fn doc_count(&self) -> u64 {
-        u64::MAX
-    }
+    /// BM25 top-`k` for `query` evaluated WITHIN `candidates` (EH-532,
+    /// CONCEPT:EG-KG.query.filtered-text-search) — same contract as
+    /// `eg_text::TextIndex::search_within`: `(id, bm25_score)` descending, exactly the
+    /// full-corpus ranking restricted to the candidate ids, empty on an
+    /// empty/unparsable query or an empty candidate set.
+    fn search_within(&self, query: &str, candidates: &[&str], k: usize) -> Vec<eg_text::TextHit>;
 }
 
 #[cfg(feature = "text")]
 impl TextSource for eg_text::TextIndex {
-    fn search(&self, query: &str, k: usize) -> Vec<eg_text::TextHit> {
-        eg_text::TextIndex::search(self, query, k)
-    }
-
-    fn doc_count(&self) -> u64 {
-        eg_text::TextIndex::num_docs(self)
+    fn search_within(&self, query: &str, candidates: &[&str], k: usize) -> Vec<eg_text::TextHit> {
+        eg_text::TextIndex::search_within(self, query, candidates, k)
     }
 }
 
@@ -863,61 +850,24 @@ fn udf_transform(ctx: &PlanCtx, input: &RowSet, id: &str) -> Result<RowSet, Stri
 }
 
 /// RANK (lexical, BM25): re-order the candidate set by BM25 relevance to `query`.
-/// Symmetric to the vector `Rank` — BM25 top-k over the FULL index, intersected with
-/// the current candidates, in BM25-score order. With no text index configured the
-/// result is empty (degrade, never err), mirroring `Rank` over an empty embedding
-/// store.
+/// With no text index configured the result is empty (degrade, never err), mirroring
+/// `Rank` over an empty embedding store.
 ///
-/// **The over-fetch pool is SELECTIVITY-AWARE** (CONCEPT:EG-KG.query.index-method-seam /
-/// RANK-3+RANK-11 assimilation), not the fixed `k*4` multiplier this used to be: `want`
-/// is sized off the current candidate set's actual fraction of the live corpus via
-/// [`crate::cost::CostModel::overfetch_pool_size`] — the SAME `top_k/selectivity`
-/// formula the vector leg's cost model already uses to reason about this exact
-/// coexist-with-a-filter case. A fixed `k*4` can silently under-fetch: if a preceding
-/// FILTER already narrowed to a SMALL, highly selective candidate set out of a LARGE
-/// corpus, none of those candidates may fall inside the naive global top-`k*4` BM25
-/// hits even though several would legitimately rank within their own subset — dropping
-/// otherwise-correct matches. Falls back to the prior fixed heuristic when the index
-/// can't report its size ([`TextSource::doc_count`]'s `u64::MAX` sentinel).
-///
-/// **Bloom-gated probe** (CONCEPT:EG-KG.query.bloom-gate, pairs with the sizing above): once
-/// `want` grows large, most fetched hits are NOT in the (comparatively small) candidate
-/// set — a cheap bit-array pre-check on each hit rejects the common non-member case
-/// before paying for the exact `HashSet` lookup, mirroring turso's `join.rs`
-/// `use_bloom_filter` heuristic on the smaller side of a join.
+/// **Evaluated within the candidate set** (EH-532, CONCEPT:EG-KG.query.filtered-text-search):
+/// the index scores only the incoming candidates, so every candidate that matches
+/// `query` is returned in full-corpus BM25 order. It replaces a global top-`n` over-fetch
+/// intersected with the candidates, which dropped candidates that ranked behind more than
+/// `n` non-candidates — a filtered text query returned 4–8 of its 10 correct hits.
 #[cfg(feature = "text")]
 fn rank_text(ctx: &PlanCtx, input: &RowSet, query: &str) -> RowSet {
     let Some(index) = ctx.text else {
         return RowSet::new();
     };
-    let candidates = input.id_set();
-    if candidates.is_empty() {
-        return RowSet::new();
-    }
-    let k = candidates.len();
-    let doc_count = index.doc_count();
-    let want = if doc_count == 0 || doc_count == u64::MAX {
-        // Cardinality unknown (or the index reports itself empty): keep the prior
-        // fixed-heuristic behavior rather than divide by an unusable corpus size.
-        (k * 4).max(k + 32)
-    } else {
-        let selectivity = (k as f64 / doc_count as f64).clamp(1e-9, 1.0);
-        crate::cost::CostModel::overfetch_pool_size(k, selectivity).min(doc_count as usize)
-    };
-    let hits = index.search(query, want);
-
-    // RANK-11 bloom gate: only worth building for a pool large enough that most probes
-    // will miss — a tiny `hits` list is cheaper to just linear-filter through the exact
-    // HashSet directly.
-    const BLOOM_GATE_MIN_HITS: usize = 256;
-    let gate = (hits.len() >= BLOOM_GATE_MIN_HITS)
-        .then(|| crate::cost::BloomFilter::from_ids(candidates.iter().copied(), candidates.len()));
-
-    let scored: Vec<(String, f32)> = hits
+    let candidates: Vec<&str> = input.id_set().into_iter().collect();
+    let scored: Vec<(String, f32)> = index
+        .search_within(query, &candidates, candidates.len())
         .into_iter()
-        .filter(|h| gate.as_ref().is_none_or(|g| g.might_contain(&h.id)))
-        .filter(|h| candidates.contains(h.id.as_str()))
-        .map(|h| (h.id, h.score))
+        .map(|hit| (hit.id, hit.score))
         .collect();
     RowSet::from_scored(scored)
 }

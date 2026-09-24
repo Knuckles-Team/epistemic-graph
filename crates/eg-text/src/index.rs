@@ -20,7 +20,7 @@
 
 use tantivy::collector::TopDocs;
 use tantivy::directory::MmapDirectory;
-use tantivy::query::QueryParser;
+use tantivy::query::{BooleanQuery, ConstScoreQuery, Occur, Query, QueryParser, TermSetQuery};
 use tantivy::schema::{
     Field, IndexRecordOption, Schema, TextFieldIndexing, TextOptions, Value, STORED, STRING,
 };
@@ -149,33 +149,60 @@ impl TextIndex {
     /// into the RowSet algebra. An empty/unparsable query yields no hits (never errs
     /// the plan).
     pub fn search(&self, query: &str, k: usize) -> Vec<TextHit> {
-        if query.trim().is_empty() || k == 0 {
+        match self.parse(query, k) {
+            Some(parsed) => self.top_hits(parsed.as_ref(), k),
+            None => Vec::new(),
+        }
+    }
+
+    /// BM25 top-`k` for `query` evaluated WITHIN the `candidates` id set (EH-532,
+    /// CONCEPT:EG-KG.query.filtered-text-search). The candidate restriction is a
+    /// zero-scored conjunct of the scoring query, so the index only ever scores
+    /// candidate documents: the result is exactly the full-corpus ranking restricted to
+    /// `candidates` (same scores, same order, same tie-break), never a post-filtered
+    /// global top-k that can silently drop candidates ranked behind non-candidates.
+    pub fn search_within(&self, query: &str, candidates: &[&str], k: usize) -> Vec<TextHit> {
+        if candidates.is_empty() {
             return Vec::new();
         }
-        let searcher = self.reader.searcher();
-        let parser = QueryParser::for_index(&self.index, vec![self.f_text]);
-        let Ok(parsed) = parser.parse_query(query) else {
+        let Some(parsed) = self.parse(query, k) else {
             return Vec::new();
         };
+        let ids = candidates
+            .iter()
+            .map(|id| Term::from_field_text(self.f_node_id, id));
+        // Constant score 0: membership gates the match without moving any BM25 score.
+        let allow: Box<dyn Query> =
+            Box::new(ConstScoreQuery::new(Box::new(TermSetQuery::new(ids)), 0.0));
+        let within = BooleanQuery::new(vec![(Occur::Must, parsed), (Occur::Must, allow)]);
+        self.top_hits(&within, k)
+    }
+
+    /// Parse `query` against the `text` field; `None` for an empty/unparsable query or
+    /// a zero `k`, which both yield no hits.
+    fn parse(&self, query: &str, k: usize) -> Option<Box<dyn Query>> {
+        if query.trim().is_empty() || k == 0 {
+            return None;
+        }
+        let parser = QueryParser::for_index(&self.index, vec![self.f_text]);
+        parser.parse_query(query).ok()
+    }
+
+    /// Run `query` and project the score-ordered top-`k` onto `(node id, score)`.
+    fn top_hits(&self, query: &dyn Query, k: usize) -> Vec<TextHit> {
+        let searcher = self.reader.searcher();
         // `.order_by_score()` selects the BM25-score-ordered top-k collector
         // (tantivy 0.26 split the bare `TopDocs` from the score-ordered Collector).
-        let Ok(top) = searcher.search(&parsed, &TopDocs::with_limit(k).order_by_score()) else {
+        let Ok(top) = searcher.search(query, &TopDocs::with_limit(k).order_by_score()) else {
             return Vec::new();
         };
-        let mut out = Vec::with_capacity(top.len());
-        for (score, addr) in top {
-            let Ok(doc) = searcher.doc::<TantivyDocument>(addr) else {
-                continue;
-            };
-            if let Some(id) = doc
-                .get_first(self.f_node_id)
-                .and_then(|v| v.as_str())
-                .map(str::to_owned)
-            {
-                out.push(TextHit { id, score });
-            }
-        }
-        out
+        top.into_iter()
+            .filter_map(|(score, addr)| {
+                let doc = searcher.doc::<TantivyDocument>(addr).ok()?;
+                let id = doc.get_first(self.f_node_id)?.as_str()?.to_owned();
+                Some(TextHit { id, score })
+            })
+            .collect()
     }
 
     /// Number of (live) documents — for tests / introspection.
@@ -355,6 +382,88 @@ mod tests {
         // The deleted doc is unreachable in BOTH.
         assert!(inc.search("fox", 10).is_empty());
         assert!(base.search("fox", 10).is_empty());
+    }
+
+    /// A deterministic corpus over a small vocabulary: term frequencies and document
+    /// lengths vary, so BM25 scores spread and ties are rare but possible.
+    fn corpus(size: usize) -> TextIndex {
+        const WORDS: [&str; 8] = [
+            "graph", "vector", "lexical", "shard", "tensor", "ledger", "proof", "lease",
+        ];
+        let mut ix = TextIndex::in_memory().unwrap();
+        let mut state = 0x2545_f491_u64;
+        for doc in 0..size {
+            let len = 3 + doc % 11;
+            let body: Vec<&str> = (0..len)
+                .map(|_| {
+                    state = state
+                        .wrapping_mul(6_364_136_223_846_793_005)
+                        .wrapping_add(1);
+                    WORDS[(state >> 33) as usize % WORDS.len()]
+                })
+                .collect();
+            ix.upsert(&format!("d{doc:04}"), &body.join(" "));
+        }
+        ix.commit().unwrap();
+        ix
+    }
+
+    /// The brute-force oracle: the COMPLETE corpus ranking, restricted to the candidates.
+    fn restricted_oracle(ix: &TextIndex, query: &str, allowed: &[&str], k: usize) -> Vec<TextHit> {
+        ix.search(query, ix.num_docs() as usize)
+            .into_iter()
+            .filter(|hit| allowed.contains(&hit.id.as_str()))
+            .take(k)
+            .collect()
+    }
+
+    /// EH-532: a candidate-restricted search equals the full ranking restricted to the
+    /// candidate set — same ids, same scores, same order — for selective and broad
+    /// candidate sets and for `k` below and above the number of matching candidates.
+    #[test]
+    fn search_within_equals_the_restricted_full_ranking() {
+        let ix = corpus(600);
+        let ids: Vec<String> = (0..600).map(|doc| format!("d{doc:04}")).collect();
+        for stride in [1usize, 3, 17, 97] {
+            let allowed: Vec<&str> = ids.iter().step_by(stride).map(String::as_str).collect();
+            for query in ["graph", "ledger proof", "tensor lease shard"] {
+                for k in [1usize, 10, allowed.len()] {
+                    let got = ix.search_within(query, &allowed, k);
+                    assert_eq!(
+                        got,
+                        restricted_oracle(&ix, query, &allowed, k),
+                        "stride {stride} query {query:?} k {k}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// EH-532, the defect's own shape: candidates that score BELOW hundreds of
+    /// non-candidates are all returned, and nothing outside the candidate set or
+    /// without the term ever is.
+    #[test]
+    fn search_within_finds_candidates_ranked_behind_non_candidates() {
+        let mut ix = TextIndex::in_memory().unwrap();
+        for doc in 0..500 {
+            ix.upsert(&format!("noise{doc}"), "apple apple apple apple");
+        }
+        ix.upsert(
+            "keep1",
+            "one apple among many other words in a long sentence",
+        );
+        ix.upsert("keep2", "an apple");
+        ix.upsert("keep3", "no fruit mentioned here");
+        ix.commit().unwrap();
+        let hits = ix.search_within("apple", &["keep1", "keep2", "keep3"], 10);
+        let ids: Vec<&str> = hits.iter().map(|hit| hit.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["keep2", "keep1"],
+            "both matching candidates, BM25 order"
+        );
+        assert!(ix.search_within("apple", &[], 10).is_empty());
+        assert!(ix.search_within("", &["keep1"], 10).is_empty());
     }
 
     /// Empty/whitespace query is a no-op, not an error (never breaks a plan).

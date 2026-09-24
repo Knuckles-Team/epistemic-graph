@@ -9,9 +9,9 @@
 //     signature, without materializing either set (Broder 1997).
 //
 // Always-on (no heavy deps — matches `graph_algos`'s "Pure-Rust... Always-on" posture): every
-// sketch hashes with the SAME two-salted-`DefaultHasher`-pass Kirsch-Mitzenmacher double-hashing
-// idiom `eg_plan::cost::BloomFilter` already established as this codebase's dep-free sketch
-// pattern (`std` only — no external hash/rand crate enters the tree).
+// sketch hashes with ONE two-salted-`DefaultHasher`-pass Kirsch-Mitzenmacher double-hashing
+// idiom, this codebase's dep-free sketch pattern (`std` only — no external hash/rand crate
+// enters the tree).
 //
 // Consumed from TWO places, which is WHY this lives here rather than in either consumer
 // directly: `eg-compute` is the lowest common ancestor of both in the workspace DAG
@@ -29,8 +29,8 @@
 use std::hash::{Hash, Hasher};
 
 /// Two independent 64-bit hashes of `item`, salted so they differ (Kirsch-Mitzenmacher double
-/// hashing — mirrors `eg_plan::cost::BloomFilter::hashes`, the established dep-free precedent
-/// every sketch below follows instead of pulling an external hash crate).
+/// hashing — the dep-free idiom every sketch below follows instead of pulling an external
+/// hash crate).
 fn double_hash<T: Hash + ?Sized>(item: &T) -> (u64, u64) {
     let mut h1 = std::collections::hash_map::DefaultHasher::new();
     item.hash(&mut h1);
@@ -43,8 +43,7 @@ fn double_hash<T: Hash + ?Sized>(item: &T) -> (u64, u64) {
 }
 
 /// The `i`-th of `k` derived hashes from a `(h1, h2)` pair: `g_i(x) = h1 + i*h2` — the standard
-/// double-hashing simulation of `k` independent hash functions from just two (the same
-/// derivation `BloomFilter::bit_index` uses for its `k` probe rounds).
+/// double-hashing simulation of `k` independent hash functions from just two.
 fn nth_hash(h1: u64, h2: u64, i: u64) -> u64 {
     h1.wrapping_add(i.wrapping_mul(h2))
 }
@@ -224,8 +223,7 @@ impl CountMinSketch {
     /// estimate overshoots the true count by more than `epsilon * N` (`N` = total items
     /// inserted, counting repeats). Standard CMS sizing: `width = ceil(e/epsilon)`, `depth =
     /// ceil(ln(1/delta))` (`e` = Euler's number, from the sketch's Markov-inequality bound —
-    /// mirrors `BloomFilter::new`'s analogous `(expected_items, fp_rate)` convenience
-    /// constructor for the same "give the accuracy target, not raw dimensions" ergonomics).
+    /// "give the accuracy target, not raw dimensions").
     pub fn with_error_rate(epsilon: f64, delta: f64) -> Self {
         let epsilon = epsilon.clamp(1e-6, 1.0);
         let delta = delta.clamp(1e-9, 0.5);
