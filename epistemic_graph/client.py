@@ -9147,12 +9147,12 @@ class FinanceClient:
     async def market(self, op: str, **params: Any) -> Any:
         """Run one ``FinanceMarket`` op and return its declared result.
 
-        ``op`` is one of ``encode_points``, ``decode_points``, ``resolve``,
-        ``rollup``, ``indicators``, ``signal_replay``, ``signal_advance``,
-        ``signal_scan``, ``flip_confidence`` or ``backtest_run``; ``params`` are
-        that op's fields. Prices are integer ticks and indicator values integer
-        milli-ticks. Pure compute and informational only: no result authorises
-        an order.
+        ``op`` is one of ``encode_points``, ``resolve`` (over records and/or
+        stored points), ``rollup``, ``indicators``, ``signal_replay``,
+        ``signal_advance``, ``signal_scan``, ``flip_confidence`` or
+        ``backtest_run``; ``params`` are that op's fields. Prices are integer
+        ticks and indicator values integer milli-ticks. Pure compute and
+        informational only: no result authorises an order.
         """
         return (
             await _gen.compute.send_finance_market(

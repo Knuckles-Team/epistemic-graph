@@ -9,8 +9,8 @@
 use std::collections::BTreeMap;
 
 use super::{
-    BarRecord, BarStatus, FinalityFilter, MarketError, MarketResult, CONFLICTING_REVISION,
-    INVALID_BAR, OUT_OF_ORDER,
+    BarRecord, BarStatus, FinalityFilter, MarketError, MarketResult, SeriesPoint,
+    CONFLICTING_REVISION, INVALID_BAR, OUT_OF_ORDER,
 };
 
 /// The bar contract every stored version satisfies.
@@ -118,6 +118,17 @@ pub fn resolve(
         .collect();
     require_ordered(&bars)?;
     Ok(bars)
+}
+
+/// [`resolve`] over `records` together with store `points` in the bar layout.
+pub fn resolve_with_points(
+    mut records: Vec<BarRecord>,
+    points: &[SeriesPoint],
+    as_of: Option<i64>,
+    finality: FinalityFilter,
+) -> MarketResult<Vec<BarRecord>> {
+    records.extend(super::codec::decode_all(points)?);
+    resolve(&records, as_of, finality)
 }
 
 #[cfg(test)]

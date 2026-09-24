@@ -48,8 +48,9 @@ Every field is an integer that an `f64` holds exactly.
 
 The store only appends, and several versions of one bar coexist at one
 timestamp. A correction is therefore a new point with a higher revision.
-`resolve` builds the view as of any time: for each open time it takes the
-highest revision known at that time.
+`encode_points` writes records in this layout for `TsAppend`. `resolve` decodes
+stored points (and takes plain records) and builds the view as of any time:
+for each open time it takes the highest revision known at that time.
 
 `resolve` refuses these inputs:
 

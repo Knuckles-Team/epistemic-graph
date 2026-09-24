@@ -240,8 +240,6 @@ method_results! {
     #[cfg(feature = "finance")]
     FinanceMarketEncodePoints(FinanceMarket / "encode_points") => Raw<Vec<market::SeriesPoint>>;
     #[cfg(feature = "finance")]
-    FinanceMarketDecodePoints(FinanceMarket / "decode_points") => Raw<Vec<market::BarRecord>>;
-    #[cfg(feature = "finance")]
     FinanceMarketResolve(FinanceMarket / "resolve") => Raw<Vec<market::BarRecord>>;
     #[cfg(feature = "finance")]
     FinanceMarketRollup(FinanceMarket / "rollup") => Raw<Vec<market::BarRecord>>;

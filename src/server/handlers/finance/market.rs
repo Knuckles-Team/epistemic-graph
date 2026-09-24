@@ -7,7 +7,7 @@
 
 use eg_compute::finance::market::{
     backtest_run, codec, confidence, indicators, resolve, rollup, scan, signal, FinanceMarketOp,
-    MarketResult, SignalAdvanced,
+    MarketResult,
 };
 use eg_types::result_contract::compute as results;
 use eg_types::result_contract::MethodResult;
@@ -27,16 +27,14 @@ fn handle(req_id: u64, op: FinanceMarketOp) -> Response {
         FinanceMarketOp::EncodePoints { records } => {
             answer::<results::FinanceMarketEncodePoints>(req_id, codec::encode_all(&records))
         }
-        FinanceMarketOp::DecodePoints { points } => {
-            answer::<results::FinanceMarketDecodePoints>(req_id, codec::decode_all(&points))
-        }
         FinanceMarketOp::Resolve {
             records,
+            points,
             as_of,
             finality,
         } => answer::<results::FinanceMarketResolve>(
             req_id,
-            resolve::resolve(&records, as_of, finality),
+            resolve::resolve_with_points(records, &points, as_of, finality),
         ),
         FinanceMarketOp::Rollup {
             bars,
@@ -53,12 +51,12 @@ fn handle(req_id: u64, op: FinanceMarketOp) -> Response {
         FinanceMarketOp::SignalReplay { request } => {
             answer::<results::FinanceMarketSignalReplay>(req_id, signal::replay(&request))
         }
-        FinanceMarketOp::SignalAdvance { state, bars } => answer::<
-            results::FinanceMarketSignalAdvance,
-        >(
-            req_id,
-            signal::advance(&state, &bars).map(|(state, flips)| SignalAdvanced { state, flips }),
-        ),
+        FinanceMarketOp::SignalAdvance { state, bars } => {
+            answer::<results::FinanceMarketSignalAdvance>(
+                req_id,
+                signal::advance_wire(&state, &bars),
+            )
+        }
         FinanceMarketOp::SignalScan { request } => {
             answer::<results::FinanceMarketSignalScan>(req_id, scan::scan(&request))
         }

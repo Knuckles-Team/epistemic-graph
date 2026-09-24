@@ -78,14 +78,12 @@ def test_bars_round_trip_through_the_time_series_store(clean_graph):
     )
     stored = clean_graph.timeseries.range("bars-test", START, START + 20 * DAY)
     assert len(stored) == len(bars) + 1
-    records = clean_graph.finance.market(
-        "decode_points", points=[{"ts": ts, "values": values} for ts, values in stored]
-    )
+    stored_points = [{"ts": ts, "values": values} for ts, values in stored]
     then = clean_graph.finance.market(
-        "resolve", records=records, as_of=START + 6 * DAY, finality="final_only"
+        "resolve", points=stored_points, as_of=START + 6 * DAY, finality="final_only"
     )
     now = clean_graph.finance.market(
-        "resolve", records=records, as_of=None, finality="final_only"
+        "resolve", points=stored_points, finality="final_only"
     )
     assert then[4]["close"] == 1_200
     assert now[4]["close"] == 1_150 and now[4]["revision"] == 1

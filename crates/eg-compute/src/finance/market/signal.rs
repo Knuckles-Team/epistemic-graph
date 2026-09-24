@@ -17,8 +17,9 @@ use super::resolve::apply_version;
 use super::supertrend::{step as trail_step, TrailParams};
 use super::{
     BarRecord, BarStatus, DataStatus, FlipRecord, FlipRecordStatus, IndicatorSpec, MarketError,
-    MarketResult, SeriesIdentity, SignalKey, SignalReplay, SignalReplayRequest, SignalState,
-    SuperTrendCheckpoint, TrendFlip, INVALID_BAR, INVALID_REQUEST, REVISION_NEEDS_REPLAY,
+    MarketResult, SeriesIdentity, SignalAdvanced, SignalKey, SignalReplay, SignalReplayRequest,
+    SignalState, SuperTrendCheckpoint, TrendFlip, INVALID_BAR, INVALID_REQUEST,
+    REVISION_NEEDS_REPLAY,
 };
 
 const KEY_DOMAIN: &str = "eg/finance/signal-key/v1";
@@ -161,6 +162,12 @@ pub fn advance(
         flips.extend(advance_one(&mut next, params, bar)?);
     }
     Ok((next, flips))
+}
+
+/// [`advance`] as its wire result.
+pub fn advance_wire(state: &SignalState, bars: &[BarRecord]) -> MarketResult<SignalAdvanced> {
+    let (state, flips) = advance(state, bars)?;
+    Ok(SignalAdvanced { state, flips })
 }
 
 fn record(

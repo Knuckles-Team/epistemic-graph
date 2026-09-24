@@ -41,28 +41,32 @@ fn check_provenance(draft: &BacktestRunDraft) -> MarketResult<()> {
     Ok(())
 }
 
+fn well_shaped(insample: &[Vec<f64>], oos: &[Vec<f64>]) -> bool {
+    let width = insample.first().map_or(0, Vec::len);
+    let rows_ok = insample
+        .iter()
+        .chain(oos)
+        .all(|row| row.len() == width && all_finite(row));
+    !insample.is_empty() && insample.len() == oos.len() && width >= 2 && rows_ok
+}
+
 fn check_matrices(draft: &BacktestRunDraft) -> MarketResult<()> {
     let inputs = &draft.validation;
-    let width = inputs.insample.first().map_or(0, Vec::len);
-    let shaped = !inputs.insample.is_empty()
-        && inputs.insample.len() == inputs.oos.len()
-        && width >= 2
-        && inputs
-            .insample
-            .iter()
-            .chain(&inputs.oos)
-            .all(|row| row.len() == width && all_finite(row));
-    if !shaped {
+    if !well_shaped(&inputs.insample, &inputs.oos) {
         return Err(refuse(
             "in-sample and out-of-sample matrices must be non-empty, equal-shaped, finite, with >= 2 variants",
         ));
     }
+    Ok(())
+}
+
+fn check_groups(draft: &BacktestRunDraft) -> MarketResult<()> {
+    let inputs = &draft.validation;
     let groups_ok = inputs.n_groups >= 2
         && (1..inputs.n_groups).contains(&inputs.n_test_groups)
         && inputs.n_trials >= 1;
-    let returns_ok =
-        draft.returns.len() >= inputs.n_groups.max(4) as usize && all_finite(&draft.returns);
-    if !groups_ok || !returns_ok {
+    let enough_returns = draft.returns.len() >= inputs.n_groups.max(4) as usize;
+    if !(groups_ok && enough_returns && all_finite(&draft.returns)) {
         return Err(refuse(
             "n_groups >= 2, 1 <= n_test_groups < n_groups, n_trials >= 1 and >= max(n_groups, 4) finite returns are required",
         ));
@@ -154,6 +158,7 @@ fn validation_outputs(draft: &BacktestRunDraft) -> MarketResult<BacktestValidati
 pub fn seal(draft: &BacktestRunDraft) -> MarketResult<BacktestRun> {
     check_provenance(draft)?;
     check_matrices(draft)?;
+    check_groups(draft)?;
     check_no_look_ahead(draft)?;
     let validation = validation_outputs(draft)?;
     Ok(BacktestRun {

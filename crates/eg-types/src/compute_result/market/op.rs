@@ -15,12 +15,14 @@ use super::signal::{IndicatorSpec, SignalReplayRequest, SignalState};
 pub enum FinanceMarketOp {
     /// Bar records as time-series store points (the `TsAppend` layout).
     EncodePoints { records: Vec<BarRecord> },
-    /// Time-series store points back to validated bar records.
-    DecodePoints { points: Vec<SeriesPoint> },
-    /// The latest version of every bar known as of `as_of` (all versions when
-    /// absent), ordered by open time.
+    /// The latest version of every bar known as of `as_of` (every version
+    /// when absent), ordered by open time, over `records` together with
+    /// time-series store `points` decoded and validated in the bar layout.
     Resolve {
+        #[serde(default)]
         records: Vec<BarRecord>,
+        #[serde(default)]
+        points: Vec<SeriesPoint>,
         #[serde(default)]
         as_of: Option<i64>,
         finality: FinalityFilter,
