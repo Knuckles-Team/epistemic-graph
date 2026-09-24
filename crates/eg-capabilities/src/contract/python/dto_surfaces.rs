@@ -1,14 +1,13 @@
 //! The generated nested-DTO surfaces: one registry row per method whose
-//! typed Python module the renderer in [`super::dto`] emits.
+//! typed Python module [`super::surfaces`] emits.
 
 /// One generated nested-DTO surface. The renderer is schema-driven: roots name
 /// JSON-Schema definitions and every transitive `$ref` is collected from the
-/// request/result documents. Adding another surface is a registry row, not a
+/// merged request/result definitions. Adding another surface is a registry row, not a
 /// hand-written generated module.
 pub(super) struct DtoSurface {
     pub(super) method: &'static str,
     pub(super) module: &'static str,
-    pub(super) result_domain: &'static str,
     pub(super) roots: &'static [&'static str],
     pub(super) result_model: Option<&'static str>,
     pub(super) required: bool,
@@ -24,7 +23,6 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
     DtoSurface {
         method: "AgentAssemble",
         module: "decision",
-        result_domain: "storage",
         roots: &["AssemblyRequest", "AssemblyResult", "DecisionRecord"],
         result_model: Some("AssemblyResult"),
         required: true,
@@ -46,7 +44,6 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
     DtoSurface {
         method: "DecisionCommit",
         module: "decision_commit",
-        result_domain: "storage",
         roots: &["DecisionCommitRequest", "DecisionCommitResult"],
         result_model: Some("DecisionCommitResult"),
         required: true,
@@ -58,7 +55,6 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
     DtoSurface {
         method: "Solve",
         module: "solve",
-        result_domain: "compute",
         roots: &["SolveRequest", "SolveResult"],
         result_model: Some("SolveResult"),
         required: true,
@@ -70,7 +66,6 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
     DtoSurface {
         method: "ListRegisteredServers",
         module: "server_registry",
-        result_domain: "cluster",
         roots: &[
             "RegisteredServerListRequest",
             "RegisteredServerCursor",
@@ -84,7 +79,6 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
     DtoSurface {
         method: "FleetCatalog",
         module: "fleet_catalog",
-        result_domain: "cluster",
         roots: &[
             "FleetCatalogOp",
             "FleetWriteReceipt",
@@ -101,7 +95,6 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
     DtoSurface {
         method: "AgentComponent",
         module: "agent_component",
-        result_domain: "storage",
         roots: &[
             "AgentComponentOp",
             "AgentComponentEntry",
@@ -117,7 +110,6 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
     DtoSurface {
         method: "WriteBack",
         module: "write_back",
-        result_domain: "storage",
         roots: &["WriteBackOp", "WriteBackReceiptPage"],
         result_model: None,
         required: true,
@@ -126,7 +118,6 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
     DtoSurface {
         method: "ConnectorPack",
         module: "connector_pack",
-        result_domain: "storage",
         roots: &[
             "ConnectorPackOp",
             "ConnectorPackImportRequest",
@@ -145,7 +136,6 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
     DtoSurface {
         method: "SourceIngest",
         module: "source_ingestion",
-        result_domain: "ingestion",
         roots: &[
             "SourceIngestionRequest",
             "SourceIngestionReceipt",
@@ -158,7 +148,6 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
     DtoSurface {
         method: "IndexRepository",
         module: "index_repository",
-        result_domain: "ingestion",
         roots: &["IndexRepositoryScope", "IndexResult"],
         result_model: Some("IndexResult"),
         required: true,
@@ -167,7 +156,6 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
     DtoSurface {
         method: "GraphSchema",
         module: "graph_schema",
-        result_domain: "reasoning",
         roots: &[
             "GraphSchemaOp",
             "GraphSchemaCommitted",
@@ -182,7 +170,6 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
     DtoSurface {
         method: "EdgeIndex",
         module: "managed_index",
-        result_domain: "query",
         roots: &[
             "EdgeIndexOp",
             "EdgeIndexDefinition",
@@ -208,7 +195,6 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
     DtoSurface {
         method: "OwlReason",
         module: "rdf_report",
-        result_domain: "reasoning",
         roots: &[
             "OwlReasonResult",
             "OwlPropertyFact",
@@ -226,7 +212,6 @@ pub(super) const DTO_SURFACES: &[DtoSurface] = &[
     DtoSurface {
         method: "PolicyEvolution",
         module: "policy_evolution",
-        result_domain: "graph",
         roots: &[
             "PolicyEvolutionOp",
             "PolicyRecordReceipt",

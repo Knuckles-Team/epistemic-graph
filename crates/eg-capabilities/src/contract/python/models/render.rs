@@ -1,4 +1,5 @@
-//! Render the hoisted definitions as `models.py`, formatter-stable by construction.
+//! Render hoisted definitions as a generated module body (`models.py`, a DTO surface
+//! module or `_shared.py`), formatter-stable by construction.
 //!
 //! Every emitted line fits the 88-column limit without the formatter's help: a field
 //! whose annotation is too long first tries the parenthesized form the formatter
@@ -14,12 +15,12 @@ use std::fmt::Write as _;
 use serde_json::{Map, Value};
 
 use super::super::dto::{
-    canonical_digest_spec, dto_python_type, pascal_case, push_dto_definition, push_dto_imports,
-    push_string_enum, push_type_alias, push_union_alias, ref_name, string_literal_variants,
-    tagged_variants, variant_tag, JSON_VALUE_TYPES, SCOPED_PATCH_DIGEST_SPECS,
+    canonical_digest_spec, dto_python_type, pascal_case, push_dto_definition, push_string_enum,
+    push_type_alias, push_union_alias, ref_name, string_literal_variants, tagged_variants,
+    variant_tag, JSON_VALUE_TYPES, SCOPED_PATCH_DIGEST_SPECS,
 };
 use super::super::names::field_identifier;
-use super::super::{FieldPresence, HEADER};
+use super::super::FieldPresence;
 use super::hoist::fresh_name;
 
 const WIDTH: usize = 88;
@@ -38,24 +39,23 @@ struct Renderer<'a> {
     minted: BTreeMap<String, Value>,
 }
 
-/// The complete `models.py`.
-pub(in super::super) fn models_module(definitions: &Map<String, Value>) -> String {
+/// The body of one generated module: every definition `owned` accepts, rendered
+/// once. Minted alias names stay unique against every definition, so a module
+/// never mints a name another module exports.
+pub(in super::super) fn render_owned(
+    definitions: &Map<String, Value>,
+    owned: &dyn Fn(&str) -> bool,
+) -> String {
     let mut renderer = Renderer {
         definitions,
         minted: BTreeMap::new(),
     };
     let mut blocks: BTreeMap<String, Vec<Block>> = BTreeMap::new();
-    for (name, node) in definitions {
+    for (name, node) in definitions.iter().filter(|(name, _)| owned(name)) {
         blocks.insert(name.clone(), renderer.definition(name, node));
     }
     renderer.render_minted(&mut blocks);
-    let body = ordered_body(&blocks);
-    let mut out = String::from(HEADER);
-    out.push_str("\"\"\"Generated nested engine-contract models (EH-192).\"\"\"\n");
-    out.push_str("\nfrom __future__ import annotations\n\n");
-    push_dto_imports(&mut out, &body);
-    out.push_str(&body);
-    out
+    ordered_body(&blocks)
 }
 
 impl Renderer<'_> {
