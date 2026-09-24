@@ -548,6 +548,58 @@ async def send_unified_query_text(
     return OpaqueResult("UnifiedQueryText", payload)
 
 
+class UqlRequest(BaseModel):
+    """Validate one engine-contract request body.
+
+    Method:
+        Uql
+    Request schema:
+        contract/schemas/method.request.json
+        #/methods/Uql
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    params: dict[str, Any] | None = None
+    text: str
+
+
+async def send_uql(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        Uql
+    Authorization:
+        query:unified
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Raw
+    Result schema:
+        contract/schemas/result.query.json
+        #/methods/Uql
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    UqlRequest.model_validate(params or {})
+    payload = await client._send(
+        "Uql",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("Uql", payload)
+
+
 class ExplainPlanRequest(BaseModel):
     """Validate one engine-contract request body.
 

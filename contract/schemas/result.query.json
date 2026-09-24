@@ -4765,6 +4765,18 @@
       ],
       "type": "string"
     },
+    "CmpOp": {
+      "description": "A comparison operator of [`Pred::Cmp`] (UQL-01).",
+      "enum": [
+        "Eq",
+        "Ne",
+        "Gt",
+        "Ge",
+        "Lt",
+        "Le"
+      ],
+      "type": "string"
+    },
     "Coefficient": {
       "description": "An objective coefficient. `Unknown` is never read as zero: a level that\nholds unknown coefficients ranks every selection of an unknown-cost\nvariable below every all-known selection (the \"unknown tier\").",
       "oneOf": [
@@ -7892,6 +7904,26 @@
         "control_plane"
       ],
       "type": "string"
+    },
+    "EdgeDir": {
+      "description": "Which way an [`Op::Expand`] follows edges (UQL-05).",
+      "oneOf": [
+        {
+          "const": "Out",
+          "description": "`-[..]->` — from the current rows along outgoing edges.",
+          "type": "string"
+        },
+        {
+          "const": "In",
+          "description": "`<-[..]-` — along incoming edges.",
+          "type": "string"
+        },
+        {
+          "const": "Both",
+          "description": "`-[..]-` — either direction.",
+          "type": "string"
+        }
+      ]
     },
     "EdgeSource": {
       "description": "Which side of a subsumption edge the engine got it from.",
@@ -23011,6 +23043,39 @@
         },
         {
           "additionalProperties": false,
+          "properties": {
+            "method": {
+              "const": "Uql",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "params": {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/UqlParam"
+                  },
+                  "default": {},
+                  "type": "object"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "text"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "`EXPLAIN PLAN` — serialize `plan` as a [`crate::wire::Plan`]::PlanDag conversion\n(a linear plan is a degenerate chain, CONCEPT:EG-KG.query.plan-dag) both BEFORE and\nAFTER the DAG-aware cost optimizer (`eg_plan::optimizer::optimize_dag`), plus the\nactive rule set (`eg_plan::cost_opt_rule_names()`) — the optimizer rewrite trace.\nReturns an `ExplainPlanResult` via `ResultPayload::raw`. Gated `query` (same as\n`UnifiedQuery`).",
           "properties": {
             "method": {
@@ -29620,6 +29685,19 @@
         },
         {
           "additionalProperties": false,
+          "description": "SOURCE — seed from EVERY node of the (RLS/lease-filtered) snapshot, in id order:\nUQL `MATCH ()` (UQL-03).",
+          "properties": {
+            "ScanAll": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "ScanAll"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "FILTER (relational) — keep rows matching ALL `preds`, via real DataFusion.",
           "properties": {
             "Filter": {
@@ -29672,6 +29750,52 @@
           },
           "required": [
             "Traverse"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "TRAVERSE, general form (UQL-05): follow edges in `dir`, restricted to relationship\n`rel` (`None` ⇒ any relationship, UQL `*`) and to edges whose property blob\nsatisfies every `edge_preds` entry, `min..=max` hops. `Expand{Some(r), Out, [], ..}`\nis spelled [`Op::Traverse`] (one encoding; the UQL parser emits `Traverse` for it).",
+          "properties": {
+            "Expand": {
+              "properties": {
+                "dir": {
+                  "$ref": "#/$defs/EdgeDir"
+                },
+                "edge_preds": {
+                  "items": {
+                    "$ref": "#/$defs/Pred"
+                  },
+                  "type": "array"
+                },
+                "max": {
+                  "format": "uint",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "min": {
+                  "format": "uint",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "rel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "dir",
+                "min",
+                "max",
+                "edge_preds"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Expand"
           ],
           "type": "object"
         },
@@ -29887,6 +30011,38 @@
           },
           "required": [
             "SparqlBgp"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "FILTER (semantic, SHACL — EH-196) — validate every row's node, as an explicit\nSHACL focus node, against the ONE named `shape` of the `shapes` graph over the\nrequest graph's RDF projection, and keep the rows `keep` names. The UQL\n`VALIDATE SHAPE <shape> USING \"<turtle>\" [KEEP CONFORMING|VIOLATING]` stage lowers\nhere. A shape that is not declared in `shapes`, or a row whose id is not an RDF\nterm, is an error — never a vacuous pass. Gated by `owl-plan`, like the other\nsemantic plan ops.",
+          "properties": {
+            "ValidateShape": {
+              "properties": {
+                "keep": {
+                  "$ref": "#/$defs/ShapeKeep",
+                  "description": "Which rows survive."
+                },
+                "shape": {
+                  "description": "The shape IRI (canonical `<iri>` or bare).",
+                  "type": "string"
+                },
+                "shapes": {
+                  "description": "The shapes graph as a Turtle document (non-empty).",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "shape",
+                "shapes",
+                "keep"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "ValidateShape"
           ],
           "type": "object"
         },
@@ -30460,6 +30616,30 @@
           },
           "required": [
             "Limit"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "PROJECT (UQL `RETURN`, UQL-08) — name the score CHANNELS the result carries per\nrow, alongside `id` and the current `score`. Every scoring op records its score\nunder a fixed channel name (`similarity`, `text`, `belief`, `window`, …; see\n`eg_plan::channels`) so results of several scoring stages coexist instead of the\nlast one overwriting the others. Rows pass through unchanged; a channel no op\nproduced for a row is `None`.",
+          "properties": {
+            "Project": {
+              "properties": {
+                "channels": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "channels"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Project"
           ],
           "type": "object"
         }
@@ -31397,6 +31577,182 @@
         },
         {
           "additionalProperties": false,
+          "description": "`prop <op> value` over a TYPED scalar (UQL predicate algebra, UQL-01). The three\nlegacy forms above stay the canonical spelling of what they express —\n`Cmp{Eq,Str}` ≡ `Eq`, `Cmp{Gt,Num}` ≡ `GtNum`, `Cmp{Lt,Num}` ≡ `LtNum` (the UQL\nparser never emits those three `Cmp` shapes; `eg_plan::uql::canonicalize` rewrites\nthem) — so the wire keeps ONE encoding per meaning. A `Num` compares numerically\nand a `Bool` as a boolean, never as their JSON text.",
+          "properties": {
+            "Cmp": {
+              "properties": {
+                "op": {
+                  "$ref": "#/$defs/CmpOp"
+                },
+                "prop": {
+                  "type": "string"
+                },
+                "value": {
+                  "$ref": "#/$defs/PredLiteral"
+                }
+              },
+              "required": [
+                "prop",
+                "op",
+                "value"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Cmp"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`prop IN (v, …)` — membership in a typed literal list (non-empty).",
+          "properties": {
+            "In": {
+              "properties": {
+                "prop": {
+                  "type": "string"
+                },
+                "values": {
+                  "items": {
+                    "$ref": "#/$defs/PredLiteral"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "prop",
+                "values"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "In"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`prop BETWEEN lo AND hi` — inclusive on both ends (SQL semantics).",
+          "properties": {
+            "Between": {
+              "properties": {
+                "hi": {
+                  "$ref": "#/$defs/PredLiteral"
+                },
+                "lo": {
+                  "$ref": "#/$defs/PredLiteral"
+                },
+                "prop": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "prop",
+                "lo",
+                "hi"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Between"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`prop IS NULL` — the property is absent or JSON `null`. `IS NOT NULL` is\n`Not { IsNull }` (one encoding).",
+          "properties": {
+            "IsNull": {
+              "properties": {
+                "prop": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "prop"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "IsNull"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Conjunction of at least two predicates (a parenthesised `AND` group). A top-level\n`WHERE a AND b` stays the flat `Filter.preds` list; this node exists so a\nconjunction can sit under `Or`/`Not`.",
+          "properties": {
+            "And": {
+              "properties": {
+                "preds": {
+                  "items": {
+                    "$ref": "#/$defs/Pred"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "preds"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "And"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Disjunction of at least two predicates.",
+          "properties": {
+            "Or": {
+              "properties": {
+                "preds": {
+                  "items": {
+                    "$ref": "#/$defs/Pred"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "preds"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Or"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Negation.",
+          "properties": {
+            "Not": {
+              "properties": {
+                "pred": {
+                  "$ref": "#/$defs/Pred"
+                }
+              },
+              "required": [
+                "pred"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Not"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "DOCUMENT/JSON — keep rows whose node property document satisfies a deep\nJSONPath predicate (CONCEPT:EG-KG.query.json-wire-roundtrip). `path` is a JSONPath (`$.a.b`, `$.a[0]`,\n`$.a[*]`, wildcard) evaluated against the row's decoded JSON; `op` is the\nexistence / equality / `@>`-containment test. This is the lowered form of the\nPostgres JSON operators (`->`, `->>`, `@>`, `jsonb_path_query`) and a Mongo-style\n`$match` — see `eg_query::sql::classify`. Like the spatial preds it is NOT lowered\nto SQL (DataFusion has no JSONPath): `eg-plan`'s FILTER leg splits it out and\napplies it per-row against the stored JSON, and the planner can consult eg-core's\ninverted path-index for candidate selectivity. PURE serde here (a string, a small\nenum, and a `serde_json::Value` literal — exactly as `CepAttrPredSpec` carries),\nso it is present whenever `query` is on and adds NO dependency.",
           "properties": {
             "JsonPath": {
@@ -31641,6 +31997,48 @@
           },
           "required": [
             "SpatialDisjoint"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PredLiteral": {
+      "description": "A typed predicate literal (UQL-01): the value a [`Pred::Cmp`]/[`Pred::In`]/\n[`Pred::Between`] compares against. Typed so a number is compared as a number and a\nstring as a string — the literal's type, not its spelling, decides the comparison.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Str": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Str"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Num": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "Num"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Bool": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "Bool"
           ],
           "type": "object"
         }
@@ -37035,6 +37433,21 @@
       "description": "A SHA-256 digest, serialised as 64 lower-case hex characters.",
       "type": "string"
     },
+    "ShapeKeep": {
+      "description": "Which rows a `VALIDATE SHAPE` stage keeps (EH-196).",
+      "oneOf": [
+        {
+          "const": "conforming",
+          "description": "Rows whose node has no validation result against the shape.",
+          "type": "string"
+        },
+        {
+          "const": "violating",
+          "description": "Rows whose node has at least one validation result against the shape.",
+          "type": "string"
+        }
+      ]
+    },
     "ShortlistProvenance": {
       "additionalProperties": false,
       "description": "How the shortlist the decision scored was produced.",
@@ -39624,6 +40037,283 @@
         }
       ]
     },
+    "UqlParam": {
+      "description": "A typed UQL parameter value (UQL-07): what a `$name` in UQL text is bound to. Bound\nvalues are substituted into the parsed plan as typed literals — never spliced into\nthe text — so a parameter can never change the query's structure.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Str": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Str"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Num": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "Num"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "Bool": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "Bool"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A query vector (`RANK BY ~$v`).",
+          "properties": {
+            "Vector": {
+              "items": {
+                "format": "float",
+                "type": "number"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "Vector"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A literal list (`x IN $values`).",
+          "properties": {
+            "List": {
+              "items": {
+                "$ref": "#/$defs/PredLiteral"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "List"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "UqlResult": {
+      "description": "The result of a `Method::Uql` statement (UQL-07/08/09).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Executed rows; `columns` are the `RETURN`ed score channels.",
+          "properties": {
+            "Rows": {
+              "properties": {
+                "columns": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "rows": {
+                  "items": {
+                    "$ref": "#/$defs/UqlRow"
+                  },
+                  "type": "array"
+                },
+                "warnings": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "columns",
+                "rows",
+                "warnings"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Rows"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`EXPLAIN`: the canonical and the optimized plan, per-stage estimates, and\nwhether the plan is incrementally maintainable (with the reason when not).",
+          "properties": {
+            "Explain": {
+              "properties": {
+                "canonical": {
+                  "type": "string"
+                },
+                "incremental": {
+                  "type": "boolean"
+                },
+                "incremental_note": {
+                  "type": "string"
+                },
+                "optimized": {
+                  "type": "string"
+                },
+                "stages": {
+                  "items": {
+                    "$ref": "#/$defs/UqlStageReport"
+                  },
+                  "type": "array"
+                },
+                "warnings": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "canonical",
+                "optimized",
+                "stages",
+                "incremental",
+                "incremental_note",
+                "warnings"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Explain"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "`PROFILE`: the rows plus per-stage actual rows and time.",
+          "properties": {
+            "Profile": {
+              "properties": {
+                "columns": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "rows": {
+                  "items": {
+                    "$ref": "#/$defs/UqlRow"
+                  },
+                  "type": "array"
+                },
+                "stages": {
+                  "items": {
+                    "$ref": "#/$defs/UqlStageReport"
+                  },
+                  "type": "array"
+                },
+                "warnings": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "required": [
+                "columns",
+                "rows",
+                "stages",
+                "warnings"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "Profile"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "UqlRow": {
+      "description": "One result row of a UQL statement (UQL-08): `id`, the final `score`, and the value of\neach requested score channel (aligned to [`UqlResult`]'s `columns`; `None` where no\nstage produced that channel for the row).",
+      "properties": {
+        "channels": {
+          "items": {
+            "format": "float",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "score": {
+          "format": "float",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "channels"
+      ],
+      "type": "object"
+    },
+    "UqlStageReport": {
+      "description": "One pipeline stage in an `EXPLAIN` / `PROFILE` report (UQL-09).",
+      "properties": {
+        "estimated_rows": {
+          "description": "The cost model's estimated output rows.",
+          "format": "double",
+          "type": "number"
+        },
+        "micros": {
+          "description": "Wall time in microseconds (`PROFILE` only).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rows": {
+          "description": "Actual output rows (`PROFILE` only).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "stage": {
+          "description": "The stage in canonical UQL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "estimated_rows"
+      ],
+      "type": "object"
+    },
     "VarId": {
       "description": "Index of a binary decision variable (its position in [`ModelSpec::variables`]).",
       "format": "uint32",
@@ -41076,6 +41766,18 @@
               "type": "array"
             },
             "type": "array"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "Uql": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/UqlResult"
           }
         }
       },

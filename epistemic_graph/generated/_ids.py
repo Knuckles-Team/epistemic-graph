@@ -332,6 +332,7 @@ METHOD_IDS = frozenset(
         "KnowledgeStream",
         "UnifiedQuery",
         "UnifiedQueryText",
+        "Uql",
         "ExplainPlan",
         "ExplainProvenance",
         "ExplainProvenanceByIds",
