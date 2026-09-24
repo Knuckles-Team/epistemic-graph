@@ -21,7 +21,11 @@ use super::support_01::{
     default_umap_min_dist, default_umap_neighbors,
 };
 
+mod carrier;
+#[cfg(test)]
+pub(crate) use carrier::tests as carrier_fixtures;
 mod families;
+pub use carrier::{CarrierRefusal, CARRIER_REFUSAL_CODE, ENGINE_INTERNAL_CODE};
 pub use families::MethodWriteFamily;
 mod method_00;
 mod method_01;

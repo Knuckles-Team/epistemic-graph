@@ -536,6 +536,11 @@ mod validation {
 
     fn validate_operations(envelope: &ChangeEnvelope) -> Result<(), String> {
         for operation in &envelope.mutation.operations {
+            // The one place a carrier unwraps caller-supplied inner methods:
+            // engine-internal and native-kernel methods are refused, typed.
+            if let Some(refusal) = operation.method.carrier_refusal_message() {
+                return Err(refusal);
+            }
             match &operation.method {
                 crate::protocol::Method::AddNode {
                     node_id,
@@ -845,6 +850,31 @@ mod tests {
             commit_seq: None,
             commit_descriptor_ref: None,
         }
+    }
+
+    /// `envelope` with its one operation replaced by `method`, resealed.
+    fn carrying(method: crate::protocol::Method) -> ChangeEnvelope {
+        let mut envelope = minimal_envelope();
+        envelope.mutation.operations[0].method = method;
+        reseal(&mut envelope);
+        envelope
+    }
+
+    #[test]
+    fn an_envelope_refuses_internal_and_native_kernel_inner_methods() {
+        use crate::protocol::method_carrier_fixtures::{control_lease_issue, policy_store};
+        let refused = carrying(policy_store()).validate().unwrap_err();
+        assert!(
+            refused.starts_with("CARRIER_INNER_METHOD_REFUSED: PolicyEvolutionStore"),
+            "{refused}"
+        );
+        let refused = carrying(control_lease_issue()).validate().unwrap_err();
+        assert!(
+            refused.starts_with("CARRIER_INNER_METHOD_REFUSED: IssueControlLease"),
+            "{refused}"
+        );
+        // A normal wire graph write still rides the carrier.
+        minimal_envelope().validate().unwrap();
     }
 
     #[test]
