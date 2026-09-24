@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 438,
+  "method_count": 440,
   "methods": [
     {
       "consumer_profiles": [
@@ -4748,6 +4748,49 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.compute.json#/methods/FinanceMarket",
+        "selected_by": "op"
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "compute",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
+      "id": "FinanceSignalModels",
+      "note": "EH-423 / AUD-30 signal fusion and the strategic-insider model moved from agent-utilities: sequential Bayesian fusion of directional calls weighted by measured priors, and the Kyle insider equilibrium under dynamic legal risk with its schedule and penalty verdict. Pure compute over the request; informational only, never an order authority",
+      "policy": {
+        "audited": false,
+        "authz_action": "compute:finance",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "None"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/FinanceSignalModels"
+      },
+      "result_schema": {
+        "bodies": {
+          "bayes_fuse": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "insider_equilibrium": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceSignalModels",
         "selected_by": "op"
       },
       "stability": "stable"
@@ -16137,6 +16180,45 @@
         },
         "kind": "declared",
         "schema": "contract/schemas/result.security.json#/methods/GetIdentity",
+        "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "security",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
+      "id": "CheckAccess",
+      "note": "confused-deputy-safe executor re-check: would this principal's own request of read/write on the request graph be admitted now (the engine's isolation/RBAC decision). Answers only allowed yes/no for one principal on one graph the caller can itself read; never the identity or the policy",
+      "policy": {
+        "audited": false,
+        "authz_action": "security:check",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "Snapshot"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/CheckAccess"
+      },
+      "result_schema": {
+        "bodies": {
+          "result": {
+            "dynamic": null,
+            "encoding": "Json"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.security.json#/methods/CheckAccess",
         "selected_by": null
       },
       "stability": "stable"

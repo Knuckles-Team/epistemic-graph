@@ -131,6 +131,7 @@
 | `FinanceDieboldMariano` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceForensicReport` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceMarket` | false | None | `compute:finance` | true | false | false | None | EH-413..EH-418 market bars and trend signals: bar codec/resolve/rollup over the time-series layout, integer indicators, signal replay/advance/scan, calibrated flip confidence and the backtest-run record. Pure compute over the request; informational only, never an order authority |
+| `FinanceSignalModels` | false | None | `compute:finance` | true | false | false | None | EH-423 / AUD-30 signal fusion and the strategic-insider model moved from agent-utilities: sequential Bayesian fusion of directional calls weighted by measured priors, and the Kyle insider equilibrium under dynamic legal risk with its schedule and penalty verdict. Pure compute over the request; informational only, never an order authority |
 | `FinanceKalmanFilter1d` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceKalmanBeta` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceKalmanVolatility` | false | None | `compute:finance` | true | false | false | None |  |
@@ -392,6 +393,7 @@
 | `RegisterIdentity` | true | ControlRedb | `security:admin` | true | false | false | Atomic | RBAC/identity snapshot and MutationBatch metadata share one rbac.redb WTX |
 | `RbacAdmin` | ~true | ControlRedb | `security:admin` | true | false | false | Atomic | runtime-conditional: List is a read; role and grant updates share one rbac.redb WTX with MutationBatch metadata |
 | `GetIdentity` | false | None | `security:admin` | true | false | false | Snapshot | identity read-back closing the RegisterIdentity blind-upsert gap: None means unregistered/unknown, Some(identity) with empty roles means registered-and-confirmed-empty -- gated security:admin like RegisterIdentity/RbacAdmin so it grants no caller new privilege |
+| `CheckAccess` | false | None | `security:check` | true | false | false | Snapshot | confused-deputy-safe executor re-check: would this principal's own request of read/write on the request graph be admitted now (the engine's isolation/RBAC decision). Answers only allowed yes/no for one principal on one graph the caller can itself read; never the identity or the policy |
 | `ToMsgpack` | false | None | `graph:read` | true | false | false | Snapshot |  |
 | `FromMsgpack` | true | GraphRedb | `graph:admin` | false | true | true | Atomic | state-backed MutationBatch commits the imported authoritative image |
 | `ClearLedger` | true | GraphRedb | `ledger:admin` | true | true | true | Atomic | state-backed MutationBatch |

@@ -1,6 +1,39 @@
 {
   "$comment": "One entry per method: its body, or one body per request op (`selected_by`). `encoding` is the ResultPayload variant; a `Raw` body is a MessagePack `bin` holding the MessagePack encoding of `schema`, a `Json` body is that value as a JSON tree. A body with a `dynamic` reason is chosen by the caller and has the unconstrained schema `true`.",
   "$defs": {
+    "AccessCheck": {
+      "description": "The access `CheckAccess` asks about.",
+      "enum": [
+        "read",
+        "write"
+      ],
+      "type": "string"
+    },
+    "AccessDecision": {
+      "additionalProperties": false,
+      "description": "`CheckAccess`'s answer: would `agent_id`'s request of `access` on `graph`\nbe admitted right now, by the same isolation/RBAC decision EG applies to\nthat principal's own requests. An unregistered or revoked principal is\n`allowed: false`.",
+      "properties": {
+        "access": {
+          "$ref": "#/$defs/AccessCheck"
+        },
+        "agent_id": {
+          "type": "string"
+        },
+        "allowed": {
+          "type": "boolean"
+        },
+        "graph": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "agent_id",
+        "graph",
+        "access",
+        "allowed"
+      ],
+      "type": "object"
+    },
     "AgentIdentity": {
       "description": "Agent identity for ACL checks.",
       "properties": {
@@ -376,6 +409,18 @@
           "encoding": "Raw",
           "schema": {
             "$ref": "#/$defs/AuditReport"
+          }
+        }
+      },
+      "selected_by": null
+    },
+    "CheckAccess": {
+      "bodies": {
+        "result": {
+          "dynamic": null,
+          "encoding": "Json",
+          "schema": {
+            "$ref": "#/$defs/AccessDecision"
           }
         }
       },

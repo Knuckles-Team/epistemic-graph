@@ -442,6 +442,45 @@
         }
       ]
     },
+    "BayesFusion": {
+      "additionalProperties": false,
+      "description": "The fused probability of an upward move.",
+      "properties": {
+        "posterior_up": {
+          "format": "double",
+          "type": "number"
+        },
+        "seeded": {
+          "description": "Priors that survived the edge and overfit filters.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sources": {
+          "description": "Every source that called, in the order applied.",
+          "items": {
+            "$ref": "#/$defs/FusionSource"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "posterior_up",
+        "seeded",
+        "sources"
+      ],
+      "type": "object"
+    },
+    "BindingLever": {
+      "description": "Which lever constrains the insider at the equilibrium.",
+      "enum": [
+        "criminal",
+        "civil",
+        "enforcement",
+        "none"
+      ],
+      "type": "string"
+    },
     "BoundProof": {
       "description": "The lower-bound evidence a certificate carries.",
       "oneOf": [
@@ -2450,6 +2489,34 @@
       ],
       "type": "object"
     },
+    "FusionSource": {
+      "additionalProperties": false,
+      "description": "One source as the fusion used it.",
+      "properties": {
+        "accuracy": {
+          "format": "double",
+          "type": "number"
+        },
+        "name": {
+          "type": "string"
+        },
+        "seeded": {
+          "description": "Whether the source came from a measured prior (else the defaults).",
+          "type": "boolean"
+        },
+        "weight": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "weight",
+        "accuracy",
+        "seeded"
+      ],
+      "type": "object"
+    },
     "GraphlearnPrediction": {
       "description": "The top missing links scored by a `graphlearn`-family model.",
       "properties": {
@@ -2890,6 +2957,121 @@
           "type": "object"
         }
       ]
+    },
+    "InsiderAnalysis": {
+      "additionalProperties": false,
+      "description": "The full `insider_equilibrium` answer.",
+      "properties": {
+        "equilibrium": {
+          "$ref": "#/$defs/InsiderEquilibrium"
+        },
+        "policy": {
+          "$ref": "#/$defs/PenaltyPolicy"
+        },
+        "schedule": {
+          "items": {
+            "$ref": "#/$defs/InsiderScheduleSample"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "equilibrium",
+        "schedule",
+        "policy"
+      ],
+      "type": "object"
+    },
+    "InsiderEquilibrium": {
+      "additionalProperties": false,
+      "description": "The insider's optimum at one enforcement level.",
+      "properties": {
+        "baseline_intensity": {
+          "description": "Kyle intensity with no legal risk.",
+          "format": "double",
+          "type": "number"
+        },
+        "binding_lever": {
+          "$ref": "#/$defs/BindingLever"
+        },
+        "detection_prob": {
+          "description": "Endogenous prosecution hazard at the optimum, in `[0, 1]`.",
+          "format": "double",
+          "type": "number"
+        },
+        "expected_penalty": {
+          "format": "double",
+          "type": "number"
+        },
+        "expected_profit": {
+          "format": "double",
+          "type": "number"
+        },
+        "intensity": {
+          "description": "Optimal trade per unit of mispricing gap.",
+          "format": "double",
+          "type": "number"
+        },
+        "kyle_lambda": {
+          "description": "Market-maker price impact.",
+          "format": "double",
+          "type": "number"
+        },
+        "net_value": {
+          "format": "double",
+          "type": "number"
+        },
+        "suppressed": {
+          "description": "Legal risk drove the intensity to the zero floor.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "intensity",
+        "baseline_intensity",
+        "kyle_lambda",
+        "detection_prob",
+        "expected_profit",
+        "expected_penalty",
+        "net_value",
+        "suppressed",
+        "binding_lever"
+      ],
+      "type": "object"
+    },
+    "InsiderScheduleSample": {
+      "additionalProperties": false,
+      "description": "One schedule sample: enforcement decays with the remaining window.",
+      "properties": {
+        "detection_prob": {
+          "format": "double",
+          "type": "number"
+        },
+        "enforcement": {
+          "format": "double",
+          "type": "number"
+        },
+        "intensity": {
+          "format": "double",
+          "type": "number"
+        },
+        "remaining": {
+          "format": "double",
+          "type": "number"
+        },
+        "t": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "t",
+        "remaining",
+        "enforcement",
+        "intensity",
+        "detection_prob"
+      ],
+      "type": "object"
     },
     "InterClusterEdge": {
       "description": "An edge between two clusters of one served level, by array-local index into\nthat response's `clusters`.",
@@ -3532,6 +3714,67 @@
         "label"
       ],
       "type": "object"
+    },
+    "PenaltyPolicy": {
+      "additionalProperties": false,
+      "description": "Comparative statics of the equilibrium intensity in the two penalties.",
+      "properties": {
+        "civil_only_min_intensity": {
+          "description": "Civil-only infimum of the intensity (approached, never reached).",
+          "format": "double",
+          "type": "number"
+        },
+        "criminal_intensity_floor": {
+          "description": "Criminal cost that fully suppresses the insider; `None` when no\nfinite cost does (no enforcement or no surveillance).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "d_intensity_d_civil": {
+          "format": "double",
+          "type": "number"
+        },
+        "d_intensity_d_criminal": {
+          "format": "double",
+          "type": "number"
+        },
+        "enforcement_gated": {
+          "type": "boolean"
+        },
+        "verdict": {
+          "$ref": "#/$defs/PenaltyVerdict"
+        }
+      },
+      "required": [
+        "d_intensity_d_criminal",
+        "d_intensity_d_civil",
+        "civil_only_min_intensity",
+        "enforcement_gated",
+        "verdict"
+      ],
+      "type": "object"
+    },
+    "PenaltyVerdict": {
+      "description": "The penalty-design conclusion.",
+      "oneOf": [
+        {
+          "const": "enforcement_gated",
+          "description": "Weak enforcement: civil penalties have vanishing effect.",
+          "type": "string"
+        },
+        {
+          "const": "criminal_suppresses",
+          "description": "The criminal cost is past the suppression floor: intensity is zero.",
+          "type": "string"
+        },
+        {
+          "const": "criminal_is_the_lever",
+          "description": "Criminal sanctions are the effective lever; civil damages only dampen.",
+          "type": "string"
+        }
+      ]
     },
     "PipelineClassifiedRow": {
       "description": "One classified row.",
@@ -7001,6 +7244,25 @@
         }
       },
       "selected_by": null
+    },
+    "FinanceSignalModels": {
+      "bodies": {
+        "bayes_fuse": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/BayesFusion"
+          }
+        },
+        "insider_equilibrium": {
+          "dynamic": null,
+          "encoding": "Raw",
+          "schema": {
+            "$ref": "#/$defs/InsiderAnalysis"
+          }
+        }
+      },
+      "selected_by": "op"
     },
     "FinanceSpreadReversion": {
       "bodies": {

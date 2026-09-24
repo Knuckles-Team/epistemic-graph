@@ -1,6 +1,6 @@
 # Compute API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.compute.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 134 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.compute.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 135 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
 
 ## `BatchL2Normalize`
 
@@ -2835,6 +2835,41 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Fina
 | `result` | array of number (double) | Raw |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/FinanceSignalDecay`, `contract/schemas/result.compute.json#/methods/FinanceSignalDecay`.
+
+## `FinanceSignalModels`
+
+EH-423 / AUD-30 signal fusion and the strategic-insider model moved from agent-utilities: sequential Bayesian fusion of directional calls weighted by measured priors, and the Kyle insider equilibrium under dynamic legal risk with its schedule and penalty verdict. Pure compute over the request; informational only, never an order authority
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `compute:finance` |
+| Mutates | `false` |
+| Durability domain | `None` |
+| Idempotent | `true` |
+| Audited | `false` |
+| Emits CDC | `false` |
+| Txn participation | `None` |
+| Replay class | `NotReplayable` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `op` | `FinanceSignalModelsOp` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `bayes_fuse` | `BayesFusion` | Raw |  |
+| `insider_equilibrium` | `InsiderAnalysis` | Raw |  |
+
+> Multi-body result: the `op` request field selects which body above is returned.
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/FinanceSignalModels`, `contract/schemas/result.compute.json#/methods/FinanceSignalModels`.
 
 ## `FinanceSpreadReversion`
 

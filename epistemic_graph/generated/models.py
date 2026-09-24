@@ -104,6 +104,20 @@ AbstainReason = Annotated[
 ]
 
 
+class AccessCheck(str, Enum):
+    READ = "read"
+    WRITE = "write"
+
+
+class AccessDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    access: AccessCheck
+    agent_id: str
+    allowed: bool
+    graph: str
+
+
 class AdamResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -1303,11 +1317,38 @@ class BatchUpdateReport(BaseModel):
     upserted_nodes: Annotated[int, Field(ge=0)]
 
 
+class BayesFuseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    default_accuracy: float | None = None
+    default_weight: float | None = None
+    directions: dict[str, Annotated[int, Field(ge=-128, le=127)]]
+    max_pbo: float | None = None
+    min_sharpe: float | None = None
+    prior: float | None = None
+    priors: list[FusionPrior] = Field(default_factory=list)
+
+
+class BayesFusion(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    posterior_up: float
+    seeded: Annotated[int, Field(ge=0)]
+    sources: list[FusionSource]
+
+
 class BeliefMaterialization(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     confidence: float
     node_id: str
+
+
+class BindingLever(str, Enum):
+    CRIMINAL = "criminal"
+    CIVIL = "civil"
+    ENFORCEMENT = "enforcement"
+    NONE = "none"
 
 
 class BlobReference(BaseModel):
@@ -5046,6 +5087,26 @@ FinanceMarketOp = Annotated[
 ]
 
 
+class FinanceSignalModelsOpBayesFuse(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["bayes_fuse"]
+    request: BayesFuseRequest
+
+
+class FinanceSignalModelsOpInsiderEquilibrium(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: Literal["insider_equilibrium"]
+    request: InsiderEquilibriumRequest
+
+
+FinanceSignalModelsOp = Annotated[
+    FinanceSignalModelsOpBayesFuse | FinanceSignalModelsOpInsiderEquilibrium,
+    Field(discriminator="op"),
+]
+
+
 class FiredAction(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -5798,6 +5859,24 @@ class FuseStream(BaseModel):
     layer: str
 
 
+class FusionPrior(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    directional_accuracy: float
+    name: str
+    pbo: float
+    standalone_sharpe: float
+
+
+class FusionSource(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    accuracy: float
+    name: str
+    seeded: bool
+    weight: float
+
+
 class Grant(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -6306,6 +6385,58 @@ class InputsBlob(BaseModel):
     length: Annotated[int, Field(ge=0)]
     manifest_digest: str
     sha256: str
+
+
+class InsiderAnalysis(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    equilibrium: InsiderEquilibrium
+    policy: PenaltyPolicy
+    schedule: list[InsiderScheduleSample]
+
+
+class InsiderEquilibrium(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    baseline_intensity: float
+    binding_lever: BindingLever
+    detection_prob: float
+    expected_penalty: float
+    expected_profit: float
+    intensity: float
+    kyle_lambda: float
+    net_value: float
+    suppressed: bool
+
+
+class InsiderEquilibriumRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    inputs: InsiderInputs
+    steps: Annotated[int, Field(ge=0)]
+
+
+class InsiderInputs(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    civil_penalty_rate: float
+    criminal_penalty: float
+    enforcement: float
+    gap_var: float | None = None
+    horizon: float
+    sigma_u: float
+    sigma_v: float
+    surveillance_kappa: float
+
+
+class InsiderScheduleSample(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    detection_prob: float
+    enforcement: float
+    intensity: float
+    remaining: float
+    t: float
 
 
 class InterClusterEdge(BaseModel):
@@ -9182,6 +9313,13 @@ class MethodGetIdentity(BaseModel):
     params: MethodGetIdentityParams
 
 
+class MethodCheckAccess(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["CheckAccess"]
+    params: MethodCheckAccessParams
+
+
 class MethodRbacAdmin(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
@@ -10247,6 +10385,13 @@ class MethodFinanceMarket(BaseModel):
     params: MethodFinanceMarketParams
 
 
+class MethodFinanceSignalModels(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    method: Literal["FinanceSignalModels"]
+    params: MethodFinanceSignalModelsParams
+
+
 Method = Annotated[
     MethodAddNode
     | MethodCreateNodeIfAbsent
@@ -10533,6 +10678,7 @@ Method = Annotated[
     | MethodFinanceSabrCalibrate
     | MethodRegisterIdentity
     | MethodGetIdentity
+    | MethodCheckAccess
     | MethodRbacAdmin
     | MethodApplyMultisigMutation
     | MethodAnalyticsJob
@@ -10685,7 +10831,8 @@ Method = Annotated[
     | MethodIssueControlLease
     | MethodTransitionControlLease
     | MethodGetControlLease
-    | MethodFinanceMarket,
+    | MethodFinanceMarket
+    | MethodFinanceSignalModels,
     Field(discriminator="method"),
 ]
 
@@ -11060,6 +11207,13 @@ class MethodCepUnsubscribeParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
 
     sub_id: Annotated[int, Field(ge=0)]
+
+
+class MethodCheckAccessParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    access: AccessCheck
+    agent_id: str
 
 
 class MethodClaimNextParams(BaseModel):
@@ -12071,6 +12225,12 @@ class MethodFinanceSignalDecayParams(BaseModel):
 
     half_life: float
     signal: list[float]
+
+
+class MethodFinanceSignalModelsParams(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    op: FinanceSignalModelsOp
 
 
 class MethodFinanceSpreadReversionParams(BaseModel):
@@ -15294,6 +15454,23 @@ class PatternEdge(BaseModel):
     from_: Annotated[int, Field(ge=0)] = Field(..., alias="from")
     label: str
     to: Annotated[int, Field(ge=0)]
+
+
+class PenaltyPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, defer_build=True)
+
+    civil_only_min_intensity: float
+    criminal_intensity_floor: float | None = None
+    d_intensity_d_civil: float
+    d_intensity_d_criminal: float
+    enforcement_gated: bool
+    verdict: PenaltyVerdict
+
+
+class PenaltyVerdict(str, Enum):
+    ENFORCEMENT_GATED = "enforcement_gated"
+    CRIMINAL_SUPPRESSES = "criminal_suppresses"
+    CRIMINAL_IS_THE_LEVER = "criminal_is_the_lever"
 
 
 class PipelineClassifiedRow(BaseModel):

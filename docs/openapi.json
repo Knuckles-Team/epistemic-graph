@@ -219,6 +219,14 @@
           }
         ]
       },
+      "ReqDef_AccessCheck": {
+        "description": "The access `CheckAccess` asks about.",
+        "enum": [
+          "read",
+          "write"
+        ],
+        "type": "string"
+      },
       "ReqDef_AgentComponentContentRequest": {
         "additionalProperties": false,
         "description": "Read one component revision's bytes.",
@@ -2996,6 +3004,62 @@
             "type": "string"
           }
         ]
+      },
+      "ReqDef_BayesFuseRequest": {
+        "additionalProperties": false,
+        "description": "`bayes_fuse`: fuse directional calls into `P(up)`.",
+        "properties": {
+          "default_accuracy": {
+            "default": 0.55,
+            "description": "Accuracy of a source that called but has no seeded prior.",
+            "format": "double",
+            "type": "number"
+          },
+          "default_weight": {
+            "default": 0.5,
+            "description": "Weight of a source that called but has no seeded prior.",
+            "format": "double",
+            "type": "number"
+          },
+          "directions": {
+            "additionalProperties": {
+              "format": "int8",
+              "maximum": 127,
+              "minimum": -128,
+              "type": "integer"
+            },
+            "description": "Each source's call: `1` up, `-1` down, `0` no call. Applied in name\norder, so the result does not depend on how a caller built the map.",
+            "type": "object"
+          },
+          "max_pbo": {
+            "default": 0.5,
+            "format": "double",
+            "type": "number"
+          },
+          "min_sharpe": {
+            "default": 0.0,
+            "format": "double",
+            "type": "number"
+          },
+          "prior": {
+            "default": 0.5,
+            "description": "`P(up)` before any call.",
+            "format": "double",
+            "type": "number"
+          },
+          "priors": {
+            "default": [],
+            "description": "Measured priors; a source is seeded only when it has an edge and is\nnot overfit.",
+            "items": {
+              "$ref": "#/components/schemas/ReqDef_FusionPrior"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "directions"
+        ],
+        "type": "object"
       },
       "ReqDef_BlobReference": {
         "properties": {
@@ -8973,6 +9037,47 @@
           }
         ]
       },
+      "ReqDef_FinanceSignalModelsOp": {
+        "description": "One signal-model operation.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Sequential Bayesian fusion of directional calls.",
+            "properties": {
+              "op": {
+                "const": "bayes_fuse",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_BayesFuseRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The strategic insider under dynamic legal risk.",
+            "properties": {
+              "op": {
+                "const": "insider_equilibrium",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ReqDef_InsiderEquilibriumRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ReqDef_FittedClassifier": {
         "description": "Serializable fitted classifier returned by `mining::classify::fit` and consumed\nback by `mining::classify::predict` (the PREDICTIVE fit\u2192blob\u2192predict pair). Lives\nin eg-types so `Method::MineClassifyPredict` can embed the model over the wire \u2014\nexactly like `FittedModel` carries the datascience regressors. `classes` is the\nsorted set of integer labels; every score/proba vector is column-ordered by it.",
         "oneOf": [
@@ -10100,6 +10205,34 @@
         ],
         "type": "object"
       },
+      "ReqDef_FusionPrior": {
+        "additionalProperties": false,
+        "description": "A stored per-source prior: what a backtest measured for one signal.",
+        "properties": {
+          "directional_accuracy": {
+            "format": "double",
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pbo": {
+            "format": "double",
+            "type": "number"
+          },
+          "standalone_sharpe": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "directional_accuracy",
+          "standalone_sharpe",
+          "pbo"
+        ],
+        "type": "object"
+      },
       "ReqDef_Grant": {
         "description": "A grant binding a role to an (`resource`, `action`, `effect`) triple\n(CONCEPT:EG-KG.compute.feature).",
         "properties": {
@@ -10662,6 +10795,86 @@
         "required": [
           "version",
           "kind"
+        ],
+        "type": "object"
+      },
+      "ReqDef_InsiderEquilibriumRequest": {
+        "additionalProperties": false,
+        "description": "`insider_equilibrium`: the equilibrium, its schedule and the policy verdict.",
+        "properties": {
+          "inputs": {
+            "$ref": "#/components/schemas/ReqDef_InsiderInputs"
+          },
+          "steps": {
+            "description": "Schedule samples over the window (`steps + 1` points).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "inputs",
+          "steps"
+        ],
+        "type": "object"
+      },
+      "ReqDef_InsiderInputs": {
+        "additionalProperties": false,
+        "description": "Primitives of the continuous-time Kyle game with dynamic legal risk, in the\npaper's normalized units.",
+        "properties": {
+          "civil_penalty_rate": {
+            "description": "Civil damages as a multiple of gross profit.",
+            "format": "double",
+            "type": "number"
+          },
+          "criminal_penalty": {
+            "description": "Expected criminal cost (fixed, hazard-scaled).",
+            "format": "double",
+            "type": "number"
+          },
+          "enforcement": {
+            "description": "Regulator effort in `[0, 1]`.",
+            "format": "double",
+            "type": "number"
+          },
+          "gap_var": {
+            "default": null,
+            "description": "`E[(v-p)^2]`; `sigma_v^2` when absent.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "horizon": {
+            "description": "Trading window length.",
+            "format": "double",
+            "type": "number"
+          },
+          "sigma_u": {
+            "description": "Std of noise-trader flow (the cover for stealth).",
+            "format": "double",
+            "type": "number"
+          },
+          "sigma_v": {
+            "description": "Std of the fundamental value (the informational edge).",
+            "format": "double",
+            "type": "number"
+          },
+          "surveillance_kappa": {
+            "description": "How fast the detection hazard grows with activity.",
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "sigma_v",
+          "sigma_u",
+          "enforcement",
+          "surveillance_kappa",
+          "criminal_penalty",
+          "civil_penalty_rate",
+          "horizon"
         ],
         "type": "object"
       },
@@ -22536,6 +22749,37 @@
           },
           {
             "additionalProperties": false,
+            "description": "Would `agent_id`'s own request of `access` on the REQUEST graph be\nadmitted right now? Answers from the same isolation/RBAC decision the\nengine applies to that principal's requests, so a service that acts on\na person's behalf (a confused-deputy-safe executor, e.g. graph-os\ndelivering an alert) can re-check the person's CURRENT authority --\nrevocation takes effect at the next check. Gated `security:check`: a\nyes/no about one principal on one graph the caller can itself read,\nnever the identity or policy. See [`crate::acl::AccessDecision`].",
+            "properties": {
+              "method": {
+                "const": "CheckAccess",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "access": {
+                    "$ref": "#/components/schemas/ReqDef_AccessCheck"
+                  },
+                  "agent_id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "agent_id",
+                  "access"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
             "description": "Administer the RBAC role/grant policy (CONCEPT:EG-KG.compute.feature). Unconditional in the\nenum; the handler is gated behind the `security` feature (a non-security build\nfalls to the dispatch \"not available in this build\" catch-all, like EG-090's\nbackup/restore on a non-redb build).",
             "properties": {
               "method": {
@@ -28640,6 +28884,33 @@
                 "properties": {
                   "op": {
                     "$ref": "#/components/schemas/ReqDef_FinanceMarketOp"
+                  }
+                },
+                "required": [
+                  "op"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Sequential Bayesian fusion of directional calls weighted by measured\npriors, and the Kyle insider's equilibrium under dynamic legal risk\nwith its schedule and penalty-design verdict. Pure compute over what\nthe request carries; informational only. See\n[`crate::compute_result::signal_models`].",
+            "properties": {
+              "method": {
+                "const": "FinanceSignalModels",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "op": {
+                    "$ref": "#/components/schemas/ReqDef_FinanceSignalModelsOp"
                   }
                 },
                 "required": [
@@ -42974,6 +43245,37 @@
         ],
         "type": "object"
       },
+      "Req_CheckAccess": {
+        "additionalProperties": false,
+        "description": "Would `agent_id`'s own request of `access` on the REQUEST graph be\nadmitted right now? Answers from the same isolation/RBAC decision the\nengine applies to that principal's requests, so a service that acts on\na person's behalf (a confused-deputy-safe executor, e.g. graph-os\ndelivering an alert) can re-check the person's CURRENT authority --\nrevocation takes effect at the next check. Gated `security:check`: a\nyes/no about one principal on one graph the caller can itself read,\nnever the identity or policy. See [`crate::acl::AccessDecision`].",
+        "properties": {
+          "method": {
+            "const": "CheckAccess",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": false,
+            "properties": {
+              "access": {
+                "$ref": "#/components/schemas/ReqDef_AccessCheck"
+              },
+              "agent_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "agent_id",
+              "access"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "type": "object"
+      },
       "Req_ClaimNext": {
         "additionalProperties": false,
         "description": "Atomically claim the oldest pending node of `label` (CONCEPT:EG-KG.compute.atomically-claim-oldest-pending \u2014\nnative task queue). Under the topology write guard: among `label`'s nodes\nwhose `status == \"pending\"`, pick the smallest `seq`, merge\n`updates_msgpack` (the claim marker \u2014 computed CLIENT-side, carrying NO\nserver clock so WAL/Raft replay stays deterministic), and return\n`Raw(Option<(node_id, properties)>)` (nil \u21d2 nothing claimable). One\nin-engine resolve+CAS; deterministic over identical state, so a committed\nRaft entry / replayed WAL record reproduces the same claim.",
@@ -48233,6 +48535,33 @@
             "required": [
               "signal",
               "half_life"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "method",
+          "params"
+        ],
+        "type": "object"
+      },
+      "Req_FinanceSignalModels": {
+        "additionalProperties": false,
+        "description": "Sequential Bayesian fusion of directional calls weighted by measured\npriors, and the Kyle insider's equilibrium under dynamic legal risk\nwith its schedule and penalty-design verdict. Pure compute over what\nthe request carries; informational only. See\n[`crate::compute_result::signal_models`].",
+        "properties": {
+          "method": {
+            "const": "FinanceSignalModels",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": false,
+            "properties": {
+              "op": {
+                "$ref": "#/components/schemas/ReqDef_FinanceSignalModelsOp"
+              }
+            },
+            "required": [
+              "op"
             ],
             "type": "object"
           }
@@ -59714,6 +60043,45 @@
           }
         ]
       },
+      "ResDef_Compute_BayesFusion": {
+        "additionalProperties": false,
+        "description": "The fused probability of an upward move.",
+        "properties": {
+          "posterior_up": {
+            "format": "double",
+            "type": "number"
+          },
+          "seeded": {
+            "description": "Priors that survived the edge and overfit filters.",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "sources": {
+            "description": "Every source that called, in the order applied.",
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Compute_FusionSource"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "posterior_up",
+          "seeded",
+          "sources"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_BindingLever": {
+        "description": "Which lever constrains the insider at the equilibrium.",
+        "enum": [
+          "criminal",
+          "civil",
+          "enforcement",
+          "none"
+        ],
+        "type": "string"
+      },
       "ResDef_Compute_BoundProof": {
         "description": "The lower-bound evidence a certificate carries.",
         "oneOf": [
@@ -61722,6 +62090,34 @@
         ],
         "type": "object"
       },
+      "ResDef_Compute_FusionSource": {
+        "additionalProperties": false,
+        "description": "One source as the fusion used it.",
+        "properties": {
+          "accuracy": {
+            "format": "double",
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "seeded": {
+            "description": "Whether the source came from a measured prior (else the defaults).",
+            "type": "boolean"
+          },
+          "weight": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "weight",
+          "accuracy",
+          "seeded"
+        ],
+        "type": "object"
+      },
       "ResDef_Compute_GraphlearnPrediction": {
         "description": "The top missing links scored by a `graphlearn`-family model.",
         "properties": {
@@ -62162,6 +62558,121 @@
             "type": "object"
           }
         ]
+      },
+      "ResDef_Compute_InsiderAnalysis": {
+        "additionalProperties": false,
+        "description": "The full `insider_equilibrium` answer.",
+        "properties": {
+          "equilibrium": {
+            "$ref": "#/components/schemas/ResDef_Compute_InsiderEquilibrium"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/ResDef_Compute_PenaltyPolicy"
+          },
+          "schedule": {
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Compute_InsiderScheduleSample"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "equilibrium",
+          "schedule",
+          "policy"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_InsiderEquilibrium": {
+        "additionalProperties": false,
+        "description": "The insider's optimum at one enforcement level.",
+        "properties": {
+          "baseline_intensity": {
+            "description": "Kyle intensity with no legal risk.",
+            "format": "double",
+            "type": "number"
+          },
+          "binding_lever": {
+            "$ref": "#/components/schemas/ResDef_Compute_BindingLever"
+          },
+          "detection_prob": {
+            "description": "Endogenous prosecution hazard at the optimum, in `[0, 1]`.",
+            "format": "double",
+            "type": "number"
+          },
+          "expected_penalty": {
+            "format": "double",
+            "type": "number"
+          },
+          "expected_profit": {
+            "format": "double",
+            "type": "number"
+          },
+          "intensity": {
+            "description": "Optimal trade per unit of mispricing gap.",
+            "format": "double",
+            "type": "number"
+          },
+          "kyle_lambda": {
+            "description": "Market-maker price impact.",
+            "format": "double",
+            "type": "number"
+          },
+          "net_value": {
+            "format": "double",
+            "type": "number"
+          },
+          "suppressed": {
+            "description": "Legal risk drove the intensity to the zero floor.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "intensity",
+          "baseline_intensity",
+          "kyle_lambda",
+          "detection_prob",
+          "expected_profit",
+          "expected_penalty",
+          "net_value",
+          "suppressed",
+          "binding_lever"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_InsiderScheduleSample": {
+        "additionalProperties": false,
+        "description": "One schedule sample: enforcement decays with the remaining window.",
+        "properties": {
+          "detection_prob": {
+            "format": "double",
+            "type": "number"
+          },
+          "enforcement": {
+            "format": "double",
+            "type": "number"
+          },
+          "intensity": {
+            "format": "double",
+            "type": "number"
+          },
+          "remaining": {
+            "format": "double",
+            "type": "number"
+          },
+          "t": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "t",
+          "remaining",
+          "enforcement",
+          "intensity",
+          "detection_prob"
+        ],
+        "type": "object"
       },
       "ResDef_Compute_InterClusterEdge": {
         "description": "An edge between two clusters of one served level, by array-local index into\nthat response's `clusters`.",
@@ -62804,6 +63315,67 @@
           "label"
         ],
         "type": "object"
+      },
+      "ResDef_Compute_PenaltyPolicy": {
+        "additionalProperties": false,
+        "description": "Comparative statics of the equilibrium intensity in the two penalties.",
+        "properties": {
+          "civil_only_min_intensity": {
+            "description": "Civil-only infimum of the intensity (approached, never reached).",
+            "format": "double",
+            "type": "number"
+          },
+          "criminal_intensity_floor": {
+            "description": "Criminal cost that fully suppresses the insider; `None` when no\nfinite cost does (no enforcement or no surveillance).",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "d_intensity_d_civil": {
+            "format": "double",
+            "type": "number"
+          },
+          "d_intensity_d_criminal": {
+            "format": "double",
+            "type": "number"
+          },
+          "enforcement_gated": {
+            "type": "boolean"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/ResDef_Compute_PenaltyVerdict"
+          }
+        },
+        "required": [
+          "d_intensity_d_criminal",
+          "d_intensity_d_civil",
+          "civil_only_min_intensity",
+          "enforcement_gated",
+          "verdict"
+        ],
+        "type": "object"
+      },
+      "ResDef_Compute_PenaltyVerdict": {
+        "description": "The penalty-design conclusion.",
+        "oneOf": [
+          {
+            "const": "enforcement_gated",
+            "description": "Weak enforcement: civil penalties have vanishing effect.",
+            "type": "string"
+          },
+          {
+            "const": "criminal_suppresses",
+            "description": "The criminal cost is past the suppression floor: intensity is zero.",
+            "type": "string"
+          },
+          {
+            "const": "criminal_is_the_lever",
+            "description": "Criminal sanctions are the effective lever; civil damages only dampen.",
+            "type": "string"
+          }
+        ]
       },
       "ResDef_Compute_PipelineClassifiedRow": {
         "description": "One classified row.",
@@ -77847,6 +78419,14 @@
           }
         ]
       },
+      "ResDef_Query_AccessCheck": {
+        "description": "The access `CheckAccess` asks about.",
+        "enum": [
+          "read",
+          "write"
+        ],
+        "type": "string"
+      },
       "ResDef_Query_AgentComponentContentRequest": {
         "additionalProperties": false,
         "description": "Read one component revision's bytes.",
@@ -80647,6 +81227,62 @@
             "type": "string"
           }
         ]
+      },
+      "ResDef_Query_BayesFuseRequest": {
+        "additionalProperties": false,
+        "description": "`bayes_fuse`: fuse directional calls into `P(up)`.",
+        "properties": {
+          "default_accuracy": {
+            "default": 0.55,
+            "description": "Accuracy of a source that called but has no seeded prior.",
+            "format": "double",
+            "type": "number"
+          },
+          "default_weight": {
+            "default": 0.5,
+            "description": "Weight of a source that called but has no seeded prior.",
+            "format": "double",
+            "type": "number"
+          },
+          "directions": {
+            "additionalProperties": {
+              "format": "int8",
+              "maximum": 127,
+              "minimum": -128,
+              "type": "integer"
+            },
+            "description": "Each source's call: `1` up, `-1` down, `0` no call. Applied in name\norder, so the result does not depend on how a caller built the map.",
+            "type": "object"
+          },
+          "max_pbo": {
+            "default": 0.5,
+            "format": "double",
+            "type": "number"
+          },
+          "min_sharpe": {
+            "default": 0.0,
+            "format": "double",
+            "type": "number"
+          },
+          "prior": {
+            "default": 0.5,
+            "description": "`P(up)` before any call.",
+            "format": "double",
+            "type": "number"
+          },
+          "priors": {
+            "default": [],
+            "description": "Measured priors; a source is seeded only when it has an edge and is\nnot overfit.",
+            "items": {
+              "$ref": "#/components/schemas/ResDef_Query_FusionPrior"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "directions"
+        ],
+        "type": "object"
       },
       "ResDef_Query_BlobReference": {
         "properties": {
@@ -87829,6 +88465,47 @@
           }
         ]
       },
+      "ResDef_Query_FinanceSignalModelsOp": {
+        "description": "One signal-model operation.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Sequential Bayesian fusion of directional calls.",
+            "properties": {
+              "op": {
+                "const": "bayes_fuse",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_BayesFuseRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The strategic insider under dynamic legal risk.",
+            "properties": {
+              "op": {
+                "const": "insider_equilibrium",
+                "type": "string"
+              },
+              "request": {
+                "$ref": "#/components/schemas/ResDef_Query_InsiderEquilibriumRequest"
+              }
+            },
+            "required": [
+              "op",
+              "request"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "ResDef_Query_FittedClassifier": {
         "description": "Serializable fitted classifier returned by `mining::classify::fit` and consumed\nback by `mining::classify::predict` (the PREDICTIVE fit\u2192blob\u2192predict pair). Lives\nin eg-types so `Method::MineClassifyPredict` can embed the model over the wire \u2014\nexactly like `FittedModel` carries the datascience regressors. `classes` is the\nsorted set of integer labels; every score/proba vector is column-ordered by it.",
         "oneOf": [
@@ -88956,6 +89633,34 @@
         ],
         "type": "object"
       },
+      "ResDef_Query_FusionPrior": {
+        "additionalProperties": false,
+        "description": "A stored per-source prior: what a backtest measured for one signal.",
+        "properties": {
+          "directional_accuracy": {
+            "format": "double",
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pbo": {
+            "format": "double",
+            "type": "number"
+          },
+          "standalone_sharpe": {
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "directional_accuracy",
+          "standalone_sharpe",
+          "pbo"
+        ],
+        "type": "object"
+      },
       "ResDef_Query_Grant": {
         "description": "A grant binding a role to an (`resource`, `action`, `effect`) triple\n(CONCEPT:EG-KG.compute.feature).",
         "properties": {
@@ -89518,6 +90223,86 @@
         "required": [
           "version",
           "kind"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_InsiderEquilibriumRequest": {
+        "additionalProperties": false,
+        "description": "`insider_equilibrium`: the equilibrium, its schedule and the policy verdict.",
+        "properties": {
+          "inputs": {
+            "$ref": "#/components/schemas/ResDef_Query_InsiderInputs"
+          },
+          "steps": {
+            "description": "Schedule samples over the window (`steps + 1` points).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "inputs",
+          "steps"
+        ],
+        "type": "object"
+      },
+      "ResDef_Query_InsiderInputs": {
+        "additionalProperties": false,
+        "description": "Primitives of the continuous-time Kyle game with dynamic legal risk, in the\npaper's normalized units.",
+        "properties": {
+          "civil_penalty_rate": {
+            "description": "Civil damages as a multiple of gross profit.",
+            "format": "double",
+            "type": "number"
+          },
+          "criminal_penalty": {
+            "description": "Expected criminal cost (fixed, hazard-scaled).",
+            "format": "double",
+            "type": "number"
+          },
+          "enforcement": {
+            "description": "Regulator effort in `[0, 1]`.",
+            "format": "double",
+            "type": "number"
+          },
+          "gap_var": {
+            "default": null,
+            "description": "`E[(v-p)^2]`; `sigma_v^2` when absent.",
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "horizon": {
+            "description": "Trading window length.",
+            "format": "double",
+            "type": "number"
+          },
+          "sigma_u": {
+            "description": "Std of noise-trader flow (the cover for stealth).",
+            "format": "double",
+            "type": "number"
+          },
+          "sigma_v": {
+            "description": "Std of the fundamental value (the informational edge).",
+            "format": "double",
+            "type": "number"
+          },
+          "surveillance_kappa": {
+            "description": "How fast the detection hazard grows with activity.",
+            "format": "double",
+            "type": "number"
+          }
+        },
+        "required": [
+          "sigma_v",
+          "sigma_u",
+          "enforcement",
+          "surveillance_kappa",
+          "criminal_penalty",
+          "civil_penalty_rate",
+          "horizon"
         ],
         "type": "object"
       },
@@ -101478,6 +102263,37 @@
           },
           {
             "additionalProperties": false,
+            "description": "Would `agent_id`'s own request of `access` on the REQUEST graph be\nadmitted right now? Answers from the same isolation/RBAC decision the\nengine applies to that principal's requests, so a service that acts on\na person's behalf (a confused-deputy-safe executor, e.g. graph-os\ndelivering an alert) can re-check the person's CURRENT authority --\nrevocation takes effect at the next check. Gated `security:check`: a\nyes/no about one principal on one graph the caller can itself read,\nnever the identity or policy. See [`crate::acl::AccessDecision`].",
+            "properties": {
+              "method": {
+                "const": "CheckAccess",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "access": {
+                    "$ref": "#/components/schemas/ResDef_Query_AccessCheck"
+                  },
+                  "agent_id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "agent_id",
+                  "access"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
             "description": "Administer the RBAC role/grant policy (CONCEPT:EG-KG.compute.feature). Unconditional in the\nenum; the handler is gated behind the `security` feature (a non-security build\nfalls to the dispatch \"not available in this build\" catch-all, like EG-090's\nbackup/restore on a non-redb build).",
             "properties": {
               "method": {
@@ -107582,6 +108398,33 @@
                 "properties": {
                   "op": {
                     "$ref": "#/components/schemas/ResDef_Query_FinanceMarketOp"
+                  }
+                },
+                "required": [
+                  "op"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "method",
+              "params"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Sequential Bayesian fusion of directional calls weighted by measured\npriors, and the Kyle insider's equilibrium under dynamic legal risk\nwith its schedule and penalty-design verdict. Pure compute over what\nthe request carries; informational only. See\n[`crate::compute_result::signal_models`].",
+            "properties": {
+              "method": {
+                "const": "FinanceSignalModels",
+                "type": "string"
+              },
+              "params": {
+                "additionalProperties": false,
+                "properties": {
+                  "op": {
+                    "$ref": "#/components/schemas/ResDef_Query_FinanceSignalModelsOp"
                   }
                 },
                 "required": [
@@ -121280,6 +122123,39 @@
         ],
         "type": "object"
       },
+      "ResDef_Security_AccessCheck": {
+        "description": "The access `CheckAccess` asks about.",
+        "enum": [
+          "read",
+          "write"
+        ],
+        "type": "string"
+      },
+      "ResDef_Security_AccessDecision": {
+        "additionalProperties": false,
+        "description": "`CheckAccess`'s answer: would `agent_id`'s request of `access` on `graph`\nbe admitted right now, by the same isolation/RBAC decision EG applies to\nthat principal's own requests. An unregistered or revoked principal is\n`allowed: false`.",
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/ResDef_Security_AccessCheck"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "allowed": {
+            "type": "boolean"
+          },
+          "graph": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "graph",
+          "access",
+          "allowed"
+        ],
+        "type": "object"
+      },
       "ResDef_Security_AgentIdentity": {
         "description": "Agent identity for ACL checks.",
         "properties": {
@@ -129868,6 +130744,21 @@
         "type": "array",
         "x-encoding": "Raw"
       },
+      "Res_compute_FinanceSignalModels": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ResDef_Compute_BayesFusion",
+            "x-body": "bayes_fuse",
+            "x-encoding": "Raw"
+          },
+          {
+            "$ref": "#/components/schemas/ResDef_Compute_InsiderAnalysis",
+            "x-body": "insider_equilibrium",
+            "x-encoding": "Raw"
+          }
+        ],
+        "x-selected-by": "op"
+      },
       "Res_compute_FinanceSpreadReversion": {
         "$ref": "#/components/schemas/ResDef_Compute_SpreadReversion",
         "x-encoding": "Raw"
@@ -131880,6 +132771,10 @@
         "$ref": "#/components/schemas/ResDef_Security_AuditReport",
         "x-encoding": "Raw"
       },
+      "Res_security_CheckAccess": {
+        "$ref": "#/components/schemas/ResDef_Security_AccessDecision",
+        "x-encoding": "Json"
+      },
       "Res_security_GetIdentity": {
         "anyOf": [
           {
@@ -132567,7 +133462,7 @@
     }
   },
   "info": {
-    "description": "Generated from contract/methods.json + contract/schemas/ (eg-capabilities/gen_contract, 438 methods) by scripts/gen_api_docs.py -- do not hand-edit. Schemas describe each method's JSON-Schema-equivalent request/result SHAPE; the real wire encoding is MessagePack, not JSON (contract/schemas/method.request.json's own $comment), so the media type below is `application/msgpack`, not `application/json`. Regenerate with `python3 scripts/gen_api_docs.py --write`.",
+    "description": "Generated from contract/methods.json + contract/schemas/ (eg-capabilities/gen_contract, 440 methods) by scripts/gen_api_docs.py -- do not hand-edit. Schemas describe each method's JSON-Schema-equivalent request/result SHAPE; the real wire encoding is MessagePack, not JSON (contract/schemas/method.request.json's own $comment), so the media type below is `application/msgpack`, not `application/json`. Regenerate with `python3 scripts/gen_api_docs.py --write`.",
     "title": "Epistemic Graph API",
     "version": "1"
   },
@@ -139402,6 +140297,63 @@
           }
         },
         "summary": "FinanceSignalDecay",
+        "tags": [
+          "compute"
+        ],
+        "x-audited": false,
+        "x-authz-action": "compute:finance",
+        "x-consumer-profiles": [
+          "python"
+        ],
+        "x-durability-domain": "None",
+        "x-emits-cdc": false,
+        "x-error-set": [
+          "INVALID_ARGUMENT",
+          "ACCESS_DENIED"
+        ],
+        "x-idempotent": true,
+        "x-mutates": false,
+        "x-replay-class": "NotReplayable",
+        "x-stability": "stable",
+        "x-txn-participation": "None"
+      }
+    },
+    "/rpc/compute/FinanceSignalModels": {
+      "post": {
+        "operationId": "FinanceSignalModels",
+        "requestBody": {
+          "content": {
+            "application/msgpack": {
+              "schema": {
+                "$ref": "#/components/schemas/Req_FinanceSignalModels"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Res_compute_FinanceSignalModels"
+                }
+              }
+            },
+            "description": "`FinanceSignalModels` result."
+          },
+          "default": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Typed engine error (one of `x-error-set`)."
+          }
+        },
+        "summary": "EH-423 / AUD-30 signal fusion and the strategic-insider model moved from agent-utilities: sequential Bayesian fusion of directional calls weighted by measured priors, and the Kyle insider equilibrium under dynamic legal risk with its schedule and penalty verdict. Pure compute over the request; informational only, never an order authority",
         "tags": [
           "compute"
         ],
@@ -154440,6 +155392,63 @@
         ],
         "x-audited": false,
         "x-authz-action": "security:audit",
+        "x-consumer-profiles": [
+          "python"
+        ],
+        "x-durability-domain": "None",
+        "x-emits-cdc": false,
+        "x-error-set": [
+          "INVALID_ARGUMENT",
+          "ACCESS_DENIED"
+        ],
+        "x-idempotent": true,
+        "x-mutates": false,
+        "x-replay-class": "NotReplayable",
+        "x-stability": "stable",
+        "x-txn-participation": "Snapshot"
+      }
+    },
+    "/rpc/security/CheckAccess": {
+      "post": {
+        "operationId": "CheckAccess",
+        "requestBody": {
+          "content": {
+            "application/msgpack": {
+              "schema": {
+                "$ref": "#/components/schemas/Req_CheckAccess"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Res_security_CheckAccess"
+                }
+              }
+            },
+            "description": "`CheckAccess` result."
+          },
+          "default": {
+            "content": {
+              "application/msgpack": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "Typed engine error (one of `x-error-set`)."
+          }
+        },
+        "summary": "confused-deputy-safe executor re-check: would this principal's own request of read/write on the request graph be admitted now (the engine's isolation/RBAC decision). Answers only allowed yes/no for one principal on one graph the caller can itself read; never the identity or the policy",
+        "tags": [
+          "security"
+        ],
+        "x-audited": false,
+        "x-authz-action": "security:check",
         "x-consumer-profiles": [
           "python"
         ],

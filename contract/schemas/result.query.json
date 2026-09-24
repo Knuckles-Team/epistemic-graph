@@ -195,6 +195,14 @@
         }
       ]
     },
+    "AccessCheck": {
+      "description": "The access `CheckAccess` asks about.",
+      "enum": [
+        "read",
+        "write"
+      ],
+      "type": "string"
+    },
     "AgentComponentContentRequest": {
       "additionalProperties": false,
       "description": "Read one component revision's bytes.",
@@ -2995,6 +3003,62 @@
           "type": "string"
         }
       ]
+    },
+    "BayesFuseRequest": {
+      "additionalProperties": false,
+      "description": "`bayes_fuse`: fuse directional calls into `P(up)`.",
+      "properties": {
+        "default_accuracy": {
+          "default": 0.55,
+          "description": "Accuracy of a source that called but has no seeded prior.",
+          "format": "double",
+          "type": "number"
+        },
+        "default_weight": {
+          "default": 0.5,
+          "description": "Weight of a source that called but has no seeded prior.",
+          "format": "double",
+          "type": "number"
+        },
+        "directions": {
+          "additionalProperties": {
+            "format": "int8",
+            "maximum": 127,
+            "minimum": -128,
+            "type": "integer"
+          },
+          "description": "Each source's call: `1` up, `-1` down, `0` no call. Applied in name\norder, so the result does not depend on how a caller built the map.",
+          "type": "object"
+        },
+        "max_pbo": {
+          "default": 0.5,
+          "format": "double",
+          "type": "number"
+        },
+        "min_sharpe": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "prior": {
+          "default": 0.5,
+          "description": "`P(up)` before any call.",
+          "format": "double",
+          "type": "number"
+        },
+        "priors": {
+          "default": [],
+          "description": "Measured priors; a source is seeded only when it has an edge and is\nnot overfit.",
+          "items": {
+            "$ref": "#/$defs/FusionPrior"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "directions"
+      ],
+      "type": "object"
     },
     "BlobReference": {
       "properties": {
@@ -10177,6 +10241,47 @@
         }
       ]
     },
+    "FinanceSignalModelsOp": {
+      "description": "One signal-model operation.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Sequential Bayesian fusion of directional calls.",
+          "properties": {
+            "op": {
+              "const": "bayes_fuse",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/BayesFuseRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The strategic insider under dynamic legal risk.",
+          "properties": {
+            "op": {
+              "const": "insider_equilibrium",
+              "type": "string"
+            },
+            "request": {
+              "$ref": "#/$defs/InsiderEquilibriumRequest"
+            }
+          },
+          "required": [
+            "op",
+            "request"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "FittedClassifier": {
       "description": "Serializable fitted classifier returned by `mining::classify::fit` and consumed\nback by `mining::classify::predict` (the PREDICTIVE fit→blob→predict pair). Lives\nin eg-types so `Method::MineClassifyPredict` can embed the model over the wire —\nexactly like `FittedModel` carries the datascience regressors. `classes` is the\nsorted set of integer labels; every score/proba vector is column-ordered by it.",
       "oneOf": [
@@ -11304,6 +11409,34 @@
       ],
       "type": "object"
     },
+    "FusionPrior": {
+      "additionalProperties": false,
+      "description": "A stored per-source prior: what a backtest measured for one signal.",
+      "properties": {
+        "directional_accuracy": {
+          "format": "double",
+          "type": "number"
+        },
+        "name": {
+          "type": "string"
+        },
+        "pbo": {
+          "format": "double",
+          "type": "number"
+        },
+        "standalone_sharpe": {
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "directional_accuracy",
+        "standalone_sharpe",
+        "pbo"
+      ],
+      "type": "object"
+    },
     "Grant": {
       "description": "A grant binding a role to an (`resource`, `action`, `effect`) triple\n(CONCEPT:EG-KG.compute.feature).",
       "properties": {
@@ -11866,6 +11999,86 @@
       "required": [
         "version",
         "kind"
+      ],
+      "type": "object"
+    },
+    "InsiderEquilibriumRequest": {
+      "additionalProperties": false,
+      "description": "`insider_equilibrium`: the equilibrium, its schedule and the policy verdict.",
+      "properties": {
+        "inputs": {
+          "$ref": "#/$defs/InsiderInputs"
+        },
+        "steps": {
+          "description": "Schedule samples over the window (`steps + 1` points).",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "inputs",
+        "steps"
+      ],
+      "type": "object"
+    },
+    "InsiderInputs": {
+      "additionalProperties": false,
+      "description": "Primitives of the continuous-time Kyle game with dynamic legal risk, in the\npaper's normalized units.",
+      "properties": {
+        "civil_penalty_rate": {
+          "description": "Civil damages as a multiple of gross profit.",
+          "format": "double",
+          "type": "number"
+        },
+        "criminal_penalty": {
+          "description": "Expected criminal cost (fixed, hazard-scaled).",
+          "format": "double",
+          "type": "number"
+        },
+        "enforcement": {
+          "description": "Regulator effort in `[0, 1]`.",
+          "format": "double",
+          "type": "number"
+        },
+        "gap_var": {
+          "default": null,
+          "description": "`E[(v-p)^2]`; `sigma_v^2` when absent.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "horizon": {
+          "description": "Trading window length.",
+          "format": "double",
+          "type": "number"
+        },
+        "sigma_u": {
+          "description": "Std of noise-trader flow (the cover for stealth).",
+          "format": "double",
+          "type": "number"
+        },
+        "sigma_v": {
+          "description": "Std of the fundamental value (the informational edge).",
+          "format": "double",
+          "type": "number"
+        },
+        "surveillance_kappa": {
+          "description": "How fast the detection hazard grows with activity.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "sigma_v",
+        "sigma_u",
+        "enforcement",
+        "surveillance_kappa",
+        "criminal_penalty",
+        "civil_penalty_rate",
+        "horizon"
       ],
       "type": "object"
     },
@@ -23826,6 +24039,37 @@
         },
         {
           "additionalProperties": false,
+          "description": "Would `agent_id`'s own request of `access` on the REQUEST graph be\nadmitted right now? Answers from the same isolation/RBAC decision the\nengine applies to that principal's requests, so a service that acts on\na person's behalf (a confused-deputy-safe executor, e.g. graph-os\ndelivering an alert) can re-check the person's CURRENT authority --\nrevocation takes effect at the next check. Gated `security:check`: a\nyes/no about one principal on one graph the caller can itself read,\nnever the identity or policy. See [`crate::acl::AccessDecision`].",
+          "properties": {
+            "method": {
+              "const": "CheckAccess",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "access": {
+                  "$ref": "#/$defs/AccessCheck"
+                },
+                "agent_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "agent_id",
+                "access"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
           "description": "Administer the RBAC role/grant policy (CONCEPT:EG-KG.compute.feature). Unconditional in the\nenum; the handler is gated behind the `security` feature (a non-security build\nfalls to the dispatch \"not available in this build\" catch-all, like EG-090's\nbackup/restore on a non-redb build).",
           "properties": {
             "method": {
@@ -29930,6 +30174,33 @@
               "properties": {
                 "op": {
                   "$ref": "#/$defs/FinanceMarketOp"
+                }
+              },
+              "required": [
+                "op"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Sequential Bayesian fusion of directional calls weighted by measured\npriors, and the Kyle insider's equilibrium under dynamic legal risk\nwith its schedule and penalty-design verdict. Pure compute over what\nthe request carries; informational only. See\n[`crate::compute_result::signal_models`].",
+          "properties": {
+            "method": {
+              "const": "FinanceSignalModels",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": false,
+              "properties": {
+                "op": {
+                  "$ref": "#/$defs/FinanceSignalModelsOp"
                 }
               },
               "required": [

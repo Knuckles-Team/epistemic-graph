@@ -1,6 +1,6 @@
 # Security API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.security.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 6 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.security.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 7 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
 
 ## `AuditProveInclusion`
 
@@ -62,6 +62,39 @@ _No parameters._
 | `result` | `AuditReport` | Raw |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/AuditVerify`, `contract/schemas/result.security.json#/methods/AuditVerify`.
+
+## `CheckAccess`
+
+confused-deputy-safe executor re-check: would this principal's own request of read/write on the request graph be admitted now (the engine's isolation/RBAC decision). Answers only allowed yes/no for one principal on one graph the caller can itself read; never the identity or the policy
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `security:check` |
+| Mutates | `false` |
+| Durability domain | `None` |
+| Idempotent | `true` |
+| Audited | `false` |
+| Emits CDC | `false` |
+| Txn participation | `Snapshot` |
+| Replay class | `NotReplayable` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `access` | `AccessCheck` (enum: `read`, `write`) | yes |  |
+| `agent_id` | string | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `result` | `AccessDecision` | Json |  |
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/CheckAccess`, `contract/schemas/result.security.json#/methods/CheckAccess`.
 
 ## `GetIdentity`
 

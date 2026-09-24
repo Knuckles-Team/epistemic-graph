@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     RegisterIdentityRequest = _models.MethodRegisterIdentityParams
     RbacAdminRequest = _models.MethodRbacAdminParams
     GetIdentityRequest = _models.MethodGetIdentityParams
+    CheckAccessRequest = _models.MethodCheckAccessParams
 
 
 class GetLedgerRequest(BaseModel):
@@ -300,6 +301,47 @@ def decode_get_identity(result: OpaqueResult) -> _models.GetIdentityResult:
     return decode_result("GetIdentity", models().GetIdentityResult, result)
 
 
+async def send_check_access(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
+
+    Method:
+        CheckAccess
+    Authorization:
+        security:check
+    Durability:
+        None
+    Replay:
+        NotReplayable
+    Result:
+        ResultPayload::Json
+    Result schema:
+        contract/schemas/result.security.json
+        #/methods/CheckAccess
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+    """
+    models().MethodCheckAccessParams.model_validate(params or {})
+    payload = await client._send(
+        "CheckAccess",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("CheckAccess", payload)
+
+
+def decode_check_access(result: OpaqueResult) -> _models.AccessDecision:
+    """Validate this method's result against its contract model."""
+    return decode_result("CheckAccess", models().AccessDecision, result)
+
+
 # Methods whose `{Id}Request` resolves to `models.Method{Id}Params` (EH-192).
 _REQUEST_METHODS = frozenset(
     {
@@ -307,6 +349,7 @@ _REQUEST_METHODS = frozenset(
         "RegisterIdentity",
         "RbacAdmin",
         "GetIdentity",
+        "CheckAccess",
     }
 )
 
