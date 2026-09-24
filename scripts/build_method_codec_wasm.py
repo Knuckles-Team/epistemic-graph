@@ -13,10 +13,16 @@ to the fresh module, so a wire change in eg-types cannot ride past a stale
 client codec. Needs the pinned toolchain's ``wasm32-unknown-unknown`` target
 (``rustup target add wasm32-unknown-unknown``).
 
-No post-link optimizer (binaryen ``wasm-opt``) runs: none of the build hosts
-carries a pinned binaryen, and an unpinned one would make the committed bytes
-depend on whichever version a host happens to have. Size comes from the
-``method-codec`` profile alone.
+The linked module then goes through binaryen's ``wasm-opt -Oz`` (EH-383), pinned
+to one exact release by version AND archive sha256: the platform-neutral
+``binaryen-<version>-node`` build (``wasm-opt`` itself compiled to WebAssembly),
+run under Node. Being WebAssembly, the optimizer is the same bytes on every host
+architecture, so the committed module stays byte-identical across hosts and CI.
+The archive is fetched once into ``<target-dir>/eg-tools`` and verified before
+every use; a mismatched archive is refused, never run. Needs ``node`` on PATH.
+The feature flags are exactly the wasm32-unknown-unknown target features rustc
+emits, so the optimizer can never introduce an instruction the hosts' runtimes
+(wazero, Node) were not already required to support.
 """
 
 from __future__ import annotations
@@ -24,8 +30,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import os
+import shutil
 import subprocess
 import sys
+import tarfile
+import urllib.request
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -44,9 +53,31 @@ PROFILE = "method-codec"
 MODULE = "eg_method_codec.wasm"
 CLIENT_DIRS = ("clients/go", "clients/js")
 
+BINARYEN_VERSION = "version_133"
+BINARYEN_ARCHIVE = f"binaryen-{BINARYEN_VERSION}-node.tar.gz"
+BINARYEN_URL = (
+    "https://github.com/WebAssembly/binaryen/releases/download/"
+    f"{BINARYEN_VERSION}/{BINARYEN_ARCHIVE}"
+)
+BINARYEN_SHA256 = "3507aedecef25c46f2889530a7da304677e97122869274125f782b586cb508ab"
+WASM_OPT_FILES = ("wasm-opt.js", "wasm-opt.wasm")
+# rustc's wasm32-unknown-unknown feature set -- no more, so the optimizer cannot
+# emit an instruction the module did not already need.
+WASM_FEATURES = (
+    "--enable-bulk-memory",
+    "--enable-bulk-memory-opt",
+    "--enable-nontrapping-float-to-int",
+    "--enable-sign-ext",
+    "--enable-mutable-globals",
+    "--enable-reference-types",
+    "--enable-multivalue",
+)
+WASM_OPT_PASSES = ("-Oz", "--strip-debug", "--strip-producers")
+
 
 def build(root: Path, target_dir: Path) -> bytes:
-    """Compile the codec module and return its bytes."""
+    """Compile the codec module, optimize it with the pinned wasm-opt, and
+    return its bytes."""
 
     # Hermetic flags: ambient RUSTFLAGS would change the module per host. The
     # Cargo and rustup homes are named explicitly (their defaults) so their
@@ -75,11 +106,54 @@ def build(root: Path, target_dir: Path) -> bytes:
         TARGET,
     ]
     subprocess.run(command, cwd=root, env=env, check=True)
-    return (target_dir / TARGET / PROFILE / MODULE).read_bytes()
+    return optimize(target_dir / TARGET / PROFILE / MODULE, target_dir / "eg-tools")
 
 
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def pinned_archive(tools: Path) -> Path:
+    """The pinned binaryen archive, downloaded once and verified on every use."""
+
+    archive = tools / BINARYEN_ARCHIVE
+    if not archive.exists():
+        tools.mkdir(parents=True, exist_ok=True)
+        partial = archive.with_suffix(".partial")
+        with urllib.request.urlopen(BINARYEN_URL, timeout=120) as response:
+            partial.write_bytes(response.read())
+        partial.replace(archive)
+    actual = _sha256(archive.read_bytes())
+    if actual != BINARYEN_SHA256:
+        raise SystemExit(
+            f"REFUSED: {archive} sha256={actual}, pinned {BINARYEN_SHA256}; "
+            "delete it to re-download"
+        )
+    return archive
+
+
+def wasm_opt_dir(tools: Path) -> Path:
+    """Extract the optimizer's two files from the verified archive."""
+
+    target = tools / f"binaryen-{BINARYEN_VERSION}"
+    with tarfile.open(pinned_archive(tools)) as archive:
+        for name in WASM_OPT_FILES:
+            member = archive.getmember(f"binaryen-{BINARYEN_VERSION}/{name}")
+            archive.extract(member, tools, filter="data")
+    return target
+
+
+def optimize(module: Path, tools: Path) -> bytes:
+    """Run the pinned ``wasm-opt -Oz`` over the linked module."""
+
+    node = shutil.which("node")
+    if node is None:
+        raise SystemExit("node is required to run the pinned binaryen wasm-opt")
+    optimized = module.with_suffix(".opt.wasm")
+    script = wasm_opt_dir(tools) / "wasm-opt.js"
+    command = [node, str(script), *WASM_FEATURES, *WASM_OPT_PASSES]
+    subprocess.run([*command, str(module), "-o", str(optimized)], check=True)
+    return optimized.read_bytes()
 
 
 def check(root: Path, module: bytes) -> int:
