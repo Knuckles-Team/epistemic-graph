@@ -19,9 +19,9 @@
 //  Special functions (self-contained — no scipy on the wire)
 // ════════════════════════════════════════════════════════════════════════
 mod sf {
-    // The normal special functions and the sample moments are the evaluation kernels'
-    // (EH-530): one implementation, pinned transcendentals, full-precision `Φ`.
-    pub use eg_numeric::evaluation::special::{excess_kurtosis, norm_cdf, norm_ppf, skew};
+    // The normal CDF/quantile and the sample moments moved to the evaluation kernels
+    // (`eg_numeric::evaluation::special`, EH-530) with the backtest validation that used
+    // them; the Beta and Gauss-Legendre functions below serve the Kelly sizing here.
 
     /// ln Γ(x) — Lanczos approximation (g = 7, n = 9).
     pub fn ln_gamma(x: f64) -> f64 {
@@ -229,9 +229,6 @@ mod tests {
 
     #[test]
     fn test_special_functions() {
-        assert!((sf::norm_cdf(0.0) - 0.5).abs() < 1e-6);
-        assert!((sf::norm_cdf(1.96) - 0.975).abs() < 1e-3);
-        assert!((sf::norm_ppf(0.975) - 1.96).abs() < 1e-2);
         // Beta(2,2) is symmetric: median = 0.5, cdf(0.5)=0.5
         assert!((sf::betai(2.0, 2.0, 0.5) - 0.5).abs() < 1e-6);
         assert!((sf::beta_ppf(0.5, 2.0, 2.0) - 0.5).abs() < 1e-4);
