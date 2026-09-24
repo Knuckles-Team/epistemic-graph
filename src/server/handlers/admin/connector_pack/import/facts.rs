@@ -161,3 +161,54 @@ fn kind_semantics(kind: PackEntryKind) -> KindSemantics {
         .find(|semantics| semantics.pack == kind)
         .expect("every closed PackEntryKind has component and URI semantics")
 }
+
+#[cfg(test)]
+mod tests {
+    use eg_types::connector_pack::{PackAnnotations, PackSection};
+    use eg_types::contract::BoundedVec;
+
+    use super::*;
+
+    fn section(byte: u8) -> PackSection {
+        PackSection {
+            offset: 0,
+            length: 1,
+            sha256: Digest256::from_bytes([byte; 32]),
+        }
+    }
+
+    fn tool_entry(output_schema: Option<PackSection>) -> PackEntry {
+        PackEntry {
+            kind: PackEntryKind::Tool,
+            uri: "tool://demo-mcp/reader".to_string(),
+            name: "reader".to_string(),
+            media_type: "application/json".to_string(),
+            body: section(0x01),
+            input_schema: Some(section(0x02)),
+            output_schema,
+            annotations: PackAnnotations::default(),
+            references: BoundedVec::new(Vec::new()).unwrap(),
+        }
+    }
+
+    fn schema_digests(entry: &PackEntry) -> (Option<String>, Option<String>) {
+        match facts(entry, &Digest256::from_bytes([0; 32])).unwrap() {
+            AgentComponentFacts::Tool {
+                input_schema_digest,
+                output_schema_digest,
+                ..
+            } => (input_schema_digest, output_schema_digest),
+            other => panic!("a tool entry derives tool facts, not {other:?}"),
+        }
+    }
+
+    /// D18 (EH-198): both schema digests are the `sha256:<hex>` of the pack's
+    /// sections; an absent output section is "declares none".
+    #[test]
+    fn tool_facts_carry_both_section_digests() {
+        let (input, output) = schema_digests(&tool_entry(Some(section(0x03))));
+        assert_eq!(input, Some(format!("sha256:{}", "02".repeat(32))));
+        assert_eq!(output, Some(format!("sha256:{}", "03".repeat(32))));
+        assert_eq!(schema_digests(&tool_entry(None)).1, None);
+    }
+}
