@@ -33,6 +33,7 @@
         <http://knuckles.team/kg/sdd>,
         <http://knuckles.team/kg/sdlc_lifecycle>,
         <http://knuckles.team/kg/software>,
+        <http://knuckles.team/kg/swarm>,
         <http://knuckles.team/kg/system>,
         <http://knuckles.team/kg/trm>,
         <http://knuckles.team/kg/worldview> .
