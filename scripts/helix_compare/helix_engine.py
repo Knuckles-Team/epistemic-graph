@@ -27,6 +27,12 @@ LOAD_NODES_PER_BATCH = 500
 LOAD_EDGES_PER_BATCH = 1000
 START_TIMEOUT_S = 120.0
 INDEX_TIMEOUT_S = 300.0
+# A write can abort with 409 `transaction_conflict` against Helix's own index
+# workers (measured: 9/40 strictly sequential 10-doc batches with text+vector
+# indexes, 0/40 without). An aborted transaction applied nothing, and Helix's
+# error contract says to retry it, so writes retry up to this bound; every
+# retry is counted and reported, and latency includes it.
+MAX_CONFLICT_RETRIES = 10
 
 
 def _free_port() -> int:
@@ -55,6 +61,7 @@ class HelixEngine:
         self.probe: Any = None
         self.ids: dict[str, int] = {}
         self.url = ""
+        self.conflict_retries = 0
 
     @property
     def pid(self) -> int:
@@ -112,11 +119,17 @@ class HelixEngine:
             self.process = None
 
     async def _write(self, batch: Any) -> Any:
-        from helixdb import QueryRequest
+        from helixdb import HelixError, QueryRequest
 
-        return await self.client.execute(
-            QueryRequest.write(batch), await_durability=True
-        )
+        request = QueryRequest.write(batch)
+        for _ in range(MAX_CONFLICT_RETRIES):
+            try:
+                return await self.client.execute(request, await_durability=True)
+            except HelixError as error:
+                if error.code != "transaction_conflict":
+                    raise
+                self.conflict_retries += 1
+        return await self.client.execute(request, await_durability=True)
 
     async def _read(self, name: str, traversal: Any) -> list[dict[str, Any]]:
         from helixdb import QueryRequest, read_batch
@@ -252,21 +265,25 @@ class HelixEngine:
         return set(await self._keys(hop))
 
     async def txn_batch(self, batch: Sequence[tuple[Doc, str]]) -> None:
+        """One write batch: every new node, its citation, and its id read-back.
+
+        The node stream is bound first (a ``value_map`` would turn it into a
+        scalar stream an edge cannot start from), then the edge and the id
+        projection both start from that binding.
+        """
         from helixdb import NodeRef, g, write_batch
 
         request = write_batch()
+        names = []
         for index, (doc, target) in enumerate(batch):
-            node = (
-                g().add_n(LABEL, self._node_properties(doc)).value_map(["$id", "key"])
+            node = NodeRef.var(f"n{index}")
+            request = request.var_as(
+                f"n{index}", g().add_n(LABEL, self._node_properties(doc))
             )
-            request = request.var_as(f"n{index}", node)
-            edge = (
-                g()
-                .n(NodeRef.var(f"n{index}"))
-                .add_e("CITES", self.ids[target], {"weight": 0.5})
-            )
+            edge = g().n(node).add_e("CITES", self.ids[target], {"weight": 0.5})
             request = request.var_as(f"e{index}", edge.count())
-        names = [f"n{index}" for index in range(len(batch))]
+            request = request.var_as(f"k{index}", g().n(node).value_map(["$id", "key"]))
+            names.append(f"k{index}")
         result = await self._write(request.returning(names))
         for name in names:
             for row in rows(result, name):
