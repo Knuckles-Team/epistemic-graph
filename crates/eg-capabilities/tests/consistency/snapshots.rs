@@ -120,6 +120,7 @@ pub(crate) const ACCESS_RS_MUTATES_CONDITIONAL: &[&str] = &[
     "DecisionLog",
     // EH-346/EH-347: every op but `get` commits one immutable record.
     "PolicyEvolution",
+    "EdgeIndex",
     "MutationOutbox",
     "WriteBack",
     // EH-280: only a scoped (branch-aware) batch commits its projection.
