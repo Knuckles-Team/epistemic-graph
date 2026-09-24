@@ -27,7 +27,7 @@ import threading
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from pathlib import PurePosixPath, PureWindowsPath
-from typing import Any, Literal, NamedTuple, NoReturn, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, TypedDict, cast
 
 import msgpack
 
@@ -42,6 +42,9 @@ from .generated.server_registry import (
     RegisteredServerView,
 )
 from .work_market import GapClient, WorkMarketClient
+
+if TYPE_CHECKING:
+    from .generated.models import SparqlResult
 
 logger = logging.getLogger(__name__)
 
@@ -12272,6 +12275,11 @@ class TimeSeriesClient:
         return [str(s) for s in (rows or [])]
 
 
+def _sparql_rows(result: SparqlResult) -> list[dict[str, str | None]]:
+    """One ``{var: value}`` dict per row of a typed ``SparqlResult``."""
+    return [dict(zip(result.vars, row, strict=False)) for row in result.rows]
+
+
 class RdfClient:
     """CONCEPT:EG-KG.ontology.kg-native-rdf-sparql / KG-2.218 — Native RDF/SPARQL
     Namespace.
@@ -12387,6 +12395,31 @@ class RdfClient:
         """
         return await _gen.graph.send_drop_named_graph(self._client, graph=graph)
 
+    async def sparql_result(
+        self,
+        query: str,
+        base_iri: str = "",
+        type_convention: str = "",
+        *,
+        explain: bool = False,
+    ) -> SparqlResult:
+        """Run a SPARQL ``SELECT`` and return the engine's typed ``SparqlResult``
+        (EH-377): ``vars``, ``rows`` aligned to them, and one witness proof per row
+        when ``explain`` (EH-197). The payload is validated against the contract
+        model, so a result the contract does not declare raises
+        ``ContractViolation`` instead of reaching the caller as an untyped dict.
+        Arguments are those of :meth:`sparql`.
+        """
+        params: dict[str, Any] = {
+            "query": query,
+            "base_iri": base_iri,
+            "type_convention": type_convention,
+        }
+        if explain:
+            params["explain"] = True
+        sent = await _gen.reasoning.send_sparql(self._client, params)
+        return _gen.reasoning.decode_sparql(sent)
+
     async def sparql(
         self,
         query: str,
@@ -12406,26 +12439,10 @@ class RdfClient:
         the engine project the live property graph into that vocabulary, so a by-class
         query (``?s a au:Agent``) resolves natively — the engine, not rdflib, answers.
 
-        The engine returns ``{"vars": [...], "rows": [[cell, ...], ...]}`` (a ``Raw``
-        payload the transport already double-unpacks); we zip each row to its vars.
+        The engine's ``SparqlResult`` is validated against its contract model
+        (:meth:`sparql_result`) before each row is zipped to its vars.
         """
-        result = (
-            await _gen.reasoning.send_sparql(
-                self._client,
-                {
-                    "query": query,
-                    "base_iri": base_iri,
-                    "type_convention": type_convention,
-                },
-            )
-        ).payload
-        if not result:
-            return []
-        vars_: list[str] = result.get("vars", [])
-        rows: list[dict[str, str | None]] = []
-        for row in result.get("rows", []):
-            rows.append(dict(zip(vars_, row, strict=False)))
-        return rows
+        return _sparql_rows(await self.sparql_result(query, base_iri, type_convention))
 
     async def sparql_explain(
         self,
@@ -12444,28 +12461,18 @@ class RdfClient:
         not certify (property paths, UNION, MINUS, aggregates, GRAPH, SERVICE, FROM)
         or the search hit its budget.
         """
-        result = (
-            await _gen.reasoning.send_sparql(
-                self._client,
-                {
-                    "query": query,
-                    "base_iri": base_iri,
-                    "type_convention": type_convention,
-                    "explain": True,
-                },
-            )
-        ).payload
-        if not result:
-            return []
-        vars_: list[str] = result.get("vars", [])
-        rows = result.get("rows", [])
+        result = await self.sparql_result(
+            query, base_iri, type_convention, explain=True
+        )
         return [
             {
-                "row": dict(zip(vars_, rows[proof["row"]], strict=False)),
-                "witnesses": proof["witnesses"],
-                "coverage": proof["coverage"],
+                "row": dict(zip(result.vars, result.rows[proof.row], strict=False)),
+                "witnesses": [
+                    witness.model_dump(mode="json") for witness in proof.witnesses
+                ],
+                "coverage": proof.coverage.value,
             }
-            for proof in result.get("proofs", [])
+            for proof in result.proofs
         ]
 
     async def owl_reason(
@@ -12646,24 +12653,16 @@ class RdfClient:
         never
         scanned). The live SQL path needs a server built with ``federation-sql``.
         """
-        result = (
-            await _gen.reasoning.send_sparql_virtual(
-                self._client,
-                {
-                    "query": query,
-                    "mapping": mapping,
-                    "tables": list(tables),
-                    "external_sources": [dict(s) for s in (external_sources or [])],
-                },
-            )
-        ).payload
-        if not result:
-            return []
-        vars_: list[str] = result.get("vars", [])
-        rows: list[dict[str, str | None]] = []
-        for row in result.get("rows", []):
-            rows.append(dict(zip(vars_, row, strict=False)))
-        return rows
+        sent = await _gen.reasoning.send_sparql_virtual(
+            self._client,
+            {
+                "query": query,
+                "mapping": mapping,
+                "tables": list(tables),
+                "external_sources": [dict(s) for s in (external_sources or [])],
+            },
+        )
+        return _sparql_rows(_gen.reasoning.decode_sparql_virtual(sent))
 
 
 class ObdaClient:

@@ -66,7 +66,7 @@ def _sent_params(fake: _FakeClient) -> list[dict[str, Any]]:
     return [value for value in params if value is not None]
 
 
-RESULT_ONE_ROW = {"vars": ["name"], "rows": [["Alice"]]}
+RESULT_ONE_ROW = {"vars": ["name"], "rows": [["Alice"]], "proofs": []}
 
 
 @pytest.mark.asyncio
