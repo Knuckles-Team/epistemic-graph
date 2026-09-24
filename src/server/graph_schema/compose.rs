@@ -722,7 +722,9 @@ ex:parent a owl:AsymmetricProperty .
         // authority triples change.
         assert_eq!(ontology_subjects.len(), 30);
         assert_eq!(imports, 59);
-        assert_eq!(semantic_axioms, 12_542);
+        // +8 (EH-408/409): infrastructure :BehaviourObservation and
+        // :ConformanceViolation, 4 axioms each.
+        assert_eq!(semantic_axioms, 12_550);
 
         let count_type = |object: &str| {
             composed
