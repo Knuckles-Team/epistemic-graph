@@ -73,6 +73,8 @@ fn work_item_body_tenants(method: &Method) -> Vec<&str> {
         Method::TransitionControlLease { request } => vec![request.tenant.as_str()],
         // EH-346: the engine-internal policy-record store binds the same way.
         Method::PolicyEvolutionStore { request } => vec![request.tenant_id.as_str()],
+        // EH-558: sealed-record retirement names its tenant in the body too.
+        Method::RetireSealedRecord { request } => vec![request.tenant.as_str()],
         Method::SubmitWorkItem { request } => vec![request.context.tenant_id.as_str()],
         Method::KgDelegate { request } => vec![request.context.tenant_id.as_str()],
         Method::SubmitWorkItems { request } => std::iter::once(&request.context)

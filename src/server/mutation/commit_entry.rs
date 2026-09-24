@@ -57,6 +57,14 @@ pub(super) fn commit_prepare(
         }
     }
 
+    // 1.5. Sealed records (EH-558): a generic write may not change, remove or forge a
+    // sealed record row. Judged here, against the serving projection, for every
+    // routed mutation whether or not a durable backend is attached; the durable row
+    // applier judges it again inside the write transaction.
+    if let Err(refused) = crate::sealed_guard::refuse_generic_sealed_write(method, ctx.core.as_ref()) {
+        return Err(Response::err(ctx.req_id, refused));
+    }
+
     // 2. Idempotency-replay dedup -- ONLY for methods policy marks idempotent. A
     // byte-identical replay short-circuits BEFORE touching storage: no re-apply, no
     // second durable record, no second audit-chain entry, no duplicate CDC event.

@@ -1929,6 +1929,20 @@ fn spawn_lifecycle_sweeps(state: &Arc<tokio::sync::RwLock<ServerState>>, txn_ttl
         server_startup::registry_reap_tick(reaper_state.clone())
     });
 
+    // ── Sealed record expiry (EH-558) ─────────────────────────────────────────
+    // Retires every sealed record past its class's configured retention through
+    // the owning op, `RetireSealedRecord` -- an audited tombstone, never a generic
+    // delete. Armed only when `EPISTEMIC_GRAPH_SEALED_RETENTION` names a policy.
+    let sealed_policy = epistemic_graph::server::sealed_retention::configured_policy();
+    if !sealed_policy.is_empty() {
+        let interval = epistemic_graph::server::sealed_retention::sweep_interval_secs();
+        info!("Sealed records: expiring by retention policy every {}s (EH-558)", interval);
+        let retention_state = state.clone();
+        spawn_periodic_sweep(interval, "sealed_record_expiry", move || {
+            server_startup::sealed_expiry_tick(retention_state.clone(), sealed_policy.clone())
+        });
+    }
+
     // ── Provenance anchoring (CONCEPT:EG-KG.sharding.row-level-security) ───────────────────────────────
     // Periodically Merkle-anchor every resident graph's `:ToolCall`/`:RunTrace`
     // provenance-node window into the SAME tamper-evident audit chain the

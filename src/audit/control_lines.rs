@@ -421,6 +421,15 @@ fn control_lease_audit_line(method: &Method) -> Option<String> {
             "POLICY_EVOLUTION_STORE|{}|{}",
             request.tenant_id, request.record_id
         )),
+        // EH-558: identity, seal and actor only; never the retired content.
+        Method::RetireSealedRecord { request } => Some(format!(
+            "RETIRE_SEALED_RECORD|{}|{}|{}|{}|{}",
+            request.tenant,
+            request.node_id,
+            request.digest,
+            request.retired_by,
+            request.retired_at_ms
+        )),
         other => work_market_audit_line(other),
     }
 }

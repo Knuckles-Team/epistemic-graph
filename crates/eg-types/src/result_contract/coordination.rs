@@ -17,6 +17,7 @@ pub use work_items::*;
 use crate::control_lease::{
     ControlLeaseIssued, ControlLeasePage, ControlLeaseTransition, ControlLeaseView,
 };
+use crate::sealed_record::SealedRecordRetirement;
 use crate::decision::statistical::log::{
     DecisionLogCommitted, DecisionLogCompacted, DecisionLogEntry, DecisionLogVerification,
     OutcomeAggregate, StoredEvaluation, StoredResolution,
@@ -83,6 +84,8 @@ method_results! {
     WorkOfferPut(WorkOfferPut) => Json<WorkOfferRecorded>;
     GapGet(GapGet) => Raw<Option<GapView>>;
     GapList(GapList) => Raw<GapPage>;
+    // EH-558 sealed-record retirement (the owning op).
+    RetireSealedRecord(RetireSealedRecord) => Json<SealedRecordRetirement>;
     ReserveWorkItemResources(ReserveWorkItemResources) => Raw<ResourceReservationResult>;
     ReleaseWorkItemResources(ReleaseWorkItemResources) => Raw<ResourceReservationResult>;
     ReclaimWorkItemResources(ReclaimWorkItemResources) => Raw<ResourceReservationResult>;

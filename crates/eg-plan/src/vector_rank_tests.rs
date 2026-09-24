@@ -141,3 +141,75 @@ fn filtered_rank_ranks_every_member_exactly() {
     let got = ids(&plan, &ctx);
     assert_eq!(got, oracle(&semantic, &query, &members, members.len()));
 }
+
+/// Recall of `got` against the exact top of the same length.
+fn recall(got: &[(String, f32)], exact: &[String]) -> f64 {
+    let exact: HashSet<&str> = exact.iter().map(String::as_str).collect();
+    let hits = got
+        .iter()
+        .filter(|(id, _)| exact.contains(id.as_str()))
+        .count();
+    hits as f64 / exact.len().max(1) as f64
+}
+
+/// The top-`k` rank with `Limit` fused (EH-565): the plan's answer equals the exact
+/// top-10 of the category (375 members, under the exact ceiling).
+#[test]
+fn rank_then_limit_is_the_exact_top_k_under_the_ceiling() {
+    let (core, semantic) = corpus();
+    let view = core.analysis_snapshot();
+    let ctx = PlanCtx::new(&view, &semantic);
+    let query = vector(77);
+    let plan = Plan::new(vec![
+        Op::Scan {
+            label: "Doc".into(),
+        },
+        Op::Filter {
+            preds: vec![Pred::Eq {
+                prop: "category".into(),
+                value: "c5".into(),
+            }],
+        },
+        Op::Rank {
+            query: query.clone(),
+        },
+        Op::Limit { k: 10 },
+    ]);
+    let members: HashSet<String> = (0..DOCS)
+        .filter(|doc| doc % 8 == 5)
+        .map(|doc| format!("d{doc:04}"))
+        .collect();
+    assert_eq!(ids(&plan, &ctx), oracle(&semantic, &query, &members, 10));
+}
+
+/// The filtered-ANN path (forced with a zero exact ceiling): exactly `k` rows, all
+/// candidates — for a broad set (with near-exact recall) and for a small scattered set
+/// the walk is likely to strand, where the exact top-up must still deliver `k`.
+#[test]
+fn filtered_ann_path_returns_k_candidates_with_high_recall() {
+    use crate::exec::vector_rank::ranked;
+
+    let (_core, semantic) = corpus();
+    let broad: Vec<String> = (0..DOCS)
+        .filter(|doc| doc % 8 == 2)
+        .map(|doc| format!("d{doc:04}"))
+        .collect();
+    let scattered: Vec<String> = (0..12).map(|i| format!("d{:04}", i * 241 + 7)).collect();
+    for (label, members) in [("broad", broad), ("scattered", scattered)] {
+        let set: HashSet<&str> = members.iter().map(String::as_str).collect();
+        let owned: HashSet<String> = members.iter().cloned().collect();
+        let query = vector(9_001);
+        let got = ranked(&semantic, &query, &set, 10, 0);
+        assert_eq!(got.len(), 10, "{label}: k rows survive");
+        assert!(
+            got.iter().all(|(id, _)| set.contains(id.as_str())),
+            "{label}: candidates only"
+        );
+        let exact = oracle(&semantic, &query, &owned, 10);
+        assert!(
+            label == "scattered" || recall(&got, &exact) >= 0.8,
+            "{label}: recall {}",
+            recall(&got, &exact)
+        );
+    }
+}

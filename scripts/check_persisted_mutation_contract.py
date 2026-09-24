@@ -130,9 +130,10 @@ def _native_method_catalog(source: str) -> dict[str, str]:
     # 107 -> 109: EH-404 `RbacElevation` (Identity) and EH-406
     # `ThrottleCapacityCell` (WorkItem kernel).
     # 109 -> 110: EH-524 `TsDefineSeries => TimeSeries` (materialised derived series).
+    # 110 -> 111: EH-558's `RetireSealedRecord` sealed-record retirement.
     require(
-        len(entries) == 110,
-        f"native method catalog must contain 110 entries, observed {len(entries)}",
+        len(entries) == 111,
+        f"native method catalog must contain 111 entries, observed {len(entries)}",
     )
     require("RegisterServer" not in names, "RegisterServer must remain gateway-routed")
     require(
@@ -159,8 +160,8 @@ def _native_method_catalog(source: str) -> dict[str, str]:
             "GraphState": 23,
             "Transaction": 15,
             # +2 control leases, +1 PolicyEvolutionStore; +4 EH-348 GapUpsert,
-            # GapTransition, GapSettle, WorkOfferPut
-            "WorkItem": 25,
+            # GapTransition, GapSettle, WorkOfferPut; +1 EH-558 RetireSealedRecord
+            "WorkItem": 26,
             "Blob": 6,
             "KeyValue": 3,
             "TimeSeries": 4,  # +1 TsDefineSeries (EH-524)
@@ -593,6 +594,8 @@ def _check_mutation_applier_inventory(
         "GapTransition",
         "GapSettle",
         "WorkOfferPut",
+        # EH-558: sealed-record retirement in the same WorkItem kernel.
+        "RetireSealedRecord",
     }
     require(
         work_items == expected_work_items,

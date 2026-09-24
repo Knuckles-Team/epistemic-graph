@@ -479,6 +479,7 @@ const CLASSIFICATION_GOLDEN: &[(&str, &str)] = &[
     ("GapTransition", "ControlPlane"),
     ("GapSettle", "ControlPlane"),
     ("WorkOfferPut", "ControlPlane"),
+    ("RetireSealedRecord", "ControlPlane"),
     ("ReserveWorkItemResources", "ControlPlane"),
     ("ReleaseWorkItemResources", "ControlPlane"),
     ("ReclaimWorkItemResources", "ControlPlane"),

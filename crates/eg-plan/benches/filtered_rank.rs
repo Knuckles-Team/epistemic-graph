@@ -119,7 +119,24 @@ fn bench_filtered_rank(c: &mut Criterion) {
         ),
         (
             "vector_prefilter",
-            filtered(vec![Op::Rank { query }, Op::Limit { k: 10 }]),
+            filtered(vec![
+                Op::Rank {
+                    query: query.clone(),
+                },
+                Op::Limit { k: 10 },
+            ]),
+        ),
+        (
+            "vector_all_top10",
+            Plan::new(vec![
+                Op::Scan {
+                    label: "Doc".into(),
+                },
+                Op::Rank {
+                    query: query.clone(),
+                },
+                Op::Limit { k: 10 },
+            ]),
         ),
     ];
     let mut group = c.benchmark_group("filtered_rank_20k");
@@ -129,6 +146,29 @@ fn bench_filtered_rank(c: &mut Criterion) {
         assert!(rows > 0, "{name} returned no rows");
         group.bench_function(*name, |b| {
             b.iter(|| black_box(execute(plan, &ctx).unwrap()))
+        });
+    }
+    group.finish();
+    bench_exact_vs_ann(c, &corpus.semantic, &query);
+}
+
+/// The exact-vs-ANN crossover behind `EXACT_RANK_MAX`: top-10 over candidate sets of
+/// growing size, scored exactly vs by the filtered ANN walk (k·4 oversampled).
+fn bench_exact_vs_ann(c: &mut Criterion, semantic: &SemanticStore, query: &[f32]) {
+    let mut group = c.benchmark_group("exact_vs_ann_top10");
+    group.sample_size(20);
+    for size in [1_024usize, 4_096, 8_192, DOCS] {
+        let ids: Vec<String> = (0..size)
+            .map(|doc| format!("d{:06}", doc * (DOCS / size)))
+            .collect();
+        let set: std::collections::HashSet<&str> = ids.iter().map(String::as_str).collect();
+        group.bench_function(format!("exact_{size}"), |b| {
+            b.iter(|| black_box(semantic.exact_rank_candidates(query, set.iter().copied(), 10)))
+        });
+        group.bench_function(format!("ann_{size}"), |b| {
+            b.iter(|| {
+                black_box(semantic.semantic_search_filtered(query, 40, |id| set.contains(id)))
+            })
         });
     }
     group.finish();

@@ -383,6 +383,9 @@ impl EmbeddedEngine {
                 self.core(graph, false)?
             }
         };
+        // 0) Sealed records (EH-558) are create-only for generic writes in both the
+        // durable and the in-memory embedded modes.
+        crate::sealed_guard::refuse_generic_sealed_write(&method, core.as_ref())?;
         // 1) Durable typed admission/commit. The shard's graph member resolves
         // its authoritative Graph(version) while the kernel write is held.
         #[cfg(feature = "redb")]
