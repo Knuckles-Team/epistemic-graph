@@ -84,6 +84,7 @@ nav:
       - Cost and capacity: cost_model.md
       - Transport benchmarks: benchmarks.md
       - Soak and chaos benchmarks: benchmarks-soak.md
+      - HelixDB comparison: benchmarks-helix.md
       - Quality terms: quality-gate-terms.md
       - Ecosystem glossary: glossary.md
       - Skill graph reference: reference/skill-graph.generated.md
