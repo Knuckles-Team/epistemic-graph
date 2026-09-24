@@ -17,7 +17,7 @@
 //! -- this in-RAM store stays the hot search/assembly path. Durable persistence
 //! (BUG-016) is a separate, deliberately decoupled cold tier: [`SpanStore::
 //! snapshot`]/[`SpanStore::recover`] give a deterministic durable-bytes
-//! representation that `src/server/obs/mod.rs::ObsState::persist_traces` writes on
+//! representation that `src/server/obs/snapshot.rs::ObsState::persist_traces` writes on
 //! a periodic sweep (mirroring `server::persistence::provenance_anchor`'s
 //! cadence), NOT on every ingest -- persisting the whole store per request would
 //! be BUG-017's write-amplification defect class transplanted onto traces.
@@ -328,7 +328,7 @@ impl SpanStore {
 
     /// BUG-016 durable-tier support: a deterministic durable-bytes representation
     /// of every span held, for a periodic durable-tier sweep
-    /// (`src/server/obs/mod.rs::ObsState::persist_traces`). Snapshotting an
+    /// (`src/server/obs/snapshot.rs::ObsState::persist_traces`). Snapshotting an
     /// UNCHANGED store twice produces byte-identical output -- traces are
     /// serialized in sorted-by-id order (`BTreeMap`), never the process's
     /// randomized `HashMap` iteration order. The `by_service`/`by_operation`
@@ -359,7 +359,7 @@ impl SpanStore {
     /// feature doc), so it does NOT run the byte/item/depth-bounded preflight
     /// `eg_types::msgpack` provides for bytes recovered from durable storage.
     /// Callers recovering bytes from durable storage (e.g.
-    /// `src/server/obs/mod.rs::ObsState::open`) MUST run that bounded validation
+    /// `src/server/obs/state.rs::ObsState::open`) MUST run that bounded validation
     /// on the raw bytes themselves before calling in here.
     pub fn recover(bytes: &[u8]) -> Result<Self, String> {
         let snapshot: SpanStoreSnapshot =
