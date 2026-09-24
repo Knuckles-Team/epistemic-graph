@@ -10,9 +10,10 @@
 //!    refuses the whole request), plus the spans and metric samples that carry
 //!    the caller's tenant under [`collect::TENANT_ATTRIBUTE`]. Telemetry with
 //!    no tenant marker belongs to no caller and is never read.
-//! 2. [`declarations`] reads the request graph's Server / Service / Host /
-//!    Workload / Agent individuals through the verified caller's row-level
-//!    read authority: their declared resolution keys and declared health.
+//! 2. [`declarations`] reads the request graph's individuals whose class the
+//!    ontology subsumes under Server / Service / Host / Workload / Agent
+//!    ([`classes`]) through the verified caller's row-level read authority:
+//!    their declared resolution keys and declared health.
 //! 3. The pure engine (`eg_stream::telemetry`) binds, rolls up, runs the
 //!    declared CEP patterns and checks conformance.
 //! 4. [`materialize`] turns every fact into one upsert of a `BatchUpdate`
@@ -22,6 +23,7 @@
 //!    write, and a re-derivation of the same telemetry is an idempotent upsert
 //!    of the same fact ids.
 
+mod classes;
 mod collect;
 mod declarations;
 mod materialize;

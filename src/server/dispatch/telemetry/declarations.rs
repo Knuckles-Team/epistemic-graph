@@ -1,8 +1,8 @@
 //! What the request graph declares about the entities telemetry binds to
 //! (EH-408 / EH-409).
 //!
-//! An individual takes part when its node `type` is one of the bindable
-//! classes (`Server`, `Service`, `Host`, `Workload`, `Agent`) AND the verified
+//! An individual takes part when its node `type` names a class the ontology
+//! subsumes under a bindable class (see [`super::classes`]) AND the verified
 //! caller can see its row. It declares, as node properties:
 //!
 //! * [`RESOLUTION_KEYS_PROPERTY`] -- an object of attribute name → value, the
@@ -14,13 +14,15 @@
 //! An individual declaring neither takes no part. One whose declaration does
 //! not parse is skipped and counted, never guessed at.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use eg_core::graph::GraphCore;
 use eg_stream::telemetry::{
     Declarations, DeclaredEntity, DeclaredHealth, DeclaredState, EntityClass, EntityRef,
 };
+
+use super::classes::{bindable_types, BindableTypes};
 use serde_json::Value;
 use tokio::sync::RwLock;
 
@@ -33,17 +35,8 @@ use crate::server::state::ServerState;
 pub(super) const RESOLUTION_KEYS_PROPERTY: &str = "resolution_keys";
 pub(super) const DECLARED_HEALTH_PROPERTY: &str = "declared_health";
 
-/// The classes telemetry binds to, in the order their individuals are read.
-const BINDABLE_CLASSES: [EntityClass; 5] = [
-    EntityClass::Server,
-    EntityClass::Service,
-    EntityClass::Host,
-    EntityClass::Deployment,
-    EntityClass::Agent,
-];
-
-/// The most individuals of one class a derivation reads.
-const MAX_INDIVIDUALS_PER_CLASS: usize = 100_000;
+/// The most individuals of one node type a derivation reads.
+const MAX_INDIVIDUALS_PER_TYPE: usize = 100_000;
 
 /// The declarations read from one graph, and how many were unusable.
 #[derive(Debug, Default)]
@@ -75,24 +68,39 @@ pub(super) async fn read(
         let authority = GraphReadAuthority::from_verified(verified, &current.isolation)?;
         (entry.core.clone(), authority)
     };
-    Ok(declarations_from(&core, |node_id, properties| {
+    let sources = core.schema_sources();
+    let types = tokio::task::spawn_blocking(move || bindable_types(&sources))
+        .await
+        .map_err(|_| "telemetry schema classification worker failed".to_string())??;
+    Ok(declarations_from(&core, &types, |node_id, properties| {
         authority.can_see_node(properties, core.is_schema_node(node_id))
     }))
 }
 
-/// The declarations of every bindable individual `visible` admits.
+/// The declarations of every individual of a bindable type that `visible`
+/// admits. A node found under several type labels is read once, under the
+/// union of their target classes.
 pub(super) fn declarations_from(
     core: &GraphCore,
+    types: &BindableTypes,
     visible: impl Fn(&str, &[u8]) -> bool,
 ) -> ReadDeclarations {
-    let mut read = ReadDeclarations::default();
-    for class in BINDABLE_CLASSES {
-        for (node_id, properties) in
-            core.get_nodes_by_label(class.label(), MAX_INDIVIDUALS_PER_CLASS)
-        {
+    let mut individuals: BTreeMap<String, (BTreeSet<EntityClass>, Vec<u8>)> = BTreeMap::new();
+    for node_type in types.types() {
+        let targets = types.targets(node_type).cloned().unwrap_or_default();
+        for (node_id, properties) in core.get_nodes_by_label(node_type, MAX_INDIVIDUALS_PER_TYPE) {
             if visible(&node_id, &properties) {
-                read.push(class, node_id, &properties);
+                let entry = individuals
+                    .entry(node_id)
+                    .or_insert_with(|| (BTreeSet::new(), properties));
+                entry.0.extend(targets.iter().copied());
             }
+        }
+    }
+    let mut read = ReadDeclarations::default();
+    for (node_id, (classes, properties)) in individuals {
+        for class in classes {
+            read.push(class, node_id.clone(), &properties);
         }
     }
     read
