@@ -1,11 +1,20 @@
-# Analytics in UQL — the native analytical database (CONCEPT:EG-KG.query.concept-8)
+# Analytics on the unified query surface — SQL functions and UQL stages (CONCEPT:EG-KG.query.concept-8)
 
-epistemic-graph is an **analytical database with native analytical tools**: the linear-
-algebra / statistics kernel (`eg-numeric` — faer + ndarray, BLAS/LAPACK-free) is exposed
-as first-class SQL functions on the engine's unified query surface (UQL). You run PCA,
-SVD, k-means, covariance, cosine similarity, z-score standardization and the full suite of
-statistical aggregates **directly in a `SELECT`**, over data that already lives in the
-engine — **compute-near-data, no fetch-to-Python, no numpy round-trip, no FFI**.
+epistemic-graph is an **analytical database with native analytical tools**. There are two
+surfaces, and this page keeps them apart:
+
+* **SQL** (DataFusion, every SQL entry point): the linear-algebra / statistics kernel
+  (`eg-numeric` — faer + ndarray, BLAS/LAPACK-free) is exposed as SQL functions — PCA, SVD,
+  k-means, covariance, cosine similarity, z-score standardization and the statistical
+  aggregates — **directly in a `SELECT`**, compute-near-data, no fetch-to-Python. Everything
+  in the catalogs below is SQL; none of it is UQL syntax.
+* **UQL** ([`uql.md`](uql.md)): analytics that are pipeline *stages* over the RowSet — tumbling
+  window aggregates, probabilistic scoring over stored distributions, tensor reductions, and
+  named score channels so several scores survive into one result:
+
+```uql
+TSSCAN ['cpu'] FROM 0 TO 3600 |> WINDOW 60 s MEAN |> RETURN window |> LIMIT 60
+```
 
 ```sql
 SELECT pca(embedding, 3)      FROM docs;          -- top-3 principal components, in-engine
