@@ -94,6 +94,7 @@ pub const UQL_RESERVED_WORDS: &[&str] = &[
     "COVERS",
     "CROSSES",
     "DECIDE",
+    "DECISIONS",
     "DIFFERENCE",
     "DISJOINT",
     "DIV",
@@ -121,6 +122,7 @@ pub const UQL_RESERVED_WORDS: &[&str] = &[
     "K",
     "KEEP",
     "KEY",
+    "KNOWLEDGE",
     "LABEL",
     "LET",
     "LIMIT",
@@ -373,9 +375,18 @@ pub fn uql_op(op: &Op) -> Printed {
         Op::ConfidenceOp {} => fixed("CONFIDENCE"),
         #[cfg(feature = "epistemic")]
         Op::ExplainBelief { node_id } => keyword_quoted("EXPLAIN BELIEF", node_id),
+        Op::DecisionScan { preds } => decision_scan(preds),
         Op::Limit { k } => Ok(format!("LIMIT {k}")),
         Op::Project { channels } => project(channels),
     }
+}
+
+/// `DECISIONS [WHERE pred]` (EH-066).
+fn decision_scan(preds: &[Pred]) -> Printed {
+    if preds.is_empty() {
+        return fixed("DECISIONS");
+    }
+    Ok(format!("DECISIONS WHERE {}", conjunction(preds)?))
 }
 
 /// A clause with no arguments.

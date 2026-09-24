@@ -66,7 +66,7 @@ fn sql_tenant_store(
 }
 
 #[cfg(feature = "query")]
-fn sql_read_snapshot(
+pub(crate) fn sql_read_snapshot(
     core: &Arc<GraphCore>,
     #[cfg(feature = "security")] caller: &str,
     #[cfg(feature = "security")] rls: &Arc<crate::isolation::IsolationLayer>,
@@ -181,44 +181,98 @@ pub(crate) async fn handle_sql(
     }
 }
 
+/// Where one served read's answer is cached: version-keyed and RLS-aware, in the
+/// dependency-scoped namespace when the read has a bounded dependency set (it then
+/// survives writes disjoint from it), stamped with the version of the snapshot it was
+/// computed over.
+#[cfg(all(feature = "query", feature = "result-cache"))]
+pub(crate) struct CacheSlot {
+    pub(crate) hash: u128,
+    pub(crate) dep: Option<eg_core::dep_scope::DepSet>,
+    pub(crate) version: u64,
+}
+
+#[cfg(all(feature = "query", feature = "result-cache"))]
+impl CacheSlot {
+    /// Store `payload` under this slot.
+    pub(crate) fn store(&self, core: &GraphCore, payload: &ResultPayload) {
+        match &self.dep {
+            Some(deps) => eg_core::result_cache::cache_dep_result(
+                core.result_cache(),
+                self.hash,
+                0,
+                self.version,
+                deps.clone(),
+                payload,
+            ),
+            None => {
+                eg_core::result_cache::cache_result(core.result_cache(), self.hash, self.version, payload)
+            }
+        }
+    }
+}
+
+/// The cache key of one served read: `payload` salted with the verified legs, hashed
+/// under the caller's RLS context so agent A's answer never reaches agent B.
+#[cfg(all(feature = "query", feature = "result-cache"))]
+pub(crate) fn served_cache_hash(
+    ctx: &QueryHandlerCtx<'_>,
+    kind: &str,
+    mut payload: Vec<u8>,
+    legs: &ServedPlanLegs,
+) -> u128 {
+    legs.salt_cache_key(&mut payload);
+    rls_cache_hash(
+        kind,
+        &payload,
+        #[cfg(feature = "security")]
+        ctx.caller,
+        #[cfg(feature = "security")]
+        ctx.rls,
+    )
+}
+
+/// The cached answer for `hash`, probed BEFORE the O(V+E) snapshot so a hit never
+/// materializes the graph (BUG-267), and exactly once per request (each probe bumps
+/// the hit/miss counters).
+#[cfg(all(feature = "query", feature = "result-cache"))]
+pub(crate) fn cached_payload(
+    core: &GraphCore,
+    hash: u128,
+    dep: &Option<eg_core::dep_scope::DepSet>,
+) -> Option<Vec<u8>> {
+    match dep {
+        Some(_) => core.result_cache().get_dep(hash, 0, core.dep_clock()),
+        None => core.result_cache().get(hash, core.version()),
+    }
+}
+
+/// Encode one served read's answer as `M`'s result, caching it under `slot` when there
+/// is one; an execution error is `"{label} error: …"`.
 #[cfg(feature = "query")]
-fn unified_response<M>(
+pub(crate) fn served_response<M>(
     req_id: u64,
-    result: UnifiedRunOutcome,
+    result: Result<Result<M::Body, String>, Response>,
+    label: &str,
     #[cfg(feature = "result-cache")] core: &Arc<GraphCore>,
-    #[cfg(feature = "result-cache")] dep: &Option<eg_core::dep_scope::DepSet>,
-    #[cfg(feature = "result-cache")] version: u64,
-    #[cfg(feature = "result-cache")] hash: u128,
+    #[cfg(feature = "result-cache")] slot: Option<CacheSlot>,
 ) -> Response
 where
-    M: MethodResult<Body = Vec<(String, Option<f32>)>, Encoding = encoding::Raw>,
+    M: MethodResult,
     M::Encoding: EncodeRef<M::Body>,
 {
     match result {
-        Ok(Ok(rows)) => match ResultPayload::of_ref::<M>(&rows) {
+        Ok(Ok(body)) => match ResultPayload::of_ref::<M>(&body) {
             Ok(payload) => {
                 #[cfg(feature = "result-cache")]
-                match dep {
-                    Some(deps) => eg_core::result_cache::cache_dep_result(
-                        core.result_cache(),
-                        hash,
-                        0,
-                        version,
-                        deps.clone(),
-                        &payload,
-                    ),
-                    None => eg_core::result_cache::cache_result(
-                        core.result_cache(),
-                        hash,
-                        version,
-                        &payload,
-                    ),
+                if let Some(slot) = slot {
+                    slot.store(core, &payload);
                 }
                 Response::ok(req_id, payload)
             }
             Err(error) => Response::err(req_id, error),
         },
-        Ok(Err(message)) => Response::err(req_id, format!("UnifiedQuery error: {message}")),
+        Ok(Err(message)) => Response::err(req_id, format!("{label} error: {message}")),
         Err(response) => response,
     }
 }
@@ -239,197 +293,51 @@ pub(crate) async fn handle_unified_query(
         Err(refusal) => return Ok(refusal),
     };
     // ONE cross-modal plan (CONCEPT:AU-KG.compute.vector/209): filter (DataFusion) →
-    // traverse (BFS) → rank (kNN) over ONE consistent off-lock snapshot. Take
-    // BOTH the GraphView (topology + property blobs) and a SemanticStore clone
-    // under a brief read each — same point-in-time, so the cross-modal read is
-    // snapshot-isolated — then run the whole pipeline on the blocking pool.
-    // Version-keyed, RLS-aware result cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231): key
-    // on the plan bytes + the caller's RLS context. The plan + semantic store
-    // both reflect `version`, so a write retires the entry; the
-    // RLS-context salt keeps agent A's fused result out of agent B's lookups.
-    // Dependency-scoped invalidation (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation,
-    // W1.6/P7): a plan reducible to a bounded node read (Scan/Filter/Limit) is cached in
-    // the dependency-scoped namespace, so it survives every write DISJOINT from its
-    // labels; any other plan shape keeps the coarse version-keyed path unchanged.
+    // traverse (BFS) → rank (kNN) over ONE consistent off-lock snapshot, run on the
+    // blocking pool. Version-keyed, RLS-aware result cache
+    // (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231) keyed on the
+    // plan bytes + the verified legs; a plan reducible to a bounded node read
+    // (Scan/Filter/Limit) is cached in the dependency-scoped namespace
+    // (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation, W1.6/P7) so it
+    // survives writes disjoint from its labels. A plan whose legs read state outside the
+    // graph version (the decision log) is never cached.
     #[cfg(feature = "result-cache")]
-    let dep = plan_dependency_set(&plan);
-    #[cfg(feature = "result-cache")]
-    let (snap, version, hash) = {
-        let mut payload = match msgpack_bytes(&plan) {
-            Ok(payload) => payload,
-            Err(error) => return Ok(Response::err(req_id, error)),
-        };
-        legs.salt_cache_key(&mut payload);
-        let hash = rls_cache_hash(
-            "unified",
-            &payload,
-            #[cfg(feature = "security")]
-            ctx.caller,
-            #[cfg(feature = "security")]
-            rls,
-        );
-        // BUG-267: probe the cache BEFORE paying for the O(V+E)
-        // `analysis_snapshot_versioned()` clone. `version()` is a bare
-        // atomic load and `dep_clock()` a cheap ref, so a HIT never
-        // materializes the graph at all. This is the ONLY counted
-        // cache lookup on this request's path (BUG-267 follow-up: an
-        // earlier version of this fix re-checked the cache a SECOND
-        // time after the snapshot, on the theory that a concurrent
-        // request might have populated it in between -- but
-        // `ResultCache::get`/`get_dep` bump the hit/miss counters on
-        // EVERY call, so that second check double-counted every miss
-        // and broke `result_cache_dispatch_tests::
-        // hit_on_unchanged_then_write_invalidates` +
-        // `rls_aware_cache_no_cross_agent_leak::
-        // agent_a_cached_result_is_not_served_to_agent_b`, both of
-        // which assert an EXACT miss delta of 1 per served request.
-        // A miss here just proceeds to compute+cache below; the rare
-        // concurrent-populate race is a redundant recompute, not a
-        // correctness issue -- `put`/`put_dep` after the compute
-        // still stores under the FRESH version/deps this call's own
-        // snapshot reflects, so a stale or cross-actor entry can
-        // never result).
-        let probe = match &dep {
-            Some(_) => core.result_cache().get_dep(hash, 0, core.dep_clock()),
-            None => core.result_cache().get(hash, core.version()),
-        };
-        if let Some(bytes) = probe {
-            return Ok(Response::ok(
-                req_id,
-                ResultPayload::of_cache_hit::<query_results::UnifiedQuery>(bytes),
-            ));
-        }
-        // perf/row-visibility-index (B-sweep): a result-cache MISS still
-        // used to unconditionally pay for `filter_view`'s full per-node RLS
-        // decode — mirror `Method::CypherQuery`'s per-(actor,version)
-        // `FilteredViewCache` probe-then-build here too.
-        #[cfg(feature = "security")]
-        let (snap, version) = versioned_rls_snapshot(&core, ctx.caller, rls);
-        #[cfg(not(feature = "security"))]
-        let (snap, version) = core.analysis_snapshot_versioned();
-        (snap, version, hash)
+    let key = match legs.cacheable().then(|| msgpack_bytes(&plan)).transpose() {
+        Ok(bytes) => bytes.map(|bytes| {
+            let hash = served_cache_hash(ctx, "unified", bytes, &legs);
+            (hash, plan_dependency_set(&plan))
+        }),
+        Err(error) => return Ok(Response::err(req_id, error)),
     };
-    #[cfg(not(feature = "result-cache"))]
-    let snap = rls_snapshot(
+    #[cfg(feature = "result-cache")]
+    if let Some(bytes) = key.as_ref().and_then(|(hash, dep)| cached_payload(&core, *hash, dep)) {
+        return Ok(Response::ok(
+            req_id,
+            ResultPayload::of_cache_hit::<query_results::UnifiedQuery>(bytes),
+        ));
+    }
+    let (snap, version) = sql_read_snapshot(
         &core,
         #[cfg(feature = "security")]
         ctx.caller,
         #[cfg(feature = "security")]
         rls,
     );
+    #[cfg(not(feature = "result-cache"))]
+    let _ = version;
     // CONCEPT:EG-KG.query.served-vector-index-binding / served-text-index-binding — push the
     // vector kNN AND lexical legs down into the LIVE persistent indexes instead
     // of cloning/rebuilding them per request, via the shared off-lock runner.
     let result = run_unified_off_lock(state, req_id, &core, snap, plan, legs).await;
-    let resp = unified_response::<query_results::UnifiedQuery>(
+    Ok(served_response::<query_results::UnifiedQuery>(
         req_id,
         result,
+        "UnifiedQuery",
         #[cfg(feature = "result-cache")]
         &core,
         #[cfg(feature = "result-cache")]
-        &dep,
-        #[cfg(feature = "result-cache")]
-        version,
-        #[cfg(feature = "result-cache")]
-        hash,
-    );
-    Ok(resp)
-}
-
-#[cfg(feature = "query")]
-pub(crate) async fn handle_unified_query_text(
-    ctx: &QueryHandlerCtx<'_>,
-    text: String,
-) -> Result<Response, Method> {
-    let state = ctx.state;
-    let req_id = ctx.req_id;
-    let core = ctx.core.clone();
-    #[cfg(feature = "security")]
-    let rls = ctx.rls;
-    let plan = match parse_uql(req_id, &text) {
-        Ok(plan) => plan,
-        Err(refusal) => return Ok(refusal),
-    };
-    // Verified-carrier legs (tsdb scope + the caller's owner-scoped foreign registry, EH-373).
-    let legs = match ctx.served_legs(&plan).await {
-        Ok(legs) => legs,
-        Err(refusal) => return Ok(refusal),
-    };
-    // UQL (CONCEPT:AU-KG.query.top-nodes-by-degree): parse the TEXT query into the SAME `wire::Plan`
-    // `UnifiedQuery` carries, then run the IDENTICAL `run_unified` executor —
-    // a pure front-end, no new execution path. A parse error is a clear,
-    // caret-annotated error Response (never a panic).
-    // Version-keyed, RLS-aware result cache (CONCEPT:EG-KG.coordination.distributed-cache-coherence × KG-2.231): key
-    // on the text + the caller's RLS context (the parse is deterministic, so
-    // caching pre-parse is sound and skips the parse on a hit too). The
-    // RLS-context salt keeps agent A's result out of agent B's lookups.
-    // Dependency-scoped invalidation (W1.6/P7): identical to the `UnifiedQuery` arm — a
-    // Scan/Filter/Limit plan is cached in the dependency-scoped namespace (survives
-    // disjoint writes); any other shape keeps the version-keyed path.
-    #[cfg(feature = "result-cache")]
-    let dep = plan_dependency_set(&plan);
-    #[cfg(feature = "result-cache")]
-    let (snap, version, hash) = {
-        let mut payload = text.clone().into_bytes();
-        legs.salt_cache_key(&mut payload);
-        let hash = rls_cache_hash(
-            "unified-text",
-            &payload,
-            #[cfg(feature = "security")]
-            ctx.caller,
-            #[cfg(feature = "security")]
-            rls,
-        );
-        // BUG-267: same cheap-probe-before-snapshot ordering as the
-        // `UnifiedQuery` arm above — see its comment for the invariant
-        // AND for why there is only ONE counted cache lookup here (a
-        // second post-snapshot check double-counts misses against
-        // `ResultCache`'s hit/miss stats).
-        let probe = match &dep {
-            Some(_) => core.result_cache().get_dep(hash, 0, core.dep_clock()),
-            None => core.result_cache().get(hash, core.version()),
-        };
-        if let Some(bytes) = probe {
-            return Ok(Response::ok(
-                req_id,
-                ResultPayload::of_cache_hit::<query_results::UnifiedQueryText>(bytes),
-            ));
-        }
-        // perf/row-visibility-index (B-sweep): a result-cache MISS still
-        // used to unconditionally pay for `filter_view`'s full per-node RLS
-        // decode — mirror `Method::CypherQuery`'s per-(actor,version)
-        // `FilteredViewCache` probe-then-build here too.
-        #[cfg(feature = "security")]
-        let (snap, version) = versioned_rls_snapshot(&core, ctx.caller, rls);
-        #[cfg(not(feature = "security"))]
-        let (snap, version) = core.analysis_snapshot_versioned();
-        (snap, version, hash)
-    };
-    #[cfg(not(feature = "result-cache"))]
-    let snap = rls_snapshot(
-        &core,
-        #[cfg(feature = "security")]
-        ctx.caller,
-        #[cfg(feature = "security")]
-        rls,
-    );
-    // See the `UnifiedQuery` arm above: push the vector + lexical legs down
-    // into the live persistent indexes via the shared off-lock runner, instead
-    // of pre-cloning the whole `SemanticStore` here.
-    let result = run_unified_off_lock(state, req_id, &core, snap, plan, legs).await;
-    let resp = unified_response::<query_results::UnifiedQueryText>(
-        req_id,
-        result,
-        #[cfg(feature = "result-cache")]
-        &core,
-        #[cfg(feature = "result-cache")]
-        &dep,
-        #[cfg(feature = "result-cache")]
-        version,
-        #[cfg(feature = "result-cache")]
-        hash,
-    );
-    Ok(resp)
+        key.map(|(hash, dep)| CacheSlot { hash, dep, version }),
+    ))
 }
 
 /// Run one read statement against the tenant's authorized SQL catalog off the

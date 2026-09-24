@@ -79,6 +79,10 @@ pub mod geosparql;
 /// oxttl-parsed ontology. Pure Rust; behind `owl` (implies `rdf`).
 #[cfg(feature = "owl")]
 pub mod owl;
+/// The wire projection of an OWL proof tree (`ProofNode` → `ProofNodeWire`), shared by
+/// `OwlExplain` and UQL `WITH PROOF`.
+#[cfg(feature = "owl")]
+pub mod owl_wire;
 
 /// ModalityContract retrofit (CONCEPT:E4): `impl ModalityContract for
 /// owl::ProofNode` — the reference non-trivial `provenance()`, mapping

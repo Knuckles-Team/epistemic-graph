@@ -9,11 +9,12 @@
 //!    parameters, lists, vectors, JSON literals;
 //!  * `pred` — the predicate algebra (`OR`/`AND`/`NOT`/parentheses and every atom);
 //!  * `basic` — `MATCH`, `WHERE`, `TRAVERSE`, `RANK`, `RERANK`, `AS OF`, `WINDOW`, `LIMIT`,
-//!    `RETURN`, `FOREIGN`;
+//!    `RETURN`, `FOREIGN`, `DECISIONS`;
 //!  * `semantic` — `TEXT`/`FUSE` (text), `REASON`/`SPARQL` (owl), `UDF` (wasm-udf) and the
 //!    epistemic stages;
 //!  * `modality` — spatial, tensor, time-series/sensor, CEP and probabilistic stages;
-//!  * `program` — statements: `UQL n;`, `EXPLAIN`/`PROFILE`, `LET` bindings, `FROM`/`JOIN`.
+//!  * `program` — statements: `UQL n;`, `EXPLAIN`/`PROFILE`, `LET` bindings, `FROM`/`JOIN`,
+//!    and the `WITH PROOF` / `WITH KNOWLEDGE` row annotations.
 //!
 //! Feature policy (UQL-10, one rule everywhere): every clause is RECOGNIZED by its
 //! leading keyword in every build; a clause whose executor needs a cargo feature this
@@ -106,7 +107,7 @@ impl<'a> Parser<'a> {
     /// Every stage/source keyword → its parser. MATCH (it may lower to two ops) and
     /// `VALIDATE SHAPE` (the two-keyword lead `parser::shape` owns, so that every other
     /// `VALIDATE …` still reaches the DecideText refusal) are handled by [`Self::stage`].
-    pub(super) fn stage_table() -> [(&'static str, StageFn<'a>); 29] {
+    pub(super) fn stage_table() -> [(&'static str, StageFn<'a>); 30] {
         [
             ("WHERE", Self::where_stage),
             ("TRAVERSE", Self::traverse),
@@ -118,6 +119,7 @@ impl<'a> Parser<'a> {
             ("LIMIT", Self::limit),
             ("RETURN", Self::return_stage),
             ("FOREIGN", Self::foreign),
+            ("DECISIONS", Self::decisions),
             ("TEXT", Self::text),
             ("FUSE", Self::fuse),
             ("REASON", Self::reason),

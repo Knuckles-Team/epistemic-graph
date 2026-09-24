@@ -48,7 +48,7 @@ pub mod serve;
 pub use diag::{UqlCode, UqlError, UqlWarnCode, UqlWarning, ALL_CODES};
 #[cfg(feature = "query")]
 pub use parser::program::to_plan_dag;
-pub use parser::program::{Body, DagNode, Mode, Statement, UQL_VERSION};
+pub use parser::program::{Annotations, Body, DagNode, Mode, Statement, UQL_VERSION};
 pub use print::canonicalize;
 
 /// Typed parameter bindings: `$name` → value.
@@ -62,16 +62,16 @@ pub fn parse_statement(src: &str, params: &Params) -> Result<Statement, UqlError
 }
 
 /// Parse a plain pipeline with typed parameters into the [`Plan`] `UnifiedQuery` runs.
-/// `EXPLAIN`/`PROFILE` and DAG programs are refused (`UQL_STATEMENT_NOT_PIPELINE`) —
-/// use [`parse_statement`] for those.
+/// `EXPLAIN`/`PROFILE`, DAG programs and `WITH …` annotations are refused
+/// (`UQL_STATEMENT_NOT_PIPELINE`) — use [`parse_statement`] for those.
 pub fn parse_with(src: &str, params: &Params) -> Result<Plan, UqlError> {
     let stmt = parse_statement(src, params)?;
-    match (stmt.mode, stmt.body) {
-        (Mode::Run, Body::Pipeline(plan)) => Ok(plan),
+    match (stmt.mode, stmt.body, stmt.annotations.any()) {
+        (Mode::Run, Body::Pipeline(plan), false) => Ok(plan),
         _ => Err(UqlError::new(
             UqlCode::StatementNotPipeline,
-            "this is an EXPLAIN/PROFILE statement or a LET … FROM/JOIN program, not a plain \
-             pipeline",
+            "this is an EXPLAIN/PROFILE statement, a LET … FROM/JOIN program or an annotated \
+             (`WITH …`) statement, not a plain pipeline",
             (0, src.len().min(1)),
         )
         .with_help("use `eg_plan::uql::parse_statement`")),
