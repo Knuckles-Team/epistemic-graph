@@ -315,6 +315,13 @@ impl GraphTemporalIndex {
         }
     }
 
+    /// Whether `node_id`'s durable series is not exactly `points` (an unreadable
+    /// series counts as different, so the rebuild rewrites it).
+    fn stored_differs(&self, node_id: &str, points: &[eg_tsdb::point::Point]) -> bool {
+        let sid = temporal_series_id(&self.graph, node_id);
+        !matches!(self.store.scan_all(&sid), Ok(stored) if stored == points)
+    }
+
     /// Idempotent replace of a node's series: drop the old one, then append the new
     /// points (empty ⇒ just the drop). Keeps incremental == rebuild.
     fn replace(&self, node_id: &str, points: &[eg_tsdb::point::Point]) {
@@ -399,8 +406,14 @@ impl SecondaryIndex for GraphTemporalIndex {
         Ok(())
     }
 
-    /// OUT-OF-LOCK rebuild from live nodes: drop every node's series, then re-append
-    /// from current content. Safe (no topology lock held on this path).
+    /// OUT-OF-LOCK rebuild from live nodes: every node whose durable series differs
+    /// from its current content is replaced. Safe (no topology lock held on this path).
+    ///
+    /// EH-559: every `replace` is a durable kernel commit, and this runs on every
+    /// graph re-open. Replacing unconditionally cost one commit per node -- ~30 ms a
+    /// document, so a 3,000-document graph stayed unreadable for 90 s after a
+    /// restart. A series that already matches (almost always: the write path keeps
+    /// it current) is only read.
     fn full_rebuild(&self, core: &GraphCore) -> Result<(), IndexError> {
         for id in core.node_ids() {
             let pts = core
@@ -409,7 +422,9 @@ impl SecondaryIndex for GraphTemporalIndex {
                 .and_then(decode_props)
                 .and_then(|m| extract_measurements(&m))
                 .unwrap_or_default();
-            self.replace(&id, &pts);
+            if self.stored_differs(&id, &pts) {
+                self.replace(&id, &pts);
+            }
         }
         Ok(())
     }

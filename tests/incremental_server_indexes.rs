@@ -197,6 +197,47 @@ fn temporal_incremental_equals_rebuild() {
     );
 }
 
+/// EH-559: re-opening a graph rebuilds its temporal index, and a rebuild used to
+/// replace EVERY node's series -- one durable commit per node, ~30 ms a document of
+/// restart unavailability. Over a store the write path already keeps current, the
+/// rebuild must commit nothing, and nodes without measurements must never cost one.
+#[test]
+fn temporal_rebuild_over_a_current_store_commits_nothing() {
+    let series = tmp_series();
+    let core = GraphCore::new();
+    for i in 0..200 {
+        core.add_node(
+            format!("doc{i}"),
+            props(serde_json::json!({"text": "no measurements"})),
+        );
+    }
+    let measured = serde_json::json!({ "measurements": [ {"ts": 1000, "value": 1.0} ] });
+    core.add_node("m".into(), props(measured));
+
+    let before = series.maintenance_version().unwrap();
+    GraphTemporalIndex::new(series.clone(), "g")
+        .full_rebuild(&core)
+        .unwrap();
+    let after_first = series.maintenance_version().unwrap();
+    assert!(
+        after_first - before <= 2,
+        "only the measured node may commit (delete + append), got {}",
+        after_first - before
+    );
+    assert_eq!(series.scan_all("g\u{0}m").unwrap().len(), 1);
+
+    // A re-open: a fresh index over the same durable store.
+    GraphTemporalIndex::new(series.clone(), "g")
+        .full_rebuild(&core)
+        .unwrap();
+    assert_eq!(
+        series.maintenance_version().unwrap(),
+        after_first,
+        "a rebuild over a current store must not commit"
+    );
+    assert_eq!(series.scan_all("g\u{0}m").unwrap().len(), 1);
+}
+
 // ── derived-OWL: the differential materializer ≡ full rebuild ─────────────────────
 
 /// The `DerivedOwlIndex` defers to the eg-rdf reasoner's OWN differential
