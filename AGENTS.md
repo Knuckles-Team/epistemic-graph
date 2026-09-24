@@ -69,9 +69,9 @@ contract surfaces, lockfiles, and Rust formatting in sync with their sources.
 The development workflow lives in skills; load them before editing:
 
 - `graphos-ecosystem-development` — architecture boundaries, the lane protocol,
-  build hosts (`eg-lane-run`; never cargo on a workstation shared by lanes),
-  gate caps, contract regeneration, and landing with `eg-land-gate --fanout`
-  (the default; `--serial` only as an escape hatch, `--jobs` for a delta re-gate).
+  dedicated build hosts (never cargo on a workstation shared by lanes), gate
+  caps, contract regeneration, and landing with the release-workflow gate fanned
+  out across hosts (the default; a serial run only as an escape hatch).
 - `epistemic-graph-development` — guardrails, the authorization model, the crate
   layer model, gates, MutationBatch rules, and build/test commands.
 
