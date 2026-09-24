@@ -48,7 +48,7 @@ pub const APPROVER_GROUPS: &[(&str, &str)] = &[
 pub const SCOPES: &[ScopeEntry] = &[
     entry("admin:backup", Admin, "engine"),
     entry("admin:cluster", Admin, "engine"),
-    entry("admin:cluster-read", Admin, "engine"),
+    entry("admin:cluster-read", ServiceOnly, "engine"),
     entry("admin:connector-pack", Admin, "engine"),
     entry("admin:decision-eval", Admin, "engine"),
     entry("admin:decision-fit", Admin, "engine"),
