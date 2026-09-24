@@ -32,6 +32,17 @@ pub fn uql_sample_op(kind: OpKind) -> Op {
             max: 2,
             edge_preds: vec![uql_sample_pred(PredKind::Cmp)],
         },
+        OpKind::Propagate => Op::Propagate {
+            model: PropagateModel::Cascade {
+                samples: 500,
+                seed: 7,
+            },
+            rel: Some("dependsOn".into()),
+            dir: EdgeDir::In,
+            edge_preds: vec![uql_sample_pred(PredKind::Cmp)],
+            hops: 4,
+            default_transmission: 0.25,
+        },
         OpKind::Rank => Op::Rank {
             query: vec![0.1, -0.25, 3.0e-7],
         },

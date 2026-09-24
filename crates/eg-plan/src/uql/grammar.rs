@@ -192,6 +192,16 @@ pub const PRODUCTIONS: &[Production] = &[
        [ hops ]",
       "Traverse{rel,min,max} / Expand{rel, dir, min, max, edge_preds}",
       "MATCH (:Doc) |> TRAVERSE <-[:CITES WHERE weight >= 0.5]-{1,2}"),
+    p("propagate", Stage, &["PROPAGATE"], None,
+      "\"PROPAGATE\" ( \"NOISY_OR\" | \"CASCADE\" [ \"SAMPLES\" int ] [ \"SEED\" int ] ) edge \
+       [ \"HOPS\" int ] [ \"DEFAULT\" num ]",
+      "Propagate{model, rel, dir, edge_preds, hops, default_transmission}: P(hit) per node, \
+       channel `impact` (EH-526)",
+      "MATCH (:Incident) |> WHERE status = 'open' |> PROPAGATE NOISY_OR <-[:dependsOn]- HOPS 4 \
+       |> RETURN impact |> LIMIT 50"),
+    p("edge", Aux, &[], None,
+      "\"-\" \"[\" rel \"]\" ( \"->\" | \"-\" ) | \"<-\" \"[\" rel \"]\" \"-\" | name",
+      "(dir, rel, edge_preds)", ""),
     p("rel", Aux, &[], None, "( \":\" name | \"*\" ) [ \"WHERE\" pred ]",
       "relationship + edge predicates", ""),
     p("hops", Aux, &[], None, "\"{\" int [ ( \",\" | \"..\" ) int ] \"}\"",

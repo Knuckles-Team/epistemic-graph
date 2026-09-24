@@ -49,6 +49,21 @@ fn canonical_op(op: &Op) -> Op {
                 edge_preds: edge_preds.iter().map(canonical_pred).collect(),
             },
         },
+        Op::Propagate {
+            model,
+            rel,
+            dir,
+            edge_preds,
+            hops,
+            default_transmission,
+        } => Op::Propagate {
+            model: *model,
+            rel: rel.clone(),
+            dir: *dir,
+            edge_preds: edge_preds.iter().map(canonical_pred).collect(),
+            hops: *hops,
+            default_transmission: *default_transmission,
+        },
         #[cfg(feature = "text")]
         Op::FuseRrf { branches, k } => Op::FuseRrf {
             branches: branches

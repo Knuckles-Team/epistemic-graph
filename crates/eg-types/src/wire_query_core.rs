@@ -157,6 +157,19 @@ pub enum EdgeDir {
     Both,
 }
 
+/// The impact model of a [`Op::Propagate`] stage (EH-526).
+#[cfg(feature = "query")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum PropagateModel {
+    /// Noisy-OR over the downstream cone (exact on a polytree cone, otherwise an
+    /// upper bound; bounded unrolling on a cycle).
+    NoisyOr,
+    /// Seeded Monte Carlo of the independent-cascade (live-edge) model.
+    Cascade { samples: u32, seed: u64 },
+}
+
 /// A typed UQL parameter value (UQL-07): what a `$name` in UQL text is bound to. Bound
 /// values are substituted into the parsed plan as typed literals — never spliced into
 /// the text — so a parameter can never change the query's structure.
@@ -242,6 +255,21 @@ pub enum Op {
         min: usize,
         max: usize,
         edge_preds: Vec<Pred>,
+    },
+    /// PROPAGATE (graph, EH-526) — the probability that each node is hit when the
+    /// current rows are hit: seeds are the input rows (seed probability = the node's
+    /// `p_seed` property when it is a number in `[0, 1]`, else 1), impact flows along
+    /// edges in `dir` restricted to `rel` and `edge_preds` for at most `hops` hops,
+    /// and an edge transmits with its `transmission` property (else
+    /// `default_transmission`). Output: every hit node, most probable first, scored
+    /// by its probability (channel `impact`).
+    Propagate {
+        model: PropagateModel,
+        rel: Option<String>,
+        dir: EdgeDir,
+        edge_preds: Vec<Pred>,
+        hops: usize,
+        default_transmission: f64,
     },
     /// RANK (vector) — re-order by cosine similarity to `query` (SemanticStore kNN).
     Rank { query: Vec<f32> },

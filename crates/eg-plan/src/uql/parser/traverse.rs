@@ -1,10 +1,16 @@
-//! `TRAVERSE`: edge patterns (direction, relationship, edge predicates) and hop ranges.
+//! `TRAVERSE` and `PROPAGATE`: edge patterns (direction, relationship, edge predicates),
+//! hop ranges and the impact-model clause.
 
-use eg_types::wire::{EdgeDir, Op};
+use eg_types::wire::{EdgeDir, Op, PropagateModel};
 
 use super::Parser;
 use crate::uql::diag::{UqlCode, UqlError};
 use crate::uql::lexer::Tok;
+
+/// `PROPAGATE` without `HOPS`.
+const PROPAGATE_DEFAULT_HOPS: usize = 8;
+/// `CASCADE` without `SAMPLES`.
+const PROPAGATE_DEFAULT_SAMPLES: u32 = 2_000;
 
 impl<'a> Parser<'a> {
     /// `TRAVERSE edge [hops]`.
@@ -21,6 +27,65 @@ impl<'a> Parser<'a> {
                 edge_preds,
             },
         })
+    }
+
+    /// `PROPAGATE model edge [HOPS n] [DEFAULT p]` (EH-526).
+    pub(super) fn propagate(&mut self) -> Result<Op, UqlError> {
+        let model = self.propagate_model()?;
+        let (dir, rel, edge_preds) = self.edge_pattern()?;
+        let hops = if self.eat_kw("HOPS") {
+            self.parse_number::<usize>("a hop bound")?
+        } else {
+            PROPAGATE_DEFAULT_HOPS
+        };
+        let default_transmission = if self.eat_kw("DEFAULT") {
+            self.transmission()?
+        } else {
+            1.0
+        };
+        Ok(Op::Propagate {
+            model,
+            rel,
+            dir,
+            edge_preds,
+            hops,
+            default_transmission,
+        })
+    }
+
+    /// `NOISY_OR` | `CASCADE [SAMPLES n] [SEED s]`.
+    fn propagate_model(&mut self) -> Result<PropagateModel, UqlError> {
+        if self.eat_kw("NOISY_OR") {
+            return Ok(PropagateModel::NoisyOr);
+        }
+        if !self.eat_kw("CASCADE") {
+            return Err(self.err_here("expected `NOISY_OR` or `CASCADE` after PROPAGATE"));
+        }
+        let samples = if self.eat_kw("SAMPLES") {
+            self.parse_number::<u32>("a sample count")?
+        } else {
+            PROPAGATE_DEFAULT_SAMPLES
+        };
+        let seed = if self.eat_kw("SEED") {
+            self.parse_number::<u64>("a seed")?
+        } else {
+            0
+        };
+        Ok(PropagateModel::Cascade { samples, seed })
+    }
+
+    /// A default transmission probability in `[0, 1]`.
+    fn transmission(&mut self) -> Result<f64, UqlError> {
+        let start = self.cur_span();
+        let p = self.number("a transmission probability")?;
+        if !(0.0..=1.0).contains(&p) {
+            return Err(UqlError::new(
+                UqlCode::InvalidRange,
+                "DEFAULT transmission must be in [0, 1]",
+                (start.0, self.prev_span().1),
+            ));
+        }
+        Ok(p)
     }
 
     /// `-[rel]->` | `-[rel]-` | `<-[rel]-` | bare `name` (outgoing).
