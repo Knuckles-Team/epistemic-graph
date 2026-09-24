@@ -62,6 +62,7 @@ class HelixEngine:
         self.ids: dict[str, int] = {}
         self.url = ""
         self.conflict_retries = 0
+        self.ready_s = 0.0
 
     @property
     def pid(self) -> int:
@@ -73,6 +74,7 @@ class HelixEngine:
         from helixdb import AsyncClient
 
         self.data_dir.mkdir(parents=True, exist_ok=True)
+        began = asyncio.get_running_loop().time()
         http, grpc = _free_port(), _free_port()
         self.url = f"http://127.0.0.1:{http}"
         env = {
@@ -92,6 +94,7 @@ class HelixEngine:
         self.client = AsyncClient(self.url, timeout=120.0, limits=limits)
         self.probe = httpx.AsyncClient(limits=limits)
         await self._wait_ready(httpx)
+        self.ready_s = round(asyncio.get_running_loop().time() - began, 2)
 
     async def _wait_ready(self, httpx: Any) -> None:
         loop = asyncio.get_running_loop()

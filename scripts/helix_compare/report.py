@@ -50,7 +50,9 @@ def _gate_rows(engine: dict[str, Any]) -> list[str]:
     gates = dict(engine.get("gate", {}))
     gates["txn_batch"] = engine.get("txn_batch", {}).get("gate", {})
     return [
-        f"| {name} | {engine['engine']} | {gate.get('checked')} | {gate.get('failed')} "
+        f"| {name} | {engine['engine']} | {'yes' if gate.get('passed') else 'NO'} "
+        f"| {gate.get('checked')} | {gate.get('failed')} "
+        f"| {gate.get('recall_mean', '')} | {gate.get('recall_min', '')} "
         f"| {'; '.join(gate.get('failure_samples', []))[:300]} |"
         for name, gate in gates.items()
     ]
@@ -62,15 +64,16 @@ def _footprint_row(engine: dict[str, Any]) -> str:
         f"| {engine['engine']} | {load.get('seconds')} | {load.get('docs_per_s')} "
         f"| {load.get('storage_bytes')} | {load.get('storage_amplification')} "
         f"| {engine.get('storage_bytes_final')} | {engine.get('idle_rss_kb')} "
-        f"| {engine.get('peak_rss_kb')} | {engine.get('write_conflict_retries')} |"
+        f"| {engine.get('peak_rss_kb')} | {engine.get('write_conflict_retries')} "
+        f"| {engine.get('ready_empty_s')} | {engine.get('ready_after_restart_s')} |"
     )
 
 
 def render(report: dict[str, Any]) -> str:
     engines = report["engines"]
     sections = [
-        "### Correctness gate\n\n| workload | engine | checked | failed | samples |"
-        "\n|---|---|--:|--:|---|",
+        "### Correctness gate\n\n| workload | engine | passed | checked | failed "
+        "| recall mean | recall min | samples |\n|---|---|---|--:|--:|--:|--:|---|",
         *[line for engine in engines for line in _gate_rows(engine)],
         "\n### Warm latency and throughput\n\n" + HEADER,
         *[line for engine in engines for line in _timed_rows(engine, "warm")],
@@ -79,7 +82,8 @@ def render(report: dict[str, Any]) -> str:
         *[line for engine in engines for line in _timed_rows(engine, "cold")],
         "\n### Load and footprint\n\n| engine | load s | docs/s | storage B "
         "| amplification | storage B (final) | idle RSS kB | peak RSS kB "
-        "| write conflict retries |\n|---|--:|--:|--:|--:|--:|--:|--:|--:|",
+        "| write conflict retries | ready empty s | ready after restart s |"
+        "\n|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|",
         *[_footprint_row(engine) for engine in engines],
     ]
     return "\n".join(sections) + "\n"
