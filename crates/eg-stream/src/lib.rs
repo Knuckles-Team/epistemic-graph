@@ -59,6 +59,11 @@ mod contract;
 // documentation/tests even without `cdc-kafka`; `KafkaCdcSink` itself is
 // `#[cfg(feature = "cdc-kafka")]`-gated inside the module (needs `rdkafka`).
 pub mod sink;
+// EH-408 / EH-409 — stored logs, metrics and traces bound to ontology entities,
+// rolled up into BehaviourObservation facts, and turned into HealthAnomaly /
+// Incident / ConformanceViolation facts by declared CEP patterns and declared
+// health. Pure and synchronous (serde + serde_json only), so it is always on.
+pub mod telemetry;
 
 pub use cep::{run, CepPattern, Match, Window, MAX_ACTIVE_RUNS};
 pub use event::{AttrPredicate, Event, EventMatcher};
