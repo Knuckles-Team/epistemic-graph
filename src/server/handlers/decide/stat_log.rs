@@ -148,6 +148,7 @@ fn commit(
     ctx: &ExecutionContext,
     reader: &LogReader,
     record: &StatisticalDecisionRecord,
+    evaluator: Option<&eg_types::decision::statistical::log::NamedEvaluator>,
 ) -> Result<DecisionLogCommitted, String> {
     if record.caller_principal != reader.principal {
         return Err(
@@ -180,8 +181,11 @@ fn commit(
         committed_at_ms: ctx.now_ms,
         inputs: EntryInputs::Inline,
     };
-    ctx.store
-        .put_decision_artifacts(ctx.tenant_id, &[(key, encode_artifact(&entry)?)])?;
+    // EH-395: a named evaluator's grant is written in the same transaction.
+    let mut rows =
+        super::stat_evaluator::grant_rows(ctx, &logged.record_id, &reader.principal, evaluator)?;
+    rows.push((key, encode_artifact(&entry)?));
+    ctx.store.put_decision_artifacts(ctx.tenant_id, &rows)?;
     Ok(committed(false))
 }
 
@@ -193,7 +197,7 @@ fn check_evaluable(
     record_id: &str,
 ) -> Result<(), String> {
     let invalid = |detail: &str| refusal(StatisticalErrorCode::ParameterInvalid, detail);
-    match visible_entry(ctx.store, reader, record_id)? {
+    match super::stat_evaluator::evaluable_entry(ctx, reader, record_id)? {
         Some(entry) if executed_option(&entry.record.outcome).is_none() => {
             Err(invalid("the record executed no option"))
         }
@@ -430,9 +434,9 @@ fn dispatch(
         DecisionLogGet, DecisionLogResolve, DecisionLogVerify,
     };
     match op {
-        DecisionLogOp::Commit { record } => {
-            ResultPayload::of::<DecisionLogCommit>(commit(ctx, reader, &record)?)
-        }
+        DecisionLogOp::Commit { record, evaluator } => ResultPayload::of::<DecisionLogCommit>(
+            commit(ctx, reader, &record, evaluator.as_ref())?,
+        ),
         DecisionLogOp::Evaluate { evaluation, .. } => {
             ResultPayload::of::<DecisionLogEvaluate>(evaluate(ctx, reader, evaluation)?)
         }
