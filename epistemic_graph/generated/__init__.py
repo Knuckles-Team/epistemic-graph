@@ -233,6 +233,7 @@ SEND_BY_METHOD = {
     "FinanceKellyFraction": compute.send_finance_kelly_fraction,
     "FinanceKyleLambda": compute.send_finance_kyle_lambda,
     "FinanceLogitQuotes": compute.send_finance_logit_quotes,
+    "FinanceMarket": compute.send_finance_market,
     "FinanceMarketImpact": compute.send_finance_market_impact,
     "FinanceMarkovTransitionMatrix": compute.send_finance_markov_transition_matrix,
     "FinanceMatchOrders": compute.send_finance_match_orders,

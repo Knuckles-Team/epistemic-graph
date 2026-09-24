@@ -1,7 +1,7 @@
 {
   "contract_version": 1,
   "generator": "eg-capabilities/gen_contract",
-  "method_count": 437,
+  "method_count": 438,
   "methods": [
     {
       "consumer_profiles": [
@@ -4678,6 +4678,77 @@
         "kind": "declared",
         "schema": "contract/schemas/result.compute.json#/methods/FinanceForensicReport",
         "selected_by": null
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "compute",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED"
+      ],
+      "format_identities": [],
+      "id": "FinanceMarket",
+      "note": "EH-413..EH-418 market bars and trend signals: bar codec/resolve/rollup over the time-series layout, integer indicators, signal replay/advance/scan, calibrated flip confidence and the backtest-run record. Pure compute over the request; informational only, never an order authority",
+      "policy": {
+        "audited": false,
+        "authz_action": "compute:finance",
+        "durability_domain": "None",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": false,
+        "txn_participation": "None"
+      },
+      "replay_class": "NotReplayable",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/FinanceMarket"
+      },
+      "result_schema": {
+        "bodies": {
+          "backtest_run": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "encode_points": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "flip_confidence": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "indicators": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "resolve": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "rollup": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "signal_advance": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "signal_replay": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "signal_scan": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.compute.json#/methods/FinanceMarket",
+        "selected_by": "op"
       },
       "stability": "stable"
     },

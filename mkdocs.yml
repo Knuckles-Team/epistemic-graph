@@ -54,6 +54,7 @@ nav:
       - Analytics program: architecture/analytics_program.md
       - Numeric kernel: architecture/numeric_kernel.md
       - Hot-path complexity: architecture/hot-path-complexity.md
+      - Market bars and trend signals: architecture/finance-market.md
   - Operate:
       - Deploy the engine: standalone_deployment.md
       - Deployment reference: deployment.md

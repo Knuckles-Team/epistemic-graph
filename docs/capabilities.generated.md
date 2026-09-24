@@ -130,6 +130,7 @@
 | `FinanceProbabilityBacktestOverfit` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceDieboldMariano` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceForensicReport` | false | None | `compute:finance` | true | false | false | None |  |
+| `FinanceMarket` | false | None | `compute:finance` | true | false | false | None | EH-413..EH-418 market bars and trend signals: bar codec/resolve/rollup over the time-series layout, integer indicators, signal replay/advance/scan, calibrated flip confidence and the backtest-run record. Pure compute over the request; informational only, never an order authority |
 | `FinanceKalmanFilter1d` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceKalmanBeta` | false | None | `compute:finance` | true | false | false | None |  |
 | `FinanceKalmanVolatility` | false | None | `compute:finance` | true | false | false | None |  |
