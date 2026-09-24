@@ -327,12 +327,21 @@ pub(super) const REASON_NATIVE_WORK_ITEM_TENANT_READ: &str =
 // record, a count or a pooled rate is formed.
 pub(super) const REASON_DECISION_LOG_VISIBILITY: &str =
     "DecisionLog reads committed decision records and evaluations from the tenant-bound agent_library.redb control owner, filtered by each record's own visibility (tenant for library-sourced, committing principal for graph-sourced) before any record or aggregate is formed -- never a GraphView/core.analysis_snapshot() row read";
+// EH-400: `FreshnessFeed` returns change METADATA, not rows: invalidation events are (version,
+// class names, edge-type names) straight from the dependency clock; the volatility policy is
+// annotations on schema classes (visible to every reader of the graph, see `RLS_SCHEMA_KEY`);
+// and foreign-source watermark nodes -- the only instance rows it reads -- are filtered through
+// the caller's `IsolationLayer::can_see_row` before they are reported.
+pub(super) const REASON_FRESHNESS_METADATA: &str =
+    "handlers::query::freshness_feed reads the DepClock invalidation log (versions + class/edge-type names, no row ids or content) and schema-class volatility annotations; the only instance rows it reports, ForeignSourceWatermark nodes, pass IsolationLayer::can_see_row for the caller first";
 
 pub(super) const NON_ROW_SCOPED: &[(&str, &str)] = &[
     // REASON_DECIDE_LIBRARY_SNAPSHOT
     ("Decide", REASON_DECIDE_LIBRARY_SNAPSHOT),
     // REASON_DECISION_LOG_VISIBILITY
     ("DecisionLog", REASON_DECISION_LOG_VISIBILITY),
+    // REASON_FRESHNESS_METADATA
+    ("FreshnessFeed", REASON_FRESHNESS_METADATA),
     // REASON_AGENT_LIBRARY_TENANT_SNAPSHOT
     ("AgentAssemble", REASON_AGENT_LIBRARY_TENANT_SNAPSHOT),
     // REASON_SOLVE_PURE_COMPUTE

@@ -1,14 +1,14 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-use crate::dep_scope::{DepClock, DepSet};
+use crate::dep_scope::{DepProbe, DepSet};
 
 use super::ResultCache;
 
 /// Cache key for a DEPENDENCY-SCOPED entry (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation,
 /// W1.6/P7): the query identity + RLS actor scope, WITHOUT the graph version. Unlike the
 /// version-keyed [`super::versioned::Key`], a dependency-scoped entry is not retired by every
-/// write — it is keyed on identity alone and revalidated against the [`DepClock`] on each lookup,
+/// write — it is keyed on identity alone and revalidated against the [`crate::dep_scope::DepClock`] on each lookup,
 /// so it survives any write DISJOINT from the query's dependency set.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) struct DepKey {
@@ -17,7 +17,7 @@ pub(super) struct DepKey {
 }
 
 /// One dependency-scoped cached result: the bytes, the graph version it was computed at, the
-/// dependency set it READ, and its LRU tick. Validity is `DepClock::is_valid(deps, computed_at)`.
+/// dependency set it READ, and its LRU tick. Validity is `DepProbe::is_valid(deps, computed_at)`.
 pub(super) struct DepEntry {
     pub(super) bytes: Arc<Vec<u8>>,
     /// The graph `version()` the result was computed against — the reference point the clock's
@@ -57,18 +57,23 @@ impl ResultCache {
     /// Look up a DEPENDENCY-SCOPED cached result (CONCEPT:EG-KG.coordination.dependency-scoped-cache-invalidation,
     /// W1.6/P7). Unlike [`get_scoped`](Self::get_scoped), the entry is keyed on identity alone
     /// (`query_hash` + `actor_scope_hash`, no version) and is served across any write that did NOT
-    /// touch its dependency set: `clock.is_valid(entry.deps, entry.computed_at)` decides. A hit
+    /// touch its dependency set: `probe.is_valid(entry.deps, entry.computed_at)` decides. A hit
     /// updates recency and the hit counter; a lookup that finds a now-STALE entry (a write
     /// overlapped its deps, or floored the clock) EVICTS it and misses, so a subsequent recompute
     /// re-populates it. This is the path a query with a soundly computable dependency set uses
     /// instead of the version-keyed path; a query whose dependencies cannot be computed keeps
     /// using `get`/`put` (coarse, version-keyed) unchanged.
-    pub fn get_dep(
+    ///
+    /// `probe` is the graph's [`crate::dep_scope::DepClock`] (a `&DepClock` converts) or a
+    /// [`DepProbe`] that also carries the live embedding generation, which a vector-ranked
+    /// entry's [`crate::dep_scope::Dim::EmbeddingGeneration`] dependency needs to validate.
+    pub fn get_dep<'a>(
         &self,
         query_hash: u128,
         actor_scope_hash: u64,
-        clock: &DepClock,
+        probe: impl Into<DepProbe<'a>>,
     ) -> Option<Vec<u8>> {
+        let probe = probe.into();
         if self.cap == 0 {
             self.misses
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -85,7 +90,7 @@ impl ResultCache {
         let (present, valid, old_tick) = match inner.dependency.map.get(&key) {
             Some(entry) => (
                 true,
-                clock.is_valid(&entry.deps, entry.computed_at),
+                probe.is_valid(&entry.deps, entry.computed_at),
                 entry.tick,
             ),
             None => (false, false, 0),

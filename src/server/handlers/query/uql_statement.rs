@@ -85,13 +85,15 @@ fn uql_cache_key(
     legs: &ServedPlanLegs,
 ) -> Result<Option<(u128, Option<eg_core::dep_scope::DepSet>)>, String> {
     use eg_plan::uql::{Body, Mode};
-    if stmt.mode == Mode::Profile || !legs.cacheable() {
+    if stmt.mode == Mode::Profile || !legs.cache_admissible() {
         return Ok(None);
     }
     let payload = msgpack_bytes(&(text, params))?;
     let hash = served_cache_hash(ctx, "uql", payload, legs);
     let dep = match (&stmt.body, stmt.mode, stmt.annotations.any()) {
-        (Body::Pipeline(plan), Mode::Run, false) => plan_dependency_set(plan),
+        (Body::Pipeline(plan), Mode::Run, false) => {
+            plan_dependency_set(plan, ctx.core.dep_probe().embedding_generation())
+        }
         _ => None,
     };
     Ok(Some((hash, dep)))

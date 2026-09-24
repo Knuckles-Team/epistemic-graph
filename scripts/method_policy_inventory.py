@@ -75,7 +75,9 @@ class MethodPolicyRow:
 # 436 -> 437: the statistical `DecisionLog` (RF-ADR-010 DL-5/DL-5b).
 # 437 -> 438: UQL-07's `Uql` statement surface.
 # 438 -> 437: EH-434 retired `UnifiedQueryText` (one query-text surface: `Uql`).
-EXPECTED_METHOD_POLICY_ROWS = 437
+# 437 -> 438: EH-400's `FreshnessFeed` (messaging) -- per-class invalidation
+# events, the class volatility policy and foreign-source watermark freshness.
+EXPECTED_METHOD_POLICY_ROWS = 438
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",
