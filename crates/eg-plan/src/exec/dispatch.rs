@@ -362,9 +362,11 @@ pub(super) fn apply_timeseries(op: &Op, input: RowSet, ctx: &PlanCtx) -> Result<
             tolerance_ns,
         } => Ok(sensor_align_op(ctx.view, streams, clock, *tolerance_ns)),
         Op::TsScan { series, from, to } => Ok(tsdb_scan_op(
-            ctx.tsdb,
-            ctx.tsdb_tenant,
-            ctx.tsdb_graph,
+            &CommittedSeries {
+                store: ctx.tsdb,
+                tenant: ctx.tsdb_tenant,
+                graph: ctx.tsdb_graph,
+            },
             ctx.staged_series,
             series,
             *from,
