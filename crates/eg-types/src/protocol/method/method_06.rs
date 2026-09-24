@@ -239,14 +239,18 @@ $($variants)*
         plan: crate::wire::Plan,
     },
 
-    /// In-txn unified query, TEXT surface — UQL (CONCEPT:EG-KG.query.txn-cross-modal-ryow). The human/agent-
-    /// writable counterpart of `TxnUnifiedQuery`: a UQL `text` string PARSED into the
-    /// SAME `wire::Plan` AST and run through the IDENTICAL overlaid in-txn executor. Same
-    /// `query`-gating + read-your-own-writes semantics as `TxnUnifiedQuery`.
+    /// A UQL statement INSIDE a transaction (CONCEPT:EG-KG.query.txn-cross-modal-ryow,
+    /// EH-434): exactly `Uql`'s statement — the same grammar, typed `$name` `params`,
+    /// `EXPLAIN`/`PROFILE`, `LET` programs, `RETURN` channels and row annotations — run
+    /// over the committed snapshot OVERLAID with this txn's staged write-set (read your
+    /// own writes). Result: [`crate::wire::UqlResult`]. (Replaced the rows-only
+    /// `TxnUnifiedQueryText`.)
     #[cfg(feature = "query")]
-    TxnUnifiedQueryText {
+    TxnUql {
         txn_id: String,
         text: String,
+        #[serde(default)]
+        params: std::collections::BTreeMap<String, crate::wire::UqlParam>,
     },
 
     /// Commit the staged transaction (see the section doc above for the OCC
