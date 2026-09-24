@@ -77,6 +77,7 @@ fn cluster_cfg_with_groups(node_id: NodeId, ports: &[u16], groups: u64) -> RaftC
     // Idempotent: the actual subscriber/panic-hook install happens at most once
     // per test binary.
     super::harness::trace_capture::init();
+    super::harness::cluster_slots::claim();
     let peers = fixture::peer_map(ports);
     let bind_addr = peers.get(&node_id).unwrap().addr.clone();
     RaftClusterConfig {
@@ -119,6 +120,7 @@ async fn start_multi(
     ctx: super::AppCtx,
 ) -> Result<Arc<MultiRaft>, String> {
     super::harness::trace_capture::init();
+    super::harness::cluster_slots::claim();
     MultiRaft::start(node_id, bind_addr, backend, ctx).await
 }
 

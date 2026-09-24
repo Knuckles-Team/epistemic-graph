@@ -125,6 +125,10 @@ mod catchup_test;
 #[cfg(test)]
 pub(crate) mod trace_capture;
 
+/// EH-534: per-process cap on concurrently running cluster tests.
+#[cfg(test)]
+pub(crate) mod cluster_slots;
+
 use std::sync::Arc;
 use std::time::Duration;
 
