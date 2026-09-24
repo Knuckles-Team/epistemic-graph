@@ -60,27 +60,54 @@ fn independent(stored: &StoredEvaluation, decider: &str) -> bool {
         && stored.producer != decider
 }
 
+/// What one evaluation is to the outcome statistics (the ONE label rule the
+/// aggregate and the learned reputation view both read).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LabelUse {
+    /// Untraced or neither success nor failure: no label, no refusal.
+    Censored,
+    /// A claim, a self-report (by the selected agent, its lease holder or the
+    /// decider), or traced below the fidelity floor.
+    Refused,
+    /// An independent observation: the outcome.
+    Label(bool),
+}
+
+/// Classify `stored` as a label of a record `decider` decided.
+pub fn label_use(
+    stored: &StoredEvaluation,
+    decider: &str,
+    fidelity_floor: TraceFidelityLevel,
+) -> LabelUse {
+    let e = &stored.evaluation;
+    let (Some(rank), Some(success)) = (fidelity_rank(e.fidelity), e.success) else {
+        return LabelUse::Censored;
+    };
+    let label = e.class != EvidenceClass::Claim
+        && independent(stored, decider)
+        && rank <= floor_rank(fidelity_floor);
+    if label {
+        LabelUse::Label(success)
+    } else {
+        LabelUse::Refused
+    }
+}
+
 impl Tally {
     fn add(&mut self, stored: &StoredEvaluation, decider: &str, rules: &AggregateRules) {
-        let e = &stored.evaluation;
-        let rank = fidelity_rank(e.fidelity);
-        match rank {
+        match fidelity_rank(stored.evaluation.fidelity) {
             Some(0) => self.by_fidelity.full_step += 1,
             Some(1) => self.by_fidelity.tool_calls += 1,
             Some(_) => self.by_fidelity.final_output += 1,
             None => self.by_fidelity.censored += 1,
         }
-        let (Some(rank), Some(success)) = (rank, e.success) else {
-            return;
-        };
-        let label = e.class != EvidenceClass::Claim
-            && independent(stored, decider)
-            && rank <= floor_rank(rules.fidelity_floor);
-        if label {
-            self.trials += 1;
-            self.successes += u64::from(success);
-        } else {
-            self.refused += 1;
+        match label_use(stored, decider, rules.fidelity_floor) {
+            LabelUse::Censored => {}
+            LabelUse::Refused => self.refused += 1,
+            LabelUse::Label(success) => {
+                self.trials += 1;
+                self.successes += u64::from(success);
+            }
         }
     }
 }
