@@ -1,4 +1,5 @@
-//! `core:swarm-topology@1` (SWARM-TOPOLOGY-DECIDE-DESIGN §4, ST-1): the swarm
+//! `core:swarm-topology@1` + `core:swarm-topology-shapes@1` (SWARM-TOPOLOGY-DECIDE-DESIGN
+//! §4, ST-1): the swarm
 //! vocabulary and its template-projection shapes are an EG core source, so every
 //! graph's composed schema carries them. The SHACL fixtures: a well-formed template
 //! projection conforms under the COMPOSED shapes (the shapes-omitted
@@ -8,6 +9,7 @@ use super::compose::validate_and_compose;
 use crate::graph::GraphSchemaSources;
 
 const SWARM_SOURCE: &str = "core:swarm-topology@1";
+const SWARM_SHAPES: &str = "core:swarm-topology-shapes@1";
 
 /// A fan-out/join template: lead (parent) → fanout → worker (child, 1..4) → join.
 fn projection(fan_nodes: &str, worker_widths: (u8, u8), stop: &str, resource: &str) -> String {
@@ -37,17 +39,18 @@ fn conforms(data: &str) -> bool {
 }
 
 #[test]
-fn the_swarm_vocabulary_and_shapes_are_one_core_source() {
+fn the_swarm_vocabulary_and_shapes_are_core_sources() {
     let sources = GraphSchemaSources::default();
-    let source = sources
+    let vocabulary = sources
         .core
         .get(SWARM_SOURCE)
-        .expect("the swarm core source");
-    assert!(source
+        .expect("the swarm vocabulary");
+    assert!(vocabulary
         .ontology_ttl
         .as_deref()
-        .is_some_and(|d| d.contains("eg:admitsTopology")));
-    assert!(source
+        .is_some_and(|d| d.contains("egowl:admitsTopology")));
+    let shapes = sources.core.get(SWARM_SHAPES).expect("the swarm shapes");
+    assert!(shapes
         .shapes_ttl
         .as_deref()
         .is_some_and(|d| d.contains("TemplateTopologyShape")));

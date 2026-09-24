@@ -240,7 +240,7 @@ fn oracle(subtasks: u32, per_agent: u32, available: u64, deadline: Option<u64>) 
     let need = u64::from(subtasks).div_ceil(u64::from(per_agent));
     (1u8..=4)
         .filter(|width| u64::from(*width) >= need)
-        .filter(|width| 1 + u64::from(*width) <= available)
+        .filter(|width| u64::from(*width) < available)
         .map(|width| {
             let makespan = 100 + 200 * u64::from(subtasks).div_ceil(u64::from(width));
             (makespan, 1 + u64::from(width), width)
