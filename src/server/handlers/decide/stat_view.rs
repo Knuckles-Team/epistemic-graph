@@ -32,18 +32,18 @@ use crate::server::persistence::decision_jobs::decode_artifact;
 use crate::server::sql_catalog_acl::relations::{ReadOnlyRelations, Relation};
 
 /// One column: name, SQL type, and its cell for an item.
-type Col<T> = (&'static str, ColumnType, fn(&T) -> Value);
+pub(super) type Col<T> = (&'static str, ColumnType, fn(&T) -> Value);
 
-fn text(value: Option<String>) -> Value {
+pub(super) fn text(value: Option<String>) -> Value {
     value.map_or(Value::Null, Value::String)
 }
 
-fn millis(value: u64) -> Value {
+pub(super) fn millis(value: u64) -> Value {
     Value::from(i64::try_from(value).unwrap_or(i64::MAX))
 }
 
 /// The wire name of a serde value: a unit enum's string, or `tag` of a tagged one.
-fn wire_name(value: &impl Serialize, tag: &str) -> Option<String> {
+pub(super) fn wire_name(value: &impl Serialize, tag: &str) -> Option<String> {
     match serde_json::to_value(value).ok()? {
         Value::String(name) => Some(name),
         Value::Object(map) => map.get(tag)?.as_str().map(str::to_string),
@@ -150,7 +150,7 @@ fn schema_of<T>(name: &str, columns: &[Col<T>]) -> TableSchema {
     TableSchema::new(name, columns)
 }
 
-fn relation<T>(name: &str, columns: &[Col<T>], items: &[T]) -> Relation {
+pub(super) fn relation<T>(name: &str, columns: &[Col<T>], items: &[T]) -> Relation {
     let rows = items
         .iter()
         .map(|item| columns.iter().map(|(_, _, cell)| cell(item)).collect())
@@ -162,6 +162,8 @@ fn relation<T>(name: &str, columns: &[Col<T>], items: &[T]) -> Relation {
 pub(crate) struct DecisionViews {
     store: Arc<AgentLibraryStore>,
     reader: LogReader,
+    /// The verified carrier's tenant scope: where governed pointers live.
+    served_tenant: String,
 }
 
 impl DecisionViews {
@@ -175,6 +177,7 @@ impl DecisionViews {
                 principal: principal.to_string(),
                 retention: Retention::none(),
             },
+            served_tenant: authority.tenant_scope().to_string(),
         }
     }
 
@@ -225,11 +228,18 @@ impl ReadOnlyRelations for DecisionViews {
             evaluations.extend(evaluations_of(&self.store, &self.reader.tenant_id, id)?);
             resolutions.extend(self.resolutions_of(id)?);
         }
-        Ok(vec![
+        let mut relations = vec![
             relation("decisions", DECISION_COLUMNS, &entries),
             relation("decision_evaluations", EVALUATION_COLUMNS, &evaluations),
             relation("decision_resolutions", RESOLUTION_COLUMNS, &resolutions),
-        ])
+        ];
+        // EH-394..EH-397: the retrieval-learning relations, over the same reader.
+        relations.extend(super::stat_retrieval_views::learning_relations(
+            &self.store,
+            &self.reader,
+            &self.served_tenant,
+        )?);
+        Ok(relations)
     }
 }
 
