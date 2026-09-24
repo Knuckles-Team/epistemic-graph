@@ -34,8 +34,8 @@ pub(crate) mod reason;
 pub use decisions::DecisionSource;
 pub(crate) mod dispatch;
 mod expand;
-mod propagate;
 mod pred_sql;
+pub mod propagate;
 pub(crate) use dispatch::apply;
 pub(crate) use pred_sql::{sql_literal, where_clause};
 

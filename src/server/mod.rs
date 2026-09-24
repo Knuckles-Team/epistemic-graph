@@ -439,6 +439,13 @@ pub mod reasoning_cascade;
 pub(crate) mod icv_guard;
 // The 2.27.x contract wave's refusal stubs. Deleted by the promotion commit.
 pub(crate) mod contract_wave;
+// A background writer's exact per-graph grant (PB1 projection worker, EH-526 impact watch).
+#[cfg(feature = "security")]
+pub(crate) mod service_grant;
+// EH-526 — standing impact watches: CDC-noticed seed changes recompute their
+// downstream impact through the ordinary `MineRiskPropagation` writeback path.
+#[cfg(all(feature = "streaming", feature = "mining", feature = "query"))]
+pub mod impact_watch;
 // PB1 — the connector-pack projection worker, the first Agent Library outbox
 // consumer. `pub` so the server binary can start it after catalog recovery.
 pub mod connector_pack_projection;
