@@ -76,11 +76,17 @@ fn rows_of(rows: &RowSet, columns: &[String], table: &ChannelTable) -> Vec<UqlRo
         .map(|r| UqlRow {
             id: r.id.clone(),
             score: r.score,
-            channels: columns
-                .iter()
-                .map(|c| table.get(&r.id).and_then(|m| m.get(c.as_str()).copied()))
-                .collect(),
+            channels: row_channels(&r.id, columns, table),
         })
+        .collect()
+}
+
+/// One row's value for each requested channel (`None` where no stage wrote it).
+fn row_channels(id: &str, columns: &[String], table: &ChannelTable) -> Vec<Option<f32>> {
+    let row = table.get(id);
+    columns
+        .iter()
+        .map(|c| row.and_then(|m| m.get(c.as_str()).copied()))
         .collect()
 }
 

@@ -123,6 +123,9 @@ pub fn describe(method: &Method) -> Option<SlowQuery> {
         Method::UnifiedQueryText { text, .. } => {
             Some(SlowQuery::new("unified_query_text", text, None, None))
         }
+        // The statement text only: bound `$param` values are never part of it.
+        #[cfg(feature = "query")]
+        Method::Uql { text, .. } => Some(SlowQuery::new("uql", text, None, None)),
         #[cfg(feature = "sparql")]
         Method::Sparql { query, .. } => Some(SlowQuery::new("sparql", query, None, None)),
         _ => None,
