@@ -26,6 +26,8 @@ mod stat_classes;
 #[cfg(feature = "decide")]
 mod stat_decide;
 #[cfg(feature = "decide")]
+mod stat_evaluator;
+#[cfg(feature = "decide")]
 mod stat_executor;
 #[cfg(feature = "decide")]
 mod stat_generation;
