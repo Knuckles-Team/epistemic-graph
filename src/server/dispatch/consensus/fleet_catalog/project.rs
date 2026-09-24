@@ -249,6 +249,7 @@ fn tool_row(entry: &AgentComponentEntry, component: FleetComponentRef) -> Option
     let AgentComponentFacts::Tool {
         effect,
         input_schema_digest,
+        output_schema_digest,
         ..
     } = &entry.facts
     else {
@@ -258,6 +259,7 @@ fn tool_row(entry: &AgentComponentEntry, component: FleetComponentRef) -> Option
         row: FleetToolRow {
             component,
             input_schema_digest: input_schema_digest.clone(),
+            output_schema_digest: output_schema_digest.clone(),
             effect: *effect,
             tool_mode: ToolMode::from_declared(attribute(entry, ATTR_TOOL_MODE)),
         },

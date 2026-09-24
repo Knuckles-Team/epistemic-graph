@@ -72,6 +72,9 @@ pub struct FleetToolRow {
     pub component: FleetComponentRef,
     /// `sha256:<hex>` of the served input schema, when the pack pinned one.
     pub input_schema_digest: Option<String>,
+    /// `sha256:<hex>` of the served output schema (D18); `None` when the tool
+    /// declares no output schema.
+    pub output_schema_digest: Option<String>,
     pub effect: ToolEffect,
     pub tool_mode: ToolMode,
 }
