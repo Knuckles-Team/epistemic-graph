@@ -47,6 +47,12 @@ pub enum SchemaSourceOrigin {
         mapping: String,
         revision: u64,
     },
+    /// EH-403: a governed candidate attached under `approved:<name>` by
+    /// `GraphSchema.AttachApproved`, which verified `approval_lease_id` first.
+    Approved {
+        name: String,
+        approval_lease_id: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -380,32 +386,39 @@ fn validate_dynamic_identity(source_id: &str, origin: &SchemaSourceOrigin) -> Re
             eg_types::graph_schema::MAX_SCHEMA_SOURCE_ID_BYTES
         ));
     }
-    let valid = match origin {
-        SchemaSourceOrigin::Core { .. } => false,
-        SchemaSourceOrigin::Operator => source_id == OPERATOR_SOURCE_ID,
-        SchemaSourceOrigin::Admin { name } => source_id
-            .strip_prefix("admin:")
-            .is_some_and(|suffix| !suffix.is_empty() && suffix == name),
-        SchemaSourceOrigin::Pack {
-            connector,
-            record_id,
-        } => {
-            source_id
-                .strip_prefix("pack:")
-                .is_some_and(|suffix| !suffix.is_empty() && suffix == connector)
-                && !record_id.is_empty()
-        }
-        SchemaSourceOrigin::Ingestion { mapping, .. } => source_id
-            .strip_prefix("ingest:")
-            .is_some_and(|suffix| !suffix.is_empty() && suffix == mapping),
-    };
-    if valid {
+    if origin_owns_key(source_id, origin) {
         Ok(())
     } else {
         Err(format!(
             "schema source '{source_id}' does not match its authority origin"
         ))
     }
+}
+
+/// Whether `origin` is the authority its key prefix asserts (`admin:<name>`,
+/// `pack:<connector>`, `ingest:<mapping>`, `approved:<name>`, `operator`).
+fn origin_owns_key(source_id: &str, origin: &SchemaSourceOrigin) -> bool {
+    match origin {
+        SchemaSourceOrigin::Core { .. } => false,
+        SchemaSourceOrigin::Operator => source_id == OPERATOR_SOURCE_ID,
+        SchemaSourceOrigin::Admin { name } => keyed(source_id, "admin:", name),
+        SchemaSourceOrigin::Pack {
+            connector,
+            record_id,
+        } => keyed(source_id, "pack:", connector) && !record_id.is_empty(),
+        SchemaSourceOrigin::Ingestion { mapping, .. } => keyed(source_id, "ingest:", mapping),
+        SchemaSourceOrigin::Approved {
+            name,
+            approval_lease_id,
+        } => keyed(source_id, "approved:", name) && !approval_lease_id.is_empty(),
+    }
+}
+
+/// `source_id` is exactly `<prefix><name>` with a non-empty name.
+fn keyed(source_id: &str, prefix: &str, name: &str) -> bool {
+    source_id
+        .strip_prefix(prefix)
+        .is_some_and(|suffix| !suffix.is_empty() && suffix == name)
 }
 
 fn validate_replacement_progression(
@@ -796,6 +809,10 @@ fn origin_bytes(origin: &SchemaSourceOrigin) -> Vec<u8> {
         SchemaSourceOrigin::Ingestion { mapping, revision } => {
             format!("ingestion\0{mapping}\0{revision}").into_bytes()
         }
+        SchemaSourceOrigin::Approved {
+            name,
+            approval_lease_id,
+        } => format!("approved\0{name}\0{approval_lease_id}").into_bytes(),
     }
 }
 
