@@ -365,7 +365,7 @@ mod tests {
         for (kind, sql) in [
             ("ddl", "DROP TABLE logs"),
             ("dml", "DELETE FROM logs WHERE severity = 'INFO'"),
-            ("copy", "COPY logs TO '/var/tmp/obs-exfil.csv'"),
+            ("copy", "COPY logs TO 'obs-exfil.csv'"),
             (
                 "file read",
                 "CREATE EXTERNAL TABLE f STORED AS CSV LOCATION '/etc/hostname'",

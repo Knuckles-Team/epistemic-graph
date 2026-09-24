@@ -201,22 +201,22 @@ reason = """EH-264 review (file:line): crates/eg-types/src/agent_component.rs:16
 [[pair]]
 left_file = "crates/eg-types/src/connector_pack/digest.rs"
 left_name = "entry_kind_token"
-left_digest = "sha256:268730ffb69e07cb5d796b66e2ac7e8f684e1b5e727a3edaaed3047504315fc0"
+left_digest = "sha256:16b4712a19f242d1f19565b73958359e81ae0149bef8de586ca8fcd0fb6ea3bc"
 right_file = "crates/eg-plan/src/result_stream.rs"
 right_name = "as_str"
 right_digest = "sha256:1c032ec0c0a8de05330f80ed651215a4dfc7561631515272cd31d5c12c4396e9"
-reviewed_on = "2026-09-21"
-reason = """EH-264 review refreshed for RF-021 (file:line): crates/eg-types/src/connector_pack/digest.rs:47 vs crates/eg-plan/src/result_stream.rs:44. The left vocabulary now also includes resource and resource_template, preserving the same exhaustive PACK entry-kind renderer shape. Its output remains a DIGEST INPUT framed into entry_digest; the right side remains pure display for an unrelated result-stream modality tag. Sharing the helper would still couple content-addressed connector-pack identity to a non-identity display vocabulary in another crate. Re-read both bodies after the RF-021 variants landed; the semantic distinction still holds, so the pair is re-pinned as reviewed-distinct."""
+reviewed_on = "2026-09-24"
+reason = """EH-264 review refreshed for RF-021 (file:line): crates/eg-types/src/connector_pack/digest.rs:47 vs crates/eg-plan/src/result_stream.rs:44. The left vocabulary now also includes resource and resource_template, preserving the same exhaustive PACK entry-kind renderer shape. Its output remains a DIGEST INPUT framed into entry_digest; the right side remains pure display for an unrelated result-stream modality tag. Sharing the helper would still couple content-addressed connector-pack identity to a non-identity display vocabulary in another crate. Re-read both bodies after the RF-021 variants landed; the semantic distinction still holds, so the pair is re-pinned as reviewed-distinct. Train-3 re-review (2026-09-24): eg-pack db863f1e2 added the `SkillFile => "skill_file"` arm; the function is still the exhaustive wire-stable digest-input renderer described above, so the distinction holds and the left side is re-pinned."""
 
 [[pair]]
 left_file = "crates/eg-types/src/connector_pack/digest.rs"
 left_name = "entry_kind_token"
-left_digest = "sha256:268730ffb69e07cb5d796b66e2ac7e8f684e1b5e727a3edaaed3047504315fc0"
+left_digest = "sha256:16b4712a19f242d1f19565b73958359e81ae0149bef8de586ca8fcd0fb6ea3bc"
 right_file = "crates/eg-modality/src/tck.rs"
 right_name = "label"
 right_digest = "sha256:1128fcc65d645369f2a11250874fb76497fd8dba137a592c7909570bc1ababca"
-reviewed_on = "2026-09-21"
-reason = """RF-021 review (file:line): crates/eg-types/src/connector_pack/digest.rs:47 vs crates/eg-modality/src/tck.rs:138. Both are exhaustive enum-to-string renderers, but the connector-pack tokens are wire-stable DIGEST INPUTS that bind signed catalog content identities, while TckPoint::label is human-readable report prose. The enums, tokens, crates, consumers and compatibility consequences are disjoint. Consolidating would couple a cryptographic format identity to mutable presentation text, so the pair is reviewed-distinct."""
+reviewed_on = "2026-09-24"
+reason = """RF-021 review (file:line): crates/eg-types/src/connector_pack/digest.rs:47 vs crates/eg-modality/src/tck.rs:138. Both are exhaustive enum-to-string renderers, but the connector-pack tokens are wire-stable DIGEST INPUTS that bind signed catalog content identities, while TckPoint::label is human-readable report prose. The enums, tokens, crates, consumers and compatibility consequences are disjoint. Consolidating would couple a cryptographic format identity to mutable presentation text, so the pair is reviewed-distinct. Train-3 re-review (2026-09-24): eg-pack db863f1e2 added the `SkillFile => "skill_file"` arm; the function is still the exhaustive wire-stable digest-input renderer described above, so the distinction holds and the left side is re-pinned."""
 
 [[pair]]
 left_file = "src/server/handlers/graph_ops/gateway_graph_routes.rs"
@@ -231,12 +231,12 @@ reason = """EH-264 review (file:line): src/server/handlers/graph_ops/gateway_gra
 [[pair]]
 left_file = "src/server/mutation/plan.rs"
 left_name = "native_local_only_method_name"
-left_digest = "sha256:c185c5145c4e0e6fb5ea7bc461c57243f523ee2dbc9fd40f2b87877a0a560291"
+left_digest = "sha256:6e50e39ab218b9e344a8c988404ea36e3a90c3523257bb7293182fa8f288c8b7"
 right_file = "src/server/mutation/plan.rs"
 right_name = "scene_trajectory_method_name"
 right_digest = "sha256:d73bd821ad96a7918cbbbc464196e2c29c44ba3252410333701d1d124f1d19f3"
-reviewed_on = "2026-09-17"
-reason = """EH-264 review (file:line): src/server/mutation/plan.rs:213 (scene_trajectory_method_name) vs src/server/mutation/plan.rs:650 (native_local_only_method_name), both entries of the `METHOD_NAME_RESOLVERS` table declared at src/server/mutation/plan.rs:512-538 (26 resolvers total, verified by direct count). The table is a deliberately SECTIONED design, predating this finding: the comment immediately above the table (plan.rs:509-511) says the resolvers follow the protocol's semantic sections rather than slicing one match by size, so that ownership and lookup order stay auditable. Every one of the 26 resolvers has this identical body shape (`match m { Method::X { .. } => Some("X"), ..., _ => None }`) by construction -- this is exactly BUILD-CONTRACT.md's own recommended "a chain of if/else on a value is a TABLE" pattern, already applied. Consolidating any two of the 26 into one match is exactly the change the sectioning exists to prevent, and picking these two specifically (rather than any other adjacent pair, which would trip the same finding as arm counts drift) would be arbitrary, driven by the gate rather than the design -- the anti-pattern BUILD-CONTRACT.md §3 names as "never refactor to satisfy a metric after the fact." Does NOT fit the "different trust domains" mold: this is a design-pattern argument, not a trust-domain one. Kept as reviewed-distinct rather than deduped, because deduping would contort an already-correct design to please a syntactic-similarity check; flagged to the coordinator per BUILD-CONTRACT.md §4 ("when a cap and the right design genuinely conflict... escalate") for ratification or a directed alternative -- not yet ruled on."""
+reviewed_on = "2026-09-24"
+reason = """EH-264 review (file:line): src/server/mutation/plan.rs:213 (scene_trajectory_method_name) vs src/server/mutation/plan.rs:650 (native_local_only_method_name), both entries of the `METHOD_NAME_RESOLVERS` table declared at src/server/mutation/plan.rs:512-538 (26 resolvers total, verified by direct count). The table is a deliberately SECTIONED design, predating this finding: the comment immediately above the table (plan.rs:509-511) says the resolvers follow the protocol's semantic sections rather than slicing one match by size, so that ownership and lookup order stay auditable. Every one of the 26 resolvers has this identical body shape (`match m { Method::X { .. } => Some("X"), ..., _ => None }`) by construction -- this is exactly BUILD-CONTRACT.md's own recommended "a chain of if/else on a value is a TABLE" pattern, already applied. Consolidating any two of the 26 into one match is exactly the change the sectioning exists to prevent, and picking these two specifically (rather than any other adjacent pair, which would trip the same finding as arm counts drift) would be arbitrary, driven by the gate rather than the design -- the anti-pattern BUILD-CONTRACT.md §3 names as "never refactor to satisfy a metric after the fact." Does NOT fit the "different trust domains" mold: this is a design-pattern argument, not a trust-domain one. Kept as reviewed-distinct rather than deduped, because deduping would contort an already-correct design to please a syntactic-similarity check; flagged to the coordinator per BUILD-CONTRACT.md §4 ("when a cap and the right design genuinely conflict... escalate") for ratification or a directed alternative -- not yet ruled on. Train-3 re-review (2026-09-24): decide-stat 034aaf851 added the `DecisionLog` arm to the agent/decision catalog resolver; the sectioned-table argument is unchanged, so the left side is re-pinned."""
 
 [[pair]]
 left_file = "crates/eg-types/src/agent_component.rs"

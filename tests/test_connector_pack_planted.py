@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
-from typing import Any
+from typing import Any, Protocol, cast
 
 import pytest
 from conftest import TEST_AGENT_ID, TEST_TENANT, request_context
@@ -181,12 +181,20 @@ async def _run(index: int) -> None:
         await client.close()
 
 
+class _RuleCase(Protocol):
+    """A planted case object: it names its rule and variant."""
+
+    rule: str
+    variant: str
+
+
 def _case_id(mutation: object) -> str:
     """A planted case's test id: a function's name, or a case object's rule/variant."""
     name = getattr(mutation, "__name__", None)
     if name is not None:
         return str(name)
-    return f"{getattr(mutation, 'rule')}_{getattr(mutation, 'variant')}"
+    case = cast("_RuleCase", mutation)
+    return f"{case.rule}_{case.variant}"
 
 
 @pytest.mark.parametrize(
