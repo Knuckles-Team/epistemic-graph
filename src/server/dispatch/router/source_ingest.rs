@@ -19,9 +19,12 @@ pub(super) async fn dispatch_source_ingest_methods(
             dispatch_boxed(parse_files(ctx, files_msgpack)).await
         }
 
-        Method::IndexRepository { files_msgpack } => {
-            dispatch_boxed(index_repository(ctx, files_msgpack)).await
-        }
+        // A scoped (branch-aware, durable) batch is a graph write: it continues to
+        // the graph-scoped route, after graph ACL and placement (EH-280).
+        Method::IndexRepository {
+            files_msgpack,
+            scope: None,
+        } => dispatch_boxed(index_repository(ctx, files_msgpack)).await,
 
         Method::ObserveScreen { obs_msgpack } => {
             dispatch_boxed(observe_screen(ctx, obs_msgpack)).await

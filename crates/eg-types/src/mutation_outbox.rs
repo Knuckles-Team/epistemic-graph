@@ -34,6 +34,25 @@ pub enum NativeOutboxStore {
     SqlCatalog,
 }
 
+/// Which ledger scope of a native store an operation names.
+///
+/// The Agent Library and the jobs store keep one outbox per tenant; a
+/// semantic index keeps one per binding, and a SQL catalog one per resource
+/// scope. The selector names the scope the store actually keys its outbox by,
+/// so an operator can reach every outbox without the engine guessing.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "scope", rename_all = "snake_case", deny_unknown_fields)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum NativeOutboxScope {
+    /// The tenant's one scope (Agent Library, jobs).
+    #[default]
+    Tenant,
+    /// One semantic binding's serving scope.
+    SemanticBinding { binding_id: String },
+    /// One resource scope of the tenant's shared SQL catalog.
+    SqlResource { resource: String },
+}
+
 /// Which outbox an operation names.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "target", rename_all = "snake_case", deny_unknown_fields)]
@@ -45,7 +64,38 @@ pub enum OutboxTarget {
     NativeStore {
         store: NativeOutboxStore,
         tenant_id: String,
+        #[serde(default)]
+        scope: NativeOutboxScope,
     },
+}
+
+impl OutboxTarget {
+    /// A native target must name the scope kind its store keys outboxes by.
+    pub fn validate(&self) -> Result<(), String> {
+        let Self::NativeStore { store, scope, .. } = self else {
+            return Ok(());
+        };
+        let matches = match scope {
+            NativeOutboxScope::Tenant => {
+                matches!(
+                    store,
+                    NativeOutboxStore::AgentLibrary | NativeOutboxStore::Jobs
+                )
+            }
+            NativeOutboxScope::SemanticBinding { binding_id } => {
+                *store == NativeOutboxStore::SemanticIndex && !binding_id.is_empty()
+            }
+            NativeOutboxScope::SqlResource { resource } => {
+                *store == NativeOutboxStore::SqlCatalog && !resource.is_empty()
+            }
+        };
+        if matches {
+            return Ok(());
+        }
+        Err(format!(
+            "mutation outbox scope {scope:?} does not address a {store:?} outbox"
+        ))
+    }
 }
 
 /// One position in an outbox, exactly as the kernel orders rows.
@@ -130,6 +180,7 @@ impl MutationOutboxOp {
         if self.consumer().is_empty() {
             return Err("mutation outbox consumer must be named".to_string());
         }
+        self.target().validate()?;
         match self {
             Self::DeadLetters { limit, .. } if *limit == 0 => {
                 Err("mutation outbox dead-letter limit must be at least one".to_string())
@@ -242,4 +293,72 @@ pub struct OutboxRewindReceipt {
     /// must be called again to finish.
     pub completed: bool,
     pub deleted_deliveries: u64,
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+
+    fn native(store: NativeOutboxStore, scope: NativeOutboxScope) -> OutboxTarget {
+        OutboxTarget::NativeStore {
+            store,
+            tenant_id: "tenant-a".to_string(),
+            scope,
+        }
+    }
+
+    #[test]
+    fn every_store_is_addressed_by_its_own_scope_kind_only() {
+        let binding = NativeOutboxScope::SemanticBinding {
+            binding_id: "b".to_string(),
+        };
+        let resource = NativeOutboxScope::SqlResource {
+            resource: "orders".to_string(),
+        };
+        let cases = [
+            (
+                NativeOutboxStore::AgentLibrary,
+                NativeOutboxScope::Tenant,
+                true,
+            ),
+            (NativeOutboxStore::Jobs, NativeOutboxScope::Tenant, true),
+            (NativeOutboxStore::SemanticIndex, binding.clone(), true),
+            (NativeOutboxStore::SqlCatalog, resource.clone(), true),
+            (
+                NativeOutboxStore::SemanticIndex,
+                NativeOutboxScope::Tenant,
+                false,
+            ),
+            (NativeOutboxStore::SqlCatalog, binding, false),
+            (NativeOutboxStore::AgentLibrary, resource, false),
+            (
+                NativeOutboxStore::SqlCatalog,
+                NativeOutboxScope::SqlResource {
+                    resource: String::new(),
+                },
+                false,
+            ),
+        ];
+        for (store, scope, valid) in cases {
+            assert_eq!(
+                native(store, scope.clone()).validate().is_ok(),
+                valid,
+                "{store:?} {scope:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_omitted_scope_is_the_tenant_scope() {
+        let target: OutboxTarget = serde_json::from_value(serde_json::json!({
+            "target": "native_store",
+            "store": "jobs",
+            "tenant_id": "tenant-a"
+        }))
+        .unwrap();
+        assert_eq!(
+            target,
+            native(NativeOutboxStore::Jobs, NativeOutboxScope::Tenant)
+        );
+    }
 }

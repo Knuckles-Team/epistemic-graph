@@ -6,16 +6,22 @@
 //! proof that every declared surface is served is a compile error, not a
 //! checklist.
 //!
-//! The stubs are generated from one macro rather than written out ten times.
-//! Ten hand-written functions with the same body are ten structural clones the
-//! duplication gates would (correctly) refuse, and a package replacing one of
-//! them replaces the macro invocation with a real function of the same
-//! signature, which is exactly the rule the wave's R6 states.
+//! Every 2.27.x wave surface is now served (train 3: Decide/assembly on train 2,
+//! DecisionLog, ConnectorPack admin and MutationOutbox), so the stub-declaring
+//! macro is gone and `PENDING_METHODS` is empty. What stays is the refusal
+//! code, the shared test macro for a future wave, and the two dispatch tests
+//! that pin every declared surface to its real handler.
 
 use crate::protocol::Response;
 
 /// The code every not-yet-served surface refuses with.
 pub(crate) const METHOD_NOT_YET_SERVED: &str = "METHOD_NOT_YET_SERVED";
+
+/// Whole methods whose handler is still a contract-wave stub. `Health.ops`
+/// withholds exactly these, so `client.supports(..)` never promises a stub;
+/// `pending_methods_are_exactly_the_stubbed_methods` pins the list against
+/// dispatch. The package that lands a handler deletes its entry.
+pub(crate) const PENDING_METHODS: &[&str] = &[];
 
 /// The one refusal body. `surface` is the method, or `Method.op`, the caller
 /// asked for.
@@ -60,45 +66,6 @@ macro_rules! contract_wave_stub_test {
     };
 }
 
-/// Declare one contract-wave stub and the test that pins its refusal.
-///
-/// Two shapes, because two exist: an authenticated surface takes the server
-/// state and the verified context, and a pure-compute one takes neither.
-macro_rules! contract_wave_stub {
-    (
-        $(#[$stub_meta:meta])*
-        $name:ident($request:ty) refuses $surface:literal, tested by $test:ident
-    ) => {
-        $(#[$stub_meta])*
-        pub(crate) async fn $name(
-            _state: &std::sync::Arc<tokio::sync::RwLock<crate::server::state::ServerState>>,
-            req_id: u64,
-            _verified: &crate::server::auth::VerifiedRequestContext,
-            _request: $request,
-        ) -> crate::protocol::Response {
-            crate::server::contract_wave::not_yet_served(req_id, $surface)
-        }
-
-        $crate::contract_wave_stub_test!($test, $surface);
-    };
-    (
-        $(#[$stub_meta:meta])*
-        pure $name:ident($request:ty) refuses $surface:literal, tested by $test:ident
-    ) => {
-        $(#[$stub_meta])*
-        pub(crate) async fn $name(
-            req_id: u64,
-            _request: $request,
-        ) -> crate::protocol::Response {
-            crate::server::contract_wave::not_yet_served(req_id, $surface)
-        }
-
-        $crate::contract_wave_stub_test!($test, $surface);
-    };
-}
-
-pub(crate) use contract_wave_stub;
-
 /// Assert that `surface` has a refusal body naming it, and nothing else.
 ///
 /// Deliberately not a call into the stub: what a package must not silently
@@ -125,15 +92,12 @@ mod dispatch_reachability_tests {
 
     use super::*;
     use crate::protocol::{Method, Request};
-    use crate::server::auth::{
-        compute_verified_envelope_token, dispatch_test_on_heap, VerifiedEnvelopeParams,
-    };
+    use crate::server::auth::dispatch_test_on_heap;
     use crate::server::state::ServerState;
-    use eg_types::acl::RequestContextClaims;
     use eg_types::test_support::contract_wave::contract_wave_samples;
 
-    const SECRET: &str = "contract-wave-dispatch-secret";
-    const CALLER: &str = "wave-admin";
+    pub(super) const SECRET: &str = "contract-wave-dispatch-secret";
+    pub(super) const CALLER: &str = "wave-admin";
     /// The tenant `auth::request_context_policy()` expects under `cfg(test)`.
     const TENANT: &str = "tenant-shared";
 
@@ -157,34 +121,19 @@ mod dispatch_reachability_tests {
         hex::encode(Sha256::digest(surface.as_bytes()))
     }
 
-    fn signed(surface: &str, method: Method) -> Request {
-        let mut request = Request {
-            id: 11,
-            graph: "__commons__".to_string(),
-            auth_token: String::new(),
-            agent_id: Some(CALLER.to_string()),
-            method,
-        };
-        let context = RequestContextClaims {
-            principal: CALLER.into(),
-            agent_id: CALLER.into(),
-            tenant: TENANT.into(),
-            audience: "epistemic-graph-test".into(),
-            policy_version: "policy-test".into(),
-            scopes: vec!["kg:admin".to_string()],
-            ..RequestContextClaims::default()
-        };
-        request.auth_token = compute_verified_envelope_token(
+    pub(super) fn signed(surface: &str, method: Method) -> Request {
+        crate::server::auth::scoped_test_request(
             SECRET,
-            &request,
-            &VerifiedEnvelopeParams {
-                context: &context,
-                timestamp: crate::server::dispatch::authoritative_now_ms() / 1000,
+            11,
+            method,
+            crate::server::auth::ScopedTestCaller {
+                principal: CALLER,
+                tenant: TENANT,
+                scopes: &["kg:admin"],
                 nonce: &nonce_for(surface),
                 idempotency_key: "contract-wave-probe",
             },
-        );
-        request
+        )
     }
 
     /// Contract-wave surfaces whose real handler has landed (wave rule R6):
@@ -202,13 +151,23 @@ mod dispatch_reachability_tests {
         "DecisionFit.status",
         "DecisionEval.submit",
         "DecisionEval.status",
+        "DecisionLog.evaluate",
+        "DecisionLog.get",
+        "DecisionLog.aggregate",
         "AgentComponent.content",
+        "ConnectorPack.bind",
         "ConnectorPack.import",
+        "ConnectorPack.reconcile_bodies",
         "ConnectorPack.reproject",
+        "ConnectorPack.retire",
         "ConnectorPack.status",
+        "ConnectorPack.unbind",
         "GraphSchema.attach",
         "GraphSchema.attach_pack",
         "GraphSchema.detach",
+        "MutationOutbox.dead_letters",
+        "MutationOutbox.rewind",
+        "MutationOutbox.status",
     ];
 
     /// Every declared surface is REACHABLE: dispatch routes a pending one to a
@@ -233,5 +192,50 @@ mod dispatch_reachability_tests {
                 response.error
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod pending_method_tests {
+    use std::sync::Arc;
+
+    use tokio::sync::RwLock;
+
+    use super::dispatch_reachability_tests::{signed, CALLER, SECRET};
+    use super::{METHOD_NOT_YET_SERVED, PENDING_METHODS};
+    use crate::server::auth::dispatch_test_on_heap;
+    use crate::server::state::ServerState;
+    use eg_types::test_support::contract_wave::contract_wave_samples;
+
+    /// A wave method is pending exactly when dispatch still refuses one of its
+    /// samples under the METHOD's own name (an op-level stub such as
+    /// `ConnectorPack.bind` leaves its method served), so `Health.ops`, which
+    /// withholds `PENDING_METHODS`, tracks promotions.
+    #[tokio::test]
+    async fn pending_methods_are_exactly_the_stubbed_methods() {
+        let state = Arc::new(RwLock::new(ServerState::new_for_test(
+            SECRET,
+            ServerState::test_isolation(CALLER),
+        )));
+        let mut stubbed = Vec::new();
+        for (surface, method) in contract_wave_samples() {
+            let whole = surface.split('.').next().unwrap_or(surface);
+            // A nonce of its own: the reachability test signs the same
+            // surfaces, and the shared replay ledger refuses a reused nonce.
+            let label = format!("pending-method:{surface}");
+            let response = dispatch_test_on_heap(&state, signed(&label, method)).await;
+            let refusal = format!("{METHOD_NOT_YET_SERVED}: {whole} ");
+            if response
+                .error
+                .is_some_and(|error| error.starts_with(&refusal))
+            {
+                stubbed.push(whole);
+            }
+        }
+        let mut pending = PENDING_METHODS.to_vec();
+        pending.sort_unstable();
+        stubbed.sort_unstable();
+        stubbed.dedup();
+        assert_eq!(stubbed, pending);
     }
 }

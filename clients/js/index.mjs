@@ -13,12 +13,17 @@
 // field names the serde-tagged enum destructures). The full graph/vector/RDF/SQL API
 // is intentionally NOT re-implemented here — use the Python client for that.
 //
+// The signed body is the engine's own canonical re-encoding of the request, computed
+// by the embedded WebAssembly build of crates/eg-method-codec (see codec.mjs).
+//
 // Deps (Pi-contract: thin): `@msgpack/msgpack` (pure-JS) for framing; Node built-ins
-// `net` (UDS/TCP) + `crypto` (HMAC). No native addon, no heavy SDK.
+// `net` (UDS/TCP), `crypto` (HMAC) and WebAssembly (the codec). No native addon, no
+// heavy SDK.
 
 import net from "node:net";
 import crypto from "node:crypto";
 import { encode, decode } from "@msgpack/msgpack";
+import { canonicalMethodBody, requestFrame } from "./codec.mjs";
 
 const CONTEXT_FIELDS = new Set([
   "principal",
@@ -312,8 +317,16 @@ export class EpistemicGraphThinClient {
     this._pending.clear();
   }
 
+  /** Bind the engine's canonical body of this call into a fresh eg2. envelope. */
   _sign(id, graph, method, params, explicitIdempotencyKey = "") {
-    const body = encode({ method, params });
+    return this._seal(id, graph, method, canonicalMethodBody(method, params), explicitIdempotencyKey, {
+      timestamp: Math.floor(Date.now() / 1000),
+      nonce: crypto.randomBytes(24).toString("hex"),
+    });
+  }
+
+  /** MAC one canonical body under the request binding and the given freshness. */
+  _seal(id, graph, method, body, explicitIdempotencyKey, { timestamp, nonce }) {
     const bodyHash = crypto.createHash("sha256").update(body).digest("hex");
     const idempotencyKey =
       explicitIdempotencyKey ||
@@ -321,8 +334,6 @@ export class EpistemicGraphThinClient {
         .createHash("sha256")
         .update(`${id}\0${graph}\0${method}\0${bodyHash}`)
         .digest("hex")}`;
-    const timestamp = Math.floor(Date.now() / 1000);
-    const nonce = crypto.randomBytes(24).toString("hex");
     const parts = [];
     appendText(parts, "eg-envelope-v2");
     const requestId = Buffer.allocUnsafe(8);
@@ -366,14 +377,14 @@ export class EpistemicGraphThinClient {
   _send(method, params, graph, idempotencyKey = "") {
     const id = ++this._id;
     const targetGraph = graph || this.graph;
-    const req = {
+    const req = requestFrame({
       id,
       graph: targetGraph,
-      auth_token: this._sign(id, targetGraph, method, params, idempotencyKey),
-      agent_id: this.verifiedContext.agent_id,
+      authToken: this._sign(id, targetGraph, method, params, idempotencyKey),
+      agentId: this.verifiedContext.agent_id,
       method,
       params,
-    };
+    });
     const payload = encode(req);
     const frame = Buffer.alloc(4 + payload.length);
     frame.writeUInt32BE(payload.length, 0);
@@ -412,7 +423,7 @@ export class EpistemicGraphThinClient {
     if (requireContextPrincipal && signerId !== this.verifiedContext.principal) {
       throw new Error("identity signer must match the verified principal");
     }
-    const body = encode({ method, params });
+    const body = canonicalMethodBody(method, params);
     const parts = [];
     for (const value of [
       domain,

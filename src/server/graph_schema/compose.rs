@@ -660,8 +660,11 @@ ex:parent a owl:AsymmetricProperty .
         // 880 migrated triples less the two list-cell triples of `:Incident`, which
         // was removed from the Person/Organization/Server/Event disjointness because
         // it is a subclass of `:Event` (EH-356), plus the 8 triples declaring BFO
-        // realizable entity and disposition, the category of `:Skill`.
-        assert_eq!(triples.len(), 886);
+        // realizable entity and disposition, the category of `:Skill`, plus BFO's
+        // `Continuant owl:disjointWith Occurrent` (operator ruling, EH-363); plus 138 for
+        // the world model: BFO material entity and object, the RO/BFO-aligned shared
+        // relations, and the shared reference-term / quantity / observation vocabulary.
+        assert_eq!(triples.len(), 1_025);
         for required in [
             "http://knuckles.team/kg#Concept",
             "http://knuckles.team/kg#Evidence",
@@ -689,7 +692,10 @@ ex:parent a owl:AsymmetricProperty .
         // module-local domain/range of 12 other shared properties (and the double domain
         // of infrastructure's :runsOn) moved onto 24 module-local sub-properties. Then
         // +8: BFO realizable entity and disposition, declared for `:Skill`.
-        assert_eq!(composed.ontology.len(), 12_697);
+        // +1: BFO `Continuant owl:disjointWith Occurrent`. +471: the world model — the
+        // life, environment and nutrition modules (145 + 71 + 114), their catalog imports
+        // (3) and the foundation's world-model vocabulary (138).
+        assert_eq!(composed.ontology.len(), 13_169);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -719,9 +725,9 @@ ex:parent a owl:AsymmetricProperty .
         // `/core` foundation and generated aggregate catalog. Every domain
         // axiom remains in the immutable catalog; only those 71 document-level
         // authority triples change.
-        assert_eq!(ontology_subjects.len(), 30);
-        assert_eq!(imports, 59);
-        assert_eq!(semantic_axioms, 12_542);
+        assert_eq!(ontology_subjects.len(), 33);
+        assert_eq!(imports, 67);
+        assert_eq!(semantic_axioms, 12_997);
 
         let count_type = |object: &str| {
             composed
@@ -750,11 +756,11 @@ ex:parent a owl:AsymmetricProperty .
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#inverseOf"),
-            30
+            35
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#propertyChainAxiom"),
-            4
+            5
         );
         assert_eq!(
             count_predicate("http://www.w3.org/2002/07/owl#minCardinality"),
@@ -770,7 +776,7 @@ ex:parent a owl:AsymmetricProperty .
                         && matches!(&triple.object, Term::NamedNode(_))
                 })
                 .count(),
-            379
+            412
         );
     }
 

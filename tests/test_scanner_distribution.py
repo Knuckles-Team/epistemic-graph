@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import configparser
 import importlib.util
+import re
 import sys
 from pathlib import Path
 
@@ -70,8 +71,8 @@ def test_scanner_contract_versions_and_native_policy_files_exist():
         "arch_lint_version": "0.5.0",
         "cargo_deny_version": "0.20.2",
     }
-    assert (REPO / ".importlinter").is_file()
-    assert (REPO / "arch-lint.toml").is_file()
+    assert (REPO / ".config" / "importlinter.ini").is_file()
+    assert (REPO / ".config" / "arch-lint.toml").is_file()
     assert (REPO / "clients/js/.dependency-cruiser.cjs").is_file()
     exclusions = scanners["jscpd_exclusions"]
     assert any("cache" in pattern for pattern in exclusions)
@@ -121,7 +122,9 @@ def test_precommit_has_staged_differential_census_and_architecture_profiles():
 
 def test_goc70_is_manual_only_until_execution_is_bounded():
     hooks = _hooks()
-    gates_steps = _workflow()["jobs"]["gates"]["steps"]
+    gates_steps = [
+        step for job in _workflow()["jobs"].values() for step in job.get("steps", [])
+    ]
     constrained = [
         step
         for step in gates_steps
@@ -176,13 +179,14 @@ def _assert_scanner_job(jobs, workflow_source):
         "--source-manifest",
         "--require-zero",
         "cccc --no-config --min 0",
-        "kiss check --config .kiss/kiss.toml --lang rust",
-        "lint-imports --config .importlinter --no-cache",
+        "python3 scripts/check_kiss_census.py",
+        "lint-imports --config .config/importlinter.ini --no-cache",
         "depcruise --validate --config .dependency-cruiser.cjs",
         "python3 scripts/check_rust_arch_lint.py",
     ):
         assert command in all_runs, f"scanner-quality is missing {command!r}"
     assert "arch-lint check" not in all_runs
+    assert "kiss check" not in all_runs, "the KISS census must go through its wrapper"
     assert "Upload CCCC census evidence" in workflow_source
     assert "epistemic-graph-cccc-stderr.txt" in workflow_source
     assert (
@@ -257,7 +261,7 @@ def test_ci_uses_central_exact_python_version():
         for step in job.get("steps", [])
         if step.get("uses", "").startswith("actions/setup-python@")
     ]
-    assert len(setup_steps) == 8
+    assert len(setup_steps) == 11  # incl. gates-facade, gates-variants, gates-crates
     assert {filename for filename, _ in setup_steps} == set(registered)
     assert all(
         step.get("with", {}).get("python-version-file") == ".python-version"
@@ -272,8 +276,8 @@ def test_ci_uses_central_exact_python_version():
 def test_advisory_gate_wires_exact_cargo_deny_version_check():
     advisory_hook = _hooks()["cargo-deny-advisories"]
     assert advisory_hook["files"] == (
-        r"^(Cargo\.lock|Cargo\.toml|crates/.*/Cargo\.toml|deny\.toml|"
-        r"\.cargo-audit-allow\.txt|pyproject\.toml|scripts/scanner_contract\.py|"
+        r"^(Cargo\.lock|Cargo\.toml|crates/.*/Cargo\.toml|\.config/deny\.toml|"
+        r"\.config/cargo-audit-allow\.txt|pyproject\.toml|scripts/scanner_contract\.py|"
         r"scripts/check_cargo_advisories\.sh)$"
     )
     precommit_source = (REPO / ".config" / "pre-commit.yaml").read_text(
@@ -285,7 +289,7 @@ def test_advisory_gate_wires_exact_cargo_deny_version_check():
     gate = (REPO / "scripts/check_cargo_advisories.sh").read_text(encoding="utf-8")
     assert "load_contract().cargo_deny_version" in gate
     assert '!= "cargo-deny $EXPECTED_CARGO_DENY_VERSION"' in gate
-    assert '"$CARGO_DENY_BIN" check advisories' in gate
+    assert '"$CARGO_DENY_BIN" --config "$DENY_TOML" check advisories' in gate
     assert (
         "cargo install --locked --version $EXPECTED_CARGO_DENY_VERSION cargo-deny"
         in gate
@@ -295,16 +299,22 @@ def test_advisory_gate_wires_exact_cargo_deny_version_check():
 def test_ci_replica_classifies_scanner_job_and_scanner_files_as_build_affecting():
     module = _ci_replica()
     spec = module.WORKFLOW_REGISTRY["release.yml"]
-    assert "scanner-quality" in spec.job_skip_reasons
-    assert "security" in spec.job_skip_reasons
-    assert "documentation-advisory" in spec.job_skip_reasons
-    assert "quality-advisory" in spec.job_skip_reasons
+    # The replica is the one gate definition: these jobs execute locally, with
+    # their tool-installation steps replaced by pinned-tool verification.
+    for job in (
+        "scanner-quality",
+        "security",
+        "documentation-advisory",
+        "quality-advisory",
+        "tts-piper-inference",
+    ):
+        assert job in spec.executable_jobs, job
     for path in (
         "pyproject.toml",
         ".python-version",
-        ".kiss/kiss.toml",
-        ".importlinter",
-        "arch-lint.toml",
+        ".config/kiss.toml",
+        ".config/importlinter.ini",
+        ".config/arch-lint.toml",
         "clients/js/.dependency-cruiser.cjs",
         "clients/js/package.json",
         "scripts/scanner_contract.py",
@@ -322,7 +332,7 @@ def test_generated_status_page_describes_freshness_as_advisory():
 
 def test_native_architecture_configs_are_explicit_and_scoped():
     import_linter = configparser.ConfigParser()
-    import_linter.read(REPO / ".importlinter")
+    import_linter.read(REPO / ".config" / "importlinter.ini")
     assert import_linter["importlinter"]["root_package"] == "epistemic_graph"
     contracts = [
         section
@@ -332,7 +342,9 @@ def test_native_architecture_configs_are_explicit_and_scoped():
     assert contracts
     assert all(import_linter[section]["type"] == "forbidden" for section in contracts)
 
-    arch = tomllib.loads((REPO / "arch-lint.toml").read_text(encoding="utf-8"))
+    arch = tomllib.loads(
+        (REPO / ".config" / "arch-lint.toml").read_text(encoding="utf-8")
+    )
     assert "preset" not in arch
     assert arch["fail_on"] == "error"
     assert arch["analyzer"]["root"] == "."
@@ -358,3 +370,65 @@ def test_native_architecture_configs_are_explicit_and_scoped():
     dependency_cruiser = (REPO / "clients/js/.dependency-cruiser.cjs").read_text()
     assert 'name: "no-circular"' in dependency_cruiser
     assert 'name: "no-unresolved"' in dependency_cruiser
+
+
+def test_scanner_toolchain_cache_key_spells_out_every_install_pin():
+    """A cached scanner toolchain is keyed on exactly the pins it was built from."""
+
+    scanner = _workflow()["jobs"]["scanner-quality"]
+    steps = {step.get("name"): step for step in scanner["steps"]}
+    cache = steps["Restore pinned scanner toolchain"]
+    install = steps["Provision pinned scanner toolchain"]
+    key = cache["with"]["key"]
+    assert install["if"] == (
+        "${{ !cancelled() && steps.scanner-cache.outputs.cache-hit != 'true' }}"
+    )
+    assert cache["with"]["path"] == "${{ runner.temp }}/epistemic-graph-scanners"
+    script = install["run"]
+    pins = re.findall(r"--rev (\S+) --root \S+ (\S+)", script)
+    pins += [
+        (version, crate)
+        for version, crate in re.findall(r"--version (\S+) --root \S+ (\S+)", script)
+    ]
+    pins += [
+        (version, package)
+        for package, version in re.findall(r'"([\w-]+)@([\w.]+)"', script)
+    ]
+    assert len(pins) == 6, pins
+    for version, name in pins:
+        assert f"{name}-{version}" in key, f"cache key misses pin {name} {version}"
+    verify = steps["Verify scanner versions"]
+    # Version verification runs on cache hits too (only cancellation skips it).
+    assert verify.get("if") == "${{ !cancelled() }}"
+
+
+def test_replica_never_installs_a_tool_during_a_gate():
+    """Every executed step that would apt-get/cargo/npm-install is a
+    LOCAL_SETUP_STEPS entry, so a local run verifies the pinned tool instead."""
+    module = _ci_replica()
+    doc = _workflow()
+    plan, _, _ = module.build_plan_for_workflow(
+        module.WORKFLOW_REGISTRY["release.yml"], doc
+    )
+    installers = re.compile(r"apt-get install|cargo install|npm install")
+    offenders = [
+        (row["job"], row["name"])
+        for row in plan
+        if row["mode"] == "RUN" and installers.search(row["detail"])
+    ]
+    assert offenders == []
+    setup_steps = {
+        (row["job"].split("#", 1)[0], row["name"])
+        for row in plan
+        if "[local: verify pinned tool present]" in row["name"]
+    }
+    assert len(setup_steps) == len(module.LOCAL_SETUP_STEPS)
+
+
+def test_scanner_job_reports_every_step_after_a_failure():
+    """One red scanner must not hide the rest (57a12eb06: a red jscpd step left
+    CCCC, KISS, import-linter, depcruise and arch-lint unrun)."""
+    steps = _workflow()["jobs"]["scanner-quality"]["steps"]
+    for step in steps:
+        if "run" in step:
+            assert str(step.get("if", "")).startswith("${{ !cancelled()"), step["name"]

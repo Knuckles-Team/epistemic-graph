@@ -70,7 +70,8 @@ from conftest import _prebuilt_test_binary
 
 # This module drives its OWN dedicated `lake-fixture-export`/`epistemic-graph-server`
 # subprocesses; it does not need the shared session-scoped engine conftest starts for
-# the rest of the suite (see pytest.ini's marker doc + tests/conftest.py's check).
+# the rest of the suite (see pyproject.toml's [tool.pytest.ini_options] marker doc
+# + tests/conftest.py's check).
 pytestmark = pytest.mark.no_engine
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

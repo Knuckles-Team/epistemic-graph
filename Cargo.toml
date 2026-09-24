@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/eg-types", "crates/eg-transaction", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-asr-whisper", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-storage", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core", "crates/eg-viz-columnstore", "crates/eg-viz-export", "crates/eg-viz-kernels", "crates/eg-viz-graph-tiles", "crates/eg-durable", "crates/eg-quantum-hardware", "crates/eg-quantum-jobs", "crates/eg-quantum-workloads", "crates/eg-tts-piper", "crates/eg-resource"]
+members = ["crates/eg-types", "crates/eg-transaction", "crates/eg-ann", "crates/eg-geo", "crates/eg-tensor", "crates/eg-stream", "crates/eg-core", "crates/eg-compute", "crates/eg-query", "crates/eg-plan", "crates/eg-tsdb", "crates/eg-text", "crates/eg-rdf", "crates/eg-shacl", "crates/eg-shex", "crates/eg-wasm", "crates/eg-graphql", "crates/eg-kvcache", "crates/eg-lake", "crates/eg-numeric", "crates/eg-epistemic", "crates/eg-modality", "crates/eg-image", "crates/eg-audio", "crates/eg-asr-whisper", "crates/eg-video", "crates/eg-document", "crates/eg-alignment", "crates/eg-capabilities", "crates/eg-jobs", "crates/eg-program", "crates/eg-statechart", "crates/eg-storage", "crates/eg-sqlite-format", "crates/eg-pyengine", "crates/eg-quantum-core", "crates/eg-quantum-gates", "crates/eg-quantum-sim", "crates/eg-viz-core", "crates/eg-viz-columnstore", "crates/eg-viz-export", "crates/eg-viz-kernels", "crates/eg-viz-graph-tiles", "crates/eg-durable", "crates/eg-quantum-hardware", "crates/eg-quantum-jobs", "crates/eg-quantum-workloads", "crates/eg-tts-piper", "crates/eg-resource", "crates/eg-method-codec"]
 # D-QN-1 / lane w0-eg-quantum-contracts (Q0) -- eg-quantum-core: the quantum-as-a-
 # governed-epistemic-graph-capability CONTRACTS crate (QuantumProgram IR,
 # QuantumBackend trait + capability flags, estimate()/planner rule engine R0-R5, and
@@ -1914,6 +1914,17 @@ path = "benches/redb_group_commit_bench.rs"
 harness = false
 required-features = ["full"]
 
+# Per-write redb latency decomposed by commit phase (EH-290): strictly sequential
+# awaited `record_durable` writes through the real shard-writer -> commit_ops ->
+# transaction-kernel -> redb path, swept across graph sizes, beside raw-redb
+# Immediate/None one-row floors on the same disk. Prints p50/p95/p99 end to end and
+# per `commit_phase` tracing span. `--features full` only; DEV-only.
+[[bench]]
+name = "redb_write_latency_bench"
+path = "benches/redb_write_latency_bench.rs"
+harness = false
+required-features = ["full"]
+
 # Massive-scale core micro-benchmark harness (CONCEPT:EG-096): in-process node/edge
 # write throughput, in-process query latency (single-hop + label lookup), and IVF-PQ
 # kNN search latency. Feature-LIGHT — builds under DEFAULT features (no server/redb),
@@ -1982,6 +1993,22 @@ codegen-units = 1
 # request/handler must unwind, NOT abort the whole process and kill every tenant's graph.
 panic = "unwind"
 strip = true
+
+# The Go/JavaScript clients' embedded eg2. method-body codec
+# (`crates/eg-method-codec`, built for wasm32-unknown-unknown by
+# `scripts/build_method_codec_wasm.py`). The module is committed into both
+# clients and re-derived byte-for-byte in CI, so every setting is chosen for
+# the smallest reproducible module: optimize for size ("z"), fat LTO, one
+# codegen unit, no debug info, stripped, and abort-on-panic (the module has no
+# host to unwind into).
+[profile.method-codec]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+debug = false
+strip = true
+panic = "abort"
 
 # Size-optimized release profile for the "contains-all smallest" pre-packaged build
 # (the Pi never compiles — wheels are cross-built in CI, so the C-dep/long compile is

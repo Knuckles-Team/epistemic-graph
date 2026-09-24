@@ -2,8 +2,8 @@ use eg_capabilities::DurabilityDomain;
 
 use super::{
     advance_authoritative_manifest, commit_mutation_body_prepublish_fast_path,
-    commit_mutation_body_staged_path, consensus_apply_is_authorized, idempotency_key,
-    idempotency_store, prepublish_success, DurableBatchAttempt, DurableBatchTarget, MutationCtx,
+    commit_mutation_body_staged_path, consensus_apply_is_authorized, idempotency_store,
+    prepublish_success, response_dedup_key, DurableBatchAttempt, DurableBatchTarget, MutationCtx,
     MutationPlan,
 };
 use crate::graph::GraphCore;
@@ -76,7 +76,7 @@ pub(super) fn commit_prepare(
     // required for ANY cached-response replay, independent of key granularity --
     // a response must always correlate to the request it is answering.
     let dedup_key = (plan.idempotent && matches!(plan.durability_domain, DurabilityDomain::None))
-        .then(|| idempotency_key(ctx.graph_name, method, ctx.req_id));
+        .then(|| response_dedup_key(ctx, method));
     if let Some(key) = &dedup_key {
         if let Some(mut cached) = idempotency_store().get(key) {
             cached.id = ctx.req_id;

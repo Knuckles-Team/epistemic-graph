@@ -1825,9 +1825,16 @@ impl WireSession {
         // `authorized_read_store`'s own doc for why this materializes an ephemeral,
         // per-call store instead of handing DataFusion the raw tenant-shared
         // catalog directly.
+        // RF-019: a maintained-ANN read narrows its table inside this projection,
+        // row-level security applied inside the probe.
         let (authority, persist_dir) = self.catalog_authority().await?;
+        let statement = sql.clone();
         let projection = tokio::task::spawn_blocking(move || {
-            crate::server::sql_catalog_acl::authorized_read_store(&authority, &persist_dir)
+            crate::server::sql_catalog_acl::authorized_read_store_for_query(
+                &authority,
+                &persist_dir,
+                &statement,
+            )
         })
         .await
         .map_err(|error| user_err(format!("authorized read-store build task failed: {error}")))?
@@ -4572,12 +4579,18 @@ impl WireSession {
             Some((tenant, graph)) => (Some(tenant), Some(graph)),
             None => (None, None),
         };
-        // CONCEPT:EG-KG.query.closure-backed-source — the server's REGISTERED foreign
-        // sources, cloned (a cheap `Arc` handle) into the blocking closure exactly like
-        // the tsdb store above, so a wire-path `FOREIGN "<name>"` / `Named` `ForeignScan`
-        // leg resolves through `ServerState::foreign_sources`.
+        // CONCEPT:EG-KG.query.closure-backed-source — the session's owner-scoped foreign
+        // registry (EH-373): a wire-path `FOREIGN "<name>"` / `Named` `ForeignScan` leg
+        // resolves only sources the session's verified principal registered or was
+        // explicitly granted (EH-378).
         #[cfg(feature = "federation")]
-        let foreign_sources = self.state.read().await.foreign_sources.clone();
+        let foreign = {
+            let carrier = self.carrier_authority().ok();
+            let s = self.state.read().await;
+            s.foreign_sources
+                .resolve_for_plan(&plan.ops, carrier.as_ref(), &s.isolation)
+                .map_err(user_err)?
+        };
         // CONCEPT:EG-KG.query.served-vector-index-binding / served-text-index-binding — push the
         // vector + lexical legs into the LIVE persistent indexes via a guard/adapter built
         // INSIDE the off-lock closure, instead of pre-cloning the whole `SemanticStore` here
@@ -4585,62 +4598,21 @@ impl WireSession {
         // `semantic_overlay` clone is paid ONLY when the txn actually staged embeddings.
         let core_for_ctx = core.clone();
         let rows = tokio::task::spawn_blocking(move || {
-            #[cfg(feature = "text")]
-            let served_text =
-                crate::server::secondary_indexes::ServedTextIndex::new(core_for_ctx.clone());
-            #[cfg(feature = "geo")]
-            let served_spatial =
-                crate::server::secondary_indexes::ServedSpatialIndex::new(core_for_ctx.clone());
-            if vectors.is_empty() {
-                let semantic_guard = core_for_ctx.semantic_store.read();
-                crate::server::handlers::query::run_unified(
-                    plan,
-                    &view,
-                    &semantic_guard,
-                    crate::server::handlers::query::ServedIndexes {
-                        #[cfg(feature = "text")]
-                        text: Some(&served_text),
-                        #[cfg(feature = "geo")]
-                        spatial: Some(&served_spatial),
-                        #[cfg(feature = "federation")]
-                        foreign: Some(&*foreign_sources),
-                        #[cfg(not(any(feature = "text", feature = "geo")))]
-                        _marker: std::marker::PhantomData,
-                    },
-                    #[cfg(feature = "tsdb")]
-                    crate::server::handlers::query::TsdbLegBind {
-                        tsdb: tsdb.as_deref(),
-                        tsdb_tenant: tsdb_tenant.as_deref(),
-                        tsdb_graph: tsdb_graph.as_deref(),
-                        staged_series: Some(&staged_series),
-                    },
-                )
-            } else {
-                let committed = core_for_ctx.semantic_store.read().clone();
-                let semantic = eg_core::compute::semantic::semantic_overlay(committed, &vectors);
-                crate::server::handlers::query::run_unified(
-                    plan,
-                    &view,
-                    &semantic,
-                    crate::server::handlers::query::ServedIndexes {
-                        #[cfg(feature = "text")]
-                        text: Some(&served_text),
-                        #[cfg(feature = "geo")]
-                        spatial: Some(&served_spatial),
-                        #[cfg(feature = "federation")]
-                        foreign: Some(&*foreign_sources),
-                        #[cfg(not(any(feature = "text", feature = "geo")))]
-                        _marker: std::marker::PhantomData,
-                    },
-                    #[cfg(feature = "tsdb")]
-                    crate::server::handlers::query::TsdbLegBind {
-                        tsdb: tsdb.as_deref(),
-                        tsdb_tenant: tsdb_tenant.as_deref(),
-                        tsdb_graph: tsdb_graph.as_deref(),
-                        staged_series: Some(&staged_series),
-                    },
-                )
-            }
+            crate::server::handlers::query::run_unified_with_staged(
+                plan,
+                &view,
+                &core_for_ctx,
+                &vectors,
+                #[cfg(feature = "federation")]
+                crate::server::foreign_catalog::bound_registry(&foreign),
+                #[cfg(feature = "tsdb")]
+                crate::server::handlers::query::TsdbLegBind {
+                    tsdb: tsdb.as_deref(),
+                    tsdb_tenant: tsdb_tenant.as_deref(),
+                    tsdb_graph: tsdb_graph.as_deref(),
+                    staged_series: Some(&staged_series),
+                },
+            )
         })
         .await
         .map_err(|e| user_err(format!("UQL task failed: {e}")))?
@@ -5281,18 +5253,7 @@ mod ne_004_ne_005_tests {
     /// (never by poking the registry directly).
     fn request(id: u64, graph: &str, method: Method) -> Request {
         static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        let claims = crate::acl::RequestContextClaims {
-            principal: AGENT.to_string(),
-            tenant: "tenant-shared".to_string(),
-            audience: "epistemic-graph-test".to_string(),
-            agent_id: AGENT.to_string(),
-            roles: vec!["test".to_string()],
-            scopes: vec!["*".to_string()],
-            policy_version: "policy-test".to_string(),
-            delegation: Vec::new(),
-            node: None,
-            priority: None,
-        };
+        let claims = crate::server::authority_context::signed_test_claims(AGENT);
         let mut req = Request {
             id,
             graph: graph.to_string(),
@@ -6051,18 +6012,7 @@ mod wired_catalog_tests {
 
     fn request(id: u64, graph: &str, method: Method) -> Request {
         static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-        let claims = crate::acl::RequestContextClaims {
-            principal: CREATOR.to_string(),
-            tenant: "tenant-shared".to_string(),
-            audience: "epistemic-graph-test".to_string(),
-            agent_id: CREATOR.to_string(),
-            roles: vec!["test".to_string()],
-            scopes: vec!["*".to_string()],
-            policy_version: "policy-test".to_string(),
-            delegation: Vec::new(),
-            node: None,
-            priority: None,
-        };
+        let claims = crate::server::authority_context::signed_test_claims(CREATOR);
         let mut req = Request {
             id,
             graph: graph.to_string(),

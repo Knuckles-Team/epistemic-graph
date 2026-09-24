@@ -36,6 +36,29 @@ pub(super) async fn handle_shacl_validate(
     )
 }
 
+/// The graph's composed GraphSchema SHACL shapes as a plan [`eg_plan::exec::ShapeSource`]
+/// (EH-196): a served `VALIDATE SHAPE` stage without its own `USING` document validates
+/// against exactly the shapes `ShaclValidate` uses when its `shapes` is omitted — one
+/// composition path ([`load_shacl_shapes`]), resolved only when a stage asks.
+#[cfg(all(feature = "shacl", feature = "owl-plan"))]
+pub(in crate::server) struct ServedShapes<'a> {
+    core: &'a GraphCore,
+}
+
+#[cfg(all(feature = "shacl", feature = "owl-plan"))]
+impl<'a> ServedShapes<'a> {
+    pub(in crate::server) fn new(core: &'a GraphCore) -> Self {
+        Self { core }
+    }
+}
+
+#[cfg(all(feature = "shacl", feature = "owl-plan"))]
+impl eg_plan::exec::ShapeSource for ServedShapes<'_> {
+    fn shapes(&self) -> Result<eg_shacl::Graph, String> {
+        load_shacl_shapes(self.core, None).map(|loaded| loaded.graph)
+    }
+}
+
 #[cfg(feature = "shacl")]
 struct LoadedShaclShapes {
     graph: eg_shacl::Graph,
@@ -282,5 +305,77 @@ mod graph_schema_shapes_tests {
             .schema_digests
             .iter()
             .all(|digest| digest.len() == 64));
+    }
+}
+
+/// EH-196 — a `VALIDATE SHAPE` stage with no `USING` document validates against the
+/// graph's committed GraphSchema shapes through [`ServedShapes`].
+#[cfg(all(test, feature = "shacl", feature = "owl-plan"))]
+mod served_shapes_tests {
+    use std::sync::Arc;
+
+    use eg_types::wire::{Op, Plan, ShapeKeep};
+
+    use super::*;
+    use crate::graph::{GraphSchemaSource, SchemaSourceOrigin};
+
+    const SHAPES: &str = "@prefix sh: <http://www.w3.org/ns/shacl#> .\n\
+                          @prefix ex: <http://example/> .\n\
+                          ex:Named a sh:NodeShape ;\n\
+                          sh:property [ sh:path ex:name ; sh:minCount 1 ] .\n";
+
+    fn people_with_schema() -> GraphCore {
+        let core = GraphCore::new();
+        let data = "@prefix ex: <http://example/> .\n\
+                    ex:alice a ex:Person ; ex:name \"Alice\" .\n\
+                    ex:bob a ex:Person ; ex:age \"3\" .\n";
+        let mut iris = eg_rdf::mapping::IriStore::default();
+        eg_rdf::mapping::load_triples(
+            &core,
+            &mut iris,
+            "g",
+            eg_rdf::mapping::parse_turtle(data).unwrap(),
+        )
+        .unwrap();
+        let mut sources = (*core.schema_sources()).clone();
+        sources
+            .attach_dynamic(
+                "admin:named".to_string(),
+                GraphSchemaSource::new(
+                    SchemaSourceOrigin::Admin {
+                        name: "named".to_string(),
+                    },
+                    Some(Arc::from(SHAPES)),
+                    None,
+                    0,
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        core.install_schema_sources(Arc::new(sources));
+        core
+    }
+
+    #[test]
+    fn a_stage_without_using_validates_against_the_graph_schema_shapes() {
+        let core = people_with_schema();
+        let view = core.analysis_snapshot();
+        let semantic = eg_core::compute::semantic::SemanticStore::new();
+        let shapes = ServedShapes::new(&core);
+        let ctx = eg_plan::PlanCtx::new(&view, &semantic).with_shape_source(&shapes);
+        let plan = Plan::new(vec![
+            Op::SparqlBgp {
+                query: "SELECT ?p WHERE { ?p a <http://example/Person> }".into(),
+                var: "p".into(),
+            },
+            Op::ValidateShape {
+                shape: "<http://example/Named>".into(),
+                shapes: String::new(),
+                keep: ShapeKeep::Violating,
+            },
+        ]);
+        let rows = eg_plan::execute(&plan, &ctx).unwrap();
+        let ids: Vec<&str> = rows.rows().iter().map(|row| row.id.as_str()).collect();
+        assert_eq!(ids, vec!["<http://example/bob>"]);
     }
 }

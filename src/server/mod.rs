@@ -376,7 +376,18 @@ pub(crate) mod graph_tile_source;
 // lease has lapsed. Always declared (mirrors `semantic_activation` above) — the
 // sweep is a no-op when nothing has registered.
 pub(crate) mod handlers;
+// Owner-scoped foreign-source catalog (CONCEPT:EG-KG.query.query-federation, EH-373): the one
+// place a caller's verified owner (tenant+principal) selects which sources a plan may resolve.
+#[cfg(feature = "federation")]
+pub mod foreign_catalog;
+// Explicit RBAC-grant sharing of an owner-scoped foreign source (EH-378).
+#[cfg(feature = "federation")]
+pub(crate) mod foreign_share;
 pub mod registry_reaper;
+// Owner-scoped WASM UDF catalog (CONCEPT:EG-KG.query.rowset-execution, EH-374):
+// `RegisterUdf`/`RunUdf` resolve ids only within the caller's verified owner (tenant+principal).
+#[cfg(feature = "wasm-udf")]
+pub mod udf_catalog;
 // MutationPlan + the single commit gateway (CONCEPT:EG-P0-2): consumes
 // `eg-capabilities`' MethodPolicy to drive authz + durable-commit + audit + CDC for
 // the GATEWAY_ROUTED mutation set from ONE call site. See its module docs for scope.
@@ -411,6 +422,12 @@ pub mod reasoning_cascade;
 pub(crate) mod icv_guard;
 // The 2.27.x contract wave's refusal stubs. Deleted by the promotion commit.
 pub(crate) mod contract_wave;
+// PB1 — the connector-pack projection worker, the first Agent Library outbox
+// consumer. `pub` so the server binary can start it after catalog recovery.
+pub mod connector_pack_projection;
+// X10 — the operator and consumer surface over every owner's mutation outbox.
+#[cfg(feature = "redb")]
+pub(crate) mod outbox_operator;
 // X9 — keyed schema sources on one request graph.  The authority composes both
 // OWL and SHACL documents and is therefore present only in the certified SHACL
 // build (which implies `owl-dl`).  Minimal/server-only profiles must not pull
@@ -1180,18 +1197,7 @@ mod tests {
     fn request(id: u64, graph: &str, agent_id: Option<&str>, method: Method) -> Request {
         static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let effective_agent = agent_id.unwrap_or("system");
-        let claims = RequestContextClaims {
-            principal: effective_agent.to_string(),
-            tenant: "tenant-shared".to_string(),
-            audience: "epistemic-graph-test".to_string(),
-            agent_id: effective_agent.to_string(),
-            roles: vec!["test".to_string()],
-            scopes: vec!["*".to_string()],
-            policy_version: "policy-test".to_string(),
-            delegation: Vec::new(),
-            node: None,
-            priority: None,
-        };
+        let claims = test_claims(effective_agent);
         // The idempotency key must identify the OPERATION, not just the request
         // id. `request(1, ...)` is called 21 times across this module with
         // different methods, and keying on `id` alone gave every one of them
@@ -1238,6 +1244,35 @@ mod tests {
             },
         );
         request
+    }
+
+    /// The signed claims [`request`] issues for `agent` in the deployment's one tenant.
+    fn test_claims(agent: &str) -> RequestContextClaims {
+        crate::server::authority_context::signed_test_claims(agent)
+    }
+
+    /// The verified carrier the server derives for a [`request`] made as `agent`
+    /// (EH-373/EH-374 owner-scoped catalogs key on its `owner_scope`).
+    #[cfg(any(feature = "federation", feature = "wasm-udf"))]
+    fn carrier_as(agent: &str) -> crate::server::access::CarrierAuthority {
+        let context = crate::server::auth::VerifiedRequestContext::from_verified_claims(
+            test_claims(agent),
+            "carrier-as".to_string(),
+        );
+        crate::server::access::CarrierAuthority::from_verified(&context)
+            .expect("verified test carrier")
+    }
+
+    /// Dispatch `method` on `__commons__` signed as `agent` (EH-373/EH-374
+    /// cross-principal tests).
+    #[cfg(any(feature = "federation", feature = "wasm-udf"))]
+    async fn dispatch_as(
+        state: &Arc<RwLock<ServerState>>,
+        id: u64,
+        agent: &str,
+        method: Method,
+    ) -> Response {
+        dispatch_on_heap(state, request(id, "__commons__", Some(agent), method)).await
     }
 
     fn add_node(node_id: &str) -> Method {
@@ -2212,8 +2247,10 @@ mod tests {
         }
         let s = state.read().await;
         assert!(
-            s.foreign_sources.contains_key("papers_api"),
-            "the source must be recorded on ServerState"
+            s.foreign_sources
+                .spec_for(&carrier_as("system"), "papers_api")
+                .is_some(),
+            "the source must be recorded on ServerState under the caller's verified owner"
         );
     }
 
@@ -2432,6 +2469,13 @@ mod tests {
             "the marker's error must name the missing source, got: {err}"
         );
     }
+
+    // EH-373 foreign-source tenancy proofs through the full served dispatch chain.
+    #[cfg(all(feature = "federation", feature = "nl-query"))]
+    mod foreign_tenancy;
+    // EH-374 WASM UDF tenancy proofs through the full served dispatch chain.
+    #[cfg(feature = "wasm-udf")]
+    mod udf_tenancy;
 
     // ── Cypher query surface (CONCEPT:EG-KG.query.dep-free-behind) ─────────────────────────
 
@@ -5910,6 +5954,15 @@ ex:bob   a ex:Person ; ex:name "Bob"@en .
         );
     }
 
+    /// The SPARQL result an OK response carries.
+    fn sparql_result(r: Response) -> crate::protocol::SparqlResult {
+        assert_ok(&r);
+        match r.result {
+            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
+            other => panic!("expected Raw(SparqlResult), got {other:?}"),
+        }
+    }
+
     /// Sparql Method round-trips through dispatch: a BGP+FILTER over a loaded graph.
     #[cfg(feature = "sparql")]
     #[tokio::test]
@@ -5959,15 +6012,12 @@ ex:carol a ex:Person ; ex:name "Carol" ; ex:age "40"^^xsd:integer ; ex:knows ex:
                     .into(),
                     base_iri: String::new(),
                     type_convention: String::new(),
+                    explain: false,
                 },
             ),
         )
         .await;
-        assert_ok(&r);
-        let res: crate::protocol::SparqlResult = match r.result {
-            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
-            other => panic!("expected Raw(SparqlResult), got {other:?}"),
-        };
+        let res = sparql_result(r);
         let name_idx = res.vars.iter().position(|v| v == "name").unwrap();
         let mut names: Vec<String> = res
             .rows
@@ -6336,11 +6386,7 @@ ex:Animal rdfs:subClassOf ex:LivingThing .
             ),
         )
         .await;
-        assert_ok(&r);
-        let res: crate::protocol::SparqlResult = match r.result {
-            Some(ResultPayload::Raw(b)) => rmp_serde::from_slice(&b).unwrap(),
-            other => panic!("expected Raw(SparqlResult), got {other:?}"),
-        };
+        let res = sparql_result(r);
         assert_eq!(res.vars, vec!["name".to_string()]);
         let name_idx = 0;
         let mut names: Vec<Option<String>> =
@@ -6995,18 +7041,7 @@ ex:p1 a ex:Paper .
         let state = test_state();
 
         // An identity UDF (echoes its input bytes) and an infinite-loop UDF.
-        let identity = wat::parse_str(
-            r#"(module
-                (memory (export "memory") 1)
-                (global $n (mut i32) (i32.const 1024))
-                (func (export "alloc") (param $l i32) (result i32)
-                    (local $p i32) (local.set $p (global.get $n))
-                    (global.set $n (i32.add (global.get $n) (local.get $l))) (local.get $p))
-                (func (export "udf") (param $p i32) (param $l i32) (result i64)
-                    (i64.or (i64.shl (i64.extend_i32_u (local.get $p)) (i64.const 32))
-                            (i64.extend_i32_u (local.get $l)))))"#,
-        )
-        .unwrap();
+        let identity = wat::parse_str(udf_tenancy::IDENTITY_WAT).unwrap();
         let infinite = wat::parse_str(
             r#"(module
                 (memory (export "memory") 1)

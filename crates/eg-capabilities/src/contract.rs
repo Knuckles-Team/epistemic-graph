@@ -15,6 +15,7 @@ use sha2::{Digest, Sha256};
 use crate::{ConsumerProfile, MethodDescriptor, Stability};
 
 mod format_identity;
+mod method_bodies;
 mod python;
 mod python_render;
 mod results;
@@ -318,6 +319,7 @@ fn body_artifacts(catalog: &Catalog) -> Vec<Artifact> {
     out.extend(schema::artifacts(catalog));
     out.extend(python::artifacts(catalog));
     out.extend(vectors::artifacts());
+    out.extend(method_bodies::artifacts());
     out
 }
 

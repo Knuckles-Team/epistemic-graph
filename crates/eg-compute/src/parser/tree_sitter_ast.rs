@@ -1,4 +1,4 @@
-use super::get_node_text;
+use super::{first_child_of_kind, get_node_text};
 use std::collections::BTreeSet;
 use tree_sitter::Node;
 
@@ -502,42 +502,51 @@ fn extended_class_kind(kind: &str) -> Option<&'static str> {
     .into()
 }
 
+/// Callable declaration node kinds across grammars, and the semantic kind
+/// each one is. A closed table: a kind not listed is not a callable.
+const FUNCTION_LIKE_KINDS: &[(&str, &str)] = &[
+    ("function_definition", "function"),
+    ("function_declaration", "function"),
+    ("function_item", "function"),
+    ("generator_function_declaration", "function"),
+    // Ruby `method`/`singleton_method` (CONCEPT:AU-KG.compute.built-ast-extended).
+    ("method_definition", "method"),
+    ("method_declaration", "method"),
+    ("method", "method"),
+    ("singleton_method", "method"),
+    ("constructor_declaration", "constructor"),
+    // Julia `macro mymacro(x) ... end` (CONCEPT:EH-281) — a compile-time
+    // callable, closest existing concept is a function.
+    ("macro_definition", "macro"),
+    // Fortran's outer `function`/`subroutine` containers (CONCEPT:EH-281);
+    // name resolved by `fortran_symbol_name` (the field lives on the
+    // nested `function_statement`/`subroutine_statement`, not here).
+    ("function", "function"),
+    ("subroutine", "subroutine"),
+    // Pascal/Delphi `defProc` (CONCEPT:EH-281) — a DEFINING occurrence
+    // (header + body), the Pascal analogue of a C `function_definition`.
+    // The bare forward declaration (`declProc` alone, in an `interface`
+    // section) is deliberately NOT listed, mirroring how a C
+    // prototype-only `declaration` never matches this table either —
+    // only the defining occurrence is extracted.
+    ("defProc", "function"),
+    // PowerShell `function Get-Area { ... }` / a class method
+    // (CONCEPT:EH-281); name resolved by `powershell_symbol_name`.
+    ("function_statement", "function"),
+    ("class_method_definition", "method"),
+    // DreamMaker (CONCEPT:EH-281 ABI-15 follow-up). Both already carry a
+    // `name` field, so `symbol_name`'s first check resolves them — no
+    // `dm_symbol_name` involvement, unlike `type_definition`.
+    ("proc_definition", "function"),
+    ("type_proc_definition", "method"),
+];
+
 /// Semantic kind for a callable declaration node across grammars, or ``None``.
 pub(super) fn function_like_kind(kind: &str) -> Option<&'static str> {
-    Some(match kind {
-        "function_definition"
-        | "function_declaration"
-        | "function_item"
-        | "generator_function_declaration" => "function",
-        // Ruby `method`/`singleton_method` (CONCEPT:AU-KG.compute.built-ast-extended).
-        "method_definition" | "method_declaration" | "method" | "singleton_method" => "method",
-        "constructor_declaration" => "constructor",
-        // Julia `macro mymacro(x) ... end` (CONCEPT:EH-281) — a compile-time
-        // callable, closest existing concept is a function.
-        "macro_definition" => "macro",
-        // Fortran's outer `function`/`subroutine` containers (CONCEPT:EH-281);
-        // name resolved by `fortran_symbol_name` (the field lives on the
-        // nested `function_statement`/`subroutine_statement`, not here).
-        "function" => "function",
-        "subroutine" => "subroutine",
-        // Pascal/Delphi `defProc` (CONCEPT:EH-281) — a DEFINING occurrence
-        // (header + body), the Pascal analogue of a C `function_definition`.
-        // The bare forward declaration (`declProc` alone, in an `interface`
-        // section) is deliberately NOT matched here, mirroring how a C
-        // prototype-only `declaration` never matches this table either —
-        // only the defining occurrence is extracted.
-        "defProc" => "function",
-        // PowerShell `function Get-Area { ... }` / a class method
-        // (CONCEPT:EH-281); name resolved by `powershell_symbol_name`.
-        "function_statement" => "function",
-        "class_method_definition" => "method",
-        // DreamMaker (CONCEPT:EH-281 ABI-15 follow-up). Both already carry a
-        // `name` field, so `symbol_name`'s first check resolves them — no
-        // `dm_symbol_name` involvement, unlike `type_definition`.
-        "proc_definition" => "function",
-        "type_proc_definition" => "method",
-        _ => return None,
-    })
+    FUNCTION_LIKE_KINDS
+        .iter()
+        .find(|(node_kind, _)| *node_kind == kind)
+        .map(|(_, semantic)| *semantic)
 }
 
 /// Best-effort symbol name across grammars. Most declarations expose a ``name``
@@ -598,24 +607,13 @@ fn julia_symbol_name(node: Node, source: &[u8]) -> Option<String> {
     for child in node.children(&mut cursor) {
         match child.kind() {
             "type_head" => {
-                let mut inner = child.walk();
-                let found = child
-                    .children(&mut inner)
-                    .find(|c| c.kind() == "identifier");
-                if let Some(id) = found {
+                if let Some(id) = first_child_of_kind(child, "identifier") {
                     return Some(get_node_text(id, source));
                 }
             }
             "signature" => {
-                let mut inner = child.walk();
-                let call = child
-                    .children(&mut inner)
-                    .find(|c| c.kind() == "call_expression")?;
-                let mut call_children = call.walk();
-                let found = call
-                    .children(&mut call_children)
-                    .find(|c| c.kind() == "identifier");
-                if let Some(id) = found {
+                let call = first_child_of_kind(child, "call_expression")?;
+                if let Some(id) = first_child_of_kind(call, "identifier") {
                     return Some(get_node_text(id, source));
                 }
             }
@@ -641,9 +639,7 @@ fn fortran_symbol_name(node: Node, source: &[u8]) -> Option<String> {
     let stmt = node
         .children(&mut cursor)
         .find(|c| c.kind().ends_with("_statement"))?;
-    let mut inner = stmt.walk();
-    let found = stmt.children(&mut inner).find(|c| c.kind() == "name");
-    found.map(|c| get_node_text(c, source))
+    first_child_of_kind(stmt, "name").map(|c| get_node_text(c, source))
 }
 
 /// Pascal/Delphi `defProc` (CONCEPT:EH-281) — a defining function/method
@@ -689,10 +685,7 @@ fn powershell_symbol_name(node: Node, source: &[u8]) -> Option<String> {
 /// functions/methods — both already carry a `name` field and never reach
 /// this function; see `function_like_kind`.)
 fn dm_symbol_name(node: Node, source: &[u8]) -> Option<String> {
-    let mut cursor = node.walk();
-    let type_path = node
-        .children(&mut cursor)
-        .find(|c| c.kind() == "type_path")?;
+    let type_path = first_child_of_kind(node, "type_path")?;
     let mut inner = type_path.walk();
     let mut last = None;
     for child in type_path.children(&mut inner) {
@@ -704,11 +697,7 @@ fn dm_symbol_name(node: Node, source: &[u8]) -> Option<String> {
     if last.kind() == "type_identifier" {
         return Some(get_node_text(last, source));
     }
-    let mut inner2 = last.walk();
-    let found = last
-        .children(&mut inner2)
-        .find(|c| c.kind() == "identifier");
-    found.map(|c| get_node_text(c, source))
+    first_child_of_kind(last, "identifier").map(|c| get_node_text(c, source))
 }
 
 /// Fall back to an unnamed identifier-SHAPED child when no field
@@ -736,29 +725,43 @@ fn identifier_child(node: Node, depth: u8) -> Option<Node> {
     if depth == 0 {
         return None;
     }
-    let mut wrapper_child: Option<Node> = None;
+    let children = unfielded_children(node);
+    if let Some(identifier) = children
+        .iter()
+        .find(|child| is_identifier_kind(child.kind()))
+    {
+        return Some(*identifier);
+    }
+    children
+        .into_iter()
+        .find(|child| is_wrapper_kind(child.kind()))
+        .and_then(|wrapper| identifier_child(wrapper, depth - 1))
+}
+
+/// The direct children that carry no field name, in order.
+fn unfielded_children(node: Node) -> Vec<Node> {
+    let mut children = Vec::new();
     let mut cursor = node.walk();
     if !cursor.goto_first_child() {
-        return None;
+        return children;
     }
     loop {
         if cursor.field_name().is_none() {
-            let child = cursor.node();
-            let kind = child.kind();
-            if kind == "identifier" || kind.ends_with("_identifier") {
-                return Some(child);
-            }
-            if wrapper_child.is_none()
-                && (kind.ends_with("_header") || kind.ends_with("_body_declaration"))
-            {
-                wrapper_child = Some(child);
-            }
+            children.push(cursor.node());
         }
         if !cursor.goto_next_sibling() {
-            break;
+            return children;
         }
     }
-    wrapper_child.and_then(|w| identifier_child(w, depth - 1))
+}
+
+fn is_identifier_kind(kind: &str) -> bool {
+    kind == "identifier" || kind.ends_with("_identifier")
+}
+
+/// A `*_header` / `*_body_declaration` wrapper one level above the name.
+fn is_wrapper_kind(kind: &str) -> bool {
+    kind.ends_with("_header") || kind.ends_with("_body_declaration")
 }
 
 /// Descend a C/C++ declarator chain (pointer/function/array declarators) to the

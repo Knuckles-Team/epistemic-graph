@@ -12,11 +12,21 @@ from .model import (
     Annotations,
     Archive,
     BuiltPack,
+    CatalogBinding,
     ConnectorPackIndex,
     PackEntry,
     PackRef,
     Producer,
     Section,
+)
+
+#: The catalog snapshot every synthetic pack claims to come from.
+SYNTHETIC_CATALOG = CatalogBinding(
+    configuration_revision=1,
+    catalog_generation=1,
+    snapshot_digest=sha256_raw(b"synthetic-catalog-snapshot").hex(),
+    child_connection_generation=1,
+    authorization_scope_digest=sha256_raw(b"synthetic-authorization-scope").hex(),
 )
 
 
@@ -44,6 +54,7 @@ class PackSpec:
     )
     schema_version: int = SCHEMA_VERSION
     sort_entries: bool = True
+    catalog: CatalogBinding = field(default_factory=lambda: SYNTHETIC_CATALOG)
 
     def with_entries(self, entries: Sequence[EntrySpec]) -> PackSpec:
         return replace(self, entries=tuple(entries))
@@ -100,6 +111,7 @@ def assemble(spec: PackSpec) -> BuiltPack:
         archive=Archive(length=len(archive), sha256=sha256_raw(archive).hex()),
         entries=entries,
         producer=spec.producer,
-        pack_digest=pack_digest(spec.connector, archive, server, entries).hex(),
+        catalog=spec.catalog,
+        pack_digest=pack_digest(spec.connector, spec.catalog, server, entries).hex(),
     )
     return BuiltPack(index=index, archive=archive)

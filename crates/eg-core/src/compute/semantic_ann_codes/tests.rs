@@ -297,6 +297,27 @@ fn generation_checkpoint_fixture(stage: SemanticStage) -> GenerationCheckpointFi
     }
 }
 
+/// A first-stage (`SourceCommit`) intent for one entity of `binding`.
+pub(super) fn source_commit_intent(
+    binding: &eg_types::semantic_index::SemanticBinding,
+    entity: &str,
+    input_digest: SemanticDigest,
+) -> SemanticStageIntent {
+    SemanticStageIntent::create(SemanticStageIntentDraft {
+        binding_id: binding.binding_id.clone(),
+        binding_digest: binding.binding_digest,
+        generation: binding.generation,
+        scope: SemanticStageScope::Entity {
+            source_entity_id: entity.to_string(),
+        },
+        source_revision: binding.source_revision.clone(),
+        stage: SemanticStage::SourceCommit,
+        predecessor: SemanticStagePredecessor::None,
+        input_digest,
+    })
+    .unwrap()
+}
+
 /// A unique temp dir per test invocation (no external dev-dep needed).
 pub(super) fn tmp_dir(tag: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
@@ -882,19 +903,7 @@ fn complete_stage_dead_letter_producer_keeps_distinct_intents_at_one_attempt() {
     codes.subscribe_stage_consumer("semantic-dlq-test").unwrap();
 
     let admit_and_reject = |entity: &str, seed: u8, now_ms: u64| {
-        let intent = SemanticStageIntent::create(SemanticStageIntentDraft {
-            binding_id: binding.binding_id.clone(),
-            binding_digest: binding.binding_digest,
-            generation: binding.generation,
-            scope: SemanticStageScope::Entity {
-                source_entity_id: entity.to_string(),
-            },
-            source_revision: binding.source_revision.clone(),
-            stage: SemanticStage::SourceCommit,
-            predecessor: SemanticStagePredecessor::None,
-            input_digest: digest(seed),
-        })
-        .unwrap();
+        let intent = source_commit_intent(&binding, entity, digest(seed));
         codes.enqueue_stage_intent(&intent, now_ms).unwrap();
         let mut budget = eg_transaction::OutboxClaimBudget::new(4, 5_000, now_ms + 1).unwrap();
         let outcome = codes
@@ -1525,7 +1534,7 @@ fn complete_reconciliation_tombstone_replaces_completed_prior_revision() {
         .batch
         .outbox
         .iter()
-        .find(|event| event.topic == super::SEMANTIC_STAGE_INTENT_TOPIC)
+        .find(|event| super::is_stage_intent_topic(&event.topic))
         .unwrap();
     assert_eq!(
         event
@@ -2332,7 +2341,7 @@ fn refresh_with_s1_moves_head_and_replays_after_the_head_changed() {
         .batch
         .outbox
         .iter()
-        .any(|event| event.topic == super::SEMANTIC_STAGE_INTENT_TOPIC));
+        .any(|event| super::is_stage_intent_topic(&event.topic)));
     drop(read);
 
     let replay = codes

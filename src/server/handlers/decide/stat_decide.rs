@@ -11,7 +11,6 @@ use std::time::Instant;
 use tokio::sync::RwLock;
 use tracing::Instrument;
 
-use eg_types::agent_component::AgentComponentEntry;
 use eg_types::contract::BoundedVec;
 use eg_types::decision::digest::{digest_text, statistical_record_digest};
 use eg_types::decision::statistical::keyed::seed_commitment;
@@ -29,6 +28,7 @@ use super::candidates::{read_candidates, ReadCandidates};
 use super::stat_executor::{
     execute, pinned_inputs, recorded_explanation, Executed, ExecutionContext, Pinned,
 };
+use super::stat_log::{fill_outcome_rates, LogReader};
 use super::stat_nl::binding;
 use super::stat_support::{refusal, resolve_policy, ResolvedPolicy};
 use super::telemetry;
@@ -77,6 +77,9 @@ async fn serve(
         let mut guard = state.write().await;
         (guard.ensure_agent_library()?, guard.auth_secret.clone())
     };
+    let graph_view =
+        super::candidates::filtered_graph_view(state, verified.agent_id(), &request.candidates)
+            .await?;
     let principal = verified.principal_persistence_id();
     let now_ms = crate::server::dispatch::authoritative_now_ms();
     let started = Instant::now();
@@ -87,7 +90,7 @@ async fn serve(
             now_ms,
             server_secret: secret.as_bytes(),
         };
-        decide_blocking(&ctx, &request, principal, started)
+        decide_blocking(&ctx, &request, graph_view.as_ref(), principal, started)
     })
     .await
     .map_err(|error| format!("Decide task failed: {error}"))?
@@ -96,13 +99,32 @@ async fn serve(
 fn decide_blocking(
     ctx: &ExecutionContext,
     request: &DecideRequest,
+    graph_view: Option<&eg_core::graph::GraphView>,
     principal: String,
     started: Instant,
 ) -> Result<DecisionBatch, String> {
-    let candidates = read_candidates(ctx.store, ctx.tenant_id, &request.candidates)?;
-    let pinned = pinned_inputs(ctx, request)?;
+    let mut candidates = read_candidates(
+        ctx.store,
+        ctx.tenant_id,
+        &request.candidates,
+        graph_view,
+        &principal,
+    )?;
+    let pinned = pinned_inputs(ctx, &request.feature_schema, request.head.as_ref())?;
     let policy = resolve_policy(ctx.store, ctx.tenant_id, &request.policy)?;
-    let executed = execute(ctx, request, &pinned, &policy, &candidates.entries)?;
+    let reader = LogReader {
+        tenant_id: ctx.tenant_id.to_string(),
+        principal: principal.clone(),
+        retention: super::stat_retention::Retention::none(),
+    };
+    fill_outcome_rates(
+        ctx.store,
+        &reader,
+        &pinned.schema,
+        policy.statistical.tenant_public_features,
+        &mut candidates.views,
+    )?;
+    let executed = execute(ctx, request, &pinned, &policy, &candidates.views)?;
     let nl = binding(request, &executed.ladder.outcome, &candidates.entries)?;
     let record = seal(
         Sealing {
@@ -116,7 +138,7 @@ fn decide_blocking(
         &executed,
         nl,
     )?;
-    telemetry::decided(&record, candidates.entries.len(), started);
+    telemetry::decided(&record, candidates.views.len(), started);
     let records = BoundedVec::new(vec![record])
         .map_err(|detail| refusal(StatisticalErrorCode::ParameterInvalid, detail))?;
     Ok(DecisionBatch {
@@ -142,16 +164,13 @@ fn bounded<T, const N: usize>(values: Vec<T>) -> Result<BoundedVec<T, N>, String
 }
 
 fn feature_matrix(
-    entries: &[AgentComponentEntry],
+    views: &[eg_numeric::decision::candidate::CandidateView],
     pinned: &Pinned,
     executed: &Executed,
 ) -> Result<FeatureMatrixRef, String> {
     let (ids, values) = match &executed.matrix {
         Some(matrix) => (matrix.candidate_ids.clone(), matrix.values.clone()),
-        None => (
-            entries.iter().map(|e| e.component_id.clone()).collect(),
-            Vec::new(),
-        ),
+        None => (views.iter().map(|v| v.id.clone()).collect(), Vec::new()),
     };
     Ok(FeatureMatrixRef::Inline {
         candidate_ids: bounded(ids)?,
@@ -185,6 +204,29 @@ fn premise(
         class,
         provenance,
     }
+}
+
+/// One CLAIM premise per rule-derived class (EH-200): a derivation over a
+/// publisher's declared facts is only as strong as those facts.
+fn derived_premises<'a>(sealing: &'a Sealing) -> impl Iterator<Item = PremiseRef> + 'a {
+    sealing.candidates.entries.iter().flat_map(move |entry| {
+        let classes = sealing
+            .candidates
+            .derived
+            .by_component
+            .get(&entry.component_id);
+        classes.into_iter().flatten().map(move |(class, rule)| {
+            premise(
+                &entry.component_id,
+                &format!("derived:{class} by {rule}"),
+                PremiseClass::Claim,
+                PremiseProvenance::Publisher {
+                    component_id: entry.component_id.clone(),
+                    definition_digest: entry.definition_digest.clone(),
+                },
+            )
+        })
+    })
 }
 
 fn premises(sealing: &Sealing, nl: Option<&NlBinding>) -> Vec<PremiseRef> {
@@ -224,6 +266,7 @@ fn premises(sealing: &Sealing, nl: Option<&NlBinding>) -> Vec<PremiseRef> {
             },
         ));
     }
+    out.extend(derived_premises(sealing));
     if let Some(NlBinding {
         source:
             NlChoiceSource::LlmProposal {
@@ -288,8 +331,11 @@ fn seal(
     let inputs = StatisticalInputs {
         feature_schema: sealing.request.feature_schema.clone(),
         head: sealing.request.head.clone(),
+        policy: sealing.request.policy.clone(),
         policy_digest: sealing.policy.digest.clone(),
-        feature_matrix: feature_matrix(&sealing.candidates.entries, sealing.pinned, executed)?,
+        params: sealing.request.params.clone(),
+        classification_rules: sealing.candidates.derived.rules.clone(),
+        feature_matrix: feature_matrix(&sealing.candidates.views, sealing.pinned, executed)?,
         shortlist: ShortlistProvenance {
             ann_recall_mode: None,
             now_ms: sealing.ctx.now_ms,
@@ -299,7 +345,7 @@ fn seal(
     };
     let inputs_digest = digest_text(
         STATISTICAL_INPUTS_DOMAIN,
-        &(&sealing.request.question, &sealing.request.params, &inputs),
+        &(&sealing.request.question, &inputs),
     );
     let premise_list = premises(&sealing, nl.as_ref());
     let outcome = executed.ladder.outcome.clone();
@@ -327,6 +373,7 @@ fn seal(
         calibration: executed.ladder.calibration,
         explanation: recorded_explanation(sealing.pinned, executed)?,
         audit: executed.ladder.audit,
+        logging_propensities: bounded(executed.ladder.logging.clone())?,
         nl_binding: nl,
         synthetic_evidence: synthetic,
         record_digest: String::new(),

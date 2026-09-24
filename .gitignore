@@ -153,10 +153,15 @@ node_modules/
 # check_root_hygiene.py's FORBIDDEN_ANYWHERE (which catches it if it is ever
 # tracked anyway); this stops it from becoming stageable in the first place.
 .kissconfig
-# `kiss check` also writes a .kiss/ working directory. Only the HAND-AUTHORED
-# .kiss/kiss.toml is tracked (it is the gate's thresholds, not a baseline); the
-# analysis caches beside it are regenerated on every run and must never be
-# committed -- they reached main in the thresholds commit and left `.kiss/`
-# undeclared at the repo root, failing check_root_hygiene.py on every commit.
-.kiss/*
-!.kiss/kiss.toml
+# `kiss check` also writes a .kiss/ working directory of regenerated analysis
+# caches; the hand-authored thresholds are tracked in .config/kiss.toml (not a
+# baseline), so nothing under .kiss/ is ever committed.
+.kiss/
+# Root-hygiene: maturin's per-target build locks (<target>.<name>-maturin.lock),
+# ad-hoc gate virtualenvs, security-harness evidence and the shared pipelines
+# checkouts the Pages workflow (and a local docs build) creates.
+*maturin.lock
+.gates-wheel-venv/
+security-results/
+.pipeline-theme/
+.pipeline-contract/

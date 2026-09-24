@@ -6,14 +6,24 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
 from ._runtime import (
     OpaqueResult,
+    decode_result,
     expect_string,
+    models,
 )
+
+if TYPE_CHECKING:
+    from . import models as _models
+
+    AuditProveInclusionRequest = _models.MethodAuditProveInclusionParams
+    RegisterIdentityRequest = _models.MethodRegisterIdentityParams
+    RbacAdminRequest = _models.MethodRbacAdminParams
+    GetIdentityRequest = _models.MethodGetIdentityParams
 
 
 class GetLedgerRequest(BaseModel):
@@ -67,6 +77,11 @@ async def send_get_ledger(
     return OpaqueResult("GetLedger", payload)
 
 
+def decode_get_ledger(result: OpaqueResult) -> _models.LedgerReadResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("GetLedger", models().LedgerReadResult, result)
+
+
 class AuditVerifyRequest(BaseModel):
     """Validate one engine-contract request body.
 
@@ -118,20 +133,9 @@ async def send_audit_verify(
     return OpaqueResult("AuditVerify", payload)
 
 
-class AuditProveInclusionRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        AuditProveInclusion
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/AuditProveInclusion
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    anchor_seq: int | None = None
-    node_id: str
+def decode_audit_verify(result: OpaqueResult) -> _models.AuditReport:
+    """Validate this method's result against its contract model."""
+    return decode_result("AuditVerify", models().AuditReport, result)
 
 
 async def send_audit_prove_inclusion(
@@ -160,7 +164,7 @@ async def send_audit_prove_inclusion(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    AuditProveInclusionRequest.model_validate(params or {})
+    models().MethodAuditProveInclusionParams.model_validate(params or {})
     payload = await client._send(
         "AuditProveInclusion",
         params,
@@ -170,23 +174,9 @@ async def send_audit_prove_inclusion(
     return OpaqueResult("AuditProveInclusion", payload)
 
 
-class RegisterIdentityRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        RegisterIdentity
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/RegisterIdentity
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    agent_id: str
-    role: Any
-    roles: list[str]
-    signature: str
-    teams: list[str]
+def decode_audit_prove_inclusion(result: OpaqueResult) -> _models.MerkleInclusionReport:
+    """Validate this method's result against its contract model."""
+    return decode_result("AuditProveInclusion", models().MerkleInclusionReport, result)
 
 
 async def send_register_identity(
@@ -219,7 +209,7 @@ async def send_register_identity(
         - REDIRECTED
         - READ_ONLY
     """
-    RegisterIdentityRequest.model_validate(params or {})
+    models().MethodRegisterIdentityParams.model_validate(params or {})
     payload = await client._send(
         "RegisterIdentity",
         params,
@@ -227,21 +217,6 @@ async def send_register_identity(
         idempotency_key=idempotency_key,
     )
     return expect_string("RegisterIdentity", payload)
-
-
-class RbacAdminRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        RbacAdmin
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/RbacAdmin
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    op: Any
 
 
 async def send_rbac_admin(
@@ -274,7 +249,7 @@ async def send_rbac_admin(
         - REDIRECTED
         - READ_ONLY
     """
-    RbacAdminRequest.model_validate(params or {})
+    models().MethodRbacAdminParams.model_validate(params or {})
     payload = await client._send(
         "RbacAdmin",
         params,
@@ -282,21 +257,6 @@ async def send_rbac_admin(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("RbacAdmin", payload)
-
-
-class GetIdentityRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetIdentity
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetIdentity
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    agent_id: str
 
 
 async def send_get_identity(
@@ -325,7 +285,7 @@ async def send_get_identity(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetIdentityRequest.model_validate(params or {})
+    models().MethodGetIdentityParams.model_validate(params or {})
     payload = await client._send(
         "GetIdentity",
         params,
@@ -333,3 +293,27 @@ async def send_get_identity(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("GetIdentity", payload)
+
+
+def decode_get_identity(result: OpaqueResult) -> _models.GetIdentityResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("GetIdentity", models().GetIdentityResult, result)
+
+
+# Methods whose `{Id}Request` resolves to `models.Method{Id}Params` (EH-192).
+_REQUEST_METHODS = frozenset(
+    {
+        "AuditProveInclusion",
+        "RegisterIdentity",
+        "RbacAdmin",
+        "GetIdentity",
+    }
+)
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve a ``{Id}Request`` name to its generated model on first use."""
+    method = name.removesuffix("Request")
+    if name == method or method not in _REQUEST_METHODS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(models(), f"Method{method}Params")

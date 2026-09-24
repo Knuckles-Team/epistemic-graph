@@ -533,6 +533,7 @@ async fn spawn_optional_service_listeners(
     spawn_s3_listener(state).await?;
     spawn_kvcache_listener(state).await?;
     recover_durable_catalog(state).await?;
+    epistemic_graph::server::connector_pack_projection::spawn(state.clone());
     #[cfg(feature = "epistemic-tms")]
     epistemic_graph::server::reasoning_projection::spawn(state.clone());
     Ok(())
@@ -1686,6 +1687,18 @@ async fn spawn_reasoning_cascade_and_ann_sweep(
             }
         });
     }
+
+    // ── Maintained user-table ANN generations (RF-019) ──
+    // The ONLY builder of SQL `hnsw`/`ivfflat` index generations: a query never
+    // builds one (it serves the live generation, or a bounded exact scan while none
+    // is live). Same interval-task cadence as the graph ANN sweep above; a restart
+    // empties every generation and the first pass after a catalog reopens rebuilds it.
+    #[cfg(feature = "query")]
+    spawn_periodic_sweep(
+        30,
+        "sql_ann_generation_sweep",
+        epistemic_graph::server::sql_tables::sweep_ann_generations,
+    );
 
     // Periodic Ebbinghaus decay sweep (CONCEPT:EG-KG.compute.graph-compute-engine) — opt-in. Confidence on
     // every node/edge decays toward 0 with a configurable half-life; with a

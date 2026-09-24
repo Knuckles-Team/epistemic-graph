@@ -1,0 +1,64 @@
+# Repository-root directory-justification manifest, read by
+# scripts/check_root_hygiene.py.
+#
+# This is NOT a ratchet. A ratchet (a "baseline" a gate compares against
+# instead of an absolute standard) hides existing findings from view and only
+# ever grows by a gate silently re-recording whatever is currently true. This
+# file does the opposite on both counts:
+#   * it hides no finding -- every tracked root entry not listed here is a
+#     gate FAILURE, not a suppressed one;
+#   * it grows only by a deliberate human (or human-reviewed) edit that adds
+#     a one-line reason, never by a tool re-writing it to match the tree;
+#   * a listed entry that stops being tracked is ALSO a gate failure (see
+#     check_root_hygiene.py's stale-entry check) -- so unlike a baseline, this
+#     file cannot rot into fiction by silently outliving what it describes.
+#
+# Every tracked root directory, and every tracked non-dot root file, must have
+# a line here. The few dot-FILES a tool discovers only at the root (.gitignore,
+# .python-version, ...) are enumerated in scripts/check_root_hygiene.py's
+# ALLOWED_DOTFILES -- see that module's docstring for why the split. Every tool
+# input that accepts a path override lives in .config/ (or is folded into
+# pyproject.toml); the root keeps only what a tool discovers nowhere else.
+#
+# NOTE on `src` + `crates` both existing: this repo is a maturin hybrid, and
+# that is idiomatic, not a defect to fix. `src/` is the root Rust package
+# (server binary + PyO3 facade, 193 files / ~231k LOC) that maturin builds the
+# wheel from; `crates/` is the 48-member cargo workspace of library crates
+# `src/` composes. Ported from the agent-utilities original of this gate per
+# CX-HYG-01; see that repo's own .config/repo-layout.toml for the shared
+# conventions (scripts/, .github, and .config).
+
+[dirs]
+src = "root epistemic-graph package: server binary (src/bin/main.rs) + PyO3 facade that maturin builds the wheel from"
+crates = "the 48-member cargo workspace; the library surface src/ composes (see Cargo.toml [workspace].members)"
+epistemic_graph = "the pure-Python client package (parser/cli/client/pool/asr_provider/quant/...) shipped alongside the compiled extension; maturin's python-source root"
+architecture = "RF-ADR-005 owner manifest: component-registry.yml declares this repository's component and capability identities at the fixed path the registry gate discovers through workspace.yml. Every component is status=proposed and NOTHING here is accepted yet -- it is the ownership authority the refactor designs cite, not a description of enforced state."
+benches = "criterion benchmarks: cold/warm reopen, massive-scale, pyo3 in-process vs UDS transport, redb group-commit, provenance-anchor"
+clients = "hand-maintained out-of-tree client SDKs: clients/go (Go) and clients/js (JS/TS), each with its own README, tests, and lockfile"
+docker = "Dockerfile(s) + compose stacks for the standalone/test engine image, the BuildKit-scoped Dockerfile.dockerignore for the repository-root build context, plus the docker/wheels/ COPY target for the CI-built wheel"
+contract = "GENERATED engine contract (RF-RULING-003), written and byte-verified by `cargo run -p eg-capabilities --features contract --bin gen_contract [-- --check]` from the hand-authored `crates/eg-capabilities/src/domains/*` descriptor rows. It is at the repository ROOT because it is what an external consumer pins: `contract/receipt.json` carries the one `contract_digest` agent-utilities binds to, and `contract/methods.json` + `contract/schemas/*` are the per-method registry and JSON Schemas the generated clients validate against. Never hand-edit: an edit here is drift the `--check` gate fails on, and the source of truth is the descriptor rows."
+docs = "mkdocs documentation source: architecture, benchmarks, generated capability docs"
+examples = "runnable Rust examples (embedded usage, a neighbors-batch benchmark)"
+protocols = "versioned wire-protocol schemas (epistemic-operations, performance) consumed by client generators"
+scripts = "gate scripts (check_*.py) and release/bench tooling invoked by pre-commit/CI"
+tests = "the Rust integration test suite (adopt_*, characterization_*, advanced_*, ...)"
+".cargo" = "cargo config (cargo discovers config.toml only under .cargo/): the opt-in x86-64-v3/AVX2 target-cpu flag (EG-014/EG-015/EG-016) and the isolated target-dir default this repo's worktree-per-lane convention depends on"
+".config" = "explicit-path tool configuration: pre-commit (pre-commit -c), bump2version (--config-file), cargo-deny deny.toml (--config) + cargo-audit-allow.txt ledger, the Python security-audit-allow.txt ledger, import-linter (--config), arch-lint (--config), KISS thresholds (--config), the dupehound-distinct register, nextest, codespell ignore words, the security-gate contract + harnesses, env.example, MkDocs theme overrides (custom_dir), and this manifest"
+".github" = "GitHub Actions workflow definitions (GitHub discovers only .github/)"
+
+[files]
+"AGENTS.md" = "agent-facing repo guide"
+"CHANGELOG.md" = "release changelog, updated by the bump2version release flow"
+"CLAUDE.md" = "Claude Code project instructions"
+"CONTRIBUTING.md" = "contributor guide"
+"LICENSE" = "license text"
+"README.md" = "project readme"
+"build_backend.py" = "PEP 517 in-tree composition build backend (pyproject backend-path; moving it trades a root file for a root directory that must also ship in the sdist): folds the separately-built eg-numeric PyO3 module into the one maturin-built server wheel, so workspace/editable installs also get epistemic_graph.numeric"
+"clippy.toml" = "clippy policy read by cargo-clippy, which resolves it from each crate directory upward (it has no --config flag; CLIPPY_CONF_DIR would replace the crate-level crates/eg-numeric/clippy.toml policy for every crate, so the file stays discoverable at the root). Encodes disallowed-methods for unbounded WAITS (Barrier::wait, JoinHandle::join, mpsc::Receiver::recv), lock-poisoning (PoisonError::into_inner) and unbounded QUEUES (std/tokio/futures/crossbeam unbounded channels) -- failure modes that every shape-based gate (CCCC, KISS, dupehound, jscpd, arch-lint) scores perfectly while the process hangs or grows without bound"
+"build.rs" = "cargo build script (cargo discovers build.rs beside Cargo.toml) -- currently a documented no-op (records that no external BLAS link is needed since nalgebra's serde feature is pure-Rust); kept as the standard maturin/cargo extension point"
+"Cargo.lock" = "workspace-wide dependency lockfile (cargo reads it beside the workspace Cargo.toml)"
+"Cargo.toml" = "workspace manifest: the 48 [workspace].members plus the root package's own dependencies/features"
+"pyproject.toml" = "maturin/package metadata plus tool config (including [tool.pytest.ini_options]); version is sourced dynamically from Cargo.toml [package].version so the wheel always matches the release tag"
+"rust-toolchain.toml" = "pinned rustc channel (1.96.0) and components (clippy, rustfmt) for reproducible builds; rustup discovers it only in the working directory or a parent (RUSTUP_TOOLCHAIN cannot carry the component list)"
+"mkdocs.yml" = "mkdocs site config; mkdocs and the shared pages_pipeline read it only at the root, and its INHERIT/docs_dir paths are root-relative"
+"uv.lock" = "uv lockfile (uv reads it only beside pyproject.toml)"

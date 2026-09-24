@@ -29,8 +29,8 @@
 use std::collections::BTreeMap;
 
 use eg_types::agent_component::{
-    AgentComponentDraft, AgentComponentEntry, AgentComponentFacts, AgentComponentKind,
-    AgentComponentMutationKind, ComponentProvenance, COMPONENT_MEDIA_TYPE_ATTRIBUTE,
+    AgentComponentDraft, AgentComponentEntry, AgentComponentKind, AgentComponentMutationKind,
+    DraftPublication, DraftSubject, COMPONENT_MEDIA_TYPE_ATTRIBUTE,
 };
 use eg_types::agent_library::{AgentLibraryLifecycle, AgentLibraryMutationContext};
 use eg_types::agent_ontology::satisfies;
@@ -127,30 +127,28 @@ fn record_component(
         .record_digest
         .strip_prefix(digest::DIGEST_TEXT_PREFIX)
         .unwrap_or(&record.record_digest);
-    AgentComponentDraft {
-        component_id: record.record_id.clone(),
+    let subject = DraftSubject {
+        component_id: &record.record_id,
         kind: AgentComponentKind::DecisionRecord,
-        version: format!("v{}", record.schema_version),
-        content_digest: record.record_digest.clone(),
+        version: &format!("v{}", record.schema_version),
+        content_digest: &record.record_digest,
+        summary: "decision record",
+    };
+    let publication = DraftPublication {
+        tenant_id: &context.tenant_id,
+        actor_scope: &context.actor_scope,
+        purpose_id: &context.purpose_id,
+        policy_digest: &context.policy_digest,
+        source_revision: "decision-inputs",
+        source_revision_digest: &record.inputs_digest,
+    };
+    AgentComponentDraft {
         content_ref: Some(format!("{DECISION_BODY_REF_PREFIX}{hex}")),
-        facts: AgentComponentFacts::Opaque,
-        provenance: ComponentProvenance::Native,
-        summary: "decision record".to_string(),
-        classification: Vec::new(),
-        requires: Vec::new(),
-        declared_capabilities: Vec::new(),
-        required_capabilities: Vec::new(),
-        declared_required_capabilities: Vec::new(),
         attributes: BTreeMap::from([(
             COMPONENT_MEDIA_TYPE_ATTRIBUTE.to_string(),
             DECISION_RECORD_MEDIA_TYPE.to_string(),
         )]),
-        tenant_id: context.tenant_id.clone(),
-        actor_scope: context.actor_scope.clone(),
-        purpose_id: context.purpose_id.clone(),
-        policy_digest: context.policy_digest.clone(),
-        source_revision: "decision-inputs".to_string(),
-        source_revision_digest: record.inputs_digest.clone(),
+        ..AgentComponentDraft::bare(subject, publication)
     }
 }
 

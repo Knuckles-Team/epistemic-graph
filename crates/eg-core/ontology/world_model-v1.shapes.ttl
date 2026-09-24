@@ -1,0 +1,118 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# World-model ABox shapes (ruling 2026-09-22, night): the records connectors ingest
+# under the life, environment and nutrition modules. sh:class checks the value's
+# asserted rdf:type (no subclass closure), so it is used only where the connector
+# asserts that exact class; places are checked by node kind.
+
+:TaxonShape a sh:NodeShape ;
+    sh:description "An ingested taxon is an individual with one scientific name, one source identifier, at most one rank and at most one parent taxon." ;
+    sh:name "Taxon Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Taxon must have exactly one scientificName." ;
+            sh:minCount 1 ;
+            sh:path :scientificName ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Taxon must carry exactly one termCurie (e.g. NCBITaxon:9606 or GBIF:5219243)." ;
+            sh:minCount 1 ;
+            sh:path :termCurie ],
+        [ sh:class :TaxonRank ;
+            sh:maxCount 1 ;
+            sh:message "Taxon has at most one taxonRank, a TaxonRank individual." ;
+            sh:path :taxonRank ],
+        [ sh:class :Taxon ;
+            sh:maxCount 1 ;
+            sh:message "Taxon has at most one parentTaxon, itself a Taxon." ;
+            sh:path :parentTaxon ],
+        [ sh:maxCount 1 ;
+            sh:message "ncbiTaxonId is a decimal NCBI Taxonomy id." ;
+            sh:path :ncbiTaxonId ;
+            sh:pattern "^[0-9]+$" ] ;
+    sh:targetClass :Taxon .
+
+:OrganismObservationShape a sh:NodeShape ;
+    sh:description "An occurrence record names the identified taxon, when it was observed and where." ;
+    sh:name "Organism Observation Shape" ;
+    sh:property [ sh:class :Taxon ;
+            sh:maxCount 1 ;
+            sh:message "Organism observation must identify exactly one observedTaxon." ;
+            sh:minCount 1 ;
+            sh:path :observedTaxon ],
+        [ sh:datatype xsd:dateTime ;
+            sh:maxCount 1 ;
+            sh:message "Organism observation must have exactly one observationTime." ;
+            sh:minCount 1 ;
+            sh:path :observationTime ],
+        [ sh:message "Organism observation must say where it occurredAt (a Place, Region or Habitat IRI)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :occurredAt ] ;
+    sh:targetClass :OrganismObservation .
+
+:WeatherObservationShape a sh:NodeShape ;
+    sh:description "A weather observation is one measured quality with a value, a unit, a time and a place." ;
+    sh:name "Weather Observation Shape" ;
+    sh:property [ sh:class :QualityTerm ;
+            sh:maxCount 1 ;
+            sh:message "Weather observation must name exactly one observedQuality." ;
+            sh:minCount 1 ;
+            sh:path :observedQuality ],
+        [ sh:datatype xsd:decimal ;
+            sh:maxCount 1 ;
+            sh:message "Weather observation must have exactly one quantityValue." ;
+            sh:minCount 1 ;
+            sh:path :quantityValue ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Weather observation must have exactly one UCUM unitCode." ;
+            sh:minCount 1 ;
+            sh:path :unitCode ],
+        [ sh:datatype xsd:dateTime ;
+            sh:maxCount 1 ;
+            sh:message "Weather observation must have exactly one observationTime." ;
+            sh:minCount 1 ;
+            sh:path :observationTime ],
+        [ sh:message "Weather observation must say where it occurredAt (a station Place or Region IRI)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :occurredAt ] ;
+    sh:targetClass :WeatherObservation .
+
+:FoodCompositionRecordShape a sh:NodeShape ;
+    sh:description "A food-composition record describes one food and lists its nutrient amounts." ;
+    sh:name "Food Composition Record Shape" ;
+    sh:property [ sh:class :FoodTerm ;
+            sh:maxCount 1 ;
+            sh:message "Food composition record must describe exactly one FoodTerm." ;
+            sh:minCount 1 ;
+            sh:path :describesFood ],
+        [ sh:class :NutrientAmount ;
+            sh:message "Food composition record must list at least one NutrientAmount." ;
+            sh:minCount 1 ;
+            sh:path :hasNutrientAmount ] ;
+    sh:targetClass :FoodCompositionRecord .
+
+:NutrientAmountShape a sh:NodeShape ;
+    sh:description "A nutrient amount is one nutrient with a non-negative value and a unit." ;
+    sh:name "Nutrient Amount Shape" ;
+    sh:property [ sh:class :Nutrient ;
+            sh:maxCount 1 ;
+            sh:message "Nutrient amount must name exactly one Nutrient." ;
+            sh:minCount 1 ;
+            sh:path :amountOfNutrient ],
+        [ sh:datatype xsd:decimal ;
+            sh:maxCount 1 ;
+            sh:message "Nutrient amount must have exactly one non-negative quantityValue." ;
+            sh:minCount 1 ;
+            sh:minInclusive 0.0 ;
+            sh:path :quantityValue ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Nutrient amount must have exactly one UCUM unitCode." ;
+            sh:minCount 1 ;
+            sh:path :unitCode ] ;
+    sh:targetClass :NutrientAmount .

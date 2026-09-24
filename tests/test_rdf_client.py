@@ -33,11 +33,12 @@ class _FakeClient(EpistemicGraphClient):
 
 @pytest.mark.asyncio
 async def test_validate_shacl_sends_both_inline_graphs() -> None:
-    report = {"conforms": True, "results": []}
+    report = {"conforms": True, "results": [], "schema_digests": []}
     fake = _FakeClient(report)
     rdf = RdfClient(fake)
 
     result = await rdf.validate_shacl("shapes", "data")
 
-    assert result == report
+    # The decoded report carries every model field, the optional digest included.
+    assert result == {**report, "composed_digest": None}
     assert fake.sent == [("ShaclValidate", {"shapes": "shapes", "data_graph": "data"})]

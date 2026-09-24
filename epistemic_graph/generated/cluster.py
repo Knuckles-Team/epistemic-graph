@@ -6,15 +6,17 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
 from ._runtime import (
     OpaqueResult,
+    decode_result,
     expect_bool,
     expect_count,
     expect_string,
+    models,
 )
 from .fleet_catalog import (
     FleetCatalogListRequest,
@@ -32,21 +34,28 @@ from .server_registry import (
     RegisteredServerListRequest,
 )
 
+if TYPE_CHECKING:
+    from . import models as _models
 
-class CreateGraphRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CreateGraph
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CreateGraph
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graph_name: str
-    graph_type: Any
+    CreateGraphRequest = _models.MethodCreateGraphParams
+    DeleteGraphRequest = _models.MethodDeleteGraphParams
+    ReshardRequest = _models.MethodReshardParams
+    CatalogAssignRequest = _models.MethodCatalogAssignParams
+    CatalogReassignRequest = _models.MethodCatalogReassignParams
+    CatalogRemoveRequest = _models.MethodCatalogRemoveParams
+    RebalancePlanRequest = _models.MethodRebalancePlanParams
+    RebalanceExecuteRequest = _models.MethodRebalanceExecuteParams
+    PlacementRouteRequest = _models.MethodPlacementRouteParams
+    RaftAddLearnerRequest = _models.MethodRaftAddLearnerParams
+    RaftChangeMembershipRequest = _models.MethodRaftChangeMembershipParams
+    RegisterServerRequest = _models.MethodRegisterServerParams
+    PlacementAdminRequest = _models.MethodPlacementAdminParams
+    CancelRequestRequest = _models.MethodCancelRequestParams
+    RegisterForeignSourceRequest = _models.MethodRegisterForeignSourceParams
+    PlanMatViewDefineRequest = _models.MethodPlanMatViewDefineParams
+    PlanMatViewGetRequest = _models.MethodPlanMatViewGetParams
+    PlanMatViewRefreshRequest = _models.MethodPlanMatViewRefreshParams
+    PlanMatViewDropRequest = _models.MethodPlanMatViewDropParams
 
 
 async def send_create_graph(
@@ -79,7 +88,7 @@ async def send_create_graph(
         - REDIRECTED
         - READ_ONLY
     """
-    CreateGraphRequest.model_validate(params or {})
+    models().MethodCreateGraphParams.model_validate(params or {})
     payload = await client._send(
         "CreateGraph",
         params,
@@ -89,19 +98,9 @@ async def send_create_graph(
     return OpaqueResult("CreateGraph", payload)
 
 
-class DeleteGraphRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DeleteGraph
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DeleteGraph
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graph_name: str
+def decode_create_graph(result: OpaqueResult) -> _models.GraphCreated:
+    """Validate this method's result against its contract model."""
+    return decode_result("CreateGraph", models().GraphCreated, result)
 
 
 async def send_delete_graph(
@@ -134,7 +133,7 @@ async def send_delete_graph(
         - REDIRECTED
         - READ_ONLY
     """
-    DeleteGraphRequest.model_validate(params or {})
+    models().MethodDeleteGraphParams.model_validate(params or {})
     payload = await client._send(
         "DeleteGraph",
         params,
@@ -142,6 +141,11 @@ async def send_delete_graph(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("DeleteGraph", payload)
+
+
+def decode_delete_graph(result: OpaqueResult) -> _models.GraphDeleted:
+    """Validate this method's result against its contract model."""
+    return decode_result("DeleteGraph", models().GraphDeleted, result)
 
 
 class ListGraphsRequest(BaseModel):
@@ -195,20 +199,9 @@ async def send_list_graphs(
     return OpaqueResult("ListGraphs", payload)
 
 
-class ReshardRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        Reshard
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/Reshard
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graph: str
-    to_shard: int
+def decode_list_graphs(result: OpaqueResult) -> _models.ListGraphsResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ListGraphs", models().ListGraphsResult, result)
 
 
 async def send_reshard(
@@ -241,7 +234,7 @@ async def send_reshard(
         - REDIRECTED
         - READ_ONLY
     """
-    ReshardRequest.model_validate(params or {})
+    models().MethodReshardParams.model_validate(params or {})
     payload = await client._send(
         "Reshard",
         params,
@@ -251,21 +244,9 @@ async def send_reshard(
     return OpaqueResult("Reshard", payload)
 
 
-class CatalogAssignRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CatalogAssign
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CatalogAssign
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graph: str
-    node: int | None = None
-    shard: int
+def decode_reshard(result: OpaqueResult) -> _models.ShardReshardReport:
+    """Validate this method's result against its contract model."""
+    return decode_result("Reshard", models().ShardReshardReport, result)
 
 
 async def send_catalog_assign(
@@ -298,7 +279,7 @@ async def send_catalog_assign(
         - REDIRECTED
         - READ_ONLY
     """
-    CatalogAssignRequest.model_validate(params or {})
+    models().MethodCatalogAssignParams.model_validate(params or {})
     payload = await client._send(
         "CatalogAssign",
         params,
@@ -306,22 +287,6 @@ async def send_catalog_assign(
         idempotency_key=idempotency_key,
     )
     return expect_bool("CatalogAssign", payload)
-
-
-class CatalogReassignRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CatalogReassign
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CatalogReassign
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graph: str
-    shard: int
 
 
 async def send_catalog_reassign(
@@ -354,7 +319,7 @@ async def send_catalog_reassign(
         - REDIRECTED
         - READ_ONLY
     """
-    CatalogReassignRequest.model_validate(params or {})
+    models().MethodCatalogReassignParams.model_validate(params or {})
     payload = await client._send(
         "CatalogReassign",
         params,
@@ -362,21 +327,6 @@ async def send_catalog_reassign(
         idempotency_key=idempotency_key,
     )
     return expect_bool("CatalogReassign", payload)
-
-
-class CatalogRemoveRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CatalogRemove
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CatalogRemove
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graph: str
 
 
 async def send_catalog_remove(
@@ -409,7 +359,7 @@ async def send_catalog_remove(
         - REDIRECTED
         - READ_ONLY
     """
-    CatalogRemoveRequest.model_validate(params or {})
+    models().MethodCatalogRemoveParams.model_validate(params or {})
     payload = await client._send(
         "CatalogRemove",
         params,
@@ -470,20 +420,9 @@ async def send_catalog_list(
     return OpaqueResult("CatalogList", payload)
 
 
-class RebalancePlanRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        RebalancePlan
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/RebalancePlan
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    max_moves: int | None = None
-    tolerance: float | None = None
+def decode_catalog_list(result: OpaqueResult) -> _models.CatalogListing:
+    """Validate this method's result against its contract model."""
+    return decode_result("CatalogList", models().CatalogListing, result)
 
 
 async def send_rebalance_plan(
@@ -512,7 +451,7 @@ async def send_rebalance_plan(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    RebalancePlanRequest.model_validate(params or {})
+    models().MethodRebalancePlanParams.model_validate(params or {})
     payload = await client._send(
         "RebalancePlan",
         params,
@@ -522,20 +461,9 @@ async def send_rebalance_plan(
     return OpaqueResult("RebalancePlan", payload)
 
 
-class RebalanceExecuteRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        RebalanceExecute
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/RebalanceExecute
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    max_moves: int | None = None
-    tolerance: float | None = None
+def decode_rebalance_plan(result: OpaqueResult) -> _models.RebalancePlanReport:
+    """Validate this method's result against its contract model."""
+    return decode_result("RebalancePlan", models().RebalancePlanReport, result)
 
 
 async def send_rebalance_execute(
@@ -568,7 +496,7 @@ async def send_rebalance_execute(
         - REDIRECTED
         - READ_ONLY
     """
-    RebalanceExecuteRequest.model_validate(params or {})
+    models().MethodRebalanceExecuteParams.model_validate(params or {})
     payload = await client._send(
         "RebalanceExecute",
         params,
@@ -578,19 +506,9 @@ async def send_rebalance_execute(
     return OpaqueResult("RebalanceExecute", payload)
 
 
-class PlacementRouteRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        PlacementRoute
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/PlacementRoute
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_rebalance_execute(result: OpaqueResult) -> _models.RebalanceExecution:
+    """Validate this method's result against its contract model."""
+    return decode_result("RebalanceExecute", models().RebalanceExecution, result)
 
 
 async def send_placement_route(
@@ -619,7 +537,7 @@ async def send_placement_route(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    PlacementRouteRequest.model_validate(params or {})
+    models().MethodPlacementRouteParams.model_validate(params or {})
     payload = await client._send(
         "PlacementRoute",
         params,
@@ -629,21 +547,9 @@ async def send_placement_route(
     return OpaqueResult("PlacementRoute", payload)
 
 
-class RaftAddLearnerRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        RaftAddLearner
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/RaftAddLearner
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    addr: str
-    group: int | None = None
-    node_id: int
+def decode_placement_route(result: OpaqueResult) -> _models.PlacementRouteWire:
+    """Validate this method's result against its contract model."""
+    return decode_result("PlacementRoute", models().PlacementRouteWire, result)
 
 
 async def send_raft_add_learner(
@@ -676,7 +582,7 @@ async def send_raft_add_learner(
         - REDIRECTED
         - READ_ONLY
     """
-    RaftAddLearnerRequest.model_validate(params or {})
+    models().MethodRaftAddLearnerParams.model_validate(params or {})
     payload = await client._send(
         "RaftAddLearner",
         params,
@@ -684,22 +590,6 @@ async def send_raft_add_learner(
         idempotency_key=idempotency_key,
     )
     return expect_bool("RaftAddLearner", payload)
-
-
-class RaftChangeMembershipRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        RaftChangeMembership
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/RaftChangeMembership
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    group: int | None = None
-    voters: list[int]
 
 
 async def send_raft_change_membership(
@@ -732,7 +622,7 @@ async def send_raft_change_membership(
         - REDIRECTED
         - READ_ONLY
     """
-    RaftChangeMembershipRequest.model_validate(params or {})
+    models().MethodRaftChangeMembershipParams.model_validate(params or {})
     payload = await client._send(
         "RaftChangeMembership",
         params,
@@ -793,24 +683,9 @@ async def send_cluster_members(
     return OpaqueResult("ClusterMembers", payload)
 
 
-class RegisterServerRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        RegisterServer
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/RegisterServer
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    desired: Any | None = None
-    name: str
-    resources_json: str | None = None
-    transport: Any | None = None
-    ttl_secs: int
-    url: str
+def decode_cluster_members(result: OpaqueResult) -> _models.ClusterDiscoverySnapshot:
+    """Validate this method's result against its contract model."""
+    return decode_result("ClusterMembers", models().ClusterDiscoverySnapshot, result)
 
 
 async def send_register_server(
@@ -843,7 +718,7 @@ async def send_register_server(
         - REDIRECTED
         - READ_ONLY
     """
-    RegisterServerRequest.model_validate(params or {})
+    models().MethodRegisterServerParams.model_validate(params or {})
     payload = await client._send(
         "RegisterServer",
         params,
@@ -974,7 +849,9 @@ async def send_fleet_catalog_record_discovery(
     params = {
         "op": {
             "op": "record_discovery",
-            "request": request.model_dump(mode="json", exclude_none=True),
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
         },
     }
     payload = await client._send(
@@ -998,7 +875,9 @@ async def send_fleet_catalog_set_override(
     params = {
         "op": {
             "op": "set_override",
-            "request": request.model_dump(mode="json", exclude_none=True),
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
         },
     }
     payload = await client._send(
@@ -1025,7 +904,9 @@ async def send_fleet_catalog_clear_override(
     params = {
         "op": {
             "op": "clear_override",
-            "request": request.model_dump(mode="json", exclude_none=True),
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
         },
     }
     payload = await client._send(
@@ -1049,7 +930,9 @@ async def send_fleet_catalog_list(
     params = {
         "op": {
             "op": "list",
-            "request": request.model_dump(mode="json", exclude_none=True),
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
         },
     }
     payload = await client._send(
@@ -1073,7 +956,9 @@ async def send_fleet_catalog_lookup(
     params = {
         "op": {
             "op": "lookup",
-            "request": request.model_dump(mode="json", exclude_none=True),
+            "request": request.model_dump(
+                mode="json", exclude_unset=True, exclude_none=True
+            ),
         },
     }
     payload = await client._send(
@@ -1083,21 +968,6 @@ async def send_fleet_catalog_lookup(
         idempotency_key=idempotency_key,
     )
     return FleetCatalogLookup.model_validate(payload)
-
-
-class PlacementAdminRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        PlacementAdmin
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/PlacementAdmin
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    op: Any
 
 
 async def send_placement_admin(
@@ -1130,7 +1000,7 @@ async def send_placement_admin(
         - REDIRECTED
         - READ_ONLY
     """
-    PlacementAdminRequest.model_validate(params or {})
+    models().MethodPlacementAdminParams.model_validate(params or {})
     payload = await client._send(
         "PlacementAdmin",
         params,
@@ -1242,6 +1112,11 @@ async def send_health(
     return OpaqueResult("Health", payload)
 
 
+def decode_health(result: OpaqueResult) -> _models.HealthReport:
+    """Validate this method's result against its contract model."""
+    return decode_result("Health", models().HealthReport, result)
+
+
 class ShutdownRequest(BaseModel):
     """Validate one engine-contract request body.
 
@@ -1294,21 +1169,6 @@ async def send_shutdown(
     return expect_string("Shutdown", payload)
 
 
-class CancelRequestRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CancelRequest
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CancelRequest
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    target_req_id: int
-
-
 async def send_cancel_request(
     client: Any,
     params: dict[str, Any] | None = None,
@@ -1335,7 +1195,7 @@ async def send_cancel_request(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    CancelRequestRequest.model_validate(params or {})
+    models().MethodCancelRequestParams.model_validate(params or {})
     payload = await client._send(
         "CancelRequest",
         params,
@@ -1343,22 +1203,6 @@ async def send_cancel_request(
         idempotency_key=idempotency_key,
     )
     return expect_bool("CancelRequest", payload)
-
-
-class RegisterForeignSourceRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        RegisterForeignSource
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/RegisterForeignSource
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
-    source: Any
 
 
 async def send_register_foreign_source(
@@ -1391,7 +1235,7 @@ async def send_register_foreign_source(
         - REDIRECTED
         - READ_ONLY
     """
-    RegisterForeignSourceRequest.model_validate(params or {})
+    models().MethodRegisterForeignSourceParams.model_validate(params or {})
     payload = await client._send(
         "RegisterForeignSource",
         params,
@@ -1399,23 +1243,6 @@ async def send_register_foreign_source(
         idempotency_key=idempotency_key,
     )
     return expect_string("RegisterForeignSource", payload)
-
-
-class PlanMatViewDefineRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        PlanMatViewDefine
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/PlanMatViewDefine
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    graph: str
-    name: str
-    plan: Any
 
 
 async def send_plan_mat_view_define(
@@ -1448,7 +1275,7 @@ async def send_plan_mat_view_define(
         - REDIRECTED
         - READ_ONLY
     """
-    PlanMatViewDefineRequest.model_validate(params or {})
+    models().MethodPlanMatViewDefineParams.model_validate(params or {})
     payload = await client._send(
         "PlanMatViewDefine",
         params,
@@ -1456,21 +1283,6 @@ async def send_plan_mat_view_define(
         idempotency_key=idempotency_key,
     )
     return expect_count("PlanMatViewDefine", payload)
-
-
-class PlanMatViewGetRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        PlanMatViewGet
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/PlanMatViewGet
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
 
 
 async def send_plan_mat_view_get(
@@ -1500,7 +1312,7 @@ async def send_plan_mat_view_get(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    PlanMatViewGetRequest.model_validate(params or {})
+    models().MethodPlanMatViewGetParams.model_validate(params or {})
     payload = await client._send(
         "PlanMatViewGet",
         params,
@@ -1508,21 +1320,6 @@ async def send_plan_mat_view_get(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("PlanMatViewGet", payload)
-
-
-class PlanMatViewRefreshRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        PlanMatViewRefresh
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/PlanMatViewRefresh
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
 
 
 async def send_plan_mat_view_refresh(
@@ -1555,7 +1352,7 @@ async def send_plan_mat_view_refresh(
         - REDIRECTED
         - READ_ONLY
     """
-    PlanMatViewRefreshRequest.model_validate(params or {})
+    models().MethodPlanMatViewRefreshParams.model_validate(params or {})
     payload = await client._send(
         "PlanMatViewRefresh",
         params,
@@ -1563,21 +1360,6 @@ async def send_plan_mat_view_refresh(
         idempotency_key=idempotency_key,
     )
     return expect_count("PlanMatViewRefresh", payload)
-
-
-class PlanMatViewDropRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        PlanMatViewDrop
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/PlanMatViewDrop
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    name: str
 
 
 async def send_plan_mat_view_drop(
@@ -1610,7 +1392,7 @@ async def send_plan_mat_view_drop(
         - REDIRECTED
         - READ_ONLY
     """
-    PlanMatViewDropRequest.model_validate(params or {})
+    models().MethodPlanMatViewDropParams.model_validate(params or {})
     payload = await client._send(
         "PlanMatViewDrop",
         params,
@@ -1618,3 +1400,37 @@ async def send_plan_mat_view_drop(
         idempotency_key=idempotency_key,
     )
     return expect_bool("PlanMatViewDrop", payload)
+
+
+# Methods whose `{Id}Request` resolves to `models.Method{Id}Params` (EH-192).
+_REQUEST_METHODS = frozenset(
+    {
+        "CreateGraph",
+        "DeleteGraph",
+        "Reshard",
+        "CatalogAssign",
+        "CatalogReassign",
+        "CatalogRemove",
+        "RebalancePlan",
+        "RebalanceExecute",
+        "PlacementRoute",
+        "RaftAddLearner",
+        "RaftChangeMembership",
+        "RegisterServer",
+        "PlacementAdmin",
+        "CancelRequest",
+        "RegisterForeignSource",
+        "PlanMatViewDefine",
+        "PlanMatViewGet",
+        "PlanMatViewRefresh",
+        "PlanMatViewDrop",
+    }
+)
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve a ``{Id}Request`` name to its generated model on first use."""
+    method = name.removesuffix("Request")
+    if name == method or method not in _REQUEST_METHODS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(models(), f"Method{method}Params")

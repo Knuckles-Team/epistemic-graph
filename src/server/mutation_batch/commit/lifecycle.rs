@@ -14,6 +14,9 @@ pub(crate) struct LifecycleCommitRequest<'a> {
     pub(crate) action: &'a str,
     pub(crate) request_id: u64,
     attempt_nonce: Option<Nonce>,
+    /// Verified carrier tenant scope (EH-375), set by [`Self::with_tenant_scope`].
+    /// `None` fails the commit closed: a lifecycle batch id is never tenant-less.
+    tenant_scope: Option<&'a str>,
     pub(crate) principal: Option<&'a str>,
     pub(crate) idempotency_key: &'a str,
     pub(crate) graph: &'a str,
@@ -36,6 +39,7 @@ impl<'a> LifecycleCommitRequest<'a> {
             action,
             request_id: origin.request_id,
             attempt_nonce: None,
+            tenant_scope: None,
             principal: origin.principal,
             idempotency_key,
             graph,
@@ -46,6 +50,12 @@ impl<'a> LifecycleCommitRequest<'a> {
 
     pub(crate) fn with_attempt_nonce(mut self, attempt_nonce: Option<Nonce>) -> Self {
         self.attempt_nonce = attempt_nonce;
+        self
+    }
+
+    /// Bind the verified carrier tenant scope the durable batch id is keyed on.
+    pub(crate) fn with_tenant_scope(mut self, tenant_scope: &'a str) -> Self {
+        self.tenant_scope = Some(tenant_scope);
         self
     }
 }
@@ -61,13 +71,16 @@ pub(crate) async fn commit_lifecycle(
         action,
         request_id,
         attempt_nonce,
+        tenant_scope,
         principal,
         idempotency_key,
         graph,
         method,
         result,
     } = request;
-    let batch_id = lifecycle_batch_id(action, graph, principal, idempotency_key);
+    let tenant_scope = tenant_scope
+        .ok_or_else(|| "lifecycle commit requires a verified tenant scope".to_string())?;
+    let batch_id = lifecycle_batch_id(action, tenant_scope, graph, principal, idempotency_key);
     let created_at_ms = crate::server::dispatch::authoritative_now_ms();
     let fname = crate::persist::sanitize(graph);
     // v1's `VersionExpectation` has no "unversioned" arm available to an ordinary
@@ -127,6 +140,7 @@ pub(crate) async fn lifecycle_was_committed(
 ) -> Result<bool, String> {
     let LifecycleAttempt {
         action,
+        tenant_scope,
         graph,
         request_id,
         attempt_nonce,
@@ -134,7 +148,7 @@ pub(crate) async fn lifecycle_was_committed(
         idempotency_key,
     } = attempt;
     let fname = crate::persist::sanitize(graph);
-    let batch_id = lifecycle_batch_id(action, graph, principal, idempotency_key);
+    let batch_id = lifecycle_batch_id(action, tenant_scope, graph, principal, idempotency_key);
     if persistence
         .read_mutation_batch(&fname, &batch_id)
         .await?
@@ -155,15 +169,20 @@ pub(crate) async fn lifecycle_was_committed(
             method,
             result,
         )
-        .with_attempt_nonce(attempt_nonce),
+        .with_attempt_nonce(attempt_nonce)
+        .with_tenant_scope(tenant_scope),
     )
     .await?;
     if !committed.replayed {
         return Err("lifecycle replay probe unexpectedly committed fresh work".to_string());
     }
-    Ok(persistence
-        .read_mutation_lifecycle_head(&fname)
-        .await?
-        .as_deref()
-        == Some(committed.record.batch.batch_id.as_str()))
+    // The replayed receipt IS the answer. This used to also require the batch to be
+    // the graph's `mutation_lifecycle_head`, but that table was retired (ceec54145):
+    // `read_mutation_lifecycle_head` is now the trait default `Ok(None)` for every
+    // backend, so the comparison was always false and every retry of a committed
+    // CreateGraph/DeleteGraph was refused ("already exists" / "not found"). Stale
+    // retries across a delete/recreate are fenced by the kernel instead: purging a
+    // graph retires its scope binding and its receipts, so an old incarnation's batch
+    // is no longer readable above (`store_cleanup::purge_graph_rows`, RF-RULING-004).
+    Ok(true)
 }

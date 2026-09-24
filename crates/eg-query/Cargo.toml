@@ -136,7 +136,7 @@ arrow-schema = { version = "58.3", optional = true }
 # CA-19 (GOC-77 W01-W04) — the official apache/iceberg-rust reader + REST-catalog client,
 # gated behind `iceberg-federation` (implied by `sql`, see that feature's comment above).
 # SAME `0.10` line eg-lake's `lake` feature already pins (CA-18); the three RUSTSEC
-# advisories CA-18 accepted (`.cargo-audit-allow.txt`, time-bounded expires=2026-11-24)
+# advisories CA-18 accepted (`.config/cargo-audit-allow.txt`, time-bounded expires=2026-11-24)
 # cover this resolution too — no NEW advisory is introduced by adding a second crate that
 # resolves to the identical dependency versions.
 iceberg = { version = "0.10", optional = true }

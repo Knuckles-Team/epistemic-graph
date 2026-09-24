@@ -12,6 +12,7 @@ pub mod errors;
 pub mod features;
 pub mod head;
 pub mod keyed;
+pub mod log;
 pub mod nl;
 pub mod outcome;
 
@@ -198,7 +199,17 @@ pub struct StatisticalInputs {
     pub feature_schema: ComponentDependency,
     #[serde(default)]
     pub head: Option<ComponentDependency>,
+    /// The policy the decision resolved, so a replay reads the same body.
+    pub policy: DecisionPolicyRef,
     pub policy_digest: String,
+    /// The typed parameters the features and the keyed seed read.
+    #[serde(default)]
+    pub params: BoundedVec<TypedParam, 64>,
+    /// Identity of the rules (names, thresholds, ontology digest) the
+    /// candidates' derived classes came from (EH-200); a record replays only
+    /// under the same identity. `None` when no class was derived.
+    #[serde(default)]
+    pub classification_rules: Option<String>,
     pub feature_matrix: FeatureMatrixRef,
     pub shortlist: ShortlistProvenance,
     #[serde(default)]
@@ -233,6 +244,12 @@ pub struct StatisticalDecisionRecord {
     /// The audit-sampling draw of an acted decision (EH-026).
     #[serde(default)]
     pub audit: Option<AuditDraw>,
+    /// The executed policy's full distribution over the options, aligned with
+    /// the feature matrix's candidate order and conditional on an option being
+    /// executed; empty when nothing was (advisory or abstained). Off-policy
+    /// evaluation over the decision log reads it.
+    #[serde(default)]
+    pub logging_propensities: BoundedVec<UnitRationalWire, 64>,
     /// The routed template and slot values of a `TemplateChoice` question.
     #[serde(default)]
     pub nl_binding: Option<nl::NlBinding>,

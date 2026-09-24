@@ -61,13 +61,13 @@ pub(crate) async fn make_state(
     #[cfg(feature = "streaming")]
     let cdc: Option<Arc<crate::server::cdc::CdcHub>> = None;
     #[cfg(feature = "wasm-udf")]
-    let udf_registry = Arc::new(eg_wasm::UdfRegistry::new());
+    let udf_registry = Arc::<crate::server::udf_catalog::UdfCatalog>::default();
     #[cfg(feature = "compute-dist")]
     let matviews = Arc::new(parking_lot::Mutex::new(
         crate::raft::pregel::MatViewStore::new(),
     ));
     #[cfg(feature = "federation")]
-    let foreign_sources = Arc::new(dashmap::DashMap::new());
+    let foreign_sources = Arc::<crate::server::foreign_catalog::ForeignSourceCatalog>::default();
     #[cfg(feature = "kv")]
     let kv: Option<Arc<crate::server::kv::KvStore>> = None;
     #[cfg(feature = "lake")]

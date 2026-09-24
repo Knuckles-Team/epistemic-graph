@@ -1,6 +1,6 @@
 # Coordination API reference
 
-> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.coordination.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 44 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
+> **GENERATED** by `scripts/gen_api_docs.py` from `contract/methods.json` and `contract/schemas/method.request.json` / `contract/schemas/result.coordination.json` -- do not hand-edit. Regenerate with `python3 scripts/gen_api_docs.py --write`. 45 methods in this namespace. See also the machine-checked policy ledger at [`capabilities.generated.md`](../capabilities.generated.md) and the [OpenAPI document](../openapi.json) / [Swagger UI](../swagger-ui.md).
 
 ## `AcquireCapacity`
 
@@ -113,7 +113,7 @@ pending cancellation never steals an active lease
 
 | Body | Type | Encoding | Dynamic |
 |---|---|---|---|
-| `result` | `WorkItemTransition2` | Json |  |
+| `result` | `WorkItemTransition_WorkItemCancelStatus` | Json |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/CancelWorkItem`, `contract/schemas/result.coordination.json#/methods/CancelWorkItem`.
 
@@ -320,7 +320,7 @@ terminal result references and outbox commit atomically
 
 | Body | Type | Encoding | Dynamic |
 |---|---|---|---|
-| `result` | `WorkItemTransition` | Json |  |
+| `result` | `WorkItemTransition_WorkItemCommitStatus` | Json |  |
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/CommitWorkItemResult`, `contract/schemas/result.coordination.json#/methods/CommitWorkItemResult`.
 
@@ -395,6 +395,46 @@ RF-ADR-010 DL-6, runtime-conditional: status is an authenticated tenant-bound re
 > Multi-body result: the `op` request field selects which body above is returned.
 
 Full machine-checked schema: `contract/schemas/method.request.json#/methods/DecisionFit`, `contract/schemas/result.coordination.json#/methods/DecisionFit`.
+
+## `DecisionLog`
+
+RF-ADR-010 DL-5/DL-5b, runtime-conditional: commit re-derives an acted-on statistical record from its stored inputs, reveals its exploration seed and stores it; evaluate joins one independent outcome evaluation; get/aggregate are authenticated reads filtered by record visibility (graph-sourced records are visible to their committing principal only). All in the agent_library.redb control owner; local-only authority, refused in clustered mode
+
+| Property | Value |
+|---|---|
+| Stability | `stable` |
+| Authz action | `agent:decision-write` |
+| Mutates | `true` |
+| Durability domain | `ControlRedb` |
+| Idempotent | `true` |
+| Audited | `false` |
+| Emits CDC | `false` |
+| Txn participation | `Atomic` |
+| Replay class | `OperationIdentity` |
+| Consumer profiles | `python` |
+| Error set | `INVALID_ARGUMENT`, `ACCESS_DENIED`, `CONFLICT`, `IDEMPOTENCY_CONFLICT`, `REDIRECTED`, `READ_ONLY` |
+| Format identities | `RBAC_SCOPE_INCARNATION`, `CONSENSUS_TRANSACTION_SCHEMA_VERSION` |
+
+**Request parameters**
+
+| Parameter | Type | Required | Description |
+|---|---|:---:|---|
+| `op` | `DecisionLogOp` | yes |  |
+
+**Result**
+
+| Body | Type | Encoding | Dynamic |
+|---|---|---|---|
+| `aggregate` | `OutcomeAggregate` | Raw |  |
+| `commit` | `DecisionLogCommitted` | Raw |  |
+| `compact` | `DecisionLogCompacted` | Raw |  |
+| `evaluate` | `StoredEvaluation` | Raw |  |
+| `get` | one of: `DecisionLogEntry` \| null | Raw |  |
+| `verify` | `DecisionLogVerification` | Raw |  |
+
+> Multi-body result: the `op` request field selects which body above is returned.
+
+Full machine-checked schema: `contract/schemas/method.request.json#/methods/DecisionLog`, `contract/schemas/result.coordination.json#/methods/DecisionLog`.
 
 ## `DeferWorkItem`
 

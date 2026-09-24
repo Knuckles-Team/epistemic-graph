@@ -33,11 +33,14 @@
 //!    otherwise (L52, CONCEPT:EG-KG.epistemic.epistemic-substrate wiring). This crate
 //!    deliberately does NOT depend on `eg-epistemic` (see the module doc above — that
 //!    crate has NO write path by design, and this crate's whole job is writing), so
-//!    `CalibrationInput` is a PLAIN, locally-defined data mirror of
-//!    `eg_epistemic::model::Calibration`'s shape (`interval`/`level`/`evidence_count`)
-//!    rather than a re-export of that type — a caller who computed a real
-//!    `eg_epistemic::Calibration` (e.g. from `propagate_confidence`'s `BeliefState`)
-//!    converts it into this crate's plain fields at the call site.
+//!    `CalibrationInput` is the stored claim's typed calibration from the bottom of
+//!    the DAG (`eg_types::epistemic_node::ClaimCalibration`, EH-194) rather than a
+//!    re-export of `eg_epistemic::model::Calibration` — a caller who computed a real
+//!    `eg_epistemic::Calibration` converts it field-for-field at the call site.
+//!
+//! Every `:Claim`/`:Evidence` property object is built from the typed
+//! `eg_types::epistemic_node::{Claim, Evidence}` structs (EH-194), which validate the
+//! core fields before a single byte is written.
 //!
 //! `GENERATED_BY` is deliberately NOT one of `eg_epistemic::classify_relationship`'s
 //! whitelisted values, so it is automatically epistemically NEUTRAL — ignored by
@@ -45,6 +48,7 @@
 //! deliberately IN that whitelist.
 
 use eg_core::graph::GraphCore;
+use eg_types::epistemic_node::{Claim, Evidence};
 use eg_types::protocol::Method;
 
 use crate::model::AnalyticsJob;
@@ -101,21 +105,12 @@ pub fn dataset_node_id(result_ref: &str) -> String {
     format!("jobdataset:{result_ref}")
 }
 
-/// A plain-data mirror of `eg_epistemic::model::Calibration`'s shape (L52): the
-/// central credible interval, its probability mass, and the evidence count that fed
-/// it. This crate deliberately does not depend on `eg-epistemic` (see module docs),
-/// so this is NOT that type — a caller holding a real `eg_epistemic::Calibration`
-/// converts it into this at the call site (`interval`/`level`/`evidence_count` line up
-/// field-for-field).
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CalibrationInput {
-    /// Central credible interval `(lower, upper) ⊆ [0, 1]` at `level`.
-    pub interval: (f64, f64),
-    /// The probability mass the interval covers (e.g. `0.95`).
-    pub level: f64,
-    /// How many pieces of evidence (rules/observations/samples) fed this calibration.
-    pub evidence_count: usize,
-}
+/// The calibrated interval a committed claim carries (L52): the central credible
+/// interval, its probability mass, and the evidence count that fed it. This IS the
+/// stored claim's typed calibration ([`eg_types::epistemic_node::ClaimCalibration`],
+/// EH-194) — one owner for the shape — so a caller holding a real
+/// `eg_epistemic::Calibration` converts it field-for-field at the call site.
+pub type CalibrationInput = eg_types::epistemic_node::ClaimCalibration;
 
 /// Deterministic graph write-set for one succeeded job result.  The server uses
 /// this representation to commit the claim, evidence and activity through its
@@ -125,6 +120,47 @@ pub struct CalibrationInput {
 pub struct ClaimWritePlan {
     pub claim_id: String,
     pub methods: Vec<Method>,
+}
+
+/// The job's input-snapshot and algorithm lineage -- the fields the claim's
+/// attributes and the activity node both carry -- plus `extra`.
+fn job_lineage_fields<const N: usize>(
+    job: &AnalyticsJob,
+    extra: [(&str, serde_json::Value); N],
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut fields = serde_json::Map::new();
+    for (key, value) in [
+        ("job_id", serde_json::json!(job.job_id)),
+        (
+            "input_dataset_ref",
+            serde_json::json!(job.input_snapshot.dataset_ref),
+        ),
+        (
+            "input_content_digest",
+            serde_json::json!(job.input_snapshot.content_digest),
+        ),
+        (
+            "input_snapshot_version",
+            serde_json::json!(job.input_snapshot.version),
+        ),
+        ("algo_family", serde_json::json!(job.algo.family)),
+        ("algo_algorithm", serde_json::json!(job.algo.algorithm)),
+        (
+            "algo_params_digest",
+            serde_json::json!(job.algo.params_digest),
+        ),
+        (
+            "algo_code_version",
+            serde_json::json!(job.algo.code_version),
+        ),
+        ("algo_env_version", serde_json::json!(job.algo.env_version)),
+    ]
+    .into_iter()
+    .chain(extra)
+    {
+        fields.insert(key.to_string(), value);
+    }
+    fields
 }
 
 /// Lower a durably staged result to canonical graph methods without applying them.
@@ -158,53 +194,39 @@ pub fn plan_result_claim(
     let dataset_id = dataset_node_id(&result_ref);
     let confidence = confidence.clamp(0.0, 1.0);
     let snapshot_handle = job.input_snapshot.dataset_ref.clone();
-    let claim_props = serde_json::json!({
-        "type": "Claim",
-        "family": job.algo.family,
-        "about": result_ref.clone(),
-        "confidence": confidence,
-        "validation_state": CLAIM_VALIDATION_STATE,
-        "job_id": job.job_id,
-        "input_dataset_ref": job.input_snapshot.dataset_ref,
-        "input_content_digest": job.input_snapshot.content_digest,
-        "input_snapshot_version": job.input_snapshot.version,
-        "algo_family": job.algo.family,
-        "algo_algorithm": job.algo.algorithm,
-        "algo_params_digest": job.algo.params_digest,
-        "algo_code_version": job.algo.code_version,
-        "algo_env_version": job.algo.env_version,
-        "result_ref": result_ref.clone(),
-        "calibration": calibration.map(|c| serde_json::json!({
-            "interval": [c.interval.0, c.interval.1],
-            "level": c.level,
-            "evidence_count": c.evidence_count,
-        })).unwrap_or(serde_json::Value::Null),
-        "invalidation_deps": [snapshot_handle.as_str(), evidence_id.as_str()],
-    });
-    let evidence_props = serde_json::json!({
-        "type": "Evidence",
-        "family": job.algo.family,
-        "about": result_ref.clone(),
-        "provenance": format!("job:{}", job.job_id),
-        "confidence": confidence,
-        "validation_state": CLAIM_VALIDATION_STATE,
+    let claim_props = Claim::new(
+        job.algo.family.as_str(),
+        result_ref.as_str(),
+        confidence,
+        CLAIM_VALIDATION_STATE,
+    )
+    .with_calibration(calibration)
+    .with_invalidation_deps([snapshot_handle.as_str(), evidence_id.as_str()])
+    .with_attributes(serde_json::Value::Object(job_lineage_fields(
+        job,
+        [("result_ref", serde_json::json!(result_ref.clone()))],
+    )))
+    .and_then(|claim| claim.to_properties())
+    .map_err(|error| error.to_string())?;
+    let evidence_props = Evidence::new(
+        job.algo.family.as_str(),
+        result_ref.as_str(),
+        job_provenance(&job.job_id),
+        confidence,
+        CLAIM_VALIDATION_STATE,
+    )
+    .with_attributes(serde_json::json!({
         "job_id": job.job_id,
         "tenant": job.policy.tenant,
         "actor": job.policy.actor,
         "purpose": job.policy.purpose,
-    });
-    let activity_props = serde_json::json!({
-        "type": "Activity",
-        "job_id": job.job_id,
-        "input_dataset_ref": job.input_snapshot.dataset_ref,
-        "input_content_digest": job.input_snapshot.content_digest,
-        "input_snapshot_version": job.input_snapshot.version,
-        "algo_family": job.algo.family,
-        "algo_algorithm": job.algo.algorithm,
-        "algo_params_digest": job.algo.params_digest,
-        "algo_code_version": job.algo.code_version,
-        "algo_env_version": job.algo.env_version,
-    });
+    }))
+    .and_then(|evidence| evidence.to_properties())
+    .map_err(|error| error.to_string())?;
+    let activity_props = serde_json::Value::Object(job_lineage_fields(
+        job,
+        [("type", serde_json::json!("Activity"))],
+    ));
     let supports = rmp_serde::to_vec_named(&serde_json::json!({ "relationship": "SUPPORTS" }))
         .map_err(|error| error.to_string())?;
     let generated_by =
@@ -269,30 +291,15 @@ pub fn plan_result_claim(
                 .and_then(serde_json::Value::as_f64)
                 .unwrap_or(confidence)
                 .clamp(0.0, 1.0);
-            let row_claim_props = serde_json::json!({
-                "type": "Claim",
-                "family": job.algo.family,
-                "about": row_ref,
-                "confidence": row_confidence,
-                "validation_state": CLAIM_VALIDATION_STATE,
-                "result_ref": result_ref,
-                "dataset_ref": output.dataset_ref,
-                "knowledge": row,
-                "evidence_refs": row.get("evidence_refs").cloned().unwrap_or_default(),
-                "source_refs": row.get("source_refs").cloned().unwrap_or_default(),
-                "proof_ids": row.get("proof_ids").cloned().unwrap_or_default(),
-                "contradiction_ids": row.get("contradiction_ids").cloned().unwrap_or_default(),
-                "invalidation_deps": [job.input_snapshot.dataset_ref.as_str(), row_evidence_id.as_str()],
-            });
-            let row_evidence_props = serde_json::json!({
-                "type": "Evidence",
-                "about": row_ref,
-                "dataset_ref": output.dataset_ref,
-                "evidence_refs": row.get("evidence_refs").cloned().unwrap_or_default(),
-                "source_refs": row.get("source_refs").cloned().unwrap_or_default(),
-                "confidence": row_confidence,
-                "validation_state": CLAIM_VALIDATION_STATE,
-            });
+            let (row_claim_props, row_evidence_props) = row_claim_nodes(RowClaim {
+                job,
+                result_ref: &result_ref,
+                dataset_ref: &output.dataset_ref,
+                row,
+                row_ref: &row_ref,
+                row_evidence_id: &row_evidence_id,
+                confidence: row_confidence,
+            })?;
             methods.extend([
                 Method::AddNode {
                     node_id: row_claim_id.clone(),
@@ -348,6 +355,63 @@ pub fn plan_result_claim(
 /// `support * confidence` over mined association rules), clamped to `[0,1]` — the
 /// SAME "quality score seeds claim confidence" convention `mining.rs` uses.
 ///
+/// The evidence provenance of one job's result: the job that produced it.
+fn job_provenance(job_id: &str) -> String {
+    format!("job:{job_id}")
+}
+
+/// One knowledge row of a job's typed result, about to become a claim + evidence.
+struct RowClaim<'a> {
+    job: &'a AnalyticsJob,
+    result_ref: &'a str,
+    dataset_ref: &'a str,
+    row: &'a std::collections::BTreeMap<String, serde_json::Value>,
+    row_ref: &'a str,
+    row_evidence_id: &'a str,
+    confidence: f64,
+}
+
+/// The typed `:Claim` and `:Evidence` property objects for one knowledge row. The
+/// evidence is attributed to the producing job, like the result-level evidence.
+fn row_claim_nodes(row: RowClaim<'_>) -> Result<(serde_json::Value, serde_json::Value), String> {
+    let refs = |key: &str| row.row.get(key).cloned().unwrap_or_default();
+    let claim = Claim::new(
+        row.job.algo.family.as_str(),
+        row.row_ref,
+        row.confidence,
+        CLAIM_VALIDATION_STATE,
+    )
+    .with_invalidation_deps([
+        row.job.input_snapshot.dataset_ref.as_str(),
+        row.row_evidence_id,
+    ])
+    .with_attributes(serde_json::json!({
+        "result_ref": row.result_ref,
+        "dataset_ref": row.dataset_ref,
+        "knowledge": row.row,
+        "evidence_refs": refs("evidence_refs"),
+        "source_refs": refs("source_refs"),
+        "proof_ids": refs("proof_ids"),
+        "contradiction_ids": refs("contradiction_ids"),
+    }))
+    .and_then(|claim| claim.to_properties());
+    let evidence = Evidence::new(
+        row.job.algo.family.as_str(),
+        row.row_ref,
+        job_provenance(&row.job.job_id),
+        row.confidence,
+        CLAIM_VALIDATION_STATE,
+    )
+    .with_attributes(serde_json::json!({
+        "dataset_ref": row.dataset_ref,
+        "evidence_refs": refs("evidence_refs"),
+        "source_refs": refs("source_refs"),
+    }))
+    .and_then(|evidence| evidence.to_properties());
+    let to_text = |error: eg_types::epistemic_node::EpistemicNodeError| error.to_string();
+    Ok((claim.map_err(to_text)?, evidence.map_err(to_text)?))
+}
+
 /// `calibration` (L52) is `None` when the caller has no calibration signal for this
 /// result (the claim's `calibration` property lands an honest `null`, byte-identical
 /// to this function's behavior before this parameter existed); `Some(CalibrationInput)`
@@ -613,5 +677,31 @@ mod tests {
         let interval = props["calibration"]["interval"].as_array().unwrap();
         assert_eq!(interval[0].as_f64().unwrap(), 0.72);
         assert_eq!(interval[1].as_f64().unwrap(), 0.94);
+    }
+
+    // EH-194: every node the job writes as a claim or evidence decodes as the typed
+    // struct, so a reader never has to probe the convention key by key.
+    #[test]
+    fn committed_claim_and_evidence_decode_as_typed_nodes() {
+        use eg_types::epistemic_node::{Claim, Evidence};
+
+        let core = GraphCore::new();
+        let job = succeeded_job("job-0000000000000003", "g1", 5);
+        let outcome = commit_result_claim(&core, &job, 0.87, None).unwrap();
+        let decode = |id: &str| -> serde_json::Value {
+            rmp_serde::from_slice(&core.get_node_properties(id).unwrap()).unwrap()
+        };
+
+        let claim = Claim::from_properties(&decode(outcome.claim_id())).unwrap();
+        assert_eq!(claim.family, "mining.association");
+        assert_eq!(claim.about, job.result_ref());
+        assert_eq!(claim.calibration, None);
+        assert_eq!(claim.invalidation_deps.len(), 2);
+        assert_eq!(claim.attributes["job_id"], "job-0000000000000003");
+
+        let evidence_id = evidence_node_id(&job.result_ref(), &job.job_id);
+        let evidence = Evidence::from_properties(&decode(&evidence_id)).unwrap();
+        assert_eq!(evidence.provenance, "job:job-0000000000000003");
+        assert_eq!(evidence.confidence, 0.87);
     }
 }

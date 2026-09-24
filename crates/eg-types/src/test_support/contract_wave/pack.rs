@@ -6,8 +6,8 @@ use crate::connector_pack::{
     ConnectorPackReconcileRequest, ConnectorPackReprojectRequest, ConnectorPackRetireRequest,
     ConnectorPackStatusRequest, ConnectorPackUnbindRequest, McpCatalogSnapshotBinding,
     PackAnnotations, PackArchiveRef, PackCost, PackDisposition, PackEntry, PackEntryKind,
-    PackHeadRef, PackModelFacts, PackProducer, PackRef, PackSection, PackViolationCode,
-    PackWarningCode, CONNECTOR_PACK_SCHEMA_VERSION,
+    PackHeadRef, PackModelFacts, PackProducer, PackRef, PackSection, PackToolMode,
+    PackViolationCode, PackWarningCode, CONNECTOR_PACK_SCHEMA_VERSION,
 };
 use crate::contract::{Digest256, ResourceId};
 
@@ -60,6 +60,7 @@ pub fn annotations() -> PackAnnotations {
             supports_vision: Some(false),
         }),
         sdk_contract_pin: Some("sdk-d18-1".to_string()),
+        tool_mode: Some(PackToolMode::Condensed),
     }
 }
 
@@ -94,6 +95,7 @@ pub fn index() -> ConnectorPackIndex {
         PackEntryKind::ModelProfile,
         PackEntryKind::A2aCard,
         PackEntryKind::Manifest,
+        PackEntryKind::SkillFile,
     ];
     ConnectorPackIndex {
         schema_version: CONNECTOR_PACK_SCHEMA_VERSION,

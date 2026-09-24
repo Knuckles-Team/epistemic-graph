@@ -12,8 +12,8 @@ import hashlib
 import struct
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import Any, Protocol
 
+from ._transport import EngineTransport
 from .generated.agent_component import (
     AgentComponentContentRequest,
     AgentComponentContentResult,
@@ -53,7 +53,7 @@ from .generated.storage import (
 
 _PACK_DIGEST_DOMAIN = b"eg/connector-pack/v2"
 _ENTRY_DIGEST_DOMAIN = b"eg/connector-pack-entry/v1"
-_ANNOTATIONS_DIGEST_DOMAIN = b"eg/connector-pack-annotations/v1"
+_ANNOTATIONS_DIGEST_DOMAIN = b"eg/connector-pack-annotations/v2"
 _MODEL_FACTS_DIGEST_DOMAIN = b"eg/cp-model-facts/v1"
 _REFERENCES_DIGEST_DOMAIN = b"eg/connector-pack-references/v1"
 _CATALOG_DIGEST_DOMAIN = b"eg/mcp-catalog-binding/v1"
@@ -62,17 +62,6 @@ _REQUIRES_CAPABILITIES_DOMAIN = b"eg/cp-requires-capabilities/v1"
 _MODALITIES_IN_DOMAIN = b"eg/cp-modalities-in/v1"
 _MODALITIES_OUT_DOMAIN = b"eg/cp-modalities-out/v1"
 _REQUIRED_SCOPES_DOMAIN = b"eg/cp-required-scopes/v1"
-
-
-class _Transport(Protocol):
-    async def _send(
-        self,
-        method: str,
-        params: dict[str, Any] | None,
-        graph: str | None,
-        *,
-        idempotency_key: str | None,
-    ) -> Any: ...
 
 
 class ConnectorPackWriteError(RuntimeError):
@@ -187,6 +176,11 @@ def _annotations_digest(annotations: PackAnnotations) -> bytes:
                 _optional_u64(latency.p95_ms if latency is not None else None),
                 _model_facts_digest(model) if model is not None else b"",
                 _text(annotations.sdk_contract_pin),
+                _text(
+                    annotations.tool_mode.value
+                    if annotations.tool_mode is not None
+                    else None
+                ),
             ],
         )
     )
@@ -402,7 +396,7 @@ class ConnectorPackClient:
 
     DEFAULT_CHUNK_SIZE = 1 << 20
 
-    def __init__(self, client: _Transport) -> None:
+    def __init__(self, client: EngineTransport) -> None:
         self._client = client
 
     async def status(

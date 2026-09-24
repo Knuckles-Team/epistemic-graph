@@ -382,11 +382,12 @@ fn contract_wave_rows_declare_their_static_policy() {
 /// Every still-unserved contract-wave method and op is `Internal` with no
 /// consumer until its handler lands. `ConnectorPack`, `GraphSchema`,
 /// `GraphSchemaList`, `AgentAssemble`, `DecisionCommit`, `Solve`, `Decide`,
-/// `DecisionFit` and `DecisionEval` graduated once their handlers and
-/// generated clients landed.
+/// `DecisionFit`, `DecisionEval` and `MutationOutbox` graduated once their
+/// handlers and generated clients landed: no wave method is still pending, and
+/// a future wave method is listed here until its handler lands.
 #[test]
 fn contract_wave_rows_are_internal_with_no_consumer() {
-    let wave = ["MutationOutbox"];
+    let wave: [&str; 0] = [];
     let mut seen = 0;
     for descriptor in eg_capabilities::method_descriptors() {
         let id = descriptor.id.as_str();
@@ -418,6 +419,8 @@ fn contract_wave_op_policies_follow_their_ops() {
         "ConnectorPack.status",
         "DecisionFit.status",
         "DecisionEval.status",
+        "DecisionLog.get",
+        "DecisionLog.aggregate",
         "MutationOutbox.status",
         "MutationOutbox.dead_letters",
         "AgentComponent.content",

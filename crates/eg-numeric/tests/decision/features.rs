@@ -32,14 +32,7 @@ fn schema(missing: MissingValue) -> FeatureSchemaBody {
                 },
                 missing: MissingValue::Abstain,
             },
-            FeatureSpec {
-                name: "text".to_string(),
-                kind: FeatureKind::TextBm25 {
-                    key: "summary".to_string(),
-                    param: "query".to_string(),
-                },
-                missing: MissingValue::Abstain,
-            },
+            eg_types::test_support::decision::summary_text_feature(),
             FeatureSpec {
                 name: "cost".to_string(),
                 kind: FeatureKind::DeclaredCostMicros,

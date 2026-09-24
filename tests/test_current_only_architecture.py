@@ -247,8 +247,8 @@ def test_identity_order_follows_consensus_child_and_fails_closed() -> None:
 def _client_batch_sources(module):
     return (
         module.read("epistemic_graph/client.py"),
-        module.read("epistemic_graph/generated/graph.py"),
-        module.read("epistemic_graph/generated/messaging.py"),
+        module.generated_transport("graph"),
+        module.generated_transport("messaging"),
     )
 
 

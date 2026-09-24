@@ -204,12 +204,40 @@ pub fn simple_ids(msgs: Vec<tokio_postgres::SimpleQueryMessage>) -> Vec<String> 
         .collect()
 }
 
+/// The request-context policy (`EPISTEMIC_GRAPH_AUDIENCE`/`_TENANT`/`_POLICY_VERSION`)
+/// the server latches ONCE per process on its first secure request
+/// (`auth::request_context_policy`, a `OnceLock`, because the library is linked
+/// without `cfg(test)` here).
+const REQUEST_CONTEXT_POLICY: [(&str, &str); 3] = [
+    ("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test"),
+    ("EPISTEMIC_GRAPH_TENANT", "tenant-test"),
+    ("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test"),
+];
+
+/// Provision the request-context policy for every server state this module builds,
+/// keeping any value the test binary set itself.
+///
+/// EH-376: it used to be set only as a side effect of `sql_test_persist_dir`, so a test
+/// that built its state from its own directory (pgwire's two durability tests) passed
+/// only when a sibling had called that helper first in the same process, and failed
+/// alone (nextest, or a filtered `cargo test`) with "secure request context requires
+/// EPISTEMIC_GRAPH_AUDIENCE". The state constructors now provision it, so no test
+/// depends on another having run.
+pub fn provision_request_context_policy() {
+    for (name, value) in REQUEST_CONTEXT_POLICY {
+        if std::env::var_os(name).is_none() {
+            std::env::set_var(name, value);
+        }
+    }
+}
+
 fn make_state(
     auth_secret: &str,
     isolation: IsolationLayer,
     persist_dir: Option<String>,
     persistence: Option<SharedPersistence>,
 ) -> ServerState {
+    provision_request_context_policy();
     let mut state = ServerState::new_for_test(auth_secret.to_owned(), isolation);
     state.persist_dir = persist_dir;
     state.persistence = persistence;
@@ -223,6 +251,7 @@ pub fn state_with_registry(
     persist_dir: Option<String>,
     persistence: Option<SharedPersistence>,
 ) -> SharedState {
+    provision_request_context_policy();
     let mut state = ServerState::new_for_test(auth_secret.to_owned(), isolation);
     state.registry = registry;
     state.persist_dir = persist_dir;
@@ -243,6 +272,23 @@ pub fn state_with(
         persist_dir,
         persistence,
     )
+}
+
+/// A fresh redb backend at `persist_dir` and a server state serving from it:
+/// the opening move of every durable restart test.
+pub fn redb_state_at(
+    auth_secret: &str,
+    isolation: IsolationLayer,
+    persist_dir: &str,
+) -> (SharedPersistence, SharedState) {
+    let backend = open_redb_backend(persist_dir.to_string()).unwrap();
+    let state = state_with(
+        auth_secret,
+        isolation,
+        Some(persist_dir.to_string()),
+        Some(backend.clone()),
+    );
+    (backend, state)
 }
 
 pub fn durable_state(auth_secret: &str, isolation: IsolationLayer) -> SharedState {
@@ -309,9 +355,9 @@ pub fn sql_test_persist_dir(label: &str) -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT: AtomicU64 = AtomicU64::new(1);
-    std::env::set_var("EPISTEMIC_GRAPH_AUDIENCE", "epistemic-graph-test");
-    std::env::set_var("EPISTEMIC_GRAPH_TENANT", "tenant-test");
-    std::env::set_var("EPISTEMIC_GRAPH_POLICY_VERSION", "policy-test");
+    for (name, value) in REQUEST_CONTEXT_POLICY {
+        std::env::set_var(name, value);
+    }
     std::env::temp_dir()
         .join(format!(
             "epistemic-graph-{label}-test-{}-{}",

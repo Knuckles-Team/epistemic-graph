@@ -20,31 +20,25 @@ pub(super) async fn dispatch_graph_lifecycle_methods(
         Method::CreateGraph {
             graph_name,
             graph_type,
-        } => {
-            dispatch_boxed(create_graph(
-                state,
-                req.id,
-                req.agent_id.clone(),
-                verified_context.attempt_nonce(),
-                verified_context.idempotency_key().to_string(),
-                graph_name,
-                graph_type,
-            ))
-            .await
-        }
+        } => match lifecycle_request(req, verified_context) {
+            Ok(request) => {
+                dispatch_boxed(create_graph(state, request, graph_name, graph_type)).await
+            }
+            Err(denied) => denied,
+        },
 
-        Method::DeleteGraph { graph_name } => {
-            dispatch_boxed(delete_graph(
-                state,
-                req.id,
-                req.agent_id.clone(),
-                verified_context.attempt_nonce(),
-                verified_context.idempotency_key().to_string(),
-                state_machine_authorized,
-                &graph_name,
-            ))
-            .await
-        }
+        Method::DeleteGraph { graph_name } => match lifecycle_request(req, verified_context) {
+            Ok(request) => {
+                dispatch_boxed(delete_graph(
+                    state,
+                    request,
+                    state_machine_authorized,
+                    &graph_name,
+                ))
+                .await
+            }
+            Err(denied) => denied,
+        },
 
         Method::ListGraphs => dispatch_boxed(list_graphs(state, verified_context, req.id)).await,
         other => return ControlFlow::Continue(other),
@@ -164,4 +158,19 @@ fn index_manifest_listing(
         },
         validity: index_validity_label(manifest.validity).to_string(),
     }
+}
+
+/// The verified lifecycle identity of `req` (EH-375: tenant scope from the verified
+/// carrier), or the refusal response.
+fn lifecycle_request(
+    req: &DispatchHeader,
+    verified_context: &VerifiedRequestContext,
+) -> Result<GraphLifecycleRequest, Response> {
+    GraphLifecycleRequest::verified(
+        req.id,
+        req.agent_id.clone(),
+        verified_context,
+        verified_context.idempotency_key().to_string(),
+    )
+    .map_err(|denied| Response::err(req.id, denied))
 }

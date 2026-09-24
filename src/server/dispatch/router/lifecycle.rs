@@ -58,28 +58,48 @@ async fn read_committed_graph_version(
 }
 
 /// The caller identity a graph lifecycle request commits under.
-struct GraphLifecycleRequest {
+pub(in crate::server::dispatch) struct GraphLifecycleRequest {
     req_id: u64,
     req_agent_id: Option<String>,
     attempt_nonce: Option<eg_types::contract::Nonce>,
     idempotency_key: String,
+    /// Verified carrier tenant scope (EH-375): part of the durable lifecycle batch id,
+    /// so two tenants sharing an agent id + idempotency key never replay each other.
+    tenant_scope: String,
+}
+
+impl GraphLifecycleRequest {
+    /// The lifecycle identity of a verified request: the tenant scope comes only from
+    /// the verified carrier, never a request field.
+    pub(in crate::server::dispatch) fn verified(
+        req_id: u64,
+        req_agent_id: Option<String>,
+        verified: &VerifiedRequestContext,
+        idempotency_key: String,
+    ) -> Result<Self, String> {
+        let carrier = crate::server::access::CarrierAuthority::from_verified(verified)?;
+        Ok(Self {
+            req_id,
+            req_agent_id,
+            attempt_nonce: verified.attempt_nonce(),
+            idempotency_key,
+            tenant_scope: carrier.tenant_scope().to_string(),
+        })
+    }
 }
 
 pub(in crate::server::dispatch) async fn create_graph(
     state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    req_agent_id: Option<String>,
-    attempt_nonce: Option<eg_types::contract::Nonce>,
-    idempotency_key: String,
+    request: GraphLifecycleRequest,
     graph_name: String,
     graph_type: crate::protocol::GraphType,
 ) -> Response {
-    let request = GraphLifecycleRequest {
-        req_id,
-        req_agent_id,
-        attempt_nonce,
-        idempotency_key,
-    };
+    let req_id = request.req_id;
+    // Refuse a reserved RBAC-resource name (e.g. `foreign-source:`) BEFORE the durable
+    // lifecycle commit; the registry re-checks at its own chokepoint.
+    if let Err(reserved) = crate::registry::validate_graph_name(&graph_name) {
+        return Response::err(req_id, reserved);
+    }
     match ResultPayload::of::<eg_types::result_contract::cluster::CreateGraph>(
         eg_types::result_contract::cluster::GraphCreated {
             created: graph_name.clone(),
@@ -106,6 +126,7 @@ async fn create_declared_graph(
         req_agent_id,
         attempt_nonce,
         idempotency_key,
+        tenant_scope,
     } = request;
     // Lifecycle shares the same per-graph serialization lane as ordinary
     // MutationBatch/txn writes.  The durable identity must land before the
@@ -120,6 +141,7 @@ async fn create_declared_graph(
     };
     let incarnation_id = crate::server::mutation_batch::lifecycle_batch_id(
         "create",
+        &tenant_scope,
         &graph_name,
         req_agent_id.as_deref(),
         &idempotency_key,
@@ -129,6 +151,7 @@ async fn create_declared_graph(
             &backend,
             crate::server::mutation::LifecycleAttempt {
                 action: "create",
+                tenant_scope: &tenant_scope,
                 graph: &graph_name,
                 request_id: req_id,
                 attempt_nonce,
@@ -156,7 +179,8 @@ async fn create_declared_graph(
             },
             &created_result,
         )
-        .with_attempt_nonce(attempt_nonce),
+        .with_attempt_nonce(attempt_nonce)
+        .with_tenant_scope(&tenant_scope),
     )
     .await
     {
@@ -257,19 +281,11 @@ async fn reconcile_missing_graph_delete(
 
 pub(super) async fn delete_graph(
     state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
-    req_agent_id: Option<String>,
-    attempt_nonce: Option<eg_types::contract::Nonce>,
-    idempotency_key: String,
+    request: GraphLifecycleRequest,
     state_machine_authorized: bool,
     graph_name: &str,
 ) -> Response {
-    let request = GraphLifecycleRequest {
-        req_id,
-        req_agent_id,
-        attempt_nonce,
-        idempotency_key,
-    };
+    let req_id = request.req_id;
     match ResultPayload::of::<eg_types::result_contract::cluster::DeleteGraph>(
         eg_types::result_contract::cluster::GraphDeleted {
             deleted: graph_name.to_string(),
@@ -303,6 +319,7 @@ async fn delete_declared_graph(
         req_agent_id,
         attempt_nonce,
         idempotency_key,
+        tenant_scope,
     } = request;
     // Fence gateway/txn writes for this graph across durable purge and RAM
     // teardown.  A retry after a crash at that boundary reconciles from the
@@ -341,6 +358,7 @@ async fn delete_declared_graph(
             &backend,
             crate::server::mutation::LifecycleAttempt {
                 action: "delete",
+                tenant_scope: &tenant_scope,
                 graph: graph_name,
                 request_id: req_id,
                 attempt_nonce,
@@ -366,7 +384,8 @@ async fn delete_declared_graph(
             },
             &deleted_result,
         )
-        .with_attempt_nonce(attempt_nonce),
+        .with_attempt_nonce(attempt_nonce)
+        .with_tenant_scope(&tenant_scope),
     )
     .await
     {

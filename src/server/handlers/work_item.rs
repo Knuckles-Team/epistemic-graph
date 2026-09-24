@@ -33,6 +33,8 @@ pub(crate) struct HandleContext<'a> {
 /// remain with their distinct admission/authority routes.
 pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result<Response, Method> {
     let method = match method {
+        // Enumerated, not `work_item_kernel_writes!()`: this is the dispatch
+        // arm `check_contract_method_reachability.py` reads by name.
         method @ (Method::ClaimWorkItem { .. }
         | Method::RenewWorkItemLease { .. }
         | Method::CommitWorkItemResult { .. }

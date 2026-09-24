@@ -49,14 +49,7 @@ name = "eg_capabilities"
 # BOTH `eg-types/jobs` and `eg-capabilities/jobs` in lockstep (see root Cargo.toml).
 [dependencies.eg-types]
 path = "../eg-types"
-features = [
-    "metrics", "finance", "datascience", "mining", "graphlearn", "ml-pipeline",
-    "epistemic",
-    "query", "graphql", "broker", "text", "blob", "kv", "sqlite-file",
-    "streaming", "cost", "rdf", "sparql", "owl", "owl-plan", "obda",
-    "wasm-udf", "compute-dist", "matview", "security", "federation",
-    "geo", "tensor", "stream",
-]
+features = ["metrics", "wire-contract"]
 
 # Only ever pulled in by the `contract-schema` feature: the generator needs JSON
 # Schema derivation, a JSON serializer, and a digest. A default build of this crate
@@ -75,6 +68,13 @@ optional = true
 
 [dependencies.hex]
 version = "0.4.3"
+optional = true
+
+# HMAC-SHA256 for the golden `eg2.` envelope MACs in
+# `contract/fixtures/method_body_vectors.json` -- the same crate and version the
+# server's `envelope_v2_mac` uses, so a vector's MAC is the engine's own.
+[dependencies.hmac]
+version = "0.12.1"
 optional = true
 
 # The format-identity pass parses Rust items instead of scanning lines, so a site is
@@ -119,6 +119,7 @@ contract-schema = [
     "dep:serde_json",
     "dep:sha2",
     "dep:hex",
+    "dep:hmac",
     "dep:syn",
     "dep:quote",
     "dep:proc-macro2",

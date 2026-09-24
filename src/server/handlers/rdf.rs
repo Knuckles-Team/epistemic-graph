@@ -32,6 +32,8 @@ mod validation;
 pub(in crate::server) use dispatch::try_handle;
 #[cfg(feature = "owl")]
 pub(in crate::server) use reasoning::try_handle_distributed;
+#[cfg(all(feature = "shacl", feature = "owl-plan"))]
+pub(in crate::server) use validation::ServedShapes;
 
 // ── RunRules dispatch wiring (CONCEPT:EG-KG.ontology.eg-runtime-swrl-datalog / EG-023) ────────────────────────────
 #[cfg(all(test, feature = "rdf"))]
@@ -78,6 +80,7 @@ mod run_rules_dispatch_tests {
                     query_predicate: Some("grandparent".into()),
                     min_confidence: 0.0,
                     derived_only: true,
+                    explain: false,
                 },
             ),
         )

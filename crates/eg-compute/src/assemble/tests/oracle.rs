@@ -8,23 +8,8 @@ use eg_types::solve::{Relation, VarId};
 use super::super::{assemble, replay_check};
 use super::fixture::*;
 use crate::solve::Model;
-
-/// A small deterministic generator (SplitMix64), so every case is replayable.
-struct Seeded(u64);
-
-impl Seeded {
-    fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.0;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^ (z >> 31)
-    }
-
-    fn below(&mut self, bound: u64) -> u64 {
-        self.next() % bound
-    }
-}
+// The crate's one SplitMix64 stream, so every case is replayable.
+use crate::SplitMix64 as Seeded;
 
 const CAPABILITIES: [&str; 6] = [
     "eg:capability/retrieval/web-search",
@@ -49,9 +34,9 @@ fn library(
             .filter(|_| rng.below(if adversarial { 2 } else { 3 }) == 0)
             .collect();
         let price = if adversarial {
-            100 + rng.below(3)
+            100 + rng.below(3) as u64
         } else {
-            1 + rng.below(50)
+            1 + rng.below(50) as u64
         };
         out.push(tool(&format!("t-{index:02}"), &classes, Some(price)));
     }
@@ -92,12 +77,12 @@ fn feasible(model: &Model, selected: &[bool]) -> bool {
 }
 
 fn agree(seed: u64, adversarial: bool) {
-    let mut rng = Seeded(seed);
-    let tools = 8 + rng.below(10) as usize;
+    let mut rng = Seeded::new(seed);
+    let tools = 8 + rng.below(10);
     let capabilities: Vec<&str> = CAPABILITIES
         .iter()
         .copied()
-        .take(2 + rng.below(4) as usize)
+        .take(2 + rng.below(4))
         .collect();
     let mut asked = request(&[], &capabilities);
     asked.solver = Some(SolverBudget {
@@ -154,7 +139,7 @@ fn the_solver_agrees_with_brute_force_on_adversarial_libraries() {
 /// the real bound (§11.1 latency). Printed with `--nocapture`.
 #[test]
 fn latency_report_at_the_record_bound() {
-    let mut rng = Seeded(7);
+    let mut rng = Seeded::new(7);
     let candidates = library(&mut rng, 59, false);
     let capabilities: Vec<&str> = CAPABILITIES.to_vec();
     let mut samples = Vec::new();

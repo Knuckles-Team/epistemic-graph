@@ -3561,6 +3561,7 @@ components:
     contract_state: unknown_not_inventory_complete
     owned_crates:
       - "eg-pyengine"
+      - "eg-method-codec"
     owned_source_roots:
       - "crates/eg-pyengine/src/admin_ctl.rs"
       - "crates/eg-pyengine/src/authority.rs"
@@ -3595,8 +3596,11 @@ components:
       - "clients"
     public_contract_roots:
       - "crates/eg-pyengine/src/lib.rs"
+      - "crates/eg-method-codec/src/lib.rs"
     test_roots:
       - "crates/eg-pyengine/tests"
+      - "tests/test_canonical_body_served.py"
+      - "tests/test_method_body_vectors.py"
     generated_roots: []
     shared_roots: []
     shared_files: []
@@ -3617,6 +3621,7 @@ components:
         - "eg-pyengine -> eg-statechart [eg.job-plane]"
         - "eg-pyengine -> eg-tsdb [eg.timeseries]"
         - "eg-pyengine -> eg-wasm [eg.query-plan]"
+        - "eg-method-codec -> eg-types [eg.wire-contracts]"
       dev_dependencies: []
     observed_consumers: []
     al002_no_sync_io:
@@ -3777,11 +3782,11 @@ components:
       - "src/bin"
       - "src/test_support.rs"
       - ".cargo/config.toml"
-      - "arch-lint.toml"
+      - ".config/arch-lint.toml"
       - ".config/pre-commit.yaml"
-      - ".repo-layout.toml"
-      - ".importlinter"
-      - ".bumpversion.cfg"
+      - ".config/repo-layout.toml"
+      - ".config/importlinter.ini"
+      - ".config/bumpversion.cfg"
       - "scripts"
       - "docker"
       - "docs"
@@ -3798,6 +3803,8 @@ components:
       - "tests/common"
       - "tests/conftest.py"
       - "tests/_client_fixtures.py"
+      - "tests/_method_vectors.py"
+      - "tests/_script_loader.py"
       - "tests/_untyped.py"
       - "tests/e2e_ca_cdc_kafka.rs"
       - "tests/e2e_ca_lineage_kafka.rs"
@@ -3819,6 +3826,7 @@ components:
       - "tests/parity"
       - "tests/pgwire_roundtrip.rs"
       - "tests/protocol_method_routing.rs"
+      - "tests/repository_index_durable.rs"
       - "tests/run_lake_parity.py"
       - "tests/semantic_arch_gate_src.rs"
       - "tests/served_mining_tsdb_scan.rs"
@@ -3839,6 +3847,7 @@ components:
       - "tests/test_blob_cursor_lifecycle.py"
       - "tests/test_bounded_test_runner_contract.py"
       - "tests/test_build_backend.py"
+      - "tests/test_cargo_test_rescue.py"
       - "tests/test_cep_standing_queries.py"
       - "tests/test_certify_exact_multimodal_assert_page.py"
       - "tests/test_check_complexity_staged.py"
@@ -3858,6 +3867,7 @@ components:
       - "tests/test_compute_primitives.py"
       - "tests/test_concept_parity.py"
       - "tests/test_configure_rust_path_remap.py"
+      - "tests/test_connector_pack_planted.py"
       - "tests/test_contract_method_reachability.py"
       - "tests/test_contract_wave_surface.py"
       - "tests/test_connector_pack_client.py"
@@ -3890,8 +3900,10 @@ components:
       - "tests/test_explicit_domain_handler_ownership.py"
       - "tests/test_first_release_deleted_symbols.py"
       - "tests/test_generated_agent_component_search.py"
+      - "tests/test_generated_artifacts_ledger.py"
       - "tests/test_generated_client_contract.py"
       - "tests/test_generated_graph_schema_contract.py"
+      - "tests/test_generated_models.py"
       - "tests/test_generated_semantic_authority_contract.py"
       - "tests/test_generated_write_back_contract.py"
       - "tests/test_get_nodes_by_label.py"
@@ -5131,7 +5143,7 @@ skill_gaps_found:
   - gap: >-
       "Layer 7 -- binary composition" is described as "[[bin]] targets ... feature selection and
       process lifecycle only", which omits that the same seam owns arch-lint.toml,
-      .cargo/config.toml, .config/pre-commit.yaml, .repo-layout.toml and scripts/ -- i.e. every
+      .cargo/config.toml, .config/pre-commit.yaml, .config/repo-layout.toml and scripts/ -- i.e. every
       gate. Four of the ten wiring decisions here are owned by that seam, and the skill gives no
       hint that it is a decision-bearing owner.
     impact: medium

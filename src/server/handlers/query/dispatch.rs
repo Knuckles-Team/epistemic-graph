@@ -488,33 +488,14 @@ async fn handle_sql_with_lease(
         "SQL error: tenant SQL catalog requires the configured persistence directory".to_string()
     })?;
     let (snap, _graph_version) = lease_filtered_snapshot(core, policy_lease, store)?;
-    let cancel = eg_query::CancellationToken::new();
-    let _cancel_guard = crate::server::request_cancel::register(req_id, cancel.clone());
-    let timeout_task = crate::server::request_cancel::spawn_timeout(cancel.clone());
-    let cancel_for_task = cancel.clone();
-    let authority = authority.clone();
-    let resp = match compute_off_lock(req_id, move || {
-        let authorized = crate::server::sql_catalog_acl::authorized_read_store(
-            &authority,
-            std::path::Path::new(&persist_dir),
-        )?;
-        eg_query::exec_sql_typed_with_tables_cancellable(
-            &snap,
-            authorized.store(),
-            &query,
-            &cancel_for_task,
-        )
-    })
-    .await
-    {
-        Ok(Ok(typed)) => typed_sql_response(req_id, typed),
-        Ok(Err(msg)) => Response::err(req_id, format!("SQL error: {msg}")),
-        Err(resp) => resp,
-    };
-    if let Some(t) = timeout_task {
-        t.abort();
-    }
-    Ok(resp)
+    Ok(super::sql_read::catalog_sql_response(
+        req_id,
+        snap,
+        authority.clone(),
+        std::path::PathBuf::from(persist_dir),
+        query,
+    )
+    .await)
 }
 
 #[cfg(all(feature = "query", feature = "security"))]
@@ -524,31 +505,17 @@ async fn handle_unified_query_text_with_lease(
 ) -> Result<Response, String> {
     let state = ctx.state;
     let req_id = ctx.req_id;
-    #[cfg(feature = "tsdb")]
-    let graph_name = ctx.graph_name;
-    #[cfg(feature = "tsdb")]
-    let read_authority = ctx.read_authority;
     let core = ctx.core;
     let policy_lease = ctx.policy_lease;
     let store = ctx.store;
-    let plan = match eg_plan::uql::parse(&text) {
+    let plan = match parse_uql(req_id, &text) {
         Ok(plan) => plan,
-        Err(e) => return Ok(Response::err(req_id, e.render(&text))),
+        Err(refusal) => return Ok(refusal),
     };
-    #[cfg(feature = "tsdb")]
-    let tsdb_scope = served_tsdb_scope(&plan, graph_name, read_authority)?;
+    // Verified-carrier legs (tsdb scope + the caller's owner-scoped foreign registry, EH-373).
+    let legs = ServedPlanLegs::resolve(state, ctx.graph_name, ctx.read_authority, &plan).await?;
     let (snap, _version) = lease_filtered_snapshot(core, policy_lease, store)?;
-    let resp = match run_unified_off_lock(
-        state,
-        req_id,
-        core,
-        snap,
-        plan,
-        #[cfg(feature = "tsdb")]
-        tsdb_scope,
-    )
-    .await
-    {
+    let resp = match run_unified_off_lock(state, req_id, core, snap, plan, legs).await {
         Ok(Ok(rows)) => result_response::<query_results::UnifiedQueryText>(req_id, &rows),
         Ok(Err(msg)) => Response::err(req_id, format!("UnifiedQuery error: {msg}")),
         Err(resp) => resp,

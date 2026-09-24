@@ -1,0 +1,109 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix bfo: <http://purl.obolibrary.org/obo/BFO_> .
+@prefix obo: <http://purl.obolibrary.org/obo/> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix wd: <http://www.wikidata.org/entity/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# World-model base ontology (operator ruling 2026-09-22, night), environment module.
+#
+# A THIN native TBox placed under the core BFO layer, with skos mappings (never
+# imports) to the canonical external ontologies (verified against OLS4 / Wikidata).
+# Large vocabularies are DATA: ENVO terms (biomes, habitats, materials, climate types) are ingested as INDIVIDUALS of a core
+# :ReferenceTerm class, never one OWL class per term, so reasoning stays bounded by
+# this document (EH-355). Shared vocabulary (:ReferenceTerm, :instanceOfTerm,
+# :termCurie, :quantityValue, :unitCode, observation properties, the RO-aligned
+# relations) lives in core-foundation; this module only uses it.
+
+<http://knuckles.team/kg/environment> a owl:Ontology ;
+    rdfs:label "World Model — Environment" ;
+    rdfs:comment "Environmental systems, habitats, ecosystems, weather and climate systems and weather observations; BFO-placed, mapped to ENVO, SOSA and Wikidata, wired to the geopolitical Region/Country and WeatherEvent." ;
+    owl:imports <http://knuckles.team/kg/core>, <http://knuckles.team/kg/life> .
+
+# ── Environmental systems, habitats, weather and climate ──────────────────────────
+
+:EnvironmentalSystem a owl:Class ;
+    rdfs:label "Environmental System" ;
+    rdfs:comment "A system of material entities and their surroundings that can serve as the environment of organisms or processes — a forest, a lake, a soil, the atmosphere over a region. It also serves as a :Place (things are :locatedIn it). BFO:MaterialEntity." ;
+    rdfs:subClassOf bfo:0000040,
+        :Place ;
+    skos:exactMatch obo:ENVO_01000254 .
+
+:Habitat a owl:Class ;
+    rdfs:label "Habitat" ;
+    rdfs:comment "An environmental system that sustains a population of organisms. Its kind is an ENVO term (:instanceOfTerm a :EnvironmentTerm)." ;
+    rdfs:subClassOf :EnvironmentalSystem ;
+    skos:exactMatch obo:ENVO_01000739,
+        wd:Q52105 .
+
+:Ecosystem a owl:Class ;
+    rdfs:label "Ecosystem" ;
+    rdfs:comment "An environmental system together with the community of organisms living in it." ;
+    rdfs:subClassOf :EnvironmentalSystem ;
+    skos:exactMatch obo:ENVO_01001110,
+        wd:Q37813 .
+
+:ClimateSystem a owl:Class ;
+    rdfs:label "Climate System" ;
+    rdfs:comment "The Earth system that determines climate — atmosphere, hydrosphere, cryosphere, land surface and biosphere — or a regional part of it. Weather systems are :partOf it." ;
+    rdfs:subClassOf :EnvironmentalSystem ;
+    skos:broadMatch obo:ENVO_01000254 ;
+    skos:relatedMatch wd:Q7937 .
+
+:WeatherSystem a owl:Class ;
+    rdfs:label "Weather System" ;
+    rdfs:comment "An organized atmospheric system — a cyclone, an anticyclone, a front, a convective storm complex — within which weather events occur." ;
+    rdfs:subClassOf :EnvironmentalSystem ;
+    skos:broadMatch obo:ENVO_01000254 ;
+    skos:relatedMatch wd:Q11663 .
+
+:EnvironmentTerm a owl:Class ;
+    rdfs:label "Environment Term" ;
+    rdfs:comment "An ENVO term (biome, habitat, environmental material, climate type) ingested as an individual; it names a kind of :EnvironmentalSystem or environmental feature." ;
+    rdfs:subClassOf :ReferenceTerm ;
+    skos:relatedMatch obo:ENVO_01000254 .
+
+:hasHabitat a owl:ObjectProperty ;
+    rdfs:label "has habitat" ;
+    rdfs:comment "An organism lives in a habitat, and so is located in it (RO has habitat). Organism-level; a taxon's typical habitat kind is :taxonHabitat." ;
+    rdfs:subPropertyOf :locatedIn ;
+    rdfs:domain :Organism ;
+    rdfs:range :Habitat ;
+    owl:inverseOf :habitatOf ;
+    skos:exactMatch obo:RO_0002303 .
+
+:habitatOf a owl:ObjectProperty ;
+    rdfs:label "habitat of" ;
+    rdfs:comment "A habitat sustains an organism. Inverse of hasHabitat." ;
+    rdfs:subPropertyOf :contains .
+
+:taxonHabitat a owl:ObjectProperty ;
+    rdfs:label "taxon habitat" ;
+    rdfs:comment "Organisms of a taxon typically live in environments of an ENVO kind (the taxon-level habitat association)." ;
+    rdfs:domain :Taxon ;
+    rdfs:range :EnvironmentTerm ;
+    skos:closeMatch obo:RO_0002303 .
+
+:WeatherObservation a owl:Class ;
+    rdfs:label "Weather Observation" ;
+    rdfs:comment "A measurement of an atmospheric quality (temperature, precipitation, wind speed …) at a place and time, from a station, a reanalysis or a forecast model." ;
+    rdfs:subClassOf :Observation ;
+    skos:broadMatch sosa:Observation .
+
+# ── Wiring into energy_geopolitics ────────────────────────────────────────────────
+
+# Regions and countries are places, so organisms, habitats and weather events are
+# located in / occur in them.
+:Region rdfs:subClassOf :Place ;
+    skos:closeMatch wd:Q82794 .
+
+:Country rdfs:subClassOf :Place ;
+    skos:exactMatch wd:Q6256 .
+
+# A weather event is a process within a weather system.
+:WeatherEvent rdfs:subClassOf [ a owl:Restriction ;
+        owl:onProperty :occursIn ;
+        owl:someValuesFrom :WeatherSystem ] .

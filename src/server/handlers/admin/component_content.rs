@@ -68,7 +68,7 @@ async fn serve_component_content(
     #[cfg(not(feature = "blob"))]
     {
         let _ = (state, store, request);
-        return Response::err(req_id, "AgentComponent.content requires the blob feature");
+        Response::err(req_id, "AgentComponent.content requires the blob feature")
     }
     #[cfg(feature = "blob")]
     {

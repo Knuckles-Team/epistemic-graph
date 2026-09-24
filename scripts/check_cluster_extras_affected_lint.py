@@ -85,8 +85,9 @@ from pathlib import Path
 # `python3 scripts/check_cluster_extras_affected_lint.py` invocation (the
 # pre-push hook) already has this file's own directory as `sys.path[0]`; a
 # test loading this file by path gets `scripts/` on `sys.path` from
-# `pythonpath = scripts` in pytest.ini instead. Neither needs the repo root
-# importable as a dotted package, so no `sys.path` bootstrap is needed here.
+# `pythonpath = ["scripts"]` in pyproject.toml's [tool.pytest.ini_options]
+# instead. Neither needs the repo root importable as a dotted package, so no
+# `sys.path` bootstrap is needed here.
 import push_gate_evidence
 
 ROOT = Path(__file__).resolve().parents[1]

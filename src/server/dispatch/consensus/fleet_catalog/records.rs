@@ -32,6 +32,27 @@ pub(super) struct DiscoveryBody {
     pub(super) observer: String,
 }
 
+#[cfg(test)]
+impl DiscoveryBody {
+    /// A reachable observation with zero counts: the shape every fleet test
+    /// starts from.
+    pub(super) fn reachable_for_tests(
+        server: &str,
+        connector: &str,
+        scope: DiscoveryScope,
+        observer: &str,
+    ) -> Self {
+        Self {
+            server_name: server.to_string(),
+            scope,
+            connector: ResourceId::new(connector).expect("test connector id"),
+            outcome: DiscoveryOutcome::Reachable,
+            counts: DiscoveryCounts::default(),
+            observer: observer.to_string(),
+        }
+    }
+}
+
 /// One override, as stored. `value: None` is a cleared override: a tombstone
 /// revision, so the compare-and-set chain never restarts from zero.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -269,14 +290,7 @@ mod tests {
     fn observation(scope: DiscoveryScope, observer: &str) -> StoredRecord<DiscoveryBody> {
         StoredRecord {
             meta: meta(1, "d"),
-            body: DiscoveryBody {
-                server_name: "github".to_string(),
-                scope,
-                connector: ResourceId::new("github").unwrap(),
-                outcome: DiscoveryOutcome::Reachable,
-                counts: DiscoveryCounts::default(),
-                observer: observer.to_string(),
-            },
+            body: DiscoveryBody::reachable_for_tests("github", "github", scope, observer),
         }
     }
 

@@ -311,13 +311,15 @@ pub struct ServerState {
     /// + triggers off it. PURE in-memory (bounded ring + Notify) — no second redb file.
     #[cfg(feature = "streaming")]
     pub cdc: Option<Arc<crate::server::cdc::CdcHub>>,
-    /// WASM-sandboxed UDF registry (CONCEPT:EG-KG.query.rowset-execution, feature `wasm-udf`). Holds the
-    /// compiled, cached `UdfModule`s an agent pushed via `RegisterUdf`; `RunUdf` + the
-    /// `Op::Udf` plan op look up + run them sandboxed (fuel + memory limits, NO host
-    /// caps). Always present (empty) with the feature on — UDFs are process-global, not
-    /// per-graph. Behind `Arc` so the off-lock compute path clones a handle cheaply.
+    /// WASM-sandboxed UDF catalog (CONCEPT:EG-KG.query.rowset-execution, feature `wasm-udf`). Holds the
+    /// compiled, cached `UdfModule`s an agent pushed via `RegisterUdf`, keyed by
+    /// `(verified owner, id)` — tenant+principal (EH-374); `RunUdf` looks up + runs only
+    /// the caller's own modules sandboxed (fuel + memory limits, NO host caps), so no
+    /// principal can run or shadow another's UDF. Always present (empty) with the
+    /// feature on — not per-graph. Behind `Arc` so the off-lock compute path clones a
+    /// handle cheaply.
     #[cfg(feature = "wasm-udf")]
-    pub udf_registry: Arc<eg_wasm::UdfRegistry>,
+    pub udf_registry: Arc<crate::server::udf_catalog::UdfCatalog>,
     /// Materialized views of distributed-compute results (CONCEPT:EG-KG.storage.feature, feature
     /// `compute-dist`). The in-RAM index of named, incrementally-maintained matviews;
     /// the durable copy lives in redb (the handler persists + reloads on boot). Mutex
@@ -325,17 +327,20 @@ pub struct ServerState {
     #[cfg(feature = "compute-dist")]
     pub matviews: Arc<Mutex<crate::raft::pregel::MatViewStore>>,
     /// Registered FOREIGN sources for query federation (CONCEPT:EG-KG.query.query-federation, feature
-    /// `federation`), keyed by name. `RegisterForeignSource` inserts a
-    /// [`eg_types::wire::ForeignSourceSpec`] here so it can be reused by name, and
-    /// `handlers::query::run_unified` READS it back into the executor's
-    /// `eg_plan::federation::ForeignSourceRegistry` so a `Named` `Op::ForeignScan` / an
-    /// `Op::Foreign` marker actually resolves (CONCEPT:EG-KG.query.closure-backed-source);
-    /// the inline-spec `Op::ForeignScan` path carries its own spec and does not need it.
-    /// Process-global (a foreign
-    /// endpoint is not per-graph), lock-free on read. Always present (empty) with the
-    /// feature on.
+    /// `federation`), keyed by `(verified owner, name)` (EH-373), where the owner is the
+    /// caller's tenant+principal (`CarrierAuthority::owner_scope`; one engine is bound to
+    /// one tenant, so the principal is the working boundary). `RegisterForeignSource`
+    /// records the caller's [`eg_types::wire::ForeignSourceSpec`] under its owner, and every served
+    /// plan path builds its executor `eg_plan::federation::ForeignSourceRegistry` through
+    /// [`crate::server::foreign_catalog::ForeignSourceCatalog::registry_for`], which copies
+    /// only the caller's own entries — so a `Named` `Op::ForeignScan` / an
+    /// `Op::Foreign` marker resolves only the caller's own sources
+    /// (CONCEPT:EG-KG.query.closure-backed-source). The inline-spec `Op::ForeignScan` path
+    /// carries its own spec and does not read it. Rows from a foreign source are NOT
+    /// RLS-filtered (they are not in the local snapshot). Not per-graph; in memory only.
+    /// Always present (empty) with the feature on.
     #[cfg(feature = "federation")]
-    pub foreign_sources: Arc<DashMap<String, eg_types::wire::ForeignSourceSpec>>,
+    pub foreign_sources: Arc<crate::server::foreign_catalog::ForeignSourceCatalog>,
     /// Generic namespaced Key→Value store (CONCEPT:EG-KG.storage.namespaced-kv-surface, feature `kv`). `Some` on a
     /// `kv` build: a durable `{persist_dir}/kv.redb` when a persist dir is set, else an
     /// in-memory scratch map. The `Kv*` handlers get/put/delete/scan/cas through it; it

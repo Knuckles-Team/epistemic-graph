@@ -81,11 +81,15 @@ use serde::{Deserialize, Serialize};
 use crate::owl::Ontology;
 
 mod builtins;
+// EH-200 — rule-derived classification over agent-component metadata.
+pub mod capability;
 mod engine;
 mod owl_rules;
+mod proof;
 mod syntax;
 
 pub use owl_rules::builtin_rules;
+pub use proof::{RuleDerivations, RuleProofNode, ASSERTED_RULE, MAX_PROOF_DEPTH, MAX_PROOF_NODES};
 use syntax::{iri, is_meta_class, is_schema_pred, RDF_TYPE};
 pub use syntax::{Atom, RTerm, Rule, RuleSet};
 
@@ -104,6 +108,9 @@ pub struct RuleReasonResult {
     pub consistent: bool,
     /// Human-readable clash descriptions.
     pub conflicts: Vec<String>,
+    /// Final confidences + the derivation behind each derived one (EH-197): the source
+    /// of [`RuleDerivations::proof`].
+    pub derivations: RuleDerivations,
 }
 
 impl RuleReasonResult {
@@ -192,6 +199,9 @@ pub struct RuleReasonRequest {
     /// When true, return only the DERIVED facts (omit the asserted base).
     #[serde(default)]
     pub derived_only: bool,
+    /// When true, every returned fact carries its proof tree (EH-197).
+    #[serde(default)]
+    pub explain: bool,
 }
 
 /// The rule-reasoning response and its facts -- the `RunRules` wire body, owned by eg-types.
@@ -275,6 +285,10 @@ fn project_response(
             args: a.clone(),
             confidence: *c,
             derived: derived_set.contains(&(p, a)),
+            proof: req
+                .explain
+                .then(|| result.derivations.proof(p, a))
+                .flatten(),
         })
         .collect();
     RuleReasonResponse {

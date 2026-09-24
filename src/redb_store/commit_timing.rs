@@ -10,6 +10,13 @@
 //! `CommitPhaseTimer::start(..)` / `.finish()` pair rather than a repeated
 //! `Instant::now()`/`elapsed()` block that `dupehound`/`jscpd` would flag as a
 //! structural clone across call sites.
+//!
+//! Each timer also opens one `commit_phase` tracing span carrying its `phase`
+//! label, so a subscriber (the `redb_write_latency_bench` phase collector, or
+//! any DEBUG trace) sees the same decomposition per sample -- percentiles, not
+//! only the histogram's mean. The storage kernel's own phases
+//! (`redb_begin_write`, `write_authority_validation`, `redb_commit`) emit the
+//! same span shape from `eg-storage`, which has no metrics registry.
 
 use std::time::Instant;
 
@@ -22,6 +29,9 @@ use std::time::Instant;
 pub(crate) struct CommitPhaseTimer {
     started: Instant,
     phase: &'static str,
+    /// Closed when the timer is consumed or dropped; never entered, because a
+    /// phase is a wall-clock interval on the writer thread, not a scope.
+    _span: tracing::Span,
 }
 
 impl CommitPhaseTimer {
@@ -32,6 +42,7 @@ impl CommitPhaseTimer {
         Self {
             started: Instant::now(),
             phase,
+            _span: tracing::debug_span!("commit_phase", phase),
         }
     }
 

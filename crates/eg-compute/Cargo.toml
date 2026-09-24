@@ -237,6 +237,9 @@ tree-sitter-dm = { version = "=0.25.4", optional = true }
 # DEV-only — never linked into the engine binary.
 [dev-dependencies]
 criterion = "0.5"
+# Shared Decide-layer fixtures (`eg_types::test_support::decision`), also used
+# by eg-types' own derivation tests.
+eg-types = { path = "../eg-types", features = ["test-support"] }
 # Deterministic RNG for the reasoning-closure differential/parity tests (the runtime
 # `rand_chacha` dep is optional under `datascience`; tests need it unconditionally).
 rand_chacha = "0.3"

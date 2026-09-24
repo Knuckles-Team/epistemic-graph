@@ -20,7 +20,7 @@ use eg_types::decision::{
     AbstainReason, ColdStart, DecisionPolicy, StatisticalPolicy, UnitRationalWire,
 };
 
-use super::exploration::{audit, plan, ExplorationPermit, ExplorationPlan};
+use super::exploration::{audit, logging_vector, plan, ExplorationPermit, ExplorationPlan};
 use super::head_eval::{prediction_set, top_index, Evaluated};
 use super::quant::{exact_wire, q32, value_of};
 use super::refusal::{Refusal, RefusalResult};
@@ -46,6 +46,16 @@ pub struct LadderResult {
     /// The option whose logit contributions the record explains.
     pub explained: Option<usize>,
     pub audit: Option<AuditDraw>,
+    /// The executed policy's distribution (see [`logging_vector`]); empty when
+    /// nothing was executed.
+    pub logging: Vec<UnitRationalWire>,
+}
+
+fn budget(permit: ExplorationPermit) -> Option<UnitRationalWire> {
+    match permit {
+        ExplorationPermit::Off => None,
+        ExplorationPermit::Budget(fraction) => Some(fraction),
+    }
 }
 
 fn no_looser(candidate: UnitRationalWire, bound: UnitRationalWire) -> bool {
@@ -124,8 +134,12 @@ fn greedy(reading: Option<&Evaluated>) -> Option<usize> {
     top_index(reading.probabilities.as_deref().unwrap_or(&reading.logits))
 }
 
-fn explored(inputs: &LadderInputs, drawn: &ExplorationPlan) -> LadderResult {
-    LadderResult {
+fn explored(
+    inputs: &LadderInputs,
+    drawn: &ExplorationPlan,
+    greedy_choice: Option<usize>,
+) -> RefusalResult<LadderResult> {
+    Ok(LadderResult {
         outcome: StatisticalOutcome::Explored {
             option_id: inputs.candidate_ids[drawn.chosen].clone(),
             propensity: drawn.propensity,
@@ -133,7 +147,12 @@ fn explored(inputs: &LadderInputs, drawn: &ExplorationPlan) -> LadderResult {
         calibration: None,
         explained: None,
         audit: None,
-    }
+        logging: logging_vector(
+            inputs.candidate_ids.len(),
+            greedy_choice,
+            budget(inputs.permit),
+        )?,
+    })
 }
 
 fn exploration(
@@ -162,6 +181,12 @@ fn act_or_abstain(
     let top = top_index(probabilities);
     let threshold = calibration.act_threshold.map(value_of);
     let acts = matches!((top, threshold), (Some(t), Some(lambda)) if probabilities[t] >= lambda);
+    let logging = match (acts, top) {
+        (true, Some(top)) => {
+            logging_vector(inputs.candidate_ids.len(), Some(top), budget(inputs.permit))?
+        }
+        _ => Vec::new(),
+    };
     let (outcome, explained, audit_draw) = match (acts, top) {
         (true, Some(top)) => (
             StatisticalOutcome::Acted {
@@ -183,6 +208,7 @@ fn act_or_abstain(
         calibration: Some(statement(calibration)),
         explained,
         audit: audit_draw,
+        logging,
     })
 }
 
@@ -197,6 +223,7 @@ fn uncalibrated(inputs: &LadderInputs, reading: Option<&Evaluated>) -> RefusalRe
         calibration: None,
         explained: greedy(reading),
         audit: None,
+        logging: Vec::new(),
     })
 }
 
@@ -208,7 +235,7 @@ pub fn decide(inputs: &LadderInputs) -> RefusalResult<LadderResult> {
     let greedy_choice = greedy(inputs.reading);
     let drawn = exploration(inputs, greedy_choice)?;
     if let Some(drawn) = drawn.filter(|d| d.explored) {
-        return Ok(explored(inputs, &drawn));
+        return explored(inputs, &drawn, greedy_choice);
     }
     let propensity = match drawn {
         Some(d) => d.propensity,

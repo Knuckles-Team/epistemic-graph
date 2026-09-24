@@ -7,7 +7,6 @@ use eg_types::agent_component::{
     AgentComponentFacts, AgentComponentKind, CostFacts, DeclaredCost, DeclaredLatency, FactQuality,
     ModalityFacts, PriceSource, PromptMode, ToolEffect,
 };
-use eg_types::agent_library::AgentLibraryLifecycle;
 use eg_types::contract::BoundedVec;
 use eg_types::decision::{
     digest, AssemblyRequest, AssemblyRequirements, CandidateFacts, DecisionInputs, DecisionPolicy,
@@ -45,17 +44,13 @@ pub fn candidate(
     classification: &[&str],
 ) -> CandidateFacts {
     CandidateFacts {
-        component_id: component_id.to_string(),
-        kind,
-        entry_revision: 1,
-        definition_digest: digest_of(component_id),
-        lifecycle: AgentLibraryLifecycle::Published,
-        classification: bounded(classification.iter().map(|t| t.to_string()).collect()),
-        required_capabilities: BoundedVec::default(),
-        declared_capabilities: BoundedVec::default(),
-        requires: BoundedVec::default(),
-        facts: AgentComponentFacts::Opaque,
         fact_premises: bounded(vec![claim(component_id)]),
+        ..eg_types::test_support::decision::published_candidate(
+            component_id,
+            kind,
+            &digest_of(component_id),
+            classification,
+        )
     }
 }
 

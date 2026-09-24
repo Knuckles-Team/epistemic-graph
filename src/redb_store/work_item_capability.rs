@@ -644,32 +644,65 @@ fn validate_generic_update(
     Ok(())
 }
 
+/// What one decoded generic batch does to node rows -- the only rows the
+/// WorkItem guards own. Edge and embedding operations touch none.
+pub(crate) enum NodeTouch {
+    Write {
+        id: String,
+        properties_msgpack: Vec<u8>,
+    },
+    Remove {
+        id: String,
+    },
+}
+
+/// Decode a generic batch into its node touches, in operation order: the one
+/// reading both the native-authority check and the row guard share.
+pub(crate) fn batch_node_touches(operations_msgpack: &[u8]) -> Result<Vec<NodeTouch>, String> {
+    use crate::algorithms::BatchOperation;
+
+    Ok(
+        crate::algorithms::decode_batch_operations(operations_msgpack)?
+            .into_iter()
+            .filter_map(|operation| match operation {
+                BatchOperation::AddNode {
+                    id,
+                    properties_msgpack,
+                    ..
+                } => Some(NodeTouch::Write {
+                    id,
+                    properties_msgpack,
+                }),
+                BatchOperation::RemoveNode { id } => Some(NodeTouch::Remove { id }),
+                BatchOperation::AddEdge { .. }
+                | BatchOperation::RemoveEdge { .. }
+                | BatchOperation::AddEmbedding { .. } => None,
+            })
+            .collect(),
+    )
+}
+
 fn validate_generic_batch(
     graph: &str,
     operations_msgpack: &[u8],
     tables: GenericValidationTables<'_, '_, '_>,
 ) -> Result<(), String> {
-    use crate::algorithms::BatchOperation;
-
-    for operation in crate::algorithms::decode_batch_operations(operations_msgpack)? {
-        match operation {
-            BatchOperation::AddNode {
+    for touch in batch_node_touches(operations_msgpack)? {
+        match touch {
+            NodeTouch::Write {
                 id,
                 properties_msgpack,
-                ..
             } => validate_generic_add_node(
                 GenericValidationContext::new(graph, &id, tables),
                 &properties_msgpack,
                 "native WorkItem authority required for generic batch replacement",
             )?,
-            BatchOperation::RemoveNode { id }
-                if native_claimed(tables.native_work_items, graph, &id)? =>
-            {
+            NodeTouch::Remove { id } if native_claimed(tables.native_work_items, graph, &id)? => {
                 return Err(
                     "native WorkItem authority required for generic batch removal".to_string(),
                 )
             }
-            _ => {}
+            NodeTouch::Remove { .. } => {}
         }
     }
     Ok(())

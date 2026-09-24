@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from _client_fixtures import RecordingTransport, SentCall
 from pydantic import ValidationError
 
 from epistemic_graph.client import GraphOperationsClient
@@ -53,21 +54,9 @@ def _result_payload() -> dict[str, Any]:
     }
 
 
-class _Client:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, dict[str, Any] | None]] = []
-
-    async def _send(
-        self,
-        method: str,
-        params: dict[str, Any] | None,
-        graph: str | None,
-        *,
-        idempotency_key: str | None,
-    ) -> dict[str, Any]:
-        self.calls.append((method, params))
-        assert graph is None
-        assert idempotency_key is None
+class _Client(RecordingTransport):
+    def reply(self, call: SentCall) -> dict[str, Any]:
+        assert call.idempotency_key is None
         return _result_payload()
 
 
@@ -88,7 +77,8 @@ async def test_public_client_returns_one_typed_outcome_per_file_in_order() -> No
         IndexFileStatus.SUCCESS,
         IndexFileStatus.UNSUPPORTED,
     ]
-    assert [method for method, _ in client.calls] == ["IndexRepository"]
+    assert [call.method for call in client.sent] == ["IndexRepository"]
+    assert [call.graph for call in client.sent] == [None]
 
 
 @pytest.mark.no_engine
@@ -100,3 +90,50 @@ def test_diagnostics_bound_is_enforced_by_generated_type() -> None:
 
     with pytest.raises(ValidationError):
         IndexResult.model_validate(payload)
+
+
+@pytest.mark.asyncio
+@pytest.mark.no_engine
+async def test_branch_aware_scope_travels_as_the_typed_wire_field() -> None:
+    from epistemic_graph.generated.index_repository import IndexRepositoryScope
+
+    scope = IndexRepositoryScope.model_validate(
+        {
+            "repository_id": "local-git:team/project",
+            "refs": [
+                {
+                    "ref_name": "refs/heads/main",
+                    "revision_id": "a" * 40,
+                    "status": "live",
+                }
+            ],
+            "file_versions": [
+                {
+                    "ref_name": "refs/heads/main",
+                    "path": "src/main.py",
+                    "blob_digest": _ZERO_DIGEST,
+                }
+            ],
+        }
+    )
+    client: Any = _Client()
+    await GraphOperationsClient(client).index_repository(
+        [("src/main.py", b""), ("README.txt", b"")], scope=scope, graph="repositories"
+    )
+
+    params = client.sent[0].params
+    assert params["scope"] == {
+        "repository_id": "local-git:team/project",
+        "refs": [
+            {"ref_name": "refs/heads/main", "revision_id": "a" * 40, "status": "live"}
+        ],
+        "tombstones": [],
+        "file_versions": [
+            {
+                "ref_name": "refs/heads/main",
+                "path": "src/main.py",
+                "blob_digest": _ZERO_DIGEST,
+            }
+        ],
+    }
+    assert [call.graph for call in client.sent] == ["repositories"]

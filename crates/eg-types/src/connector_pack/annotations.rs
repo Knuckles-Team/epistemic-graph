@@ -76,4 +76,19 @@ pub struct PackAnnotations {
     /// checked it.
     #[serde(default)]
     pub sdk_contract_pin: Option<String>,
+    /// How the SDK exposes a tool's arguments: `condensed` for the single
+    /// `action` + `params_json` shape, `verbose` otherwise. A declaration of
+    /// the pack builder, which has the schema; the engine never re-derives it.
+    /// Meaningful on tools only.
+    #[serde(default)]
+    pub tool_mode: Option<PackToolMode>,
+}
+
+/// How an SDK tool presents its arguments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum PackToolMode {
+    Condensed,
+    Verbose,
 }

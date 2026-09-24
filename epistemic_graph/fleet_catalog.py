@@ -10,8 +10,9 @@ its own and never falls back to a second store.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any, Protocol
+from typing import Any
 
+from ._transport import EngineTransport
 from .generated.cluster import (
     send_fleet_catalog_clear_override,
     send_fleet_catalog_list,
@@ -33,17 +34,6 @@ from .generated.fleet_catalog import (
 )
 
 __all__ = ["FleetCatalogClient", "FleetCatalogSnapshotError"]
-
-
-class _Transport(Protocol):
-    async def _send(
-        self,
-        method: str,
-        params: dict[str, Any] | None,
-        graph: str | None,
-        *,
-        idempotency_key: str | None,
-    ) -> Any: ...
 
 
 class FleetCatalogSnapshotError(RuntimeError):
@@ -70,7 +60,7 @@ class FleetCatalogClient:
     context; no request carries either.
     """
 
-    def __init__(self, client: _Transport) -> None:
+    def __init__(self, client: EngineTransport) -> None:
         self._client = client
 
     async def record_discovery(

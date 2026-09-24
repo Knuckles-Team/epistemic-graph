@@ -105,11 +105,17 @@ const STORED_STATUS: [(&str, WorkItemStatus); 8] = [
 impl WorkItemStatus {
     /// The lifecycle state a stored row's `status` names, if it names one.
     pub fn from_stored(stored: &str) -> Option<Self> {
-        STORED_STATUS
-            .iter()
-            .find(|(text, _)| *text == stored)
-            .map(|(_, status)| *status)
+        stored_value(&STORED_STATUS, stored)
     }
+}
+
+/// The value a stored-text table maps `stored` to: the one lookup every
+/// `(text, variant)` table of a stored row's closed vocabulary shares.
+pub(crate) fn stored_value<T: Copy>(table: &[(&str, T)], stored: &str) -> Option<T> {
+    table
+        .iter()
+        .find(|(text, _)| *text == stored)
+        .map(|(_, value)| *value)
 }
 
 /// The caller's view of one WorkItem row.

@@ -4,6 +4,7 @@ import asyncio
 from typing import Any, cast
 
 import pytest
+from _client_fixtures import RecordingTransport, SentCall
 
 import epistemic_graph
 from epistemic_graph.client import EpistemicGraphClient, ServerRegistryClient
@@ -104,19 +105,8 @@ def test_registry_types_and_client_are_wheel_root_exports() -> None:
         assert getattr(epistemic_graph, name) is not None
 
 
-class _RegisterTransport:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, dict[str, Any] | None]] = []
-
-    async def _send(
-        self,
-        method: str,
-        params: dict[str, Any] | None,
-        graph: str | None,
-        *,
-        idempotency_key: str | None,
-    ) -> str:
-        self.calls.append((method, params))
+class _RegisterTransport(RecordingTransport):
+    def reply(self, call: SentCall) -> str:
         return "srv:alpha"
 
 
@@ -131,7 +121,7 @@ def test_register_sends_the_typed_transport_and_desired_state() -> None:
             desired="disabled",
         )
     )
-    method, params = transport.calls[0]
+    method, params, _graph, _key = transport.sent[0]
     assert method == "RegisterServer"
     assert params is not None
     assert params["transport"] == "streamable_http"

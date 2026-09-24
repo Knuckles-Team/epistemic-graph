@@ -28,7 +28,8 @@
 /// 423 -> 429: graph-os EG-2..EG-5 typed control-plane reads/records --
 /// `GetWorkItem`, `ListWorkItems`, `GetWorkItemOutcome`, `IssueControlLease`,
 /// `TransitionControlLease` and `GetControlLease`.
-/// 429 -> 430: UQL-07's `Uql` statement surface (typed params, EXPLAIN/PROFILE,
+/// 429 -> 430: the statistical `DecisionLog` (RF-ADR-010 DL-5/DL-5b).
+/// 430 -> 431: UQL-07's `Uql` statement surface (typed params, EXPLAIN/PROFILE,
 /// LET programs, RETURN channels).
 ///
 /// This is a tripwire against an unnoticed protocol edit, not a ratchet;
@@ -38,7 +39,7 @@
 /// the domain row inventory so every supported feature combination checks the
 /// same coverage invariant.
 pub fn expected_method_policy_rows() -> usize {
-    430 + usize::from(cfg!(feature = "jobs"))
+    431 + usize::from(cfg!(feature = "jobs"))
         + usize::from(cfg!(feature = "statechart"))
         + usize::from(cfg!(feature = "modality-serving"))
         + usize::from(cfg!(feature = "knowledge-batch"))

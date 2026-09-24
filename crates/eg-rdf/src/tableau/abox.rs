@@ -251,6 +251,9 @@ fn restrict(ont: &DlOntology, members: BTreeSet<String>) -> Component {
             .cloned()
             .collect(),
         individuals: members.clone(),
+        domains: ont.domains.clone(),
+        ranges: ont.ranges.clone(),
+        disjoint_groups: ont.disjoint_groups.clone(),
     };
     Component {
         individuals: members,
@@ -439,6 +442,72 @@ mod tests {
             check_pack_ontology(&clean, 1),
             Err(BoundedCheckRefusal::BudgetExceeded { steps: 1 })
         );
+    }
+
+    /// EH-363: `owl:AllDisjointClasses` reaches the tableau (pairwise), and its axiom
+    /// node is not an individual.
+    #[test]
+    fn all_disjoint_classes_constrain_individuals() {
+        let parse = |body: &str| {
+            parse_dl_ontology(
+                &crate::mapping::parse_turtle(&format!(
+                    "@prefix ex: <http://example.org/> .\n\
+                     @prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+                     [] a owl:AllDisjointClasses ; owl:members ( ex:A ex:B ex:C ) .\n{body}"
+                ))
+                .unwrap(),
+            )
+        };
+        let clash = parse("ex:x a ex:A, ex:C .");
+        assert!(!super::super::is_consistent(&clash));
+        let fine = parse("ex:x a ex:A . ex:y a ex:C .");
+        assert!(super::super::is_consistent(&fine));
+        assert!(
+            fine.gcis.is_empty() && fine.disjoint_groups.len() == 1,
+            "named members form one at-most-one group, not k(k-1)/2 negation GCIs"
+        );
+        assert_eq!(fine.individuals, BTreeSet::from([ind("x"), ind("y")]));
+    }
+
+    /// EH-363: `rdfs:domain`/`rdfs:range` reach the tableau as `∃p.⊤ ⊑ D` / `⊤ ⊑ ∀p.R`
+    /// (role-absorbed, through sub-roles), never as `D`/`R` class inclusions.
+    #[test]
+    fn domain_and_range_constrain_the_ends_of_an_edge() {
+        let parse = |body: &str| {
+            parse_dl_ontology(
+                &crate::mapping::parse_turtle(&format!(
+                    "@prefix ex: <http://example.org/> .\n\
+                     @prefix owl: <http://www.w3.org/2002/07/owl#> .\n\
+                     @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .\n\
+                     ex:memberOf rdfs:domain ex:Thing ; rdfs:range ex:Group .\n\
+                     ex:sitsOn rdfs:subPropertyOf ex:memberOf .\n\
+                     ex:Thing owl:disjointWith ex:Process .\n\
+                     ex:Group owl:disjointWith ex:Process .\n{body}"
+                ))
+                .unwrap(),
+            )
+        };
+        let source = parse("ex:run a ex:Process . ex:run ex:sitsOn ex:board .");
+        assert!(
+            !super::super::is_consistent(&source),
+            "domain through a sub-role"
+        );
+        let target = parse("ex:ada ex:memberOf ex:job . ex:job a ex:Process .");
+        assert!(!super::super::is_consistent(&target), "range");
+        let fine = parse("ex:ada ex:memberOf ex:board . ex:job a ex:Process .");
+        assert!(super::super::is_consistent(&fine));
+        // Sound: a range does not make every Group-typed class member… nor every
+        // individual a Group — only the edge's target.
+        assert!(!super::super::is_instance(
+            &fine,
+            &ind("job"),
+            &ind("Group")
+        ));
+        assert!(super::super::is_instance(
+            &fine,
+            &ind("board"),
+            &ind("Group")
+        ));
     }
 
     /// The budget fails closed with a typed outcome; enough budget decides.

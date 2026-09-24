@@ -83,6 +83,11 @@ pub fn contract_wave_samples() -> Vec<(&'static str, Method)> {
             .map(|(label, op)| (label, Method::DecisionEval { op: Box::new(op) })),
     );
     samples.extend(
+        statistical::log_ops()
+            .into_iter()
+            .map(|(label, op)| (label, Method::DecisionLog { op: Box::new(op) })),
+    );
+    samples.extend(
         pack::ops()
             .into_iter()
             .map(|(label, op)| (label, Method::ConnectorPack { op: Box::new(op) })),

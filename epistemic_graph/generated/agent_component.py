@@ -37,19 +37,19 @@ class AgentComponentDraft(BaseModel):
 
     actor_scope: str
     attributes: dict[str, str] | None = None
-    classification: list[str] | None = None
+    classification: list[str] = Field(default_factory=list)
     component_id: str
     content_digest: str
     content_ref: str | None = None
-    declared_capabilities: list[str] | None = None
-    declared_required_capabilities: list[str] | None = None
+    declared_capabilities: list[str] = Field(default_factory=list)
+    declared_required_capabilities: list[str] = Field(default_factory=list)
     facts: AgentComponentFacts
     kind: AgentComponentKind
     policy_digest: str
     provenance: ComponentProvenance
     purpose_id: str
-    required_capabilities: list[str] | None = None
-    requires: list[ComponentDependency] | None = None
+    required_capabilities: list[str] = Field(default_factory=list)
+    requires: list[ComponentDependency] = Field(default_factory=list)
     source_revision: str
     source_revision_digest: str
     summary: str
@@ -62,13 +62,13 @@ class AgentComponentEntry(BaseModel):
 
     actor_scope: str
     attributes: dict[str, str] | None = None
-    classification: list[str] | None = None
+    classification: list[str] = Field(default_factory=list)
     component_id: str
     content_digest: str
     content_ref: str | None = None
     created_at_ms: Annotated[int, Field(ge=0)]
-    declared_capabilities: list[str] | None = None
-    declared_required_capabilities: list[str] | None = None
+    declared_capabilities: list[str] = Field(default_factory=list)
+    declared_required_capabilities: list[str] = Field(default_factory=list)
     definition_digest: str
     entry_revision: Annotated[int, Field(ge=0)]
     facts: AgentComponentFacts
@@ -77,8 +77,8 @@ class AgentComponentEntry(BaseModel):
     policy_digest: str
     provenance: ComponentProvenance
     purpose_id: str
-    required_capabilities: list[str] | None = None
-    requires: list[ComponentDependency] | None = None
+    required_capabilities: list[str] = Field(default_factory=list)
+    requires: list[ComponentDependency] = Field(default_factory=list)
     schema_version: Annotated[int, Field(ge=0, le=65535)]
     source_revision: str
     source_revision_digest: str
@@ -265,9 +265,9 @@ class AgentComponentSearchPage(BaseModel):
 class AgentComponentSearchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    capabilities: list[str] | None = None
+    capabilities: list[str] = Field(default_factory=list)
     cursor: str | None = None
-    kinds: list[AgentComponentKind] | None = None
+    kinds: list[AgentComponentKind] = Field(default_factory=list)
     limit: Annotated[int, Field(ge=0)] | None = None
     read_only: bool | None = None
     task: str | None = None
@@ -373,8 +373,8 @@ class FactQuality(str, Enum):
 class ModalityFacts(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    input: list[str] | None = None
-    output: list[str] | None = None
+    input: list[str] = Field(default_factory=list)
+    output: list[str] = Field(default_factory=list)
 
 
 class ObservationRef(BaseModel):

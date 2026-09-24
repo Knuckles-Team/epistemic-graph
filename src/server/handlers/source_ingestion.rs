@@ -4,19 +4,27 @@
 //! existing ChangeEnvelope commit authority owns the final IngestBatch step, so
 //! there is one graph mutation path and one cursor compare-and-swap authority.
 
+#[cfg(all(feature = "redb", feature = "blob"))]
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use eg_types::contract::Digest256;
 use eg_types::source_ingestion::{
-    RawAdmissionReceipt, RawRelationshipAdmissionReceipt, SourceEntityRef,
-    SourceIngestionDisposition, SourceIngestionMode, SourceIngestionReceipt,
-    SourceIngestionRequest, SourceMappingKind, SourceMappingReceipt,
-    SourceRelationshipTombstoneReceipt, SourceTombstoneReceipt, SourceWithdrawal,
+    RawAdmissionReceipt, RawRelationshipAdmissionReceipt, SourceIngestionMode,
+    SourceIngestionRequest, SourceMappingReceipt, SourceRelationshipTombstoneReceipt,
+    SourceTombstoneReceipt,
+};
+#[cfg(all(feature = "redb", feature = "blob"))]
+use eg_types::source_ingestion::{
+    SourceEntityRef, SourceIngestionDisposition, SourceIngestionReceipt, SourceMappingKind,
+    SourceWithdrawal,
 };
 use tokio::sync::RwLock;
 
-use crate::protocol::{Method, Response, ResultPayload};
+use crate::protocol::Response;
+#[cfg(all(feature = "redb", feature = "blob"))]
+use crate::protocol::{Method, ResultPayload};
+#[cfg(all(feature = "redb", feature = "blob"))]
 use crate::server::access::CarrierAuthority;
 use crate::server::auth::VerifiedRequestContext;
 use crate::server::ServerState;
@@ -1565,25 +1573,16 @@ fn compile_mutation(
     batch_id: &str,
     methods: Vec<Method>,
 ) -> Result<eg_types::mutation_batch::MutationBatch, String> {
-    let principal = ctx.verified.principal_persistence_id();
-    crate::server::mutation_batch::compile_methods(
-        crate::server::mutation_batch::CompileBatch {
-            batch_id,
-            request_id: ctx.request_id,
-            attempt_nonce: ctx.verified.attempt_nonce(),
-            principal: Some(&principal),
-            tenant: ctx.tenant_scope,
-            graph: ctx.graph_name,
-            placement_epoch: ctx.placement_epoch,
-            idempotency_key: ctx.verified.idempotency_key(),
-            expected_graph_version: Some(ctx.graph_version),
-            fencing_token: ctx.fencing_token,
-            created_at_ms: crate::server::dispatch::authoritative_now_ms(),
-            default_surface: crate::mutation_batch::MutationSurface::Graph,
-            authoritative_state: None,
-        },
-        methods,
-    )
+    crate::server::mutation_batch::GraphWriteScope {
+        request_id: ctx.request_id,
+        graph_name: ctx.graph_name,
+        tenant_scope: ctx.tenant_scope,
+        verified: ctx.verified,
+        graph_version: ctx.graph_version,
+        placement_epoch: ctx.placement_epoch,
+        fencing_token: ctx.fencing_token,
+    }
+    .compile(batch_id, methods)
 }
 
 #[cfg(all(feature = "redb", feature = "blob"))]
@@ -1660,6 +1659,7 @@ fn build_envelope(
             sanitizer_version: "source-ingestion-v1".into(),
             sanitized_payload_digest: batch_digest.to_hex(),
         },
+        material_class: eg_types::change_envelope::MaterialClass::Attested,
         commit_seq: None,
         commit_descriptor_ref: None,
     };

@@ -354,4 +354,32 @@ mod tests {
         let res = obs.search_sql("SELECT count(*) AS n FROM logs").unwrap();
         assert_eq!(res.rows[0][0].as_i64().unwrap(), 2);
     }
+
+    /// EH-387: log search hands caller SQL to the graph-free path, which refuses
+    /// anything but one read statement — including DataFusion's server-side file read.
+    /// A plain SELECT over the same ingested logs still answers.
+    #[test]
+    fn search_sql_refuses_everything_but_a_single_read() {
+        let obs = ObsState::in_memory(1000).unwrap();
+        obs.ingest(vec![rec(1, "r", "INFO", "kept")]).unwrap();
+        for (kind, sql) in [
+            ("ddl", "DROP TABLE logs"),
+            ("dml", "DELETE FROM logs WHERE severity = 'INFO'"),
+            ("copy", "COPY logs TO 'obs-exfil.csv'"),
+            (
+                "file read",
+                "CREATE EXTERNAL TABLE f STORED AS CSV LOCATION '/etc/hostname'",
+            ),
+            ("multi", "SELECT count(*) FROM logs; DROP TABLE logs"),
+        ] {
+            let err = obs.search_sql(sql).expect_err(kind);
+            assert!(err.starts_with("READ_ONLY_SQL"), "{kind}: {err}");
+        }
+        let res = obs.search_sql("SELECT count(*) AS n FROM logs").unwrap();
+        assert_eq!(
+            res.rows[0][0].as_i64().unwrap(),
+            1,
+            "the read still answers"
+        );
+    }
 }

@@ -304,6 +304,30 @@ graph/vector/SQL ops in **one** plan — no Python round-trip. The `Op::ForeignS
 resolved executor; the UQL `FOREIGN "<name>"` clause is the lighter name marker resolved against the
 server-side `foreign_sources` registry.
 
+**Ownership.** `RegisterForeignSource` records a source under the caller's **verified owner
+(tenant+principal)**, taken from the signed request carrier and never from a request field, keyed
+by `(owner, name)`. One engine is bound to **one** tenant (`EPISTEMIC_GRAPH_TENANT`; every verified
+request carries it), so the principal is the working boundary; the tenant stays inside the owner
+key so cross-tenant stays closed if an engine ever serves more than one. Every served path that
+resolves a name — a `Named` `ForeignScan`, the UQL `FOREIGN "<name>"` marker, the in-txn and
+wire-protocol UQL paths, and `NlQuery` — builds its registry from the caller's own entries only
+(`src/server/foreign_catalog.rs`). A name another principal registered resolves exactly like an
+unregistered name, so neither the credential nor the existence of the name crosses principals.
+Two principals may register the same name independently; neither can overwrite the other's
+source. Sharing is explicit: registration provisions a `foreign-source-use:<owner agent>/<name>`
+role (assigned to nobody) whose single grant is `Read` on the reserved RBAC resource
+`foreign-source:<owner agent>/<name>`; an administrator assigns that role to share the source,
+and the grantee addresses it as `<owner agent>/<name>` until the role is removed. Only that exact
+grant counts (a wildcard reader grant never conveys a credential), and the `foreign-source:`
+prefix is reserved in graph-name validation (`CreateGraph` refuses it with
+`RESERVED_GRAPH_NAME`), so no graph grant can collide with it. Registrations are held in memory
+and are not persisted.
+
+**Foreign rows are not RLS-filtered.** A foreign source's rows come from outside the local snapshot,
+so the row-level visibility filter that governs local graph reads never sees them. Access to them
+is governed by the remote side's authorization of the registered credential, plus the owner
+scoping above of who may use that credential.
+
 ```mermaid
 flowchart LR
     subgraph Plan["One UnifiedQuery plan"]

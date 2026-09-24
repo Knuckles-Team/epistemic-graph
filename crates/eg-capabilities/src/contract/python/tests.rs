@@ -1,57 +1,7 @@
 use super::*;
 
 fn source_ingestion_digest_vector() -> String {
-    use eg_types::contract::{BoundedVec, Digest256, ResourceId};
-    use eg_types::source_ingestion::{
-        SourceCheckpoint, SourceIngestionBatch, SourceIngestionMode, SourceIngestionRequest,
-        SourceJson, SourceRecord, SourceRecordProvenance,
-    };
-
-    let connector = ResourceId::new("demo-connector").expect("canonical connector id");
-    let stream = ResourceId::new("items").expect("canonical stream id");
-    let request = SourceIngestionRequest::new(SourceIngestionBatch {
-        connector: connector.clone(),
-        mode: SourceIngestionMode::Delta,
-        strict_schema: true,
-        records: BoundedVec::new(vec![SourceRecord {
-            stream: stream.clone(),
-            record_id: "item-1".into(),
-            mapping_reference: "manifest:demo-connector#schema_mappings/item".into(),
-            payload: SourceJson::new(serde_json::json!({"name": "one", "id": 1}))
-                .expect("bounded source JSON"),
-            updated_at: Some("2026-09-20T00:00:00Z".into()),
-            provenance: SourceRecordProvenance {
-                connector,
-                adapter_kind: ResourceId::new("mcp").expect("canonical adapter id"),
-                server: "demo-server".into(),
-                tool: "list_items".into(),
-                tool_schema_sha256: Digest256::from_bytes([7; 32]),
-                source_uri: "demo://items/item-1".into(),
-            },
-        }])
-        .expect("bounded source records"),
-        relationships: BoundedVec::new(Vec::new()).expect("bounded source relationships"),
-        provider_checkpoint: SourceCheckpoint {
-            stream: stream.clone(),
-            position: SourceJson::new(serde_json::json!({"page": 2})).expect("bounded cursor JSON"),
-            content_hash: None,
-            watermark: Some("2026-09-20T00:00:00Z".into()),
-            pending_watermark: None,
-        },
-        expected_previous_checkpoint: Some(SourceCheckpoint {
-            stream,
-            position: SourceJson::new(serde_json::json!({"page": 1}))
-                .expect("bounded previous cursor JSON"),
-            content_hash: None,
-            watermark: None,
-            pending_watermark: None,
-        }),
-        authoritative_live_ids: None,
-        empty_authoritative_approval: None,
-        withdrawals: BoundedVec::new(Vec::new()).expect("bounded source withdrawals"),
-    })
-    .expect("valid source ingestion request");
-    request
+    eg_types::test_support::source_ingestion::request()
         .batch_digest()
         .expect("canonical source ingestion digest")
         .to_hex()
@@ -78,6 +28,7 @@ fn execute_source_ingestion_modules(generated: &BTreeMap<String, String>) {
         "_runtime",
         "digest",
         "index_repository",
+        "models",
         "source_ingestion",
         "ingestion",
     ] {
@@ -493,7 +444,9 @@ fn agent_component_current_uses_the_exact_flattened_operation_shape() {
         "async def send_agent_component_current(\n    client: Any,\n    request: AgentComponentOpCurrent,"
     ));
     assert!(
-        storage.contains("params = {\"op\": request.model_dump(mode=\"json\", exclude_none=True)}")
+        storage.contains(
+            "params = {\n        \"op\": request.model_dump(mode=\"json\", exclude_unset=True, exclude_none=True)\n    }"
+        )
     );
     assert!(
         storage.contains("return TypeAdapter(AgentComponentEntry | None).validate_python(payload)")
@@ -588,6 +541,10 @@ fn index_repository_emits_typed_ordered_file_outcomes() {
         "class IndexFileOutcome(BaseModel):",
         "class IndexFileStatus(str, Enum):",
         "class IndexResult(BaseModel):",
+        "class IndexRepositoryScope(BaseModel):",
+        "class IndexFileVersion(BaseModel):",
+        "class IndexTombstone(BaseModel):",
+        "class IndexRefStatus(str, Enum):",
     ] {
         assert!(dto.contains(declaration), "missing {declaration}");
     }
@@ -595,13 +552,25 @@ fn index_repository_emits_typed_ordered_file_outcomes() {
     assert!(dto.contains("UNSUPPORTED = \"unsupported\""));
     assert!(dto.contains("ERROR = \"error\""));
     assert!(dto.contains("file_outcomes: list[IndexFileOutcome]"));
+    // A serde-defaulted collection renders as an empty default, never `| None`:
+    // the engine decodes an absent list as empty but refuses `null` for it.
+    assert!(dto.contains(
+        "file_versions: BoundedVec_IndexFileVersion_262144 = Field(default_factory=list)"
+    ));
+    // Request models are rendered once, in the strict model module.
+    let models = generated
+        .get("epistemic_graph/generated/models.py")
+        .expect("strict request models");
+    assert!(models.contains("params_msgpack: bytes = Field(default_factory=bytes)"));
     assert!(dto.contains("max_length=8"));
 
     let ingestion = generated
         .get("epistemic_graph/generated/ingestion.py")
         .expect("ingestion domain module");
-    assert!(ingestion.contains("from .index_repository import (\n    IndexResult,"));
+    assert!(ingestion
+        .contains("from .index_repository import (\n    IndexRepositoryScope,\n    IndexResult,"));
     assert!(ingestion.contains("    files_msgpack: bytes"));
+    assert!(ingestion.contains("    scope: IndexRepositoryScope | None = None"));
     assert!(ingestion.contains(") -> IndexResult:"));
     assert!(ingestion.contains("return IndexResult.model_validate(payload)"));
 }
@@ -733,4 +702,90 @@ fn a_request_envelope_never_shadows_its_dto_root() {
         );
         assert!(!source.contains(&format!("    {root},\n")), "{path}");
     }
+}
+
+/// Two distinct Rust types must never share a schema definition name. Across
+/// documents the request and result sides would disagree (or, worse, silently
+/// agree on the wrong shape); inside one document schemars disambiguates the
+/// second type by appending a counter (`Name2`), which Python would then emit
+/// under a name no Rust author chose.
+#[test]
+fn no_schema_definition_name_is_shared_by_distinct_types() {
+    let catalog = Catalog::collect();
+    let document = schema::method_request_document();
+    let mut seen: BTreeMap<String, (String, serde_json::Value)> = BTreeMap::new();
+    let request = document.get("$defs").and_then(|value| value.as_object());
+    let request = request.into_iter().flatten().map(|(name, definition)| {
+        let definition = root_ref_as_method(definition.clone());
+        ("request".to_string(), name, definition)
+    });
+    let results = catalog
+        .definitions
+        .iter()
+        .flat_map(|(domain, definitions)| {
+            definitions.iter().map(move |(name, definition)| {
+                (format!("result.{domain}"), name, definition.clone())
+            })
+        });
+    for (origin, name, definition) in request.chain(results) {
+        if let Some((first, previous)) = seen.get(name) {
+            assert_eq!(
+                previous,
+                &definition,
+                "{name} is emitted by two distinct Rust types ({first}: {}; {origin}: {})",
+                definition_origin(previous),
+                definition_origin(&definition),
+            );
+            continue;
+        }
+        seen.insert(name.clone(), (origin, definition));
+    }
+    for name in seen.keys() {
+        let base = name.trim_end_matches(|c: char| c.is_ascii_digit());
+        assert!(
+            base == name || !seen.contains_key(base),
+            "{name} looks like schemars disambiguating a second Rust type named {base}"
+        );
+    }
+}
+
+/// The request document's root IS `Method` (`schema_for!(Method)`), so a
+/// recursive reference to it renders as `"$ref": "#"` there and as
+/// `"#/$defs/Method"` in a result document -- the same Rust type, e.g.
+/// `MutationOperation.method`. Rewrite the root form so the comparison above is
+/// exact rather than tolerant.
+fn root_ref_as_method(mut value: serde_json::Value) -> serde_json::Value {
+    match &mut value {
+        serde_json::Value::Object(map) => {
+            if map.get("$ref").and_then(|r| r.as_str()) == Some("#") {
+                map.insert("$ref".into(), serde_json::json!("#/$defs/Method"));
+            }
+            for child in map.values_mut() {
+                *child = root_ref_as_method(child.take());
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for child in items.iter_mut() {
+                *child = root_ref_as_method(child.take());
+            }
+        }
+        _ => {}
+    }
+    value
+}
+
+/// The client's native-checked SQL source batch bytes pass the generated send; only
+/// the structured `batch` is validated against the strict params model.
+#[test]
+fn sql_source_batch_validates_only_the_structured_batch() {
+    let catalog = Catalog::collect();
+    let storage = artifacts(&catalog)
+        .into_iter()
+        .find(|artifact| artifact.path == "epistemic_graph/generated/storage.py")
+        .map(|artifact| String::from_utf8(artifact.bytes).expect("generated Python is UTF-8"))
+        .expect("storage domain module");
+    assert!(storage.contains(
+        "    if not isinstance((params or {}).get(\"batch\"), bytes):\n        \
+         models().MethodSqlSourceBatchParams.model_validate(params or {})\n"
+    ));
 }

@@ -96,81 +96,62 @@ jobs:
     name: gates
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - &eg-gates-checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - &eg-gates-python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version-file: '.python-version'
 
       # The checked generated capability client is imported by Rust-backed
       # capability tests. Keep this runtime closure aligned with uv.lock so the
-      # generated Python surface is exercised in hosted CI as well.
-      - name: Install locked capability-test Python dependencies
-        run: python -m pip install --disable-pip-version-check msgpack==1.2.1 pydantic==2.13.5 pydantic-core==2.46.5 annotated-types==0.8.0 typing-extensions==4.16.0 typing-inspection==0.4.4
+      # generated Python surface is exercised in hosted CI as well. ruff is the
+      # version .config/pre-commit.yaml pins: the strict-model generator test
+      # runs `ruff check` + `ruff format --check` over the generated package.
+      - &eg-gates-pydeps
+        name: Install locked capability-test Python dependencies
+        run: python -m pip install --disable-pip-version-check msgpack==1.2.1 pydantic==2.13.5 pydantic-core==2.46.5 annotated-types==0.8.0 typing-extensions==4.16.0 typing-inspection==0.4.4 ruff==0.15.12
 
       # Product tests and protocol contracts run on every push and pull request.
-      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+      - &eg-gates-toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - &eg-gates-cache
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Test (lower crates, all features)
-        run: cargo test -p eg-types -p eg-core -p eg-compute --all-features --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test -p eg-types -p eg-core -p eg-compute --all-features --no-fail-fast
       # The checked ledger is the canonical all-Method projection. The ordinary
       # feature-selected registry is intentionally smaller, so this named profile
       # is the only meaningful exact generated-artifact comparison. This step is
       # also executed verbatim by the blocking local manual CI-gate replica.
       - name: Test (canonical capability policy and generated ledger)
-        run: cargo test --locked -p eg-capabilities --features contract --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-capabilities --features contract --no-fail-fast
       # The facade's sqlite `.db` round-trip test diffs against a real sqlite3 CLI and
       # FAILS without one. Provision the pinned, sha256-verified CLI rather than
       # relying on whatever sqlite3 the runner image happens to ship.
-      - name: Provision pinned sqlite3 CLI (differential sqlite tests)
+      - &eg-gates-sqlite
+        name: Provision pinned sqlite3 CLI (differential sqlite tests)
         run: |
           set -euo pipefail
           sqlite3_bin="$(scripts/fetch_sqlite3.sh "$RUNNER_TEMP/eg-sqlite3")"
           echo "EG_SQLITE3=$sqlite3_bin" >> "$GITHUB_ENV"
       - name: Test (SQLite format differential conformance)
-        run: cargo test --locked -p eg-sqlite-format --test differential --no-fail-fast
-      - name: Test (facade full)
-        run: cargo test -p epistemic-graph --features full --no-fail-fast
-      # These real-model tests fail loudly when their fixture is absent. Fetch the
-      # pinned, sha256-verified model and WAV, export both paths, then exercise the
-      # provider rather than counting an unconfigured test as a pass.
-      - name: Provision pinned Whisper real-model fixture
-        run: scripts/fetch_whisper_test_fixture.sh "$RUNNER_TEMP/eg-whisper-test" >> "$GITHUB_ENV"
-      - name: Test (Whisper real-model transcription and cancellation)
-        run: cargo test --locked -p eg-asr-whisper --test real_transcription --no-fail-fast
-      # The blob RSS-bound tests read WHOLE-PROCESS RSS, so they are #[ignore]d out
-      # of the parallel run above (a concurrent sibling's 256MB blob inflates the
-      # shared RSS past the cap). Run them here in isolation — serial + ignored — so
-      # the memory-regression coverage stays in CI without the parallel pollution.
-      - name: Test (memory-regression — RSS bounds, isolated)
-        run: cargo test -p epistemic-graph --features full --no-fail-fast bounded_memory -- --ignored --test-threads=1
-      - name: Test (slim server — gated-out methods return the not-built error)
-        run: cargo test -p epistemic-graph --no-default-features --features server --no-fail-fast
-      # The Raft cluster layer is an opt-in build layer outside `full` (see
-      # MATURIN_FEATURES above), so no step above compiles its code or runs its
-      # tests: `cluster` (raft HA), `harness` (the in-process multi-node cluster
-      # fixtures), and `calvin` (deterministic cross-shard ordering). Without
-      # these steps a red raft suite, or an integration test that only fails to
-      # compile under this feature set, reaches a release unnoticed.
-      - name: Test (raft cluster — consensus, placement, and multi-group unit tests)
-        run: "cargo test --locked -p epistemic-graph --features cluster,harness,calvin --lib --no-fail-fast -- raft::"
-      - name: Test (raft cluster — ack-lost commit retry reconciliation)
-        run: cargo test --locked -p epistemic-graph --features cluster,harness,calvin --test txn_reconcile_ack_lost_retry --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-sqlite-format --test differential --no-fail-fast
       # DE7 (durable-execution-native.md): replay-determinism crash-and-reopen
       # proofs for eg-jobs/eg-statechart.
       - name: Test (replay-determinism — eg-jobs/eg-statechart crash-replay proofs, DE7)
-        run: cargo test -p eg-jobs -p eg-statechart --test replay_determinism --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test -p eg-jobs -p eg-statechart --test replay_determinism --no-fail-fast
       # The fuzz + concurrency-chaos proptest suite (long random valid pipelines,
       # snapshot-isolation under contention) — a correctness test, kept here
       # (release-critical) rather than moving with the rest of the former
       # optional `benchmarks` job (which reports performance feedback).
       - name: Query-pipeline fuzz + chaos (eg-plan)
-        run: cargo test -p eg-plan --features "query,owl,text,timeseries,federation" --test fuzz_pipelines --no-fail-fast
+        run: python3 scripts/cargo_test_rescue.py cargo test -p eg-plan --features "query,owl,text,timeseries,federation" --test fuzz_pipelines --no-fail-fast
       - name: Install pytest
         run: pip install pytest
       - name: Epistemic Operations manifest ⇄ Rust DTO parity
@@ -313,6 +294,111 @@ jobs:
           PYTHONNOUSERSITE=1 "$REPO/.gates-wheel-venv/bin/python" -c \
             "import epistemic_graph.engine as e; print('engine kernel OK:', e.__file__, '| __engine__=', getattr(e, '__engine__', None))"
 
+
+  # ── STAGE 1 (continued): the release-critical cargo selections are split
+  # across three parallel jobs (gates, gates-facade, gates-variants) instead of
+  # running back to back in one. Each selection compiles its own feature set, so
+  # serial execution shared no build work; it only summed the wall time (run
+  # 35740545815: lower crates 32.9 min + facade full 84.5 min before the first
+  # failure, with nine selections still to go). Every step is carried over
+  # verbatim; `build` needs all three, and the local ci-gate-replica executes all
+  # three (scripts/ci_replica/registry.py).
+  gates-facade:
+    name: gates (facade full)
+    runs-on: ubuntu-latest
+    steps:
+      - *eg-gates-checkout
+
+      - *eg-gates-python
+
+      - *eg-gates-pydeps
+
+      - *eg-gates-toolchain
+      - *eg-gates-cache
+
+      # sqlite3 CLI for the facade `.db` round-trip test (see `gates`).
+      - *eg-gates-sqlite
+      - name: Test (facade full)
+        run: python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph --features full --no-fail-fast
+      # These real-model tests fail loudly when their fixture is absent. Fetch the
+      # pinned, sha256-verified model and WAV, export both paths, then exercise the
+      # provider rather than counting an unconfigured test as a pass.
+      - &eg-gates-whisper
+        name: Provision pinned Whisper real-model fixture
+        run: scripts/fetch_whisper_test_fixture.sh "$RUNNER_TEMP/eg-whisper-test" >> "$GITHUB_ENV"
+      - name: Test (Whisper real-model transcription and cancellation)
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-asr-whisper --test real_transcription --no-fail-fast
+      # The blob RSS-bound tests read WHOLE-PROCESS RSS, so they are #[ignore]d out
+      # of the parallel run above (a concurrent sibling's 256MB blob inflates the
+      # shared RSS past the cap). Run them here in isolation — serial + ignored — so
+      # the memory-regression coverage stays in CI without the parallel pollution.
+      - name: Test (memory-regression — RSS bounds, isolated)
+        run: python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph --features full --no-fail-fast bounded_memory -- --ignored --test-threads=1
+
+  gates-variants:
+    name: gates (slim server + raft cluster)
+    runs-on: ubuntu-latest
+    steps:
+      - *eg-gates-checkout
+
+      - *eg-gates-python
+
+      - *eg-gates-pydeps
+
+      - *eg-gates-toolchain
+      - *eg-gates-cache
+
+      - name: Test (slim server — gated-out methods return the not-built error)
+        run: python3 scripts/cargo_test_rescue.py cargo test -p epistemic-graph --no-default-features --features server --no-fail-fast
+      # The Raft cluster layer is an opt-in build layer outside `full` (see
+      # MATURIN_FEATURES above), so no step above compiles its code or runs its
+      # tests: `cluster` (raft HA), `harness` (the in-process multi-node cluster
+      # fixtures), and `calvin` (deterministic cross-shard ordering). Without
+      # these steps a red raft suite, or an integration test that only fails to
+      # compile under this feature set, reaches a release unnoticed.
+      - name: Test (raft cluster — consensus, placement, and multi-group unit tests)
+        run: "python3 scripts/cargo_test_rescue.py cargo test --locked -p epistemic-graph --features cluster,harness,calvin --lib --no-fail-fast -- raft::"
+      - name: Test (raft cluster — ack-lost commit retry reconciliation)
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p epistemic-graph --features cluster,harness,calvin --test txn_reconcile_ack_lost_retry --no-fail-fast
+
+  # ── EH-311: every workspace crate's own tests. `cargo test -p epistemic-graph`
+  # runs only the facade's targets, so before this job 109 of the workspace's 178
+  # test targets (all of eg-query, eg-rdf, eg-shacl, eg-storage, eg-transaction,
+  # eg-plan's oracles, the quantum crates, ...) were run by no release step.
+  # tests/test_ci_gate_replica_consistency_check.py fails if a test target is
+  # ever again selected by no step. Excluded here only where another step runs
+  # the same package with the same features: the facade, eg-types/eg-core/
+  # eg-compute (gates), eg-tts-piper (needs onnxruntime, its own job). The two
+  # pyo3 crates get every feature except `python` (pyo3 extension-module cannot
+  # link a test binary).
+  gates-crates:
+    name: gates (workspace crates)
+    runs-on: ubuntu-latest
+    steps:
+      - *eg-gates-checkout
+
+      - *eg-gates-python
+
+      - *eg-gates-pydeps
+
+      # `--all-features` enables eg-stream/cdc-kafka, which links system
+      # Cyrus-SASL and librdkafka headers on Ubuntu runners.
+      - &eg-gates-sasl
+        name: Install librdkafka/Cyrus-SASL build headers
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libsasl2-dev libcurl4-openssl-dev
+      - *eg-gates-toolchain
+      - *eg-gates-cache
+
+      - *eg-gates-sqlite
+      - *eg-gates-whisper
+      - name: Test (every other workspace crate, all features)
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked --workspace --exclude epistemic-graph --exclude eg-types --exclude eg-core --exclude eg-compute --exclude eg-tts-piper --exclude eg-numeric --exclude eg-pyengine --all-features --no-fail-fast
+      - name: Test (pyo3 crates, every feature except python)
+        run: python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-numeric -p eg-pyengine --features eg-numeric/analytics,eg-numeric/contract,eg-numeric/complex,eg-numeric/decision,eg-pyengine/security,eg-pyengine/ml-pipeline,eg-pyengine/reasoning,eg-pyengine/query,eg-pyengine/cypher,eg-pyengine/tsdb,eg-pyengine/streaming,eg-pyengine/wasm-udf,eg-pyengine/rdf,eg-pyengine/blob,eg-pyengine/jobs,eg-pyengine/statechart,eg-pyengine/finance --no-fail-fast
+
   # ── eg-tts-piper synthesis against a REAL onnxruntime.
   #
   # `--all-features` builds eg-tts-piper with `ort-load-dynamic`, so `ort` dlopens
@@ -360,7 +446,48 @@ jobs:
           export ORT_DYLIB_PATH
           test -f "$ORT_DYLIB_PATH"
           echo "ORT_DYLIB_PATH=$ORT_DYLIB_PATH"
-          cargo test --locked -p eg-tts-piper --all-features --no-fail-fast
+          python3 scripts/cargo_test_rescue.py cargo test --locked -p eg-tts-piper --all-features --no-fail-fast
+
+  # ── Go and JavaScript clients (EH-372). Both sign the engine's own canonical
+  # method body through the embedded WebAssembly build of crates/eg-method-codec.
+  # The job rebuilds that module and requires both committed copies to match it
+  # byte-for-byte, then replays every contract method-body vector (body digest and
+  # envelope MAC) through each client's signer, plus the clients' own unit tests.
+  language-clients:
+    name: Go and JavaScript clients
+    runs-on: ubuntu-latest
+    # `shell: bash` runs every step as `bash -eo pipefail`, so no step can hide a
+    # failing command behind a later one in a pipe.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - name: Install the pinned toolchain's wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Rebuild the embedded method-body codec and require the committed copies
+        run: python3 scripts/build_method_codec_wasm.py --check
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: clients/go/go.mod
+          cache-dependency-path: clients/go/go.sum
+      - name: Go client tests (method-body vectors + unit tests)
+        working-directory: clients/go
+        run: go test -count=1 ./...
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Install locked JavaScript client dependencies
+        working-directory: clients/js
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: JavaScript client tests (method-body vectors + unit tests)
+        working-directory: clients/js
+        run: npm test
 
   # ── Runtime contracts. These checks guard authorization, lifecycle,
   # modality, reasoning, release-campaign, and persisted-schema behavior.
@@ -403,33 +530,48 @@ jobs:
 
   # ── Lint feedback is advisory. Product behavior and the release artifact
   # are covered by `gates` and `build`; lint findings must not hold up either.
+  # EH-191/EH-225: `-D warnings` across every release profile. `--all-features`
+  # compiles away every `cfg(not(feature = ...))` branch, so it cannot lint the
+  # published build (`full,ast-extended` = MATURIN_FEATURES, which has no raft) or
+  # the slim `server` build; each profile is its own leg.
   quality-advisory:
-    name: Clippy (advisory)
+    name: Clippy ${{ matrix.profile.name }} (advisory)
     runs-on: ubuntu-latest
     continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - { name: 'workspace-all-features', flags: '--workspace --all-features' }
+          - { name: 'published-full', flags: '--no-default-features --features full,ast-extended' }
+          - { name: 'slim-server', flags: '--no-default-features --features server' }
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
       # The `--all-features` profile enables eg-stream/cdc-kafka, which links
       # system Cyrus-SASL and librdkafka headers on Ubuntu runners.
-      - name: Install librdkafka/Cyrus-SASL build headers
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libsasl2-dev libcurl4-openssl-dev
+      - *eg-gates-sasl
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
           toolchain: stable
           components: clippy
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          key: clippy-${{ matrix.profile.name }}
 
-      - name: Clippy (workspace, all features)
-        run: cargo clippy --workspace --all-features --all-targets -- -D warnings
+      - name: Clippy (${{ matrix.profile.name }})
+        # --keep-going: one crate's lint errors must not stop the others being linted.
+        run: cargo clippy --locked --keep-going ${{ matrix.profile.flags }} --all-targets -- -D warnings
 
   # ── Repository-wide scanner and complexity analysis is advisory. Keep its
   # reports visible, while product tests and cargo-deny remain release gates.
   # Provisioning stays isolated from the local manual mirror.
+  # Every scanner step runs even when an earlier one failed (`!cancelled()`), so
+  # one red scanner never hides the verdicts of the rest -- on 57a12eb06 a red
+  # jscpd step left CCCC, KISS, import-linter, depcruise and arch-lint unrun.
+  # The job still fails at the end if any step failed. The local replica
+  # already continues past failures, so both report every step.
   scanner-quality:
     name: Scanner + architecture quality (advisory)
     runs-on: ubuntu-latest
@@ -443,8 +585,10 @@ jobs:
         with:
           python-version-file: '.python-version'
       - name: Install scanner adapter test dependency
+        if: ${{ !cancelled() }}
         run: python -m pip install --disable-pip-version-check --no-input pytest
       - name: Dupehound adapter contract tests
+        if: ${{ !cancelled() }}
         # --noconftest: the adapter tests own their fixtures; the suite conftest
         # imports the full client (msgpack), which this job does not install.
         run: python -m pytest -q --noconftest tests/test_dupehound_census.py
@@ -452,6 +596,7 @@ jobs:
         with:
           node-version: '22'
       - name: Install locked thin-client dependencies
+        if: ${{ !cancelled() }}
         working-directory: clients/js
         run: npm ci --ignore-scripts --no-audit --no-fund
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
@@ -463,6 +608,7 @@ jobs:
       # zero/empty base falls back to the immediate parent, then the root;
       # an unavailable object is an environment failure, never a baseline.
       - name: Resolve scanner base commit
+        if: ${{ !cancelled() }}
         shell: bash
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -491,7 +637,22 @@ jobs:
 
       # Scanner installation is disclosed as non-hermetic; its findings are
       # advisory and are not a release security boundary.
+      # The four native scanners are built from source by `cargo install`
+      # (15.7 min measured on run 35740545815, under CARGO_BUILD_JOBS=1). The
+      # built toolchain is cached under a key that spells out every pin the
+      # install step uses (tests/test_scanner_distribution.py asserts the two
+      # agree), and "Verify scanner versions" below still runs on every run,
+      # so a cache entry that does not hold exactly the pinned tools fails the
+      # job instead of being trusted.
+      - name: Restore pinned scanner toolchain
+        id: scanner-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/epistemic-graph-scanners
+          key: eg-scanners-${{ runner.os }}-cccc-cli-d728759323be5d9977b7390a27133e8eaf481f26-kiss-ai-0.4.10-dupehound-0.1.2-arch-lint-cli-0.5.0-jscpd-5.0.16-dependency-cruiser-18.2.0
+
       - name: Provision pinned scanner toolchain
+        if: ${{ !cancelled() && steps.scanner-cache.outputs.cache-hit != 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -501,14 +662,22 @@ jobs:
           cargo install --locked --version 0.4.10 --root "$scanner_root/kiss" kiss-ai
           cargo install --locked --version 0.1.2 --root "$scanner_root/dupehound" dupehound
           cargo install --locked --version 0.5.0 --root "$scanner_root/arch-lint" arch-lint-cli
-          python -m pip install --disable-pip-version-check --no-input --upgrade "import-linter==2.13"
           npm install --prefix "$scanner_root/npm" --no-package-lock --ignore-scripts --no-save --no-audit --no-fund \
             "jscpd@5.0.16" "dependency-cruiser@18.2.0"
+
+      - name: Put pinned scanner toolchain on PATH
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          scanner_root="$RUNNER_TEMP/epistemic-graph-scanners"
+          python -m pip install --disable-pip-version-check --no-input --upgrade "import-linter==2.13"
           for bin_dir in "$scanner_root/cccc/bin" "$scanner_root/kiss/bin" "$scanner_root/dupehound/bin" "$scanner_root/arch-lint/bin" "$scanner_root/npm/node_modules/.bin"; do
             echo "$bin_dir" >> "$GITHUB_PATH"
           done
 
       - name: Verify scanner versions
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -euo pipefail
@@ -524,11 +693,14 @@ jobs:
           esac
 
       - name: jscpd differential analysis (new pairs)
+        if: ${{ !cancelled() }}
         run: python3 scripts/check_duplication.py enforce --base-ref "$CX_DUP_BASE_REF"
       - name: jscpd tracked-tree census (advisory)
+        if: ${{ !cancelled() }}
         run: python3 scripts/check_duplication.py census
 
       - name: Dupehound tracked-tree census (advisory)
+        if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
           python3 scripts/check_dupehound_census.py \
@@ -552,6 +724,7 @@ jobs:
             ${{ runner.temp }}/epistemic-graph-dupehound.manifest.json
 
       - name: CCCC tracked-tree census (advisory)
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -euo pipefail
@@ -591,34 +764,25 @@ jobs:
             ${{ runner.temp }}/epistemic-graph-cccc-stderr.txt
             ${{ runner.temp }}/epistemic-graph-cccc-terms.txt
 
+      # The union of one whole-tree run and one run per package root (was one
+      # KISS process per tracked file: 136.7 min on run 35740545815). The
+      # wrapper keeps every fail-closed check -- pinned version, .config/kiss.toml
+      # present, .kissconfig forbidden, rejected config keys, exit status
+      # agreeing with the report -- and reports a superset of the per-file,
+      # whole-tree and per-package findings; see scripts/check_kiss_census.py.
       - name: KISS tracked-tree census (advisory)
-        shell: bash
-        run: |
-          set -euo pipefail
-          [ -f .kiss/kiss.toml ] || { echo "KISS census: missing .kiss/kiss.toml" >&2; exit 2; }
-          [ ! -e .kissconfig ] || { echo "KISS census: .kissconfig is forbidden" >&2; exit 2; }
-          mapfile -d "" files < <(python3 scripts/list_scanner_sources.py kiss)
-          [ "${#files[@]}" -gt 0 ] || { echo "KISS census: no tracked Rust source files" >&2; exit 2; }
-          total=0
-          for path in "${files[@]}"; do
-            set +e
-            output="$(kiss check --config .kiss/kiss.toml --lang rust "$path" 2>&1)"
-            status=$?
-            set -e
-            if grep -q "Unknown config key" <<< "$output"; then printf "%s\\n" "$output" >&2; echo "KISS census: KISS rejected a config key" >&2; exit 2; fi
-            if [ "$status" -gt 1 ]; then printf "%s\\n" "$output" >&2; echo "KISS census: KISS failed on $path with exit $status" >&2; exit 2; fi
-            count="$(grep -c "^VIOLATION:" <<< "$output" || true)"
-            if { [ "$status" -eq 0 ] && [ "$count" -ne 0 ]; } || { [ "$status" -eq 1 ] && [ "$count" -eq 0 ]; }; then printf "%s\\n" "$output" >&2; echo "KISS census: exit status and report disagree for $path" >&2; exit 2; fi
-            total=$((total + count))
-          done
-          printf "KISS census: %s tracked Rust file(s), %s violation(s); findings are advisory\\n" "${#files[@]}" "$total"
+        if: ${{ !cancelled() }}
+        run: python3 scripts/check_kiss_census.py
 
       - name: Python import architecture (import-linter)
-        run: lint-imports --config .importlinter --no-cache
+        if: ${{ !cancelled() }}
+        run: lint-imports --config .config/importlinter.ini --no-cache
       - name: JavaScript dependency architecture (dependency-cruiser)
+        if: ${{ !cancelled() }}
         working-directory: clients/js
         run: depcruise --validate --config .dependency-cruiser.cjs index.mjs
       - name: Rust architecture (arch-lint)
+        if: ${{ !cancelled() }}
         run: python3 scripts/check_rust_arch_lint.py
 
   # ── Release wheel matrix. Run the expensive cross-platform reproducible
@@ -626,7 +790,7 @@ jobs:
   # product tests and installed-wheel smoke in `gates`.
   build:
     name: wheel ${{ matrix.name }}
-    needs: [gates, security, lint-and-architecture, tts-piper-inference]
+    needs: [gates, gates-facade, gates-variants, gates-crates, security, lint-and-architecture, tts-piper-inference, language-clients]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.optional || false }}
@@ -1243,7 +1407,7 @@ jobs:
   pages:
     name: Deploy GitHub Pages
     if: github.event_name == 'push'
-    uses: Knuckles-Team/pipelines/.github/workflows/pages_pipeline.yml@444b232c7975e125a24b17d53ff615f5ad26a4cd
+    uses: Knuckles-Team/pipelines/.github/workflows/pages_pipeline.yml@main
     with:
       content_source: docs
       shared_theme_enabled: true

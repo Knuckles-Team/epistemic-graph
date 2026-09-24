@@ -3,17 +3,13 @@
 //! Served by [`super::stat_decide`] in a build with the `decide` feature; a
 //! build without it answers a typed refusal naming the feature.
 
-use std::sync::Arc;
-
-use tokio::sync::RwLock;
-
+use super::SharedState;
 use crate::protocol::Response;
 use crate::server::auth::VerifiedRequestContext;
-use crate::server::state::ServerState;
 
 /// Answer a batch of statistical decision records; commit none.
 pub(crate) async fn handle_decide(
-    state: &Arc<RwLock<ServerState>>,
+    state: &SharedState,
     req_id: u64,
     verified: &VerifiedRequestContext,
     request: eg_types::decision::DecideRequest,

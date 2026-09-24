@@ -80,54 +80,8 @@ async fn prepare(ctx: &HandleContext<'_>) -> Result<PreparedOperation, Response>
 /// Handle the complete native development-lane surface.
 pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result<Response, Method> {
     let response = match method {
-        Method::QueryDevelopmentLane { request } => {
-            let operation = match prepare(&ctx).await {
-                Ok(operation) => operation,
-                Err(response) => return Ok(response),
-            };
-            operation
-                .backend
-                .read_development_lane(&operation.graph, &request, operation.now_ms)
-                .await
-                .map(|result| {
-                    Response::ok(
-                        ctx.req_id,
-                        ResultPayload::of::<
-                            eg_types::result_contract::coordination::QueryDevelopmentLane,
-                        >(result),
-                    )
-                })
-                .unwrap_or_else(|error| {
-                    Response::err(
-                        ctx.req_id,
-                        format!("development-lane query failed: {error}"),
-                    )
-                })
-        }
-        Method::DevelopmentLaneStatus { request } => {
-            let operation = match prepare(&ctx).await {
-                Ok(operation) => operation,
-                Err(response) => return Ok(response),
-            };
-            operation
-                .backend
-                .read_development_lane_status(&operation.graph, &request, operation.now_ms)
-                .await
-                .map(|result| {
-                    Response::ok(
-                        ctx.req_id,
-                        ResultPayload::of::<
-                            eg_types::result_contract::coordination::DevelopmentLaneStatus,
-                        >(result),
-                    )
-                })
-                .unwrap_or_else(|error| {
-                    Response::err(
-                        ctx.req_id,
-                        format!("development-lane status read failed: {error}"),
-                    )
-                })
-        }
+        Method::QueryDevelopmentLane { request } => query(&ctx, &request).await,
+        Method::DevelopmentLaneStatus { request } => status(&ctx, &request).await,
         method @ Method::ReserveDevelopmentLane { .. } => {
             let declared = ResultPayload::of_receipt::<coordination::ReserveDevelopmentLane>;
             commit(&ctx, method, declared).await
@@ -155,6 +109,60 @@ pub(crate) async fn try_handle(ctx: HandleContext<'_>, method: Method) -> Result
         other => return Err(other),
     };
     Ok(response)
+}
+
+/// Serve one authority read of a lane.
+async fn query(
+    ctx: &HandleContext<'_>,
+    request: &crate::epistemic_operations::DevelopmentLaneQueryRequest,
+) -> Response {
+    let operation = match prepare(ctx).await {
+        Ok(operation) => operation,
+        Err(response) => return response,
+    };
+    operation
+        .backend
+        .read_development_lane(&operation.graph, request, operation.now_ms)
+        .await
+        .map(|result| {
+            Response::ok(
+                ctx.req_id,
+                ResultPayload::of::<coordination::QueryDevelopmentLane>(result),
+            )
+        })
+        .unwrap_or_else(|error| {
+            Response::err(
+                ctx.req_id,
+                format!("development-lane query failed: {error}"),
+            )
+        })
+}
+
+/// Serve one lane-status authority read.
+async fn status(
+    ctx: &HandleContext<'_>,
+    request: &crate::epistemic_operations::DevelopmentLaneStatusRequest,
+) -> Response {
+    let operation = match prepare(ctx).await {
+        Ok(operation) => operation,
+        Err(response) => return response,
+    };
+    operation
+        .backend
+        .read_development_lane_status(&operation.graph, request, operation.now_ms)
+        .await
+        .map(|result| {
+            Response::ok(
+                ctx.req_id,
+                ResultPayload::of::<coordination::DevelopmentLaneStatus>(result),
+            )
+        })
+        .unwrap_or_else(|error| {
+            Response::err(
+                ctx.req_id,
+                format!("development-lane status read failed: {error}"),
+            )
+        })
 }
 
 /// Commit one development-lane write and serve its receipt as `declared`, the

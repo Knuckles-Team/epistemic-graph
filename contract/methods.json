@@ -8713,6 +8713,72 @@
         "READ_ONLY"
       ],
       "format_identities": [
+        "RBAC_SCOPE_INCARNATION",
+        "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
+      ],
+      "id": "DecisionLog",
+      "note": "RF-ADR-010 DL-5/DL-5b, runtime-conditional: commit re-derives an acted-on statistical record from its stored inputs, reveals its exploration seed and stores it; evaluate joins one independent outcome evaluation; get/aggregate are authenticated reads filtered by record visibility (graph-sourced records are visible to their committing principal only). All in the agent_library.redb control owner; local-only authority, refused in clustered mode",
+      "policy": {
+        "audited": false,
+        "authz_action": "agent:decision-write",
+        "durability_domain": "ControlRedb",
+        "emits_cdc": false,
+        "idempotent": true,
+        "mutates": true,
+        "txn_participation": "Atomic"
+      },
+      "replay_class": "OperationIdentity",
+      "request_schema": {
+        "kind": "named",
+        "schema": "contract/schemas/method.request.json#/methods/DecisionLog"
+      },
+      "result_schema": {
+        "bodies": {
+          "aggregate": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "commit": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "compact": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "evaluate": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "get": {
+            "dynamic": null,
+            "encoding": "Raw"
+          },
+          "verify": {
+            "dynamic": null,
+            "encoding": "Raw"
+          }
+        },
+        "kind": "declared",
+        "schema": "contract/schemas/result.coordination.json#/methods/DecisionLog",
+        "selected_by": "op"
+      },
+      "stability": "stable"
+    },
+    {
+      "consumer_profiles": [
+        "python"
+      ],
+      "domain": "coordination",
+      "error_set": [
+        "INVALID_ARGUMENT",
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
+      ],
+      "format_identities": [
         "STORAGE_KERNEL_SCHEMA_VERSION",
         "INSTANCE_MUTATION_INCARNATION"
       ],
@@ -11755,21 +11821,29 @@
       "domain": "ingestion",
       "error_set": [
         "INVALID_ARGUMENT",
-        "ACCESS_DENIED"
+        "ACCESS_DENIED",
+        "CONFLICT",
+        "IDEMPOTENCY_CONFLICT",
+        "REDIRECTED",
+        "READ_ONLY"
       ],
-      "format_identities": [],
+      "format_identities": [
+        "STORAGE_KERNEL_SCHEMA_VERSION",
+        "GRAPH_SNAPSHOT_SCHEMA_VERSION",
+        "GRAPH_META_SCHEMA_VERSION"
+      ],
       "id": "IndexRepository",
-      "note": "",
+      "note": "EH-280 runtime-conditional: without `scope` a stateless parse+resolve of the submitted files; with `scope` each unique blob is parsed once and the :Blob/:FileVersion/:Branch projection (tombstones remove membership) commits as one content-addressed ChangeEnvelope through ApplyChangeEnvelope, replaying an unchanged batch",
       "policy": {
-        "audited": false,
-        "authz_action": "compute:parse",
-        "durability_domain": "None",
-        "emits_cdc": false,
+        "audited": true,
+        "authz_action": "source:ingest",
+        "durability_domain": "GraphRedb",
+        "emits_cdc": true,
         "idempotent": true,
-        "mutates": false,
-        "txn_participation": "None"
+        "mutates": true,
+        "txn_participation": "Saga"
       },
-      "replay_class": "NotReplayable",
+      "replay_class": "OperationIdentity",
       "request_schema": {
         "kind": "named",
         "schema": "contract/schemas/method.request.json#/methods/IndexRepository"
@@ -18753,7 +18827,9 @@
       "stability": "stable"
     },
     {
-      "consumer_profiles": [],
+      "consumer_profiles": [
+        "python"
+      ],
       "domain": "transactions",
       "error_set": [
         "INVALID_ARGUMENT",
@@ -18768,7 +18844,7 @@
         "CONSENSUS_TRANSACTION_SCHEMA_VERSION"
       ],
       "id": "MutationOutbox",
-      "note": "X10, runtime-conditional: status and dead_letters are reads; rewind resets one consumer's durable cursor through bounded eg-transaction transactions, so it is a saga rather than one atomic write. Local-only authority, refused in clustered mode",
+      "note": "X10, runtime-conditional: status and dead_letters are reads; rewind resets one consumer's durable cursor through bounded eg-transaction transactions, so it is a saga rather than one atomic write. Targets a graph's outbox, or a native store of the verified tenant through a typed scope selector (tenant for Agent Library and jobs, binding for a semantic index, resource for the shared SQL catalog). Local-only authority, refused in clustered mode",
       "policy": {
         "audited": false,
         "authz_action": "admin:outbox",
@@ -18802,7 +18878,7 @@
         "schema": "contract/schemas/result.transactions.json#/methods/MutationOutbox",
         "selected_by": "op"
       },
-      "stability": "internal"
+      "stability": "stable"
     }
   ]
 }

@@ -7,7 +7,7 @@ from pydantic import Field
 
 from .._model import SyntheticModel
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 ENTRY_KINDS = (
     "a2a_card",
     "manifest",
@@ -15,8 +15,11 @@ ENTRY_KINDS = (
     "model_profile",
     "ontology",
     "prompt",
+    "resource",
+    "resource_template",
     "shapes",
     "skill",
+    "skill_file",
     "tool",
 )
 DECIDE_OWNED_KINDS = (
@@ -72,6 +75,7 @@ class Annotations(SyntheticModel):
     latency_declared: Latency | None = None
     model: ModelAnnotation | None = None
     sdk_contract_pin: str | None = None
+    tool_mode: str | None = None
 
 
 class PackRef(SyntheticModel):
@@ -99,6 +103,17 @@ class Archive(SyntheticModel):
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class CatalogBinding(SyntheticModel):
+    """The exact served MCP catalog snapshot a pack came from; bound into the
+    pack digest."""
+
+    configuration_revision: int = Field(ge=0)
+    catalog_generation: int = Field(ge=0)
+    snapshot_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    child_connection_generation: int = Field(ge=0)
+    authorization_scope_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class Producer(SyntheticModel):
     name: str
     version: str
@@ -112,6 +127,7 @@ class ConnectorPackIndex(SyntheticModel):
     archive: Archive
     entries: tuple[PackEntry, ...]
     producer: Producer
+    catalog: CatalogBinding
     pack_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 

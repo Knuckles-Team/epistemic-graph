@@ -290,6 +290,7 @@ READ-ONLY (EG-P0-2/L11 handler audit): handle_run_rules reasons over an off-lock
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
 | `derived_only` | boolean | no | When true, return only the DERIVED facts (omit the asserted base). |
+| `explain` | boolean | no | When true, every returned fact carries its proof tree (`RuleFact::proof`, EH-197): the rule and premises that set its confidence, down to asserted leaves. Opt-in, like `OwlExplain` beside `OwlReason`, because a proof per fact multiplies the response size. |
 | `min_confidence` | number (double) | no | Drop facts whose confidence is below this threshold. |
 | `ontology_ttl` | string | no | Optional Turtle carrying extra TBox axioms AND/OR ABox facts (empty ⇒ reason over the graph's own folded axioms/facts only). |
 | `query_predicate` | string \| null | no | When set, restrict the returned facts to this predicate (IRI or bare name). |
@@ -387,6 +388,7 @@ Full machine-checked schema: `contract/schemas/method.request.json#/methods/Shex
 | Parameter | Type | Required | Description |
 |---|---|:---:|---|
 | `base_iri` | string | no | Projection base namespace IRI. Empty ⇒ identity projection. |
+| `explain` | boolean | no | When true, the result carries one witness proof per row (`SparqlResult::proofs`, EH-197): the ground triples that instantiate the query's patterns under that row. Opt-in, because the witness search scans the graph once per triple pattern. |
 | `query` | string | yes |  |
 | `type_convention` | string | no | `rdf:type` object naming: `"camel"` ⇒ CamelCase the type local name under `base_iri`; empty / `"raw"` ⇒ verbatim. Only meaningful with `base_iri`. |
 

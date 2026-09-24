@@ -72,8 +72,9 @@ class MethodPolicyRow:
 # 430 -> 436: graph-os EG-2..EG-5 typed control-plane methods -- `GetWorkItem`,
 # `ListWorkItems`, `GetWorkItemOutcome`, `IssueControlLease`,
 # `TransitionControlLease` and `GetControlLease`.
-# 436 -> 437: UQL-07's `Uql` statement surface.
-EXPECTED_METHOD_POLICY_ROWS = 437
+# 436 -> 437: the statistical `DecisionLog` (RF-ADR-010 DL-5/DL-5b).
+# 437 -> 438: UQL-07's `Uql` statement surface.
+EXPECTED_METHOD_POLICY_ROWS = 438
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",

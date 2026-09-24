@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from generated_artifacts import verify as verify_generated_artifacts
+
 MAX_SCAN_BYTES = 8 * 1024 * 1024
 
 # Config
@@ -13,18 +15,12 @@ MAX_SCAN_BYTES = 8 * 1024 * 1024
 # overrides.txt is the sanctioned uv dependency-override file (UV_OVERRIDE in
 # docker/Dockerfile, mirroring [tool.uv] override-dependencies) shipped by the
 # pydantic-ai v2 migration — a canonical packaging input, not scratch.
-# .security-audit-allow.txt is the OSV dependency-audit risk-acceptance ledger
-# (scripts/audit_dependencies.py, wired into the dependency-audit pre-commit hook)
-# — a committed, actively-read governance input, not scratch/garbage.
-# .cargo-audit-allow.txt is its Rust twin: the RUSTSEC advisory risk-acceptance
-# ledger (deny.toml / cargo-deny CVE gate) — same governance role, not garbage.
+# The OSV and RUSTSEC risk-acceptance ledgers live in .config/, never at the root.
 ALLOWED_TXT_NAMES = {
     "requirements.txt",
     "requirements-dev.txt",
-    ".cargo-audit-allow.txt",
     "llms.txt",
     "overrides.txt",
-    ".security-audit-allow.txt",
 }
 TRANSIENT_PY_PATTERNS = [
     re.compile(r"^test_.*\.py$"),
@@ -213,7 +209,7 @@ def _walked_inventory(repo_path: Path) -> list[Path]:
     credentials and must not disappear merely because Git inventory was
     unavailable. Only known generated trees are excluded.
     """
-    files = []
+    files: list[Path] = []
     for root, dirs, walk_files in os.walk(str(repo_path)):
         dirs[:] = [d for d in dirs if d not in EXCLUDED_DIRS]
         files.extend(Path(root) / file for file in walk_files)
@@ -315,7 +311,10 @@ def secret_violations(file_path: Path, relative: Path) -> list[str]:
 
 
 def scan_repository(repo_path: Path) -> list[str]:
-    violations = []
+    # A reviewed generated artifact (`.config/generated-artifacts.toml`) whose
+    # bytes equal its pinned sha256 is exempt from the text inspection a binary
+    # cannot pass; a missing or changed one is itself a violation.
+    generated, violations = verify_generated_artifacts(repo_path)
     for file_path in get_repo_files(repo_path):
         if not file_path.is_file():
             continue
@@ -325,7 +324,8 @@ def scan_repository(repo_path: Path) -> list[str]:
             continue
         relative = file_path.relative_to(repo_path)
         violations.extend(naming_violations(relative))
-        violations.extend(secret_violations(file_path, relative))
+        if relative.as_posix() not in generated:
+            violations.extend(secret_violations(file_path, relative))
     return violations
 
 

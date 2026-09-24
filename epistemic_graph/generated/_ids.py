@@ -207,6 +207,7 @@ METHOD_IDS = frozenset(
         "AnalyticsJob",
         "DecisionFit",
         "DecisionEval",
+        "DecisionLog",
         "Statechart",
         "AddNode",
         "CreateNodeIfAbsent",
@@ -423,5 +424,6 @@ METHOD_IDS = frozenset(
         "TxnMaterializeBelief",
         "Commit",
         "Rollback",
+        "MutationOutbox",
     }
 )

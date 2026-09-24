@@ -4,10 +4,7 @@
 
 use super::*;
 use crate::protocol::{Method, Request};
-use crate::server::auth::{
-    compute_verified_envelope_token, dispatch_test_on_heap, VerifiedEnvelopeParams,
-};
-use eg_types::acl::RequestContextClaims;
+use crate::server::auth::dispatch_test_on_heap;
 use eg_types::contract::RecordBytes;
 
 const SECRET: &str = "sql-source-served-secret";
@@ -34,37 +31,18 @@ impl Served {
     }
 
     fn signed(&self, attempt: Attempt<'_>, batch: SqlSourceBatchRequest) -> Request {
-        let mut request = Request {
-            id: attempt.id,
-            graph: "__commons__".to_string(),
-            auth_token: String::new(),
-            agent_id: Some(WRITER.to_string()),
-            method: Method::SqlSourceBatch { batch },
-        };
-        let context = RequestContextClaims {
-            principal: WRITER.into(),
-            agent_id: WRITER.into(),
-            tenant: TENANT.into(),
-            audience: "epistemic-graph-test".into(),
-            policy_version: "policy-test".into(),
-            scopes: attempt
-                .scopes
-                .iter()
-                .map(|scope| scope.to_string())
-                .collect(),
-            ..RequestContextClaims::default()
-        };
-        request.auth_token = compute_verified_envelope_token(
+        crate::server::auth::scoped_test_request(
             SECRET,
-            &request,
-            &VerifiedEnvelopeParams {
-                context: &context,
-                timestamp: crate::server::dispatch::authoritative_now_ms() / 1000,
+            attempt.id,
+            Method::SqlSourceBatch { batch },
+            crate::server::auth::ScopedTestCaller {
+                principal: WRITER,
+                tenant: TENANT,
+                scopes: attempt.scopes,
                 nonce: attempt.nonce,
                 idempotency_key: "sql-source-operation",
             },
-        );
-        request
+        )
     }
 
     async fn send(&self, request: Request) -> Response {

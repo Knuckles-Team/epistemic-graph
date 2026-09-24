@@ -8,7 +8,7 @@
 //! wrappers. No method mints or binds a second scope, which is the parent
 //! module's per-generation-scope non-goal enforced by visibility.
 
-use super::{kernel_error, SemanticCodeError, SemanticMutationReceipt};
+use super::{corrupt, kernel_error, SemanticCodeError, SemanticMutationReceipt};
 use eg_storage::{
     OwnedStoreHandle, PhysicalStoreIdentity, RecordedOperation, ScopeGrantVerifier, ScopedRead,
     SemanticIndexOwner, StorageKernel,
@@ -123,6 +123,24 @@ impl ServingDoor {
 
     pub(super) fn outbox_release(&self, lease: &MutationOutboxLease) -> Result<(), String> {
         self.mutations.outbox_release(&self.serving, lease)
+    }
+
+    /// The operator view of this binding's stage outbox (X10).
+    pub(super) fn operator_view(
+        &self,
+        view: &eg_transaction::OutboxView,
+        now_ms: u64,
+    ) -> Result<eg_transaction::OutboxViewAnswer, String> {
+        let read = self.serving_read().map_err(|error| error.to_string())?;
+        eg_transaction::read_outbox_view(&self.mutations, &read, view, now_ms)
+    }
+
+    /// An operator rewind (or consumer reject) on this binding's outbox (X10).
+    pub(super) fn operator_write(
+        &self,
+        write: eg_transaction::OutboxWrite,
+    ) -> Result<eg_transaction::OutboxWriteReply, String> {
+        eg_transaction::operate_outbox(&self.mutations, &self.serving, write)
     }
 
     /// Test seeding only: the storage kernel, for fixtures that read or write
@@ -469,8 +487,12 @@ pub(super) fn scope_identity(
     .map_err(SemanticCodeError::Kernel)
 }
 
-/// Authenticate one scope and bind it, bootstrapping the ledger. TWO committed
-/// write transactions -- which is exactly why no read path calls this.
+/// Authenticate one scope and bind it, bootstrapping the ledger -- TWO
+/// committed write transactions, paid only the first time a binding's owner
+/// file is opened. Re-entering a scope that is already bound resolves its
+/// handle read-only, so reopening an owner (for example for an operator's
+/// outbox read) never opens a write transaction; the ledger tables exist from
+/// the file's creation, so there is nothing to bootstrap again.
 fn bind_scope(
     kernel: &StorageKernel,
     mutations: &MutationKernel,
@@ -479,9 +501,20 @@ fn bind_scope(
     proof: &[u8],
     identity: eg_types::MutationScopeIdentity,
 ) -> Result<OwnedStoreHandle<SemanticIndexOwner>, SemanticCodeError> {
+    // Decide reopen vs first open from the binding row (a plain read), so the
+    // scope is authenticated exactly once on either path.
+    let already_bound = kernel
+        .scope_binding_exists(&identity)
+        .map_err(kernel_error)?;
     let grant = kernel
         .authenticate_scope::<SemanticIndexOwner>(verifier, identity, principal.to_string(), proof)
         .map_err(kernel_error)?;
+    if already_bound {
+        return kernel
+            .resolve_bound_scope(grant)
+            .map_err(kernel_error)?
+            .ok_or_else(|| corrupt("the bound serving scope vanished during reopen"));
+    }
     let owner = kernel.bind_serving_scope(grant, 0).map_err(kernel_error)?;
     mutations.bootstrap_ledger(&owner).map_err(kernel_error)?;
     Ok(owner)

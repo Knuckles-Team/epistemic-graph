@@ -45,6 +45,9 @@ pub enum OutboxRewindTarget {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OutboxRewindOutcome {
     pub complete: bool,
+    /// Delivery rows this step removed, so an operator sees how much of the
+    /// stream the rewind put back in front of the consumer.
+    pub deleted: u64,
 }
 
 /// The durable control row. Consumer names reject control characters, so
@@ -79,9 +82,9 @@ pub(crate) fn rewind<D: OwnerDomain>(
     validate_consumer(consumer)?;
     let write = AdmittedMutation::open(authority, owner)?;
     match rewind_step(&write, owner.identity(), consumer, target, now_ms) {
-        Ok(complete) => {
+        Ok((complete, deleted)) => {
             write.commit()?;
-            Ok(OutboxRewindOutcome { complete })
+            Ok(OutboxRewindOutcome { complete, deleted })
         }
         Err(error) => {
             write.abort()?;
@@ -96,14 +99,14 @@ fn rewind_step<D: OwnerDomain>(
     consumer: &str,
     target: OutboxRewindTarget,
     now_ms: u64,
-) -> Result<bool, String> {
+) -> Result<(bool, u64), String> {
     ensure_not_graft_fenced(write, identity)?;
     let scope = ledger_scope_key(identity);
     if read_rewind_cursor(write, &scope, consumer, identity)?.is_some() {
         return delete_step(write, &scope, identity, consumer);
     }
     prepare_rewind(write, &scope, identity, consumer, target, now_ms)?;
-    Ok(false)
+    Ok((false, 0))
 }
 
 /// Transaction 1: validate `target`, roll the watermark back to its
@@ -168,9 +171,9 @@ fn delete_step<D: OwnerDomain>(
     scope: &str,
     identity: &MutationScopeIdentity,
     consumer: &str,
-) -> Result<bool, String> {
+) -> Result<(bool, u64), String> {
     let Some(state) = read_rewind_cursor(write, scope, consumer, identity)? else {
-        return Ok(true);
+        return Ok((true, 0));
     };
     let topic = subscribed_topic(write, scope, consumer)?;
     let page = scan_validated_page(
@@ -182,21 +185,26 @@ fn delete_step<D: OwnerDomain>(
         crate::outbox::rows::MAX_CLAIM_SCAN_ROWS,
     )?;
     let mut deliveries = write.scoped_table(OUTBOX_DELIVERIES)?;
+    let mut deleted = 0_u64;
     for entry in &page.entries {
-        deliveries.remove((
+        let key = (
             scope,
             consumer,
             entry.position.batch_id.as_str(),
             entry.position.ordinal,
-        ))?;
+        );
+        if deliveries.get(key)?.is_some() {
+            deliveries.remove(key)?;
+            deleted += 1;
+        }
     }
     if !page.truncated {
         remove_rewind_cursor(write, scope, consumer)?;
-        return Ok(true);
+        return Ok((true, deleted));
     }
     let position = page.entries.last().map(|entry| entry.position.clone());
     write_rewind_cursor(write, scope, &RewindCursor { position, ..state })?;
-    Ok(false)
+    Ok((false, deleted))
 }
 
 fn rewind_cursor_key(consumer: &str) -> String {

@@ -7,16 +7,13 @@
 //! logging support only ([`super::evaluate_bandit`]). Every promotion gate that
 //! fails is named in the receipt; the receipt passes exactly when none did.
 
-use eg_types::contract::BoundedVec;
 use eg_types::decision::digest::digest_text;
 use eg_types::decision::jobs::{
     DecisionEvalReceipt, FullLabelMetrics, LabelExclusions, OpeEstimatorKind,
 };
 use eg_types::decision::statistical::dataset::{ItemLabel, LabelledDataset, LabelledItem};
 use eg_types::decision::statistical::head::DecisionHeadBody;
-use eg_types::decision::statistical::{
-    CalibrationMethod, CalibrationStatement, StatisticalErrorCode,
-};
+use eg_types::decision::statistical::{CalibrationMethod, CalibrationStatement};
 use eg_types::decision::StatisticalPolicy;
 
 use super::admission::Regime;
@@ -25,7 +22,7 @@ use super::head_eval::{
     logit, prediction_set, scaled_softmax, standardise_row, top_index, weights_of,
 };
 use super::quant::{q32, raw_value, unit_wire, value_of};
-use super::refusal::{Refusal, RefusalResult};
+use super::refusal::{bounded, RefusalResult};
 use crate::calibration::metrics::{reliability, BinCount};
 use crate::detkernel::math;
 use crate::detkernel::quantise::{quantise, QuantScale};
@@ -238,11 +235,6 @@ fn calibration_statement(head: &DecisionHeadBody) -> Option<CalibrationStatement
         n_calibration: c.n_calibration,
         synthetic: c.synthetic,
     })
-}
-
-fn bounded<T, const N: usize>(values: Vec<T>) -> RefusalResult<BoundedVec<T, N>> {
-    BoundedVec::new(values)
-        .map_err(|detail| Refusal::new(StatisticalErrorCode::DatasetInvalid, detail))
 }
 
 /// Evaluate `head` over the admitted items and seal the receipt.

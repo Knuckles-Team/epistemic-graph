@@ -198,6 +198,9 @@ struct ProjectionContext {
     persistence: Arc<dyn crate::server::persistence::PersistenceBackend>,
     persist_dir: Option<String>,
     graphs: Vec<(String, Arc<eg_core::graph::GraphCore>)>,
+    /// The worker's wall clock, injected so a sweep's lease arithmetic is
+    /// testable exactly. Production passes `current_time_ms`.
+    clock: fn() -> u64,
 }
 
 #[cfg(feature = "redb")]
@@ -230,6 +233,7 @@ async fn projection_context(state: &Arc<RwLock<ServerState>>) -> Option<Projecti
         persistence,
         persist_dir,
         graphs,
+        clock: current_time_ms,
     })
 }
 
@@ -245,7 +249,7 @@ async fn projection_context(state: &Arc<RwLock<ServerState>>) -> Option<Projecti
 #[cfg(feature = "redb")]
 async fn process_graphs(context: &ProjectionContext) -> bool {
     let Ok(mut budget) =
-        OutboxClaimBudget::new(CLAIM_SWEEP_LIMIT, CLAIM_LEASE_MS, current_time_ms())
+        OutboxClaimBudget::new(CLAIM_SWEEP_LIMIT, CLAIM_LEASE_MS, (context.clock)())
     else {
         return false;
     };
@@ -329,6 +333,10 @@ async fn process_graph(
     // a spent allowance or an incomplete index backfill claims nothing and
     // leaves every durable intention pending. An empty non-deferred outcome is
     // an idle queue. Neither is projection progress.
+    // The budget's limit and fairness run are the sweep's, but each scope's
+    // leases run their full term from the moment THIS scope is claimed: the
+    // graphs before it may have taken most of a lease term already.
+    budget.restamp((context.clock)());
     let outcome = match context
         .persistence
         .claim_mutation_outbox(&graph_fname, CONSUMER, budget)
@@ -351,17 +359,12 @@ async fn process_graph(
             return false;
         }
     };
-    if outcome.is_deferred() {
+    if outcome.is_deferred()
+        || !recovery::rebuild_after_skipped(context, &graph_fname, core, &outcome).await
+    {
         return false;
     }
-    process_leases(
-        &context.persistence,
-        context.persist_dir.clone(),
-        &graph_fname,
-        core.clone(),
-        outcome.claims,
-    )
-    .await
+    process_leases(context, &graph_fname, core.clone(), outcome.claims).await
 }
 
 /// Remove the name-keyed derived image after the durable ledger proves that
@@ -401,8 +404,8 @@ async fn initialize_index(
     .await
     {
         Ok(initialized) => initialized,
-        Err(_) => {
-            tracing::warn!("reasoning projection initialization failed");
+        Err(error) => {
+            tracing::warn!(%error, "reasoning projection initialization failed");
             false
         }
     }
@@ -410,8 +413,7 @@ async fn initialize_index(
 
 #[cfg(feature = "redb")]
 async fn process_leases(
-    persistence: &Arc<dyn crate::server::persistence::PersistenceBackend>,
-    persist_dir: Option<String>,
+    context: &ProjectionContext,
     graph_fname: &str,
     core: Arc<eg_core::graph::GraphCore>,
     leases: Vec<MutationOutboxLease>,
@@ -423,7 +425,8 @@ async fn process_leases(
     // The retired ledger had to acknowledge and then advance separately, so
     // re-reading between the two was the only way to see the gap; there is no
     // longer a gap to see.
-    let Ok(mut watermark) = persistence
+    let Ok(mut watermark) = context
+        .persistence
         .read_mutation_projection_cursor(graph_fname, CONSUMER)
         .await
     else {
@@ -432,8 +435,7 @@ async fn process_leases(
     let mut progressed = false;
     for lease in leases {
         let Some(advanced) = process_lease(
-            persistence,
-            persist_dir.clone(),
+            context,
             graph_fname,
             core.clone(),
             &lease,
@@ -453,21 +455,22 @@ async fn process_leases(
 /// acknowledgement advanced to, or `None` if the worker must stop on this graph.
 #[cfg(feature = "redb")]
 async fn process_lease(
-    persistence: &Arc<dyn crate::server::persistence::PersistenceBackend>,
-    persist_dir: Option<String>,
+    context: &ProjectionContext,
     graph_fname: &str,
     core: Arc<eg_core::graph::GraphCore>,
     lease: &MutationOutboxLease,
     watermark: Option<&MutationProjectionCursor>,
 ) -> Option<MutationProjectionCursor> {
+    let persistence = &context.persistence;
     // Projection wake-ups contain only domain-separated identities and closed
     // categorical tags. Bind them to the authoritative operation digest before
     // allowing the side index to advance.
-    let wakeup = resolve_projection_wakeup(persistence, graph_fname, lease)
-        .await
-        .ok()?;
+    let Ok(wakeup) = resolve_projection_wakeup(persistence, graph_fname, lease).await else {
+        recovery::reject_invalid(context, graph_fname, core, lease).await;
+        return None;
+    };
     let (newly_stale, stale_count) = apply_lease_and_publish(
-        persist_dir,
+        context.persist_dir.clone(),
         graph_fname.to_string(),
         core,
         lease.clone(),
@@ -489,7 +492,7 @@ async fn process_lease(
     // turn a persistent failure into a hot retry loop. The sidecar is at
     // most one event ahead; exact-position replay is harmless.
     persistence
-        .ack_mutation_outbox(graph_fname, lease, current_time_ms())
+        .ack_mutation_outbox(graph_fname, lease, (context.clock)())
         .await
         .ok()
 }
@@ -560,8 +563,8 @@ async fn apply_lease_and_publish(
     .await
     {
         Ok(result) => Some(result),
-        Err(_) => {
-            tracing::warn!("reasoning projection lease persistence failed");
+        Err(error) => {
+            tracing::warn!(%error, "reasoning projection lease persistence failed");
             None
         }
     }
@@ -1126,8 +1129,14 @@ fn current_time_ms() -> u64 {
     }
 }
 
+#[cfg(feature = "redb")]
+mod recovery;
+
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "redb")]
+    mod sweep_clock;
+
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Condvar, Mutex as StdMutex};
 
@@ -1146,6 +1155,28 @@ mod tests {
             std::process::id(),
             NEXT.fetch_add(1, Ordering::Relaxed)
         ))
+    }
+
+    /// A fresh test root and a one-shard durable backend opened on it.
+    #[cfg(feature = "redb")]
+    fn shard_backend(
+        label: &str,
+    ) -> (
+        PathBuf,
+        String,
+        Arc<crate::server::persistence::redb_backend::RedbBackend>,
+    ) {
+        let root = test_root();
+        let root_str = root.to_string_lossy().to_string();
+        let backend = Arc::new(
+            crate::server::persistence::redb_backend::RedbBackend::open_with_shards(
+                root_str.clone(),
+                256,
+                1,
+            )
+            .expect(label),
+        );
+        (root, root_str, backend)
     }
 
     fn derived_properties() -> Vec<u8> {
@@ -1644,6 +1675,7 @@ mod tests {
             persistence,
             persist_dir: Some(root_str.clone()),
             graphs: vec![(graph.clone(), core.clone())],
+            clock: current_time_ms,
         };
         let mut budget =
             eg_transaction::OutboxClaimBudget::new(CLAIM_SWEEP_LIMIT, CLAIM_LEASE_MS, 1).unwrap();
@@ -1766,18 +1798,12 @@ mod tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        use crate::server::persistence::redb_backend::RedbBackend;
 
-        let root = test_root();
-        let root_str = root.to_string_lossy().to_string();
+        let (root, root_str, backend) = shard_backend("open projection recreate backend");
         let graph = format!("projection-recreate-{}", std::process::id());
         let graph_fname = crate::persist::sanitize(&graph);
         subscribed_graphs().write().await.remove(&graph_fname);
 
-        let backend = Arc::new(
-            RedbBackend::open_with_shards(root_str.clone(), 256, 1)
-                .expect("open projection recreate backend"),
-        );
         let persistence: Arc<dyn crate::server::persistence::PersistenceBackend> = backend.clone();
         let retired_batch =
             projection_batch(&graph_fname, 0, format!("projection-retired-{graph_fname}"));
@@ -1791,6 +1817,7 @@ mod tests {
             persistence: persistence.clone(),
             persist_dir: Some(root_str.clone()),
             graphs: vec![(graph.clone(), retired_core.clone())],
+            clock: current_time_ms,
         };
         let mut retired_budget =
             OutboxClaimBudget::new(CLAIM_SWEEP_LIMIT, CLAIM_LEASE_MS, current_time_ms()).unwrap();
@@ -1843,6 +1870,7 @@ mod tests {
             persistence: persistence.clone(),
             persist_dir: Some(root_str.clone()),
             graphs: vec![(graph.clone(), recreated_core.clone())],
+            clock: current_time_ms,
         };
 
         // The first poll sees the durable missing-subscription refusal. It is a
@@ -1909,17 +1937,11 @@ mod tests {
         // still for this whole body. READ guard: it excludes only a key MUTATOR, never
         // another opener. See `crate::crypto::acquire_test_env_read_lock`'s doc.
         let _env_read_lock = crate::crypto::acquire_test_env_read_lock().await;
-        use crate::server::persistence::redb_backend::RedbBackend;
 
-        let root = test_root();
-        let root_str = root.to_string_lossy().to_string();
+        let (root, root_str, backend) = shard_backend("open projection budget backend");
         let graph_names: Vec<String> = (0..5)
             .map(|index| format!("shared-budget-{}-{index}", std::process::id()))
             .collect();
-        let backend = Arc::new(
-            RedbBackend::open_with_shards(root_str.clone(), 256, 1)
-                .expect("open projection budget backend"),
-        );
         let persistence: Arc<dyn crate::server::persistence::PersistenceBackend> = backend.clone();
 
         for graph in &graph_names {
@@ -1942,6 +1964,7 @@ mod tests {
             persistence: persistence.clone(),
             persist_dir: Some(root_str.clone()),
             graphs,
+            clock: current_time_ms,
         };
         assert!(process_graphs(&context).await);
 

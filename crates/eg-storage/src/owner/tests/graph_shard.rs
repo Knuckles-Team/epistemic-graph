@@ -10,6 +10,7 @@ use crate::owner::layout::{OwnerLayout, OWNER_LAYOUT_DOMAINS};
 use crate::owner::registry::{owner_layouts, owner_table_names};
 use crate::owner::table_api::{owner_table_access, OwnerTableAccess};
 use crate::physical::manifest::{OwnerManifest, TableScope};
+use crate::scoped::ScopeRow;
 use eg_types::mutation_batch::{DurabilityDomain, IncarnationId, LogicalName, ScopeTenantId};
 use eg_types::MutationScopeIdentity;
 
@@ -249,29 +250,44 @@ fn only_the_shard_layout_accepts_a_graph_scope() {
     }
 }
 
+/// The test shard authority: admits only graph scopes presented by the test
+/// principal with the fixed proof.
+struct ShardVerifier;
+
+impl ScopeGrantVerifier for ShardVerifier {
+    fn verify(
+        &self,
+        _physical: &PhysicalStoreIdentity,
+        layout: OwnerLayout,
+        identity: &MutationScopeIdentity,
+        principal: &str,
+        proof: &[u8],
+    ) -> Result<(), String> {
+        (layout == OwnerLayout::GraphShard
+            && identity.scope().graph_name().is_some()
+            && principal == "principal:test:shard"
+            && proof == b"verified")
+            .then_some(())
+            .ok_or_else(|| "test shard authority rejected".to_string())
+    }
+}
+
+/// `(graph, node)` of every row a scoped scan yields, in order.
+fn scanned_pairs<'t>(
+    rows: impl Iterator<Item = ScopeRow<'t, (&'static str, &'static str), &'static [u8]>>,
+) -> Vec<(String, String)> {
+    rows.map(|row| {
+        let (key, _) = row.unwrap();
+        let (g, n) = key.value();
+        (g.to_string(), n.to_string())
+    })
+    .collect()
+}
+
 /// One shard file serves many graphs: each graph scope authenticates and binds
 /// independently against the same physical store.
 #[test]
 fn many_graph_scopes_bind_to_one_shard_file() {
-    struct ShardVerifier;
-    impl ScopeGrantVerifier for ShardVerifier {
-        fn verify(
-            &self,
-            _physical: &PhysicalStoreIdentity,
-            layout: OwnerLayout,
-            identity: &MutationScopeIdentity,
-            principal: &str,
-            proof: &[u8],
-        ) -> Result<(), String> {
-            (layout == OwnerLayout::GraphShard
-                && identity.scope().graph_name().is_some()
-                && principal == "principal:test:shard"
-                && proof == b"verified")
-                .then_some(())
-                .ok_or_else(|| "test shard authority rejected".to_string())
-        }
-    }
-
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("graph-0.redb");
     let store = create_physical(
@@ -333,25 +349,6 @@ fn many_graph_scopes_bind_to_one_shard_file() {
 /// whole leading key COMPONENT, so it stops correctly.
 #[test]
 fn scope_rows_yields_one_scopes_rows_and_never_a_neighbours() {
-    struct ShardVerifier;
-    impl ScopeGrantVerifier for ShardVerifier {
-        fn verify(
-            &self,
-            _physical: &PhysicalStoreIdentity,
-            layout: OwnerLayout,
-            identity: &MutationScopeIdentity,
-            principal: &str,
-            proof: &[u8],
-        ) -> Result<(), String> {
-            (layout == OwnerLayout::GraphShard
-                && identity.scope().graph_name().is_some()
-                && principal == "principal:test:shard"
-                && proof == b"verified")
-                .then_some(())
-                .ok_or_else(|| "test shard authority rejected".to_string())
-        }
-    }
-
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("graph-0.redb");
     let store = create_physical(
@@ -403,15 +400,7 @@ fn scope_rows_yields_one_scopes_rows_and_never_a_neighbours() {
         let table = read
             .scoped_owner_table(crate::owner::graph_shard::NODES)
             .unwrap();
-        let seen: Vec<(String, String)> = table
-            .scope_rows()
-            .unwrap()
-            .map(|row| {
-                let (key, _) = row.unwrap();
-                let (g, n) = key.value();
-                (g.to_string(), n.to_string())
-            })
-            .collect();
+        let seen = scanned_pairs(table.scope_rows().unwrap());
         let expected: Vec<(String, String)> = if *graph == "graph-empty" {
             Vec::new()
         } else {
@@ -440,15 +429,7 @@ fn assert_seek_is_confined(
     graph: &str,
     expected: &[(String, String)],
 ) {
-    let resumed: Vec<(String, String)> = table
-        .scope_rows_from((graph, "n2"))
-        .unwrap()
-        .map(|row| {
-            let (key, _) = row.unwrap();
-            let (g, n) = key.value();
-            (g.to_string(), n.to_string())
-        })
-        .collect();
+    let resumed = scanned_pairs(table.scope_rows_from((graph, "n2")).unwrap());
     let tail: Vec<(String, String)> = expected
         .iter()
         .filter(|(_, node)| node.as_str() >= "n2")

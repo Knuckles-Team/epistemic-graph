@@ -107,33 +107,22 @@ pub(super) fn materialize_claim(
     let claim_id = claim_node_id(family, mined_node_id);
     let evidence_id = evidence_node_id(family, mined_node_id, provenance);
     let activity_id = activity_node_id(family, provenance);
-    let claim_props = serde_json::json!({
-        "type": "Claim",
-        "family": family,
-        "about": mined_node_id,
-        "confidence": confidence,
-        "validation_state": CLAIM_VALIDATION_STATE,
-        // CONCEPT:EG-P3-1 — universal writeback-lineage tuple.
-        "input_snapshot_version": core.version(),
-        "algo_family": family,
-        "algo_provenance": provenance,
-        "algo_code_version": ALGO_CODE_VERSION,
-        "algo_env_version": algo_env_version(),
-        "calibration": serde_json::Value::Null,
-        "invalidation_deps": [mined_node_id, evidence_id.as_str()],
-    });
+    // EH-194: the claim/evidence pair is built from the typed nodes, which validate
+    // the core fields first; a pair that does not validate is not half-written.
+    let Some((claim_props, ev_props)) = claim_nodes(
+        core,
+        mined_node_id,
+        family,
+        confidence,
+        provenance,
+        &evidence_id,
+    ) else {
+        return;
+    };
     let _ = writeback_node(core, &claim_id, &claim_props);
     // The mined finding itself is evidence FOR the claim.
     supports_edge(core, mined_node_id, &claim_id);
     // A provenance-anchored Evidence node (distinct provenance ⇒ corroboration).
-    let ev_props = serde_json::json!({
-        "type": "Evidence",
-        "family": family,
-        "about": mined_node_id,
-        "provenance": provenance,
-        "confidence": confidence,
-        "validation_state": CLAIM_VALIDATION_STATE,
-    });
     let _ = writeback_node(core, &evidence_id, &ev_props);
     supports_edge(core, &evidence_id, &claim_id);
 
@@ -151,6 +140,43 @@ pub(super) fn materialize_claim(
     });
     let _ = writeback_node(core, &activity_id, &activity_props);
     generated_by_edge(core, &claim_id, &activity_id);
+}
+
+/// The typed `:Claim` + `:Evidence` property objects for one mined finding (EH-194),
+/// carrying the universal writeback-lineage tuple (CONCEPT:EG-P3-1). `None` when either
+/// fails validation (e.g. a non-finite confidence), so neither is written.
+#[cfg(feature = "epistemic")]
+fn claim_nodes(
+    core: &GraphCore,
+    mined_node_id: &str,
+    family: &str,
+    confidence: f64,
+    provenance: &str,
+    evidence_id: &str,
+) -> Option<(serde_json::Value, serde_json::Value)> {
+    use eg_types::epistemic_node::{Claim, Evidence};
+
+    let claim = Claim::new(family, mined_node_id, confidence, CLAIM_VALIDATION_STATE)
+        .with_invalidation_deps([mined_node_id, evidence_id])
+        .with_attributes(serde_json::json!({
+            "input_snapshot_version": core.version(),
+            "algo_family": family,
+            "algo_provenance": provenance,
+            "algo_code_version": ALGO_CODE_VERSION,
+            "algo_env_version": algo_env_version(),
+        }))
+        .and_then(|claim| claim.to_properties())
+        .ok()?;
+    let evidence = Evidence::new(
+        family,
+        mined_node_id,
+        provenance,
+        confidence,
+        CLAIM_VALIDATION_STATE,
+    )
+    .to_properties()
+    .ok()?;
+    Some((claim, evidence))
 }
 
 /// Write one epistemic `source --SUPPORTS--> target` edge using the canonical `relationship`

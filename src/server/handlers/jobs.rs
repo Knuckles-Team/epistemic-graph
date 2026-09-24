@@ -122,6 +122,15 @@ use worker_publish::*;
 use worker_requests::*;
 use worker_validation::*;
 
+/// The process's job store, for the `MutationOutbox` operator surface (X10).
+pub(crate) async fn outbox_job_store(
+    state: &Arc<RwLock<ServerState>>,
+) -> Result<Arc<JobStore>, String> {
+    resolve_job_store(state, 0)
+        .await
+        .map_err(|response| response.error.unwrap_or_default())
+}
+
 /// Handle `Method::AnalyticsJob { op }` (CONCEPT:INT-P2-1). Self-contained: resolves
 /// its own `JobStore` + (for `Submit`/`Resume`) the target `GraphCore` off `state`,
 /// so the dispatch shell can call this directly with no per-graph routing.

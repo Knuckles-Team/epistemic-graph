@@ -82,6 +82,13 @@ and trust configuration remains outside these protocol payloads.
   sole `eg2.` identity/policy envelope. GraphOS binds those claims from the
   immutable authenticated `GraphSession`. There is no anonymous or reduced-claim
   client mode. See [Service mode](../service_mode.md#authentication-protocol).
+- **Canonical body (JS/Go):** the MAC covers the body the engine re-derives from the
+  request it DECODED (declaration order, serde defaults, sorted maps, float/byte widths),
+  not the bytes sent. The thin clients compute it with the engine's own decoder and
+  encoder: the embedded `eg_method_codec.wasm` (`crates/eg-method-codec`, built by
+  `scripts/build_method_codec_wasm.py`). Each client's vector test replays every
+  contract method-body vector (body digest + engine envelope MAC) through its signer. A
+  request the engine could not decode is refused before it is sent.
 - **Correlation:** each response carries the request `id`. The Python client demuxes
   out-of-order responses on one pipelined connection (EG-043); the thin JS client does the
   same by `id`; the thin Go client serializes one round-trip at a time (in-order).

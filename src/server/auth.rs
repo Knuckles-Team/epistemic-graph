@@ -518,6 +518,59 @@ pub fn compute_verified_envelope_token(
     format!("{ENVELOPE_V2_PREFIX}{}", hex::encode(json))
 }
 
+/// Who a scoped test request is signed as, and under which nonce and key.
+#[cfg(test)]
+pub(crate) struct ScopedTestCaller<'a> {
+    pub(crate) principal: &'a str,
+    pub(crate) tenant: &'a str,
+    pub(crate) scopes: &'a [&'a str],
+    pub(crate) nonce: &'a str,
+    pub(crate) idempotency_key: &'a str,
+}
+
+/// A `__commons__` request carrying `method`, signed for `caller` under the
+/// fixed test audience and policy version: the served-surface fixtures'
+/// one envelope builder.
+#[cfg(test)]
+pub(crate) fn scoped_test_request(
+    secret: &str,
+    id: u64,
+    method: Method,
+    caller: ScopedTestCaller<'_>,
+) -> Request {
+    let mut request = Request {
+        id,
+        graph: "__commons__".to_string(),
+        auth_token: String::new(),
+        agent_id: Some(caller.principal.to_string()),
+        method,
+    };
+    let context = RequestContextClaims {
+        principal: caller.principal.to_string(),
+        agent_id: caller.principal.to_string(),
+        tenant: caller.tenant.to_string(),
+        audience: "epistemic-graph-test".to_string(),
+        policy_version: "policy-test".to_string(),
+        scopes: caller
+            .scopes
+            .iter()
+            .map(|scope| scope.to_string())
+            .collect(),
+        ..RequestContextClaims::default()
+    };
+    request.auth_token = compute_verified_envelope_token(
+        secret,
+        &request,
+        &VerifiedEnvelopeParams {
+            context: &context,
+            timestamp: crate::server::dispatch::authoritative_now_ms() / 1000,
+            nonce: caller.nonce,
+            idempotency_key: caller.idempotency_key,
+        },
+    );
+    request
+}
+
 #[cfg(test)]
 pub(crate) fn sign_current_test_request(secret: &str, request: Request) -> Request {
     sign_test_request_with_context(secret, request, "tenant-shared", vec!["test".to_string()])

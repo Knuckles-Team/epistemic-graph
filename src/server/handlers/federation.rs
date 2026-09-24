@@ -2,36 +2,44 @@
 //!
 //! `RegisterForeignSource` records a named EXTERNAL source (a remote epistemic-graph
 //! engine or an HTTP/JSON API — [`eg_types::wire::ForeignSourceSpec`]) in the
-//! process-global `foreign_sources` map on `ServerState`, so it can be reused by name.
-//! The actual cross-engine / HTTP fetch is driven by the unified-query handler: an
-//! inline-spec `Op::ForeignScan` resolves itself, and a `Named` `Op::ForeignScan` / an
-//! `Op::Foreign` (the UQL `FOREIGN "<name>"` marker) resolves THIS map through the
-//! `eg_plan::federation::ForeignSourceRegistry` `run_unified` builds from it
-//! (`handlers::query::foreign_registry_from`, CONCEPT:EG-KG.query.closure-backed-source)
-//! — so a source registered here is genuinely queryable, not merely recorded. This
-//! handler is the registration surface. Process-global (a foreign endpoint is not
-//! graph-scoped), so it takes `state`. A lightweight, non-blocking insert — no
+//! owner-scoped [`crate::server::foreign_catalog::ForeignSourceCatalog`] on
+//! `ServerState`, under the caller's VERIFIED owner — tenant+principal (EH-373). The actual
+//! cross-engine / HTTP fetch is driven by the unified-query handlers: an inline-spec
+//! `Op::ForeignScan` resolves itself, and a `Named` `Op::ForeignScan` / an `Op::Foreign`
+//! (the UQL `FOREIGN "<name>"` marker) resolves through the registry
+//! `ForeignSourceCatalog::registry_for` builds from the caller's own entries only
+//! (CONCEPT:EG-KG.query.closure-backed-source). One principal can therefore neither use
+//! nor overwrite another principal's registration, even under the same name (one engine
+//! is bound to one tenant; the tenant stays inside the owner key). Rows a foreign
+//! source returns are not RLS-filtered. A lightweight, non-blocking insert — no
 //! off-reactor work needed.
 
-use std::sync::Arc;
-use tokio::sync::RwLock;
-
-use super::super::state::ServerState;
 use crate::protocol::{Method, Response, ResultPayload};
+use crate::server::access::OwnerScopedCall;
 
 /// Try to handle a federation method. `Ok(resp)` = handled; `Err(method)` = not mine.
 pub(crate) async fn try_handle(
-    state: &Arc<RwLock<ServerState>>,
-    req_id: u64,
+    call: OwnerScopedCall<'_>,
     method: Method,
 ) -> Result<Response, Method> {
+    let req_id = call.req_id;
     match method {
         Method::RegisterForeignSource { name, source } => {
-            let sources = {
-                let s = state.read().await;
-                s.foreign_sources.clone()
+            let owner = match call.owner("RegisterForeignSource") {
+                Ok(owner) => owner,
+                Err(refusal) => return Ok(refusal),
             };
-            sources.insert(name.clone(), source);
+            // EH-378: provision the source's share role (assigned to nobody) under the
+            // same write lock as the registration, so a registered source always has one.
+            let mut s = call.state.write().await;
+            if let Err(error) = crate::server::foreign_share::provision_share_role(
+                &mut s.isolation,
+                owner.agent_id(),
+                &name,
+            ) {
+                return Ok(Response::err(req_id, error));
+            }
+            s.foreign_sources.register(&owner, name.clone(), source);
             Ok(Response::ok(
                 req_id,
                 ResultPayload::scalar::<eg_types::result_contract::cluster::RegisterForeignSource>(

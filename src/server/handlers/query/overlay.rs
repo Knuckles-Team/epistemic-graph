@@ -163,13 +163,14 @@ where
         Some((tenant, graph)) => (Some(tenant), Some(graph)),
         None => (None, None),
     };
-    // CONCEPT:EG-KG.query.closure-backed-source — the server's REGISTERED foreign sources,
-    // cloned (a cheap `Arc` handle) for the off-lock closure exactly like the tsdb store
-    // above, so `run_unified` can resolve a `FOREIGN "<name>"` / `Named` `ForeignScan`
-    // leg through `ServerState::foreign_sources` instead of erroring on every named
-    // source `Method::RegisterForeignSource` accepted.
+    // CONCEPT:EG-KG.query.closure-backed-source — the CALLER'S owner-scoped foreign
+    // registry (EH-373): an in-txn `FOREIGN "<name>"` / `Named` `ForeignScan` leg
+    // resolves only sources the caller (tenant+principal) registered.
     #[cfg(feature = "federation")]
-    let foreign_sources = state.read().await.foreign_sources.clone();
+    let foreign = match served_foreign_leg(state, &plan, read_authority).await {
+        Ok(foreign) => foreign,
+        Err(denied) => return Response::err(req_id, denied),
+    };
     // CONCEPT:EG-KG.query.txn-tsdb-read-your — the in-txn tsdb read-your-own-writes overlay: seed a `StagedSeries`
     // from the txn's OWN staged, uncommitted `GraphTxnState.measurements` so an in-txn
     // `Op::TsScan` sees its own points (merged BEFORE the committed store), while an
@@ -190,67 +191,21 @@ where
     #[cfg(feature = "security")]
     rls.filter_view(caller, &mut view);
     match compute_off_lock(req_id, move || {
-        #[cfg(feature = "text")]
-        let served_text = crate::server::secondary_indexes::ServedTextIndex::new(core.clone());
-        #[cfg(feature = "geo")]
-        let served_spatial =
-            crate::server::secondary_indexes::ServedSpatialIndex::new(core.clone());
-        // Fast path (CONCEPT:EG-KG.query.served-vector-index-binding): no staged embeddings this txn ⇒
-        // search the COMMITTED store directly through a guard — no clone, no forced
-        // HNSW rebuild. Only when the txn actually staged embeddings do we need a
-        // MUTATED overlay copy for read-your-own-writes (`semantic_overlay` always
-        // clones its input, so it is worth paying only when there is something to
-        // overlay).
-        if vectors.is_empty() {
-            let semantic_guard = core.semantic_store.read();
-            run_unified(
-                plan,
-                &view,
-                &semantic_guard,
-                ServedIndexes {
-                    #[cfg(feature = "text")]
-                    text: Some(&served_text),
-                    #[cfg(feature = "geo")]
-                    spatial: Some(&served_spatial),
-                    #[cfg(feature = "federation")]
-                    foreign: Some(&*foreign_sources),
-                    #[cfg(not(any(feature = "text", feature = "geo")))]
-                    _marker: std::marker::PhantomData,
-                },
-                #[cfg(feature = "tsdb")]
-                TsdbLegBind {
-                    tsdb: tsdb.as_deref(),
-                    tsdb_tenant: tsdb_tenant.as_deref(),
-                    tsdb_graph: tsdb_graph_scope.as_deref(),
-                    staged_series: Some(&staged_series),
-                },
-            )
-        } else {
-            let committed = core.semantic_store.read().clone();
-            let semantic = eg_core::compute::semantic::semantic_overlay(committed, &vectors);
-            run_unified(
-                plan,
-                &view,
-                &semantic,
-                ServedIndexes {
-                    #[cfg(feature = "text")]
-                    text: Some(&served_text),
-                    #[cfg(feature = "geo")]
-                    spatial: Some(&served_spatial),
-                    #[cfg(feature = "federation")]
-                    foreign: Some(&*foreign_sources),
-                    #[cfg(not(any(feature = "text", feature = "geo")))]
-                    _marker: std::marker::PhantomData,
-                },
-                #[cfg(feature = "tsdb")]
-                TsdbLegBind {
-                    tsdb: tsdb.as_deref(),
-                    tsdb_tenant: tsdb_tenant.as_deref(),
-                    tsdb_graph: tsdb_graph_scope.as_deref(),
-                    staged_series: Some(&staged_series),
-                },
-            )
-        }
+        run_unified_with_staged(
+            plan,
+            &view,
+            &core,
+            &vectors,
+            #[cfg(feature = "federation")]
+            bound_registry(&foreign),
+            #[cfg(feature = "tsdb")]
+            TsdbLegBind {
+                tsdb: tsdb.as_deref(),
+                tsdb_tenant: tsdb_tenant.as_deref(),
+                tsdb_graph: tsdb_graph_scope.as_deref(),
+                staged_series: Some(&staged_series),
+            },
+        )
     })
     .await
     {
@@ -306,4 +261,74 @@ pub(crate) fn overlay_write_set(view: &mut crate::graph::GraphView, write_set: &
             _ => {}
         }
     }
+}
+
+/// Run `plan` over `view` with `core`'s maintained indexes bound (and the
+/// caller's owner-scoped foreign registry, EH-373, when bound), against `core`'s
+/// semantic store with `staged` embeddings overlaid (read-your-own-writes). No
+/// staged embedding ⇒ the COMMITTED store is searched through a guard -- no
+/// clone, no forced HNSW rebuild (CONCEPT:EG-KG.query.served-vector-index-
+/// binding); only a txn that actually staged embeddings pays for the
+/// `semantic_overlay` copy. Off-txn callers pass no staged embeddings.
+#[cfg(feature = "query")]
+pub(crate) fn run_unified_with_staged(
+    plan: eg_plan::Plan,
+    view: &crate::graph::GraphView,
+    core: &Arc<GraphCore>,
+    staged: &[(String, Vec<f32>)],
+    #[cfg(feature = "federation")] foreign: Option<&eg_plan::federation::ForeignSourceRegistry>,
+    #[cfg(feature = "tsdb")] tsdb_ctx: TsdbLegBind<'_>,
+) -> Result<Vec<(String, Option<f32>)>, String> {
+    run_unified_with_staged_finish(
+        plan,
+        view,
+        core,
+        staged,
+        #[cfg(feature = "federation")]
+        foreign,
+        #[cfg(feature = "tsdb")]
+        tsdb_ctx,
+        execute_rows,
+    )
+}
+
+/// [`run_unified_with_staged`] with a caller-chosen finisher (see [`run_unified_with`]).
+#[cfg(feature = "query")]
+pub(crate) fn run_unified_with_staged_finish<T>(
+    plan: eg_plan::Plan,
+    view: &crate::graph::GraphView,
+    core: &Arc<GraphCore>,
+    staged: &[(String, Vec<f32>)],
+    #[cfg(feature = "federation")] foreign: Option<&eg_plan::federation::ForeignSourceRegistry>,
+    #[cfg(feature = "tsdb")] tsdb_ctx: TsdbLegBind<'_>,
+    finish: impl FnOnce(&eg_plan::Plan, &eg_plan::PlanCtx) -> Result<T, String>,
+) -> Result<T, String> {
+    let indexes = CoreIndexes::open(core);
+    let served = indexes.served(
+        #[cfg(feature = "federation")]
+        foreign,
+    );
+    if staged.is_empty() {
+        let committed = core.semantic_store.read();
+        return run_unified_with(
+            plan,
+            view,
+            &committed,
+            served,
+            #[cfg(feature = "tsdb")]
+            tsdb_ctx,
+            finish,
+        );
+    }
+    let committed = core.semantic_store.read().clone();
+    let semantic = eg_core::compute::semantic::semantic_overlay(committed, staged);
+    run_unified_with(
+        plan,
+        view,
+        &semantic,
+        served,
+        #[cfg(feature = "tsdb")]
+        tsdb_ctx,
+        finish,
+    )
 }

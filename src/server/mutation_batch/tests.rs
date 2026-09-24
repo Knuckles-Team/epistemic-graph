@@ -386,6 +386,7 @@ fn change_envelope_projection_failure_never_partially_publishes() {
             sanitizer_version: "sanitizer-v1".into(),
             sanitized_payload_digest: "b".repeat(64),
         },
+        material_class: eg_types::change_envelope::MaterialClass::Attested,
         commit_seq: None,
         commit_descriptor_ref: None,
     };
@@ -461,16 +462,6 @@ const CLASSIFICATION_GOLDEN: &[(&str, &str)] = &[
     ("TsEvict", "TimeSeries"),
     ("TsDeleteSeries", "TimeSeries"),
     ("AnalyticsJob", "AnalyticsJob"),
-    // ADDED (S1, RF-ADR-010): DecisionFit/DecisionEval write jobs.redb exactly
-    // like AnalyticsJob (their own doc comments say so explicitly) and are wire-
-    // unconditional, so they get their own owner_domain arm right after it. No
-    // existing method's authority moved -- see canonical.rs's own comment on
-    // that arm and the larger one on the eight other new Decide-layer methods
-    // (AgentAssemble/Decide/DecisionCommit/Solve/ConnectorPack/GraphSchema/
-    // GraphSchemaList/MutationOutbox), which fall to the surface-keyed default
-    // in remaining_default_domain and so contribute no row here at all.
-    ("DecisionFit", "AnalyticsJob"),
-    ("DecisionEval", "AnalyticsJob"),
     ("KgDelegate", "ControlPlane"),
     ("SubmitWorkItem", "ControlPlane"),
     ("SubmitWorkItems", "ControlPlane"),
@@ -533,9 +524,8 @@ const CLASSIFICATION_GOLDEN: &[(&str, &str)] = &[
 /// would fail on a comment. Arms accumulate `Method::Name` tokens until the arm's
 /// `DurabilityDomain::Name` is reached; a wildcard arm names no method and is
 /// recorded as `_`. The store-owner classification is three functions --
-/// `owner_domain` delegates its tail to `decide_layer_job_domain` and then to
-/// `service_owner_domain` -- so all three are read, in the order `domain_for`
-/// reaches them. `remaining_default_domain` is
+/// `owner_domain` delegates its tail to `service_owner_domain` -- so both are
+/// read, in the order `domain_for` reaches them. `remaining_default_domain` is
 /// deliberately NOT read here: every one of its arms calls
 /// `default_mutation_domain(surface)`, which states no `DurabilityDomain::`
 /// literal at the call site, so it contributes nothing to this map either way --
@@ -552,11 +542,7 @@ fn classification_map_from_source() -> Vec<(String, String)> {
     // removed tail rows below. That call site never states a literal
     // `DurabilityDomain::` token, so this reader still correctly contributes no
     // `("_", ..)` row for it without needing to scan that function at all.
-    for function in [
-        "fn owner_domain",
-        "fn decide_layer_job_domain",
-        "fn service_owner_domain",
-    ] {
+    for function in ["fn owner_domain", "fn service_owner_domain"] {
         map.extend(classified_arms(function_body(source, function)));
     }
     map

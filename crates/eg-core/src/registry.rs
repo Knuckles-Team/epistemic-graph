@@ -610,6 +610,7 @@ impl GraphRegistry {
         incarnation_id: String,
         source_snapshot_version: u64,
     ) -> Result<(), String> {
+        validate_graph_name(name)?;
         if self.graphs.contains_key(name) || self.catalog.contains_key(name) {
             return Err(format!("Graph '{}' already exists", name));
         }
@@ -1362,9 +1363,13 @@ impl GraphRegistry {
 }
 
 mod material;
+mod reserved;
 use material::{
     advance_partial_manifest, apply_material_page, finish_materialization, load_material,
     snapshot_changed,
+};
+pub use reserved::{
+    validate_graph_name, FOREIGN_SOURCE_RESOURCE_PREFIX, RESERVED_RBAC_RESOURCE_PREFIXES,
 };
 
 /// Register one graph's server-layer indexes. Spatial indexes are derived entirely

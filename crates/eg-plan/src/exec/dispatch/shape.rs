@@ -3,8 +3,11 @@
 //!
 //! Each row's node is validated as an explicit SHACL focus node against the named shape
 //! (`eg_shacl::validate_nodes`), over the RDF projection of the SAME snapshot the rest
-//! of the plan reads (`eg_rdf::mapping::export_view_triples`). The stage is a filter:
-//! an empty input stays empty, and row order and scores are preserved.
+//! of the plan reads (`eg_rdf::mapping::export_view_triples`). The shapes graph is the
+//! stage's own `USING` document when it has one, else the ctx-bound
+//! [`crate::exec::ShapeSource`] (the graph's composed GraphSchema shapes on the served
+//! path). The stage is a filter: an empty input stays empty, and row order and scores
+//! are preserved.
 
 use std::collections::HashSet;
 
@@ -12,11 +15,12 @@ use eg_core::graph::GraphView;
 use eg_rdf::oxrdf::{BlankNode, NamedNode, Term};
 use eg_types::wire::ShapeKeep;
 
+use crate::exec::PlanCtx;
 use crate::rowset::RowSet;
 
 /// Run one `VALIDATE SHAPE` stage over `input`.
 pub(super) fn validate_shape(
-    view: &GraphView,
+    ctx: &PlanCtx,
     input: RowSet,
     shape: &str,
     shapes: &str,
@@ -25,15 +29,8 @@ pub(super) fn validate_shape(
     if input.is_empty() {
         return Ok(input);
     }
-    if shapes.trim().is_empty() {
-        return Err(
-            "VALIDATE SHAPE needs a shapes graph: `VALIDATE SHAPE <shape> USING \"<turtle>\"`"
-                .into(),
-        );
-    }
-    let shapes_graph = eg_shacl::graph_from_turtle(shapes)
-        .map_err(|error| format!("VALIDATE SHAPE: bad shapes graph: {error}"))?;
-    let data_graph = data_graph(view)?;
+    let shapes_graph = shapes_graph(ctx, shapes)?;
+    let data_graph = data_graph(ctx.view)?;
     let focus = focus_terms(&input)?;
     let report = eg_shacl::validate_nodes(&shapes_graph, &data_graph, bare_iri(shape), &focus)
         .map_err(|error| format!("VALIDATE SHAPE: {error}"))?;
@@ -49,6 +46,24 @@ pub(super) fn validate_shape(
         .filter(|id| violating.contains(id) == (keep == ShapeKeep::Violating))
         .collect();
     Ok(input.intersect_keep_order(&kept))
+}
+
+/// The stage's own `USING` document, else the ctx-bound graph shapes.
+fn shapes_graph(ctx: &PlanCtx, shapes: &str) -> Result<eg_shacl::Graph, String> {
+    if !shapes.trim().is_empty() {
+        return eg_shacl::graph_from_turtle(shapes)
+            .map_err(|error| format!("VALIDATE SHAPE: bad shapes graph: {error}"));
+    }
+    let Some(source) = ctx.shape_source else {
+        return Err(
+            "VALIDATE SHAPE needs a shapes graph: pass `USING \"<turtle>\"`, or query \
+                    a graph whose GraphSchema shapes are bound to this plan"
+                .into(),
+        );
+    };
+    source
+        .shapes()
+        .map_err(|error| format!("VALIDATE SHAPE: graph shapes: {error}"))
 }
 
 /// The snapshot's RDF projection as a SHACL data graph.

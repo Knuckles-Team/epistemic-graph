@@ -1,4 +1,4 @@
-use super::{get_node_text, ExtractedEdge, ExtractedNode, ParseResult};
+use super::{first_child_of_kind, get_node_text, ExtractedEdge, ExtractedNode, ParseResult};
 use std::collections::HashMap;
 use tree_sitter::Node;
 
@@ -8,13 +8,6 @@ use tree_sitter::Node;
 // (:DatabaseTable / :DatabaseColumn / :DatabaseView with hasColumn /
 // referencesTable / referencesColumn / references edges). Assimilated from
 // Graphify's SQL layer, but written into the durable engine graph natively.
-
-/// First direct child of the given kind.
-fn first_child_of_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
-    let mut c = node.walk();
-    let found = node.children(&mut c).find(|ch| ch.kind() == kind);
-    found
-}
 
 /// Text of an `object_reference`'s `name` field identifier (the bare table/view
 /// name; schema-qualified names collapse to their last segment).

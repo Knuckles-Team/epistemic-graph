@@ -8,7 +8,6 @@ use eg_core::compute::semantic_index_service::{
     SemanticSqlSourceReconciliationAdmission as RuntimeReconciliationAdmission,
 };
 use eg_transaction::OutboxStatus;
-use eg_types::mutation_outbox::OutboxConsumerStatus;
 use eg_types::result_contract::ingestion::{
     SemanticMutationReceipt, SemanticOutboxStatus, SemanticSqlSourcePageAdmission,
     SemanticSqlSourceReconciliationAdmission,
@@ -49,23 +48,7 @@ pub(super) fn reconciliation(
 
 pub(super) fn outbox_status(value: OutboxStatus) -> SemanticOutboxStatus {
     SemanticOutboxStatus {
-        status: OutboxConsumerStatus {
-            consumer: value.consumer,
-            topic: value.topic,
-            live: value.live,
-            capacity: value.capacity,
-            inflight: value.inflight,
-            inflight_is_lower_bound: value.inflight_is_lower_bound,
-            pending: value.pending,
-            pending_is_lower_bound: value.pending_is_lower_bound,
-            delivered: value.delivered,
-            dead_lettered: value.dead_lettered,
-            oldest_pending_age_ms: value.oldest_pending_age_ms,
-            lag_rows: value.lag_rows,
-            lag_versions: value.lag_versions,
-            saturated: value.saturated,
-            index_complete: value.index_complete,
-        },
+        status: crate::server::outbox_operator::consumer_status(&value),
         consecutive_claims: value.consecutive_claims,
         total_claims: value.total_claims,
     }

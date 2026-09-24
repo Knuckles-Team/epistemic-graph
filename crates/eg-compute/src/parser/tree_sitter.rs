@@ -274,6 +274,16 @@ pub(super) fn get_node_text(node: Node, source: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
 }
 
+/// First direct child of the given kind: how every grammar whose name or
+/// target sits on an unnamed positional child (no field) is read.
+pub(super) fn first_child_of_kind<'a>(node: Node<'a>, kind: &str) -> Option<Node<'a>> {
+    let mut cursor = node.walk();
+    let found = node
+        .children(&mut cursor)
+        .find(|child| child.kind() == kind);
+    found
+}
+
 /// Extract the imported module/path string from an import-like node across
 /// grammars, or `None` when it can't be read. Python `import a.b` /
 /// `from a.b import x`, JS/TS `import … from "src"`, Go `import_spec` path,
@@ -327,11 +337,7 @@ fn import_module(node: Node, source: &[u8]) -> Option<String> {
         // Fortran `use a` (CONCEPT:EH-281) — no field; the module name is an
         // unnamed positional `module_name`-kinded child.
         "use_statement" => {
-            let mut cursor = node.walk();
-            let found = node
-                .children(&mut cursor)
-                .find(|c| c.kind() == "module_name");
-            found.map(|c| get_node_text(c, source))
+            first_child_of_kind(node, "module_name").map(|c| get_node_text(c, source))
         }
         _ => None,
     }
@@ -351,11 +357,7 @@ fn julia_import_target(node: Node, source: &[u8]) -> Option<String> {
                 return Some(get_node_text(child, source));
             }
             "selected_import" => {
-                let mut inner = child.walk();
-                let found = child
-                    .children(&mut inner)
-                    .find(|c| c.kind() == "identifier");
-                if let Some(id) = found {
+                if let Some(id) = first_child_of_kind(child, "identifier") {
                     return Some(get_node_text(id, source));
                 }
             }

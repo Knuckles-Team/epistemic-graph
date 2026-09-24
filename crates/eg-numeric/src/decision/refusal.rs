@@ -1,5 +1,6 @@
 //! One error shape for the decision computation: a closed code and a detail.
 
+use eg_types::contract::BoundedVec;
 use eg_types::decision::statistical::StatisticalErrorCode;
 use eg_types::decision::DecisionErrorCode;
 
@@ -16,6 +17,12 @@ pub struct Refusal {
 
 /// The result shape of every fallible decision computation.
 pub type RefusalResult<T> = Result<T, Refusal>;
+
+/// `values` as a bounded wire list; an overlong list is an invalid dataset.
+pub fn bounded<T, const N: usize>(values: Vec<T>) -> RefusalResult<BoundedVec<T, N>> {
+    BoundedVec::new(values)
+        .map_err(|detail| Refusal::new(StatisticalErrorCode::DatasetInvalid, detail))
+}
 
 impl Refusal {
     pub fn new(code: StatisticalErrorCode, detail: impl Into<String>) -> Self {

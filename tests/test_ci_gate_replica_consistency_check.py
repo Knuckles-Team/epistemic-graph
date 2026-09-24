@@ -33,9 +33,27 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT_PATH = REPO_ROOT / "scripts" / "ci_gate_replica.py"
+
+
+# The release-critical cargo selections run in three parallel jobs. Guards
+# below that used to look inside `gates` alone look across all three.
+GATES_JOBS = ("gates", "gates-facade", "gates-variants", "gates-crates")
+# Every `cargo test` step runs through the EH-376 signal rescue (per-test
+# verdicts when a test binary dies on a signal); see scripts/cargo_test_rescue.py.
+RESCUE = "python3 scripts/cargo_test_rescue.py "
+
+
+def _gates_steps(doc) -> list[dict]:
+    return [step for job in GATES_JOBS for step in doc["jobs"][job]["steps"]]
+
+
+def _gates_rows(plan) -> list[dict]:
+    return [row for row in plan if row["job"] in GATES_JOBS]
+
 
 # Static tests of a Python script that parses YAML/TOML and shells out to
 # `bash -c` for its OWN (mocked-away, in these tests) subprocess calls --
@@ -149,7 +167,7 @@ def test_gates_job_runs_real_prerequisite_backed_vacuity_sweep_tests():
     """
     m = _load_module()
     doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
-    steps = doc["jobs"]["gates"]["steps"]
+    steps = _gates_steps(doc)
     names = [step.get("name") for step in steps]
     required = (
         "Provision pinned sqlite3 CLI (differential sqlite tests)",
@@ -159,17 +177,24 @@ def test_gates_job_runs_real_prerequisite_backed_vacuity_sweep_tests():
         "Test (Whisper real-model transcription and cancellation)",
     )
     assert all(name in names for name in required)
-    assert (
-        names.index(required[0]) < names.index(required[1]) < names.index(required[2])
-    )
-    assert names.index(required[3]) < names.index(required[4])
+    # Every job that runs an sqlite3-backed test provisions the CLI first, and
+    # the Whisper fixture precedes its test, within the job that runs it.
+    for job in GATES_JOBS:
+        job_names = [step.get("name") for step in doc["jobs"][job]["steps"]]
+        for consumer in (required[1], required[2]):
+            if consumer in job_names:
+                assert required[0] in job_names
+                assert job_names.index(required[0]) < job_names.index(consumer)
+        if required[4] in job_names:
+            assert required[3] in job_names
+            assert job_names.index(required[3]) < job_names.index(required[4])
     selected = [step for step in steps if step.get("name") in required]
     assert all(
         "if" not in step and "continue-on-error" not in step for step in selected
     )
 
     plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["release.yml"], doc)
-    rows = {row["name"]: row for row in plan if row["job"] == "gates"}
+    rows = {row["name"]: row for row in _gates_rows(plan)}
     assert rows[required[0]]["mode"] == "RUN"
     assert rows[required[1]]["mode"] == "RUN"
     assert rows[required[2]]["mode"] == "RUN"
@@ -177,21 +202,24 @@ def test_gates_job_runs_real_prerequisite_backed_vacuity_sweep_tests():
     assert rows[required[4]]["mode"] == "RUN"
     assert all(rows[name]["blocking"] is True for name in required)
     assert rows[required[1]]["detail"] == (
-        "cargo test --locked -p eg-sqlite-format --test differential --no-fail-fast"
+        f"{RESCUE}cargo test --locked -p eg-sqlite-format --test differential "
+        "--no-fail-fast"
     )
     assert rows[required[4]]["detail"] == (
-        "cargo test --locked -p eg-asr-whisper --test real_transcription --no-fail-fast"
+        f"{RESCUE}cargo test --locked -p eg-asr-whisper --test real_transcription "
+        "--no-fail-fast"
     )
 
 
 RAFT_CLUSTER_GATES = {
     "Test (raft cluster — consensus, placement, and multi-group unit tests)": (
-        "cargo test --locked -p epistemic-graph --features cluster,harness,calvin "
-        "--lib --no-fail-fast -- raft::"
+        f"{RESCUE}cargo test --locked -p epistemic-graph "
+        "--features cluster,harness,calvin --lib --no-fail-fast -- raft::"
     ),
     "Test (raft cluster — ack-lost commit retry reconciliation)": (
-        "cargo test --locked -p epistemic-graph --features cluster,harness,calvin "
-        "--test txn_reconcile_ack_lost_retry --no-fail-fast"
+        f"{RESCUE}cargo test --locked -p epistemic-graph "
+        "--features cluster,harness,calvin --test txn_reconcile_ack_lost_retry "
+        "--no-fail-fast"
     ),
 }
 
@@ -204,9 +232,9 @@ def test_gates_job_runs_the_raft_cluster_feature_layer_tests():
     """
     m = _load_module()
     doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
-    steps = {step.get("name"): step for step in doc["jobs"]["gates"]["steps"]}
+    steps = {step.get("name"): step for step in _gates_steps(doc)}
     plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["release.yml"], doc)
-    rows = {row["name"]: row for row in plan if row["job"] == "gates"}
+    rows = {row["name"]: row for row in _gates_rows(plan)}
     for name, command in RAFT_CLUSTER_GATES.items():
         assert name in steps, f"missing gates step: {name!r}"
         assert "if" not in steps[name] and "continue-on-error" not in steps[name]
@@ -219,7 +247,7 @@ CAPABILITY_GATE_NAME = "Test (canonical capability policy and generated ledger)"
 # `contract` = `canonical-ledger` + `contract-schema`: it also compiles and runs
 # `tests/contract_generated.rs`, which requires both, so it is the complete profile.
 CAPABILITY_GATE_COMMAND = (
-    "cargo test --locked -p eg-capabilities --features contract --no-fail-fast"
+    f"{RESCUE}cargo test --locked -p eg-capabilities --features contract --no-fail-fast"
 )
 
 
@@ -287,7 +315,7 @@ def test_capability_gate_contract_rejects_a_single_selected_target(selected_targ
     doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
     _set_capability_gate_command(
         doc,
-        f"cargo test --locked -p eg-capabilities --features contract "
+        f"{RESCUE}cargo test --locked -p eg-capabilities --features contract "
         f"--test {selected_target} --no-fail-fast",
     )
     with pytest.raises(AssertionError):
@@ -341,10 +369,11 @@ def test_advisory_checks_cannot_delay_the_release_path_and_obsolete_runs_cancel(
         "github.event_name == 'workflow_dispatch'"
     )
     assert set(build["needs"]) == {
-        "gates",
+        *GATES_JOBS,
         "security",
         "lint-and-architecture",
         "tts-piper-inference",
+        "language-clients",
     }
     advisory = {
         "documentation-advisory",
@@ -455,12 +484,13 @@ def test_advisory_benchmarks_job_is_now_covered():
         reason="benchmarks carries its own continue-on-error: true and must "
         "report blocking=False per-row",
     )
-    _assert_uniform_blocking(
-        _run_rows_for_job(plan, "gates"),
-        expected=True,
-        reason="gates has no continue-on-error and must report "
-        "blocking=True per-row (release.yml itself is blocking=True)",
-    )
+    for job in GATES_JOBS:
+        _assert_uniform_blocking(
+            _run_rows_for_job(plan, job),
+            expected=True,
+            reason=f"{job} has no continue-on-error and must report "
+            "blocking=True per-row (release.yml itself is blocking=True)",
+        )
 
 
 def test_reusable_workflow_call_job_is_reported_not_silently_dropped():
@@ -863,3 +893,143 @@ def test_run_step_injects_guard_without_rewriting_shell_text(monkeypatch):
     assert status == 0
     assert captured["args"] == ["bash", "-c", command]
     assert captured["env"]["CARGO_BUILD_JOBS"] == "2"
+
+
+# ── EH-311: every test target in the workspace is run by some release step ──
+
+
+def _package_test_targets(manifest: Path) -> set[tuple[str, str]]:
+    """Cargo's lib/bin/test targets for one package, by its auto-discovery rules."""
+    import tomllib
+
+    doc = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    root = manifest.parent
+    package = doc["package"]
+    targets: set[tuple[str, str]] = set()
+    lib = doc.get("lib", {})
+    if (root / lib.get("path", "src/lib.rs")).is_file():
+        name = lib.get("name", package["name"].replace("-", "_"))
+        targets.add(("lib", name))
+    if package.get("autotests", True):
+        for test in (root / "tests").glob("*.rs"):
+            targets.add(("test", test.stem))
+        for test in (root / "tests").glob("*/main.rs"):
+            targets.add(("test", test.parent.name))
+    targets |= {("test", entry["name"]) for entry in doc.get("test", [])}
+    if package.get("autobins", True):
+        if (root / "src/main.rs").is_file():
+            targets.add(("bin", package["name"]))
+        targets |= {("bin", p.stem) for p in (root / "src/bin").glob("*.rs")}
+    targets |= {("bin", entry["name"]) for entry in doc.get("bin", [])}
+    return targets
+
+
+def _workspace_packages() -> dict[str, set[tuple[str, str]]]:
+    import tomllib
+
+    root_doc = tomllib.loads((REPO_ROOT / "Cargo.toml").read_text(encoding="utf-8"))
+    manifests = [REPO_ROOT / "Cargo.toml"] + [
+        REPO_ROOT / member / "Cargo.toml" for member in root_doc["workspace"]["members"]
+    ]
+    return {
+        tomllib.loads(m.read_text(encoding="utf-8"))["package"]["name"]: (
+            _package_test_targets(m)
+        )
+        for m in manifests
+    }
+
+
+def _selected_targets(line: str, packages: dict) -> set[tuple[str, str, str]]:
+    import shlex
+
+    args = shlex.split(line.split("cargo test", 1)[1].split(" -- ")[0])
+    flag_values = lambda flag: [args[i + 1] for i, a in enumerate(args) if a == flag]  # noqa: E731
+    chosen = flag_values("-p") or ["epistemic-graph"]
+    if "--workspace" in args:
+        chosen = [p for p in packages if p not in flag_values("--exclude")]
+    tests, lib_only = set(flag_values("--test")), "--lib" in args
+    selected = set()
+    for package in chosen:
+        for kind, name in packages[package]:
+            if tests:
+                keep = kind == "test" and name in tests
+            else:
+                keep = kind == "lib" or not lib_only
+            if keep:
+                selected.add((package, kind, name))
+    return selected
+
+
+def test_every_workspace_test_target_is_run_by_a_release_step():
+    packages = _workspace_packages()
+    doc = yaml.safe_load((REPO_ROOT / ".github/workflows/release.yml").read_text())
+    selected: set[tuple[str, str, str]] = set()
+    for job in doc["jobs"].values():
+        for step in (job or {}).get("steps", []) or []:
+            for line in str(step.get("run", "")).splitlines():
+                if "cargo test" in line:
+                    selected |= _selected_targets(line, packages)
+    every = {
+        (p, kind, name) for p, targets in packages.items() for kind, name in targets
+    }
+    assert len(every) > 150, "the target census found almost nothing"
+    assert sorted(every - selected) == [], "test targets no release step runs"
+
+
+def test_pyo3_crates_are_tested_with_every_feature_but_python():
+    import tomllib
+
+    doc = yaml.safe_load((REPO_ROOT / ".github/workflows/release.yml").read_text())
+    step = next(
+        s
+        for s in doc["jobs"]["gates-crates"]["steps"]
+        if s.get("name") == "Test (pyo3 crates, every feature except python)"
+    )
+    listed = set(step["run"].split("--features ", 1)[1].split()[0].split(","))
+    for crate in ("eg-numeric", "eg-pyengine"):
+        manifest = REPO_ROOT / "crates" / crate / "Cargo.toml"
+        features = set(tomllib.loads(manifest.read_text())["features"]) - {
+            "default",
+            "python",
+        }
+        implied = {
+            f
+            for f in features
+            if f"{crate}/{f}" not in listed
+            and any(
+                f
+                in tomllib.loads(manifest.read_text())["features"].get(
+                    g.split("/")[1], []
+                )
+                for g in listed
+                if g.startswith(f"{crate}/")
+            )
+        }
+        missing = {f for f in features if f"{crate}/{f}" not in listed} - implied
+        assert missing == set(), (crate, missing)
+
+
+def test_clippy_denies_warnings_on_every_release_profile():
+    """EH-191/EH-225: --all-features compiles away cfg(not(feature)) code, so the
+    published profile (MATURIN_FEATURES, no raft) and slim `server` need own legs."""
+    m = _load_module()
+    doc = m.load_workflow(m.WORKFLOWS_DIR / "release.yml")
+    published = doc["env"]["MATURIN_FEATURES"]
+    plan, _, _ = m.build_plan_for_workflow(m.WORKFLOW_REGISTRY["release.yml"], doc)
+    clippy = {
+        row["detail"]
+        for row in plan
+        if row["job"].startswith("quality-advisory#")
+        and row["detail"].startswith("cargo clippy")
+    }
+    for profile in (
+        "--workspace --all-features",
+        f"--no-default-features --features {published}",
+        "--no-default-features --features server",
+    ):
+        assert any(
+            profile in cmd and cmd.endswith("-- -D warnings") for cmd in clippy
+        ), (
+            profile,
+            clippy,
+        )

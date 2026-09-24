@@ -114,13 +114,13 @@ class AgentComponentEntry(BaseModel):
 
     actor_scope: str
     attributes: dict[str, str] | None = None
-    classification: list[str] | None = None
+    classification: list[str] = Field(default_factory=list)
     component_id: str
     content_digest: str
     content_ref: str | None = None
     created_at_ms: Annotated[int, Field(ge=0)]
-    declared_capabilities: list[str] | None = None
-    declared_required_capabilities: list[str] | None = None
+    declared_capabilities: list[str] = Field(default_factory=list)
+    declared_required_capabilities: list[str] = Field(default_factory=list)
     definition_digest: str
     entry_revision: Annotated[int, Field(ge=0)]
     facts: AgentComponentFacts
@@ -129,8 +129,8 @@ class AgentComponentEntry(BaseModel):
     policy_digest: str
     provenance: ComponentProvenance
     purpose_id: str
-    required_capabilities: list[str] | None = None
-    requires: list[ComponentDependency] | None = None
+    required_capabilities: list[str] = Field(default_factory=list)
+    requires: list[ComponentDependency] = Field(default_factory=list)
     schema_version: Annotated[int, Field(ge=0, le=65535)]
     source_revision: str
     source_revision_digest: str
@@ -304,8 +304,8 @@ class AssemblyConstraints(BaseModel):
     cost_budget: CostBudget | None = None
     max_components: Annotated[int, Field(ge=0)] | None = None
     max_p95_latency_ms: Annotated[int, Field(ge=0)] | None = None
-    modalities_in: BoundedVec_string_16 | None = None
-    modalities_out: BoundedVec_string_16 | None = None
+    modalities_in: BoundedVec_string_16 = Field(default_factory=list)
+    modalities_out: BoundedVec_string_16 = Field(default_factory=list)
     require_structured_output: bool | None = None
     require_tools: bool | None = None
 
@@ -317,20 +317,20 @@ class AssemblyRequest(BaseModel):
     policy: DecisionPolicyRef
     requirements: AssemblyRequirements
     solver: SolverBudget | None = None
-    templates: BoundedVec_AgentGraphEntryRef_8 | None = None
+    templates: BoundedVec_AgentGraphEntryRef_8 = Field(default_factory=list)
     tenant_id: str
 
 
 class AssemblyRequirements(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    capabilities: BoundedVec_string_32 | None = None
+    capabilities: BoundedVec_string_32 = Field(default_factory=list)
     constraints: AssemblyConstraints | None = None
-    denies: BoundedVec_string_64 | None = None
-    pins: BoundedVec_ComponentDependency_64 | None = None
-    task_mappings: BoundedVec_ClaimedTaskMapping_32 | None = None
-    tasks: BoundedVec_string_32 | None = None
-    unmapped_task_digests: BoundedVec_string_32 | None = None
+    denies: BoundedVec_string_64 = Field(default_factory=list)
+    pins: BoundedVec_ComponentDependency_64 = Field(default_factory=list)
+    task_mappings: BoundedVec_ClaimedTaskMapping_32 = Field(default_factory=list)
+    tasks: BoundedVec_string_32 = Field(default_factory=list)
+    unmapped_task_digests: BoundedVec_string_32 = Field(default_factory=list)
 
 
 class CandidateFacts(BaseModel):
@@ -516,7 +516,7 @@ class DecisionInputs(BaseModel):
     policy_digest: str
     request: AssemblyRequest
     solver: SolverIdentity
-    templates: BoundedVec_TemplateFacts_8 | None = None
+    templates: BoundedVec_TemplateFacts_8 = Field(default_factory=list)
 
 
 class DecisionOutcomeSolved(BaseModel):
@@ -710,8 +710,8 @@ class LibraryCandidateScope(BaseModel):
 class ModalityFacts(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    input: list[str] | None = None
-    output: list[str] | None = None
+    input: list[str] = Field(default_factory=list)
+    output: list[str] = Field(default_factory=list)
 
 
 class ObjectiveLevelKind(str, Enum):
@@ -923,8 +923,11 @@ class StatisticalPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     alpha: UnitRationalWire
+    approved_commit_principals: BoundedVec_string_64 = Field(default_factory=list)
     audit_sample: UnitRationalWire
+    compact_after_ms: Annotated[int, Field(ge=0)] | None = None
     delta: UnitRationalWire
+    drop_blob_after_ms: Annotated[int, Field(ge=0)] | None = None
     epsilon: UnitRationalWire
     min_ess: QuantisedValue
     min_outcome_fidelity: TraceFidelityLevel

@@ -94,6 +94,7 @@ fn requires_write_decision_surface(method: &Method) -> Option<bool> {
     match method {
         Method::ConnectorPack { op } => Some(op.is_mutation()),
         Method::DecisionFit { op } => Some(op.is_mutation()),
+        Method::DecisionLog { op } => Some(op.is_mutation()),
         Method::DecisionEval { op } => Some(op.is_mutation()),
         Method::MutationOutbox { op } => Some(op.is_mutation()),
         _ => None,
@@ -114,6 +115,15 @@ fn requires_write_fleet_catalog_surface(method: &Method) -> Option<bool> {
         return Some(op.is_mutation());
     }
     None
+}
+
+/// EH-280 — `IndexRepository` commits its branch-aware projection only
+/// when the batch carries a scope; an unscoped batch is a stateless parse.
+fn requires_write_ingestion_surface(method: &Method) -> Option<bool> {
+    match method {
+        Method::IndexRepository { scope, .. } => Some(scope.is_some()),
+        _ => None,
+    }
 }
 
 fn requires_write_native_surface(method: &Method) -> Option<bool> {
@@ -347,6 +357,7 @@ pub(crate) fn requires_write(method: &Method) -> bool {
         requires_write_decision_surface,
         requires_write_back_surface,
         requires_write_fleet_catalog_surface,
+        requires_write_ingestion_surface,
         requires_write_native_surface,
         requires_write_query_surface,
         requires_write_mining_surface,

@@ -8,9 +8,13 @@
 //! fleet catalog cannot come to disagree with `AgentComponent.Current` about
 //! what a record says.
 
+use std::ops::ControlFlow;
+
 use eg_types::agent_component::AgentComponentEntry;
 
-use super::agent_component::{component_tables, ComponentLayer};
+use super::agent_component::{
+    component_tables, head_revision_row, scan_tenant_heads, ComponentLayer,
+};
 use super::agent_library::AgentLibraryStore;
 use super::agent_revision::decode_revision;
 
@@ -32,26 +36,19 @@ impl AgentLibraryStore {
         let heads = read.open_owner_table(tables.heads)?;
         let revisions = read.open_owner_table(tables.revisions)?;
         let mut entries = Vec::new();
-        for row in heads
-            .range((tenant_id, prefix)..)
-            .map_err(|error| error.to_string())?
-        {
-            let (key, head_revision) = row.map_err(|error| error.to_string())?;
-            let (row_tenant, component_id) = key.value();
-            if row_tenant != tenant_id || !component_id.starts_with(prefix) {
-                break;
+        scan_tenant_heads(&heads, tenant_id, prefix, |component_id, head_revision| {
+            if !component_id.starts_with(prefix) {
+                return Ok(ControlFlow::Break(()));
             }
             if entries.len() == max_rows {
                 return Err(format!(
                     "FLEET_SNAPSHOT_TOO_LARGE: more than {max_rows} components under '{prefix}'"
                 ));
             }
-            let revision = revisions
-                .get((row_tenant, component_id, head_revision.value()))
-                .map_err(|error| error.to_string())?
-                .ok_or_else(|| "agent component head points to a missing revision".to_string())?;
+            let revision = head_revision_row(&revisions, tenant_id, component_id, head_revision)?;
             entries.push(decode_revision::<ComponentLayer>(revision.value())?);
-        }
+            Ok(ControlFlow::Continue(()))
+        })?;
         Ok(entries)
     }
 }

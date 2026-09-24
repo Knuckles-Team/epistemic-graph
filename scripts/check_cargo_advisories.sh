@@ -5,11 +5,11 @@
 # `scripts/audit_dependencies.py` (agent-utilities) runs on the Python side:
 # every dependency advisory is a hard failure unless it has a justified,
 # <=90-day-expiring risk acceptance recorded in a ledger file — here
-# `.cargo-audit-allow.txt`, the Rust twin of the Python side's
-# `.security-audit-allow.txt`.
+# `.config/cargo-audit-allow.txt`, the Rust twin of the Python side's
+# `.config/security-audit-allow.txt`.
 #
-# `deny.toml`'s `[advisories].ignore` list is the thing cargo-deny actually
-# reads. `.cargo-audit-allow.txt` is the auditable paperwork trail: this script
+# `.config/deny.toml`'s `[advisories].ignore` list is the thing cargo-deny actually
+# reads. `.config/cargo-audit-allow.txt` is the auditable paperwork trail: this script
 # cross-validates the two so they can never drift —
 #   * every deny.toml ignore entry must have a justified, unexpired ledger line
 #     (an ignore with no accountable justification is a build failure), and
@@ -22,8 +22,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-ALLOW_FILE=".cargo-audit-allow.txt"
-DENY_TOML="deny.toml"
+ALLOW_FILE=".config/cargo-audit-allow.txt"
+DENY_TOML=".config/deny.toml"
 EXPECTED_CARGO_DENY_VERSION="$(
   PYTHONPATH=scripts python3 -c \
     'from scanner_contract import load_contract; print(load_contract().cargo_deny_version)'
@@ -59,11 +59,11 @@ EOF
 fi
 
 if [[ ! -f "$DENY_TOML" ]]; then
-  echo "FAIL: $DENY_TOML is missing at the repo root." >&2
+  echo "FAIL: $DENY_TOML is missing." >&2
   exit 2
 fi
 
-# ── Cross-validate the ledger (.cargo-audit-allow.txt) against deny.toml's
+# ── Cross-validate the ledger (.config/cargo-audit-allow.txt) against .config/deny.toml's
 #    [advisories].ignore list. Pure stdlib (tomllib, Python 3.11+) -- no new dep.
 python3 - "$ALLOW_FILE" "$DENY_TOML" <<'PYEOF'
 import datetime as dt
@@ -151,4 +151,4 @@ print(f"audit: allowlist ledger consistent ({len(ledger)} accepted advisories)")
 PYEOF
 
 # ── The actual advisory gate: whatever deny.toml permits, cargo-deny enforces.
-"$CARGO_DENY_BIN" check advisories
+"$CARGO_DENY_BIN" --config "$DENY_TOML" check advisories

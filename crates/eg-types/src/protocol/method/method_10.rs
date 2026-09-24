@@ -73,6 +73,12 @@ $($variants)*
     DecisionEval {
         op: Box<crate::decision::DecisionEvalOp>,
     },
+    /// The statistical decision log: commit an acted-on record after
+    /// verify-replay, join independent outcome evaluations, and read the
+    /// outcome aggregate the log answers.
+    DecisionLog {
+        op: Box<crate::decision::statistical::log::DecisionLogOp>,
+    },
     /// General bounded 0-1 integer programme with an independently verifiable
     /// certificate. Pure compute: no store, no clock, no float.
     Solve {

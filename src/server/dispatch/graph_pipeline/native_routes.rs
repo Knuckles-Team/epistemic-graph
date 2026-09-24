@@ -329,6 +329,13 @@ async fn route_source_ingestion_or_resources(
             Method::SourceIngestStatus { connector, stream } => SourceIngestionRoute::Status(
                 eg_types::source_ingestion::SourceIngestStatusRequest { connector, stream },
             ),
+            Method::IndexRepository {
+                files_msgpack,
+                scope: Some(scope),
+            } => SourceIngestionRoute::IndexRepository {
+                files_msgpack,
+                scope,
+            },
             method => return route_native_typed_ops(ctx, method).await,
         };
     route_source_ingestion_dispatch(ctx, source_method).await
@@ -347,6 +354,19 @@ async fn route_source_ingestion_dispatch(
         SourceIngestionRoute::Status(request) => route_source_ingestion_status(ctx, request).await,
         SourceIngestionRoute::Ingest(request) => {
             route_source_ingestion_request(ctx, *request, placement_epoch, fencing_token).await
+        }
+        SourceIngestionRoute::IndexRepository {
+            files_msgpack,
+            scope,
+        } => {
+            super::repository_index::route_repository_index(
+                ctx,
+                files_msgpack,
+                scope,
+                placement_epoch,
+                fencing_token,
+            )
+            .await
         }
     };
     Ok(response)
@@ -406,6 +426,12 @@ async fn route_source_ingestion_request(
 enum SourceIngestionRoute {
     Ingest(Box<eg_types::source_ingestion::SourceIngestionRequest>),
     Status(eg_types::source_ingestion::SourceIngestStatusRequest),
+    /// EH-280 — a branch-aware batch commits its projection through the
+    /// same placement fence and ChangeEnvelope authority as source ingestion.
+    IndexRepository {
+        files_msgpack: Vec<u8>,
+        scope: Box<eg_types::ingestion_wire::IndexRepositoryScope>,
+    },
 }
 
 #[cfg(feature = "raft")]

@@ -11,6 +11,9 @@
 //! (`relationship`/`confidence`/`provenance`) — the same "typed node/edge by
 //! convention" pattern mining already uses for `:AssociationRule`. This crate holds
 //! only VIEW/compute types over that data — nothing here is a new stored struct.
+//! The stored claim/evidence SHAPE is typed, though: `eg_types::epistemic_node::{Claim,
+//! Evidence}` own it for every writer, and [`EpistemicNodeIndex`] decodes a snapshot's
+//! claim/evidence nodes into those structs (EH-194).
 //!
 //! The core operation is [`propagate::propagate_confidence`]: a bounded, cycle-guarded
 //! BFS over the support/contradiction/attack topology whose numeric core is the
@@ -25,8 +28,11 @@ mod adapter;
 mod incremental;
 mod model;
 mod propagate;
+// EH-194 — typed `Claim`/`Evidence` nodes decoded from a snapshot (the reader half of
+// `eg_types::epistemic_node`). Unconditional: it adds no dependency.
 #[cfg(feature = "epistemic-tms")]
 mod tms;
+mod typed;
 // EPI-P3-3 — calibrated probabilistic + causal reasoning: a linear-Gaussian SCM
 // supporting genuine do-calculus interventions, Pearl-style point counterfactuals,
 // and calibrated intervals. Independent of `epistemic-tms`/`contract` — its own
@@ -76,6 +82,7 @@ pub use model::{
     Calibration, EdgeKind, JustRule, JustificationGraph, ProofNode, TimeAxis,
 };
 pub use propagate::{belief_distribution, explain_belief, propagate_confidence};
+pub use typed::{EpistemicNodeIndex, TypedEvidence};
 
 // EPI-P3-3 — causal reasoning primitives, see `causal` module docs. Both the
 // continuous linear-Gaussian SCM and the discrete categorical CPT SCM (W1e),

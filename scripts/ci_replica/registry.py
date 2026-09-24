@@ -50,48 +50,39 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
     "release.yml": WorkflowSpec(
         filename="release.yml",
         blocking=True,
-        # The runtime-contract job remains blocking and is executable here;
-        # the security, documentation, lint, and scanner jobs are classified
-        # separately below because their CI setup is not a local shell check.
-        # Optional feature builds and benchmarks remain executable, but their
-        # literal `continue-on-error: true` is reflected per row by the planner.
+        # Every job whose steps are shell checks is executable here, so the
+        # replica is the ONE gate definition that local pre-push, the build-host
+        # landing gate and hosted CI share. Their tool-installation steps
+        # (apt-get, `cargo install`) are replaced locally by a verification that
+        # the pinned tool is present -- see LOCAL_SETUP_STEPS -- never skipped
+        # silently. Advisory jobs keep their literal `continue-on-error: true`,
+        # reflected per row by the planner (and overridden by --all-blocking).
         executable_jobs=frozenset(
-            {"gates", "lint-and-architecture", "feature-matrix", "benchmarks"}
+            {
+                "gates",
+                "gates-facade",
+                "gates-variants",
+                "gates-crates",
+                "lint-and-architecture",
+                "security",
+                "documentation-advisory",
+                "quality-advisory",
+                "scanner-quality",
+                "tts-piper-inference",
+                "feature-matrix",
+                "benchmarks",
+            }
         ),
         job_skip_reasons={
-            "security": (
-                "Blocking CI security job: scans full Git history and installs the "
-                "repository-pinned cargo-deny tool into a runner-local root. The "
-                "pre-push cargo-deny hook covers dependency advisories locally; "
-                "the full-history scan is GitHub-specific."
-            ),
-            "documentation-advisory": (
-                "Non-blocking documentation freshness checks are reported by the "
-                "dedicated GitHub Actions job; they are not part of the local "
-                "release-gate replica."
-            ),
-            "quality-advisory": (
-                "Non-blocking all-features Clippy profile installs Ubuntu build "
-                "headers for librdkafka/Cyrus-SASL and runs as CI quality feedback."
-            ),
-            "tts-piper-inference": (
-                "CI-only real-inference job: apt-installs the espeak-ng/bindgen native "
-                "build dependencies and downloads the pinned onnxruntime release via "
-                "scripts/fetch_onnxruntime.sh. Installing packages or downloading a "
-                "runtime during a local hook is forbidden. Run it locally with "
-                '`export ORT_DYLIB_PATH="$(scripts/fetch_onnxruntime.sh)"` then '
-                "`cargo test -p eg-tts-piper --all-features`. Every step is therefore "
-                "reported NOT VALIDATED LOCALLY rather than silently omitted."
-            ),
-            "scanner-quality": (
-                "CI-only scanner profile: provisions the exact CCCC/KISS/dupehound/"
-                "jscpd/import-linter/dependency-cruiser/arch-lint versions into an "
-                "ephemeral runner directory. Local pre-commit/pre-push and manual "
-                "profiles run fail-closed wrappers and native architecture checks "
-                "against preinstalled tools; replaying this job locally would "
-                "download and compile tools during a hook, which is forbidden. "
-                "Every step is therefore reported NOT VALIDATED LOCALLY rather than "
-                "silently omitted."
+            "language-clients": (
+                "CI-only client job: installs the pinned toolchain's wasm32 target "
+                "(rustup download), the Go toolchain and the locked npm dependencies, "
+                "which a local hook may not download. Run it locally with "
+                "`rustup target add wasm32-unknown-unknown && "
+                "python3 scripts/build_method_codec_wasm.py --check`, then "
+                "`go test -count=1 ./...` in clients/go and `npm ci && npm test` in "
+                "clients/js. Every step is therefore reported NOT VALIDATED LOCALLY "
+                "rather than silently omitted."
             ),
             "build": (
                 "5-platform native cross-compilation matrix (linux-x86_64/aarch64, "
@@ -157,7 +148,48 @@ ENV_SETUP_ACTIONS = (
     "dtolnay/rust-toolchain",
     "Swatinem/rust-cache",
     "astral-sh/setup-uv",
+    # A cache restore is an optimisation with no logic: a miss only means the
+    # step it guards runs. Locally the guarded step is itself a LOCAL_SETUP_STEPS
+    # entry, whose verification runs regardless.
+    "actions/cache",
 )
+
+# Tool-INSTALLATION `run:` steps, keyed by (workflow, job, step name). A local
+# host must not apt-get or `cargo install` during a gate, so each is replaced by
+# a verification that the pinned tool is already present:
+#   * "apt"  -- every package named by the step's own `apt-get install` line is
+#               installed (derived from the step text, so the lists cannot drift);
+#   * a shell command -- run verbatim; it must fail when the tool is absent or at
+#               another version.
+# A key that no longer names a step fails the consistency check (stale entry).
+APT_VERIFY = "apt"
+LOCAL_SETUP_STEPS: dict[tuple[str, str, str], str] = {
+    ("release.yml", "security", "Install pinned cargo-deny"): (
+        "expected=\"$(PYTHONPATH=scripts python3 -c 'from scanner_contract import "
+        "load_contract; print(load_contract().cargo_deny_version)')\" && "
+        'test "$(cargo-deny --version)" = "cargo-deny $expected"'
+    ),
+    (
+        "release.yml",
+        "quality-advisory",
+        "Install librdkafka/Cyrus-SASL build headers",
+    ): APT_VERIFY,
+    (
+        "release.yml",
+        "gates-crates",
+        "Install librdkafka/Cyrus-SASL build headers",
+    ): APT_VERIFY,
+    (
+        "release.yml",
+        "tts-piper-inference",
+        "Install espeak-ng / bindgen native build dependencies",
+    ): APT_VERIFY,
+    # The job's own "Verify scanner versions" step (which still runs) asserts
+    # every pinned version; this only requires the binaries to be present.
+    ("release.yml", "scanner-quality", "Provision pinned scanner toolchain"): (
+        "command -v cccc kiss dupehound arch-lint jscpd depcruise >/dev/null"
+    ),
+}
 
 # `uses:` actions that only move files between CI jobs — no logic to run.
 ARTIFACT_IO_ACTIONS = ("actions/upload-artifact", "actions/download-artifact")
@@ -264,10 +296,10 @@ BUILD_AFFECTING_FILE_PATTERNS: tuple[str, ...] = (
     # inputs.  A diff in one of these files must not permit callers to skip the
     # workflow-derived gate on the grounds that no Rust source changed.
     "pyproject.toml",
-    ".kiss/**",
+    ".config/kiss.toml",
     ".kissconfig",
-    ".importlinter",
-    "arch-lint.toml",
+    ".config/importlinter.ini",
+    ".config/arch-lint.toml",
     "**/.dependency-cruiser.cjs",
     "**/.dependency-cruiser.js",
     "clients/js/package.json",

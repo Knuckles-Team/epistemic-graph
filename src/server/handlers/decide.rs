@@ -4,9 +4,13 @@
 //! and the two admin jobs. Each entry point's signature is frozen by the
 //! contract wave; the package that lands a handler replaces only its body.
 
+/// The server state every Decide entry point is handed.
+type SharedState = std::sync::Arc<tokio::sync::RwLock<crate::server::state::ServerState>>;
+
 pub(crate) mod assemble;
 pub(crate) mod commit;
 pub(crate) mod jobs;
+pub(crate) mod log;
 #[cfg(feature = "decide")]
 pub(crate) mod shape;
 pub(crate) mod statistical;
@@ -16,13 +20,21 @@ pub(crate) mod statistical;
 #[cfg(feature = "decide")]
 mod candidates;
 #[cfg(feature = "decide")]
+mod stat_classes;
+#[cfg(feature = "decide")]
 mod stat_decide;
 #[cfg(feature = "decide")]
 mod stat_executor;
 #[cfg(feature = "decide")]
 mod stat_jobs;
 #[cfg(feature = "decide")]
+mod stat_log;
+#[cfg(feature = "decide")]
 mod stat_nl;
+#[cfg(feature = "decide")]
+mod stat_replay;
+#[cfg(feature = "decide")]
+mod stat_retention;
 #[cfg(feature = "decide")]
 mod stat_support;
 #[cfg(all(test, feature = "decide"))]
@@ -33,4 +45,5 @@ mod telemetry;
 pub(crate) use assemble::handle_agent_assemble;
 pub(crate) use commit::handle_decision_commit;
 pub(crate) use jobs::{handle_decision_eval, handle_decision_fit};
+pub(crate) use log::handle_decision_log;
 pub(crate) use statistical::handle_decide;

@@ -12,6 +12,7 @@ from pathlib import Path
 from ci_replica.build_toolchain import check_build_tool_dependencies
 from ci_replica.registry import (
     CARGO_CONFIG_PATH,
+    LOCAL_SETUP_STEPS,
     WORKFLOW_REGISTRY,
     WORKFLOWS_DIR,
     WorkflowSpec,
@@ -121,7 +122,25 @@ def _workflow_job_census(
         total_jobs += len(doc.get("jobs", {}) or {})
         total_steps += len(plan)
         drift.extend(_job_drift(fname, unclassified, stale_jobs))
+    drift.append(_setup_step_drift(loaded))
     return drift, total_jobs, total_steps
+
+
+def _setup_step_drift(loaded: list[tuple[str, WorkflowSpec, dict]]) -> DriftReport:
+    """LOCAL_SETUP_STEPS keys that no longer name a `run:` step of their job."""
+    present = {
+        (fname, job_id, step.get("name"))
+        for fname, _, doc in loaded
+        for job_id, job in (doc.get("jobs", {}) or {}).items()
+        for step in (job or {}).get("steps", []) or []
+        if "run" in step
+    }
+    return DriftReport(
+        "LOCAL_SETUP_STEPS names tool-installation step(s) that no longer exist "
+        "(the step was renamed or removed, so its local verification never runs):",
+        [repr(key) for key in sorted(set(LOCAL_SETUP_STEPS) - present)],
+        "Update scripts/ci_replica/registry.py LOCAL_SETUP_STEPS.",
+    )
 
 
 def consistency_check(

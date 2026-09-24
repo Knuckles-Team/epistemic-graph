@@ -1,11 +1,30 @@
 #!/usr/bin/env python3
-"""Run the advisory KISS census with bounded process-level parallelism.
+"""Run the advisory KISS census: one whole-tree run UNIONED with one run per package.
 
-KISS 0.4.10 can report a false clean when more than one path is passed to a
-single ``check`` invocation.  This adapter therefore preserves one process per
-tracked Rust path, while allowing a small number of independent processes to
-run concurrently.  Each child is restricted to one Rayon worker so the census
-cannot multiply the host CPU count by the process count.
+KISS 0.4.10 reports a false clean when more than one path is passed to a single
+``check`` invocation, so every call passes exactly one path. That path is the
+codebase root KISS analyses, and the choice changes what it can see:
+
+* one tracked FILE per call (the census until 2026-09-22): each file is its own
+  one-file codebase, so the cross-file duplication, orphan-module, dependency-
+  depth and cycle rules never fire, and the multi-second Rust role scan is paid
+  per file (137 minutes in the hosted scanner job);
+* the repository root: the whole workspace in one graph -- cross-crate
+  duplication and dependency depth become visible, but KISS resolves `crate::`
+  paths less precisely across a multi-crate workspace, so some intra-crate
+  cycles and depths are lost (and 29 `orphan_module` findings appear for files
+  the compiler-derived `orphan-modules` gate proves are compiled);
+* one PACKAGE root (`src`, `crates/<name>`) per call: exact intra-crate graphs,
+  but no cross-crate view.
+
+The census is the de-duplicated UNION of the whole-tree run and every package
+run, so it reports every finding any of the three shapes reports. Measured
+2026-09-22 over the 1,920-file manifest: per-file 430, whole-tree 502, per-
+package 473, union 515; per-file, whole-tree and per-package are each subsets.
+Wall time is about 80 s (per-package runs in parallel).
+
+KISS honours ``.gitignore``; untracked, non-ignored Rust files are passed to
+``--ignore`` so the census universe stays the tracked tree.
 
 Exit 0 means the complete advisory census ran (findings are allowed).  Exit 2
 means the census could not run or a native report contradicted its exit status.
@@ -14,18 +33,26 @@ means the census could not run or a native report contradicted its exit status.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
-from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn
 
-from scanner_contract import ScannerContractError, load_contract, sanitized_env
+from scanner_contract import (
+    ScannerContractError,
+    load_contract,
+    run_git,
+    sanitized_env,
+)
 
 ROOT = Path(__file__).resolve().parent.parent
-MAX_WORKERS = 4
+CENSUS_ROOT = "."
+PACKAGE_WORKERS = 4
+_VIOLATION = re.compile(rb"^VIOLATION:([^:]+):(.+?):(\d+):([^:]*):", re.M)
 
 
 @dataclass(frozen=True)
@@ -47,27 +74,6 @@ def fail(message: str, output: bytes | None = None) -> NoReturn:
             sys.stderr.buffer.write(b"\n")
     print(f"kiss census: {message}", file=sys.stderr)
     raise SystemExit(2)
-
-
-def worker_count(raw: str | None, available_cpus: int | None = None) -> int:
-    """Resolve a deliberately small, operator-reducible worker bound."""
-
-    cpus = available_cpus
-    if cpus is None:
-        try:
-            cpus = len(os.sched_getaffinity(0))
-        except AttributeError:
-            cpus = os.cpu_count() or 1
-    default = min(MAX_WORKERS, max(1, cpus))
-    if raw is None:
-        return default
-    try:
-        requested = int(raw)
-    except ValueError as exc:
-        raise ValueError("KISS_CENSUS_WORKERS must be an integer") from exc
-    if not 1 <= requested <= MAX_WORKERS:
-        raise ValueError(f"KISS_CENSUS_WORKERS must be between 1 and {MAX_WORKERS}")
-    return min(requested, max(1, cpus))
 
 
 def _decode_manifest(output: bytes) -> list[str]:
@@ -103,20 +109,55 @@ def _manifest(env: dict[str, str]) -> list[str]:
     return _decode_manifest(result.stdout)
 
 
-def scan_one(kiss_bin: str, path: str, env: dict[str, str]) -> ScanResult:
-    """Run exactly one path through exactly one pinned KISS process."""
+def untracked_rust_sources() -> list[str]:
+    """Untracked, non-ignored Rust files: outside the tracked census universe."""
+
+    try:
+        result = run_git(
+            ["ls-files", "-z", "--others", "--exclude-standard", "--", "*.rs"],
+            cwd=ROOT,
+        )
+    except RuntimeError as exc:
+        fail(str(exc))
+    if result.returncode != 0:
+        fail("could not list untracked Rust sources", result.stderr.encode())
+    return [path for path in result.stdout.split("\0") if path]
+
+
+def package_roots(paths: list[str]) -> list[str]:
+    """One codebase root per package: `src` (the facade) and each `crates/<name>`."""
+
+    roots = set()
+    for path in paths:
+        parts = path.split("/")
+        if parts[0] == "src":
+            roots.add("src")
+        elif parts[0] == "crates" and len(parts) > 2:
+            roots.add("/".join(parts[:2]))
+        else:
+            fail(f"tracked-source manifest has a path outside src/ and crates/: {path}")
+    return sorted(roots)
+
+
+def census_command(
+    kiss_bin: str, ignored: list[str], root: str = CENSUS_ROOT
+) -> list[str]:
+    """One invocation over exactly one codebase root."""
+
+    command = [kiss_bin, "check", "--config", ".config/kiss.toml", "--lang", "rust"]
+    for path in ignored:
+        command += ["--ignore", path]
+    return [*command, root]
+
+
+def scan_tree(
+    kiss_bin: str, ignored: list[str], env: dict[str, str], root: str = CENSUS_ROOT
+) -> ScanResult:
+    """Run one codebase root through exactly one pinned KISS process."""
 
     try:
         result = subprocess.run(
-            [
-                kiss_bin,
-                "check",
-                "--config",
-                ".kiss/kiss.toml",
-                "--lang",
-                "rust",
-                path,
-            ],
+            census_command(kiss_bin, ignored, root),
             cwd=ROOT,
             env=env,
             stdout=subprocess.PIPE,
@@ -124,9 +165,37 @@ def scan_one(kiss_bin: str, path: str, env: dict[str, str]) -> ScanResult:
             check=False,
         )
     except OSError as exc:
-        return ScanResult(path, 2, f"could not start KISS: {exc}\n".encode(), 0)
+        message = f"could not start KISS: {exc}\n".encode()
+        return ScanResult(root, 2, message, 0)
     count = sum(line.startswith(b"VIOLATION:") for line in result.stdout.splitlines())
-    return ScanResult(path, result.returncode, result.stdout, count)
+    return ScanResult(root, result.returncode, result.stdout, count)
+
+
+def findings(result: ScanResult) -> set[tuple[str, str, int, str]]:
+    """(rule, repository-relative path, line, unit) for every reported violation."""
+
+    found = set()
+    for rule, path, line, unit in _VIOLATION.findall(result.output):
+        text = path.decode("utf-8", "replace")
+        relative = os.path.relpath(text, ROOT) if os.path.isabs(text) else text
+        found.add((rule.decode(), os.path.normpath(relative), int(line), unit.decode()))
+    return found
+
+
+def union_census(
+    kiss_bin: str, roots: list[str], ignored: list[str], env: dict[str, str]
+) -> set[tuple[str, str, int, str]]:
+    """Validate every run, then return the de-duplicated union of their findings."""
+
+    with ThreadPoolExecutor(max_workers=PACKAGE_WORKERS) as executor:
+        results = list(
+            executor.map(lambda root: scan_tree(kiss_bin, ignored, env, root), roots)
+        )
+    union: set[tuple[str, str, int, str]] = set()
+    for result in results:
+        validate(result)
+        union |= findings(result)
+    return union
 
 
 def validate(result: ScanResult) -> int:
@@ -143,34 +212,6 @@ def validate(result: ScanResult) -> int:
     return result.violation_count
 
 
-def scan_paths(
-    kiss_bin: str, paths: list[str], env: dict[str, str], workers: int
-) -> int:
-    """Scan all paths while retaining at most ``workers`` native reports."""
-
-    total = 0
-    next_path = iter(paths)
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        pending: set[Future[ScanResult]] = set()
-        for _ in range(workers):
-            try:
-                path = next(next_path)
-            except StopIteration:
-                break
-            pending.add(executor.submit(scan_one, kiss_bin, path, env))
-
-        while pending:
-            completed, pending = wait(pending, return_when=FIRST_COMPLETED)
-            for future in completed:
-                total += validate(future.result())
-                try:
-                    path = next(next_path)
-                except StopIteration:
-                    continue
-                pending.add(executor.submit(scan_one, kiss_bin, path, env))
-    return total
-
-
 def _resolve_binary(raw: str) -> str:
     resolved = shutil.which(raw)
     if resolved is None:
@@ -178,18 +219,11 @@ def _resolve_binary(raw: str) -> str:
     return resolved
 
 
-def main() -> int:
+def _require_pinned_version(kiss_bin: str, env: dict[str, str]) -> None:
     try:
         expected = load_contract().kiss_version
     except ScannerContractError as exc:
         fail(f"invalid scanner contract: {exc}")
-
-    kiss_bin = _resolve_binary(os.environ.get("KISS_BIN", "kiss"))
-    env = sanitized_env(preserve_index=True)
-    # A KISS process is already the unit of parallelism.  Prevent its internal
-    # Rayon pool from multiplying the bounded process count by the host's CPUs.
-    env["RAYON_NUM_THREADS"] = "1"
-
     try:
         version = subprocess.run(
             [kiss_bin, "--version"],
@@ -205,22 +239,25 @@ def main() -> int:
     got = version.stdout.decode("utf-8", errors="replace").strip()
     if got != f"kiss {expected}":
         fail(f"expected kiss {expected}, got {got}")
-    if not (ROOT / ".kiss/kiss.toml").is_file():
-        fail("missing .kiss/kiss.toml")
+
+
+def main() -> int:
+    kiss_bin = _resolve_binary(os.environ.get("KISS_BIN", "kiss"))
+    env = sanitized_env(preserve_index=True)
+    _require_pinned_version(kiss_bin, env)
+    if not (ROOT / ".config/kiss.toml").is_file():
+        fail("missing .config/kiss.toml")
     if (ROOT / ".kissconfig").exists() or (ROOT / ".kissconfig").is_symlink():
         fail(".kissconfig is forbidden because it disables measured rules")
 
     paths = _manifest(env)
-    try:
-        workers = worker_count(os.environ.get("KISS_CENSUS_WORKERS"))
-    except ValueError as exc:
-        fail(str(exc))
-
-    total = scan_paths(kiss_bin, paths, env, workers)
+    roots = [CENSUS_ROOT, *package_roots(paths)]
+    union = union_census(kiss_bin, roots, untracked_rust_sources(), env)
 
     print(
-        f"kiss census: {len(paths)} tracked Rust file(s), {total} violation(s); "
-        f"findings are advisory (workers={workers}, child_threads=1)"
+        f"kiss census: {len(paths)} tracked Rust file(s); whole-tree run + "
+        f"{len(roots) - 1} package run(s); {len(union)} distinct violation(s); "
+        "findings are advisory"
     )
     return 0
 

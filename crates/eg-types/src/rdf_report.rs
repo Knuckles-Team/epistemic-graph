@@ -38,6 +38,72 @@ pub struct RuleFact {
     pub args: Vec<String>,
     pub confidence: f64,
     pub derived: bool,
+    /// The fact's proof tree when the request asked to `explain`; `None` otherwise.
+    pub proof: Option<RuleProofNode>,
+}
+
+/// One node of a rule-derivation proof tree (EH-197) — the rule-side twin of the OWL
+/// reasoner's `ProofNodeWire`. `rule == "asserted"` marks a leaf: a fact whose
+/// confidence is its own assertion. Any other `rule` names the rule that fired over
+/// `premises` (each a full sub-proof, in rule-body order) to give `confidence`.
+/// `truncated` marks a node whose premises were cut by the proof's depth or size
+/// budget, or because the premise is already being proved higher up the same branch.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct RuleProofNode {
+    pub predicate: String,
+    pub args: Vec<String>,
+    pub rule: String,
+    pub confidence: f64,
+    pub premises: Vec<RuleProofNode>,
+    pub truncated: bool,
+}
+
+/// Whether a SPARQL witness term is a resource or a literal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum SparqlObjectKind {
+    Resource,
+    Literal,
+}
+
+/// Whether a SPARQL row proof certifies the row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub enum SparqlProofCoverage {
+    /// Every required triple pattern is instantiated by a listed triple of the graph,
+    /// and the binding satisfies every required-scope FILTER.
+    Complete,
+    /// The query uses algebra a witness does not certify (property paths, UNION,
+    /// MINUS, aggregates, GRAPH, SERVICE, its own FROM dataset, a non-SELECT form), or
+    /// the witness search hit its step budget. The listed triples, if any, exist but
+    /// do not by themselves prove the row.
+    Partial,
+}
+
+/// One ground triple of the queried graph that a SPARQL row's witness uses (EH-197).
+/// Subject and a resource object are in the evaluator's `<iri>` / `_:b` form; the
+/// predicate is a bare IRI; a literal object is its lexical value.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SparqlWitnessTriple {
+    pub subject: String,
+    pub predicate: String,
+    pub object: String,
+    pub object_kind: SparqlObjectKind,
+}
+
+/// The proof of one SPARQL SELECT row (EH-197): the ground triples that instantiate
+/// the query's patterns under the row's bindings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "contract-schema", derive(schemars::JsonSchema))]
+pub struct SparqlRowProof {
+    /// Index of the row in the result's `rows`.
+    pub row: u64,
+    pub witnesses: Vec<SparqlWitnessTriple>,
+    pub coverage: SparqlProofCoverage,
 }
 
 /// The serialisable rule-reasoning response.

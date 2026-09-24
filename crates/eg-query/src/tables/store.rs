@@ -53,12 +53,15 @@ use eg_types::mutation_batch::{
 use redb::{ReadableTable, TableDefinition};
 use serde_json::Value;
 
+mod ann_source;
 mod authority;
 #[cfg(any(test, feature = "dev-scope-grant"))]
 pub mod dev_scope_grant;
+mod outbox;
 mod row_insert;
 mod source_batch;
 
+pub(crate) use ann_source::{AnnRowReader, AnnSourceRows, ScanExtent};
 use authority::{sql_scope_identity, SqlAuthority, SqlMutation};
 pub(crate) use authority::{SqlRead, SqlWrite};
 
@@ -556,6 +559,10 @@ pub struct TableStore {
     /// historical single-tenant behavior; served callers should use
     /// `open_scoped()` so a migration cannot be replayed against another tenant.
     scope: Arc<str>,
+    /// The maintained ANN authority for this physical store (RF-019): the live
+    /// generation of every registered `hnsw`/`ivfflat` index. Clones share it,
+    /// exactly as they share `authority`, so one opened file has one owner.
+    ann: Arc<super::ann_authority::UserAnnAuthority>,
 }
 
 /// One row from an immutable redb read snapshot. The physical id is an ordering
@@ -656,6 +663,7 @@ impl TableStore {
             source_authority: Arc::new(RwLock::new(())),
             index_scope: Arc::new(tenant_scope.clone()),
             scope: Arc::from(tenant_scope),
+            ann: Arc::default(),
         };
         store.verify_schema_migrations()?;
         Ok(store)
@@ -1825,7 +1833,7 @@ impl TableStore {
 
     /// The catalog key for an ANN index: `"<table>.<column>.<metric>"` (lower-cased),
     /// so one column may register a separate index per distance metric.
-    fn ann_index_key(plan: &AnnIndexPlan) -> String {
+    pub(crate) fn ann_index_key(plan: &AnnIndexPlan) -> String {
         format!(
             "{}.{}.{:?}",
             plan.table.to_ascii_lowercase(),

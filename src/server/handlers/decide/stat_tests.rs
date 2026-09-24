@@ -15,20 +15,28 @@ use eg_types::agent_component::{
 };
 use eg_types::contract::BoundedVec;
 use eg_types::decision::jobs::{
-    DecisionJobOutput, DecisionJobState, EvalCandidate, LabelRegime, OpeEstimatorKind,
-    OptimiserSpec, RecordWindow,
+    DatasetSource, DecisionJobOutput, DecisionJobState, EvalCandidate, LabelRegime,
+    OpeEstimatorKind, OptimiserSpec, RecordWindow,
 };
 use eg_types::decision::statistical::body::encode_body;
+use eg_types::decision::statistical::dataset::OutcomeFidelity;
 use eg_types::decision::statistical::dataset::{
     ItemLabel, LabelSource, LabelledDataset, LabelledItem, LABELLED_DATASET_SCHEMA_VERSION,
 };
 use eg_types::decision::statistical::features::{
     FeatureKind, FeatureSchemaBody, FeatureSpec, MissingValue, FEATURE_SCHEMA_VERSION,
 };
+use eg_types::decision::statistical::log::{
+    DecisionLogCommitted, DecisionLogEntry, DecisionLogOp, DecisionOutcomeEvaluation, EntryInputs,
+    OutcomeAggregate, OutcomeAggregateRequest, StoredEvaluation,
+};
+use eg_types::decision::statistical::FeatureMatrixRef;
+use eg_types::decision::statistical::StatisticalDecisionRecord;
 use eg_types::decision::statistical::{
     CandidateSource, DecideRequest, DecisionBatch, QuestionKind, QuestionSafety,
     StatisticalOutcome, StatisticalQuestion, TypedParam, TypedValue,
 };
+use eg_types::decision::EvidenceClass;
 use eg_types::decision::{
     ColdStart, DecisionEvalOp, DecisionEvalRequest, DecisionFitOp, DecisionFitRequest,
     DecisionJobRecord, DecisionPolicyRef, ExplorationBudget, HeadKind, LibraryCandidateScope,
@@ -52,12 +60,22 @@ struct Harness {
 
 impl Harness {
     async fn new() -> Self {
+        Self::with_isolation(crate::isolation::IsolationLayer::new()).await
+    }
+
+    async fn with_isolation(isolation: crate::isolation::IsolationLayer) -> Self {
         let dir = tempfile::tempdir().unwrap();
-        let mut server = ServerState::new_for_test(
-            "decide-stat-test-secret",
-            crate::isolation::IsolationLayer::new(),
-        );
+        let mut server = ServerState::new_for_test("decide-stat-test-secret", isolation);
         server.persist_dir = Some(dir.path().to_string_lossy().into_owned());
+        #[cfg(feature = "blob")]
+        {
+            let cas =
+                crate::server::blob::store::RedbChunkStore::open(dir.path().to_str().unwrap())
+                    .unwrap();
+            server.blob = Some(Arc::new(crate::server::blob::BlobCursors::new(Arc::new(
+                cas,
+            ))));
+        }
         let state = Arc::new(RwLock::new(server));
         let store = state.write().await.ensure_agent_library().unwrap();
         Self {
@@ -158,14 +176,7 @@ fn schema() -> FeatureSchemaBody {
     FeatureSchemaBody {
         schema_version: FEATURE_SCHEMA_VERSION,
         features: BoundedVec::new(vec![
-            FeatureSpec {
-                name: "text".to_string(),
-                kind: FeatureKind::TextBm25 {
-                    key: "summary".to_string(),
-                    param: "query".to_string(),
-                },
-                missing: MissingValue::Abstain,
-            },
+            eg_types::test_support::decision::summary_text_feature(),
             FeatureSpec {
                 name: "coverage".to_string(),
                 kind: FeatureKind::CoverageFraction {
@@ -358,8 +369,9 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
             },
             seed: 0,
         },
-        dataset: data.clone(),
-        approved_commit_principals: BoundedVec::default(),
+        source: DatasetSource::Inline {
+            dataset: Box::new(data.clone()),
+        },
     };
     let fit_op = || DecisionFitOp::Submit {
         request: Box::new(fit_request.clone()),
@@ -416,8 +428,9 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
         estimators: BoundedVec::new(vec![OpeEstimatorKind::Ips]).unwrap(),
         gold_set_digest: Some(gold),
         window: window(),
-        dataset: data,
-        approved_commit_principals: BoundedVec::default(),
+        source: DatasetSource::Inline {
+            dataset: Box::new(data),
+        },
     };
     let job: DecisionJobRecord = decode(
         super::jobs::handle_decision_eval(
@@ -479,6 +492,19 @@ async fn fit_evaluate_publish_and_decide_end_to_end() {
         record.synthetic_evidence,
         "a head fitted on synthetic data says so"
     );
+    assert_eq!(
+        record.logging_propensities.len(),
+        3,
+        "the executed policy is logged in full"
+    );
+
+    decision_log_round_trip(&h, record.clone()).await;
+    #[cfg(feature = "blob")]
+    retention_compacts_and_verifies(&h, record).await;
+    // The compacted record still trains: its inputs are restored from CAS.
+    fit_from_the_engine_log(&h, &schema_pin, record).await;
+    #[cfg(feature = "blob")]
+    retention_retires(&h, record).await;
 }
 
 #[tokio::test]
@@ -585,3 +611,109 @@ async fn foreign_tenants_and_graph_candidates_are_refused() {
         .unwrap_err()
         .starts_with("COMPONENT_PIN_MISMATCH"));
 }
+
+/// EH-059: graph candidates are the rows a SELECT-only plan returns over the
+/// caller's RLS-filtered snapshot; a ranking stage is refused and an
+/// unregistered caller is refused by the graph ACL before any row is read.
+#[cfg(feature = "query")]
+#[tokio::test]
+async fn graph_candidates_are_read_through_acl_rls_and_a_select_only_plan() {
+    let h = Harness::with_isolation(ServerState::test_isolation("decider")).await;
+    {
+        let mut guard = h.state.write().await;
+        guard
+            .registry
+            .create_graph("kg-decide", crate::protocol::GraphType::Team, None)
+            .unwrap();
+        let core = guard.registry.get("kg-decide").unwrap().core.clone();
+        for (id, score, summary) in [
+            ("n-a", 0.9, "web search engine"),
+            ("n-b", 0.1, "file writer"),
+        ] {
+            let props = serde_json::json!({"type": "Tool", "score": score, "summary": summary});
+            core.add_node(id.to_string(), rmp_serde::to_vec_named(&props).unwrap());
+        }
+    }
+    let body = FeatureSchemaBody {
+        schema_version: FEATURE_SCHEMA_VERSION,
+        features: BoundedVec::new(vec![
+            FeatureSpec {
+                name: "score".to_string(),
+                kind: FeatureKind::Number {
+                    key: "score".to_string(),
+                },
+                missing: MissingValue::Abstain,
+            },
+            eg_types::test_support::decision::summary_text_feature(),
+        ])
+        .unwrap(),
+    };
+    let schema_pin = h
+        .publish(
+            "schema-graph",
+            AgentComponentKind::FeatureSchema,
+            "graph features",
+            Some(&body),
+            None,
+        )
+        .unwrap();
+    let graph_request = |plan: eg_types::wire::Plan| {
+        let mut request = request(
+            &schema_pin,
+            None,
+            DecisionPolicyRef::Default,
+            QuestionSafety::Ordinary,
+        );
+        request.candidates = CandidateSource::Graph {
+            graph: "kg-decide".to_string(),
+            plan: Box::new(plan),
+        };
+        request
+    };
+    let select = eg_types::wire::Plan::new(vec![eg_types::wire::Op::Scan {
+        label: "Tool".to_string(),
+    }]);
+    let batch = decide(&h, graph_request(select.clone())).await.unwrap();
+    let record = &batch.records.as_slice()[0];
+    let FeatureMatrixRef::Inline {
+        candidate_ids,
+        values,
+        ..
+    } = &record.inputs.feature_matrix
+    else {
+        panic!("inline matrix")
+    };
+    assert_eq!(
+        candidate_ids.as_slice(),
+        ["n-a".to_string(), "n-b".to_string()]
+    );
+    assert_eq!(values.len(), 4, "two visible rows, two features");
+    assert!(matches!(
+        record.candidate_source,
+        eg_types::decision::CandidateSourceRecord::Graph { .. }
+    ));
+
+    let ranked = eg_types::wire::Plan::new(vec![
+        eg_types::wire::Op::Scan {
+            label: "Tool".to_string(),
+        },
+        eg_types::wire::Op::RankText {
+            query: "web".to_string(),
+        },
+    ]);
+    let refused = decide(&h, graph_request(ranked)).await.unwrap_err();
+    assert!(refused.starts_with("CANDIDATE_PLAN_REFUSED"), "{refused}");
+
+    let stranger = VerifiedRequestContext::verified_for_test_in_tenant("stranger", TENANT);
+    let denied = decode::<DecisionBatch>(
+        super::statistical::handle_decide(&h.state, 3, &stranger, graph_request(select)).await,
+    );
+    assert!(denied.unwrap_err().starts_with("ACCESS_DENIED"));
+}
+
+mod log_tests;
+use log_tests::{decision_log_round_trip, fit_from_the_engine_log};
+#[cfg(feature = "blob")]
+use log_tests::{retention_compacts_and_verifies, retention_retires};
+
+mod classes_tests;

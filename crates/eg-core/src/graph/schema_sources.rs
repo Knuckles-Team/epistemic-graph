@@ -14,10 +14,12 @@ use eg_types::contract::Digest256;
 use super::LegacyIntegrityPolicy;
 
 /// Closed upper bound for one binary's immutable catalog.  The current catalog
-/// contains the aggregate document, foundation, 28 domain TBoxes, and the core
-/// governance-shape slice.  It is deliberately independent of the dynamic
-/// 32-source tenant quota.
-pub const MAX_CORE_SCHEMA_SOURCES: usize = 32;
+/// contains the aggregate document, foundation, 31 domain TBoxes (the world model
+/// as its life, environment and nutrition modules), the core governance-shape
+/// slice and the world-model shapes (35 artifacts, EH-364).  It is deliberately independent of the dynamic
+/// 32-source tenant quota, and equal to the wire bound
+/// `eg_types::graph_schema::MAX_CORE_GRAPH_SCHEMA_SOURCES`.
+pub const MAX_CORE_SCHEMA_SOURCES: usize = 64;
 pub const MAX_TOTAL_DYNAMIC_SCHEMA_BYTES: usize = 8 << 20;
 pub const MAX_SCHEMA_DOCUMENT_TRIPLES: usize = 100_000;
 pub const CORE_SOURCE_PREFIX: &str = "core:";
@@ -720,6 +722,30 @@ fn core_specs() -> &'static [CoreSpec] {
             ontology: Some(include_str!("../../ontology/trm-v1.ttl")),
         },
         CoreSpec {
+            module: "life",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/life-v1.ttl")),
+        },
+        CoreSpec {
+            module: "environment",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/environment-v1.ttl")),
+        },
+        CoreSpec {
+            module: "nutrition",
+            version: 1,
+            shapes: None,
+            ontology: Some(include_str!("../../ontology/nutrition-v1.ttl")),
+        },
+        CoreSpec {
+            module: "world-model-shapes",
+            version: 1,
+            shapes: Some(include_str!("../../ontology/world_model-v1.shapes.ttl")),
+            ontology: None,
+        },
+        CoreSpec {
             module: "worldview",
             version: 1,
             shapes: None,
@@ -795,7 +821,7 @@ mod tests {
     fn core_catalog_has_one_version_per_module_and_is_outside_dynamic_quota() {
         let sources = GraphSchemaSources::default();
         sources.validate().unwrap();
-        assert_eq!(sources.core.len(), 31);
+        assert_eq!(sources.core.len(), 35);
         assert!(sources.dynamic.is_empty());
         assert!(sources.core.keys().all(|id| id.starts_with("core:")));
     }
@@ -1082,7 +1108,7 @@ mod tests {
             ),
             (
                 "catalog",
-                "6345043f80eb300e674c665c24633892625060b83edd1db86feff5d9b7bf8086",
+                "4218d431f13e6b14ed8cc987c59ba9c5ff51a046042bc7d0ae8c1ff97a6bcf0a",
             ),
             (
                 "company",
@@ -1098,7 +1124,7 @@ mod tests {
             ),
             (
                 "foundation",
-                "84a95483e9f8aa21f913e0c5361fdde88785fbbaaf5285929c27ce51d1275d6f",
+                "cd3a0e736d9174d582e8b3c321966a4cd7ebf5c1264ac6640d78f4a54dc47378",
             ),
             (
                 "documentation",
@@ -1175,6 +1201,22 @@ mod tests {
             (
                 "trm",
                 "2e5d9cffcfc8e8915470641e85766f3ce775919539f22c57746d5a5e29d6c55d",
+            ),
+            (
+                "life",
+                "c5f0d321f894e5852f868a1d85d7a2a11bfad5ea91921f2d8f6a6e0a89a03566",
+            ),
+            (
+                "environment",
+                "21af644bc9b2499efb9cde3e73a6b9b9eee05ccb118382beb7c1a2f8c07e56a8",
+            ),
+            (
+                "nutrition",
+                "06772fb766c86eda3c3acf70dda010a948f6917c496415a0df1a64ae2dac27ad",
+            ),
+            (
+                "world-model-shapes",
+                "f2be16c304237069bc97b91afc01ac90c846a3f466b7d7ace89ed3e210acdb8d",
             ),
             (
                 "worldview",

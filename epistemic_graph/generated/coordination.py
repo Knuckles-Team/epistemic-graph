@@ -6,29 +6,64 @@
 
 from __future__ import annotations
 
-from typing import Any
-
-from pydantic import BaseModel, ConfigDict
+from typing import TYPE_CHECKING, Any
 
 from ._runtime import (
     OpaqueResult,
+    decode_result,
+    models,
 )
 
+if TYPE_CHECKING:
+    from . import models as _models
 
-class ClaimNextRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ClaimNext
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ClaimNext
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    label: str
-    updates_msgpack: bytes
+    ClaimNextRequest = _models.MethodClaimNextParams
+    ClaimWorkItemRequest = _models.MethodClaimWorkItemParams
+    AcquireCapacityRequest = _models.MethodAcquireCapacityParams
+    RenewCapacityRequest = _models.MethodRenewCapacityParams
+    ReleaseCapacityRequest = _models.MethodReleaseCapacityParams
+    ReclaimExpiredCapacityRequest = _models.MethodReclaimExpiredCapacityParams
+    ReconcileCapacityRequest = _models.MethodReconcileCapacityParams
+    CapacityStatusRequest = _models.MethodCapacityStatusParams
+    UpdateCapacityCellRequest = _models.MethodUpdateCapacityCellParams
+    KgDelegateRequest = _models.MethodKgDelegateParams
+    SubmitWorkItemRequest = _models.MethodSubmitWorkItemParams
+    SubmitWorkItemsRequest = _models.MethodSubmitWorkItemsParams
+    MintWorkItemClaimCapabilityRequest = _models.MethodMintWorkItemClaimCapabilityParams
+    VerifyWorkItemClaimCapabilityRequest = (
+        _models.MethodVerifyWorkItemClaimCapabilityParams
+    )
+    RenewWorkItemLeaseRequest = _models.MethodRenewWorkItemLeaseParams
+    CommitWorkItemResultRequest = _models.MethodCommitWorkItemResultParams
+    CancelWorkItemRequest = _models.MethodCancelWorkItemParams
+    DeferWorkItemRequest = _models.MethodDeferWorkItemParams
+    CasWorkItemMetadataRequest = _models.MethodCasWorkItemMetadataParams
+    GetWorkItemRequest = _models.MethodGetWorkItemParams
+    ListWorkItemsRequest = _models.MethodListWorkItemsParams
+    GetWorkItemOutcomeRequest = _models.MethodGetWorkItemOutcomeParams
+    IssueControlLeaseRequest = _models.MethodIssueControlLeaseParams
+    TransitionControlLeaseRequest = _models.MethodTransitionControlLeaseParams
+    GetControlLeaseRequest = _models.MethodGetControlLeaseParams
+    ReserveWorkItemResourcesRequest = _models.MethodReserveWorkItemResourcesParams
+    ReleaseWorkItemResourcesRequest = _models.MethodReleaseWorkItemResourcesParams
+    ReclaimWorkItemResourcesRequest = _models.MethodReclaimWorkItemResourcesParams
+    QueryWorkItemReservationRequest = _models.MethodQueryWorkItemReservationParams
+    ResourceReservationStatusRequest = _models.MethodResourceReservationStatusParams
+    UpdateResourceHostRequest = _models.MethodUpdateResourceHostParams
+    ReserveDevelopmentLaneRequest = _models.MethodReserveDevelopmentLaneParams
+    RenewDevelopmentLaneRequest = _models.MethodRenewDevelopmentLaneParams
+    ObserveDevelopmentLaneRequest = _models.MethodObserveDevelopmentLaneParams
+    FinishDevelopmentLaneRequest = _models.MethodFinishDevelopmentLaneParams
+    CleanupDevelopmentLaneRequest = _models.MethodCleanupDevelopmentLaneParams
+    QueryDevelopmentLaneRequest = _models.MethodQueryDevelopmentLaneParams
+    DevelopmentLaneStatusRequest = _models.MethodDevelopmentLaneStatusParams
+    UpdateDevelopmentLaneQuotaRequest = _models.MethodUpdateDevelopmentLaneQuotaParams
+    ResourceStatsPageRequest = _models.MethodResourceStatsPageParams
+    AnalyticsJobRequest = _models.MethodAnalyticsJobParams
+    DecisionFitRequest = _models.MethodDecisionFitParams
+    DecisionEvalRequest = _models.MethodDecisionEvalParams
+    DecisionLogRequest = _models.MethodDecisionLogParams
+    StatechartRequest = _models.MethodStatechartParams
 
 
 async def send_claim_next(
@@ -61,7 +96,7 @@ async def send_claim_next(
         - REDIRECTED
         - READ_ONLY
     """
-    ClaimNextRequest.model_validate(params or {})
+    models().MethodClaimNextParams.model_validate(params or {})
     payload = await client._send(
         "ClaimNext",
         params,
@@ -71,19 +106,9 @@ async def send_claim_next(
     return OpaqueResult("ClaimNext", payload)
 
 
-class ClaimWorkItemRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ClaimWorkItem
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ClaimWorkItem
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_claim_next(result: OpaqueResult) -> _models.ClaimNextResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ClaimNext", models().ClaimNextResult, result)
 
 
 async def send_claim_work_item(
@@ -116,7 +141,7 @@ async def send_claim_work_item(
         - REDIRECTED
         - READ_ONLY
     """
-    ClaimWorkItemRequest.model_validate(params or {})
+    models().MethodClaimWorkItemParams.model_validate(params or {})
     payload = await client._send(
         "ClaimWorkItem",
         params,
@@ -126,19 +151,9 @@ async def send_claim_work_item(
     return OpaqueResult("ClaimWorkItem", payload)
 
 
-class AcquireCapacityRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        AcquireCapacity
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/AcquireCapacity
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_claim_work_item(result: OpaqueResult) -> _models.ClaimWorkItemResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ClaimWorkItem", models().ClaimWorkItemResult, result)
 
 
 async def send_acquire_capacity(
@@ -171,7 +186,7 @@ async def send_acquire_capacity(
         - REDIRECTED
         - READ_ONLY
     """
-    AcquireCapacityRequest.model_validate(params or {})
+    models().MethodAcquireCapacityParams.model_validate(params or {})
     payload = await client._send(
         "AcquireCapacity",
         params,
@@ -181,19 +196,9 @@ async def send_acquire_capacity(
     return OpaqueResult("AcquireCapacity", payload)
 
 
-class RenewCapacityRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        RenewCapacity
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/RenewCapacity
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_acquire_capacity(result: OpaqueResult) -> _models.CapacityAcquireResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("AcquireCapacity", models().CapacityAcquireResult, result)
 
 
 async def send_renew_capacity(
@@ -226,7 +231,7 @@ async def send_renew_capacity(
         - REDIRECTED
         - READ_ONLY
     """
-    RenewCapacityRequest.model_validate(params or {})
+    models().MethodRenewCapacityParams.model_validate(params or {})
     payload = await client._send(
         "RenewCapacity",
         params,
@@ -236,19 +241,9 @@ async def send_renew_capacity(
     return OpaqueResult("RenewCapacity", payload)
 
 
-class ReleaseCapacityRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ReleaseCapacity
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ReleaseCapacity
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_renew_capacity(result: OpaqueResult) -> _models.CapacityMutationResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("RenewCapacity", models().CapacityMutationResult, result)
 
 
 async def send_release_capacity(
@@ -281,7 +276,7 @@ async def send_release_capacity(
         - REDIRECTED
         - READ_ONLY
     """
-    ReleaseCapacityRequest.model_validate(params or {})
+    models().MethodReleaseCapacityParams.model_validate(params or {})
     payload = await client._send(
         "ReleaseCapacity",
         params,
@@ -291,19 +286,9 @@ async def send_release_capacity(
     return OpaqueResult("ReleaseCapacity", payload)
 
 
-class ReclaimExpiredCapacityRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ReclaimExpiredCapacity
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ReclaimExpiredCapacity
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_release_capacity(result: OpaqueResult) -> _models.CapacityMutationResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ReleaseCapacity", models().CapacityMutationResult, result)
 
 
 async def send_reclaim_expired_capacity(
@@ -336,7 +321,7 @@ async def send_reclaim_expired_capacity(
         - REDIRECTED
         - READ_ONLY
     """
-    ReclaimExpiredCapacityRequest.model_validate(params or {})
+    models().MethodReclaimExpiredCapacityParams.model_validate(params or {})
     payload = await client._send(
         "ReclaimExpiredCapacity",
         params,
@@ -346,19 +331,13 @@ async def send_reclaim_expired_capacity(
     return OpaqueResult("ReclaimExpiredCapacity", payload)
 
 
-class ReconcileCapacityRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ReconcileCapacity
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ReconcileCapacity
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_reclaim_expired_capacity(
+    result: OpaqueResult,
+) -> _models.CapacityReclaimResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "ReclaimExpiredCapacity", models().CapacityReclaimResult, result
+    )
 
 
 async def send_reconcile_capacity(
@@ -387,7 +366,7 @@ async def send_reconcile_capacity(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ReconcileCapacityRequest.model_validate(params or {})
+    models().MethodReconcileCapacityParams.model_validate(params or {})
     payload = await client._send(
         "ReconcileCapacity",
         params,
@@ -397,19 +376,9 @@ async def send_reconcile_capacity(
     return OpaqueResult("ReconcileCapacity", payload)
 
 
-class CapacityStatusRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CapacityStatus
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CapacityStatus
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_reconcile_capacity(result: OpaqueResult) -> _models.CapacityStatusResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("ReconcileCapacity", models().CapacityStatusResult, result)
 
 
 async def send_capacity_status(
@@ -438,7 +407,7 @@ async def send_capacity_status(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    CapacityStatusRequest.model_validate(params or {})
+    models().MethodCapacityStatusParams.model_validate(params or {})
     payload = await client._send(
         "CapacityStatus",
         params,
@@ -448,19 +417,9 @@ async def send_capacity_status(
     return OpaqueResult("CapacityStatus", payload)
 
 
-class UpdateCapacityCellRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        UpdateCapacityCell
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/UpdateCapacityCell
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_capacity_status(result: OpaqueResult) -> _models.CapacityStatusResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("CapacityStatus", models().CapacityStatusResult, result)
 
 
 async def send_update_capacity_cell(
@@ -493,7 +452,7 @@ async def send_update_capacity_cell(
         - REDIRECTED
         - READ_ONLY
     """
-    UpdateCapacityCellRequest.model_validate(params or {})
+    models().MethodUpdateCapacityCellParams.model_validate(params or {})
     payload = await client._send(
         "UpdateCapacityCell",
         params,
@@ -503,19 +462,13 @@ async def send_update_capacity_cell(
     return OpaqueResult("UpdateCapacityCell", payload)
 
 
-class KgDelegateRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        KgDelegate
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/KgDelegate
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_update_capacity_cell(
+    result: OpaqueResult,
+) -> _models.CapacityCellUpdateResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "UpdateCapacityCell", models().CapacityCellUpdateResult, result
+    )
 
 
 async def send_kg_delegate(
@@ -548,7 +501,7 @@ async def send_kg_delegate(
         - REDIRECTED
         - READ_ONLY
     """
-    KgDelegateRequest.model_validate(params or {})
+    models().MethodKgDelegateParams.model_validate(params or {})
     payload = await client._send(
         "KgDelegate",
         params,
@@ -558,19 +511,9 @@ async def send_kg_delegate(
     return OpaqueResult("KgDelegate", payload)
 
 
-class SubmitWorkItemRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        SubmitWorkItem
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/SubmitWorkItem
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_kg_delegate(result: OpaqueResult) -> _models.KgDelegateResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("KgDelegate", models().KgDelegateResult, result)
 
 
 async def send_submit_work_item(
@@ -603,7 +546,7 @@ async def send_submit_work_item(
         - REDIRECTED
         - READ_ONLY
     """
-    SubmitWorkItemRequest.model_validate(params or {})
+    models().MethodSubmitWorkItemParams.model_validate(params or {})
     payload = await client._send(
         "SubmitWorkItem",
         params,
@@ -613,19 +556,9 @@ async def send_submit_work_item(
     return OpaqueResult("SubmitWorkItem", payload)
 
 
-class SubmitWorkItemsRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        SubmitWorkItems
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/SubmitWorkItems
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_submit_work_item(result: OpaqueResult) -> _models.SubmitWorkItemResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("SubmitWorkItem", models().SubmitWorkItemResult, result)
 
 
 async def send_submit_work_items(
@@ -658,7 +591,7 @@ async def send_submit_work_items(
         - REDIRECTED
         - READ_ONLY
     """
-    SubmitWorkItemsRequest.model_validate(params or {})
+    models().MethodSubmitWorkItemsParams.model_validate(params or {})
     payload = await client._send(
         "SubmitWorkItems",
         params,
@@ -668,19 +601,9 @@ async def send_submit_work_items(
     return OpaqueResult("SubmitWorkItems", payload)
 
 
-class MintWorkItemClaimCapabilityRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        MintWorkItemClaimCapability
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/MintWorkItemClaimCapability
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_submit_work_items(result: OpaqueResult) -> _models.SubmitWorkItemsResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("SubmitWorkItems", models().SubmitWorkItemsResult, result)
 
 
 async def send_mint_work_item_claim_capability(
@@ -713,7 +636,7 @@ async def send_mint_work_item_claim_capability(
         - REDIRECTED
         - READ_ONLY
     """
-    MintWorkItemClaimCapabilityRequest.model_validate(params or {})
+    models().MethodMintWorkItemClaimCapabilityParams.model_validate(params or {})
     payload = await client._send(
         "MintWorkItemClaimCapability",
         params,
@@ -723,19 +646,13 @@ async def send_mint_work_item_claim_capability(
     return OpaqueResult("MintWorkItemClaimCapability", payload)
 
 
-class VerifyWorkItemClaimCapabilityRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        VerifyWorkItemClaimCapability
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/VerifyWorkItemClaimCapability
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_mint_work_item_claim_capability(
+    result: OpaqueResult,
+) -> _models.WorkItemClaimCapabilityResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "MintWorkItemClaimCapability", models().WorkItemClaimCapabilityResult, result
+    )
 
 
 async def send_verify_work_item_claim_capability(
@@ -764,7 +681,7 @@ async def send_verify_work_item_claim_capability(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    VerifyWorkItemClaimCapabilityRequest.model_validate(params or {})
+    models().MethodVerifyWorkItemClaimCapabilityParams.model_validate(params or {})
     payload = await client._send(
         "VerifyWorkItemClaimCapability",
         params,
@@ -774,25 +691,13 @@ async def send_verify_work_item_claim_capability(
     return OpaqueResult("VerifyWorkItemClaimCapability", payload)
 
 
-class RenewWorkItemLeaseRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        RenewWorkItemLease
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/RenewWorkItemLease
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    fencing_token: int
-    lease_epoch: int
-    lease_ms: int
-    now_ms: int
-    tenant: str
-    work_item_id: str
-    worker_id: str
+def decode_verify_work_item_claim_capability(
+    result: OpaqueResult,
+) -> _models.WorkItemClaimCapabilityResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "VerifyWorkItemClaimCapability", models().WorkItemClaimCapabilityResult, result
+    )
 
 
 async def send_renew_work_item_lease(
@@ -825,7 +730,7 @@ async def send_renew_work_item_lease(
         - REDIRECTED
         - READ_ONLY
     """
-    RenewWorkItemLeaseRequest.model_validate(params or {})
+    models().MethodRenewWorkItemLeaseParams.model_validate(params or {})
     payload = await client._send(
         "RenewWorkItemLease",
         params,
@@ -835,30 +740,9 @@ async def send_renew_work_item_lease(
     return OpaqueResult("RenewWorkItemLease", payload)
 
 
-class CommitWorkItemResultRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CommitWorkItemResult
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CommitWorkItemResult
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    error_ref: str | None = None
-    fencing_token: int
-    idempotency_key: str
-    lease_epoch: int
-    now_ms: int
-    outcome: str
-    outcome_extension: Any | None = None
-    result_ref: str | None = None
-    retryable: bool | None = None
-    tenant: str
-    work_item_id: str
-    worker_id: str
+def decode_renew_work_item_lease(result: OpaqueResult) -> _models.WorkItemLeaseRenewal:
+    """Validate this method's result against its contract model."""
+    return decode_result("RenewWorkItemLease", models().WorkItemLeaseRenewal, result)
 
 
 async def send_commit_work_item_result(
@@ -891,7 +775,7 @@ async def send_commit_work_item_result(
         - REDIRECTED
         - READ_ONLY
     """
-    CommitWorkItemResultRequest.model_validate(params or {})
+    models().MethodCommitWorkItemResultParams.model_validate(params or {})
     payload = await client._send(
         "CommitWorkItemResult",
         params,
@@ -901,23 +785,13 @@ async def send_commit_work_item_result(
     return OpaqueResult("CommitWorkItemResult", payload)
 
 
-class CancelWorkItemRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CancelWorkItem
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CancelWorkItem
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    idempotency_key: str
-    now_ms: int
-    reason_ref: str | None = None
-    tenant: str
-    work_item_id: str
+def decode_commit_work_item_result(
+    result: OpaqueResult,
+) -> _models.WorkItemTransition_WorkItemCommitStatus:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "CommitWorkItemResult", models().WorkItemTransition_WorkItemCommitStatus, result
+    )
 
 
 async def send_cancel_work_item(
@@ -950,7 +824,7 @@ async def send_cancel_work_item(
         - REDIRECTED
         - READ_ONLY
     """
-    CancelWorkItemRequest.model_validate(params or {})
+    models().MethodCancelWorkItemParams.model_validate(params or {})
     payload = await client._send(
         "CancelWorkItem",
         params,
@@ -960,27 +834,13 @@ async def send_cancel_work_item(
     return OpaqueResult("CancelWorkItem", payload)
 
 
-class DeferWorkItemRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DeferWorkItem
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DeferWorkItem
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    fencing_token: int
-    idempotency_key: str
-    lease_epoch: int
-    next_retry_at_ms: int
-    now_ms: int
-    reason_ref: str | None = None
-    tenant: str
-    work_item_id: str
-    worker_id: str
+def decode_cancel_work_item(
+    result: OpaqueResult,
+) -> _models.WorkItemTransition_WorkItemCancelStatus:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "CancelWorkItem", models().WorkItemTransition_WorkItemCancelStatus, result
+    )
 
 
 async def send_defer_work_item(
@@ -1013,7 +873,7 @@ async def send_defer_work_item(
         - REDIRECTED
         - READ_ONLY
     """
-    DeferWorkItemRequest.model_validate(params or {})
+    models().MethodDeferWorkItemParams.model_validate(params or {})
     payload = await client._send(
         "DeferWorkItem",
         params,
@@ -1023,19 +883,9 @@ async def send_defer_work_item(
     return OpaqueResult("DeferWorkItem", payload)
 
 
-class CasWorkItemMetadataRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CasWorkItemMetadata
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CasWorkItemMetadata
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_defer_work_item(result: OpaqueResult) -> _models.WorkItemDeferral:
+    """Validate this method's result against its contract model."""
+    return decode_result("DeferWorkItem", models().WorkItemDeferral, result)
 
 
 async def send_cas_work_item_metadata(
@@ -1068,7 +918,7 @@ async def send_cas_work_item_metadata(
         - REDIRECTED
         - READ_ONLY
     """
-    CasWorkItemMetadataRequest.model_validate(params or {})
+    models().MethodCasWorkItemMetadataParams.model_validate(params or {})
     payload = await client._send(
         "CasWorkItemMetadata",
         params,
@@ -1078,20 +928,13 @@ async def send_cas_work_item_metadata(
     return OpaqueResult("CasWorkItemMetadata", payload)
 
 
-class GetWorkItemRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetWorkItem
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetWorkItem
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    tenant: str
-    work_item_id: str
+def decode_cas_work_item_metadata(
+    result: OpaqueResult,
+) -> _models.CasWorkItemMetadataResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "CasWorkItemMetadata", models().CasWorkItemMetadataResult, result
+    )
 
 
 async def send_get_work_item(
@@ -1120,7 +963,7 @@ async def send_get_work_item(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetWorkItemRequest.model_validate(params or {})
+    models().MethodGetWorkItemParams.model_validate(params or {})
     payload = await client._send(
         "GetWorkItem",
         params,
@@ -1130,23 +973,9 @@ async def send_get_work_item(
     return OpaqueResult("GetWorkItem", payload)
 
 
-class ListWorkItemsRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ListWorkItems
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ListWorkItems
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    cursor: str | None = None
-    kind: str | None = None
-    limit: int
-    metadata_match: dict[str, Any] | None = None
-    tenant: str
+def decode_get_work_item(result: OpaqueResult) -> _models.GetWorkItemResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("GetWorkItem", models().GetWorkItemResult, result)
 
 
 async def send_list_work_items(
@@ -1175,7 +1004,7 @@ async def send_list_work_items(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ListWorkItemsRequest.model_validate(params or {})
+    models().MethodListWorkItemsParams.model_validate(params or {})
     payload = await client._send(
         "ListWorkItems",
         params,
@@ -1185,20 +1014,9 @@ async def send_list_work_items(
     return OpaqueResult("ListWorkItems", payload)
 
 
-class GetWorkItemOutcomeRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetWorkItemOutcome
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetWorkItemOutcome
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    tenant: str
-    work_item_id: str
+def decode_list_work_items(result: OpaqueResult) -> _models.WorkItemPage:
+    """Validate this method's result against its contract model."""
+    return decode_result("ListWorkItems", models().WorkItemPage, result)
 
 
 async def send_get_work_item_outcome(
@@ -1227,7 +1045,7 @@ async def send_get_work_item_outcome(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetWorkItemOutcomeRequest.model_validate(params or {})
+    models().MethodGetWorkItemOutcomeParams.model_validate(params or {})
     payload = await client._send(
         "GetWorkItemOutcome",
         params,
@@ -1237,19 +1055,13 @@ async def send_get_work_item_outcome(
     return OpaqueResult("GetWorkItemOutcome", payload)
 
 
-class IssueControlLeaseRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        IssueControlLease
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/IssueControlLease
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_get_work_item_outcome(
+    result: OpaqueResult,
+) -> _models.GetWorkItemOutcomeResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "GetWorkItemOutcome", models().GetWorkItemOutcomeResult, result
+    )
 
 
 async def send_issue_control_lease(
@@ -1282,7 +1094,7 @@ async def send_issue_control_lease(
         - REDIRECTED
         - READ_ONLY
     """
-    IssueControlLeaseRequest.model_validate(params or {})
+    models().MethodIssueControlLeaseParams.model_validate(params or {})
     payload = await client._send(
         "IssueControlLease",
         params,
@@ -1292,19 +1104,9 @@ async def send_issue_control_lease(
     return OpaqueResult("IssueControlLease", payload)
 
 
-class TransitionControlLeaseRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        TransitionControlLease
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/TransitionControlLease
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_issue_control_lease(result: OpaqueResult) -> _models.ControlLeaseIssued:
+    """Validate this method's result against its contract model."""
+    return decode_result("IssueControlLease", models().ControlLeaseIssued, result)
 
 
 async def send_transition_control_lease(
@@ -1337,7 +1139,7 @@ async def send_transition_control_lease(
         - REDIRECTED
         - READ_ONLY
     """
-    TransitionControlLeaseRequest.model_validate(params or {})
+    models().MethodTransitionControlLeaseParams.model_validate(params or {})
     payload = await client._send(
         "TransitionControlLease",
         params,
@@ -1347,20 +1149,13 @@ async def send_transition_control_lease(
     return OpaqueResult("TransitionControlLease", payload)
 
 
-class GetControlLeaseRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        GetControlLease
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/GetControlLease
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    lease_id: str
-    tenant: str
+def decode_transition_control_lease(
+    result: OpaqueResult,
+) -> _models.ControlLeaseTransition:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "TransitionControlLease", models().ControlLeaseTransition, result
+    )
 
 
 async def send_get_control_lease(
@@ -1389,7 +1184,7 @@ async def send_get_control_lease(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    GetControlLeaseRequest.model_validate(params or {})
+    models().MethodGetControlLeaseParams.model_validate(params or {})
     payload = await client._send(
         "GetControlLease",
         params,
@@ -1399,19 +1194,9 @@ async def send_get_control_lease(
     return OpaqueResult("GetControlLease", payload)
 
 
-class ReserveWorkItemResourcesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ReserveWorkItemResources
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ReserveWorkItemResources
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_get_control_lease(result: OpaqueResult) -> _models.GetControlLeaseResult:
+    """Validate this method's result against its contract model."""
+    return decode_result("GetControlLease", models().GetControlLeaseResult, result)
 
 
 async def send_reserve_work_item_resources(
@@ -1444,7 +1229,7 @@ async def send_reserve_work_item_resources(
         - REDIRECTED
         - READ_ONLY
     """
-    ReserveWorkItemResourcesRequest.model_validate(params or {})
+    models().MethodReserveWorkItemResourcesParams.model_validate(params or {})
     payload = await client._send(
         "ReserveWorkItemResources",
         params,
@@ -1454,19 +1239,13 @@ async def send_reserve_work_item_resources(
     return OpaqueResult("ReserveWorkItemResources", payload)
 
 
-class ReleaseWorkItemResourcesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ReleaseWorkItemResources
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ReleaseWorkItemResources
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_reserve_work_item_resources(
+    result: OpaqueResult,
+) -> _models.ResourceReservationResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "ReserveWorkItemResources", models().ResourceReservationResult, result
+    )
 
 
 async def send_release_work_item_resources(
@@ -1499,7 +1278,7 @@ async def send_release_work_item_resources(
         - REDIRECTED
         - READ_ONLY
     """
-    ReleaseWorkItemResourcesRequest.model_validate(params or {})
+    models().MethodReleaseWorkItemResourcesParams.model_validate(params or {})
     payload = await client._send(
         "ReleaseWorkItemResources",
         params,
@@ -1509,19 +1288,13 @@ async def send_release_work_item_resources(
     return OpaqueResult("ReleaseWorkItemResources", payload)
 
 
-class ReclaimWorkItemResourcesRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ReclaimWorkItemResources
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ReclaimWorkItemResources
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_release_work_item_resources(
+    result: OpaqueResult,
+) -> _models.ResourceReservationResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "ReleaseWorkItemResources", models().ResourceReservationResult, result
+    )
 
 
 async def send_reclaim_work_item_resources(
@@ -1554,7 +1327,7 @@ async def send_reclaim_work_item_resources(
         - REDIRECTED
         - READ_ONLY
     """
-    ReclaimWorkItemResourcesRequest.model_validate(params or {})
+    models().MethodReclaimWorkItemResourcesParams.model_validate(params or {})
     payload = await client._send(
         "ReclaimWorkItemResources",
         params,
@@ -1564,19 +1337,13 @@ async def send_reclaim_work_item_resources(
     return OpaqueResult("ReclaimWorkItemResources", payload)
 
 
-class QueryWorkItemReservationRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        QueryWorkItemReservation
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/QueryWorkItemReservation
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_reclaim_work_item_resources(
+    result: OpaqueResult,
+) -> _models.ResourceReservationResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "ReclaimWorkItemResources", models().ResourceReservationResult, result
+    )
 
 
 async def send_query_work_item_reservation(
@@ -1605,7 +1372,7 @@ async def send_query_work_item_reservation(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    QueryWorkItemReservationRequest.model_validate(params or {})
+    models().MethodQueryWorkItemReservationParams.model_validate(params or {})
     payload = await client._send(
         "QueryWorkItemReservation",
         params,
@@ -1615,19 +1382,13 @@ async def send_query_work_item_reservation(
     return OpaqueResult("QueryWorkItemReservation", payload)
 
 
-class ResourceReservationStatusRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ResourceReservationStatus
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ResourceReservationStatus
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_query_work_item_reservation(
+    result: OpaqueResult,
+) -> _models.ResourceReservationResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "QueryWorkItemReservation", models().ResourceReservationResult, result
+    )
 
 
 async def send_resource_reservation_status(
@@ -1656,7 +1417,7 @@ async def send_resource_reservation_status(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ResourceReservationStatusRequest.model_validate(params or {})
+    models().MethodResourceReservationStatusParams.model_validate(params or {})
     payload = await client._send(
         "ResourceReservationStatus",
         params,
@@ -1666,19 +1427,13 @@ async def send_resource_reservation_status(
     return OpaqueResult("ResourceReservationStatus", payload)
 
 
-class UpdateResourceHostRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        UpdateResourceHost
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/UpdateResourceHost
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_resource_reservation_status(
+    result: OpaqueResult,
+) -> _models.ResourceReservationStatusResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "ResourceReservationStatus", models().ResourceReservationStatusResult, result
+    )
 
 
 async def send_update_resource_host(
@@ -1711,7 +1466,7 @@ async def send_update_resource_host(
         - REDIRECTED
         - READ_ONLY
     """
-    UpdateResourceHostRequest.model_validate(params or {})
+    models().MethodUpdateResourceHostParams.model_validate(params or {})
     payload = await client._send(
         "UpdateResourceHost",
         params,
@@ -1721,19 +1476,13 @@ async def send_update_resource_host(
     return OpaqueResult("UpdateResourceHost", payload)
 
 
-class ReserveDevelopmentLaneRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ReserveDevelopmentLane
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ReserveDevelopmentLane
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_update_resource_host(
+    result: OpaqueResult,
+) -> _models.ResourceHostUpdateResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "UpdateResourceHost", models().ResourceHostUpdateResult, result
+    )
 
 
 async def send_reserve_development_lane(
@@ -1766,7 +1515,7 @@ async def send_reserve_development_lane(
         - REDIRECTED
         - READ_ONLY
     """
-    ReserveDevelopmentLaneRequest.model_validate(params or {})
+    models().MethodReserveDevelopmentLaneParams.model_validate(params or {})
     payload = await client._send(
         "ReserveDevelopmentLane",
         params,
@@ -1776,19 +1525,13 @@ async def send_reserve_development_lane(
     return OpaqueResult("ReserveDevelopmentLane", payload)
 
 
-class RenewDevelopmentLaneRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        RenewDevelopmentLane
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/RenewDevelopmentLane
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_reserve_development_lane(
+    result: OpaqueResult,
+) -> _models.DevelopmentLaneResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "ReserveDevelopmentLane", models().DevelopmentLaneResult, result
+    )
 
 
 async def send_renew_development_lane(
@@ -1821,7 +1564,7 @@ async def send_renew_development_lane(
         - REDIRECTED
         - READ_ONLY
     """
-    RenewDevelopmentLaneRequest.model_validate(params or {})
+    models().MethodRenewDevelopmentLaneParams.model_validate(params or {})
     payload = await client._send(
         "RenewDevelopmentLane",
         params,
@@ -1831,19 +1574,13 @@ async def send_renew_development_lane(
     return OpaqueResult("RenewDevelopmentLane", payload)
 
 
-class ObserveDevelopmentLaneRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ObserveDevelopmentLane
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ObserveDevelopmentLane
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_renew_development_lane(
+    result: OpaqueResult,
+) -> _models.DevelopmentLaneRenewResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "RenewDevelopmentLane", models().DevelopmentLaneRenewResult, result
+    )
 
 
 async def send_observe_development_lane(
@@ -1876,7 +1613,7 @@ async def send_observe_development_lane(
         - REDIRECTED
         - READ_ONLY
     """
-    ObserveDevelopmentLaneRequest.model_validate(params or {})
+    models().MethodObserveDevelopmentLaneParams.model_validate(params or {})
     payload = await client._send(
         "ObserveDevelopmentLane",
         params,
@@ -1886,19 +1623,13 @@ async def send_observe_development_lane(
     return OpaqueResult("ObserveDevelopmentLane", payload)
 
 
-class FinishDevelopmentLaneRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        FinishDevelopmentLane
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/FinishDevelopmentLane
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_observe_development_lane(
+    result: OpaqueResult,
+) -> _models.DevelopmentLaneObserveResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "ObserveDevelopmentLane", models().DevelopmentLaneObserveResult, result
+    )
 
 
 async def send_finish_development_lane(
@@ -1931,7 +1662,7 @@ async def send_finish_development_lane(
         - REDIRECTED
         - READ_ONLY
     """
-    FinishDevelopmentLaneRequest.model_validate(params or {})
+    models().MethodFinishDevelopmentLaneParams.model_validate(params or {})
     payload = await client._send(
         "FinishDevelopmentLane",
         params,
@@ -1941,19 +1672,13 @@ async def send_finish_development_lane(
     return OpaqueResult("FinishDevelopmentLane", payload)
 
 
-class CleanupDevelopmentLaneRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        CleanupDevelopmentLane
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/CleanupDevelopmentLane
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_finish_development_lane(
+    result: OpaqueResult,
+) -> _models.DevelopmentLaneFinishResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "FinishDevelopmentLane", models().DevelopmentLaneFinishResult, result
+    )
 
 
 async def send_cleanup_development_lane(
@@ -1986,7 +1711,7 @@ async def send_cleanup_development_lane(
         - REDIRECTED
         - READ_ONLY
     """
-    CleanupDevelopmentLaneRequest.model_validate(params or {})
+    models().MethodCleanupDevelopmentLaneParams.model_validate(params or {})
     payload = await client._send(
         "CleanupDevelopmentLane",
         params,
@@ -1996,19 +1721,13 @@ async def send_cleanup_development_lane(
     return OpaqueResult("CleanupDevelopmentLane", payload)
 
 
-class QueryDevelopmentLaneRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        QueryDevelopmentLane
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/QueryDevelopmentLane
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_cleanup_development_lane(
+    result: OpaqueResult,
+) -> _models.DevelopmentLaneCleanupCompleteResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "CleanupDevelopmentLane", models().DevelopmentLaneCleanupCompleteResult, result
+    )
 
 
 async def send_query_development_lane(
@@ -2037,7 +1756,7 @@ async def send_query_development_lane(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    QueryDevelopmentLaneRequest.model_validate(params or {})
+    models().MethodQueryDevelopmentLaneParams.model_validate(params or {})
     payload = await client._send(
         "QueryDevelopmentLane",
         params,
@@ -2047,19 +1766,13 @@ async def send_query_development_lane(
     return OpaqueResult("QueryDevelopmentLane", payload)
 
 
-class DevelopmentLaneStatusRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DevelopmentLaneStatus
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DevelopmentLaneStatus
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_query_development_lane(
+    result: OpaqueResult,
+) -> _models.DevelopmentLaneQueryResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "QueryDevelopmentLane", models().DevelopmentLaneQueryResult, result
+    )
 
 
 async def send_development_lane_status(
@@ -2088,7 +1801,7 @@ async def send_development_lane_status(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    DevelopmentLaneStatusRequest.model_validate(params or {})
+    models().MethodDevelopmentLaneStatusParams.model_validate(params or {})
     payload = await client._send(
         "DevelopmentLaneStatus",
         params,
@@ -2098,19 +1811,13 @@ async def send_development_lane_status(
     return OpaqueResult("DevelopmentLaneStatus", payload)
 
 
-class UpdateDevelopmentLaneQuotaRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        UpdateDevelopmentLaneQuota
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/UpdateDevelopmentLaneQuota
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    request: Any
+def decode_development_lane_status(
+    result: OpaqueResult,
+) -> _models.DevelopmentLaneStatusResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "DevelopmentLaneStatus", models().DevelopmentLaneStatusResult, result
+    )
 
 
 async def send_update_development_lane_quota(
@@ -2143,7 +1850,7 @@ async def send_update_development_lane_quota(
         - REDIRECTED
         - READ_ONLY
     """
-    UpdateDevelopmentLaneQuotaRequest.model_validate(params or {})
+    models().MethodUpdateDevelopmentLaneQuotaParams.model_validate(params or {})
     payload = await client._send(
         "UpdateDevelopmentLaneQuota",
         params,
@@ -2153,21 +1860,13 @@ async def send_update_development_lane_quota(
     return OpaqueResult("UpdateDevelopmentLaneQuota", payload)
 
 
-class ResourceStatsPageRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        ResourceStatsPage
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/ResourceStatsPage
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    cursor: str | None = None
-    limit: int | None = None
-    summary: bool | None = None
+def decode_update_development_lane_quota(
+    result: OpaqueResult,
+) -> _models.DevelopmentLaneQuotaUpdateResult:
+    """Validate this method's result against its contract model."""
+    return decode_result(
+        "UpdateDevelopmentLaneQuota", models().DevelopmentLaneQuotaUpdateResult, result
+    )
 
 
 async def send_resource_stats_page(
@@ -2196,7 +1895,7 @@ async def send_resource_stats_page(
         - INVALID_ARGUMENT
         - ACCESS_DENIED
     """
-    ResourceStatsPageRequest.model_validate(params or {})
+    models().MethodResourceStatsPageParams.model_validate(params or {})
     payload = await client._send(
         "ResourceStatsPage",
         params,
@@ -2206,19 +1905,9 @@ async def send_resource_stats_page(
     return OpaqueResult("ResourceStatsPage", payload)
 
 
-class AnalyticsJobRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        AnalyticsJob
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/AnalyticsJob
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    op: Any
+def decode_resource_stats_page(result: OpaqueResult) -> _models.ResourceSnapshot:
+    """Validate this method's result against its contract model."""
+    return decode_result("ResourceStatsPage", models().ResourceSnapshot, result)
 
 
 async def send_analytics_job(
@@ -2251,7 +1940,7 @@ async def send_analytics_job(
         - REDIRECTED
         - READ_ONLY
     """
-    AnalyticsJobRequest.model_validate(params or {})
+    models().MethodAnalyticsJobParams.model_validate(params or {})
     payload = await client._send(
         "AnalyticsJob",
         params,
@@ -2259,21 +1948,6 @@ async def send_analytics_job(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("AnalyticsJob", payload)
-
-
-class DecisionFitRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DecisionFit
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DecisionFit
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    op: Any
 
 
 async def send_decision_fit(
@@ -2306,7 +1980,7 @@ async def send_decision_fit(
         - REDIRECTED
         - READ_ONLY
     """
-    DecisionFitRequest.model_validate(params or {})
+    models().MethodDecisionFitParams.model_validate(params or {})
     payload = await client._send(
         "DecisionFit",
         params,
@@ -2314,21 +1988,6 @@ async def send_decision_fit(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("DecisionFit", payload)
-
-
-class DecisionEvalRequest(BaseModel):
-    """Validate one engine-contract request body.
-
-    Method:
-        DecisionEval
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/DecisionEval
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    op: Any
 
 
 async def send_decision_eval(
@@ -2361,7 +2020,7 @@ async def send_decision_eval(
         - REDIRECTED
         - READ_ONLY
     """
-    DecisionEvalRequest.model_validate(params or {})
+    models().MethodDecisionEvalParams.model_validate(params or {})
     payload = await client._send(
         "DecisionEval",
         params,
@@ -2371,19 +2030,44 @@ async def send_decision_eval(
     return OpaqueResult("DecisionEval", payload)
 
 
-class StatechartRequest(BaseModel):
-    """Validate one engine-contract request body.
+async def send_decision_log(
+    client: Any,
+    params: dict[str, Any] | None = None,
+    graph: str | None = None,
+    *,
+    idempotency_key: str | None = None,
+) -> OpaqueResult:
+    """Send one engine-contract request.
 
     Method:
-        Statechart
-    Request schema:
-        contract/schemas/method.request.json
-        #/methods/Statechart
+        DecisionLog
+    Authorization:
+        agent:decision-write
+    Durability:
+        ControlRedb
+    Replay:
+        OperationIdentity
+    Result:
+        one declared body per request op
+    Result schema:
+        contract/schemas/result.coordination.json
+        #/methods/DecisionLog
+    Errors:
+        - INVALID_ARGUMENT
+        - ACCESS_DENIED
+        - CONFLICT
+        - IDEMPOTENCY_CONFLICT
+        - REDIRECTED
+        - READ_ONLY
     """
-
-    model_config = ConfigDict(extra="forbid")
-
-    op: Any
+    models().MethodDecisionLogParams.model_validate(params or {})
+    payload = await client._send(
+        "DecisionLog",
+        params,
+        graph,
+        idempotency_key=idempotency_key,
+    )
+    return OpaqueResult("DecisionLog", payload)
 
 
 async def send_statechart(
@@ -2416,7 +2100,7 @@ async def send_statechart(
         - REDIRECTED
         - READ_ONLY
     """
-    StatechartRequest.model_validate(params or {})
+    models().MethodStatechartParams.model_validate(params or {})
     payload = await client._send(
         "Statechart",
         params,
@@ -2424,3 +2108,63 @@ async def send_statechart(
         idempotency_key=idempotency_key,
     )
     return OpaqueResult("Statechart", payload)
+
+
+# Methods whose `{Id}Request` resolves to `models.Method{Id}Params` (EH-192).
+_REQUEST_METHODS = frozenset(
+    {
+        "ClaimNext",
+        "ClaimWorkItem",
+        "AcquireCapacity",
+        "RenewCapacity",
+        "ReleaseCapacity",
+        "ReclaimExpiredCapacity",
+        "ReconcileCapacity",
+        "CapacityStatus",
+        "UpdateCapacityCell",
+        "KgDelegate",
+        "SubmitWorkItem",
+        "SubmitWorkItems",
+        "MintWorkItemClaimCapability",
+        "VerifyWorkItemClaimCapability",
+        "RenewWorkItemLease",
+        "CommitWorkItemResult",
+        "CancelWorkItem",
+        "DeferWorkItem",
+        "CasWorkItemMetadata",
+        "GetWorkItem",
+        "ListWorkItems",
+        "GetWorkItemOutcome",
+        "IssueControlLease",
+        "TransitionControlLease",
+        "GetControlLease",
+        "ReserveWorkItemResources",
+        "ReleaseWorkItemResources",
+        "ReclaimWorkItemResources",
+        "QueryWorkItemReservation",
+        "ResourceReservationStatus",
+        "UpdateResourceHost",
+        "ReserveDevelopmentLane",
+        "RenewDevelopmentLane",
+        "ObserveDevelopmentLane",
+        "FinishDevelopmentLane",
+        "CleanupDevelopmentLane",
+        "QueryDevelopmentLane",
+        "DevelopmentLaneStatus",
+        "UpdateDevelopmentLaneQuota",
+        "ResourceStatsPage",
+        "AnalyticsJob",
+        "DecisionFit",
+        "DecisionEval",
+        "DecisionLog",
+        "Statechart",
+    }
+)
+
+
+def __getattr__(name: str) -> Any:
+    """Resolve a ``{Id}Request`` name to its generated model on first use."""
+    method = name.removesuffix("Request")
+    if name == method or method not in _REQUEST_METHODS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(models(), f"Method{method}Params")

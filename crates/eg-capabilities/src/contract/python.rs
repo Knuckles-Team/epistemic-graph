@@ -19,6 +19,8 @@ use crate::{ConsumerProfile, MethodDescriptor};
 
 mod digest;
 mod dto;
+mod models;
+mod names;
 mod package;
 mod runtime;
 
@@ -26,6 +28,10 @@ use digest::digest_module;
 #[cfg(test)]
 use dto::CANONICAL_DIGEST_SPECS;
 use dto::{dto_module, dto_python_type, DtoSurface, DTO_SURFACES, SHARED_DTO_RESULT_MODELS};
+use models::{
+    models_module, push_decode, push_lazy_request_validation, push_request_resolver,
+    push_type_checking_block, ModelSpace,
+};
 use package::package_contract_module;
 use runtime::runtime_module;
 
@@ -48,6 +54,20 @@ struct TypedOperationAdapter {
     /// Tagged union aliases need pydantic's `TypeAdapter`; concrete models
     /// expose `model_validate` directly.
     result_is_union: bool,
+}
+
+/// `(method, params field)` pairs whose field the hand-written client may fill with
+/// its NATIVE-CHECKED bytes instead of the structured value:
+/// `SqlSourceBatchPreparation.canonical_batch`, which the client turns into the
+/// wire body itself (`client._NATIVE_METHOD_BODIES`). The generated send
+/// validates only the structured form of that field.
+const NATIVE_PREPARED_FIELDS: &[(&str, &str)] = &[("SqlSourceBatch", "batch")];
+
+fn native_prepared_field(id: &str) -> Option<&'static str> {
+    NATIVE_PREPARED_FIELDS
+        .iter()
+        .find(|(method, _)| *method == id)
+        .map(|(_, field)| *field)
 }
 
 const TYPED_OPERATION_ADAPTERS: &[TypedOperationAdapter] = &[
@@ -151,6 +171,7 @@ fn snake_case(id: &str) -> String {
 
 /// The generated result checkers, in the order `_runtime` defines them.
 const RESULT_CHECKERS: &[&str] = &[
+    "decode_result",
     "expect_bool",
     "expect_count",
     "expect_edgelist",
@@ -158,6 +179,7 @@ const RESULT_CHECKERS: &[&str] = &[
     "expect_ids",
     "expect_nodelist",
     "expect_string",
+    "models",
 ];
 
 /// `(Python annotation, runtime checker)` for a scalar encoding the client models.
@@ -275,8 +297,8 @@ fn mapping_type(node: &serde_json::Value, render: fn(&serde_json::Value) -> Stri
     }
 }
 
-/// `(field name, annotation, required)` for one method, from its request subschema.
-fn request_fields(id: &str, subschema: &serde_json::Value) -> Vec<(String, String, bool)> {
+/// `(field name, annotation, presence)` for one method, from its request subschema.
+fn request_fields(id: &str, subschema: &serde_json::Value) -> Vec<(String, String, FieldPresence)> {
     let Some(params) = subschema.get("properties").and_then(|p| p.get("params")) else {
         return Vec::new();
     };
@@ -299,12 +321,92 @@ fn request_field(
     required: &[&str],
     name: &str,
     node: &serde_json::Value,
-) -> (String, String, bool) {
+) -> (String, String, FieldPresence) {
     let annotation = match DTO_SURFACES.iter().find(|surface| surface.method == id) {
         Some(surface) => envelope_safe_annotation(id, surface, dto_python_type(node)),
         None => python_type(node),
     };
-    (name.to_string(), annotation, required.contains(&name))
+    let presence = FieldPresence::of(required.contains(&name), node);
+    (name.to_string(), annotation, presence)
+}
+
+/// How one model field is declared. A serde-defaulted collection carries
+/// `"default": []` in its schema and is rendered as an empty-list default, never
+/// as `T | None = None`: the engine decodes an absent list as empty but refuses
+/// `null` for it, so `None` would be a value the wire contract does not accept.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum FieldPresence {
+    Required,
+    Optional,
+    EmptyList,
+}
+
+impl FieldPresence {
+    fn of(required: bool, node: &serde_json::Value) -> Self {
+        let empty_list_default = node
+            .get("default")
+            .and_then(|value| value.as_array())
+            .is_some_and(|values| values.is_empty());
+        match (required, empty_list_default) {
+            (true, _) => Self::Required,
+            (false, true) => Self::EmptyList,
+            (false, false) => Self::Optional,
+        }
+    }
+
+    /// `(declared annotation, default expression)`; the default is `None` for a
+    /// required field. `alias` binds a keyword-renamed field to its wire key.
+    fn declaration(self, annotation: &str, alias: Option<&str>) -> (String, Option<String>) {
+        let alias = alias.map(|name| format!(", alias=\"{name}\""));
+        match (self, alias) {
+            (Self::Required, None) => (annotation.to_string(), None),
+            (Self::Required, Some(alias)) => {
+                (annotation.to_string(), Some(format!("Field(...{alias})")))
+            }
+            (Self::Optional, None) => (optional(annotation), Some("None".to_string())),
+            (Self::Optional, Some(alias)) => {
+                (optional(annotation), Some(format!("Field(None{alias})")))
+            }
+            (Self::EmptyList, alias) => (
+                annotation.to_string(),
+                Some(format!(
+                    "Field(default_factory={}{})",
+                    empty_factory(annotation),
+                    alias.unwrap_or_default()
+                )),
+            ),
+        }
+    }
+}
+
+/// The Python constructor of an empty `annotation`. A `Vec<u8>` field is
+/// described by the schema as an array too, but binds to Python `bytes`, whose
+/// empty value is `b""`, not `[]`.
+fn empty_factory(annotation: &str) -> &'static str {
+    if annotation == "bytes" {
+        "bytes"
+    } else {
+        "list"
+    }
+}
+
+/// One model field line, shared by request models and nested DTOs.
+fn push_field(out: &mut String, name: &str, annotation: &str, presence: FieldPresence) {
+    let keyword = is_python_keyword(name);
+    let (declared, default) = presence.declaration(annotation, keyword.then_some(name));
+    let field = if keyword {
+        format!("{name}_")
+    } else {
+        name.to_string()
+    };
+    match default {
+        Some(default) => {
+            let _ = writeln!(out, "    {field}: {declared} = {default}");
+        }
+        None => {
+            let _ = writeln!(out, "    {field}: {declared}");
+        }
+    }
 }
 
 /// The request envelope class is `{id}Request`. When the method's DTO module
@@ -365,7 +467,7 @@ fn optional(annotation: &str) -> String {
     format!("{annotation} | None")
 }
 
-fn push_model(out: &mut String, id: &str, fields: &[(String, String, bool)]) {
+fn push_model(out: &mut String, id: &str, fields: &[(String, String, FieldPresence)]) {
     let _ = writeln!(out, "class {id}Request(BaseModel):");
     let _ = writeln!(out, "    \"\"\"Validate one engine-contract request body.");
     out.push('\n');
@@ -384,29 +486,17 @@ fn push_model(out: &mut String, id: &str, fields: &[(String, String, bool)]) {
         return;
     }
     out.push('\n');
-    for (name, annotation, required) in fields {
-        if is_python_keyword(name) {
-            let default = if *required { "..." } else { "None" };
-            let declared = if *required {
-                annotation.to_string()
-            } else {
-                optional(annotation)
-            };
-            let _ = writeln!(
-                out,
-                "    {name}_: {declared} = Field({default}, alias=\"{name}\")"
-            );
-        } else if *required {
-            let _ = writeln!(out, "    {name}: {annotation}");
-        } else {
-            // An `anyOf` that already carries a null branch renders as `T | None`;
-            // appending a second one is valid Python and ugly output.
-            let _ = writeln!(out, "    {name}: {} = None", optional(annotation));
-        }
+    for (name, annotation, presence) in fields {
+        push_field(out, name, annotation, *presence);
     }
 }
 
-fn push_send(out: &mut String, d: &MethodDescriptor, declared: Option<&Declared>) {
+fn push_send(
+    out: &mut String,
+    d: &MethodDescriptor,
+    declared: Option<&Declared>,
+    request_model: Option<&str>,
+) {
     let id = d.id.as_str();
     let name = snake_case(id);
     let scalar = modelled_scalar(declared);
@@ -434,7 +524,10 @@ fn push_send(out: &mut String, d: &MethodDescriptor, declared: Option<&Declared>
     push_result_schema(out, d.domain, id, declared.is_some());
     push_error_bullets(out, d.error_set);
     let _ = writeln!(out, "    \"\"\"");
-    push_send_request_validation(out, id, typed_request);
+    match request_model {
+        Some(model) => push_lazy_request_validation(out, model, native_prepared_field(id)),
+        None => push_send_request_validation(out, id, typed_request),
+    }
     let _ = writeln!(out, "    payload = await client._send(");
     let _ = writeln!(out, "        \"{id}\",");
     out.push_str(
@@ -458,9 +551,10 @@ fn push_send_request_validation(out: &mut String, id: &str, typed_request: Optio
     match typed_request {
         Some(model) => {
             let _ = writeln!(out, "    request = {model}.model_validate(request)");
-            let _ = writeln!(
-                out,
-                "    params = request.model_dump(mode=\"json\", by_alias=True, exclude_none=True)"
+            // Only what the caller set: the engine applies the same serde
+            // defaults to an absent field.
+            out.push_str(
+                "    params = request.model_dump(\n        mode=\"json\", by_alias=True, exclude_unset=True, exclude_none=True\n    )\n",
             );
         }
         None => {
@@ -559,17 +653,15 @@ fn push_typed_operation_adapter(out: &mut String, adapter: &TypedOperationAdapte
         );
     }
     if method == "AgentComponent" && operation == "current" {
-        let _ = writeln!(
-            out,
-            "    params = {{\"op\": request.model_dump(mode=\"json\", exclude_none=True)}}"
+        out.push_str(
+            "    params = {\n        \"op\": request.model_dump(mode=\"json\", exclude_unset=True, exclude_none=True)\n    }\n",
         );
     } else {
         let _ = writeln!(out, "    params = {{");
         let _ = writeln!(out, "        \"op\": {{");
         let _ = writeln!(out, "            \"op\": {operation:?},");
-        let _ = writeln!(
-            out,
-            "            \"request\": request.model_dump(mode=\"json\", exclude_none=True),"
+        out.push_str(
+            "            \"request\": request.model_dump(\n                mode=\"json\", exclude_unset=True, exclude_none=True\n            ),\n",
         );
         let _ = writeln!(out, "        }},");
         let _ = writeln!(out, "    }}");
@@ -594,15 +686,26 @@ fn domain_module(
     descriptors: &[MethodDescriptor],
     schemas: &serde_json::Value,
     catalog: &Catalog,
+    space: &ModelSpace,
 ) -> String {
-    let body = domain_body(descriptors, schemas, catalog);
+    let (body, lazy) = domain_body(descriptors, schemas, catalog, space);
     let mut out = String::from(HEADER);
     let _ = writeln!(
         out,
         "\"\"\"Generated {domain} engine-contract client surface.\"\"\""
     );
-    out.push_str("\nfrom __future__ import annotations\n\nfrom typing import Any\n\n");
+    let typing = if body.contains("TYPE_CHECKING") || !lazy.is_empty() || body.contains("_models.")
+    {
+        "TYPE_CHECKING, Any"
+    } else {
+        "Any"
+    };
+    let _ = write!(
+        out,
+        "\nfrom __future__ import annotations\n\nfrom typing import {typing}\n\n"
+    );
     push_domain_imports(&mut out, descriptors, &body);
+    push_type_checking_block(&mut out, &lazy, &body);
     let import_end = out.trim_end_matches('\n').len();
     out.truncate(import_end);
     out.push('\n');
@@ -610,20 +713,33 @@ fn domain_module(
     out
 }
 
-fn domain_body(
-    descriptors: &[MethodDescriptor],
+fn domain_body<'a>(
+    descriptors: &'a [MethodDescriptor],
     schemas: &serde_json::Value,
     catalog: &Catalog,
-) -> String {
+    space: &'a ModelSpace,
+) -> (String, Vec<&'a str>) {
     let mut body = String::new();
+    let mut lazy = Vec::new();
     let empty = serde_json::json!({});
     for d in descriptors {
         let id = d.id.as_str();
         let subschema = schemas.get(id).unwrap_or(&empty);
+        // A typed-direct sender names its request class in its own signature, so
+        // that class stays eager.
+        let request_model = space
+            .request_model(id)
+            .filter(|_| typed_direct_request(id).is_none());
+        match request_model {
+            Some(_) => lazy.push(id),
+            None => {
+                body.push_str("\n\n");
+                push_model(&mut body, id, &request_fields(id, subschema));
+            }
+        }
         body.push_str("\n\n");
-        push_model(&mut body, id, &request_fields(id, subschema));
-        body.push_str("\n\n");
-        push_send(&mut body, d, catalog.methods.get(id));
+        push_send(&mut body, d, catalog.methods.get(id), request_model);
+        push_typed_decode(&mut body, id, catalog.methods.get(id), space);
         for adapter in TYPED_OPERATION_ADAPTERS
             .iter()
             .filter(|adapter| adapter.method == id)
@@ -631,13 +747,25 @@ fn domain_body(
             push_typed_operation_adapter(&mut body, adapter);
         }
     }
-    body
+    push_request_resolver(&mut body, &lazy);
+    (body, lazy)
+}
+
+/// `decode_{method}` for a result the send returns as an `OpaqueResult` but the
+/// contract schematizes (EH-192).
+fn push_typed_decode(out: &mut String, id: &str, declared: Option<&Declared>, space: &ModelSpace) {
+    if dto_result_model(id).is_some() || modelled_scalar(declared).is_some() {
+        return;
+    }
+    if let Some(model) = space.result_model(id) {
+        push_decode(out, id, &snake_case(id), model);
+    }
 }
 
 fn push_domain_imports(out: &mut String, descriptors: &[MethodDescriptor], body: &str) {
     // `Field` is imported only where an aliased keyword field actually uses it: an
     // unused import is a ruff F401 on every other module.
-    out.push_str(pydantic_import(body));
+    out.push_str(&pydantic_import(body));
     let mut imports: Vec<&str> = Vec::new();
     if body.contains("OpaqueResult(") {
         imports.push("OpaqueResult");
@@ -680,17 +808,23 @@ fn push_domain_imports(out: &mut String, descriptors: &[MethodDescriptor], body:
     }
 }
 
-fn pydantic_import(body: &str) -> &'static str {
-    let type_adapter = body.contains("TypeAdapter(");
-    if body.contains(" = Field(") && type_adapter {
-        "from pydantic import BaseModel, ConfigDict, Field, TypeAdapter\n\n"
-    } else if body.contains(" = Field(") {
-        "from pydantic import BaseModel, ConfigDict, Field\n\n"
-    } else if type_adapter {
-        "from pydantic import BaseModel, ConfigDict, TypeAdapter\n\n"
-    } else {
-        "from pydantic import BaseModel, ConfigDict\n\n"
+/// The pydantic names a domain module's body uses, and nothing else: a module whose
+/// requests all resolve lazily defines no model and imports no pydantic name.
+fn pydantic_import(body: &str) -> String {
+    let used: Vec<&str> = [
+        ("BaseModel", "(BaseModel)"),
+        ("ConfigDict", "ConfigDict("),
+        ("Field", " = Field("),
+        ("TypeAdapter", "TypeAdapter("),
+    ]
+    .into_iter()
+    .filter(|(_, marker)| body.contains(marker))
+    .map(|(name, _)| name)
+    .collect();
+    if used.is_empty() {
+        return String::new();
     }
+    format!("from pydantic import {}\n\n", used.join(", "))
 }
 
 fn push_surface_import(
@@ -825,6 +959,16 @@ fn init_module(modules: &[String], sends: &BTreeMap<String, String>) -> String {
     out
 }
 
+/// The first doc-comment line schemars copied into a definition, which names
+/// the Rust type that emitted it well enough to find in a collision report.
+fn definition_origin(definition: &serde_json::Value) -> String {
+    definition
+        .get("description")
+        .and_then(|value| value.as_str())
+        .and_then(|text| text.lines().next())
+        .map_or_else(|| "<undocumented type>".to_string(), str::to_string)
+}
+
 fn merged_definitions(
     document: &serde_json::Value,
     catalog: &Catalog,
@@ -839,8 +983,13 @@ fn merged_definitions(
         for (name, definition) in domain_definitions {
             if let Some(previous) = definitions.insert(name.clone(), definition.clone()) {
                 assert_eq!(
-                    &previous, definition,
-                    "request and result schemas disagree on definition {name}"
+                    &previous,
+                    definition,
+                    "two distinct Rust types share the schema definition name {name} \
+                     (request side: {}; result domain {result_domain}: {}); give one a \
+                     domain-specific name",
+                    definition_origin(&previous),
+                    definition_origin(definition),
                 );
             }
         }
@@ -868,7 +1017,13 @@ pub(super) fn artifacts(catalog: &Catalog) -> Vec<Artifact> {
     let (by_domain, published, sends) = python_inventory();
     let mut out = base_artifacts(&published);
     let mut modules: Vec<String> = by_domain.keys().cloned().collect();
-    push_domain_artifacts(&mut out, &by_domain, &schemas, catalog);
+    let space = ModelSpace::build(&document, catalog);
+    out.push(Artifact {
+        path: "epistemic_graph/generated/models.py".to_string(),
+        bytes: normalize(models_module(&space.definitions)),
+    });
+    // Not added to the package's eager imports: `models` loads on first use.
+    push_domain_artifacts(&mut out, &by_domain, &schemas, catalog, &space);
     push_dto_artifacts(&mut out, &mut modules, &document, catalog);
     push_package_artifacts(&mut out, &mut modules, &sends);
     out
@@ -926,11 +1081,12 @@ fn push_domain_artifacts(
     by_domain: &BTreeMap<String, Vec<MethodDescriptor>>,
     schemas: &serde_json::Value,
     catalog: &Catalog,
+    space: &ModelSpace,
 ) {
     for (domain, descriptors) in by_domain {
         out.push(Artifact {
             path: format!("epistemic_graph/generated/{domain}.py"),
-            bytes: normalize(domain_module(domain, descriptors, schemas, catalog)),
+            bytes: normalize(domain_module(domain, descriptors, schemas, catalog, space)),
         });
     }
 }

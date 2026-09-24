@@ -77,8 +77,8 @@ pub struct ConnectorRelationshipMapping {
     pub lpg_rel_type: String,
 }
 
-pub use annotations::{PackAnnotations, PackCost, PackModelFacts};
-pub use ids::{escape_pack_name, pack_component_id, PACK_COMPONENT_ID_PREFIX};
+pub use annotations::{PackAnnotations, PackCost, PackModelFacts, PackToolMode};
+pub use ids::{escape_pack_name, pack_component_id, validate_connector, PACK_COMPONENT_ID_PREFIX};
 pub use index::{
     ConnectorPackIndex, McpCatalogSnapshotBinding, PackArchiveRef, PackEntry, PackEntryKind,
     PackProducer, PackRef, PackSection,
@@ -95,5 +95,5 @@ pub use result::{
     ConnectorPackBindingResult, ConnectorPackStatus, PackBodyReconcileReport,
     PackDispositionCounts, PackHeadView, PackImportReceipt, PackImportResult, PackMemberCounts,
     PackProjectionState, PackRetireResult, PackViolation, PackViolationCode, PackWarning,
-    PackWarningCode, PackWriteErrorCode,
+    PackWarningCode, PackWriteErrorCode, MAX_PROJECTION_FAILURE_DETAIL_BYTES,
 };

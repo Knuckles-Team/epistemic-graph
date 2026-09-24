@@ -101,16 +101,14 @@ impl RowGuard<'_, '_> {
     }
 
     fn batch(&self, operations_msgpack: &[u8]) -> Result<(), String> {
-        use crate::algorithms::BatchOperation;
-        for operation in crate::algorithms::decode_batch_operations(operations_msgpack)? {
-            match operation {
-                BatchOperation::AddNode {
+        use crate::redb_store::work_item_capability::{batch_node_touches, NodeTouch};
+        for touch in batch_node_touches(operations_msgpack)? {
+            match touch {
+                NodeTouch::Write {
                     id,
                     properties_msgpack,
-                    ..
                 } => self.write(&id, &properties_msgpack)?,
-                BatchOperation::RemoveNode { id } => self.existing(&id)?,
-                _ => {}
+                NodeTouch::Remove { id } => self.existing(&id)?,
             }
         }
         Ok(())

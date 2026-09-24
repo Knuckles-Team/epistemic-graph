@@ -13,7 +13,7 @@
 //! ## Design
 //!
 //! Uses the OFFICIAL `apache/iceberg-rust` crates CA-18 already adopted under the SAME
-//! risk-accepted `.cargo-audit-allow.txt` posture (`iceberg`, `iceberg-storage-opendal`)
+//! risk-accepted `.config/cargo-audit-allow.txt` posture (`iceberg`, `iceberg-storage-opendal`)
 //! plus the REST-catalog client CA-18 did not need (`iceberg-catalog-rest`) — all three
 //! reuse the workspace `arrow = "58.3"` `datafusion = "54"` already links, so there is no
 //! new ABI-isolation boundary (CA-18's own `cargo tree -d` precedent).

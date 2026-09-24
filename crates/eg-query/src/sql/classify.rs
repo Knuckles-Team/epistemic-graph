@@ -2917,7 +2917,7 @@ fn decode_where(selection: Option<&Expr>, verb: &str) -> Result<WhereEq, String>
 /// `BETWEEN`, `IS [NOT] NULL`, and parenthesised nesting. The left operand of a
 /// comparison/`IN`/`BETWEEN`/`IS NULL` must be a (possibly qualified) column; the
 /// right operands must be literals (reusing `ident_column` + `expr_to_json`).
-fn decode_predicate(expr: &Expr) -> Result<eg_types::RowPredicate, String> {
+pub(crate) fn decode_predicate(expr: &Expr) -> Result<eg_types::RowPredicate, String> {
     use datafusion::sql::sqlparser::ast::UnaryOperator;
     use eg_types::RowPredicate;
     match expr {

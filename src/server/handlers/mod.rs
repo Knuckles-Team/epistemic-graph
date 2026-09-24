@@ -98,7 +98,7 @@ pub(crate) mod streaming;
 #[cfg(feature = "rdf")]
 pub(crate) mod rdf;
 // WASM-sandboxed UDF surface (CONCEPT:EG-KG.query.rowset-execution, feature `wasm-udf`). RegisterUdf/RunUdf
-// drive the process-global UdfRegistry on ServerState; a build without `wasm-udf` omits
+// drive the owner-scoped UdfCatalog on ServerState (EH-374); a build without `wasm-udf` omits
 // the module and the variants fall to the graph_ops not-available catch-all.
 #[cfg(feature = "wasm-udf")]
 pub(crate) mod wasm_udf;
@@ -112,9 +112,10 @@ pub(crate) mod wasm_udf;
 #[cfg(any(feature = "compute-dist", feature = "matview"))]
 pub(crate) mod dist_compute;
 // Query federation / foreign sources (CONCEPT:EG-KG.query.query-federation, feature `federation`).
-// RegisterForeignSource records a named foreign source on ServerState; the unified-query
-// handler READS that map back (it builds the eg-plan `ForeignSourceRegistry` a `Named`
-// `Op::ForeignScan` / an `Op::Foreign` resolves through), so both the by-name and the
+// RegisterForeignSource records a named foreign source under the caller's verified owner
+// (tenant+principal, EH-373); the unified-query handlers build the eg-plan
+// `ForeignSourceRegistry` a `Named` `Op::ForeignScan` / an `Op::Foreign` resolves through
+// from the CALLER'S OWN entries only (`server::foreign_catalog`), so both the by-name and the
 // inline-spec paths execute through the same federation machinery. A build without
 // `federation` omits the module and the variant falls to the graph_ops not-available
 // catch-all.
@@ -126,6 +127,9 @@ pub(crate) mod source_batch;
 // RF-ADR-009 native raw-source authority. Present in every server build so a
 // build lacking redb/blob can return a named refusal for the wire method.
 pub(crate) mod source_ingestion;
+// EH-280 — durable projection of a branch-aware IndexRepository batch,
+// committed through the same ChangeEnvelope authority as source ingestion.
+pub(crate) mod repository_index;
 
 // SQLite `.db` FILE import/export (CONCEPT:EG-KG.query.eg-feature/EG-332, feature `sqlite-file`). The
 // ImportSqliteFile/ExportSqliteFile methods move rows between an on-disk `sqlite3` `.db`

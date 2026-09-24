@@ -14,9 +14,9 @@ pub(crate) async fn handle_txn_unified_query_text(
     let rls = ctx.rls;
     // UQL front-end: parse to the SAME `wire::Plan`, then run the IDENTICAL
     // overlaid in-txn executor. A parse error is a caret-annotated Response.
-    let plan = match eg_plan::uql::parse(&text) {
-        Ok(p) => p,
-        Err(e) => return Ok(Response::err(req_id, e.render(&text))),
+    let plan = match parse_uql(req_id, &text) {
+        Ok(plan) => plan,
+        Err(refusal) => return Ok(refusal),
     };
     Ok(run_unified_overlaid::<query_results::TxnUnifiedQueryText>(
         state,
@@ -29,40 +29,6 @@ pub(crate) async fn handle_txn_unified_query_text(
         rls,
     )
     .await)
-}
-
-/// The `Op::TsScan` leg-resolution shared by [`handle_nl_query`] (and any sibling
-/// served-query handler that needs the SAME committed-tsdb-store + tenant/graph
-/// scope triple `run_unified`'s `TsdbLegBind` takes): the caller's RLS-checked
-/// scope for `plan`, then the committed store handle only when that scope is
-/// non-empty (never touch the tsdb store for a plan that doesn't reference one).
-#[cfg(all(feature = "nl-query", feature = "tsdb"))]
-pub(crate) async fn resolve_tsdb_leg(
-    state: &Arc<RwLock<ServerState>>,
-    plan: &eg_plan::Plan,
-    graph_name: &str,
-    read_authority: Option<&GraphReadAuthority>,
-    req_id: u64,
-) -> Result<
-    (
-        Option<Arc<eg_tsdb::store::SeriesStore>>,
-        Option<String>,
-        Option<String>,
-    ),
-    Response,
-> {
-    let tsdb_scope = served_tsdb_scope(plan, graph_name, read_authority)
-        .map_err(|denied| Response::err(req_id, denied))?;
-    let tsdb = if tsdb_scope.is_some() {
-        state.read().await.tsdb_store.clone()
-    } else {
-        None
-    };
-    let (tsdb_tenant, tsdb_graph) = match tsdb_scope {
-        Some((tenant, graph)) => (Some(tenant), Some(graph)),
-        None => (None, None),
-    };
-    Ok((tsdb, tsdb_tenant, tsdb_graph))
 }
 
 #[cfg(feature = "nl-query")]
@@ -124,13 +90,14 @@ pub(crate) async fn handle_nl_query(
         Ok(plan) => plan,
         Err(resp) => return Ok(resp),
     };
-    // RECONCILE (CONCEPT:EG-KG.query.native-time-series): committed tsdb store + scope for `Op::TsScan` fusion.
-    #[cfg(feature = "tsdb")]
-    let (tsdb, tsdb_tenant, tsdb_graph) =
-        match resolve_tsdb_leg(state, &plan, graph_name, read_authority, req_id).await {
-            Ok(leg) => leg,
-            Err(resp) => return Ok(resp),
-        };
+    // Verified-carrier legs: the committed tsdb scope for `Op::TsScan` fusion
+    // (CONCEPT:EG-KG.query.native-time-series) and the CALLER'S owner-scoped foreign
+    // registry (EH-373), so an NL-planned `FOREIGN "<name>"` / `Named` `ForeignScan`
+    // leg resolves only sources the caller (tenant+principal) registered.
+    let legs = match ServedPlanLegs::resolve(state, graph_name, read_authority, &plan).await {
+        Ok(legs) => legs,
+        Err(denied) => return Ok(Response::err(req_id, denied)),
+    };
     // RLS-filtered off-lock snapshot, exactly like the Sql/UnifiedQueryText reads.
     // NOT result-cached: an LLM plan is non-deterministic, so keying a cache on the
     // NL text would risk serving a stale/foreign result.
@@ -138,50 +105,9 @@ pub(crate) async fn handle_nl_query(
     let mut snap = core.analysis_snapshot();
     #[cfg(feature = "security")]
     rls.filter_view(caller, &mut snap);
-    // See the `UnifiedQuery` arm: push vector + lexical legs into the live
-    // persistent indexes via a guard taken INSIDE the off-lock closure.
-    let core_for_ctx = core.clone();
-    // CONCEPT:EG-KG.query.closure-backed-source — the server's REGISTERED foreign sources,
-    // cloned (a cheap `Arc` handle) for the off-lock closure exactly like the tsdb store
-    // above, so `run_unified` can resolve a `FOREIGN "<name>"` / `Named` `ForeignScan`
-    // leg through `ServerState::foreign_sources` instead of erroring on every named
-    // source `Method::RegisterForeignSource` accepted.
-    #[cfg(feature = "federation")]
-    let foreign_sources = state.read().await.foreign_sources.clone();
-    let resp = match compute_off_lock(req_id, move || {
-        #[cfg(feature = "text")]
-        let served_text =
-            crate::server::secondary_indexes::ServedTextIndex::new(core_for_ctx.clone());
-        #[cfg(feature = "geo")]
-        let served_spatial =
-            crate::server::secondary_indexes::ServedSpatialIndex::new(core_for_ctx.clone());
-        let semantic_guard = core_for_ctx.semantic_store.read();
-        run_unified(
-            plan,
-            &snap,
-            &semantic_guard,
-            ServedIndexes {
-                #[cfg(feature = "text")]
-                text: Some(&served_text),
-                #[cfg(feature = "geo")]
-                spatial: Some(&served_spatial),
-                #[cfg(feature = "federation")]
-                foreign: Some(&*foreign_sources),
-                #[cfg(not(any(feature = "text", feature = "geo")))]
-                _marker: std::marker::PhantomData,
-            },
-            #[cfg(feature = "tsdb")]
-            TsdbLegBind {
-                tsdb: tsdb.as_deref(),
-                tsdb_tenant: tsdb_tenant.as_deref(),
-                tsdb_graph: tsdb_graph.as_deref(),
-                // Off-txn: no staged-series overlay (CONCEPT:EG-KG.query.txn-tsdb-read-your).
-                staged_series: None,
-            },
-        )
-    })
-    .await
-    {
+    // The same off-lock run as `UnifiedQueryText`: persistent vector/lexical/spatial/
+    // shape indexes and the caller's owner-scoped foreign registry are bound inside it.
+    let resp = match run_unified_off_lock(state, req_id, &core, Arc::new(snap), plan, legs).await {
         Ok(Ok(rows)) => result_response::<query_results::NlQuery>(req_id, &rows),
         Ok(Err(msg)) => Response::err(req_id, format!("NlQuery error: {msg}")),
         Err(resp) => resp,

@@ -81,7 +81,7 @@ class FleetCatalogListRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     cursor: FleetCatalogCursor | None = None
-    grant_digests: BoundedVec_Digest256_64 | None = None
+    grant_digests: BoundedVec_Digest256_64 = Field(default_factory=list)
     kind: FleetCatalogKind
     limit: Annotated[int, Field(ge=0, le=65535)] | None = None
     query: str | None = None
@@ -99,7 +99,7 @@ class FleetCatalogLookup(BaseModel):
 class FleetCatalogLookupRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    grant_digests: BoundedVec_Digest256_64 | None = None
+    grant_digests: BoundedVec_Digest256_64 = Field(default_factory=list)
     ids: BoundedVec_string_256
 
 

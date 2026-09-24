@@ -126,6 +126,18 @@ pub struct StatisticalPolicy {
     pub tenant_public_features: bool,
     /// Share of decisions sampled into the audit stream.
     pub audit_sample: UnitRationalWire,
+    /// Commit principals whose logged outcomes may train or evaluate a head
+    /// (§4.3 log poisoning). Empty admits no bandit record at all.
+    #[serde(default)]
+    pub approved_commit_principals: BoundedVec<String, 64>,
+    /// Age after which a logged record's inputs move to Blob CAS (EH-060).
+    /// `None` keeps them inline.
+    #[serde(default)]
+    pub compact_after_ms: Option<u64>,
+    /// Age after which a compacted record's blob is released; verification
+    /// then answers `INPUTS_RETIRED`. `None` keeps the blob.
+    #[serde(default)]
+    pub drop_blob_after_ms: Option<u64>,
 }
 
 /// The complete decision policy.

@@ -414,9 +414,7 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
     pub fn commit(self) -> Result<(), String> {
         self.refuse_if_poisoned()?;
         match self.transaction {
-            WriteTxn::Sole(transaction) => {
-                (*transaction).commit().map_err(|error| error.to_string())
-            }
+            WriteTxn::Sole(transaction) => crate::physical::root::commit_durably(*transaction),
             WriteTxn::Member(_) => Err(GROUP_MEMBER_CANNOT_END.to_string()),
         }
     }
@@ -448,7 +446,7 @@ impl<'a, D: OwnerDomain> PhysicalWriteCapability<'a, D> {
         let transaction = Arc::try_unwrap(transaction)
             .map_err(|_| "an admitted scope group member is still live".to_string())?;
         if commit {
-            transaction.commit().map_err(|error| error.to_string())
+            crate::physical::root::commit_durably(transaction)
         } else {
             transaction.abort().map_err(|error| error.to_string())
         }

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 
 import pytest
+from _client_fixtures import PayloadTransport
 
 from epistemic_graph.generated import reasoning
 from epistemic_graph.generated.graph_schema import (
@@ -18,26 +18,9 @@ from epistemic_graph.generated.graph_schema import (
 pytestmark = pytest.mark.no_engine
 
 
-class _Client:
-    def __init__(self, payloads: dict[str, dict[str, Any]]) -> None:
-        self.payloads = payloads
-        self.calls: list[tuple[str, dict[str, Any] | None, str | None, str | None]] = []
-
-    async def _send(
-        self,
-        method: str,
-        params: dict[str, Any] | None,
-        graph: str | None,
-        *,
-        idempotency_key: str | None,
-    ) -> dict[str, Any]:
-        self.calls.append((method, params, graph, idempotency_key))
-        return self.payloads[method]
-
-
 def test_generated_graph_schema_write_and_list_are_typed() -> None:
     digest = "07" * 32
-    client = _Client(
+    client = PayloadTransport(
         {
             "GraphSchema": {
                 "schema_version": 1,
@@ -91,7 +74,7 @@ def test_generated_graph_schema_write_and_list_are_typed() -> None:
     assert isinstance(committed, GraphSchemaCommitted)
     assert isinstance(listed, GraphSchemaSourcesView)
     assert isinstance(listed.core_sources[0].origin, SchemaSourceOriginViewCore)
-    assert client.calls == [
+    assert client.sent == [
         (
             "GraphSchema",
             {"op": attach.model_dump(mode="json")},

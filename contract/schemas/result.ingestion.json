@@ -2449,19 +2449,12 @@
         "queue_class": {
           "$ref": "#/$defs/SemanticQueueClass",
           "description": "The class this turn asked for. Echoed so a worker can prove the tier it\ngot is the tier it wanted."
-        },
-        "released_other_class": {
-          "description": "How many claimed rows belonged to another queue class and were released\nback unexecuted. A persistently non-zero value means this consumer is\ncompeting with the wrong tier, which is an operational fact worth\nsurfacing rather than silently absorbing.",
-          "format": "uint32",
-          "minimum": 0,
-          "type": "integer"
         }
       },
       "required": [
         "queue_class",
         "entries",
-        "more_available",
-        "released_other_class"
+        "more_available"
       ],
       "type": "object"
     },

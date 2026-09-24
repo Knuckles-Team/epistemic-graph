@@ -4,17 +4,13 @@
 //! Served by [`super::stat_jobs`] in a build with the `decide` feature; a
 //! build without it answers a typed refusal naming the feature.
 
-use std::sync::Arc;
-
-use tokio::sync::RwLock;
-
+use super::SharedState;
 use crate::protocol::Response;
 use crate::server::auth::VerifiedRequestContext;
-use crate::server::state::ServerState;
 
 /// Submit or read one head-fitting job.
 pub(crate) async fn handle_decision_fit(
-    state: &Arc<RwLock<ServerState>>,
+    state: &SharedState,
     req_id: u64,
     verified: &VerifiedRequestContext,
     op: eg_types::decision::DecisionFitOp,
@@ -32,7 +28,7 @@ pub(crate) async fn handle_decision_fit(
 
 /// Submit or read one head-evaluation job.
 pub(crate) async fn handle_decision_eval(
-    state: &Arc<RwLock<ServerState>>,
+    state: &SharedState,
     req_id: u64,
     verified: &VerifiedRequestContext,
     op: eg_types::decision::DecisionEvalOp,

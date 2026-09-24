@@ -1,12 +1,10 @@
 use crate::owner::contract::expected_owner_table_contract;
 use crate::owner::layout::OwnerLayout;
 use crate::physical::root::is_retired_prototype_table;
-use crate::recovery::evidence::{
-    copy_table, HashSnapshot, StrictRecoveryEvidence, StrictTableEvidence,
-};
+use crate::recovery::evidence::{copy_table, HashSnapshot, StrictTableEvidence};
 use crate::tables::open_declared_ledger_tables;
 use redb::{Key, ReadTransaction, TableDefinition, TableHandle, Value, WriteTransaction};
-use sha2::{Digest, Sha256};
+use sha2::Sha256;
 
 // Closed owner-table registry. These names and types are the manifest contract.
 const RBAC: TableDefinition<'static, &str, &[u8]> = TableDefinition::new("rbac");
@@ -706,27 +704,9 @@ where
     Ok(())
 }
 
+/// Every layout, in registry order (the lineage module's one list).
 pub(crate) fn owner_layouts() -> [OwnerLayout; 18] {
-    [
-        OwnerLayout::LedgerOnly,
-        OwnerLayout::Rbac,
-        OwnerLayout::Jobs,
-        OwnerLayout::Statechart,
-        OwnerLayout::TimeSeries,
-        OwnerLayout::Kv,
-        OwnerLayout::Blob,
-        OwnerLayout::SemanticIndex,
-        OwnerLayout::Sql,
-        OwnerLayout::PathIndex,
-        OwnerLayout::RequestReplay,
-        OwnerLayout::VizProvenance,
-        OwnerLayout::ColdTier,
-        OwnerLayout::TenantCatalog,
-        OwnerLayout::NodeInfo,
-        OwnerLayout::ClusterHierarchy,
-        OwnerLayout::GraphShard,
-        OwnerLayout::AgentLibrary,
-    ]
+    crate::owner::lineage::ALL_LAYOUTS
 }
 
 fn open_table<K, V>(
@@ -753,39 +733,4 @@ where
     rtx.open_table(table)
         .map(|_| ())
         .map_err(|error| error.to_string())
-}
-
-/// The exact predecessor evidence for the one explicit SQL checkpoint upgrade.
-/// Callers must prove the frozen predecessor contract and its actual table
-/// census before invoking this: write-side typed opens can create tables.
-/// Uses the strict recovery hash engine and the canonical typed visitors; only
-/// the newly declared checkpoint table is omitted, never any ledger table.
-pub(super) fn sql_pre_checkpoint_evidence(
-    source: HashSnapshot<'_>,
-) -> Result<StrictRecoveryEvidence, String> {
-    let mut hasher = Sha256::new();
-    let mut tables = Vec::new();
-    let mut rows = 0;
-    macro_rules! hash_predecessor {
-        ($table:expr) => {{
-            if $table.name() != SQL_SOURCE_CHECKPOINTS.name() {
-                let (count, fingerprint) = source.hash_table(&mut hasher, $table)?;
-                rows += count;
-                tables.push(StrictTableEvidence {
-                    table_id: $table.name().to_string(),
-                    rows: count,
-                    fingerprint,
-                });
-            }
-        }};
-    }
-    crate::tables::visit_ledger_tables!(hash_predecessor);
-    let ledger_rows = rows;
-    visit_owner_tables!(OwnerLayout::Sql, hash_predecessor);
-    Ok(StrictRecoveryEvidence {
-        ledger_rows,
-        owner_rows: rows - ledger_rows,
-        fingerprint: hasher.finalize().into(),
-        tables,
-    })
 }

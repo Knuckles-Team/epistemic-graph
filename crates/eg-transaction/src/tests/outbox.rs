@@ -17,9 +17,9 @@ use eg_types::{
 };
 use std::collections::BTreeMap;
 
-const TOPIC: &str = "engine.projection.rebuild";
+pub(super) const TOPIC: &str = "engine.projection.rebuild";
 
-fn bind_scope(
+pub(super) fn bind_scope(
     fixture: &Fixture,
     tenant: &'static str,
     identity: MutationScopeIdentity,
@@ -53,14 +53,14 @@ fn event_batch(
 }
 
 /// Commit `batches` batches of one event each, starting at version 0.
-fn emit(fixture: &Fixture, owner: &OwnedStoreHandle<LedgerOnlyOwner>, batches: u64) {
+pub(super) fn emit(fixture: &Fixture, owner: &OwnedStoreHandle<LedgerOnlyOwner>, batches: u64) {
     for version in 0..batches {
         let batch = event_batch(owner.identity(), &format!("batch-{version}"), version, 1);
         apply_batch(fixture, owner, &batch);
     }
 }
 
-fn budget(limit: u32, now_ms: u64) -> OutboxClaimBudget {
+pub(super) fn budget(limit: u32, now_ms: u64) -> OutboxClaimBudget {
     OutboxClaimBudget::new(limit, 5_000, now_ms).unwrap()
 }
 
@@ -1962,7 +1962,9 @@ fn status_reports_the_stream_head() {
 
     let claimed = claim_all(&fixture, &owner, "projection", 2, 10);
     let read = fixture.kernel.read_scope(&owner).unwrap();
-    let head = outbox_status(&read, "projection", 5_010)
+    // The lease runs 5 000 ms from the claim at 10 and its bound is
+    // EXCLUSIVE, so 5 009 is its last live millisecond.
+    let head = outbox_status(&read, "projection", 5_009)
         .unwrap()
         .head
         .expect("a claimed, unresolved row is the head");
@@ -1973,10 +1975,10 @@ fn status_reports_the_stream_head() {
 
     fixture
         .mutations
-        .outbox_ack(&owner, &claimed[0], 5_020)
+        .outbox_ack(&owner, &claimed[0], 5_009)
         .unwrap();
     let read = fixture.kernel.read_scope(&owner).unwrap();
-    let head = outbox_status(&read, "projection", 5_020)
+    let head = outbox_status(&read, "projection", 5_009)
         .unwrap()
         .head
         .expect("batch-1 is now the head");
