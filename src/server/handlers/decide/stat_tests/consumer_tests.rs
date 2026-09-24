@@ -122,6 +122,7 @@ async fn declared_options_decide_as_claims_under_the_declaring_principal() {
 
     let commit = |r: &StatisticalDecisionRecord| DecisionLogOp::Commit {
         record: Box::new(r.clone()),
+        evaluator: None,
     };
     let logged: DecisionLogCommitted = decode(log_op(&h, "decider", commit(&record)).await)
         .expect("an abstention is logged after verify-replay");
@@ -153,6 +154,7 @@ async fn a_logged_abstention_takes_a_resolution_of_its_resolver_class() {
     let record = declared_abstention(&h).await;
     let commit = DecisionLogOp::Commit {
         record: Box::new(record.clone()),
+        evaluator: None,
     };
     let logged: DecisionLogCommitted = decode(log_op(&h, "decider", commit).await).unwrap();
     let id = logged.record_id.as_str();
@@ -311,95 +313,79 @@ async fn an_assembly_outcome_is_credited_to_its_slate() {
     );
 }
 
+/// The UQL `DECISIONS` source as `who` sees it.
+#[cfg(feature = "query")]
+fn uql_decisions(h: &Harness, who: &str) -> Vec<String> {
+    use super::super::stat_view::DecisionViews;
+    let verified = VerifiedRequestContext::verified_for_test_in_tenant(who, TENANT);
+    let authority = crate::server::access::CarrierAuthority::from_verified(&verified).unwrap();
+    let views = DecisionViews::of(h.store.clone(), &authority);
+    let graph = crate::graph::GraphCore::new().analysis_snapshot();
+    let semantic = eg_core::compute::semantic::SemanticStore::new();
+    let plan = eg_plan::uql::parse("DECISIONS WHERE outcome = 'abstained'").unwrap();
+    let ctx = eg_plan::PlanCtx::new(&graph, &semantic).with_decisions(&views);
+    eg_plan::execute(&plan, &ctx).unwrap().ids()
+}
+
+/// The relation names the decision views materialize for `who`.
+#[cfg(feature = "query")]
+fn view_names(h: &Harness, who: &str) -> Vec<String> {
+    use crate::server::sql_catalog_acl::ReadOnlyRelations;
+    let verified = VerifiedRequestContext::verified_for_test_in_tenant(who, TENANT);
+    let authority = crate::server::access::CarrierAuthority::from_verified(&verified).unwrap();
+    super::super::stat_view::DecisionViews::of(h.store.clone(), &authority)
+        .materialize()
+        .unwrap()
+        .into_iter()
+        .map(|(schema, _)| schema.name)
+        .collect()
+}
+
 /// EH-066: the decision record views — the `decisions`/`decision_evaluations`/
 /// `decision_resolutions` relations every served SQL surface projects, and the UQL
 /// `DECISIONS` source — answer only from what the caller may read.
 #[cfg(feature = "query")]
 #[tokio::test]
 async fn decision_record_views_answer_only_from_visible_rows() {
-    use super::super::stat_view::DecisionViews;
-    use crate::server::access::CarrierAuthority;
-    use crate::server::sql_catalog_acl::{authorized_read_store_for_query, ReadOnlyRelations};
+    use super::retrieval_tests::sql;
+    use serde_json::json;
 
     let h = Harness::new().await;
     let record = declared_abstention(&h).await;
     let commit = DecisionLogOp::Commit {
         record: Box::new(record.clone()),
+        evaluator: None,
     };
     let logged: DecisionLogCommitted = decode(log_op(&h, "decider", commit).await).unwrap();
     let human = AbstentionResolver::Human;
     resolve(&h, resolution(&logged.record_id, "r-1", "plan-deep", human))
         .await
         .unwrap();
-    let carrier = |who: &str| {
-        let verified = VerifiedRequestContext::verified_for_test_in_tenant(who, TENANT);
-        CarrierAuthority::from_verified(&verified).unwrap()
-    };
-    let persist_dir = h.state.read().await.persist_dir.clone().unwrap();
-    let persist_dir = std::path::PathBuf::from(persist_dir);
-    let graph = crate::graph::GraphCore::new().analysis_snapshot();
-    // The SQL leg drives its own runtime (as it does on the blocking pool in
-    // production), so it runs on a plain thread outside the test's runtime.
-    let sql = |who: &str, query: &str| {
-        let authority = carrier(who);
-        let views = DecisionViews::of(h.store.clone(), &authority);
-        std::thread::scope(|scope| {
-            scope
-                .spawn(|| {
-                    let projection = authorized_read_store_for_query(
-                        &authority,
-                        &persist_dir,
-                        query,
-                        Some(&views),
-                    )
-                    .unwrap();
-                    eg_query::exec_sql_typed_with_tables(&graph, projection.store(), query).unwrap()
-                })
-                .join()
-                .unwrap()
-        })
-    };
-    let mine = sql(
-        "decider",
-        "SELECT outcome, source, evidence_class FROM decisions",
-    );
+    let mine = "SELECT outcome, source, evidence_class FROM decisions";
     assert_eq!(
-        mine.rows,
-        vec![vec![
-            serde_json::json!("abstained"),
-            serde_json::json!("declared"),
-            serde_json::json!("claim")
-        ]]
+        sql(&h, "decider", mine).await,
+        vec![vec![json!("abstained"), json!("declared"), json!("claim")]]
     );
-    let joined = sql(
-        "decider",
-        "SELECT r.option_id FROM decision_resolutions r JOIN decisions d USING (record_id)",
+    let joined =
+        "SELECT r.option_id FROM decision_resolutions r JOIN decisions d USING (record_id)";
+    assert_eq!(
+        sql(&h, "decider", joined).await,
+        vec![vec![json!("plan-deep")]]
     );
-    assert_eq!(joined.rows, vec![vec![serde_json::json!("plan-deep")]]);
     for table in eg_query::READ_ONLY_RELATION_NAMES {
-        let theirs = sql("stranger", &format!("SELECT count(*) FROM {table}"));
+        let theirs = sql(&h, "stranger", &format!("SELECT count(*) FROM {table}")).await;
         assert_eq!(
-            theirs.rows,
-            vec![vec![serde_json::json!(0)]],
+            theirs,
+            vec![vec![json!(0)]],
             "{table}: another principal's declared record is not even counted"
         );
     }
-    let names: Vec<String> = DecisionViews::of(h.store.clone(), &carrier("decider"))
-        .materialize()
-        .unwrap()
-        .into_iter()
-        .map(|(schema, _)| schema.name)
-        .collect();
-    assert_eq!(names, eg_query::READ_ONLY_RELATION_NAMES);
+    assert_eq!(
+        view_names(&h, "decider"),
+        eg_query::READ_ONLY_RELATION_NAMES
+    );
 
     // UQL `DECISIONS`: the same visibility through the plan source.
-    let uql = |who: &str| {
-        let views = DecisionViews::of(h.store.clone(), &carrier(who));
-        let semantic = eg_core::compute::semantic::SemanticStore::new();
-        let plan = eg_plan::uql::parse("DECISIONS WHERE outcome = 'abstained'").unwrap();
-        let ctx = eg_plan::PlanCtx::new(&graph, &semantic).with_decisions(&views);
-        eg_plan::execute(&plan, &ctx).unwrap().ids()
-    };
-    assert_eq!(uql("decider"), vec![logged.record_id.clone()]);
-    assert!(uql("stranger").is_empty());
+    assert_eq!(uql_decisions(&h, "decider"), vec![logged.record_id.clone()]);
+    assert!(uql_decisions(&h, "stranger").is_empty());
 }

@@ -63,6 +63,7 @@ pub(super) async fn executed_template(h: &Harness) -> DecisionLogEntry {
     let record = declared_abstention(h).await;
     let commit = DecisionLogOp::Commit {
         record: Box::new(record),
+        evaluator: None,
     };
     let logged: DecisionLogCommitted = decode(log_op(h, "decider", commit).await).unwrap();
     let key = crate::server::persistence::decision_jobs::record_key(&logged.record_id);
@@ -70,22 +71,42 @@ pub(super) async fn executed_template(h: &Harness) -> DecisionLogEntry {
     crate::server::persistence::decision_jobs::decode_artifact(&bytes, "entry").unwrap()
 }
 
-pub(super) fn clone_executed(h: &Harness, template: &DecisionLogEntry, record_id: &str) {
-    // Tenant-visible, as a library-sourced record is: a declared record is its
-    // declarer's alone, so no independent evaluator could join it (WRAPUP).
-    let tenant = eg_types::decision::statistical::log::RecordVisibility::Tenant;
-    clone_visible(h, template, record_id, tenant);
+/// The persistence id of test principal `who`.
+pub(super) fn principal_of(who: &str) -> String {
+    VerifiedRequestContext::verified_for_test_in_tenant(who, TENANT).principal_persistence_id()
 }
 
-fn clone_visible(
-    h: &Harness,
-    template: &DecisionLogEntry,
-    record_id: &str,
-    visibility: eg_types::decision::statistical::log::RecordVisibility,
-) {
+/// The template record, EXECUTED, under `record_id`, keeping its
+/// committer-only visibility, with a live grant naming `evaluator` (EH-395).
+pub(super) fn clone_executed(h: &Harness, template: &DecisionLogEntry, record_id: &str) {
+    clone_record(h, template, record_id);
+    let now = crate::server::dispatch::authoritative_now_ms();
+    grant(h, record_id, "evaluator", (now, now + 3_600_000));
+}
+
+/// Write the committer's named-evaluator grant for `record_id`, issued and
+/// expiring at `span` (as `DecisionLog.commit` writes it).
+pub(super) fn grant(h: &Harness, record_id: &str, evaluator: &str, span: (u64, u64)) {
+    let ctx = super::super::stat_executor::ExecutionContext {
+        store: &h.store,
+        tenant_id: TENANT,
+        now_ms: span.0,
+        server_secret: b"",
+    };
+    let named = eg_types::decision::statistical::log::NamedEvaluator {
+        principal: principal_of(evaluator),
+        expires_at_ms: span.1,
+    };
+    let committer = principal_of("decider");
+    let rows = super::super::stat_evaluator::grant_rows(&ctx, record_id, &committer, Some(&named))
+        .unwrap();
+    h.store.put_decision_artifacts(TENANT, &rows).unwrap();
+}
+
+/// The template record, EXECUTED, under `record_id`, with no grant.
+pub(super) fn clone_record(h: &Harness, template: &DecisionLogEntry, record_id: &str) {
     let mut entry = template.clone();
     entry.record.record_id = record_id.to_string();
-    entry.visibility = visibility;
     entry.record.outcome = StatisticalOutcome::Explored {
         option_id: "plan-hyde".to_string(),
         propensity: rational(1, 1),
@@ -168,8 +189,7 @@ fn template(composed_digest: &str) -> RetrievalPathTemplate {
 /// A record only its committer may see, attested: nothing learned from it
 /// reaches anyone else.
 async fn attest_private(h: &Harness, template_entry: &DecisionLogEntry) {
-    let visibility = template_entry.visibility.clone();
-    clone_visible(h, template_entry, "rec-private", visibility);
+    clone_record(h, template_entry, "rec-private");
     let mut private = outcome("rec-private", &["x"], &[]);
     private.returned = returned_unclassed(&["x"]);
     assert!(learn(h, "decider", attest(private)).await.is_ok());
@@ -187,8 +207,8 @@ async fn outcomes_teach_nothing_until_an_independent_verdict_joins_them() {
 
     let foreign = learn(&h, "stranger", attest(attested.clone())).await;
     assert!(
-        foreign.unwrap_err().starts_with("ACCESS_DENIED"),
-        "only the committer attests its run"
+        foreign.unwrap_err().starts_with("PARAMETER_INVALID"),
+        "a stranger cannot even see the record"
     );
     attest_private(&h, &template_entry).await;
     let mut bogus = attested.clone();

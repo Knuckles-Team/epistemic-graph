@@ -96,8 +96,17 @@ def decide_request(
     }
 
 
-def commit_op(record: Mapping[str, Any]) -> dict[str, Any]:
-    return {"op": "commit", "record": dict(record)}
+def named_evaluator(principal: str, expires_at_ms: int) -> dict[str, Any]:
+    """The one principal (its persistence id) that may evaluate a committed
+    record until ``expires_at_ms`` (EH-395); never the committer."""
+    return {"principal": principal, "expires_at_ms": expires_at_ms}
+
+
+def commit_op(
+    record: Mapping[str, Any], evaluator: Mapping[str, Any] | None = None
+) -> dict[str, Any]:
+    """Commit one record, optionally naming its evaluator (:func:`named_evaluator`)."""
+    return {"op": "commit", "record": dict(record), "evaluator": evaluator}
 
 
 def get_op(tenant_id: str, record_id: str) -> dict[str, Any]:
@@ -220,6 +229,7 @@ __all__ = [
     "get_op",
     "learn_op",
     "library",
+    "named_evaluator",
     "param",
     "q32_of",
     "record_outcome_op",

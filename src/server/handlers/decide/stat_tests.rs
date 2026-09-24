@@ -726,4 +726,7 @@ mod retrieval_tests;
 #[cfg(feature = "query")]
 mod learning_tests;
 
+#[cfg(feature = "query")]
+mod evaluator_tests;
+
 mod nl_tests;
