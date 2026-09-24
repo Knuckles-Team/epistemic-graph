@@ -3,6 +3,8 @@
 
 #[cfg(feature = "query")]
 mod annotations;
+#[cfg(feature = "query")]
+mod attribution;
 mod contract;
 mod diagnostics;
 mod legacy;

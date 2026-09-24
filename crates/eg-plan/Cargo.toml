@@ -197,6 +197,12 @@ epistemic = [
     "eg-types/epistemic",
     "dep:eg-epistemic",
 ]
+# Contribution attribution (EH-523): the `ATTRIBUTE` stage's executor — linear split,
+# exact/sampled Shapley and Owen values over the incoming rows — is eg-numeric's
+# attribution kernel. eg-numeric pulls nalgebra + ndarray (pure Rust, no BLAS/pyo3), so
+# it stays out of the Pi tier; without this feature the stage is refused at parse time
+# (`UQL_FEATURE_NOT_IN_BUILD`) and at execution.
+numeric = ["query", "dep:eg-numeric"]
 # Natural-language → query planning seam (CONCEPT:EG-078) + the concrete standalone
 # `UreqNlPlanner` (CONCEPT:EG-080). The `NlPlanner` trait + `plan_and_execute*` helpers
 # only touch the existing `uql::parse` + `execute`, so this IMPLIES `query`. The concrete
@@ -329,6 +335,10 @@ eg-compute = { path = "../eg-compute", optional = true }
 # eg-types/eg-core/eg-compute (no eg-plan back-edge → no cycle), so a default/Pi build
 # links none of it.
 eg-epistemic = { path = "../eg-epistemic", optional = true }
+# The attribution kernel behind `ATTRIBUTE` (feature `numeric`, EH-523). Optional + only
+# referenced under #[cfg(feature = "numeric")]; eg-numeric depends on eg-types alone (no
+# eg-plan back-edge → no cycle).
+eg-numeric = { path = "../eg-numeric", optional = true }
 # The pure-Rust event-stream + CEP modality (bounded NFA over sliding/tumbling windows —
 # Sequence/Within/Absence + per-event attribute predicates) backing the `Cep` op (feature
 # `stream`, CONCEPT:EG-088). Optional + only referenced under #[cfg(feature = "stream")];

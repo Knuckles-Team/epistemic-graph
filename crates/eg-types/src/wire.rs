@@ -16,6 +16,9 @@ mod wire_mining;
 #[path = "wire_pipeline.rs"]
 mod wire_pipeline;
 #[cfg(feature = "query")]
+#[path = "wire_query_attribution.rs"]
+mod wire_query_attribution;
+#[cfg(feature = "query")]
 #[path = "wire_query_core.rs"]
 mod wire_query_core;
 #[cfg(feature = "query")]
@@ -66,6 +69,8 @@ pub use wire_finance::*;
 pub use wire_mining::*;
 #[cfg(feature = "ml-pipeline")]
 pub use wire_pipeline::*;
+#[cfg(feature = "query")]
+pub use wire_query_attribution::*;
 #[cfg(feature = "query")]
 pub use wire_query_core::*;
 #[cfg(feature = "query")]

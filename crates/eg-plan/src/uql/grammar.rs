@@ -26,6 +26,7 @@ pub enum Feature {
     Timeseries,
     Probabilistic,
     Epistemic,
+    Numeric,
 }
 
 impl Feature {
@@ -42,6 +43,7 @@ impl Feature {
             Feature::Timeseries => "timeseries",
             Feature::Probabilistic => "probabilistic",
             Feature::Epistemic => "epistemic",
+            Feature::Numeric => "numeric",
         }
     }
 
@@ -58,6 +60,7 @@ impl Feature {
             Feature::Timeseries => cfg!(feature = "timeseries"),
             Feature::Probabilistic => cfg!(feature = "probabilistic"),
             Feature::Epistemic => cfg!(feature = "epistemic"),
+            Feature::Numeric => cfg!(feature = "numeric"),
         }
     }
 }
@@ -264,6 +267,16 @@ pub const PRODUCTIONS: &[Production] = &[
       "MATCH (:Claim) |> SOURCE RELIABILITY 's1'"),
     p("confidence", Stage, &["CONFIDENCE"], Some(Epistemic), "\"CONFIDENCE\"",
       "ConfidenceOp{}", "MATCH (:Claim) |> CONFIDENCE |> LIMIT 5"),
+    p("attribute", Stage, &["ATTRIBUTE"], Some(Numeric),
+      "\"ATTRIBUTE\" attr_value \"OF\" ( \"SCORE\" | name ) ( \"LINEAR\" \
+       | \"SHAPLEY\" [ \"SAMPLES\" int \"SEED\" int ] | \"OWEN\" \"BY\" name )",
+      "Attribute{input, value, method} (rows are the players; score = contribution)",
+      "MATCH (:Service) |> ATTRIBUTE P95 OF latency_ms SHAPLEY SAMPLES 4000 SEED 7 |> RETURN attribution, attribution_ci"),
+    p("attr_value", Aux, &[], None,
+      "\"SUM\" | \"MEAN\" | \"MAX\" | \"MIN\" | percentile",
+      "AttributionValue (a coalition's value)", ""),
+    p("percentile", Aux, &[], None, "ident (* one word P1 .. P99, e.g. P95 *)",
+      "AttributionValue::Percentile{p}", ""),
     // ── predicates ──
     p("pred", Aux, &[], None, "conj { \"OR\" conj }", "Or / the Filter conjunct list", ""),
     p("conj", Aux, &[], None, "neg { \"AND\" neg }", "And", ""),

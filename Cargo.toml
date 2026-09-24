@@ -297,8 +297,10 @@ epistemic-causal = ["epistemic", "eg-epistemic/epistemic-causal"]
 # `numeric` feature so the eg-numeric-backed Surface-B SQL UDFs/UDAFs
 # (`cosine_sim`/`l2_normalize`/`zscore`/`covariance`) register on the
 # DataFusion context. The weak `eg-query?/numeric` edge keeps the feature composable
-# for targeted crate checks; it does not define another supported product build.
-numeric = ["dep:eg-numeric", "eg-query?/numeric"]
+# for targeted crate checks; it does not define another supported product build. The
+# weak `eg-plan?/numeric` edge turns on the UQL `ATTRIBUTE` executor (EH-523) whenever
+# the query planner is built.
+numeric = ["dep:eg-numeric", "eg-query?/numeric", "eg-plan?/numeric"]
 # The general bounded 0-1 integer programme (`Method::Solve`). Wire DTOs are
 # unconditional in eg-types; this gates the eg-compute search and verifier.
 solve = ["eg-compute/solve"]

@@ -64,7 +64,7 @@ kinds! {
     #[cfg(feature = "epistemic")] SourceReliability,
     #[cfg(feature = "epistemic")] ConfidenceOp,
     #[cfg(feature = "epistemic")] ExplainBelief,
-    DecisionScan, Limit, Project,
+    Attribute, DecisionScan, Limit, Project,
 }
 
 kinds! {
@@ -147,6 +147,7 @@ pub fn op_kind(op: &Op) -> OpKind {
         Op::ConfidenceOp {} => OpKind::ConfidenceOp,
         #[cfg(feature = "epistemic")]
         Op::ExplainBelief { .. } => OpKind::ExplainBelief,
+        Op::Attribute { .. } => OpKind::Attribute,
         Op::DecisionScan { .. } => OpKind::DecisionScan,
         Op::Limit { .. } => OpKind::Limit,
         Op::Project { .. } => OpKind::Project,
@@ -205,6 +206,7 @@ impl OpKind {
             #[cfg(feature = "owl-plan")]
             OpKind::Reason => Some("reason"),
             OpKind::Window | OpKind::WindowAgg => Some("window"),
+            OpKind::Attribute => Some("attribution"),
             #[cfg(feature = "timeseries")]
             OpKind::TsScan | OpKind::SensorFuse | OpKind::SensorAlign => Some("value"),
             #[cfg(feature = "probabilistic")]
@@ -251,6 +253,7 @@ impl OpKind {
             | OpKind::RankNodeDistance
             | OpKind::RankMentions
             | OpKind::RankMmr
+            | OpKind::Attribute
             | OpKind::Limit
             | OpKind::Project => ProofRole::Neutral,
             #[cfg(feature = "text")]
@@ -296,17 +299,41 @@ impl OpKind {
         }
     }
 
+    /// The SECONDARY channels a stage of this kind writes beside its score channel:
+    /// an `ATTRIBUTE` stage's CI half-width (EH-523) and a `SOURCE RELIABILITY` stage's
+    /// learned-reliability interval (EH-525). Empty for every other kind.
+    pub fn extra_channels(self) -> &'static [&'static str] {
+        if self == OpKind::Attribute {
+            return ATTRIBUTION_EXTRA_CHANNELS;
+        }
+        #[cfg(feature = "epistemic")]
+        if self == OpKind::SourceReliability {
+            return RELIABILITY_EXTRA_CHANNELS;
+        }
+        &[]
+    }
+
     /// Every score channel name this build can produce, sorted and de-duplicated.
     pub fn score_channels() -> Vec<&'static str> {
         let mut names: Vec<&'static str> = OpKind::all()
             .into_iter()
-            .filter_map(OpKind::score_channel)
+            .flat_map(|kind| {
+                kind.score_channel()
+                    .into_iter()
+                    .chain(kind.extra_channels().iter().copied())
+            })
             .collect();
         names.sort_unstable();
         names.dedup();
         names
     }
 }
+
+/// `ATTRIBUTE`'s secondary channel: the sampled-Shapley CI half-width.
+pub const ATTRIBUTION_EXTRA_CHANNELS: &[&str] = &["attribution_ci"];
+/// `SOURCE RELIABILITY`'s secondary channels: the learned reliability's credible interval.
+#[cfg(feature = "epistemic")]
+pub const RELIABILITY_EXTRA_CHANNELS: &[&str] = &["reliability_lo", "reliability_hi"];
 
 /// How one stage bears on a `WITH PROOF` row proof (EH-448).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

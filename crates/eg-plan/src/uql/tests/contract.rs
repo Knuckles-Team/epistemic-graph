@@ -35,6 +35,7 @@ fn not_in_build(e: &UqlError) -> bool {
         Feature::Timeseries,
         Feature::Probabilistic,
         Feature::Epistemic,
+        Feature::Numeric,
     ];
     e.code == UqlCode::FeatureNotInBuild
         && all

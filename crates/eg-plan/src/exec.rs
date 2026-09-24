@@ -26,16 +26,21 @@ use crate::algebra::{Op, Plan, Pred};
 use crate::rowset::RowSet;
 use eg_types::wire::TimeAxis;
 
+// EH-523 — the `ATTRIBUTE` stage (contribution attribution over the incoming rows).
+pub(crate) mod attribution;
 // EH-066 — the `DECISIONS` source over the caller's visible decision log.
 mod decisions;
+// EH-525 — `SOURCE RELIABILITY`, learned from the decision log when one is bound.
+#[cfg(feature = "epistemic")]
+mod reliability;
 // The OWL membership closure behind `REASON` (and its `WITH PROOF` explanation, EH-448).
 #[cfg(feature = "owl")]
 pub(crate) mod reason;
-pub use decisions::DecisionSource;
+pub use decisions::{DecisionSource, LearnedReliability};
 pub(crate) mod dispatch;
 mod expand;
 mod pred_sql;
-pub(crate) use dispatch::apply;
+pub(crate) use dispatch::{apply, apply_with_channels, StageChannels};
 pub(crate) use pred_sql::{sql_literal, where_clause};
 
 /// Everything an operator might touch, gathered from ONE consistent snapshot. In a
@@ -2412,21 +2417,6 @@ fn belief_as_of_op(ctx: &PlanCtx, input: RowSet, ts: f64) -> RowSet {
         .pinned_at(eg_epistemic::TimeAxis::Transaction, ts.max(0.0) as u64);
     let policy = belief_policy(ctx);
     rescore_by_confidence(&bg, filtered, &policy)
-}
-
-/// `SourceReliability { source_id }` — re-weight every row currently in `input` by the
-/// propagated reliability of `source_id` (CONCEPT:EG-KG.epistemic.epistemic-substrate): a
-/// uniform scalar multiplier over existing scores (an unscored row is treated as `1.0`).
-#[cfg(feature = "epistemic")]
-fn source_reliability_op(ctx: &PlanCtx, input: RowSet, source_id: &str) -> RowSet {
-    let bg = eg_epistemic::BeliefGraph::from_graph_view(ctx.view);
-    let policy = belief_policy(ctx);
-    let r = eg_epistemic::propagate_confidence(&bg, source_id, &policy).confidence as f32;
-    let scored = input
-        .rows()
-        .iter()
-        .map(|row| (row.id.clone(), row.score.unwrap_or(1.0) * r));
-    RowSet::from_scored(scored)
 }
 
 /// `CONFIDENCE` (`Op::ConfidenceOp`) — re-score EACH row in `input` by its OWN propagated

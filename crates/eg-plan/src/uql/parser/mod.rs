@@ -13,6 +13,7 @@
 //!  * `semantic` — `TEXT`/`FUSE` (text), `REASON`/`SPARQL` (owl), `UDF` (wasm-udf) and the
 //!    epistemic stages;
 //!  * `modality` — spatial, tensor, time-series/sensor, CEP and probabilistic stages;
+//!  * `attribute` — `ATTRIBUTE` (numeric: contribution attribution, EH-523);
 //!  * `program` — statements: `UQL n;`, `EXPLAIN`/`PROFILE`, `LET` bindings, `FROM`/`JOIN`,
 //!    and the `WITH PROOF` / `WITH KNOWLEDGE` row annotations.
 //!
@@ -44,6 +45,7 @@ macro_rules! gated {
     };
 }
 
+mod attribute;
 mod basic;
 mod cursor;
 mod lists;
@@ -107,7 +109,7 @@ impl<'a> Parser<'a> {
     /// Every stage/source keyword → its parser. MATCH (it may lower to two ops) and
     /// `VALIDATE SHAPE` (the two-keyword lead `parser::shape` owns, so that every other
     /// `VALIDATE …` still reaches the DecideText refusal) are handled by [`Self::stage`].
-    pub(super) fn stage_table() -> [(&'static str, StageFn<'a>); 30] {
+    pub(super) fn stage_table() -> [(&'static str, StageFn<'a>); 31] {
         [
             ("WHERE", Self::where_stage),
             ("TRAVERSE", Self::traverse),
@@ -139,6 +141,7 @@ impl<'a> Parser<'a> {
             ("SENSOR", Self::sensor),
             ("TSSCAN", Self::tsscan),
             ("PROB", Self::prob),
+            ("ATTRIBUTE", Self::attribute),
         ]
     }
 

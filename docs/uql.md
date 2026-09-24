@@ -97,6 +97,9 @@ prob               = "PROB" ( "EXPECTATION" | "MARGINAL" [ "AT" num ] [ "LABEL" 
 belief_as_of       = "BELIEF" "AS" "OF" ts ;   (* feature `epistemic` *)
 source_reliability = "SOURCE" "RELIABILITY" id ;   (* feature `epistemic` *)
 confidence         = "CONFIDENCE" ;   (* feature `epistemic` *)
+attribute          = "ATTRIBUTE" attr_value "OF" ( "SCORE" | name ) ( "LINEAR" | "SHAPLEY" [ "SAMPLES" int "SEED" int ] | "OWEN" "BY" name ) ;   (* feature `numeric` *)
+attr_value         = "SUM" | "MEAN" | "MAX" | "MIN" | percentile ;
+percentile         = ident (* one word P1 .. P99, e.g. P95 *) ;
 pred               = conj { "OR" conj } ;
 conj               = neg { "AND" neg } ;
 neg                = "NOT" neg | "(" pred ")" | atom ;
@@ -255,6 +258,12 @@ TSSCAN ['cpu', 'mem'] FROM 0 TO 3600 |> WINDOW 60 s MEAN |> LIMIT 60
 | `EVIDENCE FOR 'c1'`, `CONTRADICTS 'c1'`, `SUPPORTED BY 'c1'` | evidence graph | `epistemic` |
 | `BELIEF AS OF @t`, `SOURCE RELIABILITY 's1'`, `CONFIDENCE`, `EXPLAIN BELIEF 'c1'` | belief scoring | `epistemic` |
 
+`SOURCE RELIABILITY 's1'` multiplies every row by the source's reliability. Its prior is the
+source's propagated belief confidence; when the served query has the caller's decision log
+bound and that log holds independently evaluated outcomes of `s1`, the reliability is the
+prior updated with those outcomes (the `reputation` view, EH-525), and the channels
+`reliability_lo` / `reliability_hi` carry its credible interval.
+
 ```uql
 MATCH (:Claim) |> EVIDENCE FOR 'c1' |> BELIEF AS OF @1700000000 |> LIMIT 10
 ```
@@ -272,6 +281,30 @@ MATCH (:Claim) |> EVIDENCE FOR 'c1' |> BELIEF AS OF @1700000000 |> LIMIT 10
 
 ```uql
 SPATIAL SCAN 'roads' BBOX [0, 0, 10, 10] |> SPATIAL BUFFER 2.5 |> REPROJECT TO 3857
+```
+
+### `ATTRIBUTE` — contribution attribution
+
+`ATTRIBUTE <agg> OF (SCORE | <property>) <method>` → `Attribute{input, value, method}`
+(feature `numeric`). The incoming rows are the players: each row's value is its score or a
+numeric node property, and a coalition's value is `<agg>` of its members' values
+(`SUM`, `MEAN`, `MAX`, `MIN` or a percentile `P1`…`P99`; the empty coalition is 0). Every
+row is re-scored with its contribution and the rows are ordered by it, descending. The
+contributions always sum to the value of the whole row set.
+
+| Method | Meaning |
+|--------|---------|
+| `LINEAR` | the exact split of an additive value (`SUM` only; anything else is refused with `ATTRIBUTION_NON_ADDITIVE`) |
+| `SHAPLEY` | exact Shapley values over a memoised coalition table — at most 16 rows |
+| `SHAPLEY SAMPLES n SEED s` | sampled Shapley over `n` antithetic permutations drawn from seed `s`; channel `attribution_ci` carries each row's 95% CI half-width |
+| `OWEN BY <property>` | Owen values: rows grouped into unions by a node property (for example pods within a service) |
+
+The score channel is `attribution`. A stage that would need more coalition evaluations than
+its budget fails with `UQL_BUDGET_EXCEEDED`; a row without the attributed value is refused by
+id. Replays are bit-identical: the seed is part of the stage.
+
+```uql
+MATCH (:Service) |> ATTRIBUTE P95 OF latency_ms SHAPLEY SAMPLES 4000 SEED 7 |> RETURN attribution, attribution_ci
 ```
 
 ### `LIMIT`
