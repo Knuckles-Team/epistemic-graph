@@ -84,7 +84,8 @@ class MethodPolicyRow:
 # 447 -> 449: EH-351/EH-352 `EdgeIndex` and `EdgeSearch` (query).
 # 449 -> 451: EH-404's `RbacElevation` and EH-406's `ThrottleCapacityCell`.
 # 451 -> 452: EH-408/EH-409's served `TelemetryDerive`.
-EXPECTED_METHOD_POLICY_ROWS = 452
+# 452 -> 453: `FinanceMarket`, market bars and trend signals (EH-413..EH-418).
+EXPECTED_METHOD_POLICY_ROWS = 453
 EXPECTED_DOMAIN_MODULES = (
     "cluster",
     "compute",

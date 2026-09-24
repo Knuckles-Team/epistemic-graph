@@ -708,7 +708,8 @@ ex:parent a owl:AsymmetricProperty .
         // +24: the EH-410 feed classes -- identity `:SecurityAuditEvent` and its four
         // subclasses, sdlc `:PipelineRunEvent` (4 triples each), and `:pipelineEventOf` (5).
         // +123: the swarm-topology module (122) and its catalog import (1).
-        assert_eq!(composed.ontology.len(), 13_346);
+        // +183: the finance module (182, EH-411) and its catalog import (1).
+        assert_eq!(composed.ontology.len(), 13_529);
 
         let ontology_subjects: BTreeSet<String> = composed
             .ontology
@@ -738,13 +739,14 @@ ex:parent a owl:AsymmetricProperty .
         // `/core` foundation and generated aggregate catalog. Every domain
         // axiom remains in the immutable catalog; only those 71 document-level
         // authority triples change.
-        assert_eq!(ontology_subjects.len(), 34);
-        assert_eq!(imports, 69);
+        assert_eq!(ontology_subjects.len(), 35);
+        assert_eq!(imports, 71);
         // +20 (EH-408/409/410): infrastructure :BehaviourObservation,
         // :ConformanceViolation, :Deployment, :K8sService and :SwarmService,
         // 4 axioms each; +5: the :scheduledBy property. +24 (EH-410): the six feed
         // classes, 4 axioms each; +5: `:pipelineEventOf`. +118: the swarm-topology module.
-        assert_eq!(semantic_axioms, 13_169);
+        // +178: the finance module (EH-411).
+        assert_eq!(semantic_axioms, 13_347);
 
         let count_type = |object: &str| {
             composed
@@ -795,7 +797,8 @@ ex:parent a owl:AsymmetricProperty .
                 .count(),
             // +5 (EH-408/409/410): the five infrastructure classes above; +6 (EH-410):
             // the security-audit and pipeline-event feed classes; +25: swarm topology.
-            448
+            // +9: finance (EH-411).
+            457
         );
     }
 

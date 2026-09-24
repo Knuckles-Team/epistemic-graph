@@ -195,9 +195,10 @@ fn every_wire_variant_has_exactly_one_descriptor_and_vice_versa() {
     // 447 -> 449: EH-351/EH-352 `EdgeIndex` and `EdgeSearch` (query).
     // 449 -> 451: EH-404's `RbacElevation` and EH-406's `ThrottleCapacityCell`.
     // 451 -> 452: EH-408/EH-409's served `TelemetryDerive`.
+    // 452 -> 453: `FinanceMarket`, market bars and trend signals (EH-413..EH-418).
     assert_eq!(
         variants.len(),
-        452,
+        453,
         "the wire method census changed; update this exact count deliberately"
     );
 }

@@ -1,0 +1,150 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# Finance ABox shapes (EH-411): the records market connectors and the signal engine
+# write under the finance module. Closed vocabularies are sh:in lists so a typo is a
+# violation, not a new category.
+
+:ListingShape a sh:NodeShape ;
+    sh:description "A listing names exactly one base instrument, one quote instrument, one venue and one listing type." ;
+    sh:name "Listing Shape" ;
+    sh:property [ sh:maxCount 1 ;
+            sh:message "Listing must name exactly one listedInstrument." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :listedInstrument ],
+        [ sh:maxCount 1 ;
+            sh:message "Listing must name exactly one quoteInstrument." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :quoteInstrument ],
+        [ sh:maxCount 1 ;
+            sh:message "Listing must name exactly one venue it is listedOn." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :listedOn ],
+        [ sh:in ( "spot" "perpetual" "future" "option" "index" ) ;
+            sh:maxCount 1 ;
+            sh:message "Listing must have exactly one listingType: spot, perpetual, future, option or index." ;
+            sh:minCount 1 ;
+            sh:path :listingType ] ;
+    sh:targetClass :Listing .
+
+:BarSeriesShape a sh:NodeShape ;
+    sh:description "A bar series names its listing, timeframe, calendar, price basis and store series." ;
+    sh:name "Bar Series Shape" ;
+    sh:property [ sh:maxCount 1 ;
+            sh:message "Bar series must name exactly one listing (barSeriesOf)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :barSeriesOf ],
+        [ sh:maxCount 1 ;
+            sh:message "barTimeframe is minutes (1m..), hours (1h..) or 1D, 1W, 1M." ;
+            sh:minCount 1 ;
+            sh:path :barTimeframe ;
+            sh:pattern "^([1-9][0-9]{0,3}[mh]|1[DWM])$" ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Bar series must have exactly one tradingCalendar." ;
+            sh:minCount 1 ;
+            sh:path :tradingCalendar ],
+        [ sh:in ( "trade" "mid" "adjusted" "unadjusted" ) ;
+            sh:maxCount 1 ;
+            sh:message "priceBasis is trade, mid, adjusted or unadjusted." ;
+            sh:minCount 1 ;
+            sh:path :priceBasis ],
+        [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Bar series must have exactly one tsdbSeriesId." ;
+            sh:minCount 1 ;
+            sh:path :tsdbSeriesId ] ;
+    sh:targetClass :BarSeries .
+
+:IndicatorSpecShape a sh:NodeShape ;
+    sh:description "An indicator specification carries one version and one parameter hash." ;
+    sh:name "Indicator Spec Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Indicator spec must have exactly one indicatorVersion." ;
+            sh:minCount 1 ;
+            sh:path :indicatorVersion ],
+        [ sh:maxCount 1 ;
+            sh:message "parameterHash is sha256:<64 hex>." ;
+            sh:minCount 1 ;
+            sh:path :parameterHash ;
+            sh:pattern "^sha256:[0-9a-f]{64}$" ] ;
+    sh:targetClass :IndicatorSpec .
+
+:SignalStateShape a sh:NodeShape ;
+    sh:description "A signal state names its series and spec, one data status and at most one direction." ;
+    sh:name "Signal State Shape" ;
+    sh:property [ sh:maxCount 1 ;
+            sh:message "Signal state must name exactly one bar series (signalOf)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :signalOf ],
+        [ sh:maxCount 1 ;
+            sh:message "Signal state must name exactly one indicator spec (signalSpec)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :signalSpec ],
+        [ sh:in ( "bullish" "bearish" ) ;
+            sh:maxCount 1 ;
+            sh:message "trendDirection is bullish or bearish, at most once." ;
+            sh:path :trendDirection ],
+        [ sh:in ( "warming" "valid" "stale" "unavailable" ) ;
+            sh:maxCount 1 ;
+            sh:message "Signal state must have exactly one dataStatus: warming, valid, stale or unavailable." ;
+            sh:minCount 1 ;
+            sh:path :dataStatus ] ;
+    sh:targetClass :SignalState .
+
+:TrendFlipShape a sh:NodeShape ;
+    sh:description "A trend flip names its signal, both directions, its bar close and its event id." ;
+    sh:name "Trend Flip Shape" ;
+    sh:property [ sh:maxCount 1 ;
+            sh:message "Trend flip must name exactly one signal state (flipOf)." ;
+            sh:minCount 1 ;
+            sh:nodeKind sh:IRI ;
+            sh:path :flipOf ],
+        [ sh:in ( "bullish" "bearish" ) ;
+            sh:maxCount 1 ;
+            sh:message "flipFrom is bullish or bearish, exactly once." ;
+            sh:minCount 1 ;
+            sh:path :flipFrom ],
+        [ sh:in ( "bullish" "bearish" ) ;
+            sh:maxCount 1 ;
+            sh:message "flipTo is bullish or bearish, exactly once." ;
+            sh:minCount 1 ;
+            sh:path :flipTo ],
+        [ sh:datatype xsd:dateTime ;
+            sh:maxCount 1 ;
+            sh:message "Trend flip must have exactly one flipEffectiveAt." ;
+            sh:minCount 1 ;
+            sh:path :flipEffectiveAt ],
+        [ sh:maxCount 1 ;
+            sh:message "flipEventId is sha256:<64 hex>." ;
+            sh:minCount 1 ;
+            sh:path :flipEventId ;
+            sh:pattern "^sha256:[0-9a-f]{64}$" ],
+        [ sh:maxCount 1 ;
+            sh:message "A flip revises at most one prior flip." ;
+            sh:nodeKind sh:IRI ;
+            sh:path :revisesFlip ] ;
+    sh:targetClass :TrendFlip .
+
+:MacroEventShape a sh:NodeShape ;
+    sh:description "A macro event carries one policy action and one announcement time." ;
+    sh:name "Macro Event Shape" ;
+    sh:property [ sh:datatype xsd:string ;
+            sh:maxCount 1 ;
+            sh:message "Macro event must have exactly one policyAction." ;
+            sh:minCount 1 ;
+            sh:path :policyAction ],
+        [ sh:datatype xsd:dateTime ;
+            sh:maxCount 1 ;
+            sh:message "Macro event must have exactly one announcedAt." ;
+            sh:minCount 1 ;
+            sh:path :announcedAt ] ;
+    sh:targetClass :MacroEvent .
